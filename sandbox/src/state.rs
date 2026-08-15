@@ -17,6 +17,7 @@ use crate::credentials::recovery::CredentialFailureDetector;
 use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
 use crate::init::codex_watcher::WatcherHandle;
+use crate::init::workspace_sync::WorkspaceSyncTracker;
 use crate::init::InitPhase;
 use crate::supervisor::SupervisorHealth;
 use crate::terminal::TerminalManager;
@@ -95,6 +96,11 @@ pub struct SandboxState {
     pub supervisor_health: Arc<SupervisorHealth>,
     /// Interactive PTY sessions exposed through the T3 compatibility surface.
     pub terminals: TerminalManager,
+    /// Fingerprint of the last workspace successfully uploaded to S3, shared by
+    /// every upload path (turn boundary, the backend's pre-stop `SyncWorkspace`,
+    /// the shutdown flush, the periodic loop) so none of them re-ships a tar
+    /// another already shipped.
+    pub workspace_sync: WorkspaceSyncTracker,
 }
 
 impl SandboxState {

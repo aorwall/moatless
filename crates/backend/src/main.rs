@@ -14,7 +14,7 @@ use tracing::{info, warn};
 use moatless_backend::adapter_installations::AdapterInstallations;
 use moatless_backend::agent;
 use moatless_backend::auth;
-use moatless_backend::compose::{compose, Ports};
+use moatless_backend::compose::{Ports, compose};
 use moatless_backend::event_handler;
 use moatless_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
 use moatless_backend::feature_flags;
@@ -117,9 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await;
     let config = if let Some(ref pool) = db_pool {
-        match moatless_backend::adapter_apps::carry_over_env_and_load_config(&config, pool)
-            .await
-        {
+        match moatless_backend::adapter_apps::carry_over_env_and_load_config(&config, pool).await {
             Ok(config) => config,
             Err(e) => {
                 warn!(
@@ -165,6 +163,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let s3_client = startup::init_s3(&config).await;
+    // The archive reader behind the cold transition. Present only when S3 is
+    // configured — with no durable copy there is nothing to reclaim toward, and
+    // an absent port disables the transition rather than risking a volume.
+    let workspace_archive =
+        s3_client
+            .clone()
+            .zip(config.s3.bucket_name.clone())
+            .map(|(s3, bucket)| {
+                Arc::new(
+                    moatless_backend::sandbox::lifecycle::S3WorkspaceArchive::new(
+                        Arc::new(s3),
+                        bucket,
+                        config.s3.workspace_prefix.clone(),
+                    ),
+                )
+            });
     let provision_deps = ports.as_ref().map(|p| {
         moatless_backend::sandbox::lifecycle::ProvisionDeps::new(
             p.tasks.clone(),
@@ -189,6 +203,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let docker_watcher_client: Option<sandbox::docker::client::DockerClient>;
     // The reconciler's per-tick fleet observation, built per runtime backend.
     let sandbox_fleet_observer: Arc<dyn sandbox::lifecycle::FleetObserver>;
+    // Attach-failure remediation for the pod watcher — K8s only; Docker has no
+    // PVC to fail to attach.
+    let storage_fallback: Option<Arc<dyn sandbox::k8s::provider::StorageFallback>>;
 
     match config.sandbox_provider {
         SandboxProviderType::Kubernetes => {
@@ -210,6 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_observer = adapter.clone();
             sandbox_connector = adapter.clone();
             sandbox_port_publisher = adapter.clone();
+            storage_fallback = Some(adapter.clone());
             cluster_diagnostics = adapter;
             default_sandbox_image = config.sandbox.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::k8s::fleet_observer::K8sFleetObserver::new(
@@ -230,6 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             reaper_k8s = None;
             docker_watcher_client = Some(docker_client.clone());
+            storage_fallback = None;
             let adapter = startup::build_docker_sandbox_adapter(
                 &config,
                 docker_client.clone(),
@@ -304,7 +323,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         sandbox_runtime.clone(),
                         sandbox_connector.clone(),
                         default_sandbox_image.clone(),
-                        event_publisher.clone(),
+                        moatless_backend::compose::LifecycleOptions {
+                            events: event_publisher.clone(),
+                            workspace_archive: workspace_archive.clone(),
+                        },
                     ),
                 )
             }
@@ -354,6 +376,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     sandbox_tasks.clone(),
                     sandbox_workspaces.clone(),
                     sandbox_task_events.clone(),
+                    storage_fallback.clone(),
                 ),
             );
             info!(

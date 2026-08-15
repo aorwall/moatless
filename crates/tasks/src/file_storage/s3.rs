@@ -209,6 +209,37 @@ async fn effective_presign_ttl(
     Ok(requested_ttl.min(effective))
 }
 
+/// When `key` was last written, or `Ok(None)` when it does not exist.
+///
+/// The three answers are deliberately distinct. `Ok(Some(t))` proves the object
+/// is there and how old it is; `Ok(None)` proves it is not there; `Err` means
+/// the question could not be answered. A caller deciding whether a snapshot is
+/// safe to rely on must not read the third as the second — "cannot tell" is not
+/// "not there".
+///
+/// `HEAD` rather than `GET`: the workspace archive can be hundreds of MB and
+/// only its timestamp is wanted.
+pub async fn head_object_modified_at(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+    match client.head_object().bucket(bucket).key(key).send().await {
+        Ok(resp) => {
+            let Some(modified) = resp.last_modified() else {
+                return Err(format!("S3 head_object returned no LastModified for {key}"));
+            };
+            chrono::DateTime::from_timestamp(modified.secs(), modified.subsec_nanos())
+                .map(Some)
+                .ok_or_else(|| format!("S3 LastModified out of range for {key}"))
+        }
+        Err(e) => match e.as_service_error() {
+            Some(se) if se.is_not_found() => Ok(None),
+            _ => Err(format!("S3 head_object failed: {e}")),
+        },
+    }
+}
+
 /// Delete every object under `prefix` in `bucket`. Returns the count deleted.
 ///
 /// Paginates `list_objects_v2` and deletes each key individually (a task's

@@ -322,6 +322,12 @@ service SandboxService {
   rpc GetAgentStatus(GetAgentStatusRequest) returns (GetAgentStatusResponse);
   rpc NotifyMessages(NotifyMessagesRequest) returns (NotifyMessagesResponse);
 
+  // Push the workspace to S3 now, before the caller destroys the live copy.
+  // Lifecycle issues this on stop and on remove-with-retention: the sandbox is
+  // the only party that can read the volume, and the PVC does not outlive the
+  // Deployment. A no-op when the sandbox has no S3 sync configured.
+  rpc SyncWorkspace(SyncWorkspaceRequest) returns (SyncWorkspaceResponse);
+
   // Push a freshly stored credential to a running sandbox so it can apply it
   // (atomic file write for file-resident credentials, env / helper update for
   // pull-based credentials). Generic by `key` so future credentials are
@@ -576,6 +582,15 @@ message StopAgentRequest {
   AgentStopSource source = 1;
 }
 message StopAgentResponse {}
+
+message SyncWorkspaceRequest {}
+message SyncWorkspaceResponse {
+  // False when the sandbox has no workspace sync configured, or when the
+  // workspace is unchanged since the last upload — either way nothing moved.
+  bool synced = 1;
+  // Size of the uploaded tar; 0 when `synced` is false.
+  int64 bytes = 2;
+}
 
 message GetAgentStatusRequest {}
 message GetAgentStatusResponse {

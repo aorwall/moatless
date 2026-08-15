@@ -36,5 +36,9 @@ moatless-sandbox-control = { path = "../sandbox-control" }
 moatless-tasks = { path = "../tasks" }
 moatless-workspaces = { path = "../workspaces" }
 
+[dev-dependencies]
+# RecordingPublisher, to assert the events the pod watcher emits without Redis.
+moatless-core = { path = "../core", features = ["openapi", "test-support"] }
+
 [lints]
 workspace = true

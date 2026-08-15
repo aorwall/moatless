@@ -13,8 +13,8 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::sync::Notify;
 
 use moatless_tasks::task::models::SandboxStopReason;
@@ -153,6 +153,15 @@ impl SandboxRuntime for RecordingRuntime {
         *self.last_generation.lock().unwrap() = Some(ctx.operation_generation.value());
         Self::take(&self.remove, ObservedStatus::Removed)
     }
+    async fn reclaim_storage(
+        &self,
+        _t: &str,
+        _rescue_upload_url: Option<&str>,
+        ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError> {
+        *self.last_generation.lock().unwrap() = Some(ctx.operation_generation.value());
+        Ok(RuntimeOutcome::applied(ObservedStatus::Stopped))
+    }
 }
 
 #[derive(Default)]
@@ -249,12 +258,13 @@ async fn start_persists_running_and_publishes_initializing(
     let (state, reason, _kind) = desired(&h.pool, "t1").await;
     assert_eq!(state, "running");
     assert_eq!(reason, None);
-    assert!(h
-        .sink
-        .facts
-        .lock()
-        .unwrap()
-        .contains(&EventFact::Initializing));
+    assert!(
+        h.sink
+            .facts
+            .lock()
+            .unwrap()
+            .contains(&EventFact::Initializing)
+    );
     // The allocated generation reached the runtime context.
     assert_eq!(*h.runtime.last_generation.lock().unwrap(), Some(1));
     // A start that ends Starting leaves its marker for the watcher's convergence.

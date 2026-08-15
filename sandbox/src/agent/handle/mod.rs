@@ -278,6 +278,7 @@ pub fn spawn_agent(
     credential_dispatcher: Arc<Dispatcher>,
     system_prompt_cache: Arc<RwLock<Option<String>>>,
     heartbeat: super::heartbeat::Heartbeat,
+    workspace_sync: crate::init::workspace_sync::WorkspaceSyncTracker,
 ) -> AgentHandle {
     let (command_tx, command_rx) = mpsc::unbounded_channel::<AgentCommand>();
     let agent_type = config.agent_type.as_deref().unwrap_or("");
@@ -308,6 +309,7 @@ pub fn spawn_agent(
                 // service sees the credential flags Codex raises mid-Turn.
                 credential_failures.clone(),
                 Arc::clone(&credential_dispatcher),
+                workspace_sync,
             );
             tokio::spawn(service.run(command_rx, heartbeat));
         }
@@ -451,6 +453,7 @@ mod tests {
             Arc::new(Dispatcher::new()),
             Arc::new(RwLock::new(None)),
             Heartbeat::new(),
+            crate::init::workspace_sync::WorkspaceSyncTracker::new(),
         );
 
         // Give the poison task a moment to run and drop command_rx.
@@ -490,6 +493,7 @@ mod tests {
             Arc::new(Dispatcher::new()),
             Arc::new(RwLock::new(None)),
             Heartbeat::new(),
+            crate::init::workspace_sync::WorkspaceSyncTracker::new(),
         );
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);

@@ -1,93 +1,93 @@
 //! Storage backend selection for sandbox workspaces.
 //!
-//! A repository picks how its sandbox workspace (`/opt/moatless`) is persisted
-//! via `resources.storage_mode`; when a repo leaves it unset, the
-//! deployment-wide default (`K8S_SANDBOX_DEFAULT_STORAGE_MODE`) applies. Three
-//! backends exist:
+//! A sandbox workspace (`/opt/moatless`) is persisted by two **independent**
+//! switches, each resolved from `resources.pvc_enabled` / `resources.s3_enabled`
+//! with a per-deployment default when the repo leaves one unset:
 //!
-//! - [`StorageBackend::Ebs`] (default) — a per-task EBS PVC, `ReadWriteOnce`,
-//!   surviving pod restarts. Reliable but forces `strategy: Recreate` + a drain
-//!   wait on every restart and carries a standing volume per task.
-//! - [`StorageBackend::Ephemeral`] — a node-local `emptyDir`, no PVC. Fast, but
-//!   nothing survives the pod (only transcripts persist, via their own S3 sync).
-//! - [`StorageBackend::S3`] — a node-local `emptyDir` like `ephemeral`, plus the
-//!   sandbox syncs **everything under `WORKSPACE_DIR`** to/from S3 (presigned
-//!   direct transfer), giving persistence without an EBS attach/detach on the
-//!   pod lifecycle. That is every repo checkout *with its `.git`*, plus loose
-//!   files outside any repo; only gitignored paths inside a repo are skipped.
-//!   See `sandbox/src/init/workspace_sync.rs` for the exact file set — this was
-//!   a working-tree-only sync in an earlier design and is not one now.
-//! - [`StorageBackend::Node`] — a best-effort node-local `hostPath`, no PVC. The
-//!   workspace survives stop/start only when the replacement pod lands on the
-//!   same node.
+//! - **PVC** ([`StorageBackend::pvc`]) — a per-task `ReadWriteOnce` PVC owned by
+//!   the Deployment. It is the live copy: it survives pod restarts, forces
+//!   `strategy: Recreate` plus a drain wait on every restart, and is deleted when
+//!   the sandbox is removed. Without it the workspace is a node-local `emptyDir`
+//!   that dies with the pod.
+//! - **S3** ([`StorageBackend::s3`]) — the copy that outlives the Deployment. The
+//!   sandbox tars **everything under `WORKSPACE_DIR`** and transfers it directly
+//!   to S3 via presigned URLs. That is every repo checkout *with its `.git`*,
+//!   plus loose files outside any repo; only gitignored paths inside a repo are
+//!   skipped. See `sandbox/src/init/workspace_sync.rs` for the exact file set.
 //!
-//! `Ephemeral`, `S3`, and `Node` skip the PVC ([`StorageBackend::uses_pvc`] is
-//! `false`). `S3` additionally enables after-turn workspace sync in the sandbox
-//! ([`StorageBackend::syncs_sandbox`]).
+//! The pair they form decides how a start treats the volume it finds:
+//!
+//! | pvc | s3 | Volume | On start |
+//! |---|---|---|---|
+//! | on | on | PVC | trust the volume; pull from S3 only when it holds nothing usable |
+//! | on | off | PVC | trust the volume; clone when empty |
+//! | off | on | emptyDir | always pull from S3, then clone what the snapshot lacked |
+//! | off | off | emptyDir | always clone |
+//!
+//! [`StorageBackend::restore_if_empty`] is that distinction: with a durable
+//! volume the snapshot is a *fallback*, read only when the PVC is fresh, was
+//! recreated, or could not attach. Without one it is the only persistence there
+//! is, so it is read every time.
 
 use crate::models::ProvisionPlan;
 
-/// How a sandbox's workspace is persisted. Derived from `resources.storage_mode`.
+/// How a sandbox's workspace is persisted — two independent switches, not a
+/// choice between tiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StorageBackend {
-    /// Per-task EBS PVC mounted at `/opt/moatless` (default).
-    Ebs,
-    /// Node-local `emptyDir`, no persistence.
-    Ephemeral,
-    /// Node-local `emptyDir` + git-working-tree sync to S3.
-    S3,
-    /// Node-local hostPath keyed by task id. Best-effort reuse on the same node.
-    Node,
+pub struct StorageBackend {
+    /// A per-task PVC backs `/opt/moatless`. When `false`, a node-local
+    /// `emptyDir` does.
+    pub pvc: bool,
+    /// The sandbox snapshots `WORKSPACE_DIR` to S3.
+    pub s3: bool,
 }
 
 impl StorageBackend {
-    /// Parse a single `storage_mode` string (case-insensitive, trimmed).
-    /// Returns `None` for empty / unrecognized values.
-    fn parse(mode: &str) -> Option<Self> {
-        match mode.trim().to_ascii_lowercase().as_str() {
-            "ebs" => Some(Self::Ebs),
-            "ephemeral" => Some(Self::Ephemeral),
-            "s3" => Some(Self::S3),
-            "node" => Some(Self::Node),
-            _ => None,
+    /// Resolve both switches for a provisioning plan.
+    ///
+    /// Each switch is resolved **independently**: a repo that sets only one gets
+    /// the deployment default for the other, so a storage-only override cannot
+    /// silently turn the other switch off.
+    pub fn from_plan(plan: &ProvisionPlan, default_pvc: bool, default_s3: bool) -> Self {
+        let resources = plan.repo_config.resources.as_ref();
+        Self {
+            pvc: resources
+                .and_then(|r| r.pvc_enabled)
+                .unwrap_or(default_pvc),
+            s3: resources.and_then(|r| r.s3_enabled).unwrap_or(default_s3),
         }
     }
 
-    /// Resolve the backend for a provisioning plan.
-    ///
-    /// A per-repo `resources.storage_mode` wins when set to a recognized value.
-    /// Otherwise the deployment-wide `default_mode` applies (from
-    /// `K8S_SANDBOX_DEFAULT_STORAGE_MODE`). If both are unset/unrecognized, falls
-    /// back to [`StorageBackend::Ebs`] — the safe default that needs no S3.
-    pub fn from_plan(plan: &ProvisionPlan, default_mode: &str) -> Self {
-        plan.repo_config
-            .resources
-            .as_ref()
-            .and_then(|r| r.storage_mode.as_deref())
-            .and_then(Self::parse)
-            .or_else(|| Self::parse(default_mode))
-            .unwrap_or(Self::Ebs)
-    }
-
-    /// True only for [`StorageBackend::Ebs`] — the sole backend that provisions
-    /// a PVC. Other backends mount node-local storage instead.
+    /// Whether a PVC is provisioned and mounted for this sandbox.
     pub fn uses_pvc(self) -> bool {
-        matches!(self, Self::Ebs)
+        self.pvc
     }
 
-    /// True only for [`StorageBackend::S3`] — the sandbox syncs workspaces after
-    /// terminal agent turns and is handed `WORKSPACE_SYNC_ENABLED=true`.
+    /// Whether the sandbox is handed `WORKSPACE_SYNC_ENABLED=true` and takes part
+    /// in the pre-stop workspace push.
     pub fn syncs_sandbox(self) -> bool {
-        matches!(self, Self::S3)
+        self.s3
     }
 
-    /// Stable label value for metrics (`storage_backend` dimension).
+    /// Whether the sandbox restores from S3 **only** into a volume holding
+    /// nothing usable, rather than on every start.
+    ///
+    /// True exactly when both switches are on: the PVC is then the live copy and
+    /// overwriting it with an older snapshot would lose work. With no PVC the
+    /// `emptyDir` starts empty every time, so the restore is unconditional and
+    /// this stays false.
+    pub fn restore_if_empty(self) -> bool {
+        self.pvc && self.s3
+    }
+
+    /// Stable label value for metrics (`storage_backend` dimension). Four values,
+    /// one per combination, so cardinality is unchanged.
     pub fn as_metric_label(self) -> &'static str {
-        match self {
-            Self::Ebs => "ebs",
-            Self::Ephemeral => "ephemeral",
-            Self::S3 => "s3",
-            Self::Node => "node",
+        match (self.pvc, self.s3) {
+            (true, true) => "pvc+s3",
+            (true, false) => "pvc",
+            (false, true) => "s3",
+            (false, false) => "none",
         }
     }
 }
@@ -95,12 +95,12 @@ impl StorageBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_workspaces::repository::models::ResourceConfig;
     use crate::models::RepoConfig;
+    use moatless_workspaces::repository::models::ResourceConfig;
 
-    /// Build a minimal plan whose repo either sets `storage_mode` or leaves it
-    /// unset (`None`), so default resolution can be exercised in isolation.
-    fn plan_with_mode(mode: Option<&str>) -> ProvisionPlan {
+    /// Build a minimal plan whose repo sets each switch independently, so
+    /// per-field default resolution can be exercised in isolation.
+    fn plan_with(pvc: Option<bool>, s3: Option<bool>) -> ProvisionPlan {
         ProvisionPlan {
             repo_config: RepoConfig {
                 name: "test-repo".to_string(),
@@ -109,9 +109,9 @@ mod tests {
                 system_prompt: None,
                 code_execution: None,
                 preview_config: None,
-                resources: mode.map(|m| ResourceConfig {
-                    storage_mode: Some(m.to_string()),
-                    docker_storage_mode: None,
+                resources: (pvc.is_some() || s3.is_some()).then(|| ResourceConfig {
+                    pvc_enabled: pvc,
+                    s3_enabled: s3,
                     ..Default::default()
                 }),
                 plugins: None,
@@ -129,63 +129,100 @@ mod tests {
     }
 
     #[test]
-    fn repo_mode_overrides_default() {
-        // A repo's explicit mode always wins, whatever the deployment default.
-        assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(Some("ephemeral")), "s3"),
-            StorageBackend::Ephemeral
-        );
-        assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(Some("ebs")), "s3"),
-            StorageBackend::Ebs
-        );
-        // Case/space-insensitive.
-        assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(Some("  S3 ")), "ebs"),
-            StorageBackend::S3
-        );
-        assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(Some(" NODE ")), "s3"),
-            StorageBackend::Node
-        );
+    fn repo_switches_override_defaults() {
+        let backend = StorageBackend::from_plan(&plan_with(Some(false), Some(true)), true, false);
+        assert!(!backend.pvc);
+        assert!(backend.s3);
     }
 
     #[test]
-    fn default_applies_when_repo_unset() {
-        // No per-repo mode → the deployment default decides.
+    fn defaults_apply_when_repo_unset() {
         assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(None), "s3"),
-            StorageBackend::S3
+            StorageBackend::from_plan(&plan_with(None, None), true, true),
+            StorageBackend { pvc: true, s3: true }
         );
         assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(None), "ephemeral"),
-            StorageBackend::Ephemeral
-        );
-        assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(None), "ebs"),
-            StorageBackend::Ebs
-        );
-        assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(None), "node"),
-            StorageBackend::Node
+            StorageBackend::from_plan(&plan_with(None, None), false, false),
+            StorageBackend {
+                pvc: false,
+                s3: false
+            }
         );
     }
 
+    /// The switches resolve per field: setting one must not drag the other away
+    /// from the deployment default.
     #[test]
-    fn unknown_values_fall_back_to_ebs() {
-        // An unrecognized repo mode falls through to the default...
-        assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(Some("bogus")), "s3"),
-            StorageBackend::S3
+    fn one_switch_set_leaves_the_other_on_the_default() {
+        let backend = StorageBackend::from_plan(&plan_with(Some(true), None), false, true);
+        assert!(backend.pvc, "repo-set switch wins");
+        assert!(backend.s3, "unset switch keeps the deployment default");
+
+        let backend = StorageBackend::from_plan(&plan_with(None, Some(false)), true, true);
+        assert!(backend.pvc, "unset switch keeps the deployment default");
+        assert!(!backend.s3, "repo-set switch wins");
+    }
+
+    #[test]
+    fn capabilities_follow_the_two_switches() {
+        let both = StorageBackend { pvc: true, s3: true };
+        assert!(both.uses_pvc() && both.syncs_sandbox() && both.restore_if_empty());
+
+        let pvc_only = StorageBackend {
+            pvc: true,
+            s3: false,
+        };
+        assert!(pvc_only.uses_pvc());
+        assert!(!pvc_only.syncs_sandbox());
+        assert!(!pvc_only.restore_if_empty());
+
+        let s3_only = StorageBackend {
+            pvc: false,
+            s3: true,
+        };
+        assert!(!s3_only.uses_pvc());
+        assert!(s3_only.syncs_sandbox());
+        assert!(
+            !s3_only.restore_if_empty(),
+            "an emptyDir starts empty every time, so its restore is unconditional"
         );
-        // ...and an unrecognized default (or both unset) lands on safe EBS.
+
+        let neither = StorageBackend {
+            pvc: false,
+            s3: false,
+        };
+        assert!(!neither.uses_pvc() && !neither.syncs_sandbox() && !neither.restore_if_empty());
+    }
+
+    #[test]
+    fn metric_labels_are_distinct_per_combination() {
         assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(Some("bogus")), "also-bogus"),
-            StorageBackend::Ebs
+            StorageBackend { pvc: true, s3: true }.as_metric_label(),
+            "pvc+s3"
         );
         assert_eq!(
-            StorageBackend::from_plan(&plan_with_mode(None), ""),
-            StorageBackend::Ebs
+            StorageBackend {
+                pvc: true,
+                s3: false
+            }
+            .as_metric_label(),
+            "pvc"
+        );
+        assert_eq!(
+            StorageBackend {
+                pvc: false,
+                s3: true
+            }
+            .as_metric_label(),
+            "s3"
+        );
+        assert_eq!(
+            StorageBackend {
+                pvc: false,
+                s3: false
+            }
+            .as_metric_label(),
+            "none"
         );
     }
 }

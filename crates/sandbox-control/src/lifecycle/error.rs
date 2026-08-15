@@ -136,6 +136,14 @@ pub enum LifecycleError {
     #[error("operation in progress on task: conflicting {kind}")]
     OperationInProgress { kind: OperationKind },
 
+    /// The cold transition could not establish that the workspace archive is
+    /// current — the head read failed, or the rescue upload could not be
+    /// presigned. Transient, and deliberately *not* a decision to delete: a
+    /// storage backend that cannot answer "is the archive there?" has not
+    /// answered "no". The volume survives for the next cycle to retry.
+    #[error("cannot prove workspace archive for task {task_id}: {reason}")]
+    ArchiveUnproven { task_id: String, reason: String },
+
     /// The detached transition task failed to join (panicked). A bug; permanent.
     #[error("lifecycle transition failed for task {task_id}: {reason}")]
     Interrupted { task_id: String, reason: String },
@@ -150,6 +158,7 @@ impl LifecycleError {
             Self::IntentLoad { .. }
             | Self::GenerationUnavailable { .. }
             | Self::IntentWrite { .. }
+            | Self::ArchiveUnproven { .. }
             | Self::CompletionCommit { .. } => ErrorClass::Transient,
             Self::Runtime { source, .. } => source.class(),
             Self::OperationInProgress { .. } => ErrorClass::Contention,
@@ -172,6 +181,7 @@ impl LifecycleError {
             Self::GenerationUnavailable { .. } => "generation_unavailable",
             Self::IntentWrite { .. } => "intent_write",
             Self::Runtime { source, .. } => source.cause(),
+            Self::ArchiveUnproven { .. } => "archive_unproven",
             Self::CompletionCommit { .. } => "completion_commit",
             Self::OperationInProgress { .. } => "operation_in_progress",
             Self::Interrupted { .. } => "interrupted",
@@ -186,55 +196,80 @@ mod tests {
     #[test]
     fn permanent_errors_are_not_retriable() {
         assert!(!LifecycleError::TaskNotFound("t".into()).is_retriable());
-        assert!(!LifecycleError::NotAllowed {
-            kind: OperationKind::Start,
-            task_id: "t".into(),
-            status: TaskStatus::Closed,
-        }
-        .is_retriable());
-        assert!(!LifecycleError::Interrupted {
-            task_id: "t".into(),
-            reason: "panic".into(),
-        }
-        .is_retriable());
+        assert!(
+            !LifecycleError::NotAllowed {
+                kind: OperationKind::Start,
+                task_id: "t".into(),
+                status: TaskStatus::Closed,
+            }
+            .is_retriable()
+        );
+        assert!(
+            !LifecycleError::Interrupted {
+                task_id: "t".into(),
+                reason: "panic".into(),
+            }
+            .is_retriable()
+        );
     }
 
     #[test]
     fn transient_errors_are_retriable() {
         // Reads and writes to the store are transient — none left a runtime
         // effect, and a completion-commit failure keeps intent+marker.
-        assert!(LifecycleError::IntentLoad {
-            task_id: "t".into(),
-            reason: "conn reset".into(),
-        }
-        .is_retriable());
-        assert!(LifecycleError::GenerationUnavailable {
-            task_id: "t".into(),
-            reason: "seq locked".into(),
-        }
-        .is_retriable());
-        assert!(LifecycleError::CompletionCommit {
-            task_id: "t".into(),
-            reason: "deadlock".into(),
-        }
-        .is_retriable());
-        assert!(LifecycleError::IntentWrite {
-            task_id: "t".into(),
-            reason: "deadlock".into(),
-        }
-        .is_retriable());
-        assert!(LifecycleError::Runtime {
-            task_id: "t".into(),
-            source: RuntimeError::Infrastructure("timeout".into()),
-        }
-        .is_retriable());
+        assert!(
+            LifecycleError::IntentLoad {
+                task_id: "t".into(),
+                reason: "conn reset".into(),
+            }
+            .is_retriable()
+        );
+        assert!(
+            LifecycleError::GenerationUnavailable {
+                task_id: "t".into(),
+                reason: "seq locked".into(),
+            }
+            .is_retriable()
+        );
+        assert!(
+            LifecycleError::CompletionCommit {
+                task_id: "t".into(),
+                reason: "deadlock".into(),
+            }
+            .is_retriable()
+        );
+        assert!(
+            LifecycleError::IntentWrite {
+                task_id: "t".into(),
+                reason: "deadlock".into(),
+            }
+            .is_retriable()
+        );
+        // An unreadable archive must come back next cycle: the volume it would
+        // have replaced is still there.
+        assert!(
+            LifecycleError::ArchiveUnproven {
+                task_id: "t".into(),
+                reason: "s3 timeout".into(),
+            }
+            .is_retriable()
+        );
+        assert!(
+            LifecycleError::Runtime {
+                task_id: "t".into(),
+                source: RuntimeError::Infrastructure("timeout".into()),
+            }
+            .is_retriable()
+        );
         // A stuck-but-accepted deletion is transient so the reconciler keeps
         // re-driving remove until observed absence.
-        assert!(LifecycleError::Runtime {
-            task_id: "t".into(),
-            source: RuntimeError::NotAbsent("pvc".into()),
-        }
-        .is_retriable());
+        assert!(
+            LifecycleError::Runtime {
+                task_id: "t".into(),
+                source: RuntimeError::NotAbsent("pvc".into()),
+            }
+            .is_retriable()
+        );
     }
 
     #[test]

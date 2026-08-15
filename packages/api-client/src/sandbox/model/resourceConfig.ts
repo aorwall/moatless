@@ -57,32 +57,39 @@ the global `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
   dockerStorageMode?: string | null;
   /** @nullable */
   limits?: ResourceConfigLimits;
+  /**
+   * Whether this repo's sandbox gets a per-task PVC mounted at
+`/opt/moatless`. The PVC is owned by the Deployment: it survives pod
+restarts and is deleted when the sandbox is removed. When `false`, the
+workspace is a node-local emptyDir that dies with the pod.
+
+When unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_PVC`).
+The global `K8S_SANDBOX_STORAGE_ENABLED` kill switch still wins over both.
+   * @nullable
+   */
+  pvcEnabled?: boolean | null;
   /** @nullable */
   requests?: ResourceConfigRequests;
   /**
+   * Whether this repo's sandbox snapshots its workspace to S3 — the copy that
+outlives the Deployment. Pushed before a stop or remove, and pulled back
+on start when the volume holds nothing usable (a fresh PVC, a redeploy, or
+a fallback after the PVC could not attach).
+
+Independent of [`Self::pvc_enabled`]: with a PVC the volume is the live
+copy and S3 is read only when it is empty or broken; without one, S3 is
+the only persistence and is read on every start.
+
+When unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_S3`).
+   * @nullable
+   */
+  s3Enabled?: boolean | null;
+  /**
    * Per-repository workspace storage size override (e.g. "8Gi"). Sizes the
-per-task PVC (`ebs`) and node-local emptyDir (`ephemeral`/`s3`) tiers.
-The `node` hostPath tier is bounded by node disk capacity instead. When
-unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never copied
-into container resource specs.
+per-task PVC when `pvc_enabled`, and the node-local emptyDir otherwise.
+When unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never
+copied into container resource specs.
    * @nullable
    */
   storage?: string | null;
-  /**
-   * Per-repository storage tier. One of [`STORAGE_MODES`]:
-- `"ebs"` (default) — a per-task EBS PVC mounted at `/opt/moatless`,
-  surviving pod restarts.
-- `"ephemeral"` — a node-local emptyDir, no PVC; transcripts persist only
-  via the S3 sync, the workspace does not survive the pod.
-- `"s3"` — a node-local emptyDir plus a direct git-working-tree sync to S3,
-  giving workspace persistence without an EBS attach/detach per restart.
-- `"node"` — a best-effort node-local hostPath. The workspace survives
-  stop/start only when Kubernetes schedules the task back onto the same node.
-
-When unset, the deployment-wide default applies
-(`K8S_SANDBOX_DEFAULT_STORAGE_MODE`, itself defaulting to `"ebs"`).
-Unknown values are ignored (treated as unset).
-   * @nullable
-   */
-  storageMode?: string | null;
 }

@@ -217,6 +217,7 @@ fn test_config() -> Config {
         default_codex_model: None,
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
+        workspace_restore_if_empty: false,
         headless: false,
     }
 }
@@ -253,11 +254,13 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         Arc::clone(&credential_dispatcher),
         Arc::clone(&system_prompt_cache),
         heartbeat.clone(),
+        moatless_sandbox::init::workspace_sync::WorkspaceSyncTracker::new(),
     );
     late_injector.set(Box::new(agent_handle.clone()));
     let terminals = moatless_sandbox::terminal::TerminalManager::new(config.workspace_dir.clone());
 
     SandboxState {
+        workspace_sync: Default::default(),
         config,
         events,
         agent: agent_state,

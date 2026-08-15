@@ -93,7 +93,7 @@ fn transcript_key(prefix: &str, task_id: &str) -> String {
 /// Build the S3 key for a task's workspace archive:
 /// `<prefix>/<task_id>/workspace.tar`. The `<prefix>/<task_id>/` portion is the
 /// same one the Kubernetes runtime removes, so uploads and cleanup stay aligned.
-fn sandbox_key(prefix: &str, task_id: &str) -> String {
+pub(crate) fn sandbox_key(prefix: &str, task_id: &str) -> String {
     format!("{}/{}/workspace.tar", prefix.trim_end_matches('/'), task_id)
 }
 

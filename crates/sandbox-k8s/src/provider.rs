@@ -21,21 +21,24 @@ use super::pod_builder;
 use super::pod_reader;
 use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
 use super::pvc;
+use super::rescue_pod;
 use super::service;
 use super::status_resolver::StatusResolver;
+use moatless_backend_core::sandbox as core_sandbox;
+use moatless_core::config::Config;
 use moatless_sandbox_control::client::SandboxClient;
 use moatless_sandbox_control::error::SandboxError;
 use moatless_sandbox_control::lifecycle::outcome::{DegradationWarning, Diagnostics};
 use moatless_sandbox_control::lifecycle::runtime::{
     RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, map_sandbox_error,
 };
-use moatless_sandbox_control::lifecycle::{ArchiveRetention, ObservedStatus, ProvisionDeps, RuntimeEffect};
+use moatless_sandbox_control::lifecycle::{
+    ArchiveRetention, ObservedStatus, OperationGeneration, ProvisionDeps, RuntimeEffect,
+};
 use moatless_sandbox_control::models::*;
 use moatless_sandbox_control::schemas::*;
 use moatless_sandbox_control::status_reader::SandboxStatusReader;
 use moatless_sandbox_control::storage::StorageBackend;
-use moatless_backend_core::sandbox as core_sandbox;
-use moatless_core::config::Config;
 
 /// Kubernetes adapter for lifecycle mutation, observation, and connection.
 pub struct K8sSandboxAdapter {
@@ -68,7 +71,9 @@ where
 }
 
 impl K8sSandboxAdapter {
-    fn require_plan(&self) -> Result<&ProvisionDeps, moatless_sandbox_control::lifecycle::RuntimeError> {
+    fn require_plan(
+        &self,
+    ) -> Result<&ProvisionDeps, moatless_sandbox_control::lifecycle::RuntimeError> {
         self.plan.as_ref().ok_or_else(|| {
             moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(
                 "sandbox plan repositories unavailable".to_string(),
@@ -82,11 +87,14 @@ impl K8sSandboxAdapter {
         request: &ProvisionRequest,
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, SandboxError> {
-        // Time the whole provision so the `ebs` PVC path (attach) and the
-        // node-local backends can be compared. The body runs in an inner async
-        // block so every early return is captured at a single measurement point.
-        let backend =
-            StorageBackend::from_plan(&request.plan, &self.config.sandbox.default_storage_mode);
+        // Time the whole provision so the PVC path (attach) and the node-local
+        // emptyDir path can be compared. The body runs in an inner async block
+        // so every early return is captured at a single measurement point.
+        let backend = StorageBackend::from_plan(
+            &request.plan,
+            self.config.sandbox.default_pvc_enabled,
+            self.config.sandbox.default_s3_enabled,
+        );
         let started = std::time::Instant::now();
         let result: Result<RuntimeOutcome, SandboxError> = async {
         let mut diagnostics = Diagnostics::default();
@@ -128,15 +136,13 @@ impl K8sSandboxAdapter {
                             "stopped sandbox Deployment vanished before start".to_string(),
                         )
                     })?;
-                let require_node =
-                    node_archive::deployment_requires_retained_node(&existing_deployment);
                 let uses_node_archives = self.config.sandbox.node_archive_enabled
                     && node_archive::deployment_uses_node_archives(&existing_deployment);
                 let retained_node = if uses_node_archives {
                     node_archive::record_current_pod_nodes(&self.k8s, task_id)
                         .await
                         .map_err(SandboxError::Runtime)?;
-                    node_archive::retained_node(&self.k8s, task_id, require_node)
+                    node_archive::retained_node(&self.k8s, task_id)
                         .await
                         .map_err(SandboxError::Runtime)?
                 } else {
@@ -156,13 +162,8 @@ impl K8sSandboxAdapter {
                     // scheduling a new pod straight into the stall.
                     deployment::wait_for_pods_deleted(&self.k8s, task_id).await?;
                     if uses_node_archives {
-                        deployment::set_node_placement(
-                            &self.k8s,
-                            task_id,
-                            retained_node.as_deref(),
-                            require_node,
-                        )
-                        .await
+                        deployment::set_node_placement(&self.k8s, task_id, retained_node.as_deref())
+                            .await
                         .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
                     }
                     deployment::stamp_operation_generation(&self.k8s, task_id, ctx)
@@ -179,6 +180,15 @@ impl K8sSandboxAdapter {
                         new_image = %expected,
                         "Sandbox image changed since stop, rebuilding deployment"
                     );
+                    // Resolve the PVC from the plan rather than the running
+                    // Deployment: a repo that turned `pvcEnabled` on since the
+                    // last start gets one created here, and one that turned it
+                    // off stops carrying the stale claim forward.
+                    let pvc_name = self
+                        .create_or_find_pvc(task_id, plan)
+                        .await
+                        .ok()
+                        .filter(|name| !name.is_empty());
                     deployment::redeploy_with_plan(
                         &self.k8s,
                         &self.config,
@@ -186,7 +196,7 @@ impl K8sSandboxAdapter {
                         request,
                         ctx,
                         retained_node.as_deref(),
-                        require_node,
+                        pvc_name.as_deref(),
                     )
                     .await?;
                 }
@@ -239,12 +249,11 @@ impl K8sSandboxAdapter {
             node_archive::record_current_pod_nodes(&self.k8s, task_id)
                 .await
                 .map_err(SandboxError::Runtime)?;
-            if let Some(node_name) = node_archive::retained_node(&self.k8s, task_id, false)
+            if let Some(node_name) = node_archive::retained_node(&self.k8s, task_id)
                 .await
                 .map_err(SandboxError::Runtime)?
             {
-                let require_node = node_archive::pod_requires_retained_node(&pod);
-                pod_builder::pin_pod_to_node(&mut pod, &node_name, require_node)?;
+                pod_builder::pin_pod_to_node(&mut pod, &node_name)?;
             }
         }
         pod_builder::stamp_operation_generation(&mut pod, ctx);
@@ -415,19 +424,10 @@ impl SandboxRuntime for K8sSandboxAdapter {
                 .is_some_and(node_archive::deployment_uses_node_archives)
         {
             node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
-            let require_node = existing_deployment
-                .as_ref()
-                .is_some_and(node_archive::deployment_requires_retained_node);
-            let retained_node =
-                node_archive::retained_node(&self.k8s, task_id, require_node).await?;
-            deployment::set_node_placement(
-                &self.k8s,
-                task_id,
-                retained_node.as_deref(),
-                require_node,
-            )
-            .await
-            .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
+            let retained_node = node_archive::retained_node(&self.k8s, task_id).await?;
+            deployment::set_node_placement(&self.k8s, task_id, retained_node.as_deref())
+                .await
+                .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
         }
 
         // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),
@@ -458,13 +458,10 @@ impl SandboxRuntime for K8sSandboxAdapter {
                 .as_ref()
                 .is_some_and(node_archive::deployment_uses_node_archives)
         {
-            // Pre-flight: reprovisioning after the teardown below schedules
-            // unpinned, so refuse to tear down a pin that cannot be honoured.
+            // Record the current placement before the teardown below removes the
+            // only pod that can name the owning node, so the replacement can
+            // still prefer it.
             node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
-            let require_node = existing_deployment
-                .as_ref()
-                .is_some_and(node_archive::deployment_requires_retained_node);
-            node_archive::retained_node(&self.k8s, task_id, require_node).await?;
         }
 
         // 1. Delete Deployment (cascades to pods + ReplicaSets). Fail hard on
@@ -739,6 +736,197 @@ impl SandboxRuntime for K8sSandboxAdapter {
             diagnostics: Diagnostics::default(),
         })
     }
+
+    #[tracing::instrument(skip_all, fields(task_id = %task_id))]
+    async fn reclaim_storage(
+        &self,
+        task_id: &str,
+        rescue_upload_url: Option<&str>,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+        let deployment = deployment::find_deployment(&self.k8s, task_id)
+            .await
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
+        let claim = pvc::find_task_pvc(&self.k8s, task_id).await;
+        if deployment.is_none() && claim.is_none() {
+            // Already cold. The reaper reruns every cycle until the task is
+            // started or closed, so this is the common call, not the rare one.
+            return Ok(RuntimeOutcome {
+                observed: ObservedStatus::Stopped,
+                effect: RuntimeEffect::NoOp,
+                diagnostics: Diagnostics::default(),
+            });
+        }
+
+        info!(
+            task_id = %task_id,
+            has_deployment = deployment.is_some(),
+            has_pvc = claim.is_some(),
+            "Reclaiming stopped sandbox storage (deleting Deployment and PVC)"
+        );
+
+        // The Deployment goes first and its pods are awaited: deleting a claim
+        // that a live pod template still names leaves the next start Pending on
+        // a volume that no longer exists, and a pod still holding the RWO claim
+        // blocks its deletion.
+        //
+        // The rescue also needs the claim detached, so it runs after this and
+        // before the delete — the one window where the volume is both readable
+        // and still ours.
+        if deployment.is_some() {
+            deployment::delete_deployment(&self.k8s, task_id)
+                .await
+                .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
+            wait_absent(
+                "Deployment",
+                deployment::wait_for_deployment_deleted(&self.k8s, task_id),
+            )
+            .await?;
+            wait_absent(
+                "pods",
+                deployment::wait_for_all_pods_deleted(&self.k8s, task_id),
+            )
+            .await?;
+        }
+
+        if let Some(claim_name) = claim {
+            if let Some(put_url) = rescue_upload_url {
+                // Load-bearing, unlike the pre-stop push: this is the last read
+                // of a volume that is about to stop existing, and lifecycle only
+                // asks for it when it could not prove the archive is current.
+                // A failure here leaves the claim in place for the next cycle.
+                rescue_pod::rescue_workspace(
+                    &self.k8s,
+                    &self.config,
+                    task_id,
+                    &claim_name,
+                    put_url,
+                )
+                .await?;
+            }
+            pvc::delete_task_pvc(&self.k8s, task_id)
+                .await
+                .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
+            wait_absent("PVC", pvc::wait_for_pvc_deleted(&self.k8s, task_id)).await?;
+        }
+
+        // Service, IngressRoutes and the preview NetworkPolicy survive: they
+        // carry the task's stable URLs, and only `remove` owns them.
+        Ok(RuntimeOutcome {
+            observed: ObservedStatus::Stopped,
+            effect: RuntimeEffect::Applied,
+            diagnostics: Diagnostics::default(),
+        })
+    }
+}
+
+/// Outcome of an attach-failure storage fallback attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageFallbackOutcome {
+    /// The Deployment was rebuilt on an emptyDir; the caller should surface a
+    /// `storage_degraded` degradation warning.
+    Rebuilt,
+    /// Nothing to swap — the task is not a pvc+s3 tier, or no plan is available.
+    /// The Pending pod and its environment error are left in place.
+    Skipped,
+    /// The rebuild was attempted but failed.
+    Failed,
+}
+
+/// The Kubernetes runtime's attach-failure remediation, factored behind a trait
+/// so the pod watcher can drive it without naming the concrete adapter.
+///
+/// A pvc+s3 task whose PVC will not attach (`Multi-Attach`, `FailedAttachVolume`)
+/// would otherwise sit Pending forever. Because its workspace is snapshotted to
+/// S3, it can instead come back up on an emptyDir and restore — a visible
+/// downgrade rather than a stall.
+#[async_trait]
+pub trait StorageFallback: Send + Sync {
+    /// Rebuild the task's Deployment on ephemeral storage, keeping the operation
+    /// generation so the replacement is the current pod. Best-effort and
+    /// idempotent from the caller's side; the caller guards it to once per
+    /// generation.
+    async fn rebuild_without_pvc(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+    ) -> StorageFallbackOutcome;
+}
+
+#[async_trait]
+impl StorageFallback for K8sSandboxAdapter {
+    async fn rebuild_without_pvc(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+    ) -> StorageFallbackOutcome {
+        let plan = match self.require_plan() {
+            Ok(plan) => plan,
+            Err(e) => {
+                warn!(task_id, error = %e, "attach-failure fallback: no plan available");
+                return StorageFallbackOutcome::Skipped;
+            }
+        };
+        let request = match plan.build_request(task_id).await {
+            Ok(request) => request,
+            Err(e) => {
+                warn!(task_id, error = %e, "attach-failure fallback: could not build request");
+                return StorageFallbackOutcome::Failed;
+            }
+        };
+
+        // Only a pvc+s3 tier can be rescued: without S3 there is nothing to
+        // restore an emptyDir from, so the environment error stays. Without a PVC
+        // there was no attach to fail, so there is nothing to swap.
+        let backend = StorageBackend::from_plan(
+            &request.plan,
+            self.config.sandbox.default_pvc_enabled,
+            self.config.sandbox.default_s3_enabled,
+        );
+        if !(backend.uses_pvc() && backend.syncs_sandbox()) {
+            info!(
+                task_id,
+                "attach-failure fallback: not a pvc+s3 tier, leaving pod Pending"
+            );
+            return StorageFallbackOutcome::Skipped;
+        }
+
+        // Capture the claim's fate before rebuilding: a bound PVC (the ordinary
+        // Multi-Attach case) is kept so the next clean start can retry it, an
+        // unbound one is an orphan to clear.
+        let pvc_bound = pvc::task_pvc_is_bound(&self.k8s, task_id).await;
+
+        let ctx = RuntimeOperationContext::new(generation);
+        info!(task_id, %generation, "attach-failure fallback: rebuilding Deployment on emptyDir");
+        match deployment::redeploy_with_plan(
+            &self.k8s,
+            &self.config,
+            task_id,
+            &request,
+            ctx,
+            None, // retained_node — an emptyDir has no node to prefer
+            None, // pvc_name None → emptyDir; the sandbox restores from S3
+        )
+        .await
+        {
+            Ok(()) => {
+                if !pvc_bound {
+                    if let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
+                        warn!(task_id, error = %e, "attach-failure fallback: failed to delete orphaned unbound PVC");
+                    }
+                }
+                info!(
+                    task_id,
+                    "attach-failure fallback: Deployment rebuilt on emptyDir; workspace will restore from S3"
+                );
+                StorageFallbackOutcome::Rebuilt
+            }
+            Err(e) => {
+                warn!(task_id, error = %e, "attach-failure fallback: rebuild failed");
+                StorageFallbackOutcome::Failed
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -867,7 +1055,7 @@ impl core_sandbox::ClusterDiagnostics for K8sSandboxAdapter {
 // =============================================================================
 
 /// Inspect a running Deployment's sandbox container for the
-/// `WORKSPACE_SYNC_ENABLED=true` env that marks the `s3` storage backend.
+/// `WORKSPACE_SYNC_ENABLED=true` env that marks the S3 switch as on.
 fn deployment_has_workspace_sync(dep: &Deployment) -> bool {
     dep.spec
         .as_ref()
@@ -881,20 +1069,6 @@ fn deployment_has_workspace_sync(dep: &Deployment) -> bool {
                         })
                     })
             })
-        })
-}
-
-/// Inspect a Deployment's pod template for a `workspace-data` hostPath volume
-/// that marks the best-effort node-local storage backend.
-fn deployment_has_sandbox_host_path(dep: &Deployment) -> bool {
-    dep.spec
-        .as_ref()
-        .and_then(|s| s.template.spec.as_ref())
-        .and_then(|pod| pod.volumes.as_ref())
-        .is_some_and(|volumes| {
-            volumes
-                .iter()
-                .any(|v| v.name == "workspace-data" && v.host_path.is_some())
         })
 }
 
@@ -1020,36 +1194,41 @@ impl K8sSandboxAdapter {
         info!(task_id = %task_id, "Recreated missing sandbox Service");
     }
 
-    /// Resolve the storage backend of a *running* task from cluster state
-    /// (used where there's no `ProvisionPlan`, e.g. restart). A PVC means `ebs`;
-    /// otherwise `workspace-data` as a hostPath means `node`, and the
-    /// `WORKSPACE_SYNC_ENABLED` env on the sandbox container distinguishes `s3`
-    /// from plain `ephemeral`.
+    /// Resolve both storage switches for a *running* task from cluster state
+    /// (used where there's no `ProvisionPlan`, e.g. restart). Each is read from
+    /// the resource that realizes it: an existing PVC is the `pvc` switch, and
+    /// the `WORKSPACE_SYNC_ENABLED` env on the sandbox container is the `s3`
+    /// switch.
     async fn deployment_storage_backend(&self, task_id: &str) -> StorageBackend {
-        if pvc::find_task_pvc(&self.k8s, task_id).await.is_some() {
-            return StorageBackend::Ebs;
-        }
-        match deployment::find_deployment(&self.k8s, task_id).await {
-            Ok(Some(dep)) if deployment_has_sandbox_host_path(&dep) => StorageBackend::Node,
-            Ok(Some(dep)) if deployment_has_workspace_sync(&dep) => StorageBackend::S3,
-            _ => StorageBackend::Ephemeral,
+        StorageBackend {
+            pvc: pvc::find_task_pvc(&self.k8s, task_id).await.is_some(),
+            s3: matches!(
+                deployment::find_deployment(&self.k8s, task_id).await,
+                Ok(Some(dep)) if deployment_has_workspace_sync(&dep)
+            ),
         }
     }
 
     /// Create or find existing PVC. A per-repo `resources.storage` override
     /// (if set) sizes a freshly created PVC; existing PVCs are reused as-is.
     ///
-    /// Returns an empty string (→ no PVC) for non-EBS backends (`ephemeral`,
-    /// `s3`, and `node`, via `resources.storage_mode`): `build_pod` then mounts
-    /// node-local storage at `/opt/moatless` instead. The check runs *before*
-    /// `find_task_pvc` so a repo flipped off `ebs` stops reusing any stale PVC.
+    /// Returns an empty string (→ no PVC) when the repo's `resources.pvcEnabled`
+    /// switch is off: `build_pod` then mounts a node-local emptyDir at
+    /// `/opt/moatless` instead. The check runs *before* `find_task_pvc` so a repo
+    /// that flipped the switch off stops reusing any stale PVC.
     async fn create_or_find_pvc(
         &self,
         task_id: &str,
         plan: &ProvisionPlan,
     ) -> Result<String, String> {
-        if !StorageBackend::from_plan(plan, &self.config.sandbox.default_storage_mode).uses_pvc() {
-            info!(task_id, "Non-EBS storage backend — skipping PVC creation");
+        if !StorageBackend::from_plan(
+            plan,
+            self.config.sandbox.default_pvc_enabled,
+            self.config.sandbox.default_s3_enabled,
+        )
+        .uses_pvc()
+        {
+            info!(task_id, "PVC switch off — skipping PVC creation");
             return Ok(String::new());
         }
 
@@ -1085,11 +1264,12 @@ impl K8sSandboxAdapter {
             self.config.s3.transcript_prefix.trim_end_matches('/'),
             task_id
         );
-        let deleted = moatless_tasks::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
-            .await
-            .map_err(|e| {
-                SandboxError::Internal(format!("delete transcripts for {task_id}: {e}"))
-            })?;
+        let deleted =
+            moatless_tasks::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
+                .await
+                .map_err(|e| {
+                    SandboxError::Internal(format!("delete transcripts for {task_id}: {e}"))
+                })?;
         if deleted > 0 {
             info!(task_id, deleted, prefix = %prefix, "Deleted task transcripts from S3");
         }
@@ -1113,9 +1293,12 @@ impl K8sSandboxAdapter {
             self.config.s3.workspace_prefix.trim_end_matches('/'),
             task_id
         );
-        let deleted = moatless_tasks::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
-            .await
-            .map_err(|e| SandboxError::Internal(format!("delete workspace for {task_id}: {e}")))?;
+        let deleted =
+            moatless_tasks::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
+                .await
+                .map_err(|e| {
+                    SandboxError::Internal(format!("delete workspace for {task_id}: {e}"))
+                })?;
         if deleted > 0 {
             info!(task_id, deleted, prefix = %prefix, "Deleted task workspace from S3");
         }

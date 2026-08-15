@@ -1,49 +1,57 @@
 //! Prometheus metrics for sandbox storage backends.
 //!
-//! These exist to compare the storage backends (see
-//! [`crate::storage::StorageBackend`]) head-to-head — the EBS PVC
-//! path vs. node-local paths — so a default change can be made on evidence
-//! rather than intuition.
+//! These exist to compare the storage combinations (see
+//! [`crate::storage::StorageBackend`]) head-to-head — the PVC path vs. the
+//! node-local `emptyDir` path, each with and without the S3 snapshot — so a
+//! default change can be made on evidence rather than intuition.
 //!
 //! ## Cardinality
-//! - `storage_backend` ∈ {`ebs`, `ephemeral`, `s3`, `node`} — the handful of backends.
+//! - `storage_backend` ∈ {`pvc+s3`, `pvc`, `s3`, `none`} — one per switch combination.
 //! - `outcome` ∈ {`ok`, `error`} for provision; the sync counter's `outcome`
 //!   is the same two values.
 //! - `direction` ∈ {`upload`, `download`}.
 //!
 //! Provision / restart durations are timed by the backend directly (synchronous
 //! K8s calls). Workspace-sync duration/bytes come from the sandbox via
-//! `ReportWorkspaceSync` — for the `s3` backend the transfer is sandbox→S3
-//! directly, so the backend isn't in the data path and must be told.
+//! `ReportWorkspaceSync` — the transfer is sandbox→S3 directly, so the backend
+//! isn't in the data path and must be told.
 
 use std::time::Duration;
 
 use super::storage::StorageBackend;
 
 /// Wall-clock duration of a `provision` call by `storage_backend` and `outcome`
-/// (histogram). Captures the cost of standing up sandbox resources — for `ebs`
-/// this includes creating/attaching the PVC; the node-local backends skip it.
+/// (histogram). Captures the cost of standing up sandbox resources — with the
+/// PVC switch on this includes creating/attaching it; without it the emptyDir
+/// path skips that entirely.
 pub(crate) const SANDBOX_PROVISION_DURATION_SECONDS: &str =
     "moatless_sandbox_provision_duration_seconds";
 
 /// Wall-clock duration of a `restart` call by `storage_backend` (histogram).
-/// The `ebs` backend pays a pod-drain wait here to release the `ReadWriteOnce`
-/// PVC before the new pod can attach; the node-local backends do not.
+/// With the PVC switch on, restart pays a pod-drain wait here to release the
+/// `ReadWriteOnce` PVC before the new pod can attach; without it there is none.
 pub(crate) const SANDBOX_RESTART_DURATION_SECONDS: &str =
     "moatless_sandbox_restart_duration_seconds";
 
 /// Duration of one workspace sync in seconds by `direction` (histogram).
-/// Reported by the sandbox for the `s3` backend only.
+/// Reported by the sandbox whenever the S3 switch is on.
 pub(crate) const WORKSPACE_SYNC_DURATION_SECONDS: &str = "moatless_workspace_sync_duration_seconds";
 
 /// Size of one workspace sync tar in bytes by `direction` (histogram). The
 /// `_sum` gives total bytes moved (rate → bytes/s); buckets show the size
-/// distribution. Reported by the sandbox for the `s3` backend only.
+/// distribution. Reported by the sandbox whenever the S3 switch is on.
 pub(crate) const WORKSPACE_SYNC_BYTES: &str = "moatless_workspace_sync_bytes";
 
 /// Workspace sync outcomes by `direction` and `outcome` (`ok` | `error`)
-/// (counter). Reported by the sandbox for the `s3` backend only.
+/// (counter). Reported by the sandbox whenever the S3 switch is on.
 pub(crate) const WORKSPACE_SYNC_TOTAL: &str = "moatless_workspace_sync_total";
+
+/// Cold-transition outcomes by `outcome` (counter). This is where the cost of
+/// the pvc+s3 default is actually paid back, so the four outcomes are kept
+/// apart: `reclaimed` (claim gone), `rescued` (claim gone, but only after the
+/// volume was uploaded), `blocked` (claim kept — the archive could not be
+/// proven current and the rescue did not land), `skipped` (nothing to do).
+pub(crate) const STORAGE_RECLAIM_TOTAL: &str = "moatless_sandbox_storage_reclaim_total";
 
 /// Register sandbox storage metric descriptions with the Prometheus recorder.
 /// Call once at startup after the recorder is installed.
@@ -68,6 +76,15 @@ pub fn describe_sandbox_metrics() {
         WORKSPACE_SYNC_TOTAL,
         "Workspace S3 sync outcomes (ok | error) by direction"
     );
+    metrics::describe_counter!(
+        STORAGE_RECLAIM_TOTAL,
+        "Cold-transition outcomes (reclaimed | rescued | blocked | skipped)"
+    );
+}
+
+/// Record one cold-transition attempt.
+pub(crate) fn record_storage_reclaim(outcome: &'static str) {
+    metrics::counter!(STORAGE_RECLAIM_TOTAL, "outcome" => outcome).increment(1);
 }
 
 /// Record one provision call's duration and outcome.

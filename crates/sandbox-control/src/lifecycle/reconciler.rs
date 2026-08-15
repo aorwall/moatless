@@ -28,7 +28,7 @@ use moatless_tasks::task::models::{SandboxDesiredState, SandboxStopReason, TaskS
 use super::attempt::AttemptBudget;
 use super::convergence::{ReconcileAction, SandboxObservedStatus};
 use super::orchestrator::{Lifecycle, LifecycleDao, WallClock};
-use super::reconcile::{decide, ReconcileInput};
+use super::reconcile::{ReconcileInput, decide};
 use super::types::{ArchiveRetention, OperationGeneration};
 
 /// Runtime observation paired with the lifecycle generation stamped on the
@@ -671,6 +671,17 @@ mod db_tests {
             self.calls.lock().unwrap().remove += 1;
             Ok(RuntimeOutcome::applied(ObservedStatus::Removed))
         }
+        async fn reclaim_storage(
+            &self,
+            _t: &str,
+            _rescue_upload_url: Option<&str>,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+            // The reconciler never drives the cold transition — it converges
+            // desired vs. actual, and a reclaimed Task's desired state does not
+            // change.
+            Ok(RuntimeOutcome::no_op(ObservedStatus::Stopped))
+        }
     }
 
     #[derive(Default)]
@@ -856,11 +867,12 @@ mod db_tests {
         rec.reconcile_once().await;
 
         assert_eq!(runtime.calls().0, 1, "ensure_running driven once");
-        assert!(sink
-            .facts
-            .lock()
-            .unwrap()
-            .contains(&EventFact::Initializing));
+        assert!(
+            sink.facts
+                .lock()
+                .unwrap()
+                .contains(&EventFact::Initializing)
+        );
     }
 
     #[sqlx::test]
@@ -1011,10 +1023,12 @@ mod db_tests {
             "unexpected message: {}",
             payload.message
         );
-        assert!(payload
-            .error
-            .as_deref()
-            .is_some_and(|e| e.contains("2 attempts failed")));
+        assert!(
+            payload
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("2 attempts failed"))
+        );
     }
 
     #[sqlx::test]

@@ -90,6 +90,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .with_span_list(false)
         .init();
 
+    // The one-shot modes run to completion and exit; nothing below is built.
+    // Checked here, after logging and before the backend client, because a
+    // one-shot has no backend to reach: it is scheduled onto a volume whose
+    // sandbox is already gone, holding a presigned URL and nothing else.
+    if let Some(mode) = std::env::var("SANDBOX_ONESHOT").ok().filter(|m| !m.is_empty()) {
+        return run_oneshot(&mode, &config).await;
+    }
+
     info!(
         task_id = %config.task_id,
         port = config.port,
@@ -193,6 +201,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Liveness heartbeat: the coordinator service bumps it, the `/livez` probe reads it.
     let heartbeat = moatless_sandbox::agent::heartbeat::Heartbeat::new();
 
+    // One workspace-upload baseline for the pod, shared by the coordinator's
+    // turn-boundary uploads and every path that reaches it through SandboxState.
+    let workspace_sync = moatless_sandbox::init::workspace_sync::WorkspaceSyncTracker::new();
+
     let agent_handle = spawn_agent(
         Arc::clone(&config_arc),
         Arc::clone(&agent_state),
@@ -204,6 +216,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&credential_dispatcher),
         Arc::clone(&system_prompt_cache),
         heartbeat.clone(),
+        workspace_sync.clone(),
     );
     late_injector.set(Box::new(agent_handle.clone()));
 
@@ -225,6 +238,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         dispatch_lock: Default::default(),
         supervisor_health: supervisor.health(),
         terminals: moatless_sandbox::terminal::TerminalManager::new(config.workspace_dir.clone()),
+        workspace_sync,
     };
 
     // The agent lifecycle task is deliberately NOT registered with the root supervisor.
@@ -381,6 +395,39 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     outcome?;
     Ok(())
+}
+
+/// Run a one-shot job instead of the sandbox runtime.
+///
+/// `SANDBOX_ONESHOT=sync` is the workspace rescue: the backend could not prove
+/// the S3 archive current before reclaiming a stopped task's volume, so it runs
+/// this against the volume with a presigned `PUT` in `WORKSPACE_SYNC_PUT_URL`.
+/// Nothing else about a sandbox is started — no gRPC server, no agent, no
+/// credentials, no backend client — because none of it exists to talk to.
+///
+/// The exit status is the whole protocol: the caller deletes the volume when
+/// this process succeeds and keeps it when it does not, so every failure must
+/// be an error return and never a warning.
+async fn run_oneshot(mode: &str, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    match mode {
+        "sync" => {
+            let put_url = std::env::var("WORKSPACE_SYNC_PUT_URL")
+                .map_err(|_| "SANDBOX_ONESHOT=sync requires WORKSPACE_SYNC_PUT_URL")?;
+            info!(
+                task_id = %config.task_id,
+                workspace_dir = %config.workspace_dir,
+                "Rescuing workspace to S3"
+            );
+            let bytes = moatless_sandbox::init::workspace_sync::rescue_upload(
+                &config.workspace_dir,
+                &put_url,
+            )
+            .await?;
+            info!(task_id = %config.task_id, bytes, "Workspace rescued");
+            Ok(())
+        }
+        other => Err(format!("unknown SANDBOX_ONESHOT mode: {other}").into()),
+    }
 }
 
 /// GET /health — returns 200 when init is Ready, 503 otherwise.

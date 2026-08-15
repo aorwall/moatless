@@ -11,15 +11,7 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use moatless_backend_core::sandbox::SandboxConnector;
-use moatless_backend_core::sandbox::SandboxError;
-use moatless_backend::compose::compose;
-use moatless_core::config::{
-    AuthConfig, AuthProvider, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig,
-    GithubPrConfig, LinearConfig, OtelConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
-    SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
-    TelegramConfig,
-};
+use moatless_backend::compose::{LifecycleOptions, compose};
 use moatless_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_backend::sandbox::client::SandboxClient;
@@ -27,11 +19,19 @@ use moatless_backend::sandbox::lifecycle::{
     ArchiveRetention, NotifyPort, ObservedStatus, ProvisionDeps, RuntimeOperationContext,
     RuntimeOutcome, SandboxRuntime,
 };
-use moatless_core::scope::ScopeContext;
-use moatless_core::shared_models::AgentType;
 use moatless_backend::state::AppState;
 use moatless_backend::task::models::{Task, TaskStatus, Visibility};
 use moatless_backend::workspace::models::{Workspace, WorkspaceRepo};
+use moatless_backend_core::sandbox::SandboxConnector;
+use moatless_backend_core::sandbox::SandboxError;
+use moatless_core::config::{
+    AuthConfig, AuthProvider, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig,
+    GithubPrConfig, LinearConfig, OtelConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
+    SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
+    TelegramConfig,
+};
+use moatless_core::scope::ScopeContext;
+use moatless_core::shared_models::AgentType;
 
 // =========================================================================
 // Mock sandbox capabilities
@@ -93,6 +93,15 @@ impl SandboxRuntime for MockSandboxRuntime {
         _ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, moatless_backend::sandbox::lifecycle::RuntimeError> {
         Ok(RuntimeOutcome::applied(ObservedStatus::Removed))
+    }
+
+    async fn reclaim_storage(
+        &self,
+        _task_id: &str,
+        _rescue_upload_url: Option<&str>,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, moatless_backend::sandbox::lifecycle::RuntimeError> {
+        Ok(RuntimeOutcome::applied(ObservedStatus::Stopped))
     }
 }
 
@@ -264,7 +273,8 @@ pub fn test_config() -> Config {
             storage_enabled: false,
             storage_size: "1Gi".into(),
             storage_class: None,
-            default_storage_mode: "ebs".into(),
+            default_pvc_enabled: true,
+            default_s3_enabled: true,
             node_archive_enabled: false,
             retain_storage_on_close: false,
             pod_startup_timeout_secs: 10,
@@ -281,6 +291,7 @@ pub fn test_config() -> Config {
             busy_extension_max_hours: 4,
             idle_check_interval_secs: 300,
             inactive_task_timeout_days: 0,
+            cold_after_hours: 0,
             orphan_gc_enabled: false,
             codex_refresher_interval_secs: 0,
             max_crash_restart_count: 5,
@@ -468,7 +479,12 @@ pub fn test_app_state_with_config(
         Arc::new(MockSandboxRuntime),
         connector.clone(),
         "mock-sandbox:latest".into(),
-        None,
+        // No Redis and no S3 in the handler tests, so no publication and no
+        // cold transition.
+        LifecycleOptions {
+            events: None,
+            workspace_archive: None,
+        },
     );
     AppState::new(
         &ports,

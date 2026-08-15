@@ -59,7 +59,7 @@ use crate::credentials::recovery::CredentialFailureDetector;
 use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
 use crate::init::credentials::filter_agent_credentials;
-use crate::init::workspace_sync;
+use crate::init::workspace_sync::{self, WorkspaceSyncTracker};
 
 use super::agent_state::AgentState;
 use super::background_watch_job::BackgroundWatchJob;
@@ -767,6 +767,12 @@ pub(crate) struct CoordinatorService {
     /// `ExecutionStarted`, cleared on the terminal outcome). Lets the Stop
     /// handler pick the active vs. idle path without an async `AgentState` read.
     turn_active: bool,
+
+    // ── Workspace sync ───────────────────────────────────────────────────────
+    /// The pod-wide upload baseline. Turn boundaries are the primary durability
+    /// point on the PVC tier (where the periodic loop is off), and sharing this
+    /// keeps a turn that changed nothing from shipping a duplicate tar.
+    workspace_sync: WorkspaceSyncTracker,
 }
 
 struct SendCommand {
@@ -791,6 +797,7 @@ impl CoordinatorService {
         scheduled_jobs: Arc<ScheduledJobRegistry>,
         credential_failures: CredentialFailureDetector,
         credential_dispatcher: Arc<Dispatcher>,
+        workspace_sync: WorkspaceSyncTracker,
     ) -> Self {
         Self {
             coordinator,
@@ -818,6 +825,7 @@ impl CoordinatorService {
             pending_stop_ack: None,
             pending_stop_source: None,
             turn_active: false,
+            workspace_sync,
         }
     }
 
@@ -961,6 +969,7 @@ impl CoordinatorService {
                                     workspace_sync::upload_after_turn(
                                         &self.config,
                                         self.backend_client.as_ref(),
+                                        &self.workspace_sync,
                                     )
                                     .await;
                                 }
@@ -1015,6 +1024,7 @@ impl CoordinatorService {
                                     workspace_sync::upload_after_turn(
                                         &self.config,
                                         self.backend_client.as_ref(),
+                                        &self.workspace_sync,
                                     )
                                     .await;
                                 }
@@ -1075,6 +1085,7 @@ impl CoordinatorService {
                                         workspace_sync::upload_after_turn(
                                             &self.config,
                                             self.backend_client.as_ref(),
+                                            &self.workspace_sync,
                                         )
                                         .await;
                                     }

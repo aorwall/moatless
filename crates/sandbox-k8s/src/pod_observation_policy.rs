@@ -137,6 +137,30 @@ pub(super) fn should_emit_startup_slow(state: &PodObservedState, age_secs: i64) 
         && age_secs >= super::pod_watcher::STARTUP_SLOW_THRESHOLD_SECS
 }
 
+/// Whether a stuck-Pending pod is a candidate for the attach-failure storage
+/// fallback: still Pending past the threshold, not ready, and not yet acted on.
+///
+/// This deliberately does not require `node_name.is_none()` like
+/// `should_emit_scheduling_blocked` — a `Multi-Attach` / `FailedAttachVolume`
+/// stall happens *after* the pod binds to a node, so the pod carries a node yet
+/// never leaves Pending. The caller still confirms the cause is an attach
+/// failure (via [`cause_is_attach_failure`]) before swapping storage.
+pub(super) fn should_attempt_storage_fallback(state: &PodObservedState, age_secs: i64) -> bool {
+    !state.storage_fallback_requested
+        && state.phase == "Pending"
+        && !state.ready
+        && age_secs >= super::pod_watcher::SCHEDULING_BLOCKED_THRESHOLD_SECS
+}
+
+/// Whether a pod's newest Warning event names a volume-attach failure — the
+/// recoverable stall the storage fallback exists for. Matches the AttachDetach
+/// controller's `FailedAttachVolume` and the kubelet's `Multi-Attach` message,
+/// case-insensitively.
+pub(super) fn cause_is_attach_failure(cause: &str) -> bool {
+    let c = cause.to_ascii_lowercase();
+    c.contains("failedattachvolume") || c.contains("multi-attach")
+}
+
 pub(super) fn should_gc_failed_pod(state: &PodObservedState, now_ms: i64) -> bool {
     state.phase == "Failed"
         && state.failed_since_ms.is_some_and(|failed_since| {
@@ -814,6 +838,58 @@ mod tests {
             &s,
             super::super::pod_watcher::SCHEDULING_BLOCKED_THRESHOLD_SECS + 300
         ));
+    }
+
+    #[test]
+    fn storage_fallback_predicate_is_node_agnostic() {
+        // A Multi-Attach stall happens after the pod binds to a node, so unlike
+        // scheduling_blocked the predicate must fire with a node assigned.
+        let mut s = super::super::pod_watcher::extract_pod_observed_state(
+            &pod_with_phase_and_containers("Pending", vec![]),
+            "pod-1",
+            "task-1",
+        );
+        s.node_name = Some("ip-10-0-1-42".to_string());
+        s.ready = false;
+
+        assert!(!should_attempt_storage_fallback(
+            &s,
+            super::super::pod_watcher::SCHEDULING_BLOCKED_THRESHOLD_SECS - 1
+        ));
+        assert!(should_attempt_storage_fallback(
+            &s,
+            super::super::pod_watcher::SCHEDULING_BLOCKED_THRESHOLD_SECS
+        ));
+
+        // A ready or running pod is past the stall.
+        let mut running = s.clone();
+        running.phase = "Running".to_string();
+        assert!(!should_attempt_storage_fallback(
+            &running,
+            super::super::pod_watcher::SCHEDULING_BLOCKED_THRESHOLD_SECS + 300
+        ));
+
+        // Fire-once guard.
+        s.storage_fallback_requested = true;
+        assert!(!should_attempt_storage_fallback(
+            &s,
+            super::super::pod_watcher::SCHEDULING_BLOCKED_THRESHOLD_SECS + 300
+        ));
+    }
+
+    #[test]
+    fn attach_failure_cause_matches_the_kubelet_and_controller_wording() {
+        assert!(cause_is_attach_failure(
+            "FailedAttachVolume: AttachVolume.Attach failed for volume \"pvc-abc\""
+        ));
+        assert!(cause_is_attach_failure(
+            "Multi-Attach error for volume \"pvc-abc\": Volume is already used by pod(s) foo"
+        ));
+        assert!(cause_is_attach_failure("multi-attach error"));
+        assert!(!cause_is_attach_failure(
+            "FailedScheduling: 0/3 nodes are available: insufficient cpu"
+        ));
+        assert!(!cause_is_attach_failure("ImagePullBackOff"));
     }
 
     #[test]

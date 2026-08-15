@@ -230,8 +230,11 @@ so it is never configured twice.
 |-----------|-------------|---------|
 | `kubernetes.enabled` | Enable Kubernetes execution mode | `true` |
 | `kubernetes.namespace` | Namespace for sandbox pods | Release namespace |
-| `kubernetes.sandboxStorage.enabled` | Enable per-task PVC | `true` |
-| `kubernetes.sandboxStorage.defaultMode` | Default workspace tier (`ebs`/`ephemeral`/`s3`/`node`) | `s3` |
+| `kubernetes.sandboxStorage.enabled` | Global kill switch for per-task PVCs | `true` |
+| `kubernetes.sandboxStorage.defaultPvc` | Give each task a durable per-task PVC by default | `true` |
+| `kubernetes.sandboxStorage.defaultS3` | Snapshot each task's workspace to S3 by default | `true` |
+| `kubernetes.sandboxStorage.coldAfterHours` | Hours stopped before a task's Deployment and PVC are reclaimed (`0` disables) | `24` |
+| `kubernetes.sandboxStorage.retainOnClose` | Keep a closed task's S3 workspace snapshot | `true` |
 | `kubernetes.nodeArchive.enabled` | Track, retain, and clean node-local archives | `false` |
 | `kubernetes.imagePrepull.enabled` | DaemonSet that pre-pulls the sandbox image | `true` |
 | `kubernetes.nodeStorageJanitor.enabled` | Per-node cleanup of stale workspace/docker/task build-cache dirs when node archives are enabled | `true` |
@@ -245,10 +248,8 @@ the backend** over the existing JWT-authed gRPC (sandbox pods are AWS-credential
 by design), on a timer and on graceful shutdown, and restores it on the next start.
 
 This persists transcripts off the per-task PVC or node disk and is the
-off-node durability path for all storage tiers. In `node` mode the same
-transcripts also live in the task hostPath. With node archive management
-enabled, retained tasks are pinned back to their recorded node; `ephemeral`
-relies on S3 for persistence.
+off-node durability path for every storage tier, independent of the workspace's
+own `s3Enabled` snapshot.
 It reuses the existing uploads bucket and the backend IRSA — no extra bucket,
 IAM, or cluster infra. Objects land at
 `s3://<uploads-bucket>/<prefix>/<task_id>/transcripts.tar` and are deleted on task
@@ -258,20 +259,71 @@ cleanup. Tune the upload cadence with `TRANSCRIPT_SYNC_INTERVAL_SECS` on the san
 > Scope the uploads bucket's lifecycle expiry to the `uploads/` prefix (or add a
 > longer rule for `transcripts/`) so transcripts of long-lived tasks aren't deleted.
 
-#### Enabling non-PVC storage tiers per repository
+#### Choosing a workspace storage tier per repository
 
-Storage tier is a per-repository setting stored in the repo's `resources` config.
-Set `storageMode` to `ephemeral` to skip the per-task EBS PVC and run the workspace
-on a node-local `emptyDir` (optionally cap its size with `storage`). New tasks for
-that repo then provision with **no PVC**; transcripts persist only via the S3 sync
-described above.
+Workspace storage is two independent per-repository switches in the repo's
+`resources` config, `pvcEnabled` and `s3Enabled`. Each falls back to the
+deployment default (`defaultPvc` / `defaultS3`) when the repo leaves it unset,
+and a per-repo value always overrides the default. The four combinations:
 
-Set `storageMode` to `s3` to use the same node-local `emptyDir` plus git-tree
-sync to S3. Set `storageMode` to `node` to use node-local hostPath storage under
-`K8S_SANDBOX_CACHE_HOST_ROOT/workspaces/<task-id>`. This best-effort mode needs
-no ConfigMap or node-reader permissions, but a replacement scheduled elsewhere
-sees a fresh directory. The `node` tier has no Kubernetes
-`emptyDir.sizeLimit`; it is bounded by node disk capacity.
+- **`pvcEnabled: true, s3Enabled: true`** (the default) — a durable per-task PVC
+  that also snapshots its git working tree to S3 on stop/remove. On start the
+  volume is used as-is when it holds the repo; an empty, redeployed, or
+  unattachable volume is restored from S3 instead of stalling. The recommended
+  durable tier.
+- **`pvcEnabled: true, s3Enabled: false`** — a durable per-task PVC with no S3
+  copy. A lost or deleted volume loses the workspace.
+- **`pvcEnabled: false, s3Enabled: true`** — a node-local `emptyDir` synced to
+  S3 (no PVC, no attach/detach churn on restart), restored on every start.
+  Cheaper, but a cold stop drops gitignored build output (`target/`,
+  `node_modules/`, …), rebuilt on the next start.
+- **`pvcEnabled: false, s3Enabled: false`** — an ephemeral `emptyDir` with no
+  persistence; only transcripts survive, via the S3 sync above.
+
+`s3Enabled` requires the uploads bucket to be configured; without it the sync
+calls no-op and an S3-only repo behaves as ephemeral. The global
+`kubernetes.sandboxStorage.enabled` kill switch still wins over `pvcEnabled`.
+
+Optionally cap a workspace's size with `storage` (it sizes the PVC, or the
+`emptyDir` when there is no PVC).
+
+#### The cold tier: reclaiming idle claims
+
+Stopping a task scales its Deployment to zero and keeps the PVC, so the next
+start is warm. That is the right trade for a task someone will come back to
+this afternoon, and the wrong one for a fleet: a `gp3` volume is billed on its
+provisioned size whether or not a pod is attached, so at any real scale the
+idle claims — not the running pods — are the bill.
+
+`kubernetes.sandboxStorage.coldAfterHours` (default `24`) adds a third
+transition to the reaper. Once a task has been stopped that long, the backend
+deletes its Deployment and its PVC and leaves the S3 snapshot as the only copy.
+The task stays open and reads as Stopped; a later start provisions a fresh
+volume, restores the snapshot into it, and re-runs the repo's setup commands to
+rebuild gitignored output. What the cold tier costs is a slower first start.
+What it buys is object-storage pricing on an idle workspace instead of
+block-storage pricing.
+
+The volume is deleted only once the snapshot is proven to be newer than the
+stop. When that cannot be shown — the pre-stop upload failed, or S3 cannot be
+read — the backend first runs a short-lived rescue pod that mounts the volume
+and uploads it, and abandons the transition entirely if that fails. An
+unreadable bucket never becomes a deletion.
+
+Two things to set alongside it:
+
+- **Keep `defaultS3` on.** With no snapshot there is nothing to reclaim toward,
+  and the transition never fires. It is inert rather than dangerous, but it is
+  also useless.
+- **Give the bucket a lifecycle rule.** Nothing here ever deletes a snapshot,
+  and `retainOnClose` (default `true`) means closing a task does not either —
+  the reaper closes tasks after 7 days of inactivity, and a machine-initiated
+  close is a poor moment to destroy someone's work. Expire the
+  `<workspacePrefix>/` prefix on whatever horizon you actually want to keep
+  abandoned workspaces for.
+
+Set `coldAfterHours: 0` to switch the tier off; a per-task
+`tasks.cold_after_hours` overrides the deployment default for one task.
 
 Docker-in-Docker storage is controlled separately with `dockerStorageMode`.
 For repos with `dockerAccess`, `dockerStorageMode: "node"` stores
@@ -309,7 +361,8 @@ Declaratively via `.moatless/config.json`, then sync:
 ```json
 {
   "resources": {
-    "storageMode": "s3",
+    "pvcEnabled": true,
+    "s3Enabled": true,
     "storage": "30Gi",
     "buildCacheMode": "node",
     "buildCacheScope": "task",
@@ -327,13 +380,13 @@ Imperatively via the CLI (a resources update **replaces** the whole `resources`
 object, so pass all resource flags you want to keep together):
 
 ```bash
-moat repos update <repo-id> --storage-mode s3 --storage 30Gi --docker-storage-mode node --docker-storage 30Gi
+moat repos update <repo-id> --storage 30Gi --docker-storage-mode node --docker-storage 30Gi
 ```
 
 Or via the API:
 
 ```bash
-PATCH /api/.../repositories/<repo-id>   { "resources": { "storageMode": "s3", "dockerStorageMode": "node" } }
+PATCH /api/.../repositories/<repo-id>   { "resources": { "pvcEnabled": true, "s3Enabled": true, "dockerStorageMode": "node" } }
 ```
 
 ### Shadow-Dev (running the app inside a sandbox)

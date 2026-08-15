@@ -328,11 +328,15 @@ pub struct SandboxConfig {
     pub storage_size: String,
     /// PVC storage class
     pub storage_class: Option<String>,
-    /// Default workspace storage backend for repos that don't set
-    /// `resources.storage_mode` (env `K8S_SANDBOX_DEFAULT_STORAGE_MODE`).
-    /// One of `ebs` / `ephemeral` / `s3` / `node`; unknown values fall back to `ebs`.
-    /// A per-repo `storage_mode` always overrides this.
-    pub default_storage_mode: String,
+    /// Whether sandboxes get a per-task PVC when the repo doesn't set
+    /// `resources.pvc_enabled` (env `K8S_SANDBOX_DEFAULT_PVC`, default `true`).
+    /// A per-repo switch overrides this; [`Self::storage_enabled`] overrides both.
+    pub default_pvc_enabled: bool,
+    /// Whether sandboxes snapshot their workspace to S3 when the repo doesn't set
+    /// `resources.s3_enabled` (env `K8S_SANDBOX_DEFAULT_S3`, default `true`).
+    /// A per-repo switch overrides this. Requires the S3 uploads bucket to be
+    /// configured; without it the sandbox's sync calls no-op.
+    pub default_s3_enabled: bool,
     /// Whether Kubernetes node-local workspace/Docker archives are tracked and
     /// managed across pod lifecycles. When disabled, `node` storage still uses
     /// hostPath volumes, but the backend does not access archive ConfigMaps,
@@ -346,8 +350,10 @@ pub struct SandboxConfig {
     /// on the next provision.
     /// K8s runtime resources (Deployment/Service/PVC/IngressRoutes) are still
     /// torn down.
-    /// Env `SANDBOX_RETAIN_STORAGE_ON_CLOSE` (default: `false`). Permanent
-    /// task deletion always removes storage regardless of this flag.
+    /// Env `SANDBOX_RETAIN_STORAGE_ON_CLOSE` (default: `true`). Permanent
+    /// task deletion always removes storage regardless of this flag. Retained
+    /// archives are bounded by the uploads bucket's own expiry rule, not by
+    /// close.
     pub retain_storage_on_close: bool,
     /// Pod startup timeout in seconds
     pub pod_startup_timeout_secs: u64,
@@ -402,6 +408,14 @@ pub struct SandboxConfig {
     /// Auto-close Open tasks inactive for this many days. `0` disables
     /// auto-close. Env: `TASK_INACTIVE_TIMEOUT_DAYS` (default: 7).
     pub inactive_task_timeout_days: u64,
+    /// Reclaim the Deployment and PVC of a sandbox that has been Stopped this
+    /// many hours, leaving the S3 snapshot as the only copy. The Task stays
+    /// Open and a later start provisions a fresh volume and restores into it.
+    /// Only tasks on the pvc+s3 tier are eligible — without a snapshot there is
+    /// nothing to reclaim into. `0` disables the transition. Env:
+    /// `SANDBOX_COLD_AFTER_HOURS` (default: 24). A per-task
+    /// `tasks.cold_after_hours` overrides this.
+    pub cold_after_hours: u64,
     /// Whether the reaper's orphan-GC pass is enabled (default: true). When on,
     /// the reaper deletes labeled sandbox K8s resources whose Task row no
     /// longer exists. Env: `SANDBOX_ORPHAN_GC_ENABLED`.
@@ -1059,9 +1073,10 @@ impl Config {
                 storage_enabled: env_bool("K8S_SANDBOX_STORAGE_ENABLED", true),
                 storage_size: env_str("K8S_SANDBOX_STORAGE_SIZE", "3Gi"),
                 storage_class: env_opt("K8S_SANDBOX_STORAGE_CLASS"),
-                default_storage_mode: env_str("K8S_SANDBOX_DEFAULT_STORAGE_MODE", "ebs"),
+                default_pvc_enabled: env_bool("K8S_SANDBOX_DEFAULT_PVC", true),
+                default_s3_enabled: env_bool("K8S_SANDBOX_DEFAULT_S3", true),
                 node_archive_enabled: env_bool("K8S_SANDBOX_NODE_ARCHIVE_ENABLED", false),
-                retain_storage_on_close: env_bool("SANDBOX_RETAIN_STORAGE_ON_CLOSE", false),
+                retain_storage_on_close: env_bool("SANDBOX_RETAIN_STORAGE_ON_CLOSE", true),
                 pod_startup_timeout_secs: env_or("K8S_POD_STARTUP_TIMEOUT_SECS", 120),
                 task_token_secret: env_opt("TASK_TOKEN_SECRET"),
                 user_token_ttl_secs: env_or("SANDBOX_USER_TOKEN_TTL_SECS", 7 * 24 * 3600),
@@ -1076,6 +1091,7 @@ impl Config {
                 busy_extension_max_hours: env_or("SANDBOX_BUSY_EXTENSION_MAX_HOURS", 4),
                 idle_check_interval_secs: env_or("SANDBOX_IDLE_CHECK_INTERVAL_SECS", 300),
                 inactive_task_timeout_days: env_or("TASK_INACTIVE_TIMEOUT_DAYS", 7),
+                cold_after_hours: env_or("SANDBOX_COLD_AFTER_HOURS", 24),
                 orphan_gc_enabled: env_bool("SANDBOX_ORPHAN_GC_ENABLED", true),
                 codex_refresher_interval_secs: env_or("CODEX_REFRESHER_INTERVAL_SECS", 3600),
                 max_crash_restart_count: env_or("SANDBOX_MAX_CRASH_RESTART_COUNT", 5),
@@ -1424,7 +1440,8 @@ impl Config {
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,
-                default_storage_mode: "ebs".into(),
+                default_pvc_enabled: true,
+                default_s3_enabled: true,
                 node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,
@@ -1441,6 +1458,7 @@ impl Config {
                 busy_extension_max_hours: 4,
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,
+                cold_after_hours: 0,
                 orphan_gc_enabled: false,
                 codex_refresher_interval_secs: 0,
                 max_crash_restart_count: 5,

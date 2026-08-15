@@ -116,6 +116,29 @@ pub async fn create_task_pvc(
     }
 }
 
+/// Whether the task's PVC has reached the `Bound` phase.
+///
+/// The attach-failure fallback uses this to decide the orphaned claim's fate: a
+/// `Bound` PVC (the ordinary Multi-Attach case — the volume exists, it is just
+/// still attached to a terminating pod's node) is left in place so its data
+/// survives for the next clean start, while an unbound (`Pending`) claim has no
+/// backing volume and is a safe orphan to delete. On a read error the claim is
+/// treated as bound so uncertainty never destroys data.
+pub async fn task_pvc_is_bound(k8s: &K8sClient, task_id: &str) -> bool {
+    let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
+
+    match pvcs.list(&lp).await {
+        Ok(list) => list.items.iter().any(|pvc| {
+            pvc.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Bound")
+        }),
+        Err(e) => {
+            warn!(task_id, error = %e, "Failed to read task PVC phase; treating as bound");
+            true
+        }
+    }
+}
+
 /// Delete all PVCs for a task
 pub async fn delete_task_pvc(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
     let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(k8s.client.clone(), k8s.namespace());

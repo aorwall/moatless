@@ -3,6 +3,10 @@
 //! Background job that periodically:
 //! 1. Stops idle sandbox Deployments (short TTL — `ttl_minutes`).
 //! 2. Auto-closes inactive Open tasks (long TTL — `inactive_ttl_days`).
+//! 3. Reclaims the Deployment and volume of a sandbox that has been stopped
+//!    long enough (`cold_after_hours`), leaving the S3 snapshot as the only
+//!    copy. The task stays Open and its sandbox stays Stopped — a later start
+//!    provisions a fresh volume and restores into it.
 //!
 //! Runs on the elected leader only (through a `LeaderGuard` port) so a single
 //! replica drives the cycle. Replaces the legacy `sandbox::idle_reaper` — both
@@ -24,8 +28,8 @@ use super::dao::{TaskDao, TaskPatch};
 use super::models::{ArchiveRetention, SandboxDesiredState, SandboxStopReason, TaskStatus};
 use super::sandbox_lifecycle::SandboxLifecycle;
 use crate::agent_event::AgentEvent;
-use crate::task::binding_dao::TaskBindingDao;
 use crate::message::dao::MessageDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
@@ -41,6 +45,18 @@ use moatless_events::EventType;
 /// force-closed; only a turn whose terminal event was genuinely lost (e.g.
 /// dropped during a Redis outage) survives past this floor.
 const RECONCILE_STUCK_TURN_THRESHOLD_SECS: i64 = 5 * 60;
+
+/// The deployment-wide knobs one cycle runs against. Grouped because they are
+/// read once at spawn and threaded whole through the cycle; each is overridable
+/// per Task by a column, and the per-Task value wins.
+#[derive(Clone, Copy)]
+struct ReapCycleDefaults {
+    ttl_minutes: i32,
+    inactive_ttl_days: i32,
+    /// `0` disables the cold branch for the deployment.
+    cold_after_hours: i32,
+    orphan_gc_enabled: bool,
+}
 
 /// Errors that can occur during a reap cycle.
 #[derive(Debug, thiserror::Error)]
@@ -112,7 +128,8 @@ impl TaskReaper {
     ///
     /// The reaper runs in a loop:
     /// 1. Try to acquire leadership through the `LeaderGuard` port.
-    /// 2. If leader, run a reap cycle (idle-sandbox stop + inactive-task close).
+    /// 2. If leader, run a reap cycle (inactive-task close, idle-sandbox stop,
+    ///    cold-storage reclaim).
     /// 3. Sleep for `config.sandbox.idle_check_interval_secs` before the next cycle.
     pub fn spawn(self, cancel: CancellationToken) -> JoinHandle<()> {
         metrics::describe_counter!(
@@ -123,6 +140,7 @@ impl TaskReaper {
         let interval = Duration::from_secs(self.config.sandbox.idle_check_interval_secs);
         let default_ttl_minutes = self.config.sandbox.idle_timeout_minutes as i32;
         let default_inactive_ttl_days = self.config.sandbox.inactive_task_timeout_days as i32;
+        let default_cold_after_hours = self.config.sandbox.cold_after_hours as i32;
         let orphan_gc_enabled = self.config.sandbox.orphan_gc_enabled;
 
         tokio::spawn(async move {
@@ -136,11 +154,12 @@ impl TaskReaper {
                     Ok(true) => {
                         debug!(identity = %identity, "Task reaper is leader, running reap cycle");
                         if let Err(e) = self
-                            .run_reap_cycle(
-                                default_ttl_minutes,
-                                default_inactive_ttl_days,
+                            .run_reap_cycle(ReapCycleDefaults {
+                                ttl_minutes: default_ttl_minutes,
+                                inactive_ttl_days: default_inactive_ttl_days,
+                                cold_after_hours: default_cold_after_hours,
                                 orphan_gc_enabled,
-                            )
+                            })
                             .await
                         {
                             warn!(error = %e, "Task reaper cycle failed");
@@ -165,13 +184,9 @@ impl TaskReaper {
         })
     }
 
-    /// Run one reap cycle: stop idle sandboxes, then close inactive Open tasks.
-    async fn run_reap_cycle(
-        &self,
-        default_ttl_minutes: i32,
-        default_inactive_ttl_days: i32,
-        orphan_gc_enabled: bool,
-    ) -> Result<(), ReaperError> {
+    /// Run one reap cycle: close inactive Open tasks, stop idle sandboxes, then
+    /// reclaim the storage of the ones that have been stopped long enough.
+    async fn run_reap_cycle(&self, defaults: ReapCycleDefaults) -> Result<(), ReaperError> {
         // The running Sandbox set for this cycle, via the k8s-native port. A
         // failed LIST aborts the cycle (`?`) rather than letting an empty set be
         // read as "nothing is running" and reaping live turns under it.
@@ -199,14 +214,11 @@ impl TaskReaper {
 
         // Orphan-GC deletes only taskless resources. Desired Removed convergence
         // for existing Tasks belongs to the Sandbox reconciler.
-        if orphan_gc_enabled {
+        if defaults.orphan_gc_enabled {
             self.sandbox_resources.gc_orphaned_resources().await;
         }
 
-        let Some(snapshot) = self
-            .load_reaper_snapshot(&sandbox_ids, default_ttl_minutes, default_inactive_ttl_days)
-            .await?
-        else {
+        let Some(snapshot) = self.load_reaper_snapshot(&sandbox_ids, defaults).await? else {
             return Ok(());
         };
 
@@ -224,16 +236,23 @@ struct ReaperSnapshot {
     latest_times: HashMap<String, DateTime<Utc>>,
     ttl_map: HashMap<String, i32>,
     inactive_map: HashMap<String, i32>,
+    cold_map: HashMap<String, i32>,
+    /// When each stopped task's sandbox stopped, for the ones that still own
+    /// storage. Absent means nothing to reclaim — never had a sandbox, still
+    /// running, or already cold.
+    stopped_since: HashMap<String, DateTime<Utc>>,
     agent_lifecycle: HashMap<String, (String, DateTime<Utc>)>,
     default_ttl_minutes: i32,
     default_inactive_ttl_days: i32,
+    default_cold_after_hours: i32,
     now: DateTime<Utc>,
 }
 
 #[derive(Clone, Copy)]
 struct ReaperStats {
-    stopped_count: u32,
-    closed_count: u32,
+    stopped: u32,
+    closed: u32,
+    reclaimed: u32,
 }
 
 // The reaper's methods are split across several `impl` blocks so each stays next
@@ -244,8 +263,7 @@ impl TaskReaper {
     async fn load_reaper_snapshot(
         &self,
         sandbox_ids: &[String],
-        default_ttl_minutes: i32,
-        default_inactive_ttl_days: i32,
+        defaults: ReapCycleDefaults,
     ) -> Result<Option<ReaperSnapshot>, ReaperError> {
         let open_ids = match self.tasks.list_open_task_ids().await {
             Ok(ids) => ids,
@@ -277,6 +295,8 @@ impl TaskReaper {
         let latest_times = self.load_latest_activity_times(&all_ids).await?;
         let ttl_map = load_ttl_map(&self.tasks, &all_ids).await;
         let inactive_map = load_inactive_ttl_map(&self.tasks, &all_ids).await;
+        let cold_map = load_cold_map(&self.tasks, &all_ids).await;
+        let stopped_since = self.load_stopped_since(&open_ids).await;
         let agent_lifecycle = self.load_agent_lifecycle(sandbox_ids).await;
 
         Ok(Some(ReaperSnapshot {
@@ -286,11 +306,27 @@ impl TaskReaper {
             latest_times,
             ttl_map,
             inactive_map,
+            cold_map,
+            stopped_since,
             agent_lifecycle,
-            default_ttl_minutes,
-            default_inactive_ttl_days,
+            default_ttl_minutes: defaults.ttl_minutes,
+            default_inactive_ttl_days: defaults.inactive_ttl_days,
+            default_cold_after_hours: defaults.cold_after_hours,
             now: Utc::now(),
         }))
+    }
+
+    /// When each Open task's sandbox stopped, for those that still own storage.
+    /// Failure yields an empty map: the cold branch is a cost optimisation, and
+    /// skipping a cycle of it costs storage, while guessing costs work.
+    async fn load_stopped_since(&self, open_ids: &[String]) -> HashMap<String, DateTime<Utc>> {
+        self.sandbox
+            .stopped_with_storage(open_ids)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(error = %e, "Failed to read stopped sandboxes, skipping the cold branch this cycle");
+                HashMap::new()
+            })
     }
 
     async fn load_latest_activity_times(
@@ -374,6 +410,16 @@ async fn load_inactive_ttl_map(
         })
 }
 
+async fn load_cold_map(tasks: &Arc<dyn TaskDao>, all_ids: &[String]) -> HashMap<String, i32> {
+    tasks
+        .get_cold_after_hours_map(all_ids)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to fetch cold_after_hours map, falling back to default for all tasks");
+            HashMap::new()
+        })
+}
+
 impl TaskReaper {
     async fn load_agent_lifecycle(
         &self,
@@ -397,8 +443,9 @@ impl TaskReaper {
         let open_set: HashSet<&str> = snapshot.open_ids.iter().map(String::as_str).collect();
 
         let mut stats = ReaperStats {
-            stopped_count: 0,
-            closed_count: 0,
+            stopped: 0,
+            closed: 0,
+            reclaimed: 0,
         };
 
         for task_id in &snapshot.all_ids {
@@ -421,11 +468,19 @@ impl TaskReaper {
                     "Auto-closing inactive task"
                 );
                 self.auto_close_task(task_id).await;
-                stats.closed_count += 1;
+                stats.closed += 1;
                 continue;
             }
 
             if !sandbox_set.contains(task_id.as_str()) {
+                // Not running, so the idle-stop branch has nothing to do — but a
+                // task that has been stopped long enough is still holding a
+                // volume, and that is what the cold branch reclaims.
+                if open_set.contains(task_id.as_str())
+                    && self.reclaim_cold_storage(task_id, &snapshot).await
+                {
+                    stats.reclaimed += 1;
+                }
                 continue;
             }
 
@@ -452,13 +507,48 @@ impl TaskReaper {
                         .stop_idle_sandbox(task_id, ttl_minutes, latest_at, reap_floor)
                         .await
                     {
-                        stats.stopped_count += 1;
+                        stats.stopped += 1;
                     }
                 }
             }
         }
 
         stats
+    }
+
+    /// The cold branch: reclaim the Deployment and volume of a task that has
+    /// been stopped past its cold clock. Returns whether storage was actually
+    /// reclaimed.
+    async fn reclaim_cold_storage(&self, task_id: &str, snapshot: &ReaperSnapshot) -> bool {
+        let cold_after_hours = snapshot
+            .cold_map
+            .get(task_id)
+            .copied()
+            .unwrap_or(snapshot.default_cold_after_hours);
+        // Absent from the map means there is no storage to reclaim: the task
+        // never had a sandbox, or an earlier cycle already cooled it.
+        let Some(stopped_at) = snapshot.stopped_since.get(task_id).copied() else {
+            return false;
+        };
+        if !decide_cold(cold_after_hours, stopped_at, snapshot.now) {
+            return false;
+        }
+
+        info!(
+            task_id = %task_id,
+            cold_after_hours,
+            stopped_at = %stopped_at,
+            "Reclaiming the storage of a long-stopped sandbox"
+        );
+        match self.sandbox.archive_storage(task_id).await {
+            Ok(()) => true,
+            Err(e) => {
+                // Every failure path keeps the volume, so this is a warning and
+                // not a lost workspace; the next cycle retries.
+                warn!(task_id = %task_id, error = %e, "Failed to reclaim sandbox storage");
+                false
+            }
+        }
     }
 
     async fn stop_idle_sandbox(
@@ -530,10 +620,11 @@ fn agent_holds_the_sandbox(status: &str) -> bool {
 }
 
 fn log_reaper_stats(stats: ReaperStats) {
-    if stats.stopped_count > 0 || stats.closed_count > 0 {
+    if stats.stopped > 0 || stats.closed > 0 || stats.reclaimed > 0 {
         info!(
-            stopped_count = stats.stopped_count,
-            closed_count = stats.closed_count,
+            stopped_count = stats.stopped,
+            closed_count = stats.closed,
+            reclaimed_count = stats.reclaimed,
             "Task reaper cycle complete"
         );
     } else {
@@ -961,6 +1052,18 @@ fn decide_close(
     }
 }
 
+/// Pure decision function: whether a stopped sandbox has been stopped long
+/// enough for its storage to be reclaimed.
+///
+/// `cold_after_hours <= 0` disables the branch, matching how `ttl_minutes` and
+/// `inactive_ttl_days` read `0` as "indefinite". `stopped_at` is when intent
+/// moved to Stopped, which is also the instant the pre-stop archive push was
+/// taken against — so the same timestamp decides the clock here and the
+/// freshness proof downstream.
+fn decide_cold(cold_after_hours: i32, stopped_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    cold_after_hours > 0 && now - stopped_at >= chrono::Duration::hours(i64::from(cold_after_hours))
+}
+
 impl TaskReaper {
     /// Mirror of [`crate::task::handlers::close_task`] for unattended use.
     ///
@@ -1041,8 +1144,8 @@ mod tests {
 
     use super::super::dao::MockTaskDao;
     use super::super::sandbox_lifecycle::SandboxOpError;
-    use crate::task::binding_dao::{LoopRecentTaskRow, TaskBindingInfo};
     use crate::message::dao::MockMessageDao;
+    use crate::task::binding_dao::{LoopRecentTaskRow, TaskBindingInfo};
     use crate::task_event::dao::MockTaskEventDao;
     use crate::task_turn::dao::MockTaskTurnDao;
     use moatless_adapter_model::models::TaskBinding;
@@ -1129,6 +1232,15 @@ mod tests {
             _retention: ArchiveRetention,
         ) -> Result<(), SandboxOpError> {
             unimplemented!("reaper error path does not drive sandbox lifecycle")
+        }
+        async fn archive_storage(&self, _task_id: &str) -> Result<(), SandboxOpError> {
+            unimplemented!("reaper error path does not drive sandbox lifecycle")
+        }
+        async fn stopped_with_storage(
+            &self,
+            _task_ids: &[String],
+        ) -> Result<HashMap<String, DateTime<Utc>>, SandboxOpError> {
+            unimplemented!("reaper error path does not read sandbox storage")
         }
         async fn desired_state(
             &self,
@@ -1509,6 +1621,36 @@ mod tests {
         // 7-day TTL, last activity 1 day ago → keep.
         let decision = decide_close(7, Some(now - chrono::Duration::days(1)), now);
         assert_eq!(decision, CloseDecision::Keep);
+    }
+
+    // =========================================================================
+    // decide_cold
+    // =========================================================================
+
+    #[test]
+    fn cold_zero_hours_never_reclaims() {
+        let now = Utc::now();
+        assert!(!decide_cold(0, now - chrono::Duration::days(30), now));
+    }
+
+    #[test]
+    fn cold_beyond_the_clock_reclaims() {
+        let now = Utc::now();
+        assert!(decide_cold(24, now - chrono::Duration::hours(25), now));
+    }
+
+    #[test]
+    fn cold_within_the_clock_keeps_the_volume() {
+        let now = Utc::now();
+        assert!(!decide_cold(24, now - chrono::Duration::hours(23), now));
+    }
+
+    #[test]
+    fn cold_clock_runs_from_the_stop_not_the_activity() {
+        // A task stopped 2h ago after a month of chat is warm; the branch reads
+        // the stop, so a long-idle-but-recently-stopped task keeps its volume.
+        let now = Utc::now();
+        assert!(!decide_cold(24, now - chrono::Duration::hours(2), now));
     }
 
     // =========================================================================

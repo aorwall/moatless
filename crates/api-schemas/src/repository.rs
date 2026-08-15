@@ -18,10 +18,9 @@ pub struct ResourceConfig {
     pub requests: Option<HashMap<String, String>>,
     pub limits: Option<HashMap<String, String>>,
     /// Per-repository workspace storage size override (e.g. "8Gi"). Sizes the
-    /// per-task PVC (`ebs`) and node-local emptyDir (`ephemeral`/`s3`) tiers.
-    /// The `node` hostPath tier is bounded by node disk capacity instead. When
-    /// unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never copied
-    /// into container resource specs.
+    /// per-task PVC when `pvc_enabled`, and the node-local emptyDir otherwise.
+    /// When unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never
+    /// copied into container resource specs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
     /// Per-repository size cap for the transient `build-cache` emptyDir mounted
@@ -44,21 +43,27 @@ pub struct ResourceConfig {
     /// - `"node"` — shared by all sandboxes scheduled on the same node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub build_cache_scope: Option<String>,
-    /// Per-repository storage tier. One of [`STORAGE_MODES`]:
-    /// - `"ebs"` (default) — a per-task EBS PVC mounted at `/opt/moatless`,
-    ///   surviving pod restarts.
-    /// - `"ephemeral"` — a node-local emptyDir, no PVC; transcripts persist only
-    ///   via the S3 sync, the workspace does not survive the pod.
-    /// - `"s3"` — a node-local emptyDir plus a direct git-working-tree sync to S3,
-    ///   giving workspace persistence without an EBS attach/detach per restart.
-    /// - `"node"` — a best-effort node-local hostPath. The workspace survives
-    ///   stop/start only when Kubernetes schedules the task back onto the same node.
+    /// Whether this repo's sandbox gets a per-task PVC mounted at
+    /// `/opt/moatless`. The PVC is owned by the Deployment: it survives pod
+    /// restarts and is deleted when the sandbox is removed. When `false`, the
+    /// workspace is a node-local emptyDir that dies with the pod.
     ///
-    /// When unset, the deployment-wide default applies
-    /// (`K8S_SANDBOX_DEFAULT_STORAGE_MODE`, itself defaulting to `"ebs"`).
-    /// Unknown values are ignored (treated as unset).
+    /// When unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_PVC`).
+    /// The global `K8S_SANDBOX_STORAGE_ENABLED` kill switch still wins over both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage_mode: Option<String>,
+    pub pvc_enabled: Option<bool>,
+    /// Whether this repo's sandbox snapshots its workspace to S3 — the copy that
+    /// outlives the Deployment. Pushed before a stop or remove, and pulled back
+    /// on start when the volume holds nothing usable (a fresh PVC, a redeploy, or
+    /// a fallback after the PVC could not attach).
+    ///
+    /// Independent of [`Self::pvc_enabled`]: with a PVC the volume is the live
+    /// copy and S3 is read only when it is empty or broken; without one, S3 is
+    /// the only persistence and is read on every start.
+    ///
+    /// When unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_S3`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub s3_enabled: Option<bool>,
     /// Per-repository size cap for the `dind` sidecar's `/var/lib/docker`
     /// emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`
     /// and `dockerStorageMode: "emptyDir"`. Exceeding the cap gets the pod
@@ -74,23 +79,9 @@ pub struct ResourceConfig {
     pub docker_storage_mode: Option<String>,
 }
 
-/// Accepted values for [`ResourceConfig::storage_mode`]. `"ebs"` is the built-in
-/// fallback; the effective default for repos that leave `storage_mode` unset is
-/// set per-deployment via `K8S_SANDBOX_DEFAULT_STORAGE_MODE`.
-pub const STORAGE_MODES: [&str; 4] = ["ebs", "ephemeral", "s3", "node"];
 pub const BUILD_CACHE_MODES: [&str; 2] = ["emptyDir", "node"];
 pub const BUILD_CACHE_SCOPES: [&str; 2] = ["task", "node"];
 pub const DOCKER_STORAGE_MODES: [&str; 2] = ["emptyDir", "node"];
-
-/// Whether `mode` is a recognized [`ResourceConfig::storage_mode`] value.
-///
-/// Matching is case-insensitive and ignores surrounding whitespace, mirroring
-/// the backend's `StorageBackend::from_plan` resolution.
-#[must_use]
-pub fn is_valid_storage_mode(mode: &str) -> bool {
-    let normalized = mode.trim().to_ascii_lowercase();
-    STORAGE_MODES.contains(&normalized.as_str())
-}
 
 #[must_use]
 pub fn is_valid_docker_storage_mode(mode: &str) -> bool {
@@ -278,19 +269,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resource_config_serializes_storage_mode_as_camel_case() {
+    fn resource_config_serializes_storage_switches_as_camel_case() {
         let cfg = ResourceConfig {
-            storage_mode: Some("ephemeral".to_string()),
+            pvc_enabled: Some(true),
+            s3_enabled: Some(true),
             ..Default::default()
         };
         let value = serde_json::to_value(&cfg).expect("serialize ResourceConfig");
-        assert_eq!(
-            value.get("storageMode"),
-            Some(&serde_json::json!("ephemeral"))
-        );
+        assert_eq!(value.get("pvcEnabled"), Some(&serde_json::json!(true)));
+        assert_eq!(value.get("s3Enabled"), Some(&serde_json::json!(true)));
         assert!(
-            value.get("storage_mode").is_none(),
-            "snake_case key must not be emitted"
+            value.get("pvc_enabled").is_none() && value.get("s3_enabled").is_none(),
+            "snake_case keys must not be emitted"
+        );
+    }
+
+    #[test]
+    fn resource_config_omits_unset_storage_switches() {
+        let value = serde_json::to_value(ResourceConfig::default()).expect("serialize");
+        assert!(
+            value.get("pvcEnabled").is_none() && value.get("s3Enabled").is_none(),
+            "unset switches must be omitted so they fall back to the deployment default"
         );
     }
 
@@ -377,26 +376,24 @@ mod tests {
     }
 
     #[test]
-    fn resource_config_deserializes_camel_case_storage_mode() {
+    fn resource_config_deserializes_camel_case_storage_switches() {
         let cfg: ResourceConfig =
-            serde_json::from_value(serde_json::json!({ "storageMode": "ephemeral" }))
+            serde_json::from_value(serde_json::json!({ "pvcEnabled": true, "s3Enabled": false }))
                 .expect("deserialize ResourceConfig");
-        assert_eq!(cfg.storage_mode.as_deref(), Some("ephemeral"));
+        assert_eq!(cfg.pvc_enabled, Some(true));
+        assert_eq!(cfg.s3_enabled, Some(false));
     }
 
+    /// A repo config written against the removed `storageMode` field must still
+    /// load — the switches then fall back to the deployment default rather than
+    /// the whole workspace config failing to parse.
     #[test]
-    fn storage_mode_validation_accepts_known_and_normalizes() {
-        assert!(is_valid_storage_mode("ebs"));
-        assert!(is_valid_storage_mode("ephemeral"));
-        assert!(is_valid_storage_mode("s3"));
-        assert!(is_valid_storage_mode("node"));
-        // Case-insensitive + whitespace-tolerant, matching the backend resolver.
-        assert!(is_valid_storage_mode("  S3 "));
-        assert!(is_valid_storage_mode("EBS"));
-        // Unknown values are rejected so the CLI can catch typos early.
-        assert!(!is_valid_storage_mode("s33"));
-        assert!(!is_valid_storage_mode("pvc"));
-        assert!(!is_valid_storage_mode(""));
+    fn resource_config_ignores_a_stale_storage_mode() {
+        let cfg: ResourceConfig =
+            serde_json::from_value(serde_json::json!({ "storageMode": "ephemeral" }))
+                .expect("a stale storageMode must not fail deserialization");
+        assert_eq!(cfg.pvc_enabled, None);
+        assert_eq!(cfg.s3_enabled, None);
     }
 
     #[test]

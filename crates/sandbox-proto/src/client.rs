@@ -19,11 +19,11 @@ use crate::{
     GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
     GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest,
     ListFilesRequest, ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest,
-    ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
-    SearchFilesByNameRequest, SearchFilesByNameResponse, StopAgentRequest, TerminalAttachRequest,
-    TerminalAttachStreamEvent, TerminalClearRequest, TerminalCloseRequest, TerminalOpenRequest,
-    TerminalResizeRequest, TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest,
-    WriteFileRequest,
+    ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, SearchFilesByNameRequest,
+    SearchFilesByNameResponse, StopAgentRequest, SyncWorkspaceRequest, SyncWorkspaceResponse,
+    TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalCloseRequest,
+    TerminalOpenRequest, TerminalResizeRequest, TerminalRestartRequest, TerminalSessionSnapshot,
+    TerminalWriteRequest, WriteFileRequest,
 };
 use tonic::Streaming;
 use tonic::transport::Channel;
@@ -110,6 +110,22 @@ impl SandboxClient {
             })
             .await?;
         Ok(())
+    }
+
+    /// Push the workspace to S3 now, ahead of an effect that destroys the live
+    /// copy. Bounded by its own deadline: the caller is on the stop path and a
+    /// sandbox that cannot answer must not hold the transition open.
+    pub async fn sync_workspace(
+        &self,
+        timeout: Duration,
+    ) -> Result<SyncWorkspaceResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        match tokio::time::timeout(timeout, client.sync_workspace(SyncWorkspaceRequest {})).await {
+            Ok(response) => Ok(response?.into_inner()),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Workspace sync gRPC request timed out",
+            )),
+        }
     }
 
     /// Get the current agent status from the sandbox.

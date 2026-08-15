@@ -213,6 +213,7 @@ mod tests {
             background_job_monitoring_enabled: false,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
+            workspace_restore_if_empty: false,
             headless: false,
             default_model: None,
             default_codex_model: None,
@@ -261,6 +262,7 @@ mod tests {
             Arc::clone(&credential_dispatcher),
             Arc::clone(&system_prompt_cache),
             heartbeat.clone(),
+            crate::init::workspace_sync::WorkspaceSyncTracker::new(),
         );
         late_injector.set(Box::new(agent_handle.clone()));
         let terminals = crate::terminal::TerminalManager::new(config.workspace_dir.clone());
@@ -281,6 +283,7 @@ mod tests {
             codex_watcher_handle: Arc::new(RwLock::new(None)),
             system_prompt_cache,
             dispatch_lock: Default::default(),
+            workspace_sync: Default::default(),
             supervisor_health: Default::default(),
             terminals,
         }

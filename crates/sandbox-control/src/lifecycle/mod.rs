@@ -66,6 +66,8 @@ pub(crate) mod dao;
 pub(crate) mod event_sink;
 pub(crate) mod lock;
 pub mod observe;
+pub(crate) mod workspace_archive;
+pub(crate) mod workspace_sync;
 
 // The lifecycle contract against local Postgres (Lifecycle over the Pg adapters).
 #[cfg(all(test, feature = "db-tests"))]
@@ -110,4 +112,6 @@ pub use agent_stop::GrpcAgentStop;
 pub use dao::PgLifecycleDao;
 pub use event_sink::OutboxEventSink;
 pub use lock::PgLifecycleLock;
+pub use workspace_archive::S3WorkspaceArchive;
+pub use workspace_sync::GrpcWorkspaceSync;
 pub use plan::ProvisionDeps;

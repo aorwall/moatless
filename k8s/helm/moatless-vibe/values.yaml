@@ -648,22 +648,62 @@ kubernetes:
     enabled: true
     # -- Storage class for sandbox PVCs (empty = cluster default)
     storageClass: ""
-    # -- Default size of each task's workspace (the per-task EBS PVC, or the
-    #    node-local emptyDir for the ephemeral/s3 tiers). Big repos can opt into
-    #    more via `.moatless/config.json` -> `resources.storage`; `node` hostPath
-    #    workspaces are bounded only by node disk capacity.
+    # -- Default size of each task's workspace (the per-task PVC, or the
+    #    node-local emptyDir when `defaultPvc` is off). Big repos can opt into
+    #    more via `.moatless/config.json` -> `resources.storage`.
     size: "3Gi"
-    # -- Default workspace storage backend for repos that don't set
-    #    `resources.storageMode` themselves (`ebs` | `ephemeral` | `s3` | `node`).
-    #    `s3` runs on a node-local emptyDir and syncs the git working tree to S3
-    #    (no per-task EBS PVC, no attach/detach churn on restart). Trade-off:
-    #    gitignored build output (target/, node_modules/, ...) is NOT synced, so
-    #    it must be rebuilt after a cold stop. Requires the S3 uploads bucket to
-    #    be configured (same one used by transcriptStorage). `node` uses a
-    #    per-task hostPath under K8S_SANDBOX_CACHE_HOST_ROOT/workspaces; retained
-    #    replacements are pinned to the newest surviving recorded node.
-    #    A per-repo `storageMode` always overrides this.
-    defaultMode: "s3"
+    # Workspace storage is two independent switches, resolved per task from the
+    # repo's `resources.pvcEnabled` / `resources.s3Enabled` (each falling back to
+    # the deployment default below). A per-repo switch always overrides these.
+    #
+    #   pvc + s3  — a durable per-task PVC that also snapshots its git working
+    #               tree to S3 on stop/remove, so a lost or unattachable volume
+    #               is restored from S3 instead of stalling. The recommended
+    #               durable tier and the default here.
+    #   pvc only  — a durable per-task PVC with no S3 copy; a lost volume loses
+    #               the workspace.
+    #   s3 only   — a node-local emptyDir synced to S3 (no PVC, no attach/detach
+    #               churn on restart). Cheaper, but a cold stop drops gitignored
+    #               build output (target/, node_modules/, ...), which is rebuilt
+    #               on the next start.
+    #   neither   — an ephemeral emptyDir with no persistence at all.
+    #
+    # S3-backed tiers require the uploads bucket to be configured (the same one
+    # used by transcriptStorage); without it the sync calls no-op.
+    # -- Give each task a durable per-task PVC by default (env
+    #    K8S_SANDBOX_DEFAULT_PVC). Set to `false` for the node-local emptyDir
+    #    tiers.
+    defaultPvc: true
+    # -- Snapshot each task's workspace to S3 by default (env
+    #    K8S_SANDBOX_DEFAULT_S3). Requires the uploads bucket.
+    defaultS3: true
+    # The cold tier. A stopped task keeps its PVC so the next start is warm, and
+    # at scale those idle claims — not the running pods — become the dominant
+    # cost: an EBS gp3 volume is billed on provisioned size whether or not
+    # anything is attached to it. Once a task has been stopped this long, the
+    # Deployment and the PVC are deleted and the S3 snapshot becomes the only
+    # copy; a later start provisions a fresh volume and restores into it, paying
+    # a slower first start (setup commands rebuild gitignored output) in exchange
+    # for object-storage pricing on an idle workspace.
+    #
+    # The volume is only ever deleted once the snapshot is proven current, so
+    # this is safe to enable — but it is only *useful* with `defaultS3` on and
+    # the uploads bucket configured, since without a snapshot there is nothing to
+    # reclaim toward and the transition never fires.
+    #
+    # Configure the bucket to expire `<workspacePrefix>/` objects on your own
+    # retention horizon: this deliberately never deletes a snapshot, so an
+    # abandoned task's tar lives until a bucket lifecycle rule removes it.
+    # -- Hours a task must be stopped before its Deployment and PVC are
+    #    reclaimed (env SANDBOX_COLD_AFTER_HOURS). `0` disables the cold tier.
+    #    A per-task `tasks.cold_after_hours` overrides this.
+    coldAfterHours: 24
+    # -- Keep a task's S3 workspace snapshot when the task is closed (env
+    #    SANDBOX_RETAIN_STORAGE_ON_CLOSE). Closing is machine-initiated — the
+    #    reaper closes after 7 days of inactivity — so the default keeps the
+    #    snapshot and leaves its expiry to the bucket's lifecycle rule. Set to
+    #    `false` to delete a closed task's snapshot immediately.
+    retainOnClose: true
   # Sandbox Claude transcript sync to S3.
   # The sandbox tars `~/.claude/projects/*.jsonl` and ships it to the uploads
   # bucket via the backend (no pod AWS creds), so transcripts persist off the

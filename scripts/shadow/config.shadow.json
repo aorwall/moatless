@@ -21,7 +21,8 @@
     ]
   },
   "resources": {
-    "storageMode": "s3",
+    "pvcEnabled": false,
+    "s3Enabled": true,
     "storage": "40Gi",
     "dockerStorageMode": "node",
     "dockerStorage": "30Gi"

@@ -190,11 +190,23 @@ pub struct Config {
     /// `--dangerously-skip-permissions`. Accepts the CLI spellings: `default`,
     /// `acceptEdits`, `bypassPermissions`, `plan`, `delegate`, `dontAsk`.
     pub permission_mode: PermissionMode,
-    /// Whether the `s3` storage backend's workspace sync is enabled (env:
-    /// `WORKSPACE_SYNC_ENABLED`). Set by the backend only for `storage_mode:
-    /// "s3"` pods; when true, the sandbox restores the git working tree from S3
-    /// on boot and periodically syncs it back via backend-minted presigned URLs.
+    /// Whether this sandbox snapshots its workspace to S3 (env:
+    /// `WORKSPACE_SYNC_ENABLED`). Set by the backend when the repo's `s3`
+    /// storage switch is on; when true, the sandbox restores the workspace from
+    /// S3 on boot and syncs it back via backend-minted presigned URLs.
     pub workspace_sync_enabled: bool,
+    /// Whether the volume under `WORKSPACE_DIR` is durable (env:
+    /// `WORKSPACE_RESTORE_IF_EMPTY`). Set by the backend when *both* storage
+    /// switches are on, i.e. a PVC holds the live copy and S3 only holds a
+    /// fallback snapshot.
+    ///
+    /// It makes the restore conditional: the snapshot is read only into a volume
+    /// that holds nothing usable — freshly created, recreated after a close, or
+    /// swapped for an emptyDir because the PVC would not attach. Overwriting a
+    /// populated PVC with an older snapshot would lose work. It also turns off
+    /// the periodic upload loop, whose whole purpose is to bound the loss when
+    /// the only copy is one an involuntary kill destroys.
+    pub workspace_restore_if_empty: bool,
     /// Whether the task runs headless (env: `SANDBOX_HEADLESS`), i.e. nobody is
     /// expected to be watching it. Set by the backend for tasks created without
     /// a browser (CLI, loops). Preview servers are already stripped from the
@@ -494,6 +506,7 @@ impl Config {
                 .and_then(|v| parse_permission_mode(&v))
                 .unwrap_or(PermissionMode::BypassPermissions),
             workspace_sync_enabled: env_flag_enabled("WORKSPACE_SYNC_ENABLED"),
+            workspace_restore_if_empty: env_flag_enabled("WORKSPACE_RESTORE_IF_EMPTY"),
             headless: env_flag_enabled("SANDBOX_HEADLESS"),
 
             home_dir,
@@ -598,6 +611,7 @@ pub(crate) mod test_support {
             background_job_monitoring_enabled: false,
             permission_mode: PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
+            workspace_restore_if_empty: false,
             headless: false,
             home_dir: "/tmp/home".to_string(),
             codex_home_dir: "/tmp/home/.codex".to_string(),

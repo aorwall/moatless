@@ -27,6 +27,7 @@ pub mod pod_status;
 pub mod pod_watcher;
 pub mod provider;
 pub mod pvc;
+mod rescue_pod;
 pub mod sandbox_resources;
 pub mod service;
 pub mod status_resolver;

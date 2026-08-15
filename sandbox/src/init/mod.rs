@@ -27,7 +27,7 @@ pub(crate) mod transcript_sync;
 #[cfg(test)]
 mod replacement_test;
 mod workspace;
-pub(crate) mod workspace_sync;
+pub mod workspace_sync;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -254,13 +254,14 @@ pub async fn run_init(state: SandboxState, registrar: Registrar) {
     // spot reclaim with no grace) reaches neither and loses everything since the
     // last completed turn. This loop bounds that gap: every interval it
     // fingerprints the workspace and uploads only when the tracked file set
-    // changed. `WORKSPACE_SYNC_INTERVAL_SECS=0` disables it; turn-boundary and
-    // shutdown uploads still run.
+    // changed. `WORKSPACE_SYNC_INTERVAL_SECS=0` disables it, and so does a
+    // durable volume, which survives the kill this loop exists for;
+    // turn-boundary, pre-stop and shutdown uploads still run.
     //
     // Liveness: a dead loop silently drops the between-turn checkpoints, leaving
     // an ungraceful kill to fall back to the last turn boundary — supervision
     // makes the loop's death visible rather than fixing it.
-    if state.config.workspace_sync_enabled {
+    if workspace_sync::is_periodic_enabled(&state.config) {
         if let Some(interval) = workspace_sync::read_interval_from_env() {
             let workspace_state = state.clone();
             let workspace_cancel = state.lifecycle_cancel.clone();
@@ -300,6 +301,15 @@ pub async fn run_init(state: SandboxState, registrar: Registrar) {
 /// row and enqueueing a now-stale Recover behind the Message.
 pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: WorkspaceOrigin) {
     recover_interrupted_run_unless_pending(state, workspace_origin).await;
+
+    // Adopt whatever the restore or the clone produced as the upload baseline: a
+    // workspace nobody has touched since is not worth shipping back.
+    if state.config.workspace_sync_enabled {
+        state
+            .workspace_sync
+            .adopt_current(&state.config.workspace_dir)
+            .await;
+    }
 
     *state.init_phase.write().await = InitPhase::Ready;
     // No event: the watcher publishes `pod_ready` a moment later off the same
@@ -601,9 +611,9 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     //    lets us skip the clone entirely. Returns false (leaving the workspace
     //    empty) for a fresh task, a disabled feature, a failed transfer, or a
     //    working-tree-only snapshot — in which case we clone below.
-    let restored_full_repo = if state.config.workspace_sync_enabled {
-        let restored = workspace_sync::restore_on_start(state).await;
-        if restored {
+    let restore_decision = if state.config.workspace_sync_enabled {
+        let decision = workspace_sync::restore_on_start(state).await;
+        if decision.restored_snapshot() {
             publish_sandbox_event(
                 state,
                 "RepositoryRestored",
@@ -612,10 +622,11 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
             )
             .await;
         }
-        restored
+        decision
     } else {
-        false
+        workspace_sync::RestoreDecision::Nothing
     };
+    let restored_full_repo = restore_decision.restored_snapshot();
 
     // 5. Clone the workspace's repositories (fatal on failure). Runs even after
     //    an S3 restore: `clone_repositories` skips any repo whose directory
@@ -714,11 +725,16 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     //    feature) is non-fatal.
     transcript_sync::download_on_start(state).await;
 
-    // 10. S3 working-tree overlay: only when workspace sync is on AND we did not
-    //     already restore a full repo in step 4. Overlays the persisted working
-    //     tree onto the fresh clone so the agent sees restored edits. Best-effort
-    //     and non-fatal.
-    if state.config.workspace_sync_enabled && !restored_full_repo {
+    // 10. S3 working-tree overlay: only when workspace sync is on AND step 4 left
+    //     the overlay owed. Overlays the persisted working tree onto the fresh
+    //     clone so the agent sees restored edits. Best-effort and non-fatal.
+    //
+    //     Both "we just extracted the full snapshot" and "the durable volume
+    //     already holds the repo" suppress it: in the first the archive is
+    //     already the working tree, and in the second the archive is the *older*
+    //     copy — extracting it over a live PVC would revert work that never made
+    //     it into a snapshot.
+    if state.config.workspace_sync_enabled && !restore_decision.skips_overlay() {
         workspace_sync::download_on_start(state).await;
     }
 

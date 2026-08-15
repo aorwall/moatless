@@ -1112,6 +1112,7 @@ fn service_with_harness(
         Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
+        crate::init::workspace_sync::WorkspaceSyncTracker::new(),
     );
     let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
     let heartbeat = Heartbeat::new();
@@ -1583,6 +1584,7 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
         Arc::clone(&registry),
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
+        crate::init::workspace_sync::WorkspaceSyncTracker::new(),
     );
     let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
     tokio::spawn(service.run(rx, Heartbeat::new()));
@@ -2128,6 +2130,7 @@ fn service_with_credentials(
         Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
         detector,
         dispatcher,
+        crate::init::workspace_sync::WorkspaceSyncTracker::new(),
     );
     let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
     tokio::spawn(service.run(rx, Heartbeat::new()));

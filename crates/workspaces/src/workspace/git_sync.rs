@@ -1204,30 +1204,43 @@ mod tests {
     }
 
     #[test]
-    fn config_carries_storage_mode_from_git_repo() {
-        // A repo selecting the ephemeral storage tier via its committed
-        // `.moatless/config.json`. The nested `ResourceConfig` must read the
-        // camelCase keys and round-trip back to camelCase in the stored JSONB so
-        // the provision-time deserialize reads it correctly.
+    fn config_carries_storage_switches_from_git_repo() {
+        // A repo turning the PVC off and keeping the S3 snapshot via its
+        // committed `.moatless/config.json`. The nested `ResourceConfig` must
+        // read the camelCase keys and round-trip back to camelCase in the stored
+        // JSONB so the provision-time deserialize reads it correctly.
+        let json = r#"{
+            "resources": { "pvcEnabled": false, "s3Enabled": true, "storage": "8Gi" }
+        }"#;
+        let config: MoatlessRepoConfig = serde_json::from_str(json).unwrap();
+        let resources = config.resources.as_ref().expect("resources present");
+        assert_eq!(resources.pvc_enabled, Some(false));
+        assert_eq!(resources.s3_enabled, Some(true));
+        assert_eq!(resources.storage.as_deref(), Some("8Gi"));
+
+        let run = run_config_from_moatless_config(&config).unwrap();
+        let value = run.resources.expect("resources value present");
+        assert_eq!(value.get("pvcEnabled"), Some(&serde_json::json!(false)));
+        assert_eq!(value.get("s3Enabled"), Some(&serde_json::json!(true)));
+        assert_eq!(value.get("storage"), Some(&serde_json::json!("8Gi")));
+        assert!(
+            value.get("pvc_enabled").is_none(),
+            "snake_case key must not leak into stored JSONB"
+        );
+    }
+
+    /// The removed `storageMode` is an unknown field, not an error: a repo that
+    /// still carries one loads and simply falls back to the deployment defaults.
+    #[test]
+    fn a_stale_storage_mode_is_ignored() {
         let json = r#"{
             "resources": { "storageMode": "ephemeral", "storage": "8Gi" }
         }"#;
         let config: MoatlessRepoConfig = serde_json::from_str(json).unwrap();
         let resources = config.resources.as_ref().expect("resources present");
-        assert_eq!(resources.storage_mode.as_deref(), Some("ephemeral"));
+        assert_eq!(resources.pvc_enabled, None);
+        assert_eq!(resources.s3_enabled, None);
         assert_eq!(resources.storage.as_deref(), Some("8Gi"));
-
-        let run = run_config_from_moatless_config(&config).unwrap();
-        let value = run.resources.expect("resources value present");
-        assert_eq!(
-            value.get("storageMode"),
-            Some(&serde_json::json!("ephemeral"))
-        );
-        assert_eq!(value.get("storage"), Some(&serde_json::json!("8Gi")));
-        assert!(
-            value.get("storage_mode").is_none(),
-            "snake_case key must not leak into stored JSONB"
-        );
     }
 
     #[test]

@@ -732,6 +732,7 @@ mod tests {
             background_job_monitoring_enabled: false,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
+            workspace_restore_if_empty: false,
             headless: false,
             default_model: None,
             default_codex_model: None,

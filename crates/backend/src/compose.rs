@@ -32,8 +32,9 @@ use crate::repository::dao::{PgRepositoryDao, RepositoryDao};
 use crate::sandbox::lifecycle::orchestrator::LifecycleDao;
 use crate::sandbox::lifecycle::runtime::SandboxRuntime;
 use crate::sandbox::lifecycle::{
-    FleetObserver, GrpcAgentStop, Lifecycle, NotifyPort, OutboxEventSink, PgLifecycleDao,
-    PgLifecycleLock, ProvisionDeps, Reconciler, ReconcilerConfig, SystemWallClock,
+    FleetObserver, GrpcAgentStop, GrpcWorkspaceSync, Lifecycle, NotifyPort, OutboxEventSink,
+    PgLifecycleDao, PgLifecycleLock, ProvisionDeps, Reconciler, ReconcilerConfig,
+    S3WorkspaceArchive, SystemWallClock,
 };
 use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
 use crate::secret::dao::{PgSecretDao, SecretDao};
@@ -237,6 +238,17 @@ pub fn github_app_registry(
     ))
 }
 
+/// The service-gated handles a lifecycle is built over, grouped because they
+/// arrive from the same place — `main`'s Redis and S3 gates — and are each
+/// `None` in a deployment that runs without the backing service.
+pub struct LifecycleOptions {
+    /// Event publication; `None` without Redis.
+    pub events: Option<Arc<dyn EventPublisher>>,
+    /// The workspace-archive reader the cold transition proves itself against;
+    /// `None` without S3, which leaves the transition off.
+    pub workspace_archive: Option<Arc<S3WorkspaceArchive>>,
+}
+
 impl Ports {
     /// Build the shared durable Sandbox lifecycle handle over its Postgres and
     /// runtime adapters. One instance is shared by `AppState`, the sandbox API,
@@ -249,20 +261,25 @@ impl Ports {
         runtime: Arc<dyn SandboxRuntime>,
         connector: Arc<dyn SandboxConnector>,
         default_sandbox_image: String,
-        events: Option<Arc<dyn EventPublisher>>,
+        optional: LifecycleOptions,
     ) -> Arc<Lifecycle> {
-        Arc::new(
-            Lifecycle::new(
-                self.lifecycle_store.clone(),
-                runtime,
-                Arc::new(GrpcAgentStop::new(connector)),
-                Arc::new(OutboxEventSink::new(events)),
-                Arc::new(PgLifecycleLock::new(lock_pool)),
-                Arc::new(SystemWallClock),
-            )
-            .with_plan_knowledge(plan, default_sandbox_image)
-            .with_lock_attempts(LIFECYCLE_LOCK_ATTEMPTS),
+        let lifecycle = Lifecycle::new(
+            self.lifecycle_store.clone(),
+            runtime,
+            Arc::new(GrpcAgentStop::new(connector.clone())),
+            Arc::new(OutboxEventSink::new(optional.events)),
+            Arc::new(PgLifecycleLock::new(lock_pool)),
+            Arc::new(SystemWallClock),
         )
+        .with_workspace_sync(Arc::new(GrpcWorkspaceSync::new(connector)))
+        .with_plan_knowledge(plan, default_sandbox_image)
+        .with_lock_attempts(LIFECYCLE_LOCK_ATTEMPTS);
+        // Without S3 the cold transition stays off: `with_workspace_archive` is
+        // what tells lifecycle a durable copy exists to reclaim toward.
+        Arc::new(match optional.workspace_archive {
+            Some(archive) => lifecycle.with_workspace_archive(archive),
+            None => lifecycle,
+        })
     }
 
     /// Assemble the desired-state reconciler over the lifecycle handle it drives

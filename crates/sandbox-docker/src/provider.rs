@@ -23,20 +23,24 @@ use super::naming::{
     generate_container_name, generate_server_container_name, generate_task_host_path,
 };
 use super::status_resolver::DockerStatusResolver;
+use moatless_backend_core::sandbox as core_sandbox;
 use moatless_core::config::Config;
 use moatless_sandbox_control::client::SandboxClient;
-use moatless_sandbox_control::status_reader::SandboxStatusReader;
-use moatless_backend_core::sandbox as core_sandbox;
 use moatless_sandbox_control::error::SandboxError;
 use moatless_sandbox_control::jwt;
-use moatless_sandbox_control::lifecycle::outcome::{DegradationWarning, Diagnostics, ServerFailure};
-use moatless_sandbox_control::lifecycle::runtime::{
-    map_sandbox_error, RuntimeOperationContext, RuntimeOutcome, SandboxRuntime,
+use moatless_sandbox_control::lifecycle::outcome::{
+    DegradationWarning, Diagnostics, ServerFailure,
 };
-use moatless_sandbox_control::lifecycle::{ArchiveRetention, ObservedStatus, ProvisionDeps, RuntimeEffect};
+use moatless_sandbox_control::lifecycle::runtime::{
+    RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, map_sandbox_error,
+};
+use moatless_sandbox_control::lifecycle::{
+    ArchiveRetention, ObservedStatus, ProvisionDeps, RuntimeEffect,
+};
 use moatless_sandbox_control::models::*;
-use moatless_workspaces::repository::models::ServerConfig;
 use moatless_sandbox_control::schemas::*;
+use moatless_sandbox_control::status_reader::SandboxStatusReader;
+use moatless_workspaces::repository::models::ServerConfig;
 
 /// Docker adapter for lifecycle mutation, observation, and connection.
 pub struct DockerSandboxAdapter {
@@ -69,17 +73,19 @@ async fn apply_disk_archive_retention(
             Ok(())
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(
-            format!(
+        Err(error) => Err(
+            moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(format!(
                 "delete Docker task disk archives at {}: {error}",
                 task_path.display()
-            ),
-        )),
+            )),
+        ),
     }
 }
 
 impl DockerSandboxAdapter {
-    fn require_plan(&self) -> Result<&ProvisionDeps, moatless_sandbox_control::lifecycle::RuntimeError> {
+    fn require_plan(
+        &self,
+    ) -> Result<&ProvisionDeps, moatless_sandbox_control::lifecycle::RuntimeError> {
         self.plan.as_ref().ok_or_else(|| {
             moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(
                 "sandbox plan repositories unavailable".to_string(),
@@ -557,9 +563,11 @@ impl SandboxRuntime for DockerSandboxAdapter {
             .map_err(map_sandbox_error)?
             .is_empty()
         {
-            return Err(moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(
-                format!("Docker resources for task {task_id} remain after removal"),
-            ));
+            return Err(
+                moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(format!(
+                    "Docker resources for task {task_id} remain after removal"
+                )),
+            );
         }
         if !retention.retains() {
             apply_disk_archive_retention(
@@ -581,6 +589,23 @@ impl SandboxRuntime for DockerSandboxAdapter {
             } else {
                 RuntimeEffect::NoOp
             },
+            diagnostics: Diagnostics::default(),
+        })
+    }
+
+    async fn reclaim_storage(
+        &self,
+        task_id: &str,
+        _rescue_upload_url: Option<&str>,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+        // The Docker runtime bind-mounts host paths and provisions no volume to
+        // reclaim, so there is no storage tier to fall down. Reporting `NoOp`
+        // rather than an error keeps a Docker deployment's reaper cycle quiet.
+        debug!(task_id = %task_id, "Storage reclaim is a no-op on the Docker runtime");
+        Ok(RuntimeOutcome {
+            observed: ObservedStatus::Stopped,
+            effect: RuntimeEffect::NoOp,
             diagnostics: Diagnostics::default(),
         })
     }
@@ -1041,9 +1066,11 @@ impl DockerSandboxAdapter {
             .await
             .map_err(map_sandbox_error)?
         {
-            Err(moatless_sandbox_control::lifecycle::RuntimeError::NotAbsent(format!(
-                "container {container_name} for task {task_id}"
-            )))
+            Err(
+                moatless_sandbox_control::lifecycle::RuntimeError::NotAbsent(format!(
+                    "container {container_name} for task {task_id}"
+                )),
+            )
         } else {
             Ok(())
         }
@@ -1107,8 +1134,8 @@ impl DockerSandboxAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_sandbox_control::lifecycle::runtime::OPERATION_GENERATION_LABEL;
     use moatless_sandbox_control::lifecycle::OperationGeneration;
+    use moatless_sandbox_control::lifecycle::runtime::OPERATION_GENERATION_LABEL;
     use std::collections::HashMap;
 
     #[test]
@@ -1163,10 +1190,12 @@ mod tests {
                 .and_then(|host| host.network_mode.as_deref()),
             Some("moatless")
         );
-        assert!(rebuilt
-            .networking_config
-            .and_then(|networking| networking.endpoints_config)
-            .is_some_and(|networks| networks.contains_key("preview")));
+        assert!(
+            rebuilt
+                .networking_config
+                .and_then(|networking| networking.endpoints_config)
+                .is_some_and(|networks| networks.contains_key("preview"))
+        );
     }
 
     #[tokio::test]
@@ -1185,9 +1214,11 @@ mod tests {
             .await
             .expect("retain");
 
-        assert!(tokio::fs::try_exists(task_path.join("repo/evidence.txt"))
-            .await
-            .expect("stat evidence"));
+        assert!(
+            tokio::fs::try_exists(task_path.join("repo/evidence.txt"))
+                .await
+                .expect("stat evidence")
+        );
     }
 
     #[tokio::test]
@@ -1208,9 +1239,11 @@ mod tests {
                 .expect("delete is idempotent");
         }
 
-        assert!(!tokio::fs::try_exists(&task_path)
-            .await
-            .expect("stat task directory"));
+        assert!(
+            !tokio::fs::try_exists(&task_path)
+                .await
+                .expect("stat task directory")
+        );
     }
 
     #[tokio::test]

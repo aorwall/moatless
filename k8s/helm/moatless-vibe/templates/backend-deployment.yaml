@@ -112,8 +112,21 @@ spec:
               value: {{ .Values.kubernetes.sandboxStorage.enabled | default true | quote }}
             - name: K8S_SANDBOX_STORAGE_SIZE
               value: {{ .Values.kubernetes.sandboxStorage.size | default "3Gi" | quote }}
-            - name: K8S_SANDBOX_DEFAULT_STORAGE_MODE
-              value: {{ .Values.kubernetes.sandboxStorage.defaultMode | default "ebs" | quote }}
+            # Rendered with a plain `quote` (no `| default`): Helm's `default`
+            # treats a boolean `false` as empty and would flip an explicit
+            # `false` back to the default. A missing key renders "" instead,
+            # which the backend's env_bool reads as its own default (true).
+            - name: K8S_SANDBOX_DEFAULT_PVC
+              value: {{ .Values.kubernetes.sandboxStorage.defaultPvc | quote }}
+            - name: K8S_SANDBOX_DEFAULT_S3
+              value: {{ .Values.kubernetes.sandboxStorage.defaultS3 | quote }}
+            # Plain `quote` for the same reason as the two switches above — and
+            # `coldAfterHours` has the same hazard with a numeric `0`, which
+            # `default` would also read as empty and replace.
+            - name: SANDBOX_COLD_AFTER_HOURS
+              value: {{ .Values.kubernetes.sandboxStorage.coldAfterHours | quote }}
+            - name: SANDBOX_RETAIN_STORAGE_ON_CLOSE
+              value: {{ .Values.kubernetes.sandboxStorage.retainOnClose | quote }}
             - name: K8S_SANDBOX_NODE_ARCHIVE_ENABLED
               value: {{ .Values.kubernetes.nodeArchive.enabled | default false | quote }}
             {{- with .Values.kubernetes.sandboxStorage.storageClass }}

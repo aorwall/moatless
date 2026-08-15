@@ -224,7 +224,7 @@ IngressRoute matches on. No API key — local auth resolves every request to
 | `image.pullPolicy` / `backend.image.pullPolicy: IfNotPresent`, tag `dev` | Chart defaults both to `Always` + `latest`, which forces a Docker Hub pull and silently ignores locally built images. |
 | `kubernetes.nodeStorageJanitor.enabled: false` | Default janitor image is a private SOAP ECR ref → guaranteed `ImagePullBackOff`. |
 | `kubernetes.imagePrepull.enabled: false` | Pre-pulls the full 5-8GB sandbox image with `pullPolicy: Always`. |
-| `kubernetes.sandboxStorage.defaultMode: node` | Keeps workspaces and Claude transcript directories on Docker Desktop's node disk without requiring S3 or per-task PVCs. Lifecycle records the node, pins retained starts back to it, and deletes task hostPaths on permanent removal. |
+| `kubernetes.sandboxStorage.defaultPvc: true`, `defaultS3: false` | The S3 snapshot needs a real bucket a local install does not have, so the per-task PVC alone carries the workspace. Docker Desktop's built-in hostpath provisioner backs it, so workspaces survive pod replacement and retained close/reopen without any cloud storage. |
 | `kubernetes.sandboxSysctls` — drop `tcp_keepalive_*` | Some kubelets reject them as unsafe → block sandbox pod admission. |
 | `networkPolicy.sandbox.enabled: false` | Expects a namespace literally named `traefik`; locally Traefik lives in `moatless`. |
 | `proxy.domain: preview.moatless.localhost`, `protocol: http`, `traefikEntryPoint: web` | macOS resolves arbitrary `*.localhost` → `127.0.0.1`. Previews sit under the app host so they share its registrable domain (see `auth.cookieDomain`). No dnsmasq, no nip.io. |

@@ -198,10 +198,12 @@ impl LifecycleDao for PgLifecycleDao {
                    INSERT INTO sandboxes AS s (
                        task_id, desired_state, stop_reason, archive_retention,
                        operation_kind, operation_generation, operation_started_at,
-                       started_at, desired_state_updated_at, updated_at
+                       started_at, desired_state_updated_at, updated_at,
+                       storage_reclaimed_at
                    ) VALUES (
                        $1, $2, $3, $4, $5, $6, $7,
-                       CASE WHEN $8 THEN NOW() ELSE NULL END, NOW(), NOW()
+                       CASE WHEN $8 THEN NOW() ELSE NULL END, NOW(), NOW(),
+                       NULL
                    )
                    ON CONFLICT (task_id) DO UPDATE SET
                        desired_state = EXCLUDED.desired_state,
@@ -212,7 +214,11 @@ impl LifecycleDao for PgLifecycleDao {
                        operation_started_at = EXCLUDED.operation_started_at,
                        started_at = CASE WHEN $8 THEN NOW() ELSE s.started_at END,
                        desired_state_updated_at = NOW(),
-                       updated_at = NOW()
+                       updated_at = NOW(),
+                       -- A start provisions a fresh volume, so the reclaim mark
+                       -- is stale the moment intent moves toward Running.
+                       storage_reclaimed_at =
+                           CASE WHEN $8 THEN NULL ELSE s.storage_reclaimed_at END
                    RETURNING 1
                )
                SELECT
@@ -315,6 +321,42 @@ impl LifecycleDao for PgLifecycleDao {
             .await
             .map_err(|e| StoreError::with_source("clear marker", e))?;
         Ok(())
+    }
+
+    async fn stopped_with_storage(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<(String, DateTime<Utc>)>, StoreError> {
+        if task_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Inner join on `sandboxes`, so a Task that never had a Sandbox row is
+        // absent rather than reading as converged Stopped the way `load` does:
+        // here the question is which storage exists, not what is desired.
+        // Backed by `sandboxes_reclaimable_idx`.
+        sqlx::query_as(
+            r#"SELECT task_id, desired_state_updated_at
+               FROM sandboxes
+               WHERE task_id = ANY($1)
+                 AND desired_state = 'stopped'
+                 AND storage_reclaimed_at IS NULL"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| StoreError::with_source("load stopped sandboxes with storage", e))
+    }
+
+    async fn mark_storage_reclaimed(&self, task_id: &str) -> Result<(), StoreError> {
+        sqlx::query(
+            r#"UPDATE sandboxes SET storage_reclaimed_at = NOW(), updated_at = NOW()
+               WHERE task_id = $1"#,
+        )
+        .bind(task_id)
+        .execute(&self.pool)
+        .await
+        .map(|_| ())
+        .map_err(|e| StoreError::with_source("mark storage reclaimed", e))
     }
 }
 

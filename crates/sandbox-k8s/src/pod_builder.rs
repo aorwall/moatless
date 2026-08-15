@@ -5,7 +5,7 @@
 
 use k8s_openapi::api::core::v1::{
     Affinity, Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
-    HostPathVolumeSource, NodeAffinity, NodeSelector, NodeSelectorRequirement, NodeSelectorTerm,
+    HostPathVolumeSource, NodeAffinity, NodeSelectorRequirement, NodeSelectorTerm,
     PersistentVolumeClaimVolumeSource, Pod, PodSecurityContext, PodSpec, PreferredSchedulingTerm,
     Probe, ResourceRequirements, SeccompProfile, SecurityContext, TCPSocketAction, Toleration,
     Volume, VolumeMount,
@@ -141,8 +141,8 @@ pub fn build_pod(
     // ── Volumes ─────────────────────────────────────────────────────
     //
     // `/opt/moatless` (the workspace) is backed by the `workspace-data` volume:
-    // a per-task EBS PVC, a node-local emptyDir for the ephemeral/s3 tiers, or a
-    // per-task hostPath for the best-effort node tier. Either way it is a single
+    // a per-task PVC when the `pvc` switch is on, a node-local emptyDir when it
+    // is off. Either way it is a single
     // volume shared across the sandbox and server containers, with `/tmp` served
     // from its `tmp` subPath so `/tmp` never charges against the pod's memory
     // budget.
@@ -173,11 +173,6 @@ pub fn build_pod(
         },
     ];
 
-    let storage_backend = moatless_sandbox_control::storage::StorageBackend::from_plan(
-        plan,
-        &config.sandbox.default_storage_mode,
-    );
-
     if let Some(pvc) = pvc_name {
         volumes.push(Volume {
             name: "workspace-data".to_string(),
@@ -187,24 +182,12 @@ pub fn build_pod(
             }),
             ..Default::default()
         });
-    } else if storage_backend == moatless_sandbox_control::storage::StorageBackend::Node {
-        // Node-local tier — a hostPath keyed by task id. Lifecycle records the
-        // scheduled node and pins retained replacements back to the newest
-        // surviving archive location instead of silently mounting an empty tree
-        // elsewhere.
-        volumes.push(Volume {
-            name: "workspace-data".to_string(),
-            host_path: Some(HostPathVolumeSource {
-                path: node_sandbox_host_path(config, task_id),
-                type_: Some("DirectoryOrCreate".to_string()),
-            }),
-            ..Default::default()
-        });
     } else {
-        // Ephemeral/S3 (no-EBS) tiers — a node-local emptyDir capped at the
-        // repo's workspace size (`resources.storage`, default
-        // `K8S_SANDBOX_STORAGE_SIZE`). No `medium: Memory`, so it lives on node
-        // disk, not the pod memory budget.
+        // No PVC — either the repo turned the switch off, or the caller is
+        // rebuilding around a volume that would not attach. A node-local
+        // emptyDir capped at the repo's workspace size (`resources.storage`,
+        // default `K8S_SANDBOX_STORAGE_SIZE`). No `medium: Memory`, so it lives
+        // on node disk, not the pod memory budget.
         volumes.push(Volume {
             name: "workspace-data".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
@@ -227,9 +210,6 @@ pub fn build_pod(
     let mut init_containers: Vec<Container> = Vec::new();
     if build_cache_backend.is_node() {
         init_containers.push(build_node_build_cache_setup_container(config, plan));
-    }
-    if storage_backend == moatless_sandbox_control::storage::StorageBackend::Node {
-        init_containers.push(build_node_sandbox_setup_container(config, plan));
     }
     if !config.sandbox.cache_volumes.is_empty() {
         volumes.push(Volume {
@@ -255,7 +235,7 @@ pub fn build_pod(
     }
 
     // ── Sandbox container ───────────────────────────────────────────
-    let sandbox_container = build_sandbox_container(config, task_id, plan, tokens)?;
+    let sandbox_container = build_sandbox_container(config, task_id, plan, tokens, pvc_name)?;
 
     // ── Server containers ───────────────────────────────────────────
     let server_containers = build_server_containers(config, plan)?;
@@ -391,9 +371,9 @@ pub fn resolve_sandbox_image(config: &Config, plan: &ProvisionPlan) -> String {
         .unwrap_or_else(|| config.sandbox.image.clone())
 }
 
-/// Resolve the sandbox storage size for the ephemeral (emptyDir) tier: a per-repo
+/// Resolve the sandbox storage size for the PVC-less (emptyDir) case: a per-repo
 /// `resources.storage` override wins over the global `K8S_SANDBOX_STORAGE_SIZE`.
-/// One knob sizes both tiers — the PVC tier reads the same value in `pvc.rs`.
+/// One knob sizes both — the PVC reads the same value in `pvc.rs`.
 fn resolve_sandbox_size(config: &Config, plan: &ProvisionPlan) -> String {
     plan.repo_config
         .resources
@@ -491,19 +471,15 @@ fn build_cache_volume(
     volume
 }
 
-fn node_sandbox_host_path(config: &Config, task_id: &str) -> String {
-    let root = config.sandbox.cache_host_root.trim_end_matches('/');
-    format!("{root}/workspaces/{task_id}")
-}
-
 /// Express a retained-node placement so the scheduler still runs.
 ///
 /// `spec.nodeName` binds the pod directly and skips scheduling, so a node that
 /// cannot fit the pod rejects it at admission (`OutOfmemory`) and the
 /// ReplicaSet respawns it without end. Affinity leaves an unschedulable pod
-/// `Pending` instead. `required` is for data that cannot be rebuilt elsewhere;
-/// a cache prefers its node and settles for any other.
-pub(crate) fn retained_node_affinity(node_name: &str, required: bool) -> Affinity {
+/// `Pending` instead. Everything that pins is a cache — a build cache or dind's
+/// data root — so the preference is soft: prefer the recorded node, settle for
+/// any other and pay a cold rebuild.
+pub(crate) fn retained_node_affinity(node_name: &str) -> Affinity {
     let term = NodeSelectorTerm {
         match_fields: Some(vec![NodeSelectorRequirement {
             key: "metadata.name".to_string(),
@@ -512,15 +488,8 @@ pub(crate) fn retained_node_affinity(node_name: &str, required: bool) -> Affinit
         }]),
         ..Default::default()
     };
-    let node_affinity = if required {
-        NodeAffinity {
-            required_during_scheduling_ignored_during_execution: Some(NodeSelector {
-                node_selector_terms: vec![term],
-            }),
-            ..Default::default()
-        }
-    } else {
-        NodeAffinity {
+    Affinity {
+        node_affinity: Some(NodeAffinity {
             preferred_during_scheduling_ignored_during_execution: Some(vec![
                 PreferredSchedulingTerm {
                     weight: 100,
@@ -528,24 +497,17 @@ pub(crate) fn retained_node_affinity(node_name: &str, required: bool) -> Affinit
                 },
             ]),
             ..Default::default()
-        }
-    };
-    Affinity {
-        node_affinity: Some(node_affinity),
+        }),
         ..Default::default()
     }
 }
 
 /// Place a freshly built pod on its retained node.
-pub(crate) fn pin_pod_to_node(
-    pod: &mut Pod,
-    node_name: &str,
-    required: bool,
-) -> Result<(), SandboxError> {
+pub(crate) fn pin_pod_to_node(pod: &mut Pod, node_name: &str) -> Result<(), SandboxError> {
     pod.spec
         .as_mut()
         .ok_or_else(|| SandboxError::PodBuildError("Pod has no spec".to_string()))?
-        .affinity = Some(retained_node_affinity(node_name, required));
+        .affinity = Some(retained_node_affinity(node_name));
     Ok(())
 }
 
@@ -583,39 +545,6 @@ fn resolve_dind_storage_backend(plan: &ProvisionPlan) -> DockerStorageBackend {
             _ => None,
         })
         .unwrap_or(DockerStorageBackend::Node)
-}
-
-fn build_node_sandbox_setup_container(config: &Config, plan: &ProvisionPlan) -> Container {
-    // Reuse the sandbox image (already pulled for the sandbox container) rather
-    // than the privileged dind `cache_init_image`: this is only a mkdir/chown, and
-    // reusing it keeps `node` mode pullable on any cluster with no extra pull.
-    Container {
-        name: "node-sandbox-setup".to_string(),
-        image: Some(resolve_sandbox_image(config, plan)),
-        image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
-        command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
-        args: Some(vec![
-            "mkdir -p /workspace /workspace/tmp && chown 1000:1000 /workspace /workspace/tmp && chmod 0775 /workspace /workspace/tmp".to_string(),
-        ]),
-        security_context: Some(root_init_security_context()),
-        resources: Some(ResourceRequirements {
-            requests: Some(BTreeMap::from([
-                ("cpu".to_string(), Quantity("25m".to_string())),
-                ("memory".to_string(), Quantity("32Mi".to_string())),
-            ])),
-            limits: Some(BTreeMap::from([
-                ("cpu".to_string(), Quantity("100m".to_string())),
-                ("memory".to_string(), Quantity("128Mi".to_string())),
-            ])),
-            ..Default::default()
-        }),
-        volume_mounts: Some(vec![VolumeMount {
-            name: "workspace-data".to_string(),
-            mount_path: "/workspace".to_string(),
-            ..Default::default()
-        }]),
-        ..Default::default()
-    }
 }
 
 fn build_node_build_cache_setup_container(config: &Config, plan: &ProvisionPlan) -> Container {
@@ -851,7 +780,7 @@ fn build_dind_container(config: &Config) -> Container {
 ///
 /// An override replaces only the `cpu`/`memory` entries it names; every other
 /// key keeps its default. `ResourceConfig` also carries the storage fields
-/// (`storage`, `buildCache`, `storageMode`, ...), so a repo that configures only
+/// (`storage`, `buildCache`, `pvcEnabled`, ...), so a repo that configures only
 /// storage — or only memory — still gets a fully bounded container instead of a
 /// BestEffort one.
 fn merge_resources(
@@ -899,6 +828,10 @@ fn build_sandbox_container(
     task_id: &str,
     plan: &ProvisionPlan,
     tokens: Option<SandboxAuthTokens<'_>>,
+    // The claim actually mounted at `/opt/moatless`, not the one the plan asks
+    // for. `None` means this pod runs on an emptyDir — see the storage-switch
+    // env block below, where the difference is load-bearing.
+    pvc_name: Option<&str>,
 ) -> Result<Container, String> {
     // Resolve image: repo config override → default sandbox image
     let image = resolve_sandbox_image(config, plan);
@@ -940,17 +873,28 @@ fn build_sandbox_container(
         env.push(env_var(WORKSPACE_REPOS_ENV, &repos_json));
     }
 
-    // Workspace storage backend. The `s3` backend runs on a node-local emptyDir
-    // (no PVC) and syncs the git working tree to S3 via presigned URLs — flag the
-    // sandbox so it syncs after terminal agent turns and restores on boot. `ebs`,
-    // `node`, and `ephemeral` leave this unset.
-    if moatless_sandbox_control::storage::StorageBackend::from_plan(
+    // Workspace storage switches. With S3 on, the sandbox syncs the git working
+    // tree to S3 via presigned URLs — flag it so it uploads after terminal agent
+    // turns and restores on boot.
+    //
+    // `WORKSPACE_RESTORE_IF_EMPTY` claims the mounted volume is *durable*: the
+    // sandbox then treats S3 as a fallback read only, and drops the periodic
+    // upload backstop because the volume survives an involuntary kill. That has
+    // to follow the volume this pod actually gets, not the one the plan asked
+    // for — the caller passes `pvc_name: None` when PVC creation degraded or the
+    // attach-failure fallback rebuilt onto an emptyDir, and such a pod must
+    // behave like the emptyDir+S3 tier (restore every boot, keep the backstop)
+    // even though its plan still reads pvc+s3.
+    let storage_backend = moatless_sandbox_control::storage::StorageBackend::from_plan(
         plan,
-        &config.sandbox.default_storage_mode,
-    )
-    .syncs_sandbox()
-    {
+        config.sandbox.default_pvc_enabled,
+        config.sandbox.default_s3_enabled,
+    );
+    if storage_backend.syncs_sandbox() {
         env.push(env_var("WORKSPACE_SYNC_ENABLED", "true"));
+    }
+    if storage_backend.restore_if_empty() && pvc_name.is_some() {
+        env.push(env_var("WORKSPACE_RESTORE_IF_EMPTY", "true"));
     }
 
     // REPO_CONFIG env var (pass-through for sandbox)
@@ -1092,7 +1036,7 @@ fn build_sandbox_container(
 
     // Volume mounts
     //
-    // `workspace-data` (PVC or ephemeral emptyDir) is always present and mounted at
+    // `workspace-data` (PVC or emptyDir) is always present and mounted at
     // `/opt/moatless`. `/tmp` is backed by its `tmp` subPath — the same volume, a
     // separate directory — so `/tmp` shares the workspace headroom and never charges
     // against container memory.
@@ -1130,7 +1074,7 @@ fn build_sandbox_container(
     // the workspace volume: mounting an empty subPath over all of `/opt/cargo`
     // (or `/opt/rust`) would shadow the toolchain baked into the image — K8s
     // subPath mounts don't seed from image content — whereas cargo repopulates
-    // an empty registry/git cache transparently. On the ephemeral tier the
+    // an empty registry/git cache transparently. Without a PVC the
     // subPaths land in the emptyDir and die with the pod (harmless no-op).
     if config.sandbox.persist_toolchain {
         volume_mounts.push(VolumeMount {
@@ -1266,7 +1210,7 @@ fn build_server_containers(
         };
 
         // Volume mounts — server containers share workspace-data + shared-data +
-        // build-cache with the sandbox container. `workspace-data` (PVC or ephemeral
+        // build-cache with the sandbox container. `workspace-data` (PVC or
         // emptyDir) is always present, so the server sees the same `/opt/moatless`.
         let volume_mounts = vec![
             VolumeMount {
@@ -1641,6 +1585,16 @@ mod tests {
         );
     }
 
+    /// Literal value of a container env var, or `None` when it is unset.
+    fn env_value<'a>(container: &'a Container, name: &str) -> Option<&'a str> {
+        container
+            .env
+            .as_ref()?
+            .iter()
+            .find(|e| e.name == name)
+            .and_then(|e| e.value.as_deref())
+    }
+
     fn test_config() -> Config {
         use moatless_core::config::*;
         Config {
@@ -1671,7 +1625,8 @@ mod tests {
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,
-                default_storage_mode: "ebs".into(),
+                default_pvc_enabled: true,
+                default_s3_enabled: true,
                 node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,
@@ -1688,6 +1643,7 @@ mod tests {
                 busy_extension_max_hours: 4,
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,
+                cold_after_hours: 0,
                 orphan_gc_enabled: false,
                 codex_refresher_interval_secs: 0,
                 max_crash_restart_count: 5,
@@ -1945,7 +1901,7 @@ mod tests {
         let config = test_config();
         let plan = test_plan();
 
-        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         let resources = container
             .resources
             .as_ref()
@@ -1991,7 +1947,7 @@ mod tests {
             ..Default::default()
         });
 
-        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         assert_eq!(
             resource_quantities(&container),
             ("500m", "4Gi", "6", "16Gi")
@@ -2011,7 +1967,7 @@ mod tests {
             ..Default::default()
         });
 
-        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         assert_eq!(resource_quantities(&container), ("1", "4Gi", "4", "16Gi"));
     }
 
@@ -2027,12 +1983,12 @@ mod tests {
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
             storage: Some("20Gi".to_string()),
-            storage_mode: Some("node".to_string()),
+            pvc_enabled: Some(false),
             build_cache: Some("40Gi".to_string()),
             ..Default::default()
         });
 
-        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         assert_eq!(resource_quantities(&container), ("1", "2Gi", "4", "8Gi"));
     }
 
@@ -2043,7 +1999,7 @@ mod tests {
         let config = test_config();
         let plan = test_plan();
 
-        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         assert!(
             container.liveness_probe.is_none(),
             "liveness probe must be absent when K8S_SANDBOX_LIVENESS_ENABLED is off"
@@ -2060,7 +2016,7 @@ mod tests {
         config.sandbox.liveness_enabled = true;
         let plan = test_plan();
 
-        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         let probe = container
             .liveness_probe
             .as_ref()
@@ -2084,16 +2040,17 @@ mod tests {
     }
 
     #[test]
-    fn ephemeral_tier_mounts_capped_workspace_empty_dir() {
+    fn pvc_switch_off_mounts_capped_workspace_empty_dir() {
         use moatless_workspaces::repository::models::ResourceConfig;
 
-        // No PVC (ephemeral tier) → workspace-data is a node-local emptyDir sized
-        // from the repo's resources.storage, mounted at /opt/moatless everywhere.
+        // No PVC → workspace-data is a node-local emptyDir sized from the repo's
+        // resources.storage, mounted at /opt/moatless everywhere.
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
             storage: Some("7Gi".into()),
-            storage_mode: Some("ephemeral".into()),
+            pvc_enabled: Some(false),
+            s3_enabled: Some(false),
             ..Default::default()
         });
 
@@ -2106,22 +2063,22 @@ mod tests {
         let empty = ws
             .empty_dir
             .as_ref()
-            .expect("workspace-data is an emptyDir in the ephemeral tier");
+            .expect("workspace-data is an emptyDir when the PVC switch is off");
         // Node disk, not RAM: medium must be unset (None/empty).
         assert!(
             empty.medium.as_deref().unwrap_or("").is_empty(),
-            "ephemeral workspace must live on node disk, not memory"
+            "a PVC-less workspace must live on node disk, not memory"
         );
         assert_eq!(empty.size_limit.as_ref().map(|q| q.0.as_str()), Some("7Gi"));
 
         // No PVC volume should be present.
         assert!(
             volumes.iter().all(|v| v.persistent_volume_claim.is_none()),
-            "ephemeral tier must not reference a PVC"
+            "the PVC switch is off — no PVC may be referenced"
         );
 
         // The sandbox container mounts the workspace emptyDir at /opt/moatless and /tmp.
-        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         let mounts = container.volume_mounts.as_ref().unwrap();
         assert!(
             mounts
@@ -2158,67 +2115,107 @@ mod tests {
         );
     }
 
+    /// The two switches are read independently, and neither ever produces a
+    /// hostPath: the removed `node` workspace tier has no replacement.
     #[test]
-    fn node_tier_remains_available_without_archive_management() {
+    fn storage_switches_pick_volume_and_sync_env() {
         use moatless_workspaces::repository::models::ResourceConfig;
 
-        let mut config = test_config();
-        assert!(!config.sandbox.node_archive_enabled);
-        config.sandbox.cache_host_root = "/mnt/cache".into();
+        let config = test_config();
+        for (pvc, s3) in [(true, true), (true, false), (false, true), (false, false)] {
+            let mut plan = test_plan();
+            plan.repo_config.resources = Some(ResourceConfig {
+                pvc_enabled: Some(pvc),
+                s3_enabled: Some(s3),
+                ..Default::default()
+            });
+            // A PVC name is only handed to `build_pod` when the switch asked for
+            // one — the provider resolves it the same way.
+            let pvc_name = pvc.then_some("pvc-task-1");
+
+            let pod = build_pod(&config, "task-1", &plan, pvc_name, None).unwrap();
+            let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
+            let ws = volumes
+                .iter()
+                .find(|v| v.name == "workspace-data")
+                .expect("workspace-data volume present");
+            assert!(
+                ws.host_path.is_none(),
+                "no switch combination may mount the workspace as a hostPath ({pvc}/{s3})"
+            );
+            assert_eq!(
+                ws.persistent_volume_claim.is_some(),
+                pvc,
+                "the pvc switch decides the volume kind ({pvc}/{s3})"
+            );
+            assert_eq!(
+                ws.empty_dir.is_some(),
+                !pvc,
+                "without a PVC the workspace is an emptyDir ({pvc}/{s3})"
+            );
+            assert!(
+                pod.spec
+                    .as_ref()
+                    .and_then(|s| s.init_containers.as_ref())
+                    .is_none_or(|c| c.iter().all(|c| c.name != "node-sandbox-setup")),
+                "the node workspace setup container is gone ({pvc}/{s3})"
+            );
+
+            let container =
+                build_sandbox_container(&config, "task-1", &plan, None, pvc_name).unwrap();
+            assert_eq!(
+                env_value(&container, "WORKSPACE_SYNC_ENABLED"),
+                s3.then_some("true"),
+                "the s3 switch decides the sync env ({pvc}/{s3})"
+            );
+            assert_eq!(
+                env_value(&container, "WORKSPACE_RESTORE_IF_EMPTY"),
+                (pvc && s3).then_some("true"),
+                "restore is conditional only when a durable volume backs the snapshot ({pvc}/{s3})"
+            );
+        }
+    }
+
+    /// A pvc+s3 plan that ends up on an emptyDir — PVC creation degraded, or the
+    /// attach-failure fallback rebuilt without one — must behave like the
+    /// emptyDir+S3 tier. Claiming durability on an ephemeral volume would drop
+    /// the periodic upload backstop and skip the boot restore, which is exactly
+    /// backwards for the pod that needs both most.
+    #[test]
+    fn a_pvc_plan_without_a_pvc_is_not_treated_as_durable() {
+        use moatless_workspaces::repository::models::ResourceConfig;
+
+        let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
-            storage: Some("30Gi".into()),
-            storage_mode: Some("node".into()),
+            pvc_enabled: Some(true),
+            s3_enabled: Some(true),
             ..Default::default()
         });
 
-        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
-        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
-        let ws = volumes
-            .iter()
-            .find(|v| v.name == "workspace-data")
-            .expect("workspace-data volume present");
-
-        let host_path = ws
-            .host_path
-            .as_ref()
-            .expect("node tier uses hostPath for workspace-data");
-        assert_eq!(host_path.path, "/mnt/cache/workspaces/task-1");
-        assert_eq!(host_path.type_.as_deref(), Some("DirectoryOrCreate"));
-        assert!(ws.empty_dir.is_none(), "node tier must not use emptyDir");
-        assert!(
-            volumes.iter().all(|v| v.persistent_volume_claim.is_none()),
-            "node tier must not reference a PVC"
+        let degraded = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
+        assert_eq!(
+            env_value(&degraded, "WORKSPACE_SYNC_ENABLED"),
+            Some("true"),
+            "S3 stays on — it is the only persistence this pod has left"
+        );
+        assert_eq!(
+            env_value(&degraded, "WORKSPACE_RESTORE_IF_EMPTY"),
+            None,
+            "an emptyDir is not durable, whatever the plan asked for"
         );
 
-        let init = pod
-            .spec
-            .as_ref()
-            .and_then(|s| s.init_containers.as_ref())
-            .and_then(|containers| containers.iter().find(|c| c.name == "node-sandbox-setup"))
-            .expect("node tier must prepare hostPath ownership");
-        // Reuses the sandbox image (already pulled), not the private dind
-        // `cache_init_image` — so `node` mode is pullable on any cluster.
-        assert_eq!(init.image.as_deref(), Some("sandbox:latest"));
-        let security = init
-            .security_context
-            .as_ref()
-            .expect("node workspace setup must set security context");
-        assert_eq!(security.run_as_user, Some(0));
-        assert_eq!(security.run_as_non_root, Some(false));
-        assert_ne!(security.privileged, Some(true));
-        assert!(
-            init.volume_mounts.as_ref().unwrap().iter().any(|m| {
-                m.name == "workspace-data"
-                    && m.mount_path == "/workspace"
-                    && m.sub_path.as_deref().unwrap_or("").is_empty()
-            }),
-            "node workspace setup must mount workspace-data"
+        // The same plan *with* its claim is the durable tier.
+        let durable =
+            build_sandbox_container(&config, "task-1", &plan, None, Some("pvc-task-1")).unwrap();
+        assert_eq!(
+            env_value(&durable, "WORKSPACE_RESTORE_IF_EMPTY"),
+            Some("true")
         );
     }
 
     #[test]
-    fn ephemeral_workspace_size_falls_back_to_global_default() {
+    fn pvc_less_workspace_size_falls_back_to_global_default() {
         // No per-repo storage override → emptyDir uses the global storage_size.
         let mut config = test_config();
         config.sandbox.storage_size = "3Gi".into();
@@ -2320,7 +2317,7 @@ mod tests {
         assert!(init_script.contains("/host-mnt/cache/bun"));
 
         // Sandbox container: one subPath mount per cache + the matching env.
-        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         let mounts = container.volume_mounts.as_ref().unwrap();
         assert!(
             mounts.iter().any(|m| m.name == "pkg-cache"
@@ -3173,7 +3170,7 @@ mod tests {
             Some("1536Mi")
         );
 
-        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         let mounts = container.volume_mounts.as_ref().unwrap();
         assert!(
             !mounts
@@ -3321,7 +3318,7 @@ mod tests {
             Some("12Gi")
         );
 
-        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         let mounts = container.volume_mounts.as_ref().unwrap();
         for (mount_path, sub_path) in [
             ("/opt/cargo/registry", "cargo-registry"),
@@ -3359,27 +3356,8 @@ mod tests {
     }
 
     #[test]
-    fn irreplaceable_data_makes_the_node_required() {
-        let affinity = retained_node_affinity("node-a", true);
-        let node_affinity = affinity.node_affinity.expect("node affinity");
-
-        let selector = node_affinity
-            .required_during_scheduling_ignored_during_execution
-            .expect("required term");
-        assert_eq!(
-            only_match_field(&selector.node_selector_terms[0]),
-            ("metadata.name", "node-a")
-        );
-        assert!(
-            node_affinity
-                .preferred_during_scheduling_ignored_during_execution
-                .is_none()
-        );
-    }
-
-    #[test]
     fn a_cache_only_prefers_its_node() {
-        let affinity = retained_node_affinity("node-a", false);
+        let affinity = retained_node_affinity("node-a");
         let node_affinity = affinity.node_affinity.expect("node affinity");
 
         let preferred = node_affinity
@@ -3402,7 +3380,7 @@ mod tests {
             spec: Some(PodSpec::default()),
             ..Default::default()
         };
-        pin_pod_to_node(&mut pod, "node-a", true).expect("pin");
+        pin_pod_to_node(&mut pod, "node-a").expect("pin");
 
         let spec = pod.spec.expect("spec");
         assert!(spec.node_name.is_none());

@@ -33,10 +33,12 @@ use super::client::K8sClient;
 use super::deployment;
 use super::leader_election::LeaderElection;
 use super::pod_observation_policy::{
-    ObservationContext, PodObservationPolicy, should_emit_scheduling_blocked,
-    should_emit_startup_slow, should_gc_failed_pod,
+    ObservationContext, PodObservationPolicy, cause_is_attach_failure,
+    should_attempt_storage_fallback, should_emit_scheduling_blocked, should_emit_startup_slow,
+    should_gc_failed_pod,
 };
 use super::pod_status::{extract_container_observed_statuses, is_sandbox_container_ready};
+use super::provider::{StorageFallback, StorageFallbackOutcome};
 use moatless_sandbox_control::lifecycle::Lifecycle;
 use moatless_sandbox_control::lifecycle::OperationGeneration;
 use moatless_sandbox_control::lifecycle::classify::ObservedTransition;
@@ -70,6 +72,11 @@ struct WatcherDeps {
     /// involuntarily so `turn_interrupted` carries the right turn context (and
     /// is suppressed when no turn is in flight). `None` in DB-less setups.
     task_events: Option<Arc<dyn TaskEventDao>>,
+    /// Attach-failure remediation. When a pvc+s3 pod stalls Pending on a volume
+    /// attach failure, the watcher asks the runtime to rebuild it on an emptyDir
+    /// that restores from S3. `None` disables the fallback (the pod keeps
+    /// surfacing the environment error).
+    storage_fallback: Option<Arc<dyn StorageFallback>>,
 }
 
 /// Pod-Pending duration after which the watcher emits `scheduling_blocked`,
@@ -159,6 +166,12 @@ pub(super) struct PodObservedState {
     /// Fire-once guard: a `startup_slow` event has been emitted for this pod's
     /// slow-container-start window (e.g. long volume attach).
     pub(super) startup_slow_published: bool,
+    /// Fire-once guard: an attach-failure storage fallback has been requested for
+    /// this pod. Keyed per pod, so it is effectively once per generation — a
+    /// rebuild replaces the pod, and the fresh pod starts the guard clear. Set
+    /// whatever the outcome, so a failed rebuild waits for the next clean start
+    /// rather than retrying every sweep.
+    pub(super) storage_fallback_requested: bool,
     /// Epoch ms when this pod was first observed in the terminal `Failed`
     /// phase. K8s never garbage-collects Failed pods (e.g. evicted for
     /// exceeding an emptyDir sizeLimit), so the sweep deletes them once this
@@ -205,9 +218,9 @@ impl PodObservedState {
 /// 2. If leader, start watching pods.
 /// 3. If not leader, sleep and retry.
 /// 4. On watch stream error, re-enter the leadership loop.
-// reason: the watcher wires nine collaborators (client, publisher, cancel, the
-// crash threshold, archive feature gate, and four optional DAOs) into
-// one spawned task.
+// reason: the watcher wires ten collaborators (client, publisher, cancel, the
+// crash threshold, archive feature gate, four optional DAOs, and the storage
+// fallback) into one spawned task.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_pod_lifecycle_watcher(
     k8s: K8sClient,
@@ -219,6 +232,7 @@ pub fn spawn_pod_lifecycle_watcher(
     tasks: Option<Arc<dyn TaskDao>>,
     workspaces: Option<Arc<dyn WorkspaceDao>>,
     task_events: Option<Arc<dyn TaskEventDao>>,
+    storage_fallback: Option<Arc<dyn StorageFallback>>,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     metrics::describe_counter!(
@@ -235,6 +249,7 @@ pub fn spawn_pod_lifecycle_watcher(
         tasks,
         workspaces,
         task_events,
+        storage_fallback,
     };
 
     tokio::spawn(async move {
@@ -322,7 +337,7 @@ async fn run_pod_watch(
                 // a pod that sits Pending or ContainerCreating for minutes produces
                 // no events. This tick turns those silent windows into
                 // scheduling_blocked / startup_slow events (fire-once per pod).
-                sweep_pending_pods(k8s, event_publisher, &mut pod_states).await;
+                sweep_pending_pods(k8s, event_publisher, &mut pod_states, deps).await;
                 gc_failed_pods(k8s, &mut pod_states).await;
                 retry_pending_auto_stops(&mut pod_states, deps).await;
             }
@@ -711,6 +726,7 @@ async fn process_watcher_event(
                 // a still-stuck pod doesn't re-emit its blocked/slow event.
                 new_state.scheduling_blocked_published = prev.scheduling_blocked_published;
                 new_state.startup_slow_published = prev.startup_slow_published;
+                new_state.storage_fallback_requested = prev.storage_fallback_requested;
                 // Carry a still-pending auto-stop so a failed scale-to-0 is
                 // retried on this event (see the auto-stop block below).
                 new_state.auto_stop_pending = prev.auto_stop_pending;
@@ -1661,6 +1677,7 @@ pub(super) fn extract_pod_observed_state(
         created_at_ms,
         scheduling_blocked_published: false,
         startup_slow_published: false,
+        storage_fallback_requested: false,
         failed_since_ms: None,
         gc_requested: false,
         auto_stop_pending: false,
@@ -1839,6 +1856,7 @@ async fn sweep_pending_pods(
     k8s: &K8sClient,
     event_publisher: &dyn EventPublisher,
     pod_states: &mut HashMap<String, PodObservedState>,
+    deps: &WatcherDeps,
 ) {
     let now_ms = k8s_openapi::jiff::Timestamp::now().as_millisecond();
 
@@ -1848,9 +1866,28 @@ async fn sweep_pending_pods(
         };
         let age_secs = (now_ms - created).max(0) / 1000;
 
+        let emit_scheduling_blocked = should_emit_scheduling_blocked(state, age_secs);
+        let emit_startup_slow = should_emit_startup_slow(state, age_secs);
+        let fallback_candidate = deps.storage_fallback.is_some()
+            && should_attempt_storage_fallback(state, age_secs);
+
+        // Read the pod's newest Warning event at most once per sweep, shared by
+        // the two threshold events and the attach-failure fallback below.
+        let cause = if emit_scheduling_blocked || emit_startup_slow || fallback_candidate {
+            fetch_pod_event_cause(k8s, &state.pod_name).await
+        } else {
+            None
+        };
+
+        // Attach-failure fallback: a pvc+s3 pod wedged on `Multi-Attach` /
+        // `FailedAttachVolume` can come back up on an emptyDir restored from S3.
+        // Guarded once per pod (≈ once per generation) whatever the outcome.
+        if fallback_candidate && cause.as_deref().is_some_and(cause_is_attach_failure) {
+            maybe_run_storage_fallback(event_publisher, state, deps).await;
+        }
+
         // scheduling_blocked: still Pending and unscheduled past the threshold.
-        if should_emit_scheduling_blocked(state, age_secs) {
-            let cause = fetch_pod_event_cause(k8s, &state.pod_name).await;
+        if emit_scheduling_blocked {
             warn!(
                 task_id = %state.task_id,
                 pod_name = %state.pod_name,
@@ -1868,7 +1905,7 @@ async fn sweep_pending_pods(
                             |c| format!("Scheduling blocked: {c}"),
                         ),
                         lifecycle_event: Some("scheduling_blocked".to_string()),
-                        disruption_reason: cause,
+                        disruption_reason: cause.clone(),
                         pending_seconds: Some(age_secs),
                         ..Default::default()
                     },
@@ -1879,8 +1916,7 @@ async fn sweep_pending_pods(
 
         // startup_slow: scheduled onto a node but the sandbox container still
         // isn't ready long after creation (e.g. a long EBS attach / image pull).
-        if should_emit_startup_slow(state, age_secs) {
-            let cause = fetch_pod_event_cause(k8s, &state.pod_name).await;
+        if emit_startup_slow {
             warn!(
                 task_id = %state.task_id,
                 pod_name = %state.pod_name,
@@ -1908,6 +1944,59 @@ async fn sweep_pending_pods(
                 .await;
             state.startup_slow_published = true;
         }
+    }
+}
+
+/// Drive the attach-failure storage fallback for one wedged pod and, on a real
+/// rebuild, publish the `storage_degraded` warning that mirrors the provision
+/// path's degradation. The per-pod guard is set whatever the outcome, so a
+/// no-op or a failed rebuild waits for the next clean start rather than firing
+/// every sweep tick.
+async fn maybe_run_storage_fallback(
+    event_publisher: &dyn EventPublisher,
+    state: &mut PodObservedState,
+    deps: &WatcherDeps,
+) {
+    let Some(fallback) = deps.storage_fallback.as_ref() else {
+        return;
+    };
+    // The generation ties the rebuilt pod to the same operation. A pod our
+    // provider built always carries the label; without it we cannot correlate
+    // the replacement, so decline rather than start an unlabelled pod.
+    let Some(generation) = state.operation_generation else {
+        warn!(
+            task_id = %state.task_id,
+            pod_name = %state.pod_name,
+            "attach failure on a pod with no operation generation; skipping storage fallback"
+        );
+        state.storage_fallback_requested = true;
+        return;
+    };
+
+    warn!(
+        task_id = %state.task_id,
+        pod_name = %state.pod_name,
+        "Pod stuck Pending on a volume-attach failure — attempting emptyDir + S3 fallback"
+    );
+    let outcome = fallback.rebuild_without_pvc(&state.task_id, generation).await;
+    state.storage_fallback_requested = true;
+
+    if outcome == StorageFallbackOutcome::Rebuilt {
+        event_publisher
+            .publish_sandbox_event_with_payload(
+                &state.task_id,
+                SandboxStatus::Initializing,
+                &SandboxEventPayload {
+                    message: "Persistent storage could not attach; the workspace was \
+                              restored from its last snapshot onto ephemeral storage and \
+                              will not survive another restart until the volume recovers."
+                        .to_string(),
+                    lifecycle_event: Some("storage_degraded".to_string()),
+                    error: Some("PVC attach failed; rebuilt on emptyDir from S3".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await;
     }
 }
 
@@ -2288,5 +2377,131 @@ mod tests {
         assert_eq!(format_bytes(42), "42 B");
         assert_eq!(format_bytes(1536), "1.5 KiB");
         assert_eq!(format_bytes(2 * 1024 * 1024), "2.0 MiB");
+    }
+
+    /// A `StorageFallback` double that records its calls and returns a fixed
+    /// outcome, so the watcher's remediation glue is testable without a cluster.
+    struct FakeFallback {
+        outcome: StorageFallbackOutcome,
+        calls: std::sync::Mutex<Vec<(String, OperationGeneration)>>,
+    }
+
+    impl FakeFallback {
+        fn new(outcome: StorageFallbackOutcome) -> Self {
+            Self {
+                outcome,
+                calls: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+        fn calls(&self) -> Vec<(String, OperationGeneration)> {
+            self.calls.lock().expect("poisoned").clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl StorageFallback for FakeFallback {
+        async fn rebuild_without_pvc(
+            &self,
+            task_id: &str,
+            generation: OperationGeneration,
+        ) -> StorageFallbackOutcome {
+            self.calls
+                .lock()
+                .expect("poisoned")
+                .push((task_id.to_string(), generation));
+            self.outcome
+        }
+    }
+
+    fn deps_with_fallback(fallback: Arc<dyn StorageFallback>) -> WatcherDeps {
+        WatcherDeps {
+            node_archive_enabled: false,
+            lifecycle: None,
+            tasks: None,
+            workspaces: None,
+            task_events: None,
+            storage_fallback: Some(fallback),
+        }
+    }
+
+    fn pending_state_with_generation(gen: Option<i64>) -> PodObservedState {
+        let mut state = extract_pod_observed_state(
+            &pod_with_phase_and_containers("Pending", vec![]),
+            "pod-1",
+            "task-1",
+        );
+        state.operation_generation = gen.map(OperationGeneration);
+        state
+    }
+
+    #[tokio::test]
+    async fn storage_fallback_rebuild_publishes_degradation_and_guards() {
+        use moatless_core::events::test_support::RecordingPublisher;
+
+        let fallback = Arc::new(FakeFallback::new(StorageFallbackOutcome::Rebuilt));
+        let deps = deps_with_fallback(fallback.clone());
+        let publisher = RecordingPublisher::new();
+        let mut state = pending_state_with_generation(Some(7));
+
+        maybe_run_storage_fallback(&publisher, &mut state, &deps).await;
+
+        assert_eq!(
+            fallback.calls(),
+            vec![("task-1".to_string(), OperationGeneration(7))],
+            "the rebuild must be invoked with the pod's task and generation"
+        );
+        assert!(
+            state.storage_fallback_requested,
+            "the fire-once guard must be set after a rebuild"
+        );
+        assert_eq!(
+            publisher.sandbox_statuses().len(),
+            1,
+            "a rebuild must surface exactly one degradation event"
+        );
+    }
+
+    #[tokio::test]
+    async fn storage_fallback_skip_sets_guard_without_event() {
+        use moatless_core::events::test_support::RecordingPublisher;
+
+        let fallback = Arc::new(FakeFallback::new(StorageFallbackOutcome::Skipped));
+        let deps = deps_with_fallback(fallback.clone());
+        let publisher = RecordingPublisher::new();
+        let mut state = pending_state_with_generation(Some(7));
+
+        maybe_run_storage_fallback(&publisher, &mut state, &deps).await;
+
+        assert_eq!(fallback.calls().len(), 1);
+        assert!(
+            state.storage_fallback_requested,
+            "a skipped swap still guards so it doesn't retry every sweep"
+        );
+        assert!(
+            publisher.sandbox_statuses().is_empty(),
+            "a skipped swap (e.g. s3 off) publishes no degradation"
+        );
+    }
+
+    #[tokio::test]
+    async fn storage_fallback_without_generation_does_not_rebuild() {
+        use moatless_core::events::test_support::RecordingPublisher;
+
+        let fallback = Arc::new(FakeFallback::new(StorageFallbackOutcome::Rebuilt));
+        let deps = deps_with_fallback(fallback.clone());
+        let publisher = RecordingPublisher::new();
+        let mut state = pending_state_with_generation(None);
+
+        maybe_run_storage_fallback(&publisher, &mut state, &deps).await;
+
+        assert!(
+            fallback.calls().is_empty(),
+            "an unlabelled pod cannot be correlated, so no rebuild is attempted"
+        );
+        assert!(
+            state.storage_fallback_requested,
+            "the guard is still set so the unlabelled pod isn't reconsidered"
+        );
+        assert!(publisher.sandbox_statuses().is_empty());
     }
 }

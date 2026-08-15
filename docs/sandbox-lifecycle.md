@@ -438,9 +438,10 @@ All read from env at backend startup (`backend/src/config.rs`).
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `K8S_SANDBOX_DEFAULT_STORAGE_MODE` | `ebs` | Default K8s workspace mode (`ebs`, `ephemeral`, `s3`, or `node`); per-repository config wins |
+| `K8S_SANDBOX_DEFAULT_PVC` | `true` | Give each task a durable per-task PVC at `/opt/moatless`; per-repository `pvcEnabled` wins, and `K8S_SANDBOX_STORAGE_ENABLED` overrides both |
+| `K8S_SANDBOX_DEFAULT_S3` | `true` | Snapshot each task's workspace to S3 before stop/remove and restore it when the volume holds nothing usable; per-repository `s3Enabled` wins |
 | `K8S_SANDBOX_NODE_ARCHIVE_ENABLED` | `false` | Track node storage in ConfigMaps, pin retained replacements, and clean recorded hostPath directories |
-| `K8S_SANDBOX_CACHE_HOST_ROOT` | `/mnt/cache` | Host root containing `node`-mode `workspaces/<task-id>`, `docker/<task-id>`, and build-cache hostPath directories |
+| `K8S_SANDBOX_CACHE_HOST_ROOT` | `/mnt/cache` | Host root containing `node`-mode `docker/<task-id>` and build-cache hostPath directories |
 | `CONTAINER_DATA_DIR` | `/data` | Docker provider data root; each task's disk archive is stored below `tasks/<task-id>` |
 
 ### Resources & storage

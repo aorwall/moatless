@@ -184,6 +184,31 @@ pub trait SandboxRuntime: Send + Sync {
         retention: ArchiveRetention,
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError>;
+
+    /// Reclaim the compute objects and the workspace volume of a **stopped**
+    /// sandbox, keeping everything that gives the task its identity — the
+    /// Service, the IngressRoutes, the network policy, and the S3 archive. A
+    /// later start provisions a fresh volume and restores into it.
+    ///
+    /// The Deployment goes before the claim, and its absence is awaited: a
+    /// pod template that still names a deleted claim leaves the next scale-up
+    /// Pending forever.
+    ///
+    /// `rescue_upload_url` is `Some` when lifecycle could not prove the archive
+    /// is current — the runtime must then get the volume's contents to that
+    /// presigned URL **before** deleting anything, and fail the whole operation
+    /// if it cannot. Lifecycle owns the proof because it owns the archive;
+    /// the runtime owns how a detached volume is read.
+    ///
+    /// **Strict success means observed absence**, as with [`Self::remove`].
+    /// Idempotent: a sandbox with no Deployment and no claim returns `NoOp`, so
+    /// a caller that reruns on a schedule does no work on an already-cold task.
+    async fn reclaim_storage(
+        &self,
+        task_id: &str,
+        rescue_upload_url: Option<&str>,
+        ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError>;
 }
 
 #[cfg(test)]

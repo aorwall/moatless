@@ -16,7 +16,10 @@
 //! sandbox-band implementation; [`TaskError`](crate::task::error::TaskError) maps
 //! `SandboxOpError` the rest of the way (404 / 400 / 409 / 500).
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 
 use crate::task::models::{ArchiveRetention, SandboxDesiredState, SandboxStopReason};
 
@@ -60,6 +63,24 @@ pub trait SandboxLifecycle: Send + Sync {
         task_id: &str,
         retention: ArchiveRetention,
     ) -> Result<(), SandboxOpError>;
+
+    /// Reclaim the storage of a Task whose sandbox has been stopped long
+    /// enough, leaving the durable archive as the only copy. The Task stays
+    /// Open and its sandbox stays `Stopped` — a later start restores from the
+    /// archive — so this is a cost transition, not a state one, and the reaper
+    /// is its only caller.
+    ///
+    /// Idempotent: a Task whose storage is already reclaimed is not an error.
+    async fn archive_storage(&self, task_id: &str) -> Result<(), SandboxOpError>;
+
+    /// Which of `task_ids` have a stopped sandbox that still owns storage, and
+    /// when each stopped. The candidate set for [`Self::archive_storage`]: the
+    /// caller applies its own per-Task clock on top, because the threshold is a
+    /// Task property and the storage is a sandbox one.
+    async fn stopped_with_storage(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, SandboxOpError>;
 
     /// The persisted desired state for the Task's sandbox (absence reads as
     /// converged `Stopped`).

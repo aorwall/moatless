@@ -19,6 +19,7 @@
 //! (`pg_try_advisory_lock` on a dedicated pool, the single-statement intent
 //! write, the commit-before-publication completion commit) satisfy the same ports.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -146,6 +147,22 @@ pub trait LifecycleDao: Send + Sync {
         task_id: &str,
         generation: OperationGeneration,
     ) -> Result<(), StoreError>;
+
+    /// When each of `task_ids` entered `Stopped`, for the subset that is
+    /// stopped now and still owns storage.
+    ///
+    /// The two exclusions are what make this a *candidate* set rather than a
+    /// state read: a Task with no Sandbox row never had storage, and one whose
+    /// storage was already reclaimed stays `Stopped` forever and would
+    /// otherwise be re-offered on every cycle.
+    async fn stopped_with_storage(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<(String, DateTime<Utc>)>, StoreError>;
+
+    /// Record that the Task's storage was reclaimed, removing it from
+    /// [`Self::stopped_with_storage`] until a start provisions a fresh volume.
+    async fn mark_storage_reclaimed(&self, task_id: &str) -> Result<(), StoreError>;
 }
 
 /// The narrow internal agent-stop port. Graceful stop is lifecycle's ordering
@@ -156,6 +173,40 @@ pub trait AgentStopPort: Send + Sync {
     /// `reason` is forwarded to the sandbox so the terminal `agent.stopped`
     /// event attributes the stop to its initiator (user, idle reaper, ...).
     async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason);
+}
+
+/// The narrow internal workspace-sync port. The sandbox is the only party that
+/// can read its own volume, and on `stop`/`remove` that volume is about to
+/// become unreachable (scaled to zero) or deleted — so lifecycle asks for a push
+/// to S3 **before** the runtime effect, for the same reason and at the same
+/// point it asks for a graceful agent stop. Failures never block the transition:
+/// the volume still holds the work for a same-volume restart, and the
+/// alternative — refusing to stop a sandbox that cannot upload — is worse.
+#[async_trait]
+pub trait WorkspaceSyncPort: Send + Sync {
+    async fn sync_workspace(&self, task_id: &str);
+}
+
+/// The narrow internal workspace-archive port — what lifecycle needs to know
+/// about the durable copy before it deletes the live one.
+///
+/// The cold transition trades a volume for a snapshot, so it may only run when
+/// the snapshot is real and current. That is two different questions and both
+/// are answered here: when the archive was last written, and how to hand a
+/// detached volume a way to write a new one.
+#[async_trait]
+pub trait WorkspaceArchivePort: Send + Sync {
+    /// When the task's workspace archive was last written.
+    ///
+    /// `Ok(None)` means there is no archive. `Err` means the question could not
+    /// be answered — and a caller about to delete the only other copy must
+    /// treat that as "not proven", never as "no archive".
+    async fn archived_at(&self, task_id: &str) -> Result<Option<DateTime<Utc>>, String>;
+
+    /// A short-lived presigned URL that accepts one `PUT` of the task's
+    /// workspace archive. Handed to whatever can still read the detached
+    /// volume, so no long-lived credential leaves the backend.
+    async fn presign_upload(&self, task_id: &str) -> Result<String, String>;
 }
 
 /// Publishes derived lifecycle events through the event-publication path.
@@ -213,6 +264,8 @@ pub struct Lifecycle {
     store: Arc<dyn LifecycleDao>,
     runtime: Arc<dyn SandboxRuntime>,
     agent_stop: Arc<dyn AgentStopPort>,
+    workspace_sync: Option<Arc<dyn WorkspaceSyncPort>>,
+    workspace_archive: Option<Arc<dyn WorkspaceArchivePort>>,
     events: Arc<dyn LifecycleEventSink>,
     lock: Arc<dyn LifecycleLock>,
     clock: Arc<dyn WallClock>,
@@ -235,12 +288,39 @@ impl Lifecycle {
             store,
             runtime,
             agent_stop,
+            workspace_sync: None,
+            workspace_archive: None,
             events,
             lock,
             clock,
             plan: None,
             default_sandbox_image: None,
             lock_attempts: 1,
+        }
+    }
+
+    /// Attach the pre-stop workspace push. Optional: a deployment with no S3
+    /// configured has nothing to push to, and leaving it unset skips the RPC
+    /// entirely rather than issuing one the sandbox would decline.
+    pub fn with_workspace_sync(mut self, workspace_sync: Arc<dyn WorkspaceSyncPort>) -> Self {
+        self.workspace_sync = Some(workspace_sync);
+        self
+    }
+
+    /// Attach the archive reader the cold transition proves itself against.
+    /// Optional for the same reason as the sync: with no S3 there is no
+    /// snapshot, so leaving it unset disables the transition rather than
+    /// letting it delete a volume with nowhere to fall back to.
+    pub fn with_workspace_archive(mut self, archive: Arc<dyn WorkspaceArchivePort>) -> Self {
+        self.workspace_archive = Some(archive);
+        self
+    }
+
+    /// Make the durable copy current before an effect destroys the live one.
+    /// Best-effort, exactly like [`AgentStopPort::stop_agent`].
+    async fn sync_workspace_before_effect(&self, task_id: &str) {
+        if let Some(sync) = self.workspace_sync.as_ref() {
+            sync.sync_workspace(task_id).await;
         }
     }
 
@@ -378,6 +458,48 @@ impl Lifecycle {
         .await
     }
 
+    /// Reclaim a long-stopped Sandbox's compute objects and volume, leaving the
+    /// S3 snapshot as the only copy. The Task stays Open and its desired state
+    /// stays `Stopped` — a cold Sandbox is a stopped one whose volume is gone,
+    /// not a fourth state — so a later start converges it the ordinary way and
+    /// restores from the snapshot.
+    ///
+    /// The volume is only deleted once the archive is proven newer than the
+    /// stop, or once the runtime has uploaded it. Anything that leaves neither
+    /// true keeps the volume and returns an error for the next cycle to retry.
+    pub async fn archive_storage(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
+        let me = self.clone();
+        let id = task_id.to_string();
+        let span = tracing::Span::current();
+        Self::join(
+            task_id.to_string(),
+            tokio::spawn(async move { me.op_archive_storage(id).await }.instrument(span)),
+        )
+        .await
+    }
+
+    /// Which of `task_ids` are stopped and still own storage, and when each
+    /// stopped.
+    ///
+    /// A read, so no lock and no detachment. Lifecycle answers only the half of
+    /// the cold question it owns — what storage exists — and leaves the clock to
+    /// the caller, which is where the per-Task override lives.
+    pub async fn stopped_with_storage(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, LifecycleError> {
+        self.store
+            .stopped_with_storage(task_ids)
+            .await
+            .map(|rows| rows.into_iter().collect())
+            .map_err(|e| LifecycleError::IntentLoad {
+                // A batch read has no single Task to name; the count is what
+                // makes the failure legible in a log line.
+                task_id: format!("<{} ids>", task_ids.len()),
+                reason: e.to_string(),
+            })
+    }
+
     /// The persisted desired state for the Task's Sandbox — the status
     /// projections' and reaper's intent input, read from the Sandbox row through
     /// the store. Absence of a row reads as `Stopped` (never requested =
@@ -450,6 +572,124 @@ impl Lifecycle {
         let intent = self.require_intent(&task_id).await?;
         // remove is permitted in every status.
         self.run_remove(&task_id, &intent, retention).await
+    }
+
+    /// The cold transition. Unlike every other operation here it writes no
+    /// intent and publishes no events: the Sandbox is already `Stopped` and
+    /// stays `Stopped`, so there is no target to move toward and no
+    /// acceptance/completion pair to derive. What this owns instead is the
+    /// proof — the volume is deleted only once the archive is known to be at
+    /// least as new as the stop that produced it, or once the runtime has been
+    /// given a way to write one.
+    #[tracing::instrument(skip_all, fields(task_id = %task_id, op = "archive_storage"))]
+    async fn op_archive_storage(self, task_id: String) -> Result<LifecycleOutcome, LifecycleError> {
+        // Held under `Stop`: this is a continuation of the stop that preceded
+        // it, and reusing the kind keeps it mutually exclusive with every other
+        // operation without adding a variant that the event, marker, classify
+        // and reconciler paths would each have to learn.
+        let _guard = self.acquire(&task_id, OperationKind::Stop).await?;
+        let intent = self.require_intent(&task_id).await?;
+
+        // Intent is re-read under the lock on purpose: the caller decided this
+        // Task was cold from a snapshot taken before the lock, and a start in
+        // between makes the volume live again.
+        if intent.desired_state != SandboxDesiredState::Stopped
+            || intent.status == TaskStatus::Closed
+        {
+            crate::metrics::record_storage_reclaim("skipped");
+            return Ok(Self::reclaim_noop());
+        }
+
+        // No archive port means no S3, which means the volume is the only copy
+        // — there is nothing to reclaim toward.
+        let Some(archive) = self.workspace_archive.clone() else {
+            crate::metrics::record_storage_reclaim("skipped");
+            return Ok(Self::reclaim_noop());
+        };
+
+        // `run_stop` persists the Stopped intent before pushing the workspace,
+        // so an archive from that stop is strictly newer than this timestamp.
+        // The two clocks are different machines' (Postgres and the object
+        // store), but skew only ever costs a needless rescue, never a wrongly
+        // dropped volume.
+        let stopped_at = intent.desired_state_updated_at;
+        let archived_at = match archive.archived_at(&task_id).await {
+            Ok(at) => at,
+            Err(reason) => {
+                crate::metrics::record_storage_reclaim("blocked");
+                return Err(LifecycleError::ArchiveUnproven { task_id, reason });
+            }
+        };
+
+        let rescue_url = match archived_at {
+            Some(at) if at > stopped_at => {
+                tracing::info!(%at, %stopped_at, "workspace archive is current, reclaiming volume");
+                None
+            }
+            other => {
+                tracing::info!(
+                    archived_at = ?other,
+                    %stopped_at,
+                    "workspace archive is stale or absent, rescuing volume before reclaim"
+                );
+                match archive.presign_upload(&task_id).await {
+                    Ok(url) => Some(url),
+                    Err(reason) => {
+                        crate::metrics::record_storage_reclaim("blocked");
+                        return Err(LifecycleError::ArchiveUnproven { task_id, reason });
+                    }
+                }
+            }
+        };
+        let rescuing = rescue_url.is_some();
+
+        // A fresh generation, as for any operation that mutates runtime
+        // resources: it labels the rescue workload and correlates the deletions
+        // that follow it.
+        let ctx = RuntimeOperationContext::new(self.allocate(&task_id).await?);
+        match self
+            .runtime
+            .reclaim_storage(&task_id, rescue_url.as_deref(), ctx)
+            .await
+        {
+            Ok(outcome) => {
+                crate::metrics::record_storage_reclaim(match (outcome.effect, rescuing) {
+                    // Nothing was there to reclaim — a task cooled by an earlier
+                    // pass, or one that never had a volume.
+                    (RuntimeEffect::NoOp, _) => "skipped",
+                    (_, true) => "rescued",
+                    (_, false) => "reclaimed",
+                });
+                // Storage is now provably absent (the runtime proves absence
+                // before returning, and `NoOp` means it was already gone), so
+                // record it and stop offering this Task to the cold branch. A
+                // failed mark only costs one idempotent retry next cycle.
+                if let Err(e) = self.store.mark_storage_reclaimed(&task_id).await {
+                    tracing::warn!(error = %e, "could not record the storage reclaim");
+                }
+                Ok(LifecycleOutcome::new(
+                    IntentEffect::Unchanged,
+                    outcome.effect,
+                    outcome.observed,
+                ))
+            }
+            Err(source) => {
+                // The runtime is strict about absence, so a failure here leaves
+                // the volume — the next cycle retries against the same intent.
+                crate::metrics::record_storage_reclaim("blocked");
+                Err(LifecycleError::Runtime { task_id, source })
+            }
+        }
+    }
+
+    /// The cold transition's "nothing to do" answer: intent untouched, no
+    /// runtime effect, and the Stopped status the Task already had.
+    fn reclaim_noop() -> LifecycleOutcome {
+        LifecycleOutcome::new(
+            IntentEffect::Unchanged,
+            RuntimeEffect::NoOp,
+            ObservedStatus::Stopped,
+        )
     }
 
     // ---- Shared helpers ----
@@ -627,8 +867,12 @@ impl Lifecycle {
             }
         };
 
-        // Graceful agent stop BEFORE the runtime effect (best-effort).
+        // Graceful agent stop BEFORE the runtime effect (best-effort), then push
+        // the workspace to S3 while the sandbox can still read it. The stop comes
+        // first so the tar is taken against a working tree the agent is no longer
+        // writing to.
         self.agent_stop.stop_agent(task_id, reason).await;
+        self.sync_workspace_before_effect(task_id).await;
 
         let ctx = RuntimeOperationContext::new(generation);
         let runtime_result = self.runtime.stop(task_id, ctx).await;
@@ -699,6 +943,13 @@ impl Lifecycle {
         self.agent_stop
             .stop_agent(task_id, SandboxStopReason::Cleanup)
             .await;
+
+        // Push the workspace only when the archives are being kept. A hard
+        // delete is on its way to erasing the very object this would write, so
+        // spending the stop budget on it buys nothing.
+        if retention.retains() {
+            self.sync_workspace_before_effect(task_id).await;
+        }
 
         let ctx = RuntimeOperationContext::new(generation);
         let runtime_result = self.runtime.remove(task_id, retention, ctx).await;
@@ -978,7 +1229,7 @@ fn op_error(e: LifecycleError) -> SandboxOpError {
 }
 
 /// The tasks-band lifecycle port. The closer, reaper, HTTP handlers, and service
-/// drive a Task's sandbox through this without naming a `sandbox` type; the four
+/// drive a Task's sandbox through this without naming a `sandbox` type; these
 /// methods are the whole tasks-band cross-boundary surface.
 #[async_trait]
 impl SandboxLifecycle for Lifecycle {
@@ -1004,6 +1255,22 @@ impl SandboxLifecycle for Lifecycle {
         Self::remove(self, task_id, retention)
             .await
             .map(|_| ())
+            .map_err(op_error)
+    }
+
+    async fn archive_storage(&self, task_id: &str) -> Result<(), SandboxOpError> {
+        Self::archive_storage(self, task_id)
+            .await
+            .map(|_| ())
+            .map_err(op_error)
+    }
+
+    async fn stopped_with_storage(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, SandboxOpError> {
+        Self::stopped_with_storage(self, task_ids)
+            .await
             .map_err(op_error)
     }
 
@@ -1043,6 +1310,7 @@ mod tests {
         next_gen: Mutex<i64>,
         commits: Mutex<Vec<String>>,
         marker_cleared: Mutex<bool>,
+        storage_reclaimed: Mutex<bool>,
         fail_persist: bool,
         fail_commit: bool,
     }
@@ -1054,6 +1322,7 @@ mod tests {
                 next_gen: Mutex::new(1),
                 commits: Mutex::new(vec![]),
                 marker_cleared: Mutex::new(false),
+                storage_reclaimed: Mutex::new(false),
                 fail_persist: false,
                 fail_commit: false,
             })
@@ -1064,6 +1333,7 @@ mod tests {
                 next_gen: Mutex::new(1),
                 commits: Mutex::new(vec![]),
                 marker_cleared: Mutex::new(false),
+                storage_reclaimed: Mutex::new(false),
                 fail_persist: false,
                 fail_commit: false,
             })
@@ -1076,6 +1346,9 @@ mod tests {
         }
         fn marker_cleared(&self) -> bool {
             *self.marker_cleared.lock().expect("lock")
+        }
+        fn storage_reclaimed(&self) -> bool {
+            *self.storage_reclaimed.lock().expect("lock")
         }
     }
 
@@ -1149,6 +1422,21 @@ mod tests {
             }
             Ok(())
         }
+        async fn stopped_with_storage(
+            &self,
+            _task_ids: &[String],
+        ) -> Result<Vec<(String, DateTime<Utc>)>, StoreError> {
+            let intent = self.intent.lock().expect("lock").clone();
+            Ok(intent
+                .filter(|i| i.desired_state == SandboxDesiredState::Stopped)
+                .filter(|_| !*self.storage_reclaimed.lock().expect("lock"))
+                .map(|i| vec![("t".to_string(), i.desired_state_updated_at)])
+                .unwrap_or_default())
+        }
+        async fn mark_storage_reclaimed(&self, _task_id: &str) -> Result<(), StoreError> {
+            *self.storage_reclaimed.lock().expect("lock") = true;
+            Ok(())
+        }
         async fn clear_marker(
             &self,
             _task_id: &str,
@@ -1176,6 +1464,64 @@ mod tests {
             self.log.lock().expect("lock").push("stop_agent".into());
         }
     }
+
+    struct RecordingWorkspaceSync {
+        log: Log,
+    }
+    #[async_trait]
+    impl WorkspaceSyncPort for RecordingWorkspaceSync {
+        async fn sync_workspace(&self, _task_id: &str) {
+            self.log.lock().expect("lock").push("sync_workspace".into());
+        }
+    }
+
+    /// A port that fails the way a real one does — by never answering — to prove
+    /// the transition does not depend on it.
+    struct FailingWorkspaceSync;
+    #[async_trait]
+    impl WorkspaceSyncPort for FailingWorkspaceSync {
+        async fn sync_workspace(&self, _task_id: &str) {
+            // Swallowed by the adapter in production; nothing reaches lifecycle.
+        }
+    }
+
+    /// Configurable archive double. The head answer and the presign answer are
+    /// the only two inputs the cold decision is made from, so both are settable
+    /// and both are logged into the shared order log.
+    struct RecordingArchive {
+        log: Log,
+        head: Result<Option<DateTime<Utc>>, String>,
+        presign: Result<String, String>,
+    }
+    impl RecordingArchive {
+        fn heading(log: Log, head: Result<Option<DateTime<Utc>>, String>) -> Arc<Self> {
+            Arc::new(Self {
+                log,
+                head,
+                presign: Ok(RESCUE_URL.to_string()),
+            })
+        }
+        fn failing_presign(log: Log) -> Arc<Self> {
+            Arc::new(Self {
+                log,
+                head: Ok(None),
+                presign: Err("presign denied".into()),
+            })
+        }
+    }
+    #[async_trait]
+    impl WorkspaceArchivePort for RecordingArchive {
+        async fn archived_at(&self, _t: &str) -> Result<Option<DateTime<Utc>>, String> {
+            self.log.lock().expect("lock").push("archived_at".into());
+            self.head.clone()
+        }
+        async fn presign_upload(&self, _t: &str) -> Result<String, String> {
+            self.log.lock().expect("lock").push("presign_upload".into());
+            self.presign.clone()
+        }
+    }
+
+    const RESCUE_URL: &str = "https://s3.invalid/t/workspace.tar?sig=1";
 
     struct RecordingEvents {
         published: Mutex<Vec<LifecycleEvent>>,
@@ -1233,7 +1579,12 @@ mod tests {
         restart_res: Mutex<Option<Result<RuntimeOutcome, RuntimeError>>>,
         redeploy_res: Mutex<Option<Result<RuntimeOutcome, RuntimeError>>>,
         remove_res: Mutex<Option<Result<RuntimeOutcome, RuntimeError>>>,
+        reclaim_res: Mutex<Option<Result<RuntimeOutcome, RuntimeError>>>,
         last_ctx: Mutex<Option<RuntimeOperationContext>>,
+        /// The rescue URL the last `reclaim_storage` was handed, if any. Whether
+        /// one was handed over at all is in the log line, which is the fact the
+        /// freshness proof is actually about.
+        last_rescue_url: Mutex<Option<String>>,
     }
     impl RecordingRuntime {
         fn new(log: Log) -> Self {
@@ -1244,7 +1595,9 @@ mod tests {
                 restart_res: Mutex::new(None),
                 redeploy_res: Mutex::new(None),
                 remove_res: Mutex::new(None),
+                reclaim_res: Mutex::new(None),
                 last_ctx: Mutex::new(None),
+                last_rescue_url: Mutex::new(None),
             }
         }
         fn take(
@@ -1309,6 +1662,25 @@ mod tests {
             self.log.lock().expect("lock").push("runtime_remove".into());
             *self.last_ctx.lock().expect("lock") = Some(ctx);
             Self::take(&self.remove_res)
+        }
+        async fn reclaim_storage(
+            &self,
+            _t: &str,
+            rescue_upload_url: Option<&str>,
+            ctx: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, RuntimeError> {
+            let mode = if rescue_upload_url.is_some() {
+                "rescue"
+            } else {
+                "proven"
+            };
+            self.log
+                .lock()
+                .expect("lock")
+                .push(format!("runtime_reclaim_storage:{mode}"));
+            *self.last_ctx.lock().expect("lock") = Some(ctx);
+            *self.last_rescue_url.lock().expect("lock") = rescue_upload_url.map(str::to_string);
+            Self::take(&self.reclaim_res)
         }
     }
 
@@ -1418,7 +1790,8 @@ mod tests {
             events.clone(),
             lock,
             Arc::new(TestClock),
-        );
+        )
+        .with_workspace_sync(Arc::new(RecordingWorkspaceSync { log: log.clone() }));
         Harness {
             lifecycle,
             store,
@@ -1503,11 +1876,12 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Removed)));
-        assert!(h
-            .lifecycle
-            .remove("t", ArchiveRetention::DeleteArchives)
-            .await
-            .is_ok());
+        assert!(
+            h.lifecycle
+                .remove("t", ArchiveRetention::DeleteArchives)
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -1545,6 +1919,7 @@ mod tests {
             next_gen: Mutex::new(1),
             commits: Mutex::new(vec![]),
             marker_cleared: Mutex::new(false),
+            storage_reclaimed: Mutex::new(false),
             fail_persist: true,
             fail_commit: false,
         });
@@ -1593,6 +1968,15 @@ mod tests {
             ) -> Result<(), StoreError> {
                 Ok(())
             }
+            async fn stopped_with_storage(
+                &self,
+                _t: &[String],
+            ) -> Result<Vec<(String, DateTime<Utc>)>, StoreError> {
+                Ok(vec![])
+            }
+            async fn mark_storage_reclaimed(&self, _t: &str) -> Result<(), StoreError> {
+                Ok(())
+            }
         }
         let log: Log = Arc::new(Mutex::new(vec![]));
         let lifecycle = Lifecycle::new(
@@ -1635,6 +2019,100 @@ mod tests {
         assert!(
             stop_agent < runtime_stop,
             "StopAgent must precede runtime stop: {log:?}"
+        );
+
+        // The workspace push sits between them: after the agent stops writing,
+        // before the effect that takes the volume away.
+        let sync = log
+            .iter()
+            .position(|s| s == "sync_workspace")
+            .expect("sync_workspace");
+        assert!(
+            stop_agent < sync && sync < runtime_stop,
+            "the workspace push belongs between the agent stop and the runtime stop: {log:?}"
+        );
+    }
+
+    /// A remove that keeps the archives is the last chance to make the S3 copy
+    /// current — the PVC is about to be deleted.
+    #[tokio::test]
+    async fn remove_with_retention_pushes_the_workspace_first() {
+        let h = harness(open_running());
+        h.runtime
+            .remove_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Removed)));
+        h.lifecycle
+            .remove("t", ArchiveRetention::RetainArchives)
+            .await
+            .expect("ok");
+        let log = h.log.lock().expect("lock").clone();
+        let sync = log
+            .iter()
+            .position(|s| s == "sync_workspace")
+            .expect("sync_workspace");
+        let runtime_remove = log
+            .iter()
+            .position(|s| s == "runtime_remove")
+            .expect("runtime_remove");
+        assert!(
+            sync < runtime_remove,
+            "the workspace push must precede the runtime remove: {log:?}"
+        );
+    }
+
+    /// A hard delete is on its way to erasing the object the push would write.
+    #[tokio::test]
+    async fn hard_delete_skips_the_workspace_push() {
+        let h = harness(open_running());
+        h.runtime
+            .remove_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Removed)));
+        h.lifecycle
+            .remove("t", ArchiveRetention::DeleteArchives)
+            .await
+            .expect("ok");
+        let log = h.log.lock().expect("lock").clone();
+        assert!(
+            !log.iter().any(|s| s == "sync_workspace"),
+            "a hard delete must not spend the stop budget on an upload: {log:?}"
+        );
+    }
+
+    /// The push is advisory. A port that cannot deliver must leave the stop
+    /// exactly as it would have been without one.
+    #[tokio::test]
+    async fn a_failing_workspace_sync_does_not_block_the_stop() {
+        let log: Log = Arc::new(Mutex::new(vec![]));
+        let runtime = Arc::new(RecordingRuntime::new(log.clone()));
+        runtime
+            .stop_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Stopped)));
+        let lifecycle = Lifecycle::new(
+            InMemoryLifecycleDao::with_intent(open_running()),
+            runtime,
+            Arc::new(RecordingAgentStop { log: log.clone() }),
+            RecordingEvents::new(),
+            FlakyLock::free(),
+            Arc::new(TestClock),
+        )
+        .with_workspace_sync(Arc::new(FailingWorkspaceSync));
+
+        lifecycle
+            .stop("t", SandboxStopReason::User)
+            .await
+            .expect("the stop still succeeds");
+        assert!(
+            log.lock()
+                .expect("lock")
+                .iter()
+                .any(|s| s == "runtime_stop"),
+            "the runtime effect must still run"
         );
     }
 
@@ -1710,13 +2188,14 @@ mod tests {
         let out = h.lifecycle.start("t").await.expect("ok");
         assert_eq!(out.observed, ObservedStatus::Ready);
         assert!(h.events.facts().contains(&EventFact::Initializing));
-        assert!(h
-            .events
-            .published
-            .lock()
-            .expect("lock")
-            .iter()
-            .all(|e| e.status != moatless_events::SandboxStatus::Ready));
+        assert!(
+            h.events
+                .published
+                .lock()
+                .expect("lock")
+                .iter()
+                .all(|e| e.status != moatless_events::SandboxStatus::Ready)
+        );
     }
 
     #[tokio::test]
@@ -1776,10 +2255,12 @@ mod tests {
             payload.message,
             "Sandbox start failed: runtime infrastructure error: previous pod still terminating"
         );
-        assert!(payload
-            .error
-            .as_deref()
-            .is_some_and(|e| e.contains("previous pod still terminating")));
+        assert!(
+            payload
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("previous pod still terminating"))
+        );
         assert_eq!(
             payload.lifecycle_event.as_deref(),
             Some("runtime_infrastructure")
@@ -1900,6 +2381,7 @@ mod tests {
             next_gen: Mutex::new(1),
             commits: Mutex::new(vec![]),
             marker_cleared: Mutex::new(false),
+            storage_reclaimed: Mutex::new(false),
             fail_persist: false,
             fail_commit: true,
         });
@@ -1983,6 +2465,7 @@ mod tests {
             next_gen: Mutex::new(100), // would be used only if it allocated afresh
             commits: Mutex::new(vec![]),
             marker_cleared: Mutex::new(false),
+            storage_reclaimed: Mutex::new(false),
             fail_persist: false,
             fail_commit: false,
         });
@@ -2046,5 +2529,154 @@ mod tests {
             .replace(Err(RuntimeError::Infrastructure("x".into())));
         let _ = h.lifecycle.start("t").await;
         assert_eq!(h.events.ids(), vec!["sandbox:t:1:error".to_string()]);
+    }
+
+    // ---- Cold transition ----
+
+    /// Attach an archive port to the harness's lifecycle without rebuilding it.
+    fn with_archive(h: &Harness, archive: Arc<dyn WorkspaceArchivePort>) -> Lifecycle {
+        h.lifecycle.clone().with_workspace_archive(archive)
+    }
+
+    #[tokio::test]
+    async fn archive_newer_than_the_stop_reclaims_without_a_rescue() {
+        let h = harness(open_stopped());
+        h.runtime
+            .reclaim_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Stopped)));
+        let archive = RecordingArchive::heading(
+            h.log.clone(),
+            Ok(Some(fixed_now() + chrono::Duration::seconds(60))),
+        );
+        let out = with_archive(&h, archive)
+            .archive_storage("t")
+            .await
+            .expect("reclaims");
+
+        assert_eq!(out.runtime_effect, RuntimeEffect::Applied);
+        assert_eq!(out.intent_effect, IntentEffect::Unchanged);
+        // Recorded, so the next cycle does not re-head S3 and re-ask Kubernetes
+        // about a task whose storage is already gone.
+        assert!(h.store.storage_reclaimed());
+        assert_eq!(
+            h.log.lock().expect("lock").as_slice(),
+            ["archived_at", "runtime_reclaim_storage:proven"]
+        );
+        // The volume goes, but nothing about the Task's intent moves and no
+        // event is owed: a cold sandbox is still a stopped one.
+        let current = h.store.current().expect("intent");
+        assert_eq!(current.desired_state, SandboxDesiredState::Stopped);
+        assert!(h.events.facts().is_empty());
+    }
+
+    #[tokio::test]
+    async fn stale_or_absent_archive_rescues_the_volume_first() {
+        for head in [
+            Ok(Some(fixed_now() - chrono::Duration::seconds(60))),
+            Ok(None),
+        ] {
+            let h = harness(open_stopped());
+            let archive = RecordingArchive::heading(h.log.clone(), head);
+            with_archive(&h, archive)
+                .archive_storage("t")
+                .await
+                .expect("reclaims after the rescue");
+
+            assert_eq!(
+                h.log.lock().expect("lock").as_slice(),
+                [
+                    "archived_at",
+                    "presign_upload",
+                    "runtime_reclaim_storage:rescue"
+                ]
+            );
+            assert_eq!(
+                h.runtime.last_rescue_url.lock().expect("lock").as_deref(),
+                Some(RESCUE_URL)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn unreadable_archive_keeps_the_volume() {
+        // "Cannot tell" is not "not there": a head failure must never become a
+        // deletion.
+        let h = harness(open_stopped());
+        let archive = RecordingArchive::heading(h.log.clone(), Err("s3 timeout".into()));
+        let err = with_archive(&h, archive)
+            .archive_storage("t")
+            .await
+            .expect_err("blocked");
+
+        assert!(matches!(err, LifecycleError::ArchiveUnproven { .. }));
+        assert!(err.is_retriable(), "the next cycle must try again");
+        assert_eq!(h.log.lock().expect("lock").as_slice(), ["archived_at"]);
+        assert!(
+            !h.store.storage_reclaimed(),
+            "a blocked transition must stay a candidate"
+        );
+    }
+
+    #[tokio::test]
+    async fn unpresignable_rescue_keeps_the_volume() {
+        let h = harness(open_stopped());
+        let archive = RecordingArchive::failing_presign(h.log.clone());
+        let err = with_archive(&h, archive)
+            .archive_storage("t")
+            .await
+            .expect_err("blocked");
+
+        assert!(matches!(err, LifecycleError::ArchiveUnproven { .. }));
+        assert_eq!(
+            h.log.lock().expect("lock").as_slice(),
+            ["archived_at", "presign_upload"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_restarted_task_is_not_reclaimed() {
+        // The caller decided this Task was cold from a pre-lock snapshot; the
+        // intent re-read under the lock is what actually protects a live volume.
+        let h = harness(open_running());
+        let archive = RecordingArchive::heading(h.log.clone(), Ok(Some(fixed_now())));
+        let out = with_archive(&h, archive)
+            .archive_storage("t")
+            .await
+            .expect("skips");
+
+        assert!(out.is_pure_no_op());
+        assert!(h.log.lock().expect("lock").is_empty());
+    }
+
+    #[tokio::test]
+    async fn without_an_archive_port_nothing_is_reclaimed() {
+        // No S3 means the volume is the only copy — there is nowhere to cool to.
+        let h = harness(open_stopped());
+        let out = h.lifecycle.archive_storage("t").await.expect("skips");
+
+        assert!(out.is_pure_no_op());
+        assert!(h.log.lock().expect("lock").is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_already_cold_task_reports_no_op() {
+        let h = harness(open_stopped());
+        h.runtime
+            .reclaim_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Stopped)));
+        let archive = RecordingArchive::heading(
+            h.log.clone(),
+            Ok(Some(fixed_now() + chrono::Duration::seconds(60))),
+        );
+        let out = with_archive(&h, archive)
+            .archive_storage("t")
+            .await
+            .expect("idempotent");
+
+        assert!(out.is_pure_no_op());
     }
 }

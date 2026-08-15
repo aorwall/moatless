@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 
 use super::client::K8sClient;
 use super::naming::generate_service_name;
-use super::{pod_builder, pvc};
+use super::pod_builder;
 use moatless_core::config::Config;
 use moatless_sandbox_control::error::SandboxError;
 use moatless_sandbox_control::lifecycle::runtime::{
@@ -233,14 +233,13 @@ pub async fn set_node_placement(
     k8s: &K8sClient,
     task_id: &str,
     node_name: Option<&str>,
-    required: bool,
 ) -> Result<(), kube::Error> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let deployment_name = generate_deployment_name(task_id);
     // `null` clears `nodeName` and whichever affinity mode is unused, so a merge
     // patch can neither stack two placements nor leave a stale one behind.
     let node_affinity = node_name
-        .map(|node_name| pod_builder::retained_node_affinity(node_name, required))
+        .map(pod_builder::retained_node_affinity)
         .and_then(|affinity| affinity.node_affinity)
         .unwrap_or_default();
     let patch = serde_json::json!({
@@ -332,7 +331,10 @@ pub async fn restart_deployment(
 /// strategy still terminates the current pod and detaches the ReadWriteOnce PVC
 /// before scheduling the replacement.
 ///
-/// The existing workspace PVC is reused so no data is lost.
+/// `pvc_name` is resolved by the caller, which is the only party that knows
+/// whether this rebuild wants the task's PVC: an ordinary redeploy passes the
+/// existing claim so no data is lost, while the attach-failure fallback passes
+/// `None` to come back up on an emptyDir restored from S3.
 pub async fn redeploy_with_plan(
     k8s: &K8sClient,
     config: &Config,
@@ -340,10 +342,8 @@ pub async fn redeploy_with_plan(
     request: &ProvisionRequest,
     ctx: RuntimeOperationContext,
     retained_node: Option<&str>,
-    retained_node_required: bool,
+    pvc_name: Option<&str>,
 ) -> Result<(), SandboxError> {
-    let pvc_name = pvc::find_task_pvc(k8s, task_id).await;
-
     // Mint fresh auth tokens for the rebuilt pod. The long-lived token is
     // delivered over the credential channel.
     let minted = pod_builder::mint_sandbox_tokens(config, task_id, &request.user_id)?;
@@ -352,12 +352,12 @@ pub async fn redeploy_with_plan(
         config,
         task_id,
         &request.plan,
-        pvc_name.as_deref(),
+        pvc_name,
         Some(pod_builder::SandboxAuthTokens::from_minted(&minted)),
     )
     .map_err(SandboxError::PodBuildError)?;
     if let Some(node_name) = retained_node {
-        pod_builder::pin_pod_to_node(&mut pod, node_name, retained_node_required)?;
+        pod_builder::pin_pod_to_node(&mut pod, node_name)?;
     }
     pod_builder::stamp_operation_generation(&mut pod, ctx);
 

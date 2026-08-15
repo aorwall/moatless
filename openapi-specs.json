@@ -13624,6 +13624,13 @@
               "type": "string"
             }
           },
+          "pvcEnabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether this repo's sandbox gets a per-task PVC mounted at\n`/opt/moatless`. The PVC is owned by the Deployment: it survives pod\nrestarts and is deleted when the sandbox is removed. When `false`, the\nworkspace is a node-local emptyDir that dies with the pod.\n\nWhen unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_PVC`).\nThe global `K8S_SANDBOX_STORAGE_ENABLED` kill switch still wins over both."
+          },
           "requests": {
             "type": [
               "object",
@@ -13636,19 +13643,19 @@
               "type": "string"
             }
           },
+          "s3Enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether this repo's sandbox snapshots its workspace to S3 — the copy that\noutlives the Deployment. Pushed before a stop or remove, and pulled back\non start when the volume holds nothing usable (a fresh PVC, a redeploy, or\na fallback after the PVC could not attach).\n\nIndependent of [`Self::pvc_enabled`]: with a PVC the volume is the live\ncopy and S3 is read only when it is empty or broken; without one, S3 is\nthe only persistence and is read on every start.\n\nWhen unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_S3`)."
+          },
           "storage": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Per-repository workspace storage size override (e.g. \"8Gi\"). Sizes the\nper-task PVC (`ebs`) and node-local emptyDir (`ephemeral`/`s3`) tiers.\nThe `node` hostPath tier is bounded by node disk capacity instead. When\nunset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never copied\ninto container resource specs."
-          },
-          "storageMode": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Per-repository storage tier. One of [`STORAGE_MODES`]:\n- `\"ebs\"` (default) — a per-task EBS PVC mounted at `/opt/moatless`,\n  surviving pod restarts.\n- `\"ephemeral\"` — a node-local emptyDir, no PVC; transcripts persist only\n  via the S3 sync, the workspace does not survive the pod.\n- `\"s3\"` — a node-local emptyDir plus a direct git-working-tree sync to S3,\n  giving workspace persistence without an EBS attach/detach per restart.\n- `\"node\"` — a best-effort node-local hostPath. The workspace survives\n  stop/start only when Kubernetes schedules the task back onto the same node.\n\nWhen unset, the deployment-wide default applies\n(`K8S_SANDBOX_DEFAULT_STORAGE_MODE`, itself defaulting to `\"ebs\"`).\nUnknown values are ignored (treated as unset)."
+            "description": "Per-repository workspace storage size override (e.g. \"8Gi\"). Sizes the\nper-task PVC when `pvc_enabled`, and the node-local emptyDir otherwise.\nWhen unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never\ncopied into container resource specs."
           }
         }
       },

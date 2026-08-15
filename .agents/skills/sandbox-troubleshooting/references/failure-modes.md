@@ -32,14 +32,21 @@ Defined in `backend/src/sandbox/k8s/pod_builder.rs`; overridable via repo
 
 ## Storage backends (workspace persistence)
 
-Resolved per-repo `resources.storage_mode` → `K8S_SANDBOX_DEFAULT_STORAGE_MODE`
-→ `Ebs` (`backend/src/sandbox/k8s/storage.rs`):
+Two independent switches, each resolved per-repo (`resources.pvcEnabled` /
+`resources.s3Enabled`) then falling back to `K8S_SANDBOX_DEFAULT_PVC` /
+`K8S_SANDBOX_DEFAULT_S3`, both defaulting to `true`
+(`crates/sandbox-control/src/storage.rs`):
 
-| Backend | Mechanism | Survives restart? |
-|---|---|---|
-| `Ebs` (default) | Per-task PVC (RWO), size = `K8S_SANDBOX_STORAGE_SIZE` | Yes |
-| `Ephemeral` | Node-local emptyDir | No (only transcripts persist via S3) |
-| `S3` | emptyDir + workspace-sync loop to/from S3 | Effectively yes, via S3 |
+| pvc | s3 | Mechanism | Survives restart? |
+|---|---|---|---|
+| ✅ | ✅ | Per-task PVC (RWO), size = `K8S_SANDBOX_STORAGE_SIZE`, snapshotted to S3 before stop/remove and restored when the volume holds nothing usable | Yes — and survives losing the volume |
+| ✅ | ❌ | Per-task PVC only | Yes, unless the volume is lost |
+| ❌ | ✅ | Node-local emptyDir + workspace sync to/from S3 | Effectively yes, via S3 |
+| ❌ | ❌ | Node-local emptyDir | No (only transcripts persist via S3) |
+
+A pvc+s3 pod stuck `Pending` on `Multi-Attach` / `FailedAttachVolume` is
+rebuilt onto an emptyDir restored from S3 after 60s, with a `storage_degraded`
+event. Look for that event before assuming the PVC is still in play.
 
 ## Lifecycle timing / crash knobs
 

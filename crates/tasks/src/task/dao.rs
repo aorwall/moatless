@@ -7,13 +7,13 @@ use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
 use super::models::{
-    sandbox_intent_epoch, SandboxDesiredState, SandboxIntentView, SandboxStopReason, Task,
-    TaskStatus, Visibility,
+    SandboxDesiredState, SandboxIntentView, SandboxStopReason, Task, TaskStatus, Visibility,
+    sandbox_intent_epoch,
 };
+use crate::task_listing;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 use moatless_core::db::DbPool;
 use moatless_core::shared_models::AgentType;
-use crate::task_listing;
 
 #[derive(sqlx::FromRow)]
 struct SandboxIntentViewRow {
@@ -163,6 +163,13 @@ pub trait TaskDao: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, i32>, sqlx::Error>;
+    /// Batch-fetch `cold_after_hours` for the given tasks. The column is
+    /// nullable and tasks that leave it unset are omitted, so an absent entry
+    /// and a `NULL` both mean "follow the deployment default".
+    async fn get_cold_after_hours_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, i32>, sqlx::Error>;
     /// List task IDs of all tasks currently in `status = 'open'`.
     async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error>;
 
@@ -286,7 +293,11 @@ impl TaskDao for PgTaskDao {
         let workspace_id = match row.workspace_id.clone() {
             Some(id) => id,
             None => {
-                moatless_workspaces::workspace::dao::ensure_shadow_workspace(&self.0, &row.repository_id).await?
+                moatless_workspaces::workspace::dao::ensure_shadow_workspace(
+                    &self.0,
+                    &row.repository_id,
+                )
+                .await?
             }
         };
 
@@ -815,6 +826,27 @@ impl TaskDao for PgTaskDao {
 
         let rows: Vec<(String, i32)> = sqlx::query_as(
             r#"SELECT task_id, inactive_ttl_days FROM tasks WHERE task_id = ANY($1)"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
+    async fn get_cold_after_hours_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, i32>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // `IS NOT NULL` rather than mapping to a sentinel: an unset column is
+        // the same answer as an absent task, and both mean "deployment default".
+        let rows: Vec<(String, i32)> = sqlx::query_as(
+            r#"SELECT task_id, cold_after_hours FROM tasks
+               WHERE task_id = ANY($1) AND cold_after_hours IS NOT NULL"#,
         )
         .bind(task_ids)
         .fetch_all(&self.0)

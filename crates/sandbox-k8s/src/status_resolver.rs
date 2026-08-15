@@ -12,6 +12,7 @@ use tracing::{debug, warn};
 use super::client::K8sClient;
 use super::deployment;
 use super::pod_reader;
+use super::service;
 use super::pod_status::{
     check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod,
 };
@@ -69,8 +70,9 @@ impl StatusResolver {
         desired_state: SandboxDesiredState,
         connector: &dyn SandboxConnector,
     ) -> SandboxStatusFullResponse {
-        let (phase, resolver_error, current_sandbox_image) =
-            self.resolve_pod_phase_and_error(task_id).await;
+        let (phase, resolver_error, current_sandbox_image) = self
+            .resolve_pod_phase_and_error(task_id, desired_state)
+            .await;
         let sandbox_status = phase.sandbox_status();
         let is_running = phase == PodPhase::Running;
 
@@ -259,7 +261,9 @@ impl StatusResolver {
         desired_state: SandboxDesiredState,
         connector: &dyn SandboxConnector,
     ) -> LiveStatus {
-        let (phase, resolver_error, _) = self.resolve_pod_phase_and_error(task_id).await;
+        let (phase, resolver_error, _) = self
+            .resolve_pod_phase_and_error(task_id, desired_state)
+            .await;
         let sandbox_status = phase.sandbox_status();
         let agent_status = if sandbox_status == SandboxStatus::Ready {
             self.fetch_agent_status(task_id, connector).await.status
@@ -359,6 +363,23 @@ impl StatusResolver {
         )
     }
 
+    /// What no Deployment means for this Task. See the call site.
+    async fn absent_phase(&self, task_id: &str, desired_state: SandboxDesiredState) -> PodPhase {
+        if desired_state != SandboxDesiredState::Stopped {
+            return PodPhase::NotFound;
+        }
+        match service::sandbox_service_exists(&self.k8s, task_id).await {
+            Ok(true) => PodPhase::Stopped,
+            Ok(false) => PodPhase::NotFound,
+            Err(e) => {
+                // An unreadable Service is not evidence either way; the
+                // never-created answer is the one that predates this branch.
+                warn!(task_id, error = %e, "Could not read the sandbox Service, reporting NotFound");
+                PodPhase::NotFound
+            }
+        }
+    }
+
     /// Resolve the effective pod phase, any permanent error, and the image the
     /// sandbox container is provisioned with, checking Deployment replicas first.
     ///
@@ -367,9 +388,13 @@ impl StatusResolver {
     /// exists with replicas=0, returns `(PodPhase::Stopped, None, image)`.
     /// Otherwise falls back to checking actual pod status and probing for
     /// permanent failures (CrashLoopBackOff, ImagePullBackOff, etc.).
+    ///
+    /// `desired_state` is read only on the no-Deployment path, to tell a
+    /// sandbox that never existed from one the cold transition reclaimed.
     async fn resolve_pod_phase_and_error(
         &self,
         task_id: &str,
+        desired_state: SandboxDesiredState,
     ) -> (PodPhase, Option<String>, Option<String>) {
         // Check Deployment replicas first
         let current_image =
@@ -384,8 +409,15 @@ impl StatusResolver {
                 }
                 image
             } else {
-                // No Deployment found — sandbox doesn't exist
-                return (PodPhase::NotFound, None, None);
+                // No Deployment. That is "never created" for a Task that never
+                // ran, but it is also what a reclaimed sandbox looks like — the
+                // cold transition deletes the Deployment and the volume and
+                // deliberately keeps the Service, so a surviving Service is the
+                // mark of a sandbox whose compute was reclaimed. Only asked when
+                // intent is Stopped: a Task mid-remove has its Deployment gone
+                // and its Service still draining, and that is `NotCreated` (which
+                // the Closed projection renders as Removed), not Stopped.
+                return (self.absent_phase(task_id, desired_state).await, None, None);
             };
 
         // Deployment exists with replicas > 0, check actual pod status

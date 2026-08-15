@@ -245,6 +245,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         plugins: vec![],
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
+        workspace_restore_if_empty: false,
         headless: false,
     }
 }
@@ -320,6 +321,7 @@ fn spawn_test_agent_in(tmp: &TempDir, use_tmux: bool) -> (AgentHandle, Arc<Agent
         Arc::clone(&credential_dispatcher),
         Arc::clone(&system_prompt_cache),
         moatless_sandbox::agent::heartbeat::Heartbeat::new(),
+        moatless_sandbox::init::workspace_sync::WorkspaceSyncTracker::new(),
     );
     late_injector.set(Box::new(handle.clone()));
 

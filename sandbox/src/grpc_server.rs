@@ -24,11 +24,11 @@ use sandbox_proto::{
     NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
     RefreshCredentialResponse, ScheduledJobInfo,
     SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest,
-    StopAgentResponse, TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest,
-    TerminalClearResponse, TerminalCloseRequest, TerminalCloseResponse, TerminalOpenRequest,
-    TerminalResizeRequest, TerminalResizeResponse, TerminalRestartRequest, TerminalSessionSnapshot,
-    TerminalWriteRequest, TerminalWriteResponse, WakeupJobInfo, WriteFileRequest,
-    WriteFileResponse, scheduled_job_info,
+    StopAgentResponse, SyncWorkspaceRequest, SyncWorkspaceResponse, TerminalAttachRequest,
+    TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest,
+    TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse,
+    TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse,
+    WakeupJobInfo, WriteFileRequest, WriteFileResponse, scheduled_job_info,
 };
 
 use crate::agent::scheduled_job::JobSnapshot;
@@ -101,6 +101,27 @@ impl SandboxService for SandboxServiceImpl {
 
         info!("Agent stopped via gRPC");
         Ok(Response::new(StopAgentResponse {}))
+    }
+
+    /// Push the workspace to S3 before the backend destroys the live copy.
+    ///
+    /// The sandbox is the only party that can read the volume, and on stop or
+    /// remove the volume is about to go. Never fails the call: a sandbox that
+    /// cannot upload must not block the transition, and the caller treats every
+    /// outcome as advisory.
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn sync_workspace(
+        &self,
+        _request: Request<SyncWorkspaceRequest>,
+    ) -> Result<Response<SyncWorkspaceResponse>, Status> {
+        let outcome = crate::init::workspace_sync::sync_on_request(&self.state).await;
+        if outcome.synced {
+            info!(bytes = outcome.bytes, "Workspace synced to S3 on request");
+        }
+        Ok(Response::new(SyncWorkspaceResponse {
+            synced: outcome.synced,
+            bytes: outcome.bytes as i64,
+        }))
     }
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]

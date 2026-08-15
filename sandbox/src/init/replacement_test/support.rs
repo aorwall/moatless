@@ -48,6 +48,7 @@ fn build_state(
         heartbeat: Heartbeat::new(),
         scheduled_jobs: Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
         backend_client: backend,
+        workspace_sync: Default::default(),
         init_phase: Arc::new(RwLock::new(phase)),
         credentials: Arc::new(RwLock::new(HashMap::new())),
         lifecycle_cancel: CancellationToken::new(),
@@ -102,6 +103,7 @@ fn spawn_recording_agent(
         Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
+        crate::init::workspace_sync::WorkspaceSyncTracker::new(),
     );
     tokio::spawn(service.run(command_rx, Heartbeat::new()));
     agent_handle
