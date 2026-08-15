@@ -10,14 +10,12 @@ use moatless_identity::secret::audit::{SecretAuditDao, SecretAuditInput};
 use moatless_identity::secret::service::SecretCipher;
 
 use super::dao::WorkspaceCredentialDao;
-use super::models::{WorkspaceCredential, WorkspaceCredentialWrite};
+use super::models::{WorkspaceCredential, WorkspaceCredentialMetadata, WorkspaceCredentialWrite};
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::error::WorkspaceError;
 use crate::workspace::models::Workspace;
 
-pub use moatless_api_schemas::workspace::{
-    WorkspaceCredentialProvider, WorkspaceCredentialResponse,
-};
+use super::super::models::WorkspaceCredentialProvider;
 
 /// `secret_audit_events.scope_type` for a workspace credential. The audit table
 /// is shared with `secrets` so credential material has one trail; the scope
@@ -62,7 +60,7 @@ impl WorkspaceCredentialService {
         &self,
         ctx: &ScopeContext,
         workspace_id: &str,
-    ) -> Result<Vec<WorkspaceCredentialResponse>, WorkspaceError> {
+    ) -> Result<Vec<WorkspaceCredentialMetadata>, WorkspaceError> {
         self.readable_workspace(ctx, workspace_id).await?;
         let rows = self.credentials.list(workspace_id).await?;
         Ok(rows.iter().filter_map(metadata).collect())
@@ -75,7 +73,7 @@ impl WorkspaceCredentialService {
         workspace_id: &str,
         provider: WorkspaceCredentialProvider,
         value: &str,
-    ) -> Result<WorkspaceCredentialResponse, WorkspaceError> {
+    ) -> Result<WorkspaceCredentialMetadata, WorkspaceError> {
         if value.trim().is_empty() {
             return Err(WorkspaceError::BadRequest(
                 "Credential value must not be empty".to_string(),
@@ -287,9 +285,9 @@ fn parse_provider(value: &str) -> Option<WorkspaceCredentialProvider> {
 
 /// Metadata for a stored row, or `None` when the row names a provider this
 /// build does not know.
-fn metadata(row: &WorkspaceCredential) -> Option<WorkspaceCredentialResponse> {
+fn metadata(row: &WorkspaceCredential) -> Option<WorkspaceCredentialMetadata> {
     let provider = parse_provider(&row.provider)?;
-    Some(WorkspaceCredentialResponse {
+    Some(WorkspaceCredentialMetadata {
         workspace_id: row.workspace_id.clone(),
         provider,
         env_key: provider.env_key().to_string(),
@@ -325,7 +323,7 @@ mod tests {
 
     use async_trait::async_trait;
     use chrono::Utc;
-    use moatless_api_schemas::enums::Scope;
+    use moatless_backend_core::scope::Scope;
     use moatless_core::config::SecretsConfig;
     use moatless_identity::secret::service::LocalEnvelopeSecretCipher;
     use std::sync::Mutex;
@@ -604,7 +602,8 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].provider, WorkspaceCredentialProvider::Github);
         assert_eq!(listed[0].env_key, "GITHUB_TOKEN");
-        let json = serde_json::to_string(&listed[0]).unwrap();
+        let response = super::super::handlers::credential_response(listed[0].clone());
+        let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("ghp_secret"), "{json}");
     }
 

@@ -68,6 +68,7 @@ pub struct RepoConfig {
     /// Per-repository sandbox image override
     pub docker_image: Option<String>,
     /// Servers with allocated ports
+    #[schema(value_type = Vec<moatless_api_schemas::workspace::ServerConfig>)]
     pub servers: Option<Vec<ServerConfig>>,
     // --- Pass-through fields for REPO_CONFIG env var ---
     /// System prompt for the agent
@@ -80,6 +81,7 @@ pub struct RepoConfig {
     pub preview_config: Option<serde_json::Value>,
     // --- K8s resource configuration (opt-in per-repo) ---
     /// Per-repo K8s resource requests/limits override for server containers.
+    #[schema(value_type = moatless_api_schemas::workspace::ResourceConfig)]
     pub resources: Option<moatless_workspaces::repository::models::ResourceConfig>,
     // --- Plugins (resolved from the task owner's activation records) ---
     /// The plugins this task's owner has turned on, each with the skills they

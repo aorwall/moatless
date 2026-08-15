@@ -64,7 +64,8 @@ pub async fn create_repository(
     let now = chrono::Utc::now();
     let user_id = auth.user_id;
 
-    let resolved_scope = resolve_scope_for_create(&auth.scope_context(), req.scope)?;
+    let resolved_scope =
+        resolve_scope_for_create(&auth.scope_context(), req.scope.map(scope_from_wire))?;
     let scope_ctx = auth.scope_context();
 
     ensure_unique_remote_url(
@@ -79,11 +80,11 @@ pub async fn create_repository(
     let row = Repository {
         id: id.clone(),
         name: req.name,
-        kind: req.kind,
+        kind: repository_kind_from_wire(req.kind),
         remote_url: req.remote_url,
         default_branch: req.default_branch,
         description: req.description,
-        provider: req.provider,
+        provider: req.provider.map(repository_provider_from_wire),
         scope: resolved_scope.scope,
         owner_user_id: resolved_scope.owner_user_id,
         created_by: Some(user_id.to_string()),
@@ -239,7 +240,7 @@ pub async fn update_repository(
     // User ownership is immutable here: re-submitting `scope: user` preserves
     // the existing owner even when an admin is editing the row.
     // Global moves require admin (enforced by resolve_scope_for_create).
-    let (scope, owner_user_id) = match req.scope {
+    let (scope, owner_user_id) = match req.scope.map(scope_from_wire) {
         Some(Scope::User) => {
             let existing_owner_user_id = preserved_user_scope(&existing)?;
             (Some(Scope::User), Some(Some(existing_owner_user_id)))

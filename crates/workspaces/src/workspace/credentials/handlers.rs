@@ -12,11 +12,27 @@ use axum::http::StatusCode;
 
 use moatless_identity::extractors::AuthUser;
 
+use super::models::WorkspaceCredentialMetadata;
 use super::service::WorkspaceCredentialService;
 use crate::workspace::error::WorkspaceError;
+use crate::workspace::models::WorkspaceCredentialProvider;
 use crate::workspace::schemas::{
-    SetWorkspaceCredentialRequest, WorkspaceCredentialProvider, WorkspaceCredentialResponse,
+    SetWorkspaceCredentialRequest, WorkspaceCredentialResponse, credential_provider_to_wire,
 };
+
+pub(super) fn credential_response(
+    metadata: WorkspaceCredentialMetadata,
+) -> WorkspaceCredentialResponse {
+    WorkspaceCredentialResponse {
+        workspace_id: metadata.workspace_id,
+        provider: credential_provider_to_wire(metadata.provider),
+        env_key: metadata.env_key,
+        created_by: metadata.created_by,
+        updated_by: metadata.updated_by,
+        created_at: metadata.created_at,
+        updated_at: metadata.updated_at,
+    }
+}
 
 /// Parse the `{provider}` path segment, naming the supported set on a miss.
 fn parse_provider(provider: &str) -> Result<WorkspaceCredentialProvider, WorkspaceError> {
@@ -41,7 +57,7 @@ pub async fn list_workspace_credentials(
     let listed = credentials
         .list(&auth.scope_context(), &workspace_id)
         .await?;
-    Ok(Json(listed))
+    Ok(Json(listed.into_iter().map(credential_response).collect()))
 }
 
 #[utoipa::path(
@@ -71,7 +87,7 @@ pub async fn set_workspace_credential(
     let stored = credentials
         .set(&auth.scope_context(), &workspace_id, provider, &req.value)
         .await?;
-    Ok(Json(stored))
+    Ok(Json(credential_response(stored)))
 }
 
 #[utoipa::path(

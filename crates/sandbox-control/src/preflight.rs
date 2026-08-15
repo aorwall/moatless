@@ -564,7 +564,7 @@ mod tests {
             default_branch: None,
             description: None,
             provider,
-            scope: moatless_api_schemas::enums::Scope::User,
+            scope: moatless_backend_core::scope::Scope::User,
             owner_user_id: None,
             created_by: None,
             access_status: "unchecked".into(),

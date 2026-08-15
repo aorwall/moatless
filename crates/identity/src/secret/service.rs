@@ -11,17 +11,16 @@ use super::audit::{SecretAuditDao, SecretAuditInput};
 use super::dao::{SecretDao, SecretInsert, SecretReplace};
 use super::error::SecretError;
 use super::models::{
-    is_reserved_key, is_valid_secret_key, EncryptedSecretValue, ResolvedSecret, SecretKind,
-    SecretRecord,
+    EncryptedSecretValue, ResolvedSecret, SecretKind, SecretRecord, is_reserved_key,
+    is_valid_secret_key,
 };
 use super::schemas::{
     PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, ValidateSecretsRequest,
-    ValidateSecretsResponse,
+    ValidateSecretsResponse, scope_from_wire,
 };
-use moatless_backend_core::access_control::{resolve_scope_for_create, AccessControlError};
+use moatless_backend_core::access_control::{AccessControlError, resolve_scope_for_create};
+use moatless_backend_core::scope::{Scope, ScopeContext};
 use moatless_core::config::SecretsConfig;
-use moatless_api_schemas::enums::Scope;
-use moatless_backend_core::scope::ScopeContext;
 
 const ENCRYPTION_VERSION: i32 = 1;
 const NONCE_LEN: usize = 12;
@@ -42,7 +41,7 @@ pub trait SecretCipher: Send + Sync {
     /// record rather than in `secrets`, but must not invent a second
     /// encryption scheme to do so.
     fn decrypt_value(&self, aad: &str, value: &EncryptedSecretValue)
-        -> Result<String, SecretError>;
+    -> Result<String, SecretError>;
 
     fn decrypt(&self, record: &SecretRecord) -> Result<String, SecretError>;
 }
@@ -226,7 +225,7 @@ impl SecretService {
     ) -> Result<Vec<SecretMetadataResponse>, SecretError> {
         let records = self
             .secrets
-            .list(ctx, scope_filter.map(|s| s.as_str()))
+            .list(ctx, scope_filter.map(Scope::as_str))
             .await?;
         records
             .into_iter()
@@ -258,8 +257,8 @@ impl SecretService {
         actor_id: &str,
         req: PutSecretRequest,
     ) -> Result<SecretMetadataResponse, SecretError> {
-        let resolved =
-            resolve_scope_for_create(ctx, req.scope).map_err(map_access_control_error)?;
+        let resolved = resolve_scope_for_create(ctx, req.scope.map(scope_from_wire))
+            .map_err(map_access_control_error)?;
         validate_secret_shape(&req.key, req.value.as_ref(), req.external_ref.as_ref())?;
 
         let existing = self
@@ -415,8 +414,8 @@ impl SecretService {
         ctx: &ScopeContext,
         req: ValidateSecretsRequest,
     ) -> Result<ValidateSecretsResponse, SecretError> {
-        let resolved =
-            resolve_scope_for_create(ctx, req.scope).map_err(map_access_control_error)?;
+        let resolved = resolve_scope_for_create(ctx, req.scope.map(scope_from_wire))
+            .map_err(map_access_control_error)?;
         // list() with access_filter already limits to rows the caller may read.
         let records = self
             .secrets

@@ -8,6 +8,7 @@ use moatless_api_schemas::task::{
 };
 
 use super::models::Task;
+use super::schemas::agent_type_to_wire;
 use crate::message::models::{MessageType, TaskMessage};
 use crate::task_activities::dao::Activity;
 use crate::task_activities::mapping::ActivityKind;
@@ -193,7 +194,7 @@ pub fn build_task_statistics(
 
     TaskStatisticsResponse {
         task_id: task.task_id.clone(),
-        agent_type: task.agent_type.clone(),
+        agent_type: agent_type_to_wire(&task.agent_type),
         model: latest_model,
         token_totals: totals_from_turn_metrics(turn_metrics).unwrap_or(token_totals),
         message_token_usage,

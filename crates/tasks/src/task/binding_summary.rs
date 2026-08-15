@@ -6,8 +6,10 @@
 //! because both the input and output are foreign types (`moatless-adapter-model`
 //! and `moatless-api-schemas`).
 
-use moatless_adapter_model::models::{parse_adapter_kind, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::models::{SubscriptionMatch, TaskBinding, parse_adapter_kind};
 use moatless_api_schemas::bindings::TaskBindingSummary;
+
+use super::schemas::adapter_kind_to_wire;
 
 pub fn task_binding_summary_from_binding(
     binding: &TaskBinding,
@@ -40,7 +42,7 @@ pub fn task_binding_summary_from_binding(
         loop_id: subscription
             .map(|subscription| subscription.id.clone())
             .unwrap_or_default(),
-        adapter_kind: parse_adapter_kind(&binding.adapter_kind),
+        adapter_kind: adapter_kind_to_wire(parse_adapter_kind(&binding.adapter_kind)),
         source_id: source_id.clone(),
         source_name: Some(source_id),
         thread_id: None,

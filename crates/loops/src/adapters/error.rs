@@ -11,6 +11,7 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use moatless_api_schemas::bindings::MultipleTargetsErrorBody;
+use moatless_api_schemas::bindings::ReplyTargetDescriptor;
 
 use moatless_backend_core::access_control::AccessControlError;
 use moatless_core::error::error_response;
@@ -118,7 +119,15 @@ impl IntoResponse for AdapterError {
                 SharedAdapterError::MultipleTargets { targets } => {
                     let body = MultipleTargetsErrorBody {
                         error: inner.to_string(),
-                        targets: targets.clone(),
+                        targets: targets
+                            .iter()
+                            .map(|target| ReplyTargetDescriptor {
+                                kind: target.kind.clone(),
+                                id: target.id.clone(),
+                                label: target.label.clone(),
+                                flag_hint: target.flag_hint.clone(),
+                            })
+                            .collect(),
                         hint: "Use --binding <binding_id> to pick one.".to_string(),
                     };
                     return (StatusCode::BAD_REQUEST, Json(body)).into_response();
@@ -226,12 +235,16 @@ mod tests {
     #[tokio::test]
     async fn repository_credential_keeps_source_on_the_502_path() {
         let err = AdapterError::RepositoryCredential {
-            source: moatless_workspaces::repository::error::RepositoryError::Db(sqlx::Error::PoolClosed),
+            source: moatless_workspaces::repository::error::RepositoryError::Db(
+                sqlx::Error::PoolClosed,
+            ),
         };
 
         assert!(
             err.source()
-                .and_then(|s| s.downcast_ref::<moatless_workspaces::repository::error::RepositoryError>())
+                .and_then(
+                    |s| s.downcast_ref::<moatless_workspaces::repository::error::RepositoryError>()
+                )
                 .is_some()
         );
 
@@ -397,13 +410,21 @@ mod tests {
     /// envelope.
     #[tokio::test]
     async fn multiple_targets_pins_its_picker_body() {
-        let err: AdapterError = SharedAdapterError::MultipleTargets { targets: vec![] }.into();
+        let err: AdapterError = SharedAdapterError::MultipleTargets {
+            targets: vec![moatless_adapter_model::error::ReplyTarget {
+                kind: "binding".to_string(),
+                id: "binding-1".to_string(),
+                label: "issue ENG-1".to_string(),
+                flag_hint: "--binding binding-1".to_string(),
+            }],
+        }
+        .into();
         assert!(err.source().is_none());
         let (status, body) = response_snapshot(err.into_response()).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(
             body,
-            r#"{"error":"Task has multiple reply targets; pick one explicitly","targets":[],"hint":"Use --binding <binding_id> to pick one."}"#
+            r#"{"error":"Task has multiple reply targets; pick one explicitly","targets":[{"kind":"binding","id":"binding-1","label":"issue ENG-1","flagHint":"--binding binding-1"}],"hint":"Use --binding <binding_id> to pick one."}"#
         );
     }
 }

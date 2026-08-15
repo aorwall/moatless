@@ -6,7 +6,7 @@ use crate::adapters::models::{
     SubscriptionMatch, TaskBinding,
 };
 
-use moatless_api_schemas::enums::AdapterKind;
+use moatless_adapter_model::models::AdapterKind;
 
 /// Result of posting to a provider-specific destination by raw ID.
 ///

@@ -114,7 +114,7 @@ clap = { version = "4", features = ["derive"] }
 moatless-events = { path = "../events", features = ["openapi"] }
 
 # Shared API schemas (DTOs shared with CLI)
-moatless-api-schemas = { path = "../api-schemas", features = ["openapi", "database"] }
+moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 
 # Pure backend access-control policy and scope types
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }

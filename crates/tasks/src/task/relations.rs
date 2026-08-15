@@ -11,7 +11,62 @@ use tracing::warn;
 
 use moatless_core::db::DbPool;
 
-pub use moatless_api_schemas::enums::TaskRelationType;
+/// Type of a directional link between two Tasks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRelationType {
+    CreatedBy,
+    RelatedTo,
+}
+
+impl TaskRelationType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CreatedBy => "created_by",
+            Self::RelatedTo => "related_to",
+        }
+    }
+}
+
+impl std::fmt::Display for TaskRelationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for TaskRelationType {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "created_by" => Ok(Self::CreatedBy),
+            "related_to" => Ok(Self::RelatedTo),
+            other => Err(format!("unknown TaskRelationType: {other:?}")),
+        }
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for TaskRelationType {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TaskRelationType {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let value = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Self::try_from(value.as_str()).map_err(Into::into)
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for TaskRelationType {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
+    }
+}
 
 /// Directive carried from a task-creation site to record a `created_by`
 /// relation immediately after the child task is inserted.
@@ -141,7 +196,7 @@ impl TaskRelationDao for PgTaskRelationDao {
         );
         sqlx::query_as::<_, TaskRelation>(AssertSqlSafe(sql))
             .bind(to_task_id)
-            .bind(kind.map(|k| k.as_str()))
+            .bind(kind.map(TaskRelationType::as_str))
             .fetch_all(&self.0)
             .await
     }

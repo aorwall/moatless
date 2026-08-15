@@ -13,8 +13,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::loops::models::LoopKind;
 use chrono::{DateTime, Utc};
-use moatless_api_schemas::loops::LoopKind;
 use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary, LoopSyncWarning};
 use tracing::{debug, warn};
 
@@ -30,11 +30,11 @@ pub use self::parser::parse_loop;
 use crate::adapters::common::next_fire_at;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::models::RoutingMode;
-use moatless_identity::extractors::AuthUser;
 use crate::loops::dao::{LoopDao, ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
-use moatless_workspaces::repository::access::{parse_github_owner_repo, RepositoryTokenResolver};
-use moatless_workspaces::repository::models::{Repository, RepositoryProvider};
+use moatless_identity::extractors::AuthUser;
 use moatless_tasks::tag::dao::TagDao;
+use moatless_workspaces::repository::access::{RepositoryTokenResolver, parse_github_owner_repo};
+use moatless_workspaces::repository::models::{Repository, RepositoryProvider};
 
 /// Reconciles a repository's committed loop declarations into the loop tables.
 ///
@@ -350,8 +350,8 @@ impl LoopSyncService {
                     .await?
                 else {
                     return Ok(ResolveOutcome::Skipped(format!(
-                    "no github connection for org `{owner}` — set up the GitHub App + connection first"
-                )));
+                        "no github connection for org `{owner}` — set up the GitHub App + connection first"
+                    )));
                 };
                 let source_matcher = fm
                     .source_matcher

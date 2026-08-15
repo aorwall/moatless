@@ -24,7 +24,7 @@ use tracing::{debug, warn};
 
 use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
-use moatless_api_schemas::enums::SandboxDesiredState;
+use moatless_backend_core::models::SandboxDesiredState;
 use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_grpc_error};
 use moatless_backend_core::scope::ScopeContext;
 

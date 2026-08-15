@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 
 use moatless_core::shared_models::AgentMode;
 
-pub use moatless_api_schemas::enums::{MessageRole, MessageType};
+pub use moatless_backend_core::models::{MessageRole, MessageType};
 
 // A stop used to append a `Result` row saying so, and `stop_is_reported`
 // already narrowed that to error stops with the reason stated in full: the

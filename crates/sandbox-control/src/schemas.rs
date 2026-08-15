@@ -9,7 +9,17 @@ use super::live_status::{AgentStatus, SandboxStatus};
 use super::models::{
     ResourceMetrics, ServerCapabilities, ServerOverride, ServerSnapshot, ServerStatus,
 };
-use moatless_tasks::task::models::SandboxDesiredState;
+use moatless_api_schemas::enums::SandboxDesiredState;
+
+pub fn sandbox_desired_state_to_wire(
+    value: moatless_tasks::task::models::SandboxDesiredState,
+) -> SandboxDesiredState {
+    match value {
+        moatless_tasks::task::models::SandboxDesiredState::Running => SandboxDesiredState::Running,
+        moatless_tasks::task::models::SandboxDesiredState::Stopped => SandboxDesiredState::Stopped,
+        moatless_tasks::task::models::SandboxDesiredState::Removed => SandboxDesiredState::Removed,
+    }
+}
 
 /// Provision response
 #[derive(Debug, Serialize, ToSchema)]
@@ -405,7 +415,7 @@ impl TryFrom<sandbox_proto::FileTreeNode> for FileTreeNodeDto {
                 return Err(UnknownFileNodeType {
                     path: node.path,
                     node_type: node.node_type,
-                })
+                });
             }
         };
 

@@ -154,6 +154,7 @@ pub async fn adapter_send(
     Json(req): Json<AdapterSendRequest>,
 ) -> Result<Json<AdapterSendResponse>, AdapterError> {
     let ctx = auth.scope_context();
+    let adapter_kind = moatless_loops::adapters::common::adapter_kind_from_wire(req.adapter);
 
     if let Some(task_id) = req.task_id.as_deref() {
         ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
@@ -162,7 +163,7 @@ pub async fn adapter_send(
     let connection = resolve_connection(
         state.adapter_connections.as_ref(),
         &ctx,
-        req.adapter,
+        adapter_kind,
         req.connection_id.as_deref(),
     )
     .await?;
@@ -170,9 +171,15 @@ pub async fn adapter_send(
     let providers = state.adapters.as_ref().ok_or_else(|| {
         SharedAdapterError::AdapterNotConfigured("adapters not configured".into())
     })?;
-    let provider = providers.outbound_for_direct_destination(req.adapter)?;
+    let provider = providers.outbound_for_direct_destination(adapter_kind)?;
 
-    let files = resolve_files_with(&state.s3, &state.config.s3, state.files.as_ref(), &req.file_ids).await;
+    let files = resolve_files_with(
+        &state.s3,
+        &state.config.s3,
+        state.files.as_ref(),
+        &req.file_ids,
+    )
+    .await;
     if !files.is_empty() && !provider.supports_files() {
         return Err(SharedAdapterError::BadRequest(format!(
             "{} adapter does not support file attachments",
@@ -208,7 +215,7 @@ pub async fn adapter_send(
             Some(result.message_external_id.clone()),
         )
         .await?;
-        if let Some(followup) = providers.post_binding_followup(req.adapter) {
+        if let Some(followup) = providers.post_binding_followup(adapter_kind) {
             followup
                 .on_binding_created(&connection, &binding, task_id)
                 .await;

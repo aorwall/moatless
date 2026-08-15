@@ -14,9 +14,9 @@ use sqlx::AssertSqlSafe;
 use tracing::{debug, info, warn};
 
 use crate::credentials::codex::oauth;
-use moatless_identity::auth::codex_scope::CodexScope;
 use crate::credentials::{CredentialError, CredentialService};
 use moatless_core::db::DbPool;
+use moatless_identity::auth::codex_scope::CodexScope;
 
 impl CredentialService {
     /// The pure Codex `auth.json` refresh, serialized on the per-scope mutex.
@@ -59,10 +59,7 @@ impl CredentialService {
     /// no refresh. Used by `CredentialSync` on the in-flight-guard path, and
     /// here as the fallback when the DB / HTTP plumbing for refresh is absent
     /// (tests) or another replica is the active refresher.
-    pub async fn read_raw_codex(
-        &self,
-        scope: &CodexScope,
-    ) -> Result<String, CredentialError> {
+    pub async fn read_raw_codex(&self, scope: &CodexScope) -> Result<String, CredentialError> {
         let row = self
             .provider_tokens
             .find_codex_blob(scope)

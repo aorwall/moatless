@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 
 use crate::extractors::AuthUser;
 use crate::secret::service::SecretService;
@@ -12,7 +12,7 @@ use crate::secret::service::SecretService;
 use super::error::SecretError;
 use super::schemas::{
     ListSecretsQuery, PatchSecretRequest, PutSecretRequest, SecretMetadataResponse,
-    SecretMutationResponse, ValidateSecretsRequest, ValidateSecretsResponse,
+    SecretMutationResponse, ValidateSecretsRequest, ValidateSecretsResponse, scope_from_wire,
 };
 
 #[utoipa::path(
@@ -31,7 +31,7 @@ pub async fn list_secrets(
     Query(query): Query<ListSecretsQuery>,
 ) -> Result<Json<Vec<SecretMetadataResponse>>, SecretError> {
     let rows = secrets
-        .list_metadata(&auth.scope_context(), query.scope)
+        .list_metadata(&auth.scope_context(), query.scope.map(scope_from_wire))
         .await?;
     Ok(Json(rows))
 }

@@ -18,10 +18,10 @@ use super::lifecycle::{ArchiveRetention, Lifecycle};
 use super::models::*;
 use super::routes::SandboxApiState;
 use super::schemas::*;
+use moatless_backend_core::scope::ScopeContext;
 use moatless_identity::extractors::OptionalScope;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::models::{SandboxDesiredState, SandboxStopReason, Task};
-use moatless_backend_core::scope::ScopeContext;
 
 /// Provision a new sandbox for a task.
 ///
@@ -136,7 +136,8 @@ pub async fn sandbox_status_handler(
             // UI can tell whether a redeploy would move the sandbox to a newer
             // image. The "latest" image is what a fresh (re)deploy would use:
             // the per-repo `docker_image` override, else the configured default.
-            resp.sandbox_desired_state = Some(desired_state);
+            resp.sandbox_desired_state =
+                Some(crate::schemas::sandbox_desired_state_to_wire(desired_state));
 
             if let Some(lifecycle) = state.lifecycle.as_deref() {
                 match lifecycle.expected_sandbox_image(&task_id).await {

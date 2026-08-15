@@ -2,26 +2,28 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Serialize;
 use tracing::warn;
 
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
+use crate::repository::dao::RepositoryDao;
 use moatless_backend_core::access_control::resolve_scope_for_create;
 use moatless_identity::extractors::AuthUser;
-use crate::repository::dao::RepositoryDao;
 
 use super::dao::{WorkspaceDao, WorkspacePatch};
 use super::error::WorkspaceError;
 use super::git_sync::{GitSyncService, SyncForce};
 use super::models::{Workspace, WorkspaceRepo};
 use super::schemas::{
-    workspace_response, AddRepoRequest, CreateWorkspaceRequest, ResetGitWorkspaceResponse,
-    UpdateWorkspaceRequest, WorkspaceRepoInput, WorkspaceResponse,
+    AddRepoRequest, CreateWorkspaceRequest, ResetGitWorkspaceResponse, UpdateWorkspaceRequest,
+    WorkspaceRepoInput, WorkspaceResponse, resource_config_from_wire, script_configs_from_wire,
+    server_configs_from_wire, workspace_response,
 };
+use crate::repository::schemas::scope_from_wire;
 
 /// Serialize a typed run-config value into the jsonb column shape, dropping it
 /// on the (practically impossible) serialization failure rather than erroring.
@@ -189,7 +191,7 @@ pub async fn create_workspace(
         req.network_profile.as_ref(),
     )?;
 
-    let resolved = resolve_scope_for_create(&auth.scope_context(), req.scope)?;
+    let resolved = resolve_scope_for_create(&auth.scope_context(), req.scope.map(scope_from_wire))?;
 
     let workspace_id = format!("ws_{}", uuid::Uuid::new_v4());
     let row = Workspace {
@@ -203,9 +205,9 @@ pub async fn create_workspace(
         system_prompt: req.system_prompt,
         setup_commands: to_json(req.setup_commands),
         env_vars: to_json(req.env_vars),
-        servers: to_json(req.servers),
-        scripts: to_json(req.scripts),
-        resources: to_json(req.resources),
+        servers: to_json(req.servers.map(server_configs_from_wire)),
+        scripts: to_json(req.scripts.map(script_configs_from_wire)),
+        resources: to_json(req.resources.map(resource_config_from_wire)),
         network_profile: req.network_profile,
         source: "manual".to_string(),
         source_repository_id: None,
@@ -336,7 +338,7 @@ pub async fn update_workspace(
     )?;
 
     // Re-resolve owner_user_id when the scope changes.
-    let (scope, owner_user_id) = match req.scope {
+    let (scope, owner_user_id) = match req.scope.map(scope_from_wire) {
         Some(new_scope) => {
             let resolved = resolve_scope_for_create(&auth.scope_context(), Some(new_scope))?;
             (Some(resolved.scope), Some(resolved.owner_user_id))
@@ -355,9 +357,15 @@ pub async fn update_workspace(
         system_prompt: req.system_prompt.map(Some),
         setup_commands: req.setup_commands.map(|v| to_json(Some(v))),
         env_vars: req.env_vars.map(|v| to_json(Some(v))),
-        servers: req.servers.map(|v| to_json(Some(v))),
-        scripts: req.scripts.map(|v| to_json(Some(v))),
-        resources: req.resources.map(|v| to_json(Some(v))),
+        servers: req
+            .servers
+            .map(|configs| to_json(Some(server_configs_from_wire(configs)))),
+        scripts: req
+            .scripts
+            .map(|configs| to_json(Some(script_configs_from_wire(configs)))),
+        resources: req
+            .resources
+            .map(|config| to_json(Some(resource_config_from_wire(config)))),
         network_profile: req.network_profile.map(Some),
         kind: None,
         // Provenance not editable via the write API.
@@ -460,9 +468,15 @@ pub async fn override_workspace(
         system_prompt: req.system_prompt.map(Some),
         setup_commands: req.setup_commands.map(|v| to_json(Some(v))),
         env_vars: req.env_vars.map(|v| to_json(Some(v))),
-        servers: req.servers.map(|v| to_json(Some(v))),
-        scripts: req.scripts.map(|v| to_json(Some(v))),
-        resources: req.resources.map(|v| to_json(Some(v))),
+        servers: req
+            .servers
+            .map(|configs| to_json(Some(server_configs_from_wire(configs)))),
+        scripts: req
+            .scripts
+            .map(|configs| to_json(Some(script_configs_from_wire(configs)))),
+        resources: req
+            .resources
+            .map(|config| to_json(Some(resource_config_from_wire(config)))),
         network_profile: req.network_profile.map(Some),
         // Mark as manually managed; provenance columns stay unchanged.
         source: Some("manual".to_string()),

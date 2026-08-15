@@ -21,7 +21,7 @@
 
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::dao::ConversationDao;
 use crate::data::T3WorkspaceDao;
@@ -204,7 +204,7 @@ mod tests {
         // argument and leave the rest of the line as shell words of its own.
         assert_eq!(
             exec_line("echo 'hi'"),
-            r"exec sh -c 'echo '\''hi'\'''" .to_string() + "\r"
+            r"exec sh -c 'echo '\''hi'\'''".to_string() + "\r"
         );
     }
 

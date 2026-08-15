@@ -36,7 +36,7 @@ utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 
 moatless-adapter-model = { path = "../adapter-model" }
-moatless-api-schemas = { path = "../api-schemas", features = ["openapi", "database"] }
+moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
 moatless-core = { path = "../core", features = ["openapi"] }
 moatless-events = { path = "../events" }

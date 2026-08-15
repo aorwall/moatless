@@ -143,7 +143,7 @@ pub fn log_admission(
 
 #[cfg(test)]
 mod tests {
-    use super::{admit_delivery, IngressError};
+    use super::{IngressError, admit_delivery};
     use crate::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore, AdmitError};
     use moatless_core::db::DbPool;
 

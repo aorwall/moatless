@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::super::capabilities::Adapter;
 use super::Adapters;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_api_schemas::enums::AdapterKind;
+use moatless_adapter_model::models::AdapterKind;
 
 // The capability-matrix tests that build the five concrete providers live in the
 // backend crate (`backend/src/adapters/registry_matrix_tests.rs`): the providers

@@ -46,7 +46,7 @@ use super::schemas::{
     CreatePairingCodeRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
     OAuthCallbackQuery, PairingCodeResponse, PasswordLoginRequest, ProviderConnection,
     SessionResponse, TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem,
-    UserListResponse, format_datetime, format_datetime_opt,
+    UserListResponse, format_datetime, format_datetime_opt, user_role_from_wire, user_role_to_wire,
 };
 use super::session;
 use super::sessions::SessionDao;
@@ -390,7 +390,7 @@ async fn password_login_handler(
                 name: user.name,
                 avatar_url: user.avatar_url,
                 provider: "local".to_string(),
-                role: user.role,
+                role: user_role_to_wire(user.role),
             }),
             expires_at: Some(format_datetime(expires_at)),
             providers: Vec::new(),
@@ -558,7 +558,7 @@ async fn create_local_user(
         )));
     }
 
-    let role = req.role.unwrap_or(UserRole::User);
+    let role = req.role.map_or(UserRole::User, user_role_from_wire);
     // The internal id is a uuid; the `local:<login>` handle is preserved as the
     // provider identity so it resolves back to this uuid.
     let provider_user_id = format!("local:{}", login.to_lowercase());
@@ -846,7 +846,7 @@ async fn me_handler(
             name: user.name,
             avatar_url: user.avatar_url,
             provider: identity.provider,
-            role: identity.role,
+            role: user_role_to_wire(identity.role),
         }),
         expires_at: None,
         providers,
@@ -1031,7 +1031,7 @@ async fn update_me_handler(
             name: user.name,
             avatar_url: user.avatar_url,
             provider: claims.provider,
-            role,
+            role: user_role_to_wire(role),
         }),
         expires_at: expires_at.map(format_datetime),
         providers: Vec::new(),
@@ -1472,7 +1472,7 @@ async fn exchange_api_key_handler(
             name: user.name,
             avatar_url: user.avatar_url,
             provider: "api-key".to_string(),
-            role: user.role,
+            role: user_role_to_wire(user.role),
         }),
         expires_at: None,
         providers: Vec::new(),
@@ -1563,7 +1563,7 @@ async fn exchange_token_handler(
             name: user.name,
             avatar_url: user.avatar_url,
             provider: "token".to_string(),
-            role: user.role,
+            role: user_role_to_wire(user.role),
         },
         expires_at: format_datetime(expires_at),
     };
@@ -2013,7 +2013,7 @@ async fn list_users_handler(
             name: u.name.clone(),
             avatar_url: u.avatar_url.clone(),
             provider: u.provider.clone(),
-            role: u.role,
+            role: user_role_to_wire(u.role),
             created_at: format_datetime(u.created_at),
             last_login_at: format_datetime(u.last_login_at),
             is_bot: u.is_bot,
@@ -2060,7 +2060,12 @@ async fn update_user_handler(
 
     let user = state
         .users
-        .update_user_profile_and_role(&user_id, body.name.clone(), body.email.clone(), body.role)
+        .update_user_profile_and_role(
+            &user_id,
+            body.name.clone(),
+            body.email.clone(),
+            body.role.map(user_role_from_wire),
+        )
         .await?
         .ok_or_else(|| AuthError::NotFound(format!("User '{login}' not found")))?;
 
@@ -2077,7 +2082,7 @@ async fn update_user_handler(
         name: user.name,
         avatar_url: user.avatar_url,
         provider: user.provider,
-        role: user.role,
+        role: user_role_to_wire(user.role),
     }))
 }
 

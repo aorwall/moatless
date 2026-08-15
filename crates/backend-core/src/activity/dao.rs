@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 #[cfg(feature = "database")]
-use sqlx::{postgres::PgRow, Row};
+use sqlx::{Row, postgres::PgRow};
 
 use super::mapping::{ActivityKind, ActivityStatus};
 

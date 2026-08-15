@@ -364,7 +364,7 @@ mod tests {
     /// only whether a scoped read returned one.
     fn task_fixture(_task_id: &str) -> TaskView {
         TaskView {
-            status: moatless_api_schemas::enums::TaskStatus::Open,
+            status: moatless_backend_core::models::TaskStatus::Open,
         }
     }
 

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use crate::data::{T3TaskDao, TaskView};
-use moatless_api_schemas::enums::SandboxStopReason;
+use moatless_backend_core::models::SandboxStopReason;
 use moatless_backend_core::sandbox::{
     ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxStarter,
     SandboxStopper,

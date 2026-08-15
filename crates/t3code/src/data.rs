@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use moatless_api_schemas::enums::TaskStatus;
-use moatless_api_schemas::repository::ScriptConfig;
+use moatless_api_schemas::workspace::ScriptConfig;
+use moatless_backend_core::models::TaskStatus;
 use moatless_backend_core::scope::ScopeContext;
 
 use crate::workspace::UiRpcListedWorkspace;

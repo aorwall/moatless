@@ -44,31 +44,6 @@ impl TryFrom<&str> for TaskStatus {
     }
 }
 
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for TaskStatus {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TaskStatus {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        TaskStatus::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for TaskStatus {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
-
 // =============================================================================
 // SandboxDesiredState
 // =============================================================================
@@ -108,31 +83,6 @@ impl TryFrom<&str> for SandboxDesiredState {
             "removed" => Ok(Self::Removed),
             other => Err(format!("unknown SandboxDesiredState: {other:?}")),
         }
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for SandboxDesiredState {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for SandboxDesiredState {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        SandboxDesiredState::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for SandboxDesiredState {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
     }
 }
 
@@ -184,31 +134,6 @@ impl TryFrom<&str> for SandboxStopReason {
     }
 }
 
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for SandboxStopReason {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for SandboxStopReason {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        SandboxStopReason::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for SandboxStopReason {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
-
 // =============================================================================
 // TaskRelationType
 // =============================================================================
@@ -257,31 +182,6 @@ impl TryFrom<&str> for TaskRelationType {
     }
 }
 
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for TaskRelationType {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TaskRelationType {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        TaskRelationType::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for TaskRelationType {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
-
 // =============================================================================
 // Visibility
 // =============================================================================
@@ -318,31 +218,6 @@ impl TryFrom<&str> for Visibility {
             "private" => Ok(Self::Private),
             other => Err(format!("unknown Visibility: {other:?}")),
         }
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for Visibility {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Visibility {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Visibility::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for Visibility {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
     }
 }
 
@@ -392,31 +267,6 @@ impl TryFrom<&str> for Scope {
     }
 }
 
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for Scope {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Scope {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Scope::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for Scope {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
-
 // =============================================================================
 // RepositoryKind
 // =============================================================================
@@ -459,31 +309,6 @@ impl TryFrom<&str> for RepositoryKind {
     }
 }
 
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for RepositoryKind {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for RepositoryKind {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        RepositoryKind::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for RepositoryKind {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
-
 // =============================================================================
 // RepositoryProvider
 // =============================================================================
@@ -523,31 +348,6 @@ impl TryFrom<&str> for RepositoryProvider {
             "gitness" => Ok(Self::Gitness),
             other => Err(format!("unknown RepositoryProvider: {other:?}")),
         }
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for RepositoryProvider {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for RepositoryProvider {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        RepositoryProvider::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for RepositoryProvider {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
     }
 }
 
@@ -599,31 +399,6 @@ impl TryFrom<&str> for MessageType {
     }
 }
 
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for MessageType {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MessageType {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        MessageType::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for MessageType {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
-
 // =============================================================================
 // MessageRole
 // =============================================================================
@@ -666,31 +441,6 @@ impl TryFrom<&str> for MessageRole {
     }
 }
 
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for MessageRole {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MessageRole {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        MessageRole::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for MessageRole {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
-
 // =============================================================================
 // UserRole
 // =============================================================================
@@ -727,31 +477,6 @@ impl TryFrom<&str> for UserRole {
             "admin" => Ok(Self::Admin),
             other => Err(format!("unknown UserRole: {other:?}")),
         }
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for UserRole {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for UserRole {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        UserRole::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for UserRole {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
     }
 }
 
@@ -794,31 +519,6 @@ impl TryFrom<&str> for RoutingMode {
     }
 }
 
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for RoutingMode {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for RoutingMode {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        RoutingMode::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for RoutingMode {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
-
 // =============================================================================
 // AdapterKind
 // =============================================================================
@@ -846,10 +546,6 @@ impl AdapterKind {
             Self::Linear => "linear",
             Self::Webhook => "webhook",
         }
-    }
-
-    pub fn is_replyable(&self) -> bool {
-        true
     }
 
     pub fn parse(s: &str) -> Option<Self> {
@@ -1165,6 +861,5 @@ mod tests {
     fn adapter_kind_linear_roundtrip() {
         assert_eq!(AdapterKind::Linear.as_str(), "linear");
         assert_eq!(AdapterKind::parse("linear"), Some(AdapterKind::Linear));
-        assert!(AdapterKind::Linear.is_replyable());
     }
 }

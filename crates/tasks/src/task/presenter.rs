@@ -15,17 +15,17 @@ use moatless_backend_core::scope::ScopeContext;
 
 use super::error::TaskError;
 use super::models::Task;
-use super::relations::{TaskRelation, TaskRelationDao, TaskRelationType};
+use super::relations::{TaskRelation, TaskRelationDao};
 use super::schemas::*;
-use moatless_identity::auth::users::UserDao;
+use crate::tag::dao::TagDao;
 use crate::task::binding_dao::TaskBindingDao;
 use crate::task::binding_summary::task_binding_summary_from_binding;
-use moatless_api_schemas::bindings::TaskBindingSummary;
-use crate::task::loop_reader::LoopSubscriptionReader;
-use moatless_workspaces::repository::dao::RepositoryDao;
-use crate::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
+use crate::task::loop_reader::LoopSubscriptionReader;
 use crate::task::models::SandboxIntentView;
+use moatless_api_schemas::bindings::TaskBindingSummary;
+use moatless_identity::auth::users::UserDao;
+use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 /// The eight ports a task response is assembled from, held together because a
@@ -332,7 +332,12 @@ pub(crate) fn build_task_response(
 
     let parent_task_id = relations
         .iter()
-        .find(|r| matches!(r.relation_type, TaskRelationType::CreatedBy))
+        .find(|r| {
+            matches!(
+                r.relation_type,
+                moatless_api_schemas::enums::TaskRelationType::CreatedBy
+            )
+        })
         .map(|r| r.to_task_id.clone());
 
     TaskResponse {
@@ -341,8 +346,8 @@ pub(crate) fn build_task_response(
         title,
         name: row.name.clone(),
         description: row.description.clone(),
-        status: row.status,
-        agent_type: row.agent_type.clone(),
+        status: task_status_to_wire(row.status),
+        agent_type: agent_type_to_wire(&row.agent_type),
         repository_id: row.repository_id.clone(),
         repository_name: names.repository,
         workspace_id: row.workspace_id.clone(),
@@ -357,8 +362,8 @@ pub(crate) fn build_task_response(
         vibe: row.vibe,
         created_by: row.created_by.clone(),
         created_by_display_name: names.creator,
-        visibility: row.visibility,
-        scope: row.scope,
+        visibility: visibility_to_wire(row.visibility),
+        scope: scope_to_wire(row.scope),
         owner_user_id: row.owner_user_id.clone(),
         parent_task_id,
         relations,
@@ -368,8 +373,8 @@ pub(crate) fn build_task_response(
         ttl_minutes: row.ttl_minutes,
         inactive_ttl_days: row.inactive_ttl_days,
         sandbox_started_at: sandbox.started_at.map(|t| t.to_rfc3339()),
-        sandbox_desired_state: sandbox.desired_state,
-        sandbox_stop_reason: sandbox.stop_reason,
+        sandbox_desired_state: sandbox_desired_state_to_wire(sandbox.desired_state),
+        sandbox_stop_reason: sandbox.stop_reason.map(sandbox_stop_reason_to_wire),
         sandbox_desired_state_updated_at: sandbox.desired_state_updated_at.to_rfc3339(),
         // Populated per-request by callers that know the requesting user.
         last_read_at: None,
@@ -384,7 +389,7 @@ fn relations_to_dtos(rows: Vec<TaskRelation>) -> Vec<TaskRelationDto> {
             id: r.id,
             from_task_id: r.from_task_id,
             to_task_id: r.to_task_id,
-            relation_type: r.relation_type,
+            relation_type: relation_type_to_wire(r.relation_type),
             context: r.context,
             created_at: r.created_at.to_rfc3339(),
         })

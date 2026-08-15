@@ -9,7 +9,6 @@ async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 hex = "0.4"
-moatless-api-schemas = { path = "../api-schemas" }
 moatless-events = { path = "../events" }
 rand = "0.10"
 sandbox-proto = { path = "../sandbox-proto" }
@@ -29,7 +28,7 @@ serde_json = "1"
 [features]
 default = []
 database = ["sqlx"]
-openapi = ["utoipa", "moatless-api-schemas/openapi"]
+openapi = ["utoipa"]
 
 [lints]
 workspace = true

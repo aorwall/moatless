@@ -22,7 +22,7 @@
 use super::dao::ConversationDao;
 use super::projection;
 use chrono::{DateTime, Utc};
-use moatless_api_schemas::enums::SandboxDesiredState;
+use moatless_backend_core::models::SandboxDesiredState;
 use moatless_backend_core::sandbox::SandboxError;
 use moatless_backend_core::scope::Scope;
 use moatless_backend_core::scope::ScopeContext;

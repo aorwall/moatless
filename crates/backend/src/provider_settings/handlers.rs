@@ -1094,7 +1094,7 @@ pub async fn save_github_pat(
             &auth.scope_context(),
             &auth.user_id.to_string(),
             PutSecretRequest {
-                scope: Some(Scope::User),
+                scope: Some(moatless_api_schemas::enums::Scope::User),
                 key: GITHUB_TOKEN.to_string(),
                 kind: SecretKind::ProviderToken,
                 provider: Some("github".to_string()),

@@ -2,18 +2,19 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use chrono::Utc;
 
-use moatless_identity::extractors::AuthUser;
 use crate::task::dao::TaskDao;
+use moatless_identity::extractors::AuthUser;
 
 use super::dao::FeedbackDao;
 use super::error::{FeedbackError, UnknownFeedbackDiscriminant};
-use super::models::{Feedback, FeedbackSource};
+use super::models::{Feedback, FeedbackSource, FeedbackSurface};
 use super::schemas::{
-    CreateFeedbackRequest, FeedbackResponse, FeedbackSurface, ListFeedbackResponse,
+    CreateFeedbackRequest, FeedbackResponse, ListFeedbackResponse, feedback_source_to_wire,
+    feedback_surface_from_wire, feedback_surface_to_wire,
 };
 
 /// Create a new feedback row scoped to a task (and optionally a message
@@ -43,8 +44,9 @@ pub async fn create_feedback(
     }
 
     // Validate scope is consistent with surface.
+    let surface = feedback_surface_from_wire(req.surface);
     match (
-        req.surface,
+        surface,
         req.message_uuid.is_some(),
         req.tool_use_id.is_some(),
     ) {
@@ -88,7 +90,7 @@ pub async fn create_feedback(
         message_uuid: req.message_uuid.clone(),
         tool_use_id: req.tool_use_id.clone(),
         source: source.as_str().to_string(),
-        surface: req.surface.as_str().to_string(),
+        surface: surface.as_str().to_string(),
         comment: req.comment.clone(),
         metadata: req.metadata.clone(),
         created_by: auth.user_id.clone().to_string(),
@@ -163,8 +165,8 @@ fn to_response(row: &Feedback) -> Result<FeedbackResponse, FeedbackError> {
         task_id: row.task_id.clone(),
         message_uuid: row.message_uuid.clone(),
         tool_use_id: row.tool_use_id.clone(),
-        source,
-        surface,
+        source: feedback_source_to_wire(source),
+        surface: feedback_surface_to_wire(surface),
         comment: row.comment.clone(),
         metadata: row.metadata.clone(),
         created_by: row.created_by.clone(),

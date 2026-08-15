@@ -123,9 +123,7 @@ pub use models::{
     Admission, AdmitError,
 };
 pub use store::AdapterDeliveryStore;
-pub use typed::{
-    ConnectionDeliveryPayload, register_connection_delivery, register_typed_delivery,
-};
+pub use typed::{ConnectionDeliveryPayload, register_connection_delivery, register_typed_delivery};
 pub use worker::spawn_adapter_delivery_worker;
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
@@ -272,7 +270,9 @@ mod tests {
             )
             .into(),
             AdapterError::RepositoryCredential {
-                source: moatless_workspaces::repository::error::RepositoryError::Db(sqlx::Error::PoolClosed),
+                source: moatless_workspaces::repository::error::RepositoryError::Db(
+                    sqlx::Error::PoolClosed,
+                ),
             },
             AdapterError::UserCredential {
                 user_id: "u-1".into(),

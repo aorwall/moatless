@@ -25,20 +25,21 @@ use super::dao::TaskDao;
 use super::error::TaskError;
 use super::models::Task;
 use super::relations::CreatedByParent;
-use super::schemas::CreateTaskRequest;
+use super::schemas::{CreateTaskRequest, agent_type_from_wire};
 use crate::agent::catalog;
 use crate::credential_sync::CredentialSync;
+use crate::message::schemas::agent_mode_from_wire;
 use crate::message::send::MessageSendService;
-use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::repository::models::RepositoryKind;
 use crate::task::models::Visibility;
 use crate::task::sandbox_lifecycle::SandboxLifecycle;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
 use moatless_backend_core::access_control::ensure_can_use_repository;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::shared_models::AgentType;
+use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_workspaces::repository::models::RepositoryKind;
+use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 /// A create request plus the two things only an internal caller supplies.
 pub struct CreateTaskIntent {
@@ -182,7 +183,7 @@ pub async fn normalize(
         provision,
         first_message_uuid,
     } = intent;
-    let agent_type = validate_agent_type(req.agent_type)?;
+    let agent_type = validate_agent_type(req.agent_type.map(agent_type_from_wire))?;
 
     // A task accepts `repository_id` and/or `workspace_id`. When a workspace is
     // supplied it drives the task's repositories (workspace wins): the effective
@@ -290,7 +291,7 @@ pub async fn normalize(
         first_message: req.message.clone().map(|text| FirstMessage {
             text,
             model: req.model.clone(),
-            agent_mode: req.agent_mode.clone(),
+            agent_mode: req.agent_mode.clone().map(agent_mode_from_wire),
             effort: req.effort.clone(),
             file_ids: req.file_ids.clone(),
             contexts: req.contexts.clone(),

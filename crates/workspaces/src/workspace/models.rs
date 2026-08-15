@@ -1,8 +1,175 @@
 //! Workspace domain types — DB row structs.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 use moatless_backend_core::scope::Scope;
+
+/// Workspace resource and storage configuration consumed by Sandbox runtimes.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceConfig {
+    pub requests: Option<HashMap<String, String>>,
+    pub limits: Option<HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pvc_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub s3_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_storage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_storage_mode: Option<String>,
+}
+
+pub const BUILD_CACHE_MODES: [&str; 2] = ["emptyDir", "node"];
+pub const BUILD_CACHE_SCOPES: [&str; 2] = ["task", "node"];
+pub const DOCKER_STORAGE_MODES: [&str; 2] = ["emptyDir", "node"];
+
+#[must_use]
+pub fn is_valid_docker_storage_mode(mode: &str) -> bool {
+    matches!(
+        mode.trim().to_ascii_lowercase().as_str(),
+        "emptydir" | "node"
+    )
+}
+
+#[must_use]
+pub fn is_valid_build_cache_mode(mode: &str) -> bool {
+    matches!(
+        mode.trim().to_ascii_lowercase().as_str(),
+        "emptydir" | "node"
+    )
+}
+
+#[must_use]
+pub fn is_valid_build_cache_scope(scope: &str) -> bool {
+    matches!(scope.trim().to_ascii_lowercase().as_str(), "task" | "node")
+}
+
+/// Per-server run configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerConfig {
+    pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub port: u16,
+    #[serde(default)]
+    pub start_commands: Option<Vec<String>>,
+    #[serde(default)]
+    pub startup_timeout_seconds: Option<u32>,
+    #[serde(default)]
+    pub auto_reload: bool,
+    #[serde(default)]
+    pub enable_inspector: bool,
+    #[serde(default)]
+    pub default: bool,
+    #[serde(default)]
+    pub docker_image: Option<String>,
+    #[serde(default)]
+    pub env_vars: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub resources: Option<ResourceConfig>,
+}
+
+/// Named command run on demand inside a Sandbox.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptConfig {
+    pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    pub command: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub env_vars: Option<HashMap<String, String>>,
+}
+
+/// Provider whose static credential can be pinned to a Workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkspaceCredentialProvider {
+    Github,
+    Gitlab,
+    Gitness,
+    Openai,
+    Anthropic,
+}
+
+impl WorkspaceCredentialProvider {
+    pub const ALL: &'static [Self] = &[
+        Self::Github,
+        Self::Gitlab,
+        Self::Gitness,
+        Self::Openai,
+        Self::Anthropic,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Github => "github",
+            Self::Gitlab => "gitlab",
+            Self::Gitness => "gitness",
+            Self::Openai => "openai",
+            Self::Anthropic => "anthropic",
+        }
+    }
+
+    pub fn env_key(self) -> &'static str {
+        match self {
+            Self::Github => "GITHUB_TOKEN",
+            Self::Gitlab => "GITLAB_TOKEN",
+            Self::Gitness => "GITNESS_TOKEN",
+            Self::Openai => "OPENAI_API_KEY",
+            Self::Anthropic => "ANTHROPIC_API_KEY",
+        }
+    }
+
+    pub fn names() -> String {
+        Self::ALL
+            .iter()
+            .map(|provider| provider.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+impl std::fmt::Display for WorkspaceCredentialProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for WorkspaceCredentialProvider {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|provider| provider.as_str() == value)
+            .ok_or_else(|| {
+                format!(
+                    "Unknown credential provider '{value}'. Must be one of: {}",
+                    Self::names()
+                )
+            })
+    }
+}
 
 // =============================================================================
 // Workspace (DB)
@@ -77,4 +244,52 @@ pub struct WorkspaceRepo {
     /// Ordering within the workspace.
     pub position: i32,
     pub created_at: Option<DateTime<Utc>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn minimal_server_config_uses_domain_defaults() {
+        let config: ServerConfig = serde_json::from_str(r#"{"name":"files","port":4000}"#).unwrap();
+        assert_eq!(config.name, "files");
+        assert_eq!(config.port, 4000);
+        assert!(!config.default);
+        assert!(config.resources.is_none());
+    }
+
+    #[test]
+    fn credential_provider_maps_persisted_and_environment_values() {
+        let mut environment_keys = Vec::new();
+        for provider in WorkspaceCredentialProvider::ALL {
+            assert_eq!(provider.as_str().parse(), Ok(*provider));
+            assert!(provider.env_key().ends_with("TOKEN") || provider.env_key().ends_with("KEY"));
+            environment_keys.push(provider.env_key());
+        }
+        environment_keys.sort_unstable();
+        environment_keys.dedup();
+        assert_eq!(
+            environment_keys.len(),
+            WorkspaceCredentialProvider::ALL.len()
+        );
+    }
+
+    #[test]
+    fn storage_and_cache_modes_validate_in_the_workspace_domain() {
+        assert!(is_valid_docker_storage_mode("node"));
+        assert!(is_valid_docker_storage_mode("emptyDir"));
+        assert!(is_valid_docker_storage_mode("  EMPTYDIR "));
+        assert!(!is_valid_docker_storage_mode("s3"));
+
+        assert!(is_valid_build_cache_mode("node"));
+        assert!(is_valid_build_cache_mode("emptyDir"));
+        assert!(is_valid_build_cache_mode("  EMPTYDIR "));
+        assert!(!is_valid_build_cache_mode("s3"));
+
+        assert!(is_valid_build_cache_scope("task"));
+        assert!(is_valid_build_cache_scope("node"));
+        assert!(is_valid_build_cache_scope("  NODE "));
+        assert!(!is_valid_build_cache_scope("shared"));
+    }
 }

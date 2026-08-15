@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
@@ -13,26 +13,26 @@ use super::dao::{TaskDao, TaskFilter, TaskPatch};
 use super::models::Task;
 use super::relations::{TaskRelationDao, TaskRelationType};
 use crate::credential_sync::CredentialSync;
-use moatless_identity::extractors::AuthUser;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
-use moatless_workspaces::repository::dao::RepositoryDao;
+use crate::tag::dao::TagDao;
 use crate::task::models::{ArchiveRetention, SandboxIntentView, TaskStatus};
 use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
-use moatless_workspaces::workspace::git_sync::GitSyncService;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
-use crate::tag::dao::TagDao;
+use moatless_identity::extractors::AuthUser;
+use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_workspaces::workspace::dao::WorkspaceDao;
+use moatless_workspaces::workspace::git_sync::GitSyncService;
 
 use crate::task::binding_dao::TaskBindingDao;
 use moatless_api_schemas::bindings::TaskBindingSummary;
 
 use super::closer::{CloseEvent, TaskCloser};
 use super::error::TaskError;
-use super::presenter::{build_task_response, ResolvedNames, TaskPresenter};
+use super::presenter::{ResolvedNames, TaskPresenter, build_task_response};
 use super::schemas::*;
 use super::service;
 
@@ -132,7 +132,7 @@ pub async fn create_task(
     };
     Ok(Json(CreateTaskResponse {
         task_id: outcome.task.task_id.clone(),
-        status: outcome.task.status,
+        status: task_status_to_wire(outcome.task.status),
         task: task_response,
     }))
 }
@@ -162,7 +162,7 @@ pub async fn list_tasks(
         scope: auth.scope_context(),
         limit,
         offset,
-        status: query.status,
+        status: query.status.map(task_status_from_wire),
         exclude_status: None,
         repository_id: query.repository_id.clone(),
         created_by: query.created_by.clone(),
@@ -281,7 +281,9 @@ pub async fn list_tasks(
                 .filter(|c| c.task_id == row.task_id)
                 .map(|c| TaskBindingSummary {
                     loop_id: c.loop_id.clone(),
-                    adapter_kind: moatless_adapter_model::models::parse_adapter_kind(&c.adapter_kind),
+                    adapter_kind: adapter_kind_to_wire(
+                        moatless_adapter_model::models::parse_adapter_kind(&c.adapter_kind),
+                    ),
                     source_id: c.source_id.clone(),
                     source_name: c.source_name.clone(),
                     thread_id: None,
@@ -1004,7 +1006,7 @@ pub async fn update_visibility(
         .update_task(
             &task_id,
             &TaskPatch {
-                visibility: Some(req.visibility),
+                visibility: Some(visibility_from_wire(req.visibility)),
                 ..Default::default()
             },
             &scope_ctx,
@@ -1113,8 +1115,8 @@ pub(crate) fn task_resource(row: &Task) -> ScopedResource {
 mod tests {
     use super::*;
 
-    use moatless_adapter_model::models::TaskBinding;
     use crate::task::binding_dao::{LoopRecentTaskRow, TaskBindingInfo};
+    use moatless_adapter_model::models::TaskBinding;
 
     /// `TaskBindingDao` fake that only answers `deactivate_by_task`.
     ///

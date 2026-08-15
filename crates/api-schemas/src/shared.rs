@@ -37,31 +37,6 @@ impl std::fmt::Display for AgentType {
     }
 }
 
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for AgentType {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for AgentType {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Ok(Self(s))
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for AgentType {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.0.as_str(), buf)
-    }
-}
-
 // =============================================================================
 // AgentMode
 // =============================================================================
@@ -81,30 +56,5 @@ impl AgentMode {
 impl std::fmt::Display for AgentMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for AgentMode {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for AgentMode {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Ok(Self(s))
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for AgentMode {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.0.as_str(), buf)
     }
 }

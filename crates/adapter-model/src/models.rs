@@ -3,8 +3,111 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use moatless_api_schemas::enums::AdapterKind;
 use moatless_backend_core::scope::Scope;
+
+/// Canonical external Adapter identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdapterKind {
+    Slack,
+    Telegram,
+    Github,
+    GithubPr,
+    Linear,
+    Webhook,
+}
+
+impl AdapterKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Slack => "slack",
+            Self::Telegram => "telegram",
+            Self::Github => "github",
+            Self::GithubPr => "github_pr",
+            Self::Linear => "linear",
+            Self::Webhook => "webhook",
+        }
+    }
+
+    pub fn is_replyable(self) -> bool {
+        true
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "slack" => Some(Self::Slack),
+            "telegram" => Some(Self::Telegram),
+            "github" => Some(Self::Github),
+            "github_pr" => Some(Self::GithubPr),
+            "linear" => Some(Self::Linear),
+            "webhook" => Some(Self::Webhook),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for AdapterKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Loop routing policy for mapping external messages to Tasks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingMode {
+    Ongoing,
+    BySubject,
+}
+
+impl RoutingMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ongoing => "ongoing",
+            Self::BySubject => "by_subject",
+        }
+    }
+}
+
+impl std::fmt::Display for RoutingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for RoutingMode {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "ongoing" => Ok(Self::Ongoing),
+            "by_subject" => Ok(Self::BySubject),
+            other => Err(format!("unknown RoutingMode: {other:?}")),
+        }
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for RoutingMode {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for RoutingMode {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let value = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Self::try_from(value.as_str()).map_err(Into::into)
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for RoutingMode {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
+    }
+}
 
 /// Every `task_bindings.origin` value the system writes, and the whole of the
 /// role taxonomy: the direction in which the task and the external subject met.
@@ -306,8 +409,6 @@ pub struct Schedule {
 // =============================================================================
 // Domain types (internal, not serialized to API)
 // =============================================================================
-
-pub use moatless_api_schemas::enums::RoutingMode;
 
 /// Normalize a stored `adapter_kind` string to its enum, treating an unknown
 /// value as `Webhook`.

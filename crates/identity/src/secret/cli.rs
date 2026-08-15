@@ -12,14 +12,14 @@ use std::sync::Arc;
 use clap::{Args, Subcommand, ValueEnum};
 
 use super::audit::PgSecretAuditDao;
-use super::cli_migrate::{run_migrate_repo_env_vars, MigrateOptions};
+use super::cli_migrate::{MigrateOptions, run_migrate_repo_env_vars};
 use super::dao::PgSecretDao;
-use super::schemas::PutSecretRequest;
+use super::schemas::{PutSecretRequest, scope_from_wire};
 use super::service::{LocalEnvelopeSecretCipher, SecretService};
-use moatless_core::config::Config;
-use moatless_core::db;
 use moatless_api_schemas::enums::Scope;
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::config::Config;
+use moatless_core::db;
 
 #[derive(Args, Debug)]
 pub struct SecretsCli {
@@ -180,7 +180,9 @@ async fn list(
     args: ListArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let scope: Scope = args.scope.into();
-    let rows = service.list_metadata(ctx, Some(scope)).await?;
+    let rows = service
+        .list_metadata(ctx, Some(scope_from_wire(scope)))
+        .await?;
     if rows.is_empty() {
         println!("(no secrets)");
         return Ok(());
@@ -228,7 +230,9 @@ async fn delete(
     args: DeleteArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let scope: Scope = args.scope.into();
-    let rows = service.list_metadata(ctx, Some(scope)).await?;
+    let rows = service
+        .list_metadata(ctx, Some(scope_from_wire(scope)))
+        .await?;
     let match_id = rows
         .iter()
         .find(|row| row.key == args.key)

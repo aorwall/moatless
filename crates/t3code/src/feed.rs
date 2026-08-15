@@ -500,10 +500,10 @@ fn coalesced(changes: Vec<ConversationChange>) -> Vec<ConversationChange> {
 mod tests {
     use super::*;
     use crate::dao::{Conversation, MockConversationDao, Transcript, TranscriptMessage};
-    use moatless_api_schemas::enums::SandboxDesiredState;
-    use moatless_api_schemas::enums::{MessageRole, MessageType};
-    use moatless_api_schemas::shared::AgentType;
     use moatless_backend_core::activity::EVENTS_PER_CHANGE;
+    use moatless_backend_core::models::AgentType;
+    use moatless_backend_core::models::SandboxDesiredState;
+    use moatless_backend_core::models::{MessageRole, MessageType};
 
     fn change(position: i64, uuid: Option<&str>) -> ConversationChange {
         ConversationChange {

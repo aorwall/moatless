@@ -2,16 +2,16 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use serde::Deserialize;
 
-use moatless_identity::extractors::AuthUser;
 use crate::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use crate::task::dao::TaskDao;
 use crate::task::sandbox_waker::SandboxWaker;
+use moatless_identity::extractors::AuthUser;
 
 use super::error::MessageError;
 use super::schemas::*;
@@ -65,7 +65,7 @@ pub async fn send_message(
         service::UserMessage {
             text: req.message,
             model: req.model,
-            agent_mode: req.agent_mode,
+            agent_mode: req.agent_mode.map(agent_mode_from_wire),
             effort: req.effort,
             file_ids: req.file_ids,
             contexts: req.contexts,
@@ -544,10 +544,10 @@ pub async fn get_pending_messages(
         .iter()
         .map(|m| PendingMessageItem {
             uuid: m.uuid.clone(),
-            message_type: m.message_type,
+            message_type: message_type_to_wire(m.message_type),
             timestamp: m.timestamp.clone(),
             message_text: m.message_text.clone(),
-            agent_mode: m.agent_mode.clone(),
+            agent_mode: m.agent_mode.as_ref().map(agent_mode_to_wire),
             model: m.model.clone(),
             resume: m.resume,
             will_not_resume: None,
@@ -557,7 +557,7 @@ pub async fn get_pending_messages(
     if let Some(result) = last_result {
         messages.push(PendingMessageItem {
             uuid: result.uuid.clone(),
-            message_type: result.message_type,
+            message_type: message_type_to_wire(result.message_type),
             timestamp: result.timestamp.clone(),
             message_text: None,
             agent_mode: None,

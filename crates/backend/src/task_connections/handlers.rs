@@ -10,26 +10,27 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use futures::stream::{self, StreamExt};
 
-use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::task::PaginationResponse;
 use moatless_api_schemas::task_connections::{
     Connection, GetTaskConnectionsQuery, ListTaskConnectionsQuery, TaskConnectionRow,
     TaskConnectionsResponse,
 };
+use moatless_tasks::task::models::TaskStatus;
+use moatless_tasks::task::schemas::{adapter_kind_to_wire, task_status_to_wire};
 
 use moatless_adapter_model::models::{ExternalStatus, TaskBinding};
 
 use crate::adapters::{AdapterBindingStatus, Adapters};
 use crate::auth::users::UserDao;
-use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
 use crate::message::dao::{ConnectionMessageCount, MessageDao};
 use crate::repository::dao::RepositoryDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::task::dao::{TaskDao, TaskFilter};
 use crate::task::error::TaskError;
 
@@ -196,7 +197,7 @@ pub async fn list_task_connections(
                     .clone()
                     .or_else(|| task.short_id.clone())
                     .unwrap_or_else(|| task.task_id.clone()),
-                status: task.status,
+                status: task_status_to_wire(task.status),
                 repository_name: repo_names.get(&task.repository_id).cloned(),
                 owner: task
                     .created_by
@@ -482,7 +483,9 @@ fn decode_connection(
 
     Connection {
         binding_id: b.id.clone(),
-        adapter_kind: crate::adapters::common::parse_adapter_kind(&b.adapter_kind),
+        adapter_kind: adapter_kind_to_wire(crate::adapters::common::parse_adapter_kind(
+            &b.adapter_kind,
+        )),
         kind: connection_kind(&b.subject_kind),
         label,
         url,

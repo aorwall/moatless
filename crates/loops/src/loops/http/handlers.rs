@@ -7,28 +7,30 @@ use chrono::Utc;
 use moatless_api_schemas::bindings::TaskBindingResponse;
 use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::loops::{
-    ActivateLoopRequest, CreateLoopRequest, Loop, LoopKind, LoopRecentTaskItem,
-    LoopRecentTaskSummary, ResetGitLoopResponse, UpdateLoopRequest, UpdateLoopSource,
+    ActivateLoopRequest, CreateLoopRequest, Loop, LoopRecentTaskItem, LoopRecentTaskSummary,
+    ResetGitLoopResponse, UpdateLoopRequest, UpdateLoopSource,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::adapters::common::{
-    LoopFilter, ensure_repository_exists, load_adapter_connection_for_auth_with,
-    load_loop_for_auth_with, loop_response, next_fire_at, parse_adapter_kind,
-    resolve_scope_for_adapter_create,
+    LoopFilter, adapter_kind_to_wire, ensure_repository_exists,
+    load_adapter_connection_for_auth_with, load_loop_for_auth_with, loop_kind_from_wire,
+    loop_response, next_fire_at, parse_adapter_kind, resolve_scope_for_adapter_create,
+    routing_mode_from_wire,
 };
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_identity::auth::users::UserDao;
-use moatless_tasks::task::binding_dao::{LoopRecentTaskRow, TaskBindingDao};
-use moatless_identity::extractors::AuthUser;
 use crate::loops::dao::{
     AdapterSourceUpdate, LoopDao, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource,
     NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource,
     UpdateLoopSource as StoreUpdateSource,
 };
+use crate::loops::models::LoopKind as DomainLoopKind;
 use crate::loops::sync::LoopSyncService;
+use moatless_identity::auth::users::UserDao;
+use moatless_identity::extractors::AuthUser;
+use moatless_tasks::task::binding_dao::{LoopRecentTaskRow, TaskBindingDao};
 use moatless_workspaces::repository::dao::RepositoryDao;
 
 fn require_admin(auth: &AuthUser) -> Result<(), AdapterError> {
@@ -94,7 +96,7 @@ fn map_recent_task_item(row: &LoopRecentTaskRow) -> LoopRecentTaskItem {
         ) => Some(TaskBindingResponse {
             id: id.clone(),
             task_id: row.task_id.clone(),
-            adapter_kind: parse_adapter_kind(provider),
+            adapter_kind: adapter_kind_to_wire(parse_adapter_kind(provider)),
             connection_id: connection_id.clone(),
             loop_id: row.loop_id.clone(),
             subject_kind: subject_kind.clone(),
@@ -179,26 +181,28 @@ pub async fn create_loop(
         .into());
     }
 
-    let adapter_source = match (&req.kind, &req.source) {
+    let kind = loop_kind_from_wire(req.kind);
+    let adapter_source = match (kind, &req.source) {
         (
-            LoopKind::AdapterEvent,
+            DomainLoopKind::AdapterEvent,
             moatless_api_schemas::loops::CreateLoopSource::AdapterEvent(source),
         ) => Some(source),
         _ => None,
     };
-    let schedule_source = match (&req.kind, &req.source) {
-        (LoopKind::Schedule, moatless_api_schemas::loops::CreateLoopSource::Schedule(source)) => {
-            Some(source)
-        }
+    let schedule_source = match (kind, &req.source) {
+        (
+            DomainLoopKind::Schedule,
+            moatless_api_schemas::loops::CreateLoopSource::Schedule(source),
+        ) => Some(source),
         _ => None,
     };
-    if matches!(req.kind, LoopKind::AdapterEvent) && adapter_source.is_none() {
+    if matches!(kind, DomainLoopKind::AdapterEvent) && adapter_source.is_none() {
         return Err(SharedAdapterError::BadRequest(
             "adapter_event loops require an adapter-event source".into(),
         )
         .into());
     }
-    if matches!(req.kind, LoopKind::Schedule) && schedule_source.is_none() {
+    if matches!(kind, DomainLoopKind::Schedule) && schedule_source.is_none() {
         return Err(SharedAdapterError::BadRequest(
             "schedule loops require a schedule source".into(),
         )
@@ -265,7 +269,7 @@ pub async fn create_loop(
         .create(NewLoop {
             id: id.clone(),
             name,
-            kind: req.kind.as_str().to_string(),
+            kind: kind.as_str().to_string(),
             active,
             scope: resolved.scope,
             owner_user_id: resolved.owner_user_id,
@@ -273,7 +277,7 @@ pub async fn create_loop(
             created_at: now,
             config: NewLoopConfig {
                 repository_id: req.config.repository_id.clone(),
-                routing_mode: req.config.routing_mode,
+                routing_mode: routing_mode_from_wire(req.config.routing_mode),
                 ongoing_task_id: req.config.ongoing_task_id.clone(),
                 prompt: req.config.prompt.clone(),
                 task_name: req.config.task_name.clone(),
@@ -387,7 +391,9 @@ pub async fn update_loop(
         repository_id: rule
             .repository_id
             .unwrap_or_else(|| current.config.repository_id.clone()),
-        routing_mode: rule.routing_mode.unwrap_or(current.config.routing_mode),
+        routing_mode: rule
+            .routing_mode
+            .map_or(current.config.routing_mode, routing_mode_from_wire),
         ongoing_task_id: rule
             .ongoing_task_id
             .unwrap_or_else(|| current.config.ongoing_task_id.clone()),

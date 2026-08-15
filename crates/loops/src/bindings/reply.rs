@@ -7,16 +7,17 @@ use moatless_backend_core::scope::ScopeContext;
 
 use crate::adapters::Adapters;
 use crate::adapters::common::{
-    binding_descriptor, ensure_task_access_with, load_adapter_connection_for_auth_with,
+    binding_descriptor, binding_reply_target, ensure_task_access_with,
+    load_adapter_connection_for_auth_with,
 };
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_tasks::task::binding_dao::TaskBindingDao;
 use crate::bindings::outbound::{self, OutboundSender};
 use crate::bindings::recently_sent::RecentlySent;
 use crate::loops::dao::LoopDao;
 use moatless_tasks::message::dao::MessageDao;
 use moatless_tasks::message::models::{MessageRole, MessageType, TaskMessage};
+use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task_activities::mapping::ConversationWrite;
 use moatless_tasks::task_turn::dao::TaskTurnDao;
@@ -125,7 +126,7 @@ impl ExternalReplyService {
                 })
             }
             _ => Err(SharedAdapterError::MultipleTargets {
-                targets: bindings.iter().map(binding_descriptor).collect(),
+                targets: bindings.iter().map(binding_reply_target).collect(),
             }
             .into()),
         }

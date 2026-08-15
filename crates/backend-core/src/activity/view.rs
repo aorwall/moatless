@@ -6,7 +6,7 @@
 use serde_json::Value;
 
 use super::dao::Activity;
-use super::mapping::{result_text, ActivityKind, ActivityStatus};
+use super::mapping::{ActivityKind, ActivityStatus, result_text};
 
 pub struct ActivityView<'a> {
     activity: &'a Activity,

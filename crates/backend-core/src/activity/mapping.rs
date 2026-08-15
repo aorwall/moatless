@@ -8,7 +8,7 @@
 use moatless_events::SandboxEventPayload;
 use serde_json::{Map, Value, json};
 
-use moatless_api_schemas::enums::MessageType;
+use crate::models::MessageType;
 
 /// What the writer already knows about a block before it decides anything.
 #[derive(Debug, Clone, Copy)]

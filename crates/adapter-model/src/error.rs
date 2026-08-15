@@ -3,11 +3,18 @@
 //! [`SharedAdapterError`] is the band-local half of the adapter error space:
 //! the variants that name nothing above the adapter-model band, carrying only
 //! `String`, unit, `sqlx::Error`, `reqwest::Error`, `serde_json::Error`, or
-//! `Vec<ReplyTargetDescriptor>`. It has no `IntoResponse`; the HTTP renderer
+//! `Vec<ReplyTarget>`. It has no `IntoResponse`; the HTTP renderer
 //! lives with the backend `AdapterError` that wraps this and adds the
 //! up-naming credential/task/message variants.
 
-use moatless_api_schemas::bindings::ReplyTargetDescriptor;
+/// One outbound destination a caller can select explicitly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplyTarget {
+    pub kind: String,
+    pub id: String,
+    pub label: String,
+    pub flag_hint: String,
+}
 
 /// Why a provider's response body could not be turned into a value we can use.
 ///
@@ -85,7 +92,7 @@ pub enum SharedAdapterError {
     /// reply target — the caller must pick one with `--thread`,
     /// `--binding`, or `--pr`.
     #[error("Task has multiple reply targets; pick one explicitly")]
-    MultipleTargets { targets: Vec<ReplyTargetDescriptor> },
+    MultipleTargets { targets: Vec<ReplyTarget> },
 
     /// An adapter config could not be serialized back to JSON for persistence.
     #[error("Failed to serialize adapter config")]

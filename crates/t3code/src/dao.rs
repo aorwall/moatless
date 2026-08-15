@@ -29,12 +29,12 @@ use crate::activity_dao::SubagentUsage;
 use crate::data::{T3TaskDao, T3WorkspaceDao, TaskView};
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::workspace::UiRpcListedWorkspace;
-use moatless_api_schemas::enums::{MessageRole, MessageType};
-use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason, TaskStatus};
-use moatless_api_schemas::repository::ScriptConfig;
-use moatless_api_schemas::shared::AgentType;
+use moatless_api_schemas::workspace::ScriptConfig;
 use moatless_backend_core::activity::dao::Activity;
 use moatless_backend_core::activity::{ConversationChange, ConversationHead};
+use moatless_backend_core::models::AgentType;
+use moatless_backend_core::models::{MessageRole, MessageType};
+use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
 
 /// One Task, with the derived values a sidebar row is assembled from.
@@ -1095,7 +1095,8 @@ impl ConversationDao for PgConversationDao {
         )
         .await?;
 
-        let settled_requests = activities::settled_requests(&self.pool, task_id, &activities).await?;
+        let settled_requests =
+            activities::settled_requests(&self.pool, task_id, &activities).await?;
         let subagent_usage = activities::subagent_usage(&self.pool, task_id, &activities).await?;
 
         Ok(Transcript {
@@ -1192,7 +1193,8 @@ impl ConversationDao for PgConversationDao {
         // join the same set by a primary-key lookup.
         let mut activities = activities::for_messages(&self.pool, task_id, uuids).await?;
         activities.extend(activities::for_activity_ids(&self.pool, task_id, activity_ids).await?);
-        let settled_requests = activities::settled_requests(&self.pool, task_id, &activities).await?;
+        let settled_requests =
+            activities::settled_requests(&self.pool, task_id, &activities).await?;
         let subagent_usage = activities::subagent_usage(&self.pool, task_id, &activities).await?;
 
         Ok(Transcript {

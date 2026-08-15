@@ -56,9 +56,6 @@ metrics-exporter-prometheus = "0.18"
 # Typed event system (shared with sandbox)
 moatless-events = { path = "../events" }
 
-# Shared API schemas (DTOs shared with CLI)
-moatless-api-schemas = { path = "../api-schemas", features = ["database"] }
-
 # Pure backend access-control policy and scope types
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
 
@@ -69,7 +66,6 @@ moatless-backend-core = { path = "../backend-core", features = ["database"] }
 openapi = [
     "dep:utoipa",
     "moatless-events/openapi",
-    "moatless-api-schemas/openapi",
     "moatless-backend-core/openapi",
 ]
 # Exposes test-only constructors such as `Config::test_minimal` to downstream

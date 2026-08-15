@@ -93,7 +93,7 @@ use crate::sandbox::{SandboxRpcError, SandboxState};
 use crate::scripts::{ScriptsError, ScriptsState};
 use crate::servers::{ServersError, ServersState};
 use crate::workspace::WorkspaceAccessError;
-use moatless_backend_core::activity::{resume, ConversationHead, Resume};
+use moatless_backend_core::activity::{ConversationHead, Resume, resume};
 use moatless_backend_core::scope::ScopeContext;
 
 /// The largest WebSocket message this socket reads or writes.
@@ -3493,7 +3493,7 @@ mod tests {
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
     use moatless_backend_core::pairing::{
-        hash_key, PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError,
+        PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key,
     };
     use moatless_backend_core::sandbox::{
         LiveStatus, LogOptions, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError,
@@ -3561,7 +3561,7 @@ mod tests {
         async fn desired_state(
             &self,
             task_id: &str,
-        ) -> Result<moatless_api_schemas::enums::SandboxDesiredState, SandboxError> {
+        ) -> Result<moatless_backend_core::models::SandboxDesiredState, SandboxError> {
             Err(unreachable(task_id))
         }
     }
@@ -3593,7 +3593,7 @@ mod tests {
         async fn stop(
             &self,
             task_id: &str,
-            _reason: moatless_api_schemas::enums::SandboxStopReason,
+            _reason: moatless_backend_core::models::SandboxStopReason,
         ) -> Result<(), moatless_backend_core::sandbox::SandboxError> {
             Err(unreachable(task_id))
         }
@@ -3616,8 +3616,8 @@ mod tests {
         async fn sandbox_status(
             &self,
             task_id: &str,
-            _task_status: moatless_api_schemas::enums::TaskStatus,
-            _desired_state: moatless_api_schemas::enums::SandboxDesiredState,
+            _task_status: moatless_backend_core::models::TaskStatus,
+            _desired_state: moatless_backend_core::models::SandboxDesiredState,
         ) -> Result<SandboxStatusFullResponse, SandboxError> {
             Err(unreachable(task_id))
         }
@@ -3625,8 +3625,8 @@ mod tests {
         async fn live_status(
             &self,
             task_id: &str,
-            _task_status: moatless_api_schemas::enums::TaskStatus,
-            _desired_state: moatless_api_schemas::enums::SandboxDesiredState,
+            _task_status: moatless_backend_core::models::TaskStatus,
+            _desired_state: moatless_backend_core::models::SandboxDesiredState,
         ) -> Result<LiveStatus, SandboxError> {
             Err(unreachable(task_id))
         }

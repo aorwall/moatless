@@ -327,8 +327,8 @@ fn transform_tool_only_turn(uuid: &str, activities: &[&Activity], is_last: bool)
 
     UiMessage {
         uuid: uuid.to_string(),
-        message_type: MessageType::Assistant,
-        role: crate::message::models::MessageRole::Assistant,
+        message_type: message_type_to_wire(MessageType::Assistant),
+        role: message_role_to_wire(crate::message::models::MessageRole::Assistant),
         timestamp,
         session_id: None,
         turn_number: None,
@@ -491,12 +491,12 @@ fn transform_assistant(msg: &TaskMessage, activities: &[&Activity], is_last: boo
 
     UiMessage {
         uuid: msg.uuid.clone(),
-        message_type: msg.message_type,
-        role: msg.message_role,
+        message_type: message_type_to_wire(msg.message_type),
+        role: message_role_to_wire(msg.message_role),
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
-        agent_mode: msg.agent_mode.clone(),
+        agent_mode: msg.agent_mode.as_ref().map(agent_mode_to_wire),
         model: msg
             .assistant_message_model
             .clone()
@@ -553,12 +553,12 @@ fn transform_user(
 
     UiMessage {
         uuid: msg.uuid.clone(),
-        message_type: msg.message_type,
-        role: msg.message_role,
+        message_type: message_type_to_wire(msg.message_type),
+        role: message_role_to_wire(msg.message_role),
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
-        agent_mode: msg.agent_mode.clone(),
+        agent_mode: msg.agent_mode.as_ref().map(agent_mode_to_wire),
         model: msg.model.clone(),
         is_queued: if is_queued { Some(true) } else { None },
         content,
@@ -583,12 +583,12 @@ fn transform_result(msg: &TaskMessage) -> UiMessage {
 
     UiMessage {
         uuid: msg.uuid.clone(),
-        message_type: msg.message_type,
-        role: msg.message_role,
+        message_type: message_type_to_wire(msg.message_type),
+        role: message_role_to_wire(msg.message_role),
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
-        agent_mode: msg.agent_mode.clone(),
+        agent_mode: msg.agent_mode.as_ref().map(agent_mode_to_wire),
         model: msg.model.clone(),
         is_queued: None,
         content,
@@ -903,10 +903,10 @@ mod tests {
         assert_eq!(
             types,
             vec![
-                MessageType::User,
-                MessageType::Assistant,
-                MessageType::Assistant,
-                MessageType::Result,
+                message_type_to_wire(MessageType::User),
+                message_type_to_wire(MessageType::Assistant),
+                message_type_to_wire(MessageType::Assistant),
+                message_type_to_wire(MessageType::Result),
             ]
         );
     }
@@ -1210,9 +1210,9 @@ mod tests {
         assert_eq!(
             types,
             vec![
-                MessageType::User,
-                MessageType::Assistant,
-                MessageType::Error,
+                message_type_to_wire(MessageType::User),
+                message_type_to_wire(MessageType::Assistant),
+                message_type_to_wire(MessageType::Error),
             ]
         );
     }

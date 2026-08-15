@@ -14,4 +14,5 @@
 pub mod dao;
 pub mod firing;
 pub mod http;
+pub mod models;
 pub mod sync;

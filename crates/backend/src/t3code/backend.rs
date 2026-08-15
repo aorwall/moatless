@@ -589,16 +589,19 @@ impl ThreadCommandSink for AppStateCommands {
         let request = moatless_api_schemas::task::CreateTaskRequest {
             repository_id: None,
             workspace_id: Some(thread.workspace_id),
-            agent_type: Some(agent_type),
+            agent_type: Some(moatless_tasks::task::schemas::agent_type_to_wire(
+                &agent_type,
+            )),
             name: thread.title,
             description: None,
             branch: thread.branch,
             message: thread.first_message.as_ref().map(|m| m.text.clone()),
             model: thread.model,
-            agent_mode: thread
-                .first_message
-                .as_ref()
-                .and_then(|m| m.agent_mode.clone()),
+            agent_mode: thread.first_message.as_ref().and_then(|m| {
+                m.agent_mode
+                    .as_ref()
+                    .map(moatless_tasks::message::schemas::agent_mode_to_wire)
+            }),
             effort: thread.first_message.as_ref().and_then(|m| m.effort.clone()),
             contexts: vec![],
             file_ids,

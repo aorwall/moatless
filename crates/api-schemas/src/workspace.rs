@@ -1,15 +1,157 @@
 //! Workspace request/response types.
 //!
 //! A Workspace owns the run-configuration and holds 0..n repository placements
-//! (`WorkspaceRepo`). Run-config fields mirror the repository DTOs and reuse the
-//! same [`ServerConfig`]/[`ResourceConfig`] shapes.
+//! (`WorkspaceRepo`). Run-config fields use the [`ServerConfig`] and
+//! [`ResourceConfig`] wire shapes defined here.
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::enums::Scope;
-use crate::repository::{ResourceConfig, ScriptConfig, ServerConfig};
+
+// =============================================================================
+// ResourceConfig
+// =============================================================================
+
+/// Per-repository K8s resource requests/limits configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceConfig {
+    pub requests: Option<HashMap<String, String>>,
+    pub limits: Option<HashMap<String, String>>,
+    /// Per-repository workspace storage size override (e.g. "8Gi"). Sizes the
+    /// per-task PVC when `pvc_enabled`, and the node-local emptyDir otherwise.
+    /// When unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never
+    /// copied into container resource specs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
+    /// Per-repository size cap for the transient `build-cache` emptyDir mounted
+    /// at `/opt/moatless/build-cache` (e.g. "40Gi"). Use with workspace env vars
+    /// such as `CARGO_TARGET_DIR=/opt/moatless/build-cache/target` for large
+    /// build artifacts that should not fill the workspace volume. Exceeding the
+    /// cap gets the pod **evicted** by the kubelet. When unset, the global
+    /// `K8S_SANDBOX_BUILD_CACHE_SIZE` default applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache: Option<String>,
+    /// Storage backend for the `build-cache` volume mounted at
+    /// `/opt/moatless/build-cache`:
+    /// - `"emptyDir"` (default) — node-local emptyDir capped by `buildCache`.
+    /// - `"node"` — node-local hostPath under `K8S_SANDBOX_CACHE_HOST_ROOT`.
+    ///   Kubernetes does not enforce `buildCache` as a size cap for this mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache_mode: Option<String>,
+    /// Scope for `buildCacheMode: "node"`:
+    /// - `"task"` (default) — per-task hostPath, cleaned up with the task.
+    /// - `"node"` — shared by all sandboxes scheduled on the same node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache_scope: Option<String>,
+    /// Whether this repo's sandbox gets a per-task PVC mounted at
+    /// `/opt/moatless`. The PVC is owned by the Deployment: it survives pod
+    /// restarts and is deleted when the sandbox is removed. When `false`, the
+    /// workspace is a node-local emptyDir that dies with the pod.
+    ///
+    /// When unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_PVC`).
+    /// The global `K8S_SANDBOX_STORAGE_ENABLED` kill switch still wins over both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pvc_enabled: Option<bool>,
+    /// Whether this repo's sandbox snapshots its workspace to S3 — the copy that
+    /// outlives the Deployment. Pushed before a stop or remove, and pulled back
+    /// on start when the volume holds nothing usable (a fresh PVC, a redeploy, or
+    /// a fallback after the PVC could not attach).
+    ///
+    /// Independent of [`Self::pvc_enabled`]: with a PVC the volume is the live
+    /// copy and S3 is read only when it is empty or broken; without one, S3 is
+    /// the only persistence and is read on every start.
+    ///
+    /// When unset, the deployment-wide default applies (`K8S_SANDBOX_DEFAULT_S3`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub s3_enabled: Option<bool>,
+    /// Per-repository size cap for the `dind` sidecar's `/var/lib/docker`
+    /// emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`
+    /// and `dockerStorageMode: "emptyDir"`. Exceeding the cap gets the pod
+    /// **evicted** by the kubelet, wiping all dind container data. When unset,
+    /// the global `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_storage: Option<String>,
+    /// Storage backend for the `dind` sidecar's `/var/lib/docker`:
+    /// - `"node"` (default) — best-effort node-local hostPath. Docker layers,
+    ///   images, and volumes survive stop/start only on the same node.
+    /// - `"emptyDir"` — node-local emptyDir capped by `dockerStorage`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_storage_mode: Option<String>,
+}
+
+// =============================================================================
+// ServerConfig
+// =============================================================================
+
+/// Server config entry.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerConfig {
+    pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub port: u16,
+    #[serde(default)]
+    pub start_commands: Option<Vec<String>>,
+    #[serde(default)]
+    pub startup_timeout_seconds: Option<u32>,
+    #[serde(default)]
+    pub auto_reload: bool,
+    #[serde(default)]
+    pub enable_inspector: bool,
+    #[serde(default)]
+    pub default: bool,
+    /// Per-server Docker image. Falls back to sandbox_image if not set.
+    #[serde(default)]
+    pub docker_image: Option<String>,
+    /// Per-server environment variables.
+    #[serde(default)]
+    pub env_vars: Option<HashMap<String, String>>,
+    /// Per-server resource requests/limits. Falls back to the repo-wide
+    /// `resources` when unset. Only `requests`/`limits` apply; storage/cache
+    /// fields are repo-wide and ignored here.
+    #[serde(default)]
+    pub resources: Option<ResourceConfig>,
+}
+
+// =============================================================================
+// ScriptConfig
+// =============================================================================
+
+/// A named command someone runs on demand inside the sandbox, hosted by a
+/// terminal session rather than a supervised container.
+///
+/// Unlike a [`ServerConfig`] a script is not supervised, has no container of
+/// its own and is expected to exit. When it declares a `port`, the port is
+/// published at the task's preview hostname as the script starts.
+///
+/// `name` is the identity — it must survive a git round trip, so no id is
+/// allocated by the backend.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptConfig {
+    pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Written into the terminal verbatim, followed by a carriage return.
+    pub command: String,
+    /// One of `play`, `test`, `lint`, `configure`, `build`, `debug`. Anything
+    /// else is reported to clients as `play`.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// The port the script serves on, if any.
+    #[serde(default)]
+    pub port: Option<u16>,
+    /// Extra environment for the script's terminal session.
+    #[serde(default)]
+    pub env_vars: Option<HashMap<String, String>>,
+}
 
 // =============================================================================
 // WorkspaceRepoInput — a repository placement in create/add requests
@@ -64,6 +206,7 @@ pub struct CreateWorkspaceRequest {
     #[serde(default)]
     pub servers: Option<Vec<ServerConfig>>,
     #[serde(default)]
+    #[cfg_attr(feature = "openapi", schema(value_type = Object, ignore))]
     pub scripts: Option<Vec<ScriptConfig>>,
     #[serde(default)]
     pub resources: Option<ResourceConfig>,
@@ -96,6 +239,7 @@ pub struct UpdateWorkspaceRequest {
     pub setup_commands: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
     pub servers: Option<Vec<ServerConfig>>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Object, ignore))]
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
     pub network_profile: Option<String>,
@@ -159,6 +303,7 @@ pub struct WorkspaceResponse {
     pub env_vars: Option<HashMap<String, String>>,
     pub servers: Option<Vec<ServerConfig>>,
     #[serde(default)]
+    #[cfg_attr(feature = "openapi", schema(value_type = Object, ignore))]
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
     #[serde(default)]
@@ -288,19 +433,6 @@ impl WorkspaceCredentialProvider {
         }
     }
 
-    /// The sandbox environment variable this credential is delivered as. The
-    /// mapping is one-to-one in both directions, which is what lets a stored
-    /// value replace exactly one slot in the resolved credential set.
-    pub fn env_key(self) -> &'static str {
-        match self {
-            Self::Github => "GITHUB_TOKEN",
-            Self::Gitlab => "GITLAB_TOKEN",
-            Self::Gitness => "GITNESS_TOKEN",
-            Self::Openai => "OPENAI_API_KEY",
-            Self::Anthropic => "ANTHROPIC_API_KEY",
-        }
-    }
-
     /// Comma-separated provider names, for error messages and CLI help.
     pub fn names() -> String {
         Self::ALL
@@ -371,18 +503,6 @@ mod workspace_credential_tests {
                 Ok(*provider)
             );
         }
-    }
-
-    #[test]
-    fn env_keys_are_unique_so_one_credential_fills_one_slot() {
-        let mut keys: Vec<&str> = WorkspaceCredentialProvider::ALL
-            .iter()
-            .map(|p| p.env_key())
-            .collect();
-        let total = keys.len();
-        keys.sort_unstable();
-        keys.dedup();
-        assert_eq!(keys.len(), total);
     }
 
     #[test]

@@ -10,7 +10,7 @@ use crate::adapters::capabilities::{
 };
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 
-use moatless_api_schemas::enums::AdapterKind;
+use moatless_adapter_model::models::AdapterKind;
 
 /// Registry of external adapters keyed by AdapterKind.
 ///
@@ -71,10 +71,7 @@ impl Adapters {
             .insert(provider.adapter_kind(), provider);
     }
 
-    pub fn register_direct_destination(
-        &mut self,
-        provider: Arc<dyn AdapterDirectDestination>,
-    ) {
+    pub fn register_direct_destination(&mut self, provider: Arc<dyn AdapterDirectDestination>) {
         self.direct_destinations
             .insert(provider.adapter_kind(), provider);
     }

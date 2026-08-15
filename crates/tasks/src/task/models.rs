@@ -5,10 +5,64 @@ use chrono::{DateTime, Utc};
 use moatless_backend_core::scope::Scope;
 use moatless_core::shared_models::AgentType;
 
-// Re-export enums from the shared crate.
-pub use moatless_api_schemas::enums::{
-    SandboxDesiredState, SandboxStopReason, TaskStatus, Visibility,
-};
+pub use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+
+/// Task visibility level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Visibility {
+    Public,
+    Private,
+}
+
+impl Visibility {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Private => "private",
+        }
+    }
+}
+
+impl std::fmt::Display for Visibility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for Visibility {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "public" => Ok(Self::Public),
+            "private" => Ok(Self::Private),
+            other => Err(format!("unknown Visibility: {other:?}")),
+        }
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for Visibility {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Visibility {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let value = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Self::try_from(value.as_str()).map_err(Into::into)
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for Visibility {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
+    }
+}
 
 /// Default idle TTL in minutes for newly inserted tasks when the caller has no
 /// access to platform config (e.g. integration runtimes). Matches the

@@ -1,6 +1,6 @@
+pub use crate::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
-use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use serde::{Deserialize, Serialize};
 
 pub use moatless_events::SandboxStatus;
@@ -51,10 +51,7 @@ pub enum SandboxError {
     /// rendered — it carries no credential or wire detail, because the boundary
     /// is the only place that sees them.
     #[error("{message}")]
-    Provider {
-        kind: ProviderKind,
-        message: String,
-    },
+    Provider { kind: ProviderKind, message: String },
     #[error("{0}")]
     Other(String),
 }
@@ -349,7 +346,10 @@ mod tests {
     #[test]
     fn a_provider_failure_renders_its_message_and_keeps_its_kind() {
         for (kind, message) in [
-            (ProviderKind::Kubernetes, "Kubernetes API error: 404 Not Found"),
+            (
+                ProviderKind::Kubernetes,
+                "Kubernetes API error: 404 Not Found",
+            ),
             (ProviderKind::Docker, "Docker API error during inspect"),
         ] {
             let err = SandboxError::Provider {

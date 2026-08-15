@@ -41,8 +41,8 @@ use super::ports::{
 };
 use super::providers;
 use crate::agent::catalog;
-use moatless_api_schemas::shared::AgentMode;
 use moatless_backend_core::activity::mapping;
+use moatless_backend_core::models::AgentMode;
 
 /// What the surface needs in order to answer a command.
 pub struct CommandContext<'a> {
@@ -288,17 +288,16 @@ fn attachment(sent: &Value) -> Result<TurnAttachment, CommandRefusal> {
             message: "An attachment must have a name.".to_string(),
         })?;
 
-    let data_url = sent
-        .get("dataUrl")
-        .and_then(Value::as_str)
-        .ok_or_else(|| CommandRefusal::Rejected {
-            message: format!("Attachment `{filename}` carries no data."),
-        })?;
+    let data_url =
+        sent.get("dataUrl")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CommandRefusal::Rejected {
+                message: format!("Attachment `{filename}` carries no data."),
+            })?;
 
-    let (mime_type, bytes) =
-        decode_data_url(data_url).ok_or_else(|| CommandRefusal::Rejected {
-            message: format!("Attachment `{filename}` is not a readable image payload."),
-        })?;
+    let (mime_type, bytes) = decode_data_url(data_url).ok_or_else(|| CommandRefusal::Rejected {
+        message: format!("Attachment `{filename}` is not a readable image payload."),
+    })?;
 
     if !mime_type.starts_with("image/") {
         return Err(CommandRefusal::Rejected {
@@ -681,7 +680,7 @@ mod tests {
     use crate::dao::{InteractiveCall, MockConversationDao};
     use crate::listing::{UiRpcEnvironmentIdentity, UiRpcListingHead};
     use async_trait::async_trait;
-    use moatless_api_schemas::shared::AgentType;
+    use moatless_backend_core::models::AgentType;
     use std::sync::Mutex;
 
     /// What the sink was asked to do. Every assertion about the command table

@@ -338,7 +338,7 @@ pub async fn stash_github_oauth_token(
             &user_scope(user_id),
             user_id,
             PutSecretRequest {
-                scope: Some(Scope::User),
+                scope: Some(moatless_api_schemas::enums::Scope::User),
                 key: GITHUB_OAUTH_STASH_KEY.to_string(),
                 kind: SecretKind::Internal,
                 provider: Some("github".to_string()),

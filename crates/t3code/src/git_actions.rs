@@ -110,7 +110,12 @@ pub async fn run_stacked_action(
         return Err(ActionError::Access(WorkspaceAccessError::Unaddressable));
     }
 
-    let text = compose_message(&action, commit_message.as_deref(), feature_branch, &file_paths);
+    let text = compose_message(
+        &action,
+        commit_message.as_deref(),
+        feature_branch,
+        &file_paths,
+    );
     sink.send_turn(
         viewer,
         ThreadTurn {
@@ -169,7 +174,11 @@ fn compose_message(
     if file_paths.is_empty() {
         message.push('.');
     } else {
-        let _ = write!(message, ". Only stage these files: {}", file_paths.join(", "));
+        let _ = write!(
+            message,
+            ". Only stage these files: {}",
+            file_paths.join(", ")
+        );
     }
     if let Some(subject) = commit_message {
         let _ = write!(message, "\n\nUse this commit message:\n\n{subject}");
@@ -443,8 +452,8 @@ mod tests {
             workspace_id: Some("ws".into()),
             name: None,
             branch: None,
-            agent_type: moatless_api_schemas::shared::AgentType(
-                moatless_api_schemas::shared::AgentType::CLAUDE_CODE.to_string(),
+            agent_type: moatless_backend_core::models::AgentType(
+                moatless_backend_core::models::AgentType::CLAUDE_CODE.to_string(),
             ),
             created_at: "2026-01-01T00:00:00Z".into(),
             created_at_db: None,
@@ -454,7 +463,9 @@ mod tests {
             turn_status: None,
             turn_started_at: None,
             turn_ended_at: None,
-            sandbox_desired_state: Some(moatless_api_schemas::enums::SandboxDesiredState::Running),
+            sandbox_desired_state: Some(
+                moatless_backend_core::models::SandboxDesiredState::Running,
+            ),
             sandbox_stop_reason: None,
             sandbox_started_at: None,
             sandbox_updated_at: None,

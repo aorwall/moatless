@@ -4,6 +4,20 @@ use chrono::{DateTime, Utc};
 
 use moatless_identity::secret::models::EncryptedSecretValue;
 
+use crate::workspace::models::WorkspaceCredentialProvider;
+
+/// Credential metadata safe to expose through the Workspace Adapter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceCredentialMetadata {
+    pub workspace_id: String,
+    pub provider: WorkspaceCredentialProvider,
+    pub env_key: String,
+    pub created_by: String,
+    pub updated_by: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// Row from the `workspace_credentials` table.
 ///
 /// Carries ciphertext only; the plaintext exists solely inside

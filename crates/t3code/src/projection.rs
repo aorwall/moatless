@@ -15,12 +15,12 @@ use super::dao::{Conversation, ConversationMatch, Transcript, TranscriptMessage}
 use crate::activity::T3ActivityViewExt;
 use crate::agent::catalog::{self, UiRpcAgentKind};
 use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
-use moatless_api_schemas::enums::MessageType;
-use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason};
 use moatless_backend_core::activity::dao::Activity;
 use moatless_backend_core::activity::mapping::ActivityKind;
 use moatless_backend_core::activity::view::ActivityView;
 use moatless_backend_core::activity::{ConversationChange, EVENTS_PER_CHANGE};
+use moatless_backend_core::models::MessageType;
+use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason};
 
 const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
 
@@ -1741,9 +1741,9 @@ mod tests {
 
     use super::*;
     use crate::activity_dao::SubagentUsage;
-    use moatless_api_schemas::enums::MessageRole;
-    use moatless_api_schemas::shared::AgentType;
     use moatless_backend_core::activity::mapping::{ActivityKind, ActivityStatus};
+    use moatless_backend_core::models::AgentType;
+    use moatless_backend_core::models::MessageRole;
     use moatless_backend_core::scope::Scope;
 
     fn matched(workspace_id: Option<&str>, from_user: bool, text: &str) -> ConversationMatch {
@@ -2362,9 +2362,11 @@ mod tests {
 
         let snapshot = shell_snapshot(&[ws], &[], &AgentModelDefaults::default(), 0);
         assert_keys(&snapshot, "snapshot", SNAPSHOT_REQUIRED, SNAPSHOT_OPTIONAL);
-        assert!(snapshot["snapshotSequence"]
-            .as_i64()
-            .is_some_and(|n| n >= 0));
+        assert!(
+            snapshot["snapshotSequence"]
+                .as_i64()
+                .is_some_and(|n| n >= 0)
+        );
 
         let project = &snapshot["projects"][0];
         assert_keys(project, "project", PROJECT_REQUIRED, PROJECT_OPTIONAL);
@@ -2870,7 +2872,11 @@ mod tests {
 
         let attachments = message_attachments(&message);
         let name = attachments[0]["name"].as_str().unwrap();
-        assert!(name.len() <= ATTACHMENT_NAME_MAX_CHARS, "{} bytes", name.len());
+        assert!(
+            name.len() <= ATTACHMENT_NAME_MAX_CHARS,
+            "{} bytes",
+            name.len()
+        );
         assert!(long.starts_with(name));
     }
 
@@ -3645,11 +3651,11 @@ mod tests {
         meter.message_uuid = None;
         meter.payload = json!({ "usedTokens": 1_000, "maxTokens": 200_000 });
 
-        let work = detail(&transcript(Vec::new(), vec![asked, plan, meter, resolved]))
-            ["activities"]
-            .as_array()
-            .unwrap()
-            .clone();
+        let work =
+            detail(&transcript(Vec::new(), vec![asked, plan, meter, resolved]))["activities"]
+                .as_array()
+                .unwrap()
+                .clone();
         let by_kind = |kind: &str| {
             work.iter()
                 .find(|row| row["kind"] == kind)
@@ -3857,10 +3863,10 @@ mod tests {
         )
         .into_iter()
         .map(|item| {
-                assert_eq!(item["kind"], "event", "every item is a stream event");
-                item["event"].clone()
-            })
-            .collect()
+            assert_eq!(item["kind"], "event", "every item is a stream event");
+            item["event"].clone()
+        })
+        .collect()
     }
 
     /// A call and the panel row derived from it are two rows in one change, and
@@ -3939,8 +3945,7 @@ mod tests {
             .find(|event| event["payload"]["activity"]["payload"]["requestId"] == "call-1")
             .expect("the panel row");
         assert_eq!(
-            panel_event["payload"]["activity"]["kind"],
-            "user-input.resolved",
+            panel_event["payload"]["activity"]["kind"], "user-input.resolved",
             "a settled call resolves its panel wherever the call is stored"
         );
     }
@@ -3982,7 +3987,10 @@ mod tests {
             .collect();
         let mut climbing = sequences.clone();
         climbing.sort_unstable();
-        assert_eq!(sequences, climbing, "items must be emitted in sequence order");
+        assert_eq!(
+            sequences, climbing,
+            "items must be emitted in sequence order"
+        );
         assert_eq!(sequences.len(), 3, "every row reaches the reader");
     }
 
@@ -4218,16 +4226,18 @@ mod tests {
             sandbox_desired_state: None,
             ..running_conversation("task-a", "ws-a")
         };
-        assert!(change_events(
-            &without,
-            &change(4, None),
-            &transcript(Vec::new(), Vec::new()),
-            &OriginContext {
-                frontend_url: "http://localhost:3000",
-                source_task_names: &HashMap::new(),
-            },
-        )
-        .is_empty());
+        assert!(
+            change_events(
+                &without,
+                &change(4, None),
+                &transcript(Vec::new(), Vec::new()),
+                &OriginContext {
+                    frontend_url: "http://localhost:3000",
+                    source_task_names: &HashMap::new(),
+                },
+            )
+            .is_empty()
+        );
     }
 
     /// A message event carries the same values the snapshot's own bubble does,

@@ -14,7 +14,7 @@ use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_api_schemas::repository::BranchListResponse;
 use moatless_backend_core::scope::ScopeContext;
 
-use moatless_api_schemas::shared::AgentMode;
+use moatless_backend_core::models::AgentMode;
 
 /// Why a command was not carried out.
 ///

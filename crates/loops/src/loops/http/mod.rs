@@ -9,11 +9,11 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::adapters::dao::AdapterConnectionDao;
-use moatless_identity::auth::users::UserDao;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
-use moatless_identity::extractors::UserTokenVerifier;
 use crate::loops::dao::LoopDao;
 use crate::loops::sync::LoopSyncService;
+use moatless_identity::auth::users::UserDao;
+use moatless_identity::extractors::UserTokenVerifier;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
 
 #[derive(OpenApi)]
