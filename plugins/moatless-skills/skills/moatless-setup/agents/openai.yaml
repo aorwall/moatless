@@ -1,0 +1,4 @@
+interface:
+  display_name: "Moatless Setup"
+  short_description: "Install with CLI, login, and GitHub access"
+  default_prompt: "Use $moatless-setup to choose Docker Compose or Kubernetes, install Moatless, configure the moat CLI and human login, and verify one GitHub repository."
