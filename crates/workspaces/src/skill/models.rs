@@ -1,6 +1,6 @@
 //! Skill domain types.
 
-pub use moatless_api_schemas::skill::SkillSource;
+pub use super::schemas::SkillSource;
 
 /// Internal representation of a parsed skill before it's assembled into a
 /// `SkillResponse`. Kept separate so the scanner can emit source-less rows.
