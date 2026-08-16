@@ -50,7 +50,9 @@ auth:
 Have the user store the bootstrap password with the masked prompt:
 
 ```bash
-moat k8s secrets set ADMIN_PASSWORD --namespace <namespace>
+moat k8s secrets set ADMIN_PASSWORD \
+  --context <target-context> \
+  --namespace <namespace>
 ```
 
 Do this before the Kubernetes reference bootstraps the remaining application secrets and installs the release.

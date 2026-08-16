@@ -14,7 +14,7 @@ pipeline, or when something in the cluster needs poking.
 | Target | Namespace | Ingress | kube-context |
 |--------|-----------|---------|--------------|
 | local-k8s | `moatless` | `http://moatless.localhost` (Traefik) | `docker-desktop` |
-| remote | `vibe` | `https://moatless.dev` | cluster context |
+| remote | `<namespace>` | deployment URL | `<cluster-context>` |
 
 ## Quick Reference
 
@@ -24,7 +24,8 @@ pipeline, or when something in the cluster needs poking.
 # API key = the cluster's TEST_API_KEY (mvk_…); the backend mints `test-api-user`.
 export API_KEY="$TEST_API_KEY"
 export BASE_URL="https://moatless.dev"    # local: http://moatless.localhost
-export NAMESPACE="vibe"                    # local: moatless
+export NAMESPACE="<namespace>"                 # e.g. moatless
+export KUBE_CONTEXT="<target-context>"         # use the named target; never rely on current-context
 ```
 
 **Test API Key**: On startup, if `TEST_API_KEY` is set, the backend
@@ -161,24 +162,24 @@ curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/mes
 
 ```bash
 # All pods
-kubectl get pods -n $NAMESPACE
+kubectl --context "$KUBE_CONTEXT" get pods -n "$NAMESPACE"
 
 # Worker for a specific task
-kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID
+kubectl --context "$KUBE_CONTEXT" get pods -n "$NAMESPACE" -l moatless.io/task-id="$TASK_ID"
 ```
 
 ### Check Logs
 
 ```bash
 # Backend logs
-kubectl logs deployment/moatless-vibe-backend -n $NAMESPACE --tail=100
+kubectl --context "$KUBE_CONTEXT" logs deployment/moatless-vibe-backend -n "$NAMESPACE" --tail=100
 
 # Worker/sandbox logs
-WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID -o jsonpath='{.items[0].metadata.name}')
-kubectl logs $WORKER_POD -n $NAMESPACE -c sandbox
+WORKER_POD=$(kubectl --context "$KUBE_CONTEXT" get pods -n "$NAMESPACE" -l moatless.io/task-id="$TASK_ID" -o jsonpath='{.items[0].metadata.name}')
+kubectl --context "$KUBE_CONTEXT" logs "$WORKER_POD" -n "$NAMESPACE" -c sandbox
 
 # Filter for errors (tracing JSON format)
-kubectl logs deployment/moatless-vibe-backend -n $NAMESPACE --tail=200 | grep -i '"level":"ERROR"'
+kubectl --context "$KUBE_CONTEXT" logs deployment/moatless-vibe-backend -n "$NAMESPACE" --tail=200 | grep -i '"level":"ERROR"'
 ```
 
 ## Metrics Monitoring
@@ -187,7 +188,7 @@ Prometheus metrics are on `/metrics` at the backend metrics port (`METRICS_PORT`
 default 9090). Always registered — there is no `METRICS_ENABLED` flag.
 
 ```bash
-kubectl port-forward deployment/moatless-vibe-backend -n $NAMESPACE 9090:9090
+kubectl --context "$KUBE_CONTEXT" port-forward deployment/moatless-vibe-backend -n "$NAMESPACE" 9090:9090
 curl -s localhost:9090/metrics | grep moatless_
 ```
 
@@ -233,10 +234,10 @@ docker buildx build --platform linux/amd64 -t aorwall/moatless-frontend:latest -
 
 ```bash
 # Restart main app
-kubectl rollout restart deployment/moatless-vibe-backend -n $NAMESPACE
+kubectl --context "$KUBE_CONTEXT" rollout restart deployment/moatless-vibe-backend -n "$NAMESPACE"
 
 # Delete worker pod
-kubectl delete pod $WORKER_POD -n $NAMESPACE
+kubectl --context "$KUBE_CONTEXT" delete pod "$WORKER_POD" -n "$NAMESPACE"
 ```
 
 ## Resources

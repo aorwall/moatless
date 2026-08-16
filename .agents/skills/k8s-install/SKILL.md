@@ -11,14 +11,15 @@ Install Moatless Vibe into a Kubernetes cluster with a guided five-step flow. Th
 
 Trigger on phrases like "install moatless on kubernetes", "deploy moatless to my EKS cluster", "set up moatless vibe on AKS", or any bootstrap request where the target is a Kubernetes cluster.
 
-Do **not** trigger for: upgrading an existing install (use `moat k8s upgrade --tag <tag>`), deploying a new image build (use `task deploy`), or Docker Compose installs.
+Do **not** trigger for: upgrading an existing install (use `moat k8s upgrade --context <target-context> --tag <tag>`), deploying a new image build (use `task deploy`), or Docker Compose installs.
 
 ## Prerequisites the user must have
 
 Before starting, confirm the user has:
 
-- `kubectl` authenticated against the target cluster (`kubectl config current-context` works)
-- `helm` 3.x installed
+- `kubectl` authenticated against a named target context (`kubectl --context <target-context> cluster-info` works)
+- A `moat` build whose `k8s status --help` lists `--context`; rebuild or reinstall the matching checkout if the flag is absent
+- A Helm version compatible with the target Kubernetes release. Kubernetes 1.35 requires Helm 3.20+ or Helm 4.1+.
 - A domain they control for the main app and another (or wildcard) for sandbox previews
 - An Anthropic API key (required)
 - Cluster admin or namespace-admin on the target namespace
@@ -33,7 +34,7 @@ Execute these in order. Each step has a single `moat k8s …` command; read its 
 ### Step 1 — Preflight
 
 ```bash
-moat k8s preflight --namespace <ns> --json
+moat k8s preflight --context <target-context> --namespace <ns> --json
 ```
 
 Reads the cluster and reports `checks[]` plus a derived `cluster_type` (`aks`, `eks`, or `generic`). Interpret:
@@ -55,7 +56,7 @@ Common failures and the right response:
 ### Step 2 — Init values
 
 ```bash
-moat k8s init --provider <aks|eks|generic> --domain <app.example.com> --proxy-domain <sandbox.example.com> --namespace <ns>
+moat k8s init --context <target-context> --provider <aks|eks|generic> --domain <app.example.com> --proxy-domain <sandbox.example.com> --namespace <ns>
 ```
 
 Interactive prompts fill remaining fields (tag, auth provider, storage backend). Writes `values.local.yaml` to cwd. Before running:
@@ -72,7 +73,7 @@ After the file is written, skim `values.local.yaml` and call out anything the us
 When posting secrets in chat is the only option (user insists, no shell access, etc.), call it out explicitly before proceeding: "Pasting secrets in chat works but is less secure than `.env.local`. Keys may show up in logs or transcripts. Proceed anyway?"
 
 ```bash
-moat k8s secrets bootstrap --namespace <ns>
+moat k8s secrets bootstrap --context <target-context> --namespace <ns>
 ```
 
 Collection priority (highest wins, no silent overwrites):
@@ -83,33 +84,33 @@ Collection priority (highest wins, no silent overwrites):
 The CLI **never** reads `std::env` — process environment is noisy and unsafe to auto-consume. The only two safe paths are a `.env` file on disk or a masked terminal prompt.
 
 Pair flags:
-- `moat k8s secrets list` — show which keys are set vs missing (values masked)
-- `moat k8s secrets set <KEY>` — one-off change, masked prompt
-- `moat k8s secrets pull-token` — creates `ghcr-secret` (dockerconfigjson) from a prompted GitHub PAT
+- `moat k8s secrets list --context <target-context>` — show which keys are set vs missing (values masked)
+- `moat k8s secrets set <KEY> --context <target-context>` — one-off change, masked prompt
+- `moat k8s secrets pull-token --context <target-context>` — creates `ghcr-secret` (dockerconfigjson) from a prompted GitHub PAT
 - `--env-file <path>` — use a `.env` file outside the repo root
 
-After bootstrap, confirm required keys are present with `moat k8s secrets list --json` — it returns `{"keys":[...]}`, the names currently stored in the cluster Secret. Check that both `DATABASE_URL` and `SECRETS_ENCRYPTION_KEY` are in the list. The backend refuses to start without `SECRETS_ENCRYPTION_KEY`. `ANTHROPIC_API_KEY` is **not** an install-time secret — users provide their own Claude credentials per task at runtime.
+After bootstrap, confirm required keys are present with `moat k8s secrets list --context <target-context> --namespace <ns> --json` — it returns `{"keys":[...]}`, the names currently stored in the cluster Secret. Check that both `DATABASE_URL` and `SECRETS_ENCRYPTION_KEY` are in the list. The backend refuses to start without `SECRETS_ENCRYPTION_KEY`. `ANTHROPIC_API_KEY` is **not** an install-time secret — users provide their own Claude credentials per task at runtime.
 
 ### Step 4 — Install
 
 ```bash
-moat k8s install --namespace <ns> --release moatless-vibe --values values.local.yaml
+moat k8s install --context <target-context> --namespace <ns> --release moatless-vibe --values values.local.yaml
 ```
 
 Runs `helm dependency update` then `helm upgrade --install`. For cautious users, pass `--dry-run` first. Add `--wait` to block until rollout completes (10 minute timeout).
 
 If `helm upgrade --install` fails, the JSON report contains `stderr`. Common failures:
 - `rendered manifests contain a resource that already exists` → a previous broken install; ask user to `helm uninstall` first or pass a new release name.
-- `ImagePullBackOff` once pods start → `ghcr-secret` missing or wrong; run `moat k8s secrets pull-token`.
+- `ImagePullBackOff` once pods start → `ghcr-secret` missing or wrong; run `moat k8s secrets pull-token --context <target-context> --namespace <ns>`.
 - `PVC pending` → StorageClass mismatch; edit `values.local.yaml` `kubernetes.sandboxStorage.storageClass` and re-run install.
 
 ### Step 5 — Verify
 
 ```bash
-moat k8s status --namespace <ns> --release moatless-vibe --json
+moat k8s status --context <target-context> --namespace <ns> --release moatless-vibe --json
 ```
 
-`all_healthy: true` means every deployment is at desired replicas and no pods are stuck. If not, the `deployments[]` entries and `pending_pods[]` list tell you what to look at. Suggest `kubectl -n <ns> describe pod <name>` or `kubectl -n <ns> logs deploy/<name>` for the specific resource.
+Require `release_status: "deployed"`, at least one deployment, and `all_healthy: true`. If not, the `deployments[]` entries and `pending_pods[]` list tell you what to inspect. Use `kubectl --context <target-context> -n <ns> describe pod <name>` or `kubectl --context <target-context> -n <ns> logs deploy/<name>` for the specific resource.
 
 Once healthy, fetch the ingress address from `ingresses[].address` and give the user the URL they just installed.
 

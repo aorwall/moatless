@@ -14,7 +14,7 @@ Bring a fresh Docker Compose or Kubernetes installation to a healthy deployment,
    Infer the target when the request or environment already makes it clear. Otherwise ask a ranked pick shaped by `/asking-questions` and `/writing-messages`:
 
    - Recommend Docker Compose for a laptop, evaluation, development, or a single-host installation.
-   - Recommend Kubernetes for an existing cluster, a shared installation, or production operations that need ingress, persistent storage, and horizontal scaling.
+   - Recommend Kubernetes for an existing cluster, a shared installation, or production operations that need ingress, persistent storage, and horizontal scaling. If Kubernetes is selected but no cluster exists, invoke `$provision-moatless-kubernetes` first and resume this skill from its infrastructure handoff.
 
    Done when exactly one target is selected. Do not initialize both targets while the decision is open.
 
@@ -74,5 +74,6 @@ Bring a fresh Docker Compose or Kubernetes installation to a healthy deployment,
 - Preserve existing databases, Redis data, object storage, persistent volumes, and namespaces. Require explicit authorization before any purge, volume deletion, or reinstall that discards data.
 - Keep OIDC client secrets, local passwords, session keys, database credentials, registry tokens, agent credentials, CLI API keys, GitHub PATs, and GitHub App PEM keys out of chat, shell arguments, command output, logs, screenshots, deployment configuration, and commits. Enter secrets only through the intended masked prompt or authenticated browser form.
 - Use one deployment reference per run. Never mix `moat docker` state with Helm or `moat k8s` state.
+- For Kubernetes, pass the named target context to every `moat k8s`, Helm, and kubectl operation. A successful check against the current context does not authorize later commands to rely on it implicitly.
 - This skill configures repository credentials and verifies repository access. Leave inbound GitHub PR webhook configuration to the integrations workflow.
 - Hand an established Docker stack to `docker-testing` and an established Kubernetes installation to `kubernetes-testing` for debugging and routine operation.

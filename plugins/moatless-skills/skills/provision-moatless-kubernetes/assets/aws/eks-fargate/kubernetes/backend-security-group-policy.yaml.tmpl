@@ -1,0 +1,14 @@
+apiVersion: vpcresources.k8s.aws/v1beta1
+kind: SecurityGroupPolicy
+metadata:
+  name: moatless-backend
+  namespace: __APP_NAMESPACE__
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  securityGroups:
+    groupIds:
+      - __CLUSTER_SECURITY_GROUP_ID__
+      - __BACKEND_SECURITY_GROUP_ID__
+

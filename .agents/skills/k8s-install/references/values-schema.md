@@ -6,14 +6,28 @@ The chart at `k8s/helm/moatless-vibe/` exposes ~100 values; `moat k8s init` popu
 
 ```yaml
 image:
-  repository: ghcr.io/aorwall/moatless-vibe-backend
-  tag: <version>   # set by --tag flag
+  repository: aorwall/moatless-frontend  # used only when T3 is disabled or has a separate host
+  tag: latest
+backend:
+  image:
+    repository: aorwall/moatless-backend
+    tag: latest
 sandboxImage:
-  repository: ghcr.io/aorwall/moatless-sandbox
-  tag: <version>   # typically same as image.tag
+  repository: aorwall/moatless-sandbox
+  tag: latest
+  pullPolicy: Always
+t3:
+  enabled: true
+  host: ""             # T3 owns the app host; the legacy frontend is omitted
+  image:
+    repository: aorwall/moatless-t3
+    tag: latest
 ```
 
-Override `image.tag` / `sandboxImage.tag` to pin versions. `moat k8s upgrade --tag <v>` updates both in one go.
+`moat k8s init --tag <tag>` writes the backend, sandbox, and T3 tag together.
+The pilot default is `latest`; use a release or `sha-*` tag when reproducible
+rollouts matter. Set `t3.enabled: false` to deploy the Moatless frontend instead,
+or give `t3.host` a separate hostname to deploy both front ends.
 
 ## Ingress (main app)
 

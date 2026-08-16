@@ -23,6 +23,7 @@ eksctl create iamserviceaccount \
 # Install via helm
 helm repo add eks https://aws.github.io/eks-charts
 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  --kube-context <target-context> \
   -n kube-system --set clusterName=<name> \
   --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller
 ```
@@ -50,7 +51,7 @@ proxyIngress:
 Set a Route53 CNAME (or A-alias) to the ALB hostname after install:
 
 ```bash
-kubectl -n <ns> get ingress moatless-vibe -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+kubectl --context <target-context> -n <ns> get ingress moatless-vibe -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
 
 Use the same ALB for `<domain>` and `*.<proxy-domain>` — AWS ALBs accept multiple host-based rules, and the chart will emit two Ingress resources that share one ALB if `alb.ingress.kubernetes.io/group.name` is set equally on both.
@@ -105,7 +106,7 @@ serviceAccount:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Ingress stays `<pending>` | ALB controller not installed, or SG rules block | `kubectl -n kube-system logs deploy/aws-load-balancer-controller` |
+| Ingress stays `<pending>` | ALB controller not installed, or SG rules block | `kubectl --context <target-context> -n kube-system logs deploy/aws-load-balancer-controller` |
 | PVC `Pending` + no events | EBS CSI driver not installed | `eksctl create addon --name aws-ebs-csi-driver --force` |
 | `ImagePullBackOff` | ghcr-secret missing | `moat k8s secrets pull-token` |
 | 502 after install | Target group health check on `/` — backend health is at `/health` | Add `alb.ingress.kubernetes.io/healthcheck-path: /health` to ingress annotations |

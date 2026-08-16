@@ -93,8 +93,12 @@ auth:
 Use `allowedDomains: []` to allow any provider account. Put `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` in the uncommitted `.env.local` consumed by `moat k8s secrets bootstrap`, or set each with a masked prompt:
 
 ```bash
-moat k8s secrets set OIDC_CLIENT_ID --namespace <namespace>
-moat k8s secrets set OIDC_CLIENT_SECRET --namespace <namespace>
+moat k8s secrets set OIDC_CLIENT_ID \
+  --context <target-context> \
+  --namespace <namespace>
+moat k8s secrets set OIDC_CLIENT_SECRET \
+  --context <target-context> \
+  --namespace <namespace>
 ```
 
 The Kubernetes reference must bootstrap secrets with this edited `values.local.yaml`; that is how the CLI detects that the OIDC credentials are required.

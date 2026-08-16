@@ -1,0 +1,4 @@
+interface:
+  display_name: "Provision Moatless Kubernetes"
+  short_description: "Provision cloud Kubernetes for Moatless"
+  default_prompt: "Use $provision-moatless-kubernetes to provision an AWS EKS Fargate cluster for Moatless."

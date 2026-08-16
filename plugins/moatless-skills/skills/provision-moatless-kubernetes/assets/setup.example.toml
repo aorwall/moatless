@@ -1,0 +1,29 @@
+schema_version = 1
+deployment = "moatless-dev"
+provider = "aws"
+compute_mode = "fargate"
+provisioning_method = "terraform"
+region = "eu-north-1"
+aws_profile = "default"
+cluster_version = "1.35"
+image_tag = "latest"
+
+app_namespace = "moatless"
+sandbox_namespace = "moatless-sandboxes"
+app_domain = "moatless.example.com"
+preview_domain = "preview.example.com"
+dns_provider = "route53"
+dns_zone = "example.com"
+route53_zone_id = "Z0123456789EXAMPLE"
+
+vpc_cidr = "10.42.0.0/16"
+api_public_access_cidrs = ["203.0.113.10/32"]
+availability_zones = []
+
+# Globally unique names. `init` derives account-scoped defaults after STS succeeds.
+state_bucket = ""
+workspace_bucket = ""
+
+[tags]
+Environment = "dev"
+Owner = "platform"

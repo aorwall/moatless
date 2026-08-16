@@ -1,0 +1,38 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: __CLUSTER_NAME__
+  region: __REGION__
+  version: "__CLUSTER_VERSION__"
+iam:
+  withOIDC: true
+vpc:
+  id: __VPC_ID__
+  clusterEndpoints:
+    privateAccess: true
+    publicAccess: true
+  publicAccessCIDRs: __API_CIDRS__
+  subnets:
+    public:
+      __AZ1__: {id: __PUBLIC_SUBNET_1__}
+      __AZ2__: {id: __PUBLIC_SUBNET_2__}
+    private:
+      __AZ1__: {id: __PRIVATE_SUBNET_1__}
+      __AZ2__: {id: __PRIVATE_SUBNET_2__}
+cloudWatch:
+  clusterLogging:
+    enableTypes: [api, audit, authenticator]
+fargateProfiles:
+  - name: system
+    selectors:
+      - namespace: kube-system
+    subnets: [__PRIVATE_SUBNET_1__, __PRIVATE_SUBNET_2__]
+  - name: application
+    selectors:
+      - namespace: __APP_NAMESPACE__
+    subnets: [__PRIVATE_SUBNET_1__, __PRIVATE_SUBNET_2__]
+  - name: sandboxes
+    selectors:
+      - namespace: __SANDBOX_NAMESPACE__
+    subnets: [__PRIVATE_SUBNET_1__, __PRIVATE_SUBNET_2__]
+

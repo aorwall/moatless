@@ -1,0 +1,18 @@
+deployment:
+  replicas: 1
+service:
+  type: ClusterIP
+resources:
+  requests: {cpu: 300m, memory: 256Mi}
+  limits: {cpu: 300m, memory: 256Mi}
+ports:
+  web:
+    port: 8000
+    exposedPort: 80
+providers:
+  kubernetesCRD:
+    enabled: true
+    allowCrossNamespace: true
+  kubernetesIngress:
+    enabled: false
+
