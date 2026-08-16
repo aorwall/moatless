@@ -1,8 +1,6 @@
 import type {
   CreateUserResponse,
   GitHubAppRegistrationResponse,
-  GitHubInstallationBindingRequest,
-  GitHubInstallationBindingResponse,
   RegisterGitHubAppRequest,
   RemoveGitHubAppResponse,
 } from '@moatless/api-client/sandbox/model'
@@ -25,19 +23,14 @@ export function useAdminGitHubApps() {
   })
 }
 
-export function useAdminGitHubInstallation() {
-  return useQuery({
-    queryKey: queryKeys.admin.globalGithubInstallation(),
-    queryFn: () => adminGithubConnectionApi.getGlobalInstallation(),
-  })
-}
-
-function useInvalidateGitHubInstallation() {
+function useInvalidateGitHubApps() {
   const queryClient = useQueryClient()
-  return () => invalidateGitHubInstallationCaches(queryClient)
+  return () => invalidateGitHubAppCaches(queryClient)
 }
 
-export async function invalidateGitHubInstallationCaches(queryClient: QueryClient) {
+/// Registering, rotating or removing an App changes what every repository
+/// listing and every Task setup check can reach, so those caches go too.
+export async function invalidateGitHubAppCaches(queryClient: QueryClient) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.admin.github() }),
     queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() }),
@@ -46,28 +39,10 @@ export async function invalidateGitHubInstallationCaches(queryClient: QueryClien
   ])
 }
 
-export function useSaveAdminGitHubInstallation(
-  options?: UseMutationOptions<
-    GitHubInstallationBindingResponse,
-    ApiError,
-    GitHubInstallationBindingRequest
-  >,
-) {
-  const invalidate = useInvalidateGitHubInstallation()
-  return useMutation({
-    ...options,
-    mutationFn: (request) => adminGithubConnectionApi.saveGlobalInstallation(request),
-    onSuccess: async (...args) => {
-      await invalidate()
-      await options?.onSuccess?.(...args)
-    },
-  })
-}
-
 export function useRegisterAdminGitHubApp(
   options?: UseMutationOptions<GitHubAppRegistrationResponse, ApiError, RegisterGitHubAppRequest>,
 ) {
-  const invalidate = useInvalidateGitHubInstallation()
+  const invalidate = useInvalidateGitHubApps()
   return useMutation({
     ...options,
     mutationFn: (request) => adminGithubConnectionApi.registerApp(request),
@@ -85,7 +60,7 @@ export function useRotateAdminGitHubAppKey(
     { githubAppKey: string; privateKeyPem: string }
   >,
 ) {
-  const invalidate = useInvalidateGitHubInstallation()
+  const invalidate = useInvalidateGitHubApps()
   return useMutation({
     ...options,
     mutationFn: ({ githubAppKey, privateKeyPem }) =>
@@ -100,7 +75,7 @@ export function useRotateAdminGitHubAppKey(
 export function useRemoveAdminGitHubApp(
   options?: UseMutationOptions<RemoveGitHubAppResponse, ApiError, string>,
 ) {
-  const invalidate = useInvalidateGitHubInstallation()
+  const invalidate = useInvalidateGitHubApps()
   return useMutation({
     ...options,
     mutationFn: (githubAppKey) => adminGithubConnectionApi.removeApp(githubAppKey),
@@ -115,24 +90,10 @@ export function useRemoveAdminGitHubApp(
 export function useCreateAdminGitHubBotUser(
   options?: UseMutationOptions<CreateUserResponse, ApiError, string>,
 ) {
-  const invalidate = useInvalidateGitHubInstallation()
+  const invalidate = useInvalidateGitHubApps()
   return useMutation({
     ...options,
     mutationFn: (githubAppKey) => adminGithubConnectionApi.createBotUser(githubAppKey),
-    onSuccess: async (...args) => {
-      await invalidate()
-      await options?.onSuccess?.(...args)
-    },
-  })
-}
-
-export function useRemoveAdminGitHubInstallation(
-  options?: UseMutationOptions<GitHubInstallationBindingResponse, ApiError, void>,
-) {
-  const invalidate = useInvalidateGitHubInstallation()
-  return useMutation({
-    ...options,
-    mutationFn: () => adminGithubConnectionApi.removeGlobalInstallation(),
     onSuccess: async (...args) => {
       await invalidate()
       await options?.onSuccess?.(...args)

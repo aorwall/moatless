@@ -1,38 +1,16 @@
-//! Generic provider file reader + repository access checks.
+//! Generic provider file reader.
 //!
 //! Knows only git-connection concerns: fetching a file's raw bytes from a
-//! provider API, probing whether a repo ships a `.moatless/` directory, and
-//! verifying a repository URL is reachable. The `.moatless/` file schemas and
-//! the git→workspace sync live in `crate::workspace::git_sync`.
+//! provider API and probing whether a repo ships a `.moatless/` directory. The
+//! `.moatless/` file schemas and the git→workspace sync live in
+//! `crate::workspace::git_sync`.
 
 use tracing::{debug, warn};
 
-use super::access::parse_github_owner_repo;
 use super::error::RepositoryError;
 use super::models::RepositoryProvider;
-
-/// Provider reachability of a repository URL. Stored on the `repositories` row
-/// as `access_status`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AccessStatus {
-    Unchecked,
-    Ok,
-    NotFound,
-    Forbidden,
-    Error,
-}
-
-impl AccessStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            AccessStatus::Unchecked => "unchecked",
-            AccessStatus::Ok => "ok",
-            AccessStatus::NotFound => "not_found",
-            AccessStatus::Forbidden => "forbidden",
-            AccessStatus::Error => "error",
-        }
-    }
-}
+use moatless_api_schemas::enums::RepositoryProvider as GitHostProvider;
+use moatless_identity::git_host_repo::GitHostRepo;
 
 /// Fetch a repository file's raw contents via the provider API.
 ///
@@ -89,9 +67,10 @@ async fn github_moatless_dir_exists(
     branch: Option<&str>,
     token: Option<&str>,
 ) -> bool {
-    let Some((owner, repo)) = parse_github_owner_repo(remote_url) else {
+    let Some(parsed) = GitHostRepo::parse(GitHostProvider::Github, remote_url) else {
         return true;
     };
+    let (owner, repo) = (parsed.owner(), parsed.name());
 
     let mut url = format!("https://api.github.com/repos/{owner}/{repo}/contents/.moatless");
     if let Some(r) = branch {
@@ -126,9 +105,10 @@ async fn fetch_github_file(
     branch: Option<&str>,
     token: Option<&str>,
 ) -> Result<Option<String>, RepositoryError> {
-    let (owner, repo) = parse_github_owner_repo(remote_url).ok_or_else(|| {
+    let parsed = GitHostRepo::parse(GitHostProvider::Github, remote_url).ok_or_else(|| {
         RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
     })?;
+    let (owner, repo) = (parsed.owner(), parsed.name());
 
     let mut url = format!("https://api.github.com/repos/{owner}/{repo}/contents/{path}");
     if let Some(r) = branch {
@@ -228,106 +208,6 @@ fn gitlab_project_path(remote_url: &str) -> Result<String, RepositoryError> {
         })
 }
 
-/// Validate that a persisted remote URL can be checked by the wired provider
-/// verifier. This keeps malformed/unsupported inputs as request errors instead
-/// of silently returning `unchecked`.
-pub(crate) fn validate_repository_access_target(
-    remote_url: &str,
-    provider: RepositoryProvider,
-) -> Result<(), RepositoryError> {
-    match provider {
-        RepositoryProvider::Github => {
-            parse_github_owner_repo(remote_url)
-                .map(|_| ())
-                .ok_or_else(|| {
-                    RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
-                })
-        }
-        RepositoryProvider::Gitlab => {
-            let path = gitlab_project_path(remote_url)?;
-            if path.split('/').filter(|part| !part.is_empty()).count() < 2 {
-                return Err(RepositoryError::BadRequest(format!(
-                    "Cannot parse GitLab URL: {remote_url}"
-                )));
-            }
-            Ok(())
-        }
-        RepositoryProvider::Gitness => Err(RepositoryError::BadRequest(
-            "Gitness access verification is not supported".to_string(),
-        )),
-    }
-}
-
-/// Verify a repository URL is reachable via the provider API, mapping the
-/// response to an [`AccessStatus`]: 200→`ok`, 404→`not_found`,
-/// 401/403→`forbidden`, anything else (incl. transport errors)→`error`.
-///
-/// Providers without a wired check (Gitness) and unparseable URLs return
-/// `Unchecked`, leaving the repo's default `unchecked` state untouched.
-pub async fn verify_repository_access(
-    remote_url: &str,
-    token: Option<&str>,
-    provider: RepositoryProvider,
-) -> AccessStatus {
-    let url = match provider {
-        RepositoryProvider::Github => {
-            let Some((owner, repo)) = parse_github_owner_repo(remote_url) else {
-                return AccessStatus::Unchecked;
-            };
-            format!("https://api.github.com/repos/{owner}/{repo}")
-        }
-        RepositoryProvider::Gitlab => match gitlab_project_path(remote_url) {
-            Ok(path) => format!(
-                "https://gitlab.com/api/v4/projects/{}",
-                urlencoding::encode(&path)
-            ),
-            Err(_) => return AccessStatus::Unchecked,
-        },
-        RepositoryProvider::Gitness => return AccessStatus::Unchecked,
-    };
-
-    let client = reqwest::Client::new();
-    let mut req = client
-        .get(&url)
-        .header("User-Agent", "moatless-vibe-backend");
-    req = match provider {
-        RepositoryProvider::Github => {
-            let mut r = req.header("Accept", "application/vnd.github+json");
-            if let Some(token) = token {
-                r = r.header("Authorization", format!("Bearer {token}"));
-            }
-            r
-        }
-        RepositoryProvider::Gitlab => match token {
-            Some(token) => req.header("PRIVATE-TOKEN", token),
-            None => req,
-        },
-        RepositoryProvider::Gitness => req,
-    };
-
-    match req.send().await {
-        Ok(resp) => map_status_to_access(resp.status()),
-        Err(e) => {
-            warn!(error = %e, %url, "verify_repository_access request failed");
-            AccessStatus::Error
-        }
-    }
-}
-
-/// Map an HTTP status to an [`AccessStatus`].
-fn map_status_to_access(status: reqwest::StatusCode) -> AccessStatus {
-    use reqwest::StatusCode;
-    if status.is_success() {
-        AccessStatus::Ok
-    } else if status == StatusCode::NOT_FOUND {
-        AccessStatus::NotFound
-    } else if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-        AccessStatus::Forbidden
-    } else {
-        AccessStatus::Error
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,64 +225,5 @@ mod tests {
             )
             .await
         );
-    }
-
-    #[test]
-    fn verify_status_mapping() {
-        use reqwest::StatusCode;
-        assert_eq!(map_status_to_access(StatusCode::OK), AccessStatus::Ok);
-        assert_eq!(
-            map_status_to_access(StatusCode::NOT_FOUND),
-            AccessStatus::NotFound
-        );
-        assert_eq!(
-            map_status_to_access(StatusCode::UNAUTHORIZED),
-            AccessStatus::Forbidden
-        );
-        assert_eq!(
-            map_status_to_access(StatusCode::FORBIDDEN),
-            AccessStatus::Forbidden
-        );
-        assert_eq!(
-            map_status_to_access(StatusCode::INTERNAL_SERVER_ERROR),
-            AccessStatus::Error
-        );
-        assert_eq!(
-            map_status_to_access(StatusCode::TOO_MANY_REQUESTS),
-            AccessStatus::Error
-        );
-    }
-
-    #[test]
-    fn access_status_as_str_values() {
-        assert_eq!(AccessStatus::Unchecked.as_str(), "unchecked");
-        assert_eq!(AccessStatus::Ok.as_str(), "ok");
-        assert_eq!(AccessStatus::NotFound.as_str(), "not_found");
-        assert_eq!(AccessStatus::Forbidden.as_str(), "forbidden");
-        assert_eq!(AccessStatus::Error.as_str(), "error");
-    }
-
-    #[test]
-    fn access_target_validation_rejects_missing_or_unsupported_provider_urls() {
-        assert!(validate_repository_access_target(
-            "https://github.com/acme/repo",
-            RepositoryProvider::Github
-        )
-        .is_ok());
-        assert!(validate_repository_access_target(
-            "https://gitlab.com/group/project",
-            RepositoryProvider::Gitlab
-        )
-        .is_ok());
-        assert!(validate_repository_access_target(
-            "https://example.com/acme/repo",
-            RepositoryProvider::Github
-        )
-        .is_err());
-        assert!(validate_repository_access_target(
-            "https://gitness.example/acme/repo",
-            RepositoryProvider::Gitness
-        )
-        .is_err());
     }
 }

@@ -190,6 +190,10 @@ pub struct CreateWorkspaceRequest {
     pub description: Option<String>,
     #[serde(default)]
     pub scope: Option<Scope>,
+    /// Identity every Task on this Workspace acts as on a git host. When set it
+    /// outranks the Task's own owner.
+    #[serde(default)]
+    pub run_as_user_id: Option<String>,
     // --- Run configuration (mirrors repositories) ---
     #[serde(default)]
     pub docker_image: Option<String>,
@@ -232,6 +236,9 @@ pub struct UpdateWorkspaceRequest {
     /// `owner_user_id` is re-resolved from the new scope. Requesting `global`
     /// requires admin.
     pub scope: Option<Scope>,
+    /// Identity every Task on this Workspace acts as on a git host. When set it
+    /// outranks the Task's own owner. An explicit empty string clears it.
+    pub run_as_user_id: Option<String>,
     pub docker_image: Option<String>,
     pub docker_access: Option<bool>,
     pub sandbox_service_account: Option<String>,
@@ -329,6 +336,10 @@ pub struct WorkspaceResponse {
     pub source_key: Option<String>,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
+    /// Identity every Task on this Workspace acts as on a git host. When set it
+    /// outranks the Task's own owner.
+    #[serde(default)]
+    pub run_as_user_id: Option<String>,
     pub created_by: Option<String>,
     /// Soft-deleted workspaces are normally hidden. Git-origin tombstones remain
     /// visible in admin so users can restore them from git without automatic
@@ -404,7 +415,6 @@ pub struct ResetGitWorkspaceResponse {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum WorkspaceCredentialProvider {
-    Github,
     Gitlab,
     Gitness,
     Openai,
@@ -414,18 +424,11 @@ pub enum WorkspaceCredentialProvider {
 impl WorkspaceCredentialProvider {
     /// Every provider a workspace credential may name, in the order the CLI
     /// lists them.
-    pub const ALL: &'static [Self] = &[
-        Self::Github,
-        Self::Gitlab,
-        Self::Gitness,
-        Self::Openai,
-        Self::Anthropic,
-    ];
+    pub const ALL: &'static [Self] = &[Self::Gitlab, Self::Gitness, Self::Openai, Self::Anthropic];
 
     /// Persisted `workspace_credentials.provider` value.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Github => "github",
             Self::Gitlab => "gitlab",
             Self::Gitness => "gitness",
             Self::Openai => "openai",
@@ -509,6 +512,8 @@ mod workspace_credential_tests {
     fn an_unknown_provider_names_the_supported_set() {
         let err = WorkspaceCredentialProvider::from_str("codex")
             .expect_err("codex is deliberately unsupported");
-        assert!(err.contains("github"), "{err}");
+        for provider in WorkspaceCredentialProvider::ALL {
+            assert!(err.contains(provider.as_str()), "{err}");
+        }
     }
 }

@@ -2,20 +2,16 @@
 
 use std::sync::Arc;
 
+use moatless_core::db::DbPool;
+use moatless_identity::git_host_tokens::GitHostTokens;
 use moatless_loops::adapters::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::{
     Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent, Adapters,
 };
-use moatless_identity::auth::github::registry::GitHubAppRegistry;
-use moatless_identity::auth::github::service::GitHubAppService;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
 use moatless_loops::loops::dao::LoopDao;
-use moatless_identity::secret::service::SecretService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
-use moatless_core::db::DbPool;
 
 use super::auth::GithubPrAuth;
 
@@ -76,23 +72,13 @@ impl GithubPrAdapter {
 
     pub fn new(
         global_webhook_secret: Option<String>,
-        global_bot_token: Option<String>,
         frontend_url: String,
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-        provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
-        github_app_service: Option<Arc<GitHubAppService>>,
-        github_apps: Arc<GitHubAppRegistry>,
+        git_host_tokens: Arc<GitHostTokens>,
     ) -> Self {
         Self {
             global_webhook_secret,
             frontend_url,
-            auth: GithubPrAuth::new(
-                global_bot_token,
-                provider_tokens,
-                provider_token_auth,
-                github_app_service,
-                github_apps,
-            ),
+            auth: GithubPrAuth::new(git_host_tokens),
             adapter_connections: None,
             loops: None,
             db: None,
@@ -181,13 +167,6 @@ impl GithubPrAdapter {
         ))
     }
 
-    /// Wire the secret service used to resolve `secret_ref` provider tokens.
-    #[must_use]
-    pub fn with_secrets(mut self, secrets: Arc<SecretService>) -> Self {
-        self.auth.set_secrets(secrets);
-        self
-    }
-
     /// Point every REST client this Adapter builds at a caller-supplied root.
     ///
     /// [`Self::new`] resolves the root from the process environment, which
@@ -273,12 +252,11 @@ impl AdapterInboundPresentation for GithubPrAdapter {
 mod tests {
     use std::sync::Arc;
 
+    use moatless_core::db::DbPool;
+    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
     use moatless_loops::adapters::{
         Adapter, AdapterDestinationBuilder, AdapterInboundPresentation, AdapterOutboundContent,
     };
-    use moatless_identity::auth::github::registry::GitHubAppRegistry;
-    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-    use moatless_core::db::DbPool;
 
     use super::GithubPrAdapter;
 
@@ -326,12 +304,8 @@ mod tests {
     fn provider() -> GithubPrAdapter {
         GithubPrAdapter::new(
             None,
-            None,
             "https://app.example.com".to_string(),
-            fake_provider_tokens(),
-            None,
-            None,
-            Arc::new(GitHubAppRegistry::default()),
+            moatless_identity::git_host_tokens::seam_over(fake_provider_tokens()),
         )
     }
 
@@ -343,8 +317,6 @@ mod tests {
     }
 
     fn fake_provider_tokens() -> Arc<dyn ProviderTokenDao> {
-        Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(
-            fake_db_pool(),
-        ))
+        Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(fake_db_pool()))
     }
 }

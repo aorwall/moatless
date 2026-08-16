@@ -135,6 +135,9 @@ pub(super) struct AuthState {
     /// reporting provider connection status on `/me`. Convenience handle to
     /// `github_apps.default_service()`.
     pub(super) github_app_service: Option<Arc<GitHubAppService>>,
+    /// The one way to a git-host token. `/me` uses it to check whether the
+    /// caller's own GitHub credential still resolves.
+    pub(super) git_host_tokens: Arc<crate::git_host_tokens::GitHostTokens>,
     /// Registry of all configured GitHub Apps.
     pub(super) github_apps: Arc<GitHubAppRegistry>,
     /// Encrypted secret store — holds the OAuth token stashed behind a PAT
@@ -1100,18 +1103,12 @@ async fn check_github_connection(state: &AuthState, user_id: &str) -> Option<Pro
     // reference) is reported as disconnected so the frontend prompts for a
     // reconnect.
     if state.github_app_service.is_some() {
-        match super::credentials::resolve_user_github_token(
-            state.provider_tokens_dao.as_ref(),
-            Some(state.provider_tokens.as_ref()),
-            state.github_app_service.as_deref(),
-            state.github_apps.as_ref(),
-            Some(state.secrets.as_ref()),
-            user_id,
-            None,
-        )
-        .await
+        match state
+            .git_host_tokens
+            .github_is_usable(&crate::auth::actor::Actor::of(user_id))
+            .await
         {
-            Ok(_) => Some(ProviderConnection {
+            Ok(()) => Some(ProviderConnection {
                 provider: "github".to_string(),
                 connected: true,
                 login,

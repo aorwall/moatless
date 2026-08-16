@@ -224,13 +224,12 @@ impl AdapterDestinationBuilder for GithubPrAdapter {
 mod tests {
     use std::sync::Arc;
 
-    use moatless_identity::auth::github::registry::GitHubAppRegistry;
-    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
     use moatless_core::db::DbPool;
+    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 
     use super::*;
-    use moatless_loops::adapters::AdapterDestinationBuilder;
     use crate::adapter::GithubPrAdapter;
+    use moatless_loops::adapters::AdapterDestinationBuilder;
 
     #[test]
     fn parses_thread_properties_and_builds_canonical_values() {
@@ -310,12 +309,8 @@ mod tests {
     fn provider() -> GithubPrAdapter {
         GithubPrAdapter::new(
             None,
-            None,
             "https://app.example.com".to_string(),
-            fake_provider_tokens(),
-            None,
-            None,
-            Arc::new(GitHubAppRegistry::default()),
+            moatless_identity::git_host_tokens::seam_over(fake_provider_tokens()),
         )
     }
 
@@ -327,8 +322,6 @@ mod tests {
     }
 
     fn fake_provider_tokens() -> Arc<dyn ProviderTokenDao> {
-        Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(
-            fake_db_pool(),
-        ))
+        Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(fake_db_pool()))
     }
 }

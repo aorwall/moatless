@@ -7,12 +7,12 @@ use moatless_core::db::DbPool;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use super::access::RepositoryTokenResolver;
 use super::dao::RepositoryDao;
 use super::handlers;
+use crate::workspace::git_sync::GitSyncService;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::extractors::UserTokenVerifier;
-use crate::workspace::git_sync::GitSyncService;
+use moatless_identity::git_host_tokens::GitHostTokens;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -24,7 +24,6 @@ use crate::workspace::git_sync::GitSyncService;
         handlers::list_repositories,
         handlers::get_repository,
         handlers::update_repository,
-        handlers::verify_access,
         handlers::delete_repository,
         handlers::convert_to_template,
         handlers::get_branches,
@@ -37,7 +36,7 @@ pub struct RepositoryApiDoc;
 /// Generic over the router state `S` so this module names no root type: the
 /// composition root supplies the concrete state at the call site, and each
 /// handler reaches its ports — `Arc<dyn RepositoryDao>`, `Arc<GitSyncService>`,
-/// `Arc<RepositoryTokenResolver>`, `Arc<dyn ProviderTokenDao>`, the `DbPool`, and
+/// `Arc<GitHostTokens>`, `Arc<dyn ProviderTokenDao>`, the `DbPool`, and
 /// the `UserTokenVerifier` behind `AuthUser` — through `FromRef<S>`. The
 /// `sync_config` endpoint that once forced this
 /// module to name `Arc<LoopSyncService>` now lives in `repository_sync` (server
@@ -47,7 +46,7 @@ where
     S: Clone + Send + Sync + 'static,
     Arc<dyn RepositoryDao>: FromRef<S>,
     Arc<GitSyncService>: FromRef<S>,
-    Arc<RepositoryTokenResolver>: FromRef<S>,
+    Arc<GitHostTokens>: FromRef<S>,
     Arc<dyn ProviderTokenDao>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
     DbPool: FromRef<S>,
@@ -62,7 +61,6 @@ where
             handlers::update_repository,
             handlers::delete_repository
         ))
-        .routes(routes!(handlers::verify_access))
         .routes(routes!(handlers::convert_to_template))
         .routes(routes!(handlers::get_branches))
         .with_state(state)

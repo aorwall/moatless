@@ -18,46 +18,31 @@ use super::fetcher::{SkillFetcher, SkillLayout};
 use super::models::{Skill, SkillSource};
 use super::scanner;
 use super::schemas::SkillResponse;
-use moatless_identity::auth::credentials::resolve_user_github_token;
-use moatless_identity::auth::error::AuthError;
-use moatless_identity::auth::github::registry::GitHubAppRegistry;
-use moatless_identity::auth::github::service::GitHubAppService;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
-use moatless_identity::extractors::AuthUser;
 use crate::plugin::dao::PluginDao;
 use crate::plugin::models::Plugin;
 use crate::plugin::sync::PluginSyncService;
 use crate::repository::dao::RepositoryDao;
-use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
-use moatless_identity::secret::service::SecretService;
+use crate::repository::models::{Repository, RepositoryKind};
+use moatless_identity::auth::actor::Actor;
+use moatless_identity::extractors::AuthUser;
+use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
 
 /// Orchestrates skill discovery across workspace + plugins.
 pub struct SkillService {
     repositories: Arc<dyn RepositoryDao>,
     plugins: Arc<dyn PluginDao>,
-    provider_tokens: Arc<dyn ProviderTokenDao>,
-    provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
-    github_app_service: Option<Arc<GitHubAppService>>,
-    github_apps: Arc<GitHubAppRegistry>,
-    secrets: Arc<SecretService>,
+    git_host_tokens: Arc<GitHostTokens>,
     fetcher: Arc<dyn SkillFetcher>,
     plugin_sync: Arc<PluginSyncService>,
     cache: Cache<String, Arc<Vec<Skill>>>,
 }
 
 impl SkillService {
-    #[allow(clippy::too_many_arguments)]
-    // reason: this service fans out to four DAOs plus the GitHub App service,
-    // and the constructor is called once from AppState::new.
     pub fn new(
         repositories: Arc<dyn RepositoryDao>,
         plugins: Arc<dyn PluginDao>,
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-        provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
-        github_app_service: Option<Arc<GitHubAppService>>,
-        github_apps: Arc<GitHubAppRegistry>,
-        secrets: Arc<SecretService>,
+        git_host_tokens: Arc<GitHostTokens>,
         fetcher: Arc<dyn SkillFetcher>,
         plugin_sync: Arc<PluginSyncService>,
         ttl: Duration,
@@ -69,11 +54,7 @@ impl SkillService {
         Self {
             repositories,
             plugins,
-            provider_tokens,
-            provider_token_auth,
-            github_app_service,
-            github_apps,
-            secrets,
+            git_host_tokens,
             fetcher,
             plugin_sync,
             cache,
@@ -96,6 +77,7 @@ impl SkillService {
         auth: &AuthUser,
     ) -> Result<Vec<SkillResponse>, SkillError> {
         let ctx = auth.scope_context();
+        let actor = Actor::caller(&ctx);
 
         let repo = self
             .repositories
@@ -112,7 +94,7 @@ impl SkillService {
                 .await?;
         let mut from_plugins: Vec<(Vec<Skill>, Vec<String>)> = Vec::with_capacity(resolved.len());
         for (plugin, picked) in resolved {
-            from_plugins.push((self.plugin_skills(&plugin).await?, picked));
+            from_plugins.push((self.plugin_skills(&actor, &plugin).await?, picked));
         }
 
         let merged = merge_skills(workspace.as_ref().clone(), from_plugins);
@@ -132,29 +114,17 @@ impl SkillService {
             return Ok(Arc::new(Vec::new()));
         };
 
-        let cache_key = format!("workspace:{}", repo.id);
+        // Keyed by caller as well as repository: the fetch runs with their own
+        // credential, so two people can legitimately see different skills in
+        // the same repository.
+        let actor = Actor::caller(&auth.scope_context());
+        let cache_key = format!("workspace:{}:{actor}", repo.id);
         if let Some(cached) = self.cache.get(&cache_key).await {
             debug!(repository_id = %repo.id, "Skill cache hit (workspace)");
             return Ok(cached);
         }
 
-        let token = if repo.provider == Some(RepositoryProvider::Github) {
-            crate::repository::access::resolve_repository_github_token_with(
-                self.provider_tokens.as_ref(),
-                Some(self.provider_token_auth.as_ref()),
-                self.github_app_service.as_deref(),
-                self.github_apps.as_ref(),
-                Some(self.secrets.as_ref()),
-                repo,
-                remote_url,
-                None,
-            )
-            .await
-            .map_err(SkillError::RepositoryToken)?
-        } else {
-            self.resolve_token_for_provider(auth, repo.provider.as_ref())
-                .await?
-        };
+        let token = self.workspace_token(&actor, repo, remote_url).await?;
 
         let files = self
             .fetcher
@@ -177,8 +147,12 @@ impl SkillService {
     /// Plugin skills come from stored records, not from git on request. The
     /// sync service decides whether the source has moved on and is the only
     /// thing that fetches.
-    async fn plugin_skills(&self, plugin: &Plugin) -> Result<Vec<Skill>, SkillError> {
-        let stored = self.plugin_sync.skills(plugin).await?;
+    async fn plugin_skills(
+        &self,
+        actor: &Actor,
+        plugin: &Plugin,
+    ) -> Result<Vec<Skill>, SkillError> {
+        let stored = self.plugin_sync.skills(actor, plugin).await?;
         Ok(stored
             .into_iter()
             .map(|s| Skill {
@@ -191,41 +165,31 @@ impl SkillService {
             .collect())
     }
 
-    async fn resolve_token_for_provider(
+    /// The caller's own token for a workspace repository, on whichever host it
+    /// lives on.
+    ///
+    /// Not connecting the host is not an error — a public repository still
+    /// fetches unauthenticated. A credential that exists and cannot be used is.
+    async fn workspace_token(
         &self,
-        auth: &AuthUser,
-        provider: Option<&RepositoryProvider>,
+        actor: &Actor,
+        repo: &Repository,
+        remote_url: &str,
     ) -> Result<Option<String>, SkillError> {
-        let Some(provider) = provider else {
+        let Some(provider) = repo.provider else {
             return Ok(None);
         };
-
-        if *provider == RepositoryProvider::Github {
-            return match resolve_user_github_token(
-                self.provider_tokens.as_ref(),
-                Some(self.provider_token_auth.as_ref()),
-                self.github_app_service.as_deref(),
-                self.github_apps.as_ref(),
-                Some(self.secrets.as_ref()),
-                &auth.user_id.to_string(),
-                None,
-            )
-            .await
-            {
-                Ok(token) => Ok(token),
-                // No token configured — fall through to unauthenticated fetch.
-                Err(AuthError::NotFound(_)) => Ok(None),
-                Err(AuthError::Database(e)) => Err(SkillError::Db(e)),
-                Err(e) => Err(SkillError::UserToken(e)),
-            };
+        let Some(host_repo) = GitHostRepo::parse(provider.into(), remote_url) else {
+            return Ok(None);
+        };
+        match self.git_host_tokens.token(actor, &host_repo).await {
+            Ok(token) => Ok(Some(token)),
+            Err(GitHostTokenError::NoCredential { .. }) => Ok(None),
+            Err(GitHostTokenError::Database(e)) => Err(SkillError::Db(e)),
+            Err(e) => Err(SkillError::RepositoryToken(
+                crate::repository::access::git_host_token_error(e),
+            )),
         }
-
-        let provider_str = provider_to_token_key(*provider);
-        let token = self
-            .provider_tokens
-            .find_provider_token(&auth.user_id.to_string(), provider_str)
-            .await?;
-        Ok(token.map(|t| t.access_token))
     }
 }
 
@@ -263,17 +227,6 @@ fn merge_skills(workspace: Vec<Skill>, plugins: Vec<(Vec<Skill>, Vec<String>)>) 
 
     merged.sort_by(|a, b| a.name.cmp(&b.name));
     merged
-}
-
-/// Map a `RepositoryProvider` to the string used as the `provider` column in
-/// the `provider_tokens` table. The variants already serialise as lowercase
-/// so this is effectively a static-dispatch slug.
-fn provider_to_token_key(provider: RepositoryProvider) -> &'static str {
-    match provider {
-        RepositoryProvider::Github => "github",
-        RepositoryProvider::Gitlab => "gitlab",
-        RepositoryProvider::Gitness => "gitness",
-    }
 }
 
 #[cfg(test)]
@@ -384,15 +337,5 @@ mod tests {
         );
 
         assert_eq!(names(&merged), vec!["alpha", "middle", "zebra"]);
-    }
-
-    #[test]
-    fn provider_to_token_key_matches_column_values() {
-        assert_eq!(provider_to_token_key(RepositoryProvider::Github), "github");
-        assert_eq!(provider_to_token_key(RepositoryProvider::Gitlab), "gitlab");
-        assert_eq!(
-            provider_to_token_key(RepositoryProvider::Gitness),
-            "gitness"
-        );
     }
 }

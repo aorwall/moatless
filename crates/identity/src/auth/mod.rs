@@ -3,6 +3,7 @@
 //! Handles login flows (local email/password, GitHub App, Auth0, OIDC),
 //! session management, API key management, and Traefik ForwardAuth verification.
 
+pub mod actor;
 pub mod api_key;
 pub mod api_keys;
 pub mod cache;
@@ -12,7 +13,6 @@ pub mod cookie;
 pub mod credentials;
 pub mod error;
 pub mod github;
-pub mod github_scope;
 pub mod identity;
 pub mod jwt;
 pub mod middleware;
@@ -59,6 +59,7 @@ pub struct AuthenticationPorts {
     pub adapter_connections: Arc<dyn AdapterConnectionDao>,
     pub github_app_service: Option<Arc<github::service::GitHubAppService>>,
     pub github_apps: Arc<github::registry::GitHubAppRegistry>,
+    pub git_host_tokens: Arc<crate::git_host_tokens::GitHostTokens>,
     pub secrets: Arc<SecretService>,
     pub task_access: Arc<dyn TaskAccess>,
     pub token_verifier: Arc<dyn UserTokenVerifier>,
@@ -110,6 +111,7 @@ impl Authentication {
             adapter_connections: ports.adapter_connections,
             github_app_service: ports.github_app_service,
             github_apps: ports.github_apps,
+            git_host_tokens: ports.git_host_tokens,
             secrets: ports.secrets,
             task_access: ports.task_access,
             token_verifier: ports.token_verifier,

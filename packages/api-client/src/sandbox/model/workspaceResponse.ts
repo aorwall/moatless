@@ -38,6 +38,12 @@ sync recreating them behind their back. */
   ownerUserId?: string | null;
   repos: WorkspaceRepoResponse[];
   resources?: null | ResourceConfig;
+  /**
+   * Identity every Task on this Workspace acts as on a git host. When set it
+outranks the Task's own owner.
+   * @nullable
+   */
+  runAsUserId?: string | null;
   /** @nullable */
   sandboxServiceAccount?: string | null;
   scope: Scope;

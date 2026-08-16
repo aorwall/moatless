@@ -4,42 +4,42 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use moatless_core::secret_keys::{
-    ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, GITHUB_TOKEN, OPENAI_API_KEY,
+    ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN,
+    GITNESS_TOKEN, OPENAI_API_KEY,
 };
 use tracing::warn;
 
-use moatless_identity::auth::github::registry::GitHubAppRegistry;
-use moatless_identity::auth::github::service::GitHubAppService;
+use moatless_api_schemas::enums::RepositoryProvider as GitHostProvider;
+use moatless_identity::auth::actor::Actor;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
 use moatless_identity::auth::users::UserDao;
+use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens, PlainGitHost};
 use moatless_identity::secret::models::is_reserved_key;
 use moatless_identity::secret::service::SecretService;
 use moatless_tasks::credential_sync::CredentialSync;
 use moatless_tasks::task::dao::TaskDao;
-use moatless_workspaces::repository::access::resolve_repository_github_token_with;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::repository::models::Repository;
 use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
+use moatless_workspaces::workspace::dao::WorkspaceDao;
 use moatless_workspaces::workspace::error::WorkspaceError;
 
-pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
-pub const GITNESS_TOKEN: &str = "GITNESS_TOKEN";
 pub const GIT_USER_NAME: &str = "GIT_USER_NAME";
 pub const GIT_USER_EMAIL: &str = "GIT_USER_EMAIL";
 
 pub struct TaskCredentialInputs<'a> {
     pub task_id: &'a str,
+    /// The identity the task acts as — [`resolve_task_actor`] resolves it,
+    /// applying the Workspace's run-as override over the task's own owner.
     pub user_id: &'a str,
     pub secrets: Option<&'a Arc<SecretService>>,
     pub provider_tokens: Option<&'a Arc<dyn ProviderTokenDao>>,
-    pub github_app_service: Option<&'a Arc<GitHubAppService>>,
-    pub provider_token_auth: Option<&'a Arc<dyn ProviderTokenAuthDao>>,
-    /// Registry consulted when the effective user's `provider_tokens` row has
-    /// `auth_method = 'github_app_installation'`.
-    pub github_apps: Option<&'a Arc<GitHubAppRegistry>>,
+    /// The one way to a git-host token. Supplied once at the composition root,
+    /// so this struct threads no credential ports of its own.
+    pub git_host_tokens: Option<&'a Arc<GitHostTokens>>,
     /// Persisted repository — supplies the remote URL whose owner and name the
-    /// run-as user's credential is minted against.
+    /// run-as identity's credential is minted against.
     pub repository: Option<&'a Repository>,
     /// User repository — read to source `GIT_USER_NAME` / `GIT_USER_EMAIL`
     /// from `users.login` / `users.email`. Bots get both; human users get
@@ -61,10 +61,12 @@ pub struct TaskCredentialInputs<'a> {
 /// Priority order (most-specific wins):
 /// 1. Credentials pinned to the task's Workspace. A Workspace credential names
 ///    the account the Workspace runs as, so it outranks whoever started the
-///    task; without that it would not be an override.
-/// 2. Per-user `provider_tokens` (OAuth-managed, e.g. a freshly-issued
-///    Codex `auth.json` from the device-code flow or a connected GitHub App
-///    user-token).
+///    task; without that it would not be an override. Git-host tokens are not
+///    among them — a Workspace names the identity it runs as instead, and
+///    `user_id` below already carries it (see [`resolve_task_actor`]).
+/// 2. Per-user `provider_tokens` for `user_id`, the identity the task acts as
+///    (OAuth-managed, e.g. a freshly-issued Codex `auth.json` from the
+///    device-code flow or a connected GitHub App user-token).
 /// 3. Scoped secrets — the `SecretService` already resolves these with
 ///    user > global precedence internally; we only fill keys that
 ///    aren't already covered by a `provider_token`.
@@ -82,15 +84,19 @@ pub struct TaskCredentialInputs<'a> {
 pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMap<String, String> {
     let mut credentials: HashMap<String, String> = input.workspace_credentials;
 
+    let actor = Actor::of(input.user_id);
+    fill_git_host_tokens(
+        &mut credentials,
+        input.git_host_tokens,
+        &actor,
+        input.repository,
+    )
+    .await;
+
     fill_provider_tokens(
         &mut credentials,
         input.provider_tokens,
-        input.secrets,
         input.user_id,
-        input.github_app_service,
-        input.provider_token_auth,
-        input.github_apps,
-        input.repository,
         input.credential_sync,
         Some(input.task_id),
     )
@@ -106,35 +112,20 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
 
 /// Resolve only the GitHub token a task's sandbox would receive.
 ///
-/// Goes through the same run-as-user resolution as runtime credential
-/// delivery, so preflight and the sandbox never disagree — including the
-/// workspace override, which is checked first here for the same reason
-/// [`resolve_task_credentials`] seeds its map with it.
-pub async fn resolve_task_github_token(input: TaskCredentialInputs<'_>) -> Option<String> {
-    if let Some(token) = input.workspace_credentials.get(GITHUB_TOKEN) {
-        return Some(token.clone());
+/// Goes through the same run-as-identity resolution as runtime credential
+/// delivery, so preflight and the sandbox never disagree. `user_id` is that
+/// identity — see [`resolve_task_actor`], which is where a Workspace's
+/// override is applied.
+pub async fn resolve_task_github_token(
+    git_host_tokens: Option<&Arc<GitHostTokens>>,
+    actor: &Actor,
+    repository: Option<&Repository>,
+) -> Option<Result<String, GitHostTokenError>> {
+    let repo = task_git_host_repo(repository)?;
+    if repo.provider() != GitHostProvider::Github {
+        return None;
     }
-
-    let provider_tokens = input.provider_tokens?;
-    let mut credentials: HashMap<String, String> = HashMap::new();
-
-    fill_github(
-        &mut credentials,
-        provider_tokens,
-        input.secrets,
-        input.user_id,
-        input.github_app_service,
-        input.provider_token_auth,
-        input.github_apps,
-        input.repository,
-    )
-    .await;
-
-    if let Some(token) = credentials.remove(GITHUB_TOKEN) {
-        return Some(token);
-    }
-
-    None
+    Some(git_host_tokens?.token(actor, &repo).await)
 }
 
 /// Merge scoped-secret values into `credentials` only for keys that aren't
@@ -233,6 +224,40 @@ pub(crate) async fn resolve_task_credential_targets(
     }
 }
 
+/// The identity a Task's sandbox acts as on a git host.
+///
+/// The Workspace's `run_as_user_id` when it names one, otherwise the identity
+/// the Task is attributed to. A Workspace names the account it runs as, so it
+/// outranks whoever started the Task — the precedence a pinned GitHub
+/// credential used to have, over a subject that is a person instead of a
+/// secret.
+///
+/// A Workspace that cannot be read degrades to the Task's own owner: the
+/// column is an override, and losing it narrows access rather than widening
+/// it.
+pub async fn resolve_task_actor(
+    workspaces: Option<&Arc<dyn WorkspaceDao>>,
+    workspace_id: Option<&str>,
+    owner_user_id: &str,
+) -> Actor {
+    let owner = Actor::of(owner_user_id);
+    let (Some(workspaces), Some(workspace_id)) = (workspaces, workspace_id) else {
+        return owner;
+    };
+    // reason: the sandbox acts on behalf of a task whose own authorization
+    // already decided the workspace may be run; there is no viewer here.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = moatless_backend_core::scope::ScopeContext::system();
+    let run_as = match workspaces.find_by_id(workspace_id, &sys_ctx).await {
+        Ok(workspace) => workspace.and_then(|workspace| workspace.run_as_user_id),
+        Err(e) => {
+            warn!(error = %e, workspace_id, "Failed to read the workspace run-as identity");
+            None
+        }
+    };
+    Actor::run_as(run_as.as_deref(), Some(owner.clone())).unwrap_or(owner)
+}
+
 /// Resolve the credentials pinned to a workspace, keyed by environment
 /// variable.
 ///
@@ -270,16 +295,10 @@ async fn resolve_scoped_secrets(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn fill_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: Option<&Arc<dyn ProviderTokenDao>>,
-    secrets: Option<&Arc<SecretService>>,
     user_id: &str,
-    github_app_service: Option<&Arc<GitHubAppService>>,
-    provider_token_auth: Option<&Arc<dyn ProviderTokenAuthDao>>,
-    github_apps: Option<&Arc<GitHubAppRegistry>>,
-    repository: Option<&Repository>,
     credential_sync: Option<&Arc<CredentialSync>>,
     current_task_id: Option<&str>,
 ) {
@@ -287,18 +306,7 @@ async fn fill_provider_tokens(
         return;
     };
 
-    fill_github(
-        credentials,
-        provider_tokens,
-        secrets,
-        user_id,
-        github_app_service,
-        provider_token_auth,
-        github_apps,
-        repository,
-    )
-    .await;
-    fill_user_provider_tokens(credentials, provider_tokens, user_id).await;
+    fill_model_provider_tokens(credentials, provider_tokens, user_id).await;
     fill_codex(
         credentials,
         provider_tokens,
@@ -309,59 +317,76 @@ async fn fill_provider_tokens(
     .await;
 }
 
-/// Resolve `GITHUB_TOKEN` for this task.
+/// The repository a task's git-host token is minted against.
+fn task_git_host_repo(repository: Option<&Repository>) -> Option<GitHostRepo> {
+    let repository = repository?;
+    let provider = repository.provider?;
+    GitHostRepo::parse(provider.into(), repository.remote_url.as_deref()?)
+}
+
+/// Resolve the git-host tokens this task's sandbox needs.
 ///
-/// `user_id` is the task's run-as identity and is the sole credential
-/// authority: a sandbox gets GitHub access only through that user's own row,
-/// never the repository's or the global one. A user holding no row leaves the
-/// slot empty, and preflight refuses to start the sandbox.
-#[allow(clippy::too_many_arguments)]
-// reason: mirrors `fill_user_provider_tokens`' dependency list; bundling would
-// only move the argument count to the call site.
-async fn fill_github(
+/// `actor` is the identity the task acts as and is the sole credential
+/// authority: a sandbox gets git-host access only through that identity's own
+/// rows, never the repository's and never another account's. Holding none
+/// leaves the slot empty, and preflight refuses to start the sandbox.
+///
+/// `GITHUB_TOKEN` is minted against the task's own repository, so it is filled
+/// only for a GitHub-hosted task. `GITLAB_TOKEN` and `GITNESS_TOKEN` are single
+/// stored values and are filled whenever the identity holds one, because a
+/// workspace may mount repositories from more than one host.
+async fn fill_git_host_tokens(
     credentials: &mut HashMap<String, String>,
-    provider_tokens: &Arc<dyn ProviderTokenDao>,
-    secrets: Option<&Arc<SecretService>>,
-    user_id: &str,
-    github_app_service: Option<&Arc<GitHubAppService>>,
-    provider_token_auth: Option<&Arc<dyn ProviderTokenAuthDao>>,
-    github_apps: Option<&Arc<GitHubAppRegistry>>,
+    git_host_tokens: Option<&Arc<GitHostTokens>>,
+    actor: &Actor,
     repository: Option<&Repository>,
 ) {
-    if credentials.contains_key(GITHUB_TOKEN) {
+    let Some(git_host_tokens) = git_host_tokens else {
         return;
+    };
+
+    if !credentials.contains_key(GITHUB_TOKEN) {
+        if let Some(resolved) =
+            resolve_task_github_token(Some(&Arc::clone(git_host_tokens)), actor, repository).await
+        {
+            insert_token(credentials, GITHUB_TOKEN, actor, resolved);
+        }
     }
 
-    // An empty registry stands in when none is wired: only bot rows need it,
-    // and for those an error beats handing the sandbox the placeholder.
-    let fallback_registry = GitHubAppRegistry::default();
-    let registry = github_apps.map_or(&fallback_registry, Arc::as_ref);
-
-    let Some(repository) = repository else {
-        return;
-    };
-    let Some(remote_url) = repository.remote_url.as_deref() else {
-        return;
-    };
-
-    match resolve_repository_github_token_with(
-        provider_tokens.as_ref(),
-        provider_token_auth.map(Arc::as_ref),
-        github_app_service.map(Arc::as_ref),
-        registry,
-        secrets.map(Arc::as_ref),
-        repository,
-        remote_url,
-        Some(user_id),
-    )
-    .await
-    {
-        Ok(Some(token)) => {
-            credentials.insert(GITHUB_TOKEN.to_string(), token);
+    for (host, key) in [
+        (PlainGitHost::Gitlab, GITLAB_TOKEN),
+        (PlainGitHost::Gitness, GITNESS_TOKEN),
+    ] {
+        if credentials.contains_key(key) {
+            continue;
         }
-        Ok(None) => {}
+        insert_token(
+            credentials,
+            key,
+            actor,
+            git_host_tokens.host_token(actor, host).await,
+        );
+    }
+}
+
+/// Store a resolved token, or account for why there is none.
+///
+/// An identity that has simply not connected the host is the ordinary case and
+/// is silent — preflight is where that becomes a refusal. Anything else is a
+/// credential that exists and does not work, which an operator has to see.
+fn insert_token(
+    credentials: &mut HashMap<String, String>,
+    key: &str,
+    actor: &Actor,
+    resolved: Result<String, GitHostTokenError>,
+) {
+    match resolved {
+        Ok(token) => {
+            credentials.insert(key.to_string(), token);
+        }
+        Err(GitHostTokenError::NoCredential { .. }) => {}
         Err(e) => {
-            warn!(error = %e, user_id, "Failed to resolve GitHub token for sandbox");
+            warn!(error = %e, actor = %actor, key, "Failed to resolve a git-host token for the sandbox");
         }
     }
 }
@@ -417,17 +442,16 @@ async fn fill_codex(
     }
 }
 
-async fn fill_user_provider_tokens(
+/// Resolve the model credentials this task's sandbox needs.
+///
+/// Git hosts are not here: they go through `GitHostTokens`, which is the one
+/// way to a git-host token.
+async fn fill_model_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: &Arc<dyn ProviderTokenDao>,
     user_id: &str,
 ) {
-    // GitHub is resolved through `fill_github`; intentionally not handled here.
-    for (provider, cred_key) in [
-        ("gitlab", GITLAB_TOKEN),
-        ("gitness", GITNESS_TOKEN),
-        ("openai", OPENAI_API_KEY),
-    ] {
+    for (provider, cred_key) in [("openai", OPENAI_API_KEY)] {
         if credentials.contains_key(cred_key) {
             continue;
         }
@@ -597,27 +621,48 @@ mod tests {
             scope,
             owner_user_id: Some("u1".to_string()),
             created_by: Some("u1".to_string()),
-            access_status: "unchecked".to_string(),
-            access_checked_at: None,
-            access_error: None,
             deleted: Some(false),
             created_at: None,
             updated_at: None,
         }
     }
 
-    /// Inputs with only the pieces `resolve_task_github_token` reads.
-    fn github_inputs<'a>(
-        provider_tokens: &'a Arc<dyn ProviderTokenDao>,
-        secrets: Option<&'a Arc<SecretService>>,
-        repository: &'a Repository,
-    ) -> TaskCredentialInputs<'a> {
-        workspace_github_inputs(provider_tokens, secrets, repository, HashMap::new())
+    /// A seam with no App registry and no OAuth refresh wired — the shape a
+    /// deployment without a GitHub App has.
+    fn seam(
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        secrets: SecretService,
+    ) -> Arc<GitHostTokens> {
+        Arc::new(GitHostTokens::new(
+            provider_tokens,
+            Arc::new(moatless_identity::auth::provider_tokens::MockProviderTokenAuthDao::new()),
+            None,
+            Arc::new(moatless_identity::auth::github::registry::GitHubAppRegistry::default()),
+            Arc::new(secrets),
+        ))
     }
 
-    /// The same, with credentials pinned to the task's workspace.
+    /// The `GITHUB_TOKEN` the sandbox would receive, flattened the way
+    /// `fill_git_host_tokens` flattens it: any failure leaves the slot empty.
+    async fn sandbox_github_token(
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        secrets: SecretService,
+        repository: &Repository,
+    ) -> Option<String> {
+        resolve_task_github_token(
+            Some(&seam(provider_tokens, secrets)),
+            &Actor::of("u1"),
+            Some(repository),
+        )
+        .await
+        .and_then(Result::ok)
+    }
+
+    /// Inputs for the whole-chain test, with credentials pinned to the task's
+    /// workspace.
     fn workspace_github_inputs<'a>(
         provider_tokens: &'a Arc<dyn ProviderTokenDao>,
+        git_host_tokens: &'a Arc<GitHostTokens>,
         secrets: Option<&'a Arc<SecretService>>,
         repository: &'a Repository,
         workspace_credentials: HashMap<String, String>,
@@ -627,9 +672,7 @@ mod tests {
             user_id: "u1",
             secrets,
             provider_tokens: Some(provider_tokens),
-            github_app_service: None,
-            provider_token_auth: None,
-            github_apps: None,
+            git_host_tokens: Some(git_host_tokens),
             repository: Some(repository),
             users: None,
             credential_sync: None,
@@ -637,36 +680,74 @@ mod tests {
         }
     }
 
-    // --- workspace credentials outrank every other source ---
+    // --- the workspace names the identity every task on it acts as ---
 
-    #[tokio::test]
-    async fn a_workspace_credential_beats_the_run_as_user_row() {
-        // The point of the feature: the workspace names the account, not
-        // whoever happened to start the task.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
-            moatless_identity::auth::test_support::github_row("oauth", "gho_from_user"),
-        )));
-        let repository = github_repository(moatless_backend_core::scope::Scope::User);
-        let pinned = HashMap::from([(GITHUB_TOKEN.to_string(), "ghp_workspace".to_string())]);
-
-        let token =
-            resolve_task_github_token(workspace_github_inputs(&tokens, None, &repository, pinned))
-                .await;
-        assert_eq!(token, Some("ghp_workspace".to_string()));
+    fn workspace_running_as(run_as_user_id: Option<&str>) -> Arc<dyn WorkspaceDao> {
+        let run_as = run_as_user_id.map(str::to_string);
+        let mut dao = moatless_workspaces::workspace::dao::MockWorkspaceDao::new();
+        dao.expect_find_by_id().returning(move |id, _| {
+            Ok(Some(moatless_workspaces::workspace::models::Workspace {
+                id: id.to_string(),
+                name: "ws".to_string(),
+                description: None,
+                kind: "single".to_string(),
+                docker_image: None,
+                docker_access: None,
+                sandbox_service_account: None,
+                system_prompt: None,
+                setup_commands: None,
+                env_vars: None,
+                servers: None,
+                scripts: None,
+                resources: None,
+                network_profile: None,
+                source: "manual".to_string(),
+                source_repository_id: None,
+                source_key: None,
+                source_config_path: None,
+                scope: moatless_backend_core::scope::Scope::User,
+                owner_user_id: None,
+                run_as_user_id: run_as.clone(),
+                created_by: None,
+                deleted: Some(false),
+                created_at: None,
+                updated_at: None,
+            }))
+        });
+        Arc::new(dao)
     }
 
     #[tokio::test]
-    async fn a_workspace_credential_supplies_the_token_when_the_user_holds_none() {
-        // Without the override this user's task is refused by preflight
-        // (`a_run_as_user_with_no_row_never_reaches_the_global_token`).
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(None));
-        let repository = github_repository(moatless_backend_core::scope::Scope::Global);
-        let pinned = HashMap::from([(GITHUB_TOKEN.to_string(), "ghp_workspace".to_string())]);
+    async fn a_workspace_run_as_identity_beats_whoever_started_the_task() {
+        // The point of the feature: the workspace names the account, not
+        // whoever happened to start the task.
+        let workspaces = workspace_running_as(Some("bot"));
+        let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), "starter").await;
+        assert_eq!(actor.user_id(), "bot");
+    }
 
-        let token =
-            resolve_task_github_token(workspace_github_inputs(&tokens, None, &repository, pinned))
-                .await;
-        assert_eq!(token, Some("ghp_workspace".to_string()));
+    #[tokio::test]
+    async fn a_workspace_naming_nobody_leaves_the_task_owner_acting() {
+        let workspaces = workspace_running_as(None);
+        let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), "starter").await;
+        assert_eq!(actor.user_id(), "starter");
+    }
+
+    #[tokio::test]
+    async fn a_task_with_no_workspace_acts_as_its_own_owner() {
+        let workspaces = workspace_running_as(Some("bot"));
+        assert_eq!(
+            resolve_task_actor(Some(&workspaces), None, "starter")
+                .await
+                .user_id(),
+            "starter"
+        );
+        assert_eq!(
+            resolve_task_actor(None, Some("ws_1"), "starter")
+                .await
+                .user_id(),
+            "starter"
+        );
     }
 
     #[tokio::test]
@@ -676,11 +757,18 @@ mod tests {
         )));
         let repository = github_repository(moatless_backend_core::scope::Scope::User);
         let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
+        let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
 
-        let token =
-            resolve_task_github_token(workspace_github_inputs(&tokens, None, &repository, pinned))
-                .await;
-        assert_eq!(token, Some("gho_from_user".to_string()));
+        let credentials = resolve_task_credentials(workspace_github_inputs(
+            &tokens,
+            &git_host_tokens,
+            None,
+            &repository,
+            pinned,
+        ))
+        .await;
+        assert_eq!(credentials[GITHUB_TOKEN], "gho_from_user");
+        assert_eq!(credentials[OPENAI_API_KEY], "sk-workspace");
     }
 
     #[tokio::test]
@@ -697,21 +785,23 @@ mod tests {
             "sk-from-secret",
         )]));
         let repository = github_repository(moatless_backend_core::scope::Scope::User);
-        let pinned = HashMap::from([
-            (GITHUB_TOKEN.to_string(), "ghp_workspace".to_string()),
-            (OPENAI_API_KEY.to_string(), "sk-workspace".to_string()),
-        ]);
+        let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
 
+        let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
         let credentials = resolve_task_credentials(workspace_github_inputs(
             &tokens,
+            &git_host_tokens,
             Some(&secrets),
             &repository,
             pinned,
         ))
         .await;
 
-        assert_eq!(credentials[GITHUB_TOKEN], "ghp_workspace");
         assert_eq!(credentials[OPENAI_API_KEY], "sk-workspace");
+        assert!(
+            !credentials.contains_key(GITHUB_TOKEN),
+            "a workspace pins no git-host token; the user holds no row either"
+        );
     }
 
     #[tokio::test]
@@ -727,17 +817,16 @@ mod tests {
     #[tokio::test]
     async fn standalone_provider_token_secret_cannot_bypass_repository_scope() {
         let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(None));
-        let secrets = Arc::new(service_with(vec![secret(
+        let secrets = service_with(vec![secret(
             "user",
             Some("u1"),
             "provider_token",
             GITHUB_TOKEN,
             "ghp_validated",
-        )]));
+        )]);
 
         let repository = github_repository(moatless_backend_core::scope::Scope::User);
-        let token =
-            resolve_task_github_token(github_inputs(&tokens, Some(&secrets), &repository)).await;
+        let token = sandbox_github_token(tokens, secrets, &repository).await;
         assert_eq!(token, None);
     }
 
@@ -746,17 +835,16 @@ mod tests {
         // A plain `env` GITHUB_TOKEN is never injected into a repository
         // sandbox, so preflight and runtime delivery cannot disagree.
         let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(None));
-        let secrets = Arc::new(service_with(vec![secret(
+        let secrets = service_with(vec![secret(
             "user",
             Some("u1"),
             "env",
             GITHUB_TOKEN,
             "ghp_unvalidated",
-        )]));
+        )]);
 
         let repository = github_repository(moatless_backend_core::scope::Scope::User);
-        let token =
-            resolve_task_github_token(github_inputs(&tokens, Some(&secrets), &repository)).await;
+        let token = sandbox_github_token(tokens, secrets, &repository).await;
         assert_eq!(token, None);
     }
 
@@ -765,17 +853,16 @@ mod tests {
         let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
             moatless_identity::auth::test_support::github_row("oauth", "gho_from_row"),
         )));
-        let secrets = Arc::new(service_with(vec![secret(
+        let secrets = service_with(vec![secret(
             "user",
             Some("u1"),
             "provider_token",
             GITHUB_TOKEN,
             "ghp_from_secret",
-        )]));
+        )]);
 
         let repository = github_repository(moatless_backend_core::scope::Scope::User);
-        let token =
-            resolve_task_github_token(github_inputs(&tokens, Some(&secrets), &repository)).await;
+        let token = sandbox_github_token(tokens, secrets, &repository).await;
         assert_eq!(token, Some("gho_from_row".to_string()));
     }
 
@@ -795,7 +882,7 @@ mod tests {
         );
 
         let repository = github_repository(moatless_backend_core::scope::Scope::Global);
-        let token = resolve_task_github_token(github_inputs(&tokens, None, &repository)).await;
+        let token = sandbox_github_token(tokens, service_with(vec![]), &repository).await;
         assert_eq!(token, Some("gho_run_as_user".to_string()));
     }
 
@@ -810,7 +897,7 @@ mod tests {
             ));
 
         let repository = github_repository(moatless_backend_core::scope::Scope::Global);
-        let token = resolve_task_github_token(github_inputs(&tokens, None, &repository)).await;
+        let token = sandbox_github_token(tokens, service_with(vec![]), &repository).await;
         assert_eq!(token, None);
     }
 
@@ -824,36 +911,17 @@ mod tests {
                 moatless_identity::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
             ),
         )));
-        let secrets = Arc::new(service_with(vec![secret(
+        let secrets = service_with(vec![secret(
             "user",
             Some("u1"),
             "provider_token",
             GITHUB_TOKEN,
             "ghp_from_secret",
-        )]));
+        )]);
 
         let repository = github_repository(moatless_backend_core::scope::Scope::User);
-        let token =
-            resolve_task_github_token(github_inputs(&tokens, Some(&secrets), &repository)).await;
+        let token = sandbox_github_token(tokens, secrets, &repository).await;
         assert_eq!(token, Some("ghp_from_secret".to_string()));
-    }
-
-    #[tokio::test]
-    async fn secret_ref_row_without_a_secret_service_resolves_to_none() {
-        // Pins the trap that made preflight report a connected PAT as "GitHub
-        // account not connected": with no secret service the sentinel cannot be
-        // dereferenced, and the error is swallowed into an absent credential.
-        // Callers must wire `secrets` — see `preflight_validate_github_token`.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
-            moatless_identity::auth::test_support::github_row(
-                AUTH_METHOD_SECRET_REF,
-                moatless_identity::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
-            ),
-        )));
-
-        let repository = github_repository(moatless_backend_core::scope::Scope::User);
-        let token = resolve_task_github_token(github_inputs(&tokens, None, &repository)).await;
-        assert_eq!(token, None);
     }
 
     // --- GITHUB_TOKEN exact repository scope ---
@@ -866,7 +934,7 @@ mod tests {
             ));
 
         let repository = github_repository(moatless_backend_core::scope::Scope::User);
-        let token = resolve_task_github_token(github_inputs(&tokens, None, &repository)).await;
+        let token = sandbox_github_token(tokens, service_with(vec![]), &repository).await;
         assert_eq!(token, None);
     }
 

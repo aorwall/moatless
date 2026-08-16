@@ -550,15 +550,6 @@ impl ApiClient {
             .await
     }
 
-    /// POST /api/v1/repositories/{repo_id}/verify-access
-    pub async fn verify_repository_access(
-        &self,
-        repo_id: &str,
-    ) -> Result<moatless_api_schemas::repository::RepositoryResponse, ApiError> {
-        self.post_no_body(&format!("/api/v1/repositories/{repo_id}/verify-access"))
-            .await
-    }
-
     /// DELETE /api/v1/repositories/{repo_id}
     pub async fn delete_repository(&self, repo_id: &str) -> Result<(), ApiError> {
         self.delete_request(&format!("/api/v1/repositories/{repo_id}"))

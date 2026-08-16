@@ -1,5 +1,6 @@
 //! Reaction capability for GitHub pull request comments.
 
+use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_loops::adapters::AdapterReactions;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::BindingContext;
@@ -50,7 +51,10 @@ impl AdapterReactions for GithubPrAdapter {
         let repository = GithubRepository::from_binding_context(binding)?;
         let api = self
             .auth()
-            .client_for_reaction(binding, repository.owner())
+            .client_for_reaction(
+                binding,
+                &GitHostRepo::github(repository.owner(), repository.repo()),
+            )
             .await?;
         let reaction_id = match target {
             CommentTarget::Issue(id) => {
@@ -90,7 +94,10 @@ impl AdapterReactions for GithubPrAdapter {
         let repository = GithubRepository::from_binding_context(binding)?;
         let api = self
             .auth()
-            .client_for_reaction(binding, repository.owner())
+            .client_for_reaction(
+                binding,
+                &GitHostRepo::github(repository.owner(), repository.repo()),
+            )
             .await?;
         let bot_login = api.authenticated_login().await?;
         let (reactions, comment_id, is_review) = match target {
@@ -150,9 +157,8 @@ mod tests {
 
     use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
-    use moatless_loops::adapters::models::BindingContext;
-    use moatless_identity::auth::github::registry::GitHubAppRegistry;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
+    use moatless_loops::adapters::models::BindingContext;
 
     #[test]
     fn github_content_accepts_canonical_and_aliases() {
@@ -251,15 +257,13 @@ mod tests {
     fn provider(api_base: &str) -> GithubPrAdapter {
         GithubPrAdapter::new(
             None,
-            Some("wrong-global-token".to_string()),
             "https://app.example.com".to_string(),
-            Arc::new(StubProviderTokens::with_user_row_for(
-                "owner-user",
-                github_row("manual", "owner-token"),
+            moatless_identity::git_host_tokens::seam_over(Arc::new(
+                StubProviderTokens::with_user_row_for(
+                    "owner-user",
+                    github_row("manual", "owner-token"),
+                ),
             )),
-            None,
-            None,
-            Arc::new(GitHubAppRegistry::default()),
         )
         .with_api_base(api_base)
     }

@@ -15,7 +15,6 @@ import {
   listRepositories as listRepositoriesHandler,
   syncConfig as syncConfigHandler,
   updateRepository as updateRepositoryHandler,
-  verifyAccess as verifyAccessHandler,
 } from '@moatless/api-client/sandbox/repositories/repositories'
 
 export const repositoriesApi = {
@@ -36,10 +35,6 @@ export const repositoriesApi = {
     request: UpdateRepositoryRequest,
   ): Promise<RepositoryResponse> {
     return await unwrapResponse(updateRepositoryHandler(repoId, request))
-  },
-
-  async verifyAccess(repoId: string): Promise<RepositoryResponse> {
-    return await unwrapResponse(verifyAccessHandler(repoId))
   },
 
   async deleteRepository(repoId: string): Promise<void> {

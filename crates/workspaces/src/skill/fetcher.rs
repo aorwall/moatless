@@ -35,7 +35,8 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use super::error::SkillError;
-use crate::repository::access::parse_github_owner_repo;
+use moatless_api_schemas::enums::RepositoryProvider;
+use moatless_identity::git_host_repo::GitHostRepo;
 
 /// Raw SKILL.md content plus its enclosing directory name, so callers can
 /// parse frontmatter themselves and fall back to the directory name when
@@ -171,18 +172,21 @@ impl SkillFetcher for GitHubSkillFetcher {
             });
         }
 
-        let (owner, repo) =
-            parse_github_owner_repo(remote_url).ok_or_else(|| SkillError::Fetch {
-                git_url: remote_url.to_string(),
-                message: "cannot parse owner/repo from URL".to_string(),
+        let parsed =
+            GitHostRepo::parse(RepositoryProvider::Github, remote_url).ok_or_else(|| {
+                SkillError::Fetch {
+                    git_url: remote_url.to_string(),
+                    message: "cannot parse owner/repo from URL".to_string(),
+                }
             })?;
+        let (owner, repo) = (parsed.owner(), parsed.name());
 
         match layout {
             SkillLayout::Workspace => {
                 let mut groups: Vec<Vec<FetchedSkillFile>> = Vec::new();
                 for prefix in WORKSPACE_SKILL_PREFIXES {
                     match self
-                        .fetch_skills_at_prefix(&owner, &repo, prefix, token, remote_url, true)
+                        .fetch_skills_at_prefix(owner, repo, prefix, token, remote_url, true)
                         .await
                     {
                         Ok(Some(files)) => groups.push(files),
@@ -204,12 +208,12 @@ impl SkillFetcher for GitHubSkillFetcher {
             }
             SkillLayout::Plugin => {
                 let prefixes =
-                    resolve_plugin_skills_prefixes(&self.client, &owner, &repo, token, remote_url)
+                    resolve_plugin_skills_prefixes(&self.client, owner, repo, token, remote_url)
                         .await?;
                 let mut groups: Vec<Vec<FetchedSkillFile>> = Vec::new();
                 for prefix in prefixes {
                     if let Some(files) = self
-                        .fetch_skills_at_prefix(&owner, &repo, &prefix, token, remote_url, false)
+                        .fetch_skills_at_prefix(owner, repo, &prefix, token, remote_url, false)
                         .await?
                     {
                         groups.push(files);
@@ -237,9 +241,10 @@ impl SkillFetcher for GitHubSkillFetcher {
         if !lower.contains("github.com") {
             return Ok(None);
         }
-        let Some((owner, repo)) = parse_github_owner_repo(remote_url) else {
+        let Some(parsed) = GitHostRepo::parse(RepositoryProvider::Github, remote_url) else {
             return Ok(None);
         };
+        let (owner, repo) = (parsed.owner(), parsed.name());
 
         let url = format!("https://api.github.com/repos/{owner}/{repo}/commits/HEAD");
         let sha = fetch_github_text(

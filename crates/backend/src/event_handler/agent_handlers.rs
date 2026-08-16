@@ -1003,7 +1003,6 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                     state.messages.as_ref(),
                     state.tasks.as_ref(),
                     state.repositories.as_ref(),
-                    &state.repo_token_resolver,
                     &event.task_id,
                     &target.tool_use_id,
                     &target.cmd,

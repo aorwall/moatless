@@ -116,8 +116,6 @@ export const queryKeys = {
       [...queryKeys.admin.all(), 'task-connections', params] as const,
     github: () => [...queryKeys.admin.all(), 'github'] as const,
     githubApps: () => [...queryKeys.admin.github(), 'apps'] as const,
-    globalGithubInstallation: () =>
-      [...queryKeys.admin.github(), 'installation', 'global'] as const,
   },
 
   settings: {

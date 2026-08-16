@@ -12,7 +12,6 @@ export { CodexConfigurationSection } from './components/codex-configuration-sect
 export { CodexDeviceLoginDialog } from './components/codex-device-login-dialog'
 export { ConnectionFormDialog } from './components/connection-form-dialog'
 export { GitHubConfigurationSection } from './components/github-configuration-section'
-export { GitHubInstallationCard } from './components/github-installation-card'
 export { GitLabConfigurationSection } from './components/gitlab-configuration-section'
 export { GitnessConfigurationSection } from './components/gitness-configuration-section'
 export { ProfileConfigurationSection } from './components/profile-configuration-section'

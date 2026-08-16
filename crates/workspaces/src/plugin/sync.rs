@@ -5,9 +5,9 @@
 //! and a single place where fetching is decided.
 //!
 //! The sequence is: ask the source what version it is at, compare against what
-//! was stored, and fetch only on a difference. Fetching uses the platform's own
-//! credential rather than the caller's, because a plugin an administrator
-//! turned on for everyone may live in a repository the caller cannot read.
+//! was stored, and fetch only on a difference. Fetching runs as the caller: a
+//! plugin in a repository they cannot read fetches unauthenticated and fails at
+//! the fetch, naming authentication.
 //!
 //! Concurrent callers for the same plugin are serialised on a per-plugin lock.
 //! The second caller re-reads the stored version after the first one finishes,
@@ -23,28 +23,20 @@ use tracing::{debug, warn};
 
 use super::dao::PluginDao;
 use super::models::{Plugin, PluginSkill};
-use moatless_identity::auth::credentials::resolve_repository_github_scope_token;
-use moatless_identity::auth::github::registry::GitHubAppRegistry;
-use moatless_identity::auth::github::service::GitHubAppService;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
-use moatless_identity::auth::github_scope::GitHubScope;
-use crate::repository::access::parse_github_owner_repo;
-use moatless_identity::secret::service::SecretService;
 use crate::skill::error::SkillError;
 use crate::skill::fetcher::{SkillFetcher, SkillLayout};
 use crate::skill::models::SkillSource;
 use crate::skill::scanner;
+use moatless_api_schemas::enums::RepositoryProvider;
+use moatless_identity::auth::actor::Actor;
+use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_identity::git_host_tokens::GitHostTokens;
 
 /// Syncs plugin content into stored skills, and reads them back.
 pub struct PluginSyncService {
     plugins: Arc<dyn PluginDao>,
     fetcher: Arc<dyn SkillFetcher>,
-    provider_tokens: Arc<dyn ProviderTokenDao>,
-    provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
-    github_app_service: Option<Arc<GitHubAppService>>,
-    github_apps: Arc<GitHubAppRegistry>,
-    secrets: Arc<SecretService>,
+    git_host_tokens: Arc<GitHostTokens>,
     /// One lock per plugin id, so simultaneous callers collapse into one fetch.
     /// Held in a bounded cache rather than a map that only ever grows; evicting
     /// an idle lock is harmless because nobody is waiting on it.
@@ -52,26 +44,15 @@ pub struct PluginSyncService {
 }
 
 impl PluginSyncService {
-    #[allow(clippy::too_many_arguments)]
-    // reason: mirrors the credential-resolution dependencies every GitHub
-    // caller in this codebase takes; constructed once from AppState::new.
     pub fn new(
         plugins: Arc<dyn PluginDao>,
         fetcher: Arc<dyn SkillFetcher>,
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-        provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
-        github_app_service: Option<Arc<GitHubAppService>>,
-        github_apps: Arc<GitHubAppRegistry>,
-        secrets: Arc<SecretService>,
+        git_host_tokens: Arc<GitHostTokens>,
     ) -> Self {
         Self {
             plugins,
             fetcher,
-            provider_tokens,
-            provider_token_auth,
-            github_app_service,
-            github_apps,
-            secrets,
+            git_host_tokens,
             locks: Cache::builder()
                 .time_to_idle(Duration::from_mins(5))
                 .max_capacity(1024)
@@ -84,8 +65,12 @@ impl PluginSyncService {
     /// A failed sync is not an error: the previous snapshot is served and the
     /// failure logged, so one unreachable plugin does not empty a skill list
     /// that other plugins contributed to.
-    pub async fn skills(&self, plugin: &Plugin) -> Result<Vec<PluginSkill>, sqlx::Error> {
-        if let Err(e) = self.sync(plugin).await {
+    pub async fn skills(
+        &self,
+        actor: &Actor,
+        plugin: &Plugin,
+    ) -> Result<Vec<PluginSkill>, sqlx::Error> {
+        if let Err(e) = self.sync(actor, plugin).await {
             warn!(
                 plugin_id = %plugin.id,
                 git_url = %plugin.git_url,
@@ -101,7 +86,7 @@ impl PluginSyncService {
     /// Returns without fetching when the source reports the version already
     /// stored. Errors are the caller's to decide about; [`Self::skills`]
     /// downgrades them to a warning.
-    pub async fn sync(&self, plugin: &Plugin) -> Result<(), SkillError> {
+    pub async fn sync(&self, actor: &Actor, plugin: &Plugin) -> Result<(), SkillError> {
         let lock = self
             .locks
             .get_with(plugin.id.clone(), async { Arc::new(Mutex::new(())) })
@@ -117,7 +102,7 @@ impl PluginSyncService {
             .map_err(SkillError::Db)?
             .unwrap_or_else(|| plugin.clone());
 
-        let token = self.platform_token(&current.git_url).await;
+        let token = self.fetch_token(actor, &current.git_url).await;
 
         let version = self
             .fetcher
@@ -175,31 +160,21 @@ impl PluginSyncService {
         Ok(())
     }
 
-    /// The platform's own GitHub credential for a plugin's repository.
+    /// `actor`'s own credential for a plugin's repository.
     ///
-    /// `None` when no global credential is configured or it cannot be minted —
-    /// a public plugin still fetches unauthenticated, and a private one fails
-    /// at the fetch with a message about authentication rather than here.
-    async fn platform_token(&self, git_url: &str) -> Option<String> {
-        let (owner, repo) = parse_github_owner_repo(git_url)?;
-        match resolve_repository_github_scope_token(
-            self.provider_tokens.as_ref(),
-            Some(self.provider_token_auth.as_ref()),
-            self.github_app_service.as_deref(),
-            self.github_apps.as_ref(),
-            Some(self.secrets.as_ref()),
-            &GitHubScope::Global,
-            &owner,
-            &repo,
-        )
-        .await
-        {
-            Ok(token) => token,
+    /// `None` when they have not connected the host or it cannot be minted — a
+    /// public plugin still fetches unauthenticated, and a private one fails at
+    /// the fetch with a message about authentication rather than here.
+    async fn fetch_token(&self, actor: &Actor, git_url: &str) -> Option<String> {
+        let repo = GitHostRepo::parse(RepositoryProvider::Github, git_url)?;
+        match self.git_host_tokens.token(actor, &repo).await {
+            Ok(token) => Some(token),
             Err(e) => {
                 debug!(
                     git_url,
+                    %actor,
                     error = %e,
-                    "No platform GitHub credential for plugin — fetching unauthenticated"
+                    "No GitHub credential for plugin — fetching unauthenticated"
                 );
                 None
             }
@@ -216,10 +191,8 @@ mod tests {
 
     use super::super::models::ActivationRow;
     use super::*;
-    use moatless_identity::auth::provider_tokens::MockProviderTokenAuthDao;
-    use moatless_identity::auth::test_support::StubProviderTokens;
-    use moatless_identity::secret::test_support::service_with;
     use crate::skill::fetcher::FetchedSkillFile;
+    use moatless_identity::auth::test_support::StubProviderTokens;
 
     const SKILL_MD: &str =
         "---\nname: sample-skill\ndescription: Runs the sample workflow\n---\nbody";
@@ -385,15 +358,17 @@ mod tests {
         PluginSyncService::new(
             plugins,
             fetcher,
-            // No credential rows: the platform token resolves to None and the
-            // fetch goes out unauthenticated, which is not what these tests
-            // are about.
-            Arc::new(StubProviderTokens::with_user_row(None)),
-            Arc::new(MockProviderTokenAuthDao::new()),
-            None,
-            Arc::new(GitHubAppRegistry::default()),
-            Arc::new(service_with(vec![])),
+            // No credential rows: the token resolves to None and the fetch
+            // goes out unauthenticated, which is not what these tests are
+            // about.
+            moatless_identity::git_host_tokens::seam_over(Arc::new(
+                StubProviderTokens::with_user_row(None),
+            )),
         )
+    }
+
+    fn actor() -> Actor {
+        Actor::of("u1")
     }
 
     #[tokio::test]
@@ -402,8 +377,8 @@ mod tests {
         let fetcher = Arc::new(CountingFetcher::at_version("sha-1"));
         let sync = service(plugins.clone(), fetcher.clone());
 
-        sync.sync(&plugin(None)).await.unwrap();
-        sync.sync(&plugin(None)).await.unwrap();
+        sync.sync(&actor(), &plugin(None)).await.unwrap();
+        sync.sync(&actor(), &plugin(None)).await.unwrap();
 
         assert_eq!(
             fetcher.files_fetched.load(Ordering::SeqCst),
@@ -425,7 +400,7 @@ mod tests {
         let fetcher = Arc::new(CountingFetcher::at_version("sha-new"));
         let sync = service(plugins.clone(), fetcher.clone());
 
-        sync.sync(&plugin(Some("sha-old"))).await.unwrap();
+        sync.sync(&actor(), &plugin(Some("sha-old"))).await.unwrap();
 
         assert_eq!(fetcher.files_fetched.load(Ordering::SeqCst), 1);
         let stored = plugins.list_skills("p1").await.unwrap();
@@ -453,11 +428,11 @@ mod tests {
         let (a, b) = tokio::join!(
             {
                 let sync = sync.clone();
-                async move { sync.sync(&plugin(Some("sha-old"))).await }
+                async move { sync.sync(&actor(), &plugin(Some("sha-old"))).await }
             },
             {
                 let sync = sync.clone();
-                async move { sync.sync(&plugin(Some("sha-old"))).await }
+                async move { sync.sync(&actor(), &plugin(Some("sha-old"))).await }
             }
         );
         a.unwrap();
@@ -482,7 +457,10 @@ mod tests {
             Arc::new(StubPlugins::with(plugin(Some("sha-old"))).seed_skills(previous.clone()));
         let sync = service(plugins.clone(), Arc::new(CountingFetcher::failing()));
 
-        let skills = sync.skills(&plugin(Some("sha-old"))).await.unwrap();
+        let skills = sync
+            .skills(&actor(), &plugin(Some("sha-old")))
+            .await
+            .unwrap();
 
         assert_eq!(
             skills, previous,

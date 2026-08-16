@@ -354,24 +354,14 @@ test.describe('Standalone: Administrative settings', () => {
   // ─── AUTH-27: Platform-wide GitHub settings are admin-only ───────────
 
   /**
-   * The global GitHub installation is how every task in the environment
-   * reaches GitHub, so reading or changing it belongs to an administrator —
-   * not to whoever happens to be logged in.
+   * Which GitHub Apps the environment knows about is an administrator's to
+   * read and change, not whoever happens to be logged in.
    */
   test('AUTH-27: Platform-wide GitHub settings are admin-only', async ({ bob, carol }) => {
     const path = '/api/v1/admin/settings/github/apps'
 
     expect((await bob.cli.raw('GET', path)).status).toBe(403)
     expect((await carol.cli.raw('GET', path)).status).toBe(200)
-
-    // Reaching the endpoint as an admin is not the same as being allowed to
-    // point the environment at an app that does not exist: the binding is
-    // validated, not stored on trust.
-    const bound = await carol.cli.raw('PUT', '/api/v1/admin/settings/github/installation', {
-      githubAppKey: 'not-configured',
-      installationId: 42,
-    })
-    expect(bound.status, 'an unknown GitHub app was accepted as a binding').toBe(400)
   })
 })
 

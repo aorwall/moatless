@@ -28,22 +28,21 @@ use chrono::Utc;
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
-use crate::repository::access::{access_error_for, RepositoryTokenResolver};
-use crate::repository::config_reader::{
-    fetch_provider_file, verify_repository_access, AccessStatus,
-};
-use crate::repository::dao::{RepositoryDao, RepositoryPatch};
-use crate::repository::error::{is_remote_url_conflict, RepositoryError};
+use crate::repository::config_reader::fetch_provider_file;
+use crate::repository::dao::RepositoryDao;
+use crate::repository::error::{RepositoryError, is_remote_url_conflict};
 use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
 use crate::repository::models::{ScriptConfig, ServerConfig};
-use crate::workspace::dao::{ensure_shadow_workspace, WorkspaceDao, WorkspacePatch};
+use crate::workspace::dao::{WorkspaceDao, WorkspacePatch, ensure_shadow_workspace};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
 use moatless_backend_core::scope::ScopeContext;
 use moatless_core::db::DbPool;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::actor::Actor;
 use moatless_identity::extractors::AuthUser;
+use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_identity::git_host_tokens::GitHostTokens;
 
 // =============================================================================
 // `.moatless/` file schemas
@@ -212,14 +211,13 @@ enum UpsertOutcome {
 }
 
 /// Reconciles a repository's git-declared workspaces, holding the ports the
-/// reconcile tree threads through every frame (the workspace, repository, and
-/// provider-token DAOs, the pool, and the repository token resolver).
+/// reconcile tree threads through every frame (the workspace and repository
+/// DAOs, the pool, and the git-host token seam).
 pub struct GitSyncService {
     db: DbPool,
     workspaces: Arc<dyn WorkspaceDao>,
     repositories: Arc<dyn RepositoryDao>,
-    provider_tokens: Arc<dyn ProviderTokenDao>,
-    repo_token_resolver: Arc<RepositoryTokenResolver>,
+    git_host_tokens: Arc<GitHostTokens>,
 }
 
 impl GitSyncService {
@@ -227,15 +225,13 @@ impl GitSyncService {
         db: DbPool,
         workspaces: Arc<dyn WorkspaceDao>,
         repositories: Arc<dyn RepositoryDao>,
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-        repo_token_resolver: Arc<RepositoryTokenResolver>,
+        git_host_tokens: Arc<GitHostTokens>,
     ) -> Self {
         Self {
             db,
             workspaces,
             repositories,
-            provider_tokens,
-            repo_token_resolver,
+            git_host_tokens,
         }
     }
 
@@ -257,9 +253,7 @@ impl GitSyncService {
             return Ok(summary);
         };
         let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-        let token = self
-            .resolve_sync_token(repo, auth, provider, remote_url)
-            .await;
+        let token = self.resolve_sync_token(auth, provider, remote_url).await;
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
 
@@ -303,7 +297,7 @@ impl GitSyncService {
                         }
                     };
                     strip_git_declared_identity(&mut run, &repo.id, ".moatless/workspaces.json");
-                    let placements = self.resolve_placements(repo, &entry.repos, auth).await?;
+                    let placements = self.resolve_placements(repo, &entry.repos).await?;
 
                     present.insert(source_key.clone());
                     let desired = DesiredWorkspace {
@@ -404,27 +398,7 @@ impl GitSyncService {
 
         // Resolve a token for the existence probe; fall back to an unauthenticated
         // probe (works for public repos) if we can't load one.
-        let token = if provider == RepositoryProvider::Github {
-            self.repo_token_resolver
-                .resolve(repo, remote_url)
-                .await
-                .unwrap_or_else(|e| {
-                    warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to resolve GitHub token; probing unauthenticated");
-                    None
-                })
-        } else {
-            match self
-                .provider_tokens
-                .find_provider_token(&auth.user_id.to_string(), provider.as_str())
-                .await
-            {
-                Ok(token) => token.map(|t| t.access_token),
-                Err(e) => {
-                    warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to load provider token; probing unauthenticated");
-                    None
-                }
-            }
-        };
+        let token = self.resolve_sync_token(auth, provider, remote_url).await;
 
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
@@ -733,6 +707,9 @@ impl GitSyncService {
                         source_config_path: Some(desired.source_config_path.clone()),
                         scope: repo.scope,
                         owner_user_id: repo.owner_user_id.clone(),
+                        // Never declared in git: commit access to a repository
+                        // would otherwise name the account its Tasks act as.
+                        run_as_user_id: None,
                         created_by: repo.created_by.clone(),
                         deleted: Some(false),
                         created_at: None,
@@ -757,6 +734,8 @@ impl GitSyncService {
             kind: None,
             scope: Some(repo.scope),
             owner_user_id: Some(repo.owner_user_id.clone()),
+            // Absent from the patch, so a reconcile leaves whatever an admin set.
+            run_as_user_id: None,
             docker_image: Some(desired.run.docker_image.clone()),
             docker_access: Some(desired.run.docker_access),
             sandbox_service_account: Some(desired.run.sandbox_service_account.clone()),
@@ -825,19 +804,16 @@ impl GitSyncService {
         Ok(outcome)
     }
 
-    /// Resolve each `repos[].url` to a repository id, creating (and verifying) rows
-    /// for URLs that don't resolve yet.
+    /// Resolve each `repos[].url` to a repository id, creating rows for URLs
+    /// that don't resolve yet.
     async fn resolve_placements(
         &self,
         source_repo: &Repository,
         refs: &[MoatlessWorkspaceRepoRef],
-        auth: &AuthUser,
     ) -> Result<Vec<ResolvedPlacement>, RepositoryError> {
         let mut out = Vec::with_capacity(refs.len());
         for r in refs {
-            let repository_id = self
-                .resolve_or_create_repo(source_repo, &r.url, auth)
-                .await?;
+            let repository_id = self.resolve_or_create_repo(source_repo, &r.url).await?;
             out.push(ResolvedPlacement {
                 repository_id,
                 branch: r.branch.clone(),
@@ -848,20 +824,15 @@ impl GitSyncService {
         Ok(out)
     }
 
-    /// Find a repository by normalized URL (scoped to the source repo's tenant), or
-    /// create one inheriting provider/scope/owner. Auto-created repos — and existing
-    /// `unchecked` ones — are verified against the provider and stamped.
+    /// Find a repository by normalized URL (scoped to the source repo's
+    /// tenant), or create one inheriting provider/scope/owner.
     async fn resolve_or_create_repo(
         &self,
         source_repo: &Repository,
         url: &str,
-        auth: &AuthUser,
     ) -> Result<String, RepositoryError> {
         let provider = source_repo.provider.unwrap_or(RepositoryProvider::Github);
         let key = normalize_remote_url(url);
-        let token = self
-            .resolve_sync_token(source_repo, auth, provider, url)
-            .await;
 
         if let Some(existing) = self
             .repositories
@@ -872,19 +843,9 @@ impl GitSyncService {
             )
             .await?
         {
-            if existing.access_status == "unchecked" {
-                if let Some(existing_url) = existing.remote_url.clone() {
-                    let status =
-                        verify_repository_access(&existing_url, token.as_deref(), provider).await;
-                    self.stamp_access(&existing.id, status, &existing_url).await;
-                }
-            }
             return Ok(existing.id);
         }
 
-        // Create the row, then verify reachability and stamp — a missing or
-        // inaccessible repo is still created + placed, just flagged.
-        let status = verify_repository_access(url, token.as_deref(), provider).await;
         let now = Utc::now();
         let id = uuid::Uuid::new_v4().to_string();
         let row = Repository {
@@ -898,18 +859,11 @@ impl GitSyncService {
             scope: source_repo.scope,
             owner_user_id: source_repo.owner_user_id.clone(),
             created_by: source_repo.created_by.clone(),
-            access_status: status.as_str().to_string(),
-            access_checked_at: Some(now),
-            access_error: access_error_for(status, url),
             deleted: Some(false),
             created_at: Some(now),
             updated_at: Some(now),
         };
-        if status == AccessStatus::Ok {
-            info!(repository_id = %id, %url, "Auto-created repository for git-synced workspace");
-        } else {
-            warn!(repository_id = %id, %url, status = status.as_str(), "Auto-created repository is unreachable");
-        }
+        info!(repository_id = %id, %url, "Auto-created repository for git-synced workspace");
         match self.repositories.insert(&row).await {
             Ok(()) => Ok(id),
             Err(error) if is_remote_url_conflict(&error) => self
@@ -926,55 +880,27 @@ impl GitSyncService {
         }
     }
 
-    /// Best-effort stamp of a repository's `access_status`.
-    async fn stamp_access(&self, repository_id: &str, status: AccessStatus, url: &str) {
-        let patch = RepositoryPatch {
-            access_status: Some(status.as_str().to_string()),
-            access_checked_at: Some(Some(Utc::now())),
-            access_error: Some(access_error_for(status, url)),
-            ..Default::default()
-        };
-        // reason: access-status stamping is sync bookkeeping on rows the reconcile
-        // itself created or resolved.
-        #[allow(clippy::disallowed_methods)]
-        let sys_ctx = ScopeContext::system();
-        if let Err(e) = self
-            .repositories
-            .update(repository_id, &patch, &sys_ctx)
-            .await
-        {
-            warn!(%repository_id, error = %e, "Failed to stamp repository access_status");
-        }
-    }
-
-    /// Resolve a GitHub/provider token for the sync, best-effort (unauthenticated
-    /// works for public GitHub repos).
+    /// The caller's own token for the sync, best-effort — an unauthenticated
+    /// probe still works for a public repository.
+    ///
+    /// One rule on every host: the person who asked for the sync is the person
+    /// it runs as.
     async fn resolve_sync_token(
         &self,
-        repository: &Repository,
         auth: &AuthUser,
         provider: RepositoryProvider,
         remote_url: &str,
     ) -> Option<String> {
-        if provider == RepositoryProvider::Github {
-            self.repo_token_resolver
-                .resolve(repository, remote_url)
-                .await
-                .unwrap_or_else(|e| {
-                    warn!(error = %e, "Workspace sync: failed to resolve GitHub token");
-                    None
-                })
-        } else {
-            match self
-                .provider_tokens
-                .find_provider_token(&auth.user_id.to_string(), provider.as_str())
-                .await
-            {
-                Ok(token) => token.map(|t| t.access_token),
-                Err(e) => {
-                    warn!(error = %e, "Workspace sync: failed to load provider token");
-                    None
-                }
+        let repo = GitHostRepo::parse(provider.into(), remote_url)?;
+        match self
+            .git_host_tokens
+            .token(&Actor::caller(&auth.scope_context()), &repo)
+            .await
+        {
+            Ok(token) => Some(token),
+            Err(e) => {
+                warn!(error = %e, "Workspace sync: probing unauthenticated");
+                None
             }
         }
     }
@@ -1069,15 +995,6 @@ mod tests {
         assert_eq!(repo_name_from_url("https://github.com/acme/api.git"), "api");
         assert_eq!(repo_name_from_url("https://github.com/acme/web/"), "web");
         assert_eq!(repo_name_from_url("https://gitlab.com/g/sub/proj"), "proj");
-    }
-
-    #[test]
-    fn access_error_only_for_failures() {
-        assert!(access_error_for(AccessStatus::Ok, "u").is_none());
-        assert!(access_error_for(AccessStatus::Unchecked, "u").is_none());
-        assert!(access_error_for(AccessStatus::NotFound, "u").is_some());
-        assert!(access_error_for(AccessStatus::Forbidden, "u").is_some());
-        assert!(access_error_for(AccessStatus::Error, "u").is_some());
     }
 
     #[test]

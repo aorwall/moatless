@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
 use super::provider_token_dao::ProviderTokenDao;
 use crate::auth::codex_scope::CodexScope;
-use crate::auth::github_scope::GitHubScope;
 
 /// Canned `provider_tokens` rows at each scope. Writes are accepted and
 /// dropped. Reads honour the same `user > global` precedence as
@@ -22,6 +21,8 @@ pub struct StubProviderTokens {
     /// When set, the canned user row exists only at this exact user scope.
     pub user_id: Option<String>,
     /// The singleton global github row.
+    /// An org-wide row no lookup consults. Set it to assert that a caller
+    /// reaches nothing when they hold no row of their own.
     pub global_row: Option<ProviderToken>,
     /// Number of persistence mutations attempted through this stub.
     pub writes: AtomicUsize,
@@ -80,14 +81,8 @@ pub fn github_row(auth_method: &str, access_token: &str) -> ProviderToken {
     }
 }
 
-fn presence(scope: &GitHubScope, row: &ProviderToken) -> GithubTokenPresence {
+fn presence(row: &ProviderToken) -> GithubTokenPresence {
     GithubTokenPresence {
-        scope: scope.scope_kind().to_string(),
-        user_id: match scope {
-            GitHubScope::User(id) => Some(id.clone()),
-            _ => None,
-        },
-        team_id: None,
         auth_method: row.auth_method.clone(),
         login: row
             .metadata
@@ -184,19 +179,13 @@ impl ProviderTokenDao for StubProviderTokens {
         Ok(())
     }
 
-    async fn find_github_row(
-        &self,
-        scope: &GitHubScope,
-    ) -> Result<Option<ProviderToken>, sqlx::Error> {
-        Ok(match scope {
-            GitHubScope::User(user_id) => self.github_user_row(user_id).cloned(),
-            GitHubScope::Global => self.global_row.clone(),
-        })
+    async fn find_github_row(&self, user_id: &str) -> Result<Option<ProviderToken>, sqlx::Error> {
+        Ok(self.github_user_row(user_id).cloned())
     }
 
     async fn upsert_github_row(
         &self,
-        _scope: &GitHubScope,
+        _user_id: &str,
         _auth_method: &str,
         _access_token: &str,
         _token_type: Option<&str>,
@@ -208,7 +197,7 @@ impl ProviderTokenDao for StubProviderTokens {
         Ok(())
     }
 
-    async fn delete_github_row(&self, _scope: &GitHubScope) -> Result<(), sqlx::Error> {
+    async fn delete_github_row(&self, _user_id: &str) -> Result<(), sqlx::Error> {
         self.writes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -217,12 +206,6 @@ impl ProviderTokenDao for StubProviderTokens {
         &self,
         user_id: &str,
     ) -> Result<Option<GithubTokenPresence>, sqlx::Error> {
-        if let Some(row) = self.github_user_row(user_id) {
-            return Ok(Some(presence(&GitHubScope::user(user_id), row)));
-        }
-        Ok(self
-            .global_row
-            .as_ref()
-            .map(|row| presence(&GitHubScope::Global, row)))
+        Ok(self.github_user_row(user_id).map(presence))
     }
 }

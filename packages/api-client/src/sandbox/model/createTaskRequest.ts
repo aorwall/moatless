@@ -7,6 +7,7 @@
  */
 import type { AgentMode } from './agentMode';
 import type { AgentType } from './agentType';
+import type { CheckoutMode } from './checkoutMode';
 import type { MessageContextInput } from './messageContextInput';
 
 export interface CreateTaskRequest {
@@ -14,6 +15,7 @@ export interface CreateTaskRequest {
   agentType?: null | AgentType;
   /** @nullable */
   branch?: string | null;
+  checkoutMode?: null | CheckoutMode;
   contexts?: MessageContextInput[];
   /** @nullable */
   description?: string | null;
@@ -43,6 +45,11 @@ one of `repository_id` / `workspace_id` is required.
    * @nullable
    */
   repositoryId?: string | null;
+  /**
+   * Existing running Sandbox to join. Omit to create the task's own Sandbox.
+   * @nullable
+   */
+  sandboxId?: string | null;
   /** Skills to activate for the first turn. Names only — the sandbox resolves
 each one's `SKILL.md` on disk and frontloads its body ahead of the message. */
   skills?: string[];

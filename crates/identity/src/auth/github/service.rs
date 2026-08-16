@@ -785,12 +785,6 @@ impl GitHubAppService {
         )))
     }
 
-    /// Convenience: resolve installation id for `owner` then mint a token.
-    pub async fn installation_token_for_owner(&self, owner: &str) -> Result<String, AuthError> {
-        let id = self.resolve_installation_id(owner).await?;
-        self.get_installation_token(id).await
-    }
-
     /// Resolve the bot identity for this App (cached).
     ///
     /// Calls `GET /app` (authenticated as the App JWT) to fetch the slug, then

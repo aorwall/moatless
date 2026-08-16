@@ -64,7 +64,7 @@ function GitHubPATOverrideSection({
   return (
     <ConfigurationItem
       label="Personal Access Token Override"
-      description="Used only for repositories persisted with User scope. A PAT overrides your GitHub App user token; Global repositories use their bound GitHub App installation."
+      description="A PAT overrides your GitHub App user token for every repository you reach."
     >
       <div className="space-y-3">
         {hasOverride && (
@@ -156,7 +156,7 @@ export function GitHubConfigurationSection() {
             <AlertDescription>
               <div className="space-y-2">
                 <p className="text-sm">
-                  These credentials apply only to repositories with User scope that you own.
+                  These credentials reach every repository you open.
                   {githubConfig?.hasPatOverride
                     ? ' Your Personal Access Token overrides the GitHub App user token.'
                     : ' Your GitHub App user token is used because no PAT override is configured.'}
@@ -184,15 +184,15 @@ export function GitHubConfigurationSection() {
     )
   }
 
-  // Other auth providers can configure a PAT for user-scoped repositories.
+  // Other auth providers configure a PAT instead.
   const isConnected = githubConfig?.connected ?? false
 
   return (
     <ConfigurationSectionWrapper>
       <ConfigurationGroup title="GitHub Configuration" showSeparator={false}>
         <p className="text-sm text-muted-foreground mb-4">
-          Connect credentials for repositories with User scope that you own. A Personal Access Token
-          is used for these repositories; Global repositories use GitHub App installations.
+          Connect the account every repository you open is reached with. A Personal Access Token is
+          used for all of them.
         </p>
 
         {/* Connection Status */}

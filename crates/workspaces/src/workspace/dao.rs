@@ -39,6 +39,7 @@ pub struct WorkspacePatch {
     pub kind: Option<String>,
     pub scope: Option<Scope>,
     pub owner_user_id: Option<Option<String>>,
+    pub run_as_user_id: Option<Option<String>>,
     pub docker_image: Option<Option<String>>,
     pub docker_access: Option<Option<bool>>,
     pub sandbox_service_account: Option<Option<String>>,
@@ -57,8 +58,9 @@ pub struct WorkspacePatch {
 
 /// DAO trait for workspace persistence.
 // reason: `credentials::service` gates its writes on the owning workspace row,
-// so its unit tests need a workspace read they can steer.
-#[cfg_attr(test, mockall::automock)]
+// so its unit tests need a workspace read they can steer, and
+// `sandbox-control::secrets` needs one to steer a workspace's run-as identity.
+#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub trait WorkspaceDao: Send + Sync {
     /// Fetch a single active workspace, or a deleted git-origin tombstone, by
@@ -232,10 +234,10 @@ impl WorkspaceDao for PgWorkspaceDao {
                    docker_image, docker_access, sandbox_service_account,
                    system_prompt, setup_commands, env_vars, servers, scripts, resources,
                    network_profile, source, source_repository_id, source_key, source_config_path,
-                   scope, owner_user_id, created_by, deleted
+                   scope, owner_user_id, run_as_user_id, created_by, deleted
                ) VALUES (
                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
+                   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
                )"#,
         )
         .bind(&row.id)
@@ -258,6 +260,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         .bind(&row.source_config_path)
         .bind(row.scope)
         .bind(&row.owner_user_id)
+        .bind(&row.run_as_user_id)
         .bind(&row.created_by)
         .bind(row.deleted)
         .execute(&self.0)
@@ -360,6 +363,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         push_set!(kind);
         push_set!(scope);
         push_set!(owner_user_id);
+        push_set!(run_as_user_id);
         push_set!(docker_image);
         push_set!(docker_access);
         push_set!(sandbox_service_account);
@@ -406,6 +410,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         bind_opt!(kind);
         bind_opt!(scope);
         bind_opt!(owner_user_id);
+        bind_opt!(run_as_user_id);
         bind_opt!(docker_image);
         bind_opt!(docker_access);
         bind_opt!(sandbox_service_account);

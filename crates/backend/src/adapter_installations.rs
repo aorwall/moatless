@@ -163,14 +163,9 @@ impl GithubPrInstallation {
         let adapter = Arc::new(
             GithubPrAdapter::new(
                 config.github_pr.webhook_secret.clone(),
-                config.github_pr.bot_token.clone(),
                 config.auth.frontend_url.clone(),
-                ports.provider_tokens.clone(),
-                Some(ports.provider_token_auth.clone()),
-                ports.github_app_service.clone(),
-                ports.github_apps.clone(),
+                ports.git_host_tokens.clone(),
             )
-            .with_secrets(ports.secrets.clone())
             .with_ingress_ports(
                 ports.adapter_connections.clone(),
                 ports.loops.clone(),

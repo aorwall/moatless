@@ -1,4 +1,3 @@
-import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@/test-utils/render'
@@ -11,13 +10,7 @@ function renderGroup(overrides: Partial<ComponentProps<typeof AccessSettingsGrou
     scope: 'user',
     ownerUserId: 'user-1',
     users,
-    accessStatus: 'ok',
-    accessCheckedAt: '2026-07-24T10:00:00Z',
-    accessError: null,
-    isDirty: false,
-    isVerifying: false,
     onScopeChange: vi.fn(),
-    onVerify: vi.fn(),
     ...overrides,
   }
   render(<AccessSettingsGroup {...props} />)
@@ -25,14 +18,10 @@ function renderGroup(overrides: Partial<ComponentProps<typeof AccessSettingsGrou
 }
 
 describe('AccessSettingsGroup', () => {
-  it('shows the immutable owner and current verification state', () => {
+  it('shows the immutable owner', () => {
     renderGroup()
 
     expect(screen.getByLabelText('Repository owner')).toHaveValue('Alice Example (alice)')
-    expect(screen.getByText(/Alice Example.*Personal Access Token/)).toBeInTheDocument()
-    expect(screen.getByText('Verified')).toBeInTheDocument()
-    expect(screen.getByText(/Last checked:/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Verify access' })).toBeEnabled()
   })
 
   it('falls back to the owner UUID when the user is unavailable', () => {
@@ -41,25 +30,10 @@ describe('AccessSettingsGroup', () => {
     expect(screen.getByLabelText('Repository owner')).toHaveValue('user-1')
   })
 
-  it('disables verification while persisted fields are dirty', () => {
-    renderGroup({ isDirty: true })
+  it('names the viewer as the credential, not the owner', () => {
+    // A shared repository does not lend its owner's access to whoever opens it.
+    renderGroup({ scope: 'global', ownerUserId: null })
 
-    expect(screen.getByRole('button', { name: 'Verify access' })).toBeDisabled()
-    expect(screen.getByText('Save or discard changes before verifying access.')).toBeInTheDocument()
-  })
-
-  it('shows provider failures and invokes manual verification', async () => {
-    const user = userEvent.setup()
-    const onVerify = vi.fn()
-    renderGroup({
-      accessStatus: 'forbidden',
-      accessError: 'No access to repository',
-      onVerify,
-    })
-
-    expect(screen.getByText('No access')).toBeInTheDocument()
-    expect(screen.getByText('No access to repository')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Verify access' }))
-    expect(onVerify).toHaveBeenCalledOnce()
+    expect(screen.getByText('Your own GitHub credential')).toBeInTheDocument()
   })
 })

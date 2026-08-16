@@ -15,7 +15,8 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use super::error::LoopError;
-use moatless_workspaces::repository::access::parse_github_owner_repo;
+use moatless_api_schemas::enums::RepositoryProvider;
+use moatless_identity::git_host_repo::GitHostRepo;
 
 /// Repo-relative directory that holds committed loops.
 const LOOPS_PREFIX: &str = ".moatless/loops";
@@ -77,11 +78,14 @@ impl LoopFetcher for GitHubLoopFetcher {
             return Ok(Vec::new());
         }
 
-        let (owner, repo) =
-            parse_github_owner_repo(remote_url).ok_or_else(|| LoopError::Fetch {
-                git_url: remote_url.to_string(),
-                message: "cannot parse owner/repo from URL".to_string(),
+        let parsed =
+            GitHostRepo::parse(RepositoryProvider::Github, remote_url).ok_or_else(|| {
+                LoopError::Fetch {
+                    git_url: remote_url.to_string(),
+                    message: "cannot parse owner/repo from URL".to_string(),
+                }
             })?;
+        let (owner, repo) = (parsed.owner().to_string(), parsed.name().to_string());
 
         let reference = branch
             .map(|branch| format!("?ref={}", urlencoding::encode(branch)))

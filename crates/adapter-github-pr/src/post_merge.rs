@@ -1,12 +1,15 @@
 //! Post-merge workflow-run parsing and delivery for the GitHub PR adapter.
 
+use moatless_identity::git_host_repo::GitHostRepo;
 use std::fmt::Write;
 
 use tracing::{debug, info, warn};
 
-use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
 use moatless_loops::adapters::AdapterKind;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{
+    AdapterConnection, Audience, InboundMessage, SubscriptionMatch,
+};
 
 use super::router::GithubPrInboundRouter;
 use super::subject::GithubPrSubject;
@@ -155,7 +158,12 @@ impl GithubPrInboundRouter {
         // Resolve the acting user + token the same way CI/merge-conflict paths do.
         let authenticated = adapter
             .auth()
-            .client_for_durable_work(&execution.sender_login, rule, &self.db, &execution.owner)
+            .client_for_durable_work(
+                &execution.sender_login,
+                rule,
+                &self.db,
+                &GitHostRepo::github(&execution.owner, &execution.repo),
+            )
             .await?;
         let api = authenticated.api;
 
@@ -236,7 +244,7 @@ impl GithubPrInboundRouter {
 
 #[cfg(test)]
 mod tests {
-    use super::{candidate, post_merge_ci_text, PostMergeRun};
+    use super::{PostMergeRun, candidate, post_merge_ci_text};
 
     fn workflow_run_payload(
         action: &str,

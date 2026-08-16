@@ -1,9 +1,10 @@
 //! External status capability and display fields for GitHub PR bindings.
 
+use moatless_identity::git_host_repo::GitHostRepo;
 use tracing::warn;
 
-use moatless_loops::adapters::models::{ExternalStatus, TaskBinding};
 use moatless_loops::adapters::AdapterBindingStatus;
+use moatless_loops::adapters::models::{ExternalStatus, TaskBinding};
 use std::sync::Arc;
 
 use moatless_tasks::task::binding_dao::TaskBindingDao;
@@ -213,7 +214,10 @@ impl AdapterBindingStatus for GithubPrAdapter {
 
         let api = match self
             .auth()
-            .client_for_live_status(acting_user, subject.owner())
+            .client_for_live_status(
+                acting_user,
+                &GitHostRepo::github(subject.owner(), subject.repo()),
+            )
             .await
         {
             Ok(api) => api,
@@ -250,10 +254,9 @@ mod tests {
 
     use axum::http::{Method, StatusCode};
 
-    use super::super::test_support::{start_github_api_stub, StubResponse};
+    use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
-    use moatless_identity::auth::github::registry::GitHubAppRegistry;
-    use moatless_identity::auth::test_support::{github_row, StubProviderTokens};
+    use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
 
     fn binding_with_config(config: serde_json::Value) -> TaskBinding {
         let now = chrono::Utc::now();
@@ -424,15 +427,13 @@ mod tests {
 
         let provider = GithubPrAdapter::new(
             None,
-            Some("wrong-global-token".to_string()),
             "https://app.example.com".to_string(),
-            Arc::new(StubProviderTokens::with_user_row_for(
-                "owner-user",
-                github_row("manual", "owner-token"),
+            moatless_identity::git_host_tokens::seam_over(Arc::new(
+                StubProviderTokens::with_user_row_for(
+                    "owner-user",
+                    github_row("manual", "owner-token"),
+                ),
             )),
-            None,
-            None,
-            Arc::new(GitHubAppRegistry::default()),
         )
         .with_api_base(stub.base_url());
         let status = provider

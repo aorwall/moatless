@@ -12,7 +12,7 @@ use crate::agent_harness_access::{
 };
 use crate::app_administration::{
     AdapterAppSave, AppAdministration, GitHubAppRegistration, GitHubAppRegistrationInput,
-    GitHubAppView, GitHubInstallationBinding,
+    GitHubAppView,
 };
 use crate::auth::codex_scope::CodexScope;
 use crate::extractors::AuthUser;
@@ -590,76 +590,6 @@ pub async fn admin_remove_github_app(
     }))
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/v1/admin/settings/github/installation",
-    tag = "app-administration",
-    responses(
-        (status = 200, description = "Global GitHub installation binding", body = GitHubInstallationBindingResponse),
-        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
-        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
-    )
-)]
-pub async fn admin_get_global_github_installation(
-    State(administration): State<Arc<AppAdministration>>,
-    auth: AuthUser,
-) -> Result<Json<GitHubInstallationBindingResponse>, AccessSettingsError> {
-    require_admin(&auth, "read")?;
-    Ok(Json(installation_binding(
-        administration.global_github_installation().await?,
-    )))
-}
-
-#[utoipa::path(
-    put,
-    path = "/api/v1/admin/settings/github/installation",
-    tag = "app-administration",
-    request_body = GitHubInstallationBindingRequest,
-    responses(
-        (status = 200, description = "Global GitHub installation bound", body = GitHubInstallationBindingResponse),
-        (status = 400, description = "Invalid App or installation", body = moatless_core::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
-        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
-    )
-)]
-pub async fn admin_put_global_github_installation(
-    State(administration): State<Arc<AppAdministration>>,
-    auth: AuthUser,
-    Json(request): Json<GitHubInstallationBindingRequest>,
-) -> Result<Json<GitHubInstallationBindingResponse>, AccessSettingsError> {
-    require_admin(&auth, "bind")?;
-    Ok(Json(installation_binding(
-        administration
-            .bind_global_github_installation(
-                request.github_app_key,
-                request.installation_id,
-                &auth.user_id.to_string(),
-                &auth.scope_context(),
-            )
-            .await?,
-    )))
-}
-
-#[utoipa::path(
-    delete,
-    path = "/api/v1/admin/settings/github/installation",
-    tag = "app-administration",
-    responses(
-        (status = 200, description = "Global GitHub installation unbound", body = GitHubInstallationBindingResponse),
-        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
-        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
-    )
-)]
-pub async fn admin_delete_global_github_installation(
-    State(administration): State<Arc<AppAdministration>>,
-    auth: AuthUser,
-) -> Result<Json<GitHubInstallationBindingResponse>, AccessSettingsError> {
-    require_admin(&auth, "unbind")?;
-    Ok(Json(installation_binding(
-        administration.unbind_global_github_installation().await?,
-    )))
-}
-
 fn github_status(status: GitHubProviderTokenStatus) -> GitHubProviderTokenStatusResponse {
     GitHubProviderTokenStatusResponse {
         connected: status.connected,
@@ -752,16 +682,6 @@ fn github_registration(app: GitHubAppRegistration) -> GitHubAppRegistrationRespo
         slug: app.slug,
         bot_login: app.bot_login,
         key_fingerprint: app.key_fingerprint,
-    }
-}
-
-fn installation_binding(binding: GitHubInstallationBinding) -> GitHubInstallationBindingResponse {
-    GitHubInstallationBindingResponse {
-        configured: binding.configured,
-        github_app_key: binding.github_app_key,
-        installation_id: binding.installation_id,
-        account_login: binding.account_login,
-        account_type: binding.account_type,
     }
 }
 

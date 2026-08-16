@@ -10,17 +10,18 @@ use moatless_api_schemas::workspace::WorkspaceSyncSummary;
 
 use std::sync::Arc;
 
+use moatless_api_schemas::enums::RepositoryProvider as GitHostProvider;
 use moatless_backend_core::access_control::resolve_scope_for_create;
 use moatless_backend_core::scope::{Scope, ScopeContext};
 use moatless_core::db::DbPool;
+use moatless_identity::auth::actor::Actor;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::extractors::AuthUser;
+use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_identity::git_host_tokens::GitHostTokens;
 use moatless_identity::secret::models::looks_like_secret_key;
 
-use super::access::{RepositoryTokenResolver, access_error_for, parse_github_owner_repo};
-use super::config_reader::{
-    AccessStatus, validate_repository_access_target, verify_repository_access,
-};
+use super::access::git_host_token_error;
 use super::dao::{RepositoryDao, RepositoryPatch};
 use super::error::RepositoryError;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
@@ -88,9 +89,6 @@ pub async fn create_repository(
         scope: resolved_scope.scope,
         owner_user_id: resolved_scope.owner_user_id,
         created_by: Some(user_id.to_string()),
-        access_status: "unchecked".to_string(),
-        access_checked_at: None,
-        access_error: None,
         deleted: Some(false),
         created_at: Some(now),
         updated_at: Some(now),
@@ -231,12 +229,6 @@ pub async fn update_repository(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
-    let access_context_changed = req.scope.is_some()
-        || req
-            .remote_url
-            .as_ref()
-            .is_some_and(|remote_url| existing.remote_url.as_ref() != Some(remote_url));
-
     // User ownership is immutable here: re-submitting `scope: user` preserves
     // the existing owner even when an admin is editing the row.
     // Global moves require admin (enforced by resolve_scope_for_create).
@@ -277,9 +269,6 @@ pub async fn update_repository(
         remote_url: req.remote_url.map(Some),
         default_branch: req.default_branch.map(Some),
         description: req.description.map(Some),
-        access_status: access_context_changed.then(|| "unchecked".to_string()),
-        access_checked_at: access_context_changed.then_some(None),
-        access_error: access_context_changed.then_some(None),
         ..Default::default()
     };
 
@@ -333,94 +322,6 @@ fn preserved_user_scope(existing: &Repository) -> Result<String, RepositoryError
     existing.owner_user_id.clone().ok_or_else(|| {
         RepositoryError::BadRequest("Cannot move an ownerless repository to user scope".to_string())
     })
-}
-
-/// Verify the persisted repository URL with the credentials appropriate to its
-/// persisted scope, then stamp and return the updated repository.
-#[utoipa::path(
-    post,
-    path = "/api/v1/repositories/{repository_id}/verify-access",
-    tag = "repositories",
-    params(
-        ("repository_id" = String, Path, description = "Repository identifier")
-    ),
-    responses(
-        (status = 200, description = "Repository access checked", body = RepositoryResponse),
-        (status = 400, description = "Repository cannot be verified", body = moatless_core::error::ErrorBody),
-        (status = 403, description = "Write access required", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
-    )
-)]
-pub async fn verify_access(
-    State(repositories): State<Arc<dyn RepositoryDao>>,
-    State(repo_token_resolver): State<Arc<RepositoryTokenResolver>>,
-    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
-    auth: AuthUser,
-    Path(repository_id): Path<String>,
-) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let repository = repositories
-        .find_by_id(&repository_id, &auth.scope_context())
-        .await?
-        .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
-
-    let remote_url = repository
-        .remote_url
-        .as_deref()
-        .ok_or_else(|| RepositoryError::BadRequest("Repository has no remote URL".to_string()))?;
-    let provider = repository.provider.unwrap_or(RepositoryProvider::Github);
-    validate_repository_access_target(remote_url, provider)?;
-
-    let token = match provider {
-        RepositoryProvider::Github => repo_token_resolver.resolve(&repository, remote_url).await?,
-        RepositoryProvider::Gitlab => provider_tokens
-            .find_provider_token(&auth.user_id.to_string(), provider.as_str())
-            .await
-            .map_err(RepositoryError::Db)?
-            .map(|token| token.access_token),
-        RepositoryProvider::Gitness => {
-            return Err(RepositoryError::BadRequest(
-                "Gitness access verification is not supported".to_string(),
-            ));
-        }
-    };
-
-    let status = verify_repository_access(remote_url, token.as_deref(), provider).await;
-    let ctx = auth.scope_context();
-    let updated = persist_access_verification(
-        repositories.as_ref(),
-        &repository,
-        status,
-        chrono::Utc::now(),
-        &ctx,
-    )
-    .await?;
-
-    Ok(Json(updated.into()))
-}
-
-async fn persist_access_verification(
-    repositories: &dyn super::dao::RepositoryDao,
-    repository: &Repository,
-    status: AccessStatus,
-    checked_at: chrono::DateTime<chrono::Utc>,
-    ctx: &moatless_backend_core::scope::ScopeContext,
-) -> Result<Repository, RepositoryError> {
-    let access_error = access_error_for(status, repository.remote_url.as_deref().unwrap_or(""));
-    let patch = RepositoryPatch {
-        access_status: Some(status.as_str().to_string()),
-        access_checked_at: Some(Some(checked_at)),
-        access_error: Some(access_error.clone()),
-        ..Default::default()
-    };
-    if !repositories.update(&repository.id, &patch, ctx).await? {
-        return Err(RepositoryError::NotFound(repository.id.clone()));
-    }
-
-    let mut updated = repository.clone();
-    updated.access_status = status.as_str().to_string();
-    updated.access_checked_at = Some(checked_at);
-    updated.access_error = access_error;
-    Ok(updated)
 }
 
 /// Delete a repository by ID (soft delete).
@@ -541,7 +442,7 @@ pub async fn convert_to_template(
 )]
 pub async fn get_branches(
     State(repositories): State<Arc<dyn RepositoryDao>>,
-    State(repo_token_resolver): State<Arc<RepositoryTokenResolver>>,
+    State(git_host_tokens): State<Arc<GitHostTokens>>,
     State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
@@ -549,7 +450,7 @@ pub async fn get_branches(
     Ok(Json(
         list_branches(
             &repositories,
-            &repo_token_resolver,
+            &git_host_tokens,
             &provider_tokens,
             &auth.scope_context(),
             &repository_id,
@@ -567,7 +468,7 @@ pub async fn get_branches(
 /// `NotFound`, the same as one that does not exist.
 pub async fn list_branches(
     repositories: &Arc<dyn RepositoryDao>,
-    repo_token_resolver: &Arc<RepositoryTokenResolver>,
+    git_host_tokens: &Arc<GitHostTokens>,
     provider_tokens: &Arc<dyn ProviderTokenDao>,
     ctx: &ScopeContext,
     repository_id: &str,
@@ -587,30 +488,13 @@ pub async fn list_branches(
         .ok_or_else(|| RepositoryError::BadRequest("Repository has no remote URL".to_string()))?;
 
     let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-    let provider_str = provider.as_str();
 
-    // Resolve a token for the repository's persisted scope. User-scoped
-    // repositories always use their owner, never a viewing admin.
-    let access_token = if provider == RepositoryProvider::Github {
-        repo_token_resolver
-            .resolve(&repo, remote_url)
-            .await?
-            .ok_or_else(|| {
-                RepositoryError::BadRequest(
-                    "No github token configured. Please connect your github account.".into(),
-                )
-            })?
-    } else {
-        provider_tokens.find_provider_token(&ctx.user_id, provider_str)
-            .await
-            .map_err(RepositoryError::Db)?
-            .ok_or_else(|| {
-                RepositoryError::BadRequest(format!(
-                    "No {provider_str} token configured. Please connect your {provider_str} account."
-                ))
-            })?
-            .access_token
-    };
+    // The viewer's own credential, on every host. A repository someone else
+    // shared does not lend its owner's access to whoever opens it.
+    let access_token = git_host_tokens
+        .token(&Actor::caller(ctx), &git_host_repo(provider, remote_url)?)
+        .await
+        .map_err(git_host_token_error)?;
 
     // For Gitness, we also need the base URL from provider_tokens metadata
     let result = match provider {
@@ -702,14 +586,29 @@ pub(crate) fn normalize_remote_url(remote_url: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// Name a repository on its git host, so the token seam can scope a credential
+/// to it.
+fn git_host_repo(
+    provider: RepositoryProvider,
+    remote_url: &str,
+) -> Result<GitHostRepo, RepositoryError> {
+    GitHostRepo::parse(GitHostProvider::from(provider), remote_url).ok_or_else(|| {
+        RepositoryError::BadRequest(format!(
+            "Cannot parse {} URL: {remote_url}",
+            provider.as_str()
+        ))
+    })
+}
+
 /// Fetch branches from GitHub API, including the default branch from the repo endpoint.
 async fn fetch_github_branches(
     remote_url: &str,
     token: &str,
 ) -> Result<BranchFetchResult, RepositoryError> {
-    let (owner, repo) = parse_github_owner_repo(remote_url).ok_or_else(|| {
+    let parsed = GitHostRepo::parse(GitHostProvider::Github, remote_url).ok_or_else(|| {
         RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
     })?;
+    let (owner, repo) = (parsed.owner(), parsed.name());
 
     let client = reqwest::Client::new();
 
@@ -1062,7 +961,6 @@ async fn fetch_gitness_branches(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::dao::MockRepositoryDao;
 
     fn repository(scope: Scope, owner_user_id: Option<&str>) -> Repository {
         Repository {
@@ -1076,9 +974,6 @@ mod tests {
             scope,
             owner_user_id: owner_user_id.map(str::to_string),
             created_by: Some("creator".to_string()),
-            access_status: "unchecked".to_string(),
-            access_checked_at: None,
-            access_error: None,
             deleted: Some(false),
             created_at: None,
             updated_at: None,
@@ -1119,45 +1014,5 @@ mod tests {
         let err = preserved_user_scope(&existing)
             .expect_err("ownerless repository needs an explicit future owner-picker");
         assert!(matches!(err, RepositoryError::BadRequest(_)));
-    }
-
-    #[tokio::test]
-    async fn access_verification_persists_status_time_and_error() {
-        use moatless_backend_core::scope::ScopeContext;
-        let mut mock = MockRepositoryDao::new();
-        let checked_at = chrono::Utc::now();
-        mock.expect_update()
-            .withf(move |id, patch, _ctx| {
-                id == "repo-1"
-                    && patch.access_status.as_deref() == Some("forbidden")
-                    && patch.access_checked_at == Some(Some(checked_at))
-                    && patch
-                        .access_error
-                        .as_ref()
-                        .and_then(|error| error.as_deref())
-                        == Some("No access to repository: https://github.com/acme/repo.git")
-            })
-            .returning(|_, _, _| Ok(true));
-
-        let ctx = ScopeContext {
-            user_id: "owner".to_string(),
-            is_admin: false,
-        };
-        let updated = persist_access_verification(
-            &mock,
-            &repository(Scope::User, Some("owner")),
-            AccessStatus::Forbidden,
-            checked_at,
-            &ctx,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(updated.access_status, "forbidden");
-        assert_eq!(updated.access_checked_at, Some(checked_at));
-        assert_eq!(
-            updated.access_error.as_deref(),
-            Some("No access to repository: https://github.com/acme/repo.git")
-        );
     }
 }

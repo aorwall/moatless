@@ -82,29 +82,6 @@ export function useUpdateRepository(
   })
 }
 
-export function useVerifyRepositoryAccess(
-  options?: UseMutationOptions<RepositoryResponse, Error, string>,
-) {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (repoId: string) => repositoriesApi.verifyAccess(repoId),
-    ...options,
-    onSuccess: async (data, repoId, onMutateResult, mutationContext) => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.repositories.detail(repoId),
-        }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.repositories.list() }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.repositories.branches(repoId),
-        }),
-      ])
-      await options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
-    },
-  })
-}
-
 export function useDeleteRepository(options?: UseMutationOptions<void, Error, string>) {
   const queryClient = useQueryClient()
 

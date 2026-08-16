@@ -8,16 +8,13 @@ use super::schemas::{
     SetupAction, SetupActionKind, SetupRequirement, SetupRequirementId, SetupRequirementStatus,
     SetupSeverity,
 };
-use crate::auth::credentials::secret_scope_for;
 use crate::auth::models::GithubTokenPresence;
-use crate::auth::github_scope::GitHubScope;
-use moatless_core::secret_keys::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;
+use moatless_backend_core::scope::Scope;
+use moatless_core::secret_keys::GITHUB_TOKEN;
 
 /// Settings-dialog section holding the per-user GitHub connection.
 const SETTINGS_SECTION: &str = "github";
-/// Admin page for the global GitHub App installation.
-const ADMIN_ROUTE: &str = "/admin/integrations/github";
 
 /// Without a GitHub token the app can't read repositories, so nothing else
 /// works — repo listing and task creation both fail.
@@ -50,7 +47,7 @@ impl SetupRequirementCheck for GithubTokenRequirement {
             actions: if status == SetupRequirementStatus::Satisfied {
                 Vec::new()
             } else {
-                actions(ctx.is_admin)
+                actions()
             },
         }
     }
@@ -64,6 +61,7 @@ async fn classify(
     ctx: &SetupContext<'_>,
     presence: &GithubTokenPresence,
 ) -> SetupRequirementStatus {
+    let user_id = ctx.user_id;
     if presence.refresh_failure {
         return SetupRequirementStatus::Broken;
     }
@@ -79,17 +77,10 @@ async fn classify(
     let Some(secrets) = ctx.secrets else {
         return SetupRequirementStatus::Broken;
     };
-    let scope = GitHubScope::from_row(
-        &presence.scope,
-        presence.user_id.as_deref(),
-        presence.team_id.as_deref(),
-    );
-    let (scope_type, scope_id) = secret_scope_for(&scope);
-
     match secrets
         .secret_exists(
-            scope_type,
-            scope_id,
+            Scope::User,
+            Some(user_id),
             GITHUB_TOKEN,
             Some(SecretKind::ProviderToken),
         )
@@ -100,7 +91,7 @@ async fn classify(
         Err(e) => {
             warn!(
                 error = %e,
-                scope = %scope,
+                user_id,
                 "Failed to probe GitHub token secret while evaluating setup"
             );
             SetupRequirementStatus::Broken
@@ -108,28 +99,20 @@ async fn classify(
     }
 }
 
-/// Admins get the global installation route first; users can still connect a
-/// PAT/OAuth credential for repositories persisted with User scope.
-fn actions(is_admin: bool) -> Vec<SetupAction> {
-    let mut actions = Vec::with_capacity(2);
-    if is_admin {
-        actions.push(SetupAction {
-            kind: SetupActionKind::AdminRoute,
-            target: ADMIN_ROUTE.to_string(),
-        });
-    }
-    actions.push(SetupAction {
+/// One remedy, and it is the same for everyone: connect your own account.
+/// An administrator's missing credential is their own to connect.
+fn actions() -> Vec<SetupAction> {
+    vec![SetupAction {
         kind: SetupActionKind::OpenSettings,
         target: SETTINGS_SECTION.to_string(),
-    });
-    actions
+    }]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER;
-    use crate::auth::test_support::{github_row, StubProviderTokens};
+    use crate::auth::test_support::{StubProviderTokens, github_row};
     use crate::secret::service::SecretService;
     use crate::secret::test_support::{secret, service_with};
 
@@ -163,10 +146,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_org_wide_token_satisfies_a_user_with_none() {
+    async fn an_org_wide_row_does_not_satisfy_a_user_with_none() {
+        // Their Sandbox resolves only their own credential, so reporting them
+        // as set up sends them to a Task that fails at preflight.
         let tokens = StubProviderTokens::default().with_global_row(github_row("manual", "ghp_org"));
         let req = evaluate(&tokens, None, false).await;
-        assert_eq!(req.status, SetupRequirementStatus::Satisfied);
+        assert_eq!(req.status, SetupRequirementStatus::Missing);
     }
 
     #[tokio::test]
@@ -200,17 +185,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admins_are_offered_the_org_wide_route_first() {
-        let req = evaluate(&StubProviderTokens::default(), None, true).await;
-        assert_eq!(req.actions[0].kind, SetupActionKind::AdminRoute);
-        assert_eq!(req.actions[0].target, ADMIN_ROUTE);
-        assert_eq!(req.actions[1].kind, SetupActionKind::OpenSettings);
-    }
-
-    #[tokio::test]
-    async fn non_admins_are_never_offered_the_admin_route() {
-        let req = evaluate(&StubProviderTokens::default(), None, false).await;
-        assert_eq!(req.actions.len(), 1);
-        assert_eq!(req.actions[0].kind, SetupActionKind::OpenSettings);
+    async fn an_admin_is_offered_the_same_remedy_as_anybody_else() {
+        for is_admin in [true, false] {
+            let req = evaluate(&StubProviderTokens::default(), None, is_admin).await;
+            assert_eq!(req.actions.len(), 1, "is_admin={is_admin}");
+            assert_eq!(req.actions[0].kind, SetupActionKind::OpenSettings);
+        }
     }
 }

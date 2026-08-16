@@ -3,8 +3,8 @@
  *
  * `GET /api/v1/auth/me` carries a setup block: what the environment still needs
  * from this user before it will run their work, and what they can do about it.
- * The remediation is tailored — an admin is pointed at the org-wide route first,
- * a non-admin is never shown it at all.
+ * There is one remedy and it is the same for everyone — connect your own
+ * account.
  *
  * These need a user that is not the one running the suite, and most of them need
  * that user to have no GitHub token, which only direct database access can
@@ -12,11 +12,10 @@
  *
  * Scenarios:
  *   AUTH-40: A fresh user's GitHub requirement reports missing
- *   AUTH-41: A non-admin is never offered the org-wide route
- *   AUTH-42: An admin is offered the org-wide route first
+ *   AUTH-41: Nobody is offered an org-wide route
  *   AUTH-43: A user's own PAT satisfies the requirement
  *   AUTH-44: A PAT-backed user can create a task for a GitHub repository
- *   AUTH-45: A non-admin cannot manage global GitHub installations
+ *   AUTH-46: A user with no GitHub credential is refused a task
  */
 
 import type { SessionResponse, SetupRequirement } from '@moatless/api-client/sandbox/model'
@@ -66,29 +65,20 @@ test.describe('Standalone: Setup requirements', () => {
     expect(requirement.severity).toBe('required')
   })
 
-  // ─── AUTH-41: A non-admin is never offered the org-wide route ────────
+  // ─── AUTH-41: Nobody is offered an org-wide route ────────────────────
 
-  test('AUTH-41: A non-admin is never offered the org-wide route', async ({ driver }) => {
-    clearGithubTokens()
-    const user = await loginAs(driver, scopedSlug('setup-nonadmin'))
+  test('AUTH-41: Nobody is offered an org-wide route', async ({ driver }) => {
+    // An org credential no longer reaches GitHub for anybody, so pointing an
+    // administrator at the org page would not fix their own missing one.
+    for (const role of ['user', 'admin'] as const) {
+      clearGithubTokens()
+      const user = await loginAs(driver, scopedSlug(`setup-${role}-actions`), role)
 
-    const actions = githubRequirement(await user.me()).actions ?? []
-    expect(actions.length).toBeGreaterThan(0)
-    // Offering an action they cannot take is worse than offering none.
-    expect(actions.some((action) => action.kind === 'admin_route')).toBe(false)
-    expect(actions.some((action) => action.kind === 'open_settings')).toBe(true)
-  })
-
-  // ─── AUTH-42: An admin is offered the org-wide route first ───────────
-
-  test('AUTH-42: An admin is offered the org-wide route first', async ({ driver }) => {
-    clearGithubTokens()
-    const admin = await loginAs(driver, scopedSlug('setup-admin'), 'admin')
-
-    const actions = githubRequirement(await admin.me()).actions ?? []
-    // Most-preferred first: an admin should connect the org, not just themselves.
-    expect(actions[0]?.kind).toBe('admin_route')
-    expect(actions[0]?.target).toBe('/admin/integrations/github')
+      const actions = githubRequirement(await user.me()).actions ?? []
+      expect(actions.length, role).toBe(1)
+      expect(actions[0]?.kind, role).toBe('open_settings')
+      expect(actions[0]?.target, role).toBe('github')
+    }
   })
 
   // ─── AUTH-43: A user's own PAT satisfies the requirement ─────────────
@@ -155,30 +145,31 @@ test.describe('Standalone: Setup requirements', () => {
     })
   })
 
-  // ─── AUTH-45: A non-admin cannot manage global GitHub installations ──
+  // ─── AUTH-46: A user with no GitHub credential is refused a task ─────
 
-  test('AUTH-45: A non-admin cannot manage global GitHub installations', async ({ driver }) => {
-    const user = await loginAs(driver, scopedSlug('setup-org-forbidden'))
+  test('AUTH-46: A user with no GitHub credential is refused a task', async ({ driver }) => {
+    // The inverse of AUTH-44, and the point of the whole change: with no
+    // credential of their own there is nothing to fall through to, so the
+    // refusal happens at task creation rather than inside the Sandbox.
+    clearGithubTokens()
+    const user = await loginAs(driver, scopedSlug('preflight-no-credential'))
 
-    // 403, not 400. These endpoints answered 400 once while documenting 403;
-    // pinning the status is what stops that coming back.
-    const routes: [string, string, unknown?][] = [
-      ['GET', '/api/v1/admin/settings/github/apps'],
-      ['GET', '/api/v1/admin/settings/github/installation'],
-      [
-        'PUT',
-        '/api/v1/admin/settings/github/installation',
-        {
-          githubAppKey: 'default',
-          installationId: 42,
-        },
-      ],
-      ['DELETE', '/api/v1/admin/settings/github/installation'],
-    ]
+    const repository = await user.createRepository({
+      name: 'preflight-no-credential-repo',
+      kind: 'remote',
+      remoteUrl: 'https://git.example.com/owner/repo',
+      defaultBranch: 'main',
+      provider: 'github',
+    } as Parameters<MoatApi['createRepository']>[0])
 
-    for (const [method, path, body] of routes) {
-      const response = await user.cli.raw(method, path, body)
-      expect(response.status, `${method} ${path} should be admin-only`).toBe(403)
+    try {
+      const response = await user.createVibeTaskRaw({
+        repositoryId: repository.id,
+        name: 'preflight-no-credential-task',
+      })
+      expect(response.status, 'a user holding no GitHub credential was allowed a task').toBe(403)
+    } finally {
+      await user.deleteRepository(repository.id).catch(() => {})
     }
   })
 })

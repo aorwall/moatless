@@ -152,16 +152,6 @@ export class MoatApi {
     return this.moat.json<RepositoryResponse>(args)
   }
 
-  /**
-   * Ask the platform to check whether it can still reach a repository.
-   *
-   * Raw, because the interesting cases are the refusals: a target it has no
-   * way to check is a rejected request, not an unreachable repository.
-   */
-  async verifyRepositoryAccessRaw(id: string): Promise<RawResponse> {
-    return this.moat.raw('POST', `/api/v1/repositories/${id}/verify-access`)
-  }
-
   async deleteRepository(id: string): Promise<void> {
     await this.moat.raw('DELETE', `/api/v1/repositories/${id}`)
   }

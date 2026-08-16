@@ -1,10 +1,13 @@
 //! Merge-conflict candidate derivation and durable execution.
 
+use moatless_identity::git_host_repo::GitHostRepo;
 use tracing::{debug, info, warn};
 
-use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
 use moatless_loops::adapters::AdapterKind;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{
+    AdapterConnection, Audience, InboundMessage, SubscriptionMatch,
+};
 
 use super::router::GithubPrInboundRouter;
 use super::signals::MergeableState;
@@ -93,7 +96,12 @@ impl GithubPrInboundRouter {
 
         let authenticated = adapter
             .auth()
-            .client_for_durable_work(&execution.sender_login, rule, &self.db, &execution.owner)
+            .client_for_durable_work(
+                &execution.sender_login,
+                rule,
+                &self.db,
+                &GitHostRepo::github(&execution.owner, &execution.repo),
+            )
             .await?;
 
         let pr = authenticated

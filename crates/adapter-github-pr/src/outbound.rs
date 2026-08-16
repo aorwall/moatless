@@ -1,5 +1,6 @@
 //! Outbound reply capabilities for GitHub pull requests.
 
+use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::{
     AdapterConnection, BindingContext, LoopContext, OutboundReply, SubscriptionMatch, TaskBinding,
@@ -42,7 +43,7 @@ impl AdapterBindingReply for GithubPrAdapter {
                 message.author_user_id.as_deref(),
                 binding,
                 rule,
-                subject.owner(),
+                &GitHostRepo::github(subject.owner(), subject.repo()),
             )
             .await?;
 
@@ -82,7 +83,7 @@ impl AdapterMessageReply for GithubPrAdapter {
                         message.author_user_id.as_deref(),
                         binding,
                         rule,
-                        subject.owner(),
+                        &GitHostRepo::github(subject.owner(), subject.repo()),
                     )
                     .await?;
 
@@ -119,10 +120,9 @@ mod tests {
 
     use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
+    use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
     use moatless_loops::adapters::models::{AdapterConnection, OutboundReply, TaskBinding};
     use moatless_loops::adapters::{AdapterBindingReply, AdapterMessageReply};
-    use moatless_identity::auth::github::registry::GitHubAppRegistry;
-    use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
 
     #[tokio::test]
     async fn outbound_capabilities_keep_exact_github_request_budgets() {
@@ -191,15 +191,13 @@ mod tests {
     fn provider(api_base: &str) -> GithubPrAdapter {
         GithubPrAdapter::new(
             None,
-            Some("wrong-global-token".to_string()),
             "https://app.example.com".to_string(),
-            Arc::new(StubProviderTokens::with_user_row_for(
-                "owner-user",
-                github_row("manual", "owner-token"),
+            moatless_identity::git_host_tokens::seam_over(Arc::new(
+                StubProviderTokens::with_user_row_for(
+                    "owner-user",
+                    github_row("manual", "owner-token"),
+                ),
             )),
-            None,
-            None,
-            Arc::new(GitHubAppRegistry::default()),
         )
         .with_api_base(api_base)
     }

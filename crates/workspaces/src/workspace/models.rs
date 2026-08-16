@@ -100,10 +100,13 @@ pub struct ScriptConfig {
 }
 
 /// Provider whose static credential can be pinned to a Workspace.
+///
+/// GitHub is not here. A GitHub token is derived from an identity, so a
+/// Workspace names the user it runs as — `workspaces.run_as_user_id` — and the
+/// token is resolved for that identity like any other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkspaceCredentialProvider {
-    Github,
     Gitlab,
     Gitness,
     Openai,
@@ -111,17 +114,10 @@ pub enum WorkspaceCredentialProvider {
 }
 
 impl WorkspaceCredentialProvider {
-    pub const ALL: &'static [Self] = &[
-        Self::Github,
-        Self::Gitlab,
-        Self::Gitness,
-        Self::Openai,
-        Self::Anthropic,
-    ];
+    pub const ALL: &'static [Self] = &[Self::Gitlab, Self::Gitness, Self::Openai, Self::Anthropic];
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Github => "github",
             Self::Gitlab => "gitlab",
             Self::Gitness => "gitness",
             Self::Openai => "openai",
@@ -131,7 +127,6 @@ impl WorkspaceCredentialProvider {
 
     pub fn env_key(self) -> &'static str {
         match self {
-            Self::Github => "GITHUB_TOKEN",
             Self::Gitlab => "GITLAB_TOKEN",
             Self::Gitness => "GITNESS_TOKEN",
             Self::Openai => "OPENAI_API_KEY",
@@ -218,6 +213,10 @@ pub struct Workspace {
     // --- Access control (mirrors repositories) ---
     pub scope: Scope,
     pub owner_user_id: Option<String>,
+    /// The identity every Task on this Workspace acts as on a git host. When
+    /// set it outranks the Task's own owner, so a Workspace can act as a
+    /// dedicated machine account instead of as whoever started the Task.
+    pub run_as_user_id: Option<String>,
     pub created_by: Option<String>,
     pub deleted: Option<bool>,
     pub created_at: Option<DateTime<Utc>>,

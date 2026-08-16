@@ -23,13 +23,13 @@ use std::sync::Arc;
 
 use tracing::{debug, info, warn};
 
+use crate::task::dao::TaskDao;
+use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_identity::auth::codex_scope::CodexScope;
 use moatless_workspaces::credentials::codex::refresh::CodexRefreshOutcome;
 use moatless_workspaces::credentials::{
-    should_broadcast, CredentialError, CredentialService, StoreOutcome, WriteSource,
+    CredentialError, CredentialService, StoreOutcome, WriteSource, should_broadcast,
 };
-use crate::task::dao::TaskDao;
-use moatless_backend_core::sandbox::SandboxConnector;
 
 /// Tasks-band orchestrator: wraps the pure [`CredentialService`] with the
 /// in-flight guard and the sandbox fan-out.
@@ -284,12 +284,13 @@ impl CredentialSync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_identity::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
-    use moatless_identity::auth::github_scope::GitHubScope;
-    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
     use crate::task::dao::MockTaskDao;
     use async_trait::async_trait;
     use moatless_backend_core::sandbox::{SandboxClient, SandboxConnector, SandboxError};
+    use moatless_identity::auth::models::{
+        GithubTokenPresence, ProviderAccessToken, ProviderToken,
+    };
+    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 
     /// A `SandboxConnector` that must never be reached. Every test below either
     /// keeps `list_open_codex_tasks_for_scope` returning empty (nothing to fan
@@ -357,9 +358,10 @@ mod tests {
             _user_id: &str,
             _provider: &str,
         ) -> Result<Option<ProviderAccessToken>, sqlx::Error> {
-            Ok(self.existing.clone().map(|access_token| ProviderAccessToken {
-                access_token,
-            }))
+            Ok(self
+                .existing
+                .clone()
+                .map(|access_token| ProviderAccessToken { access_token }))
         }
 
         async fn find_provider_token_full(
@@ -423,14 +425,14 @@ mod tests {
 
         async fn find_github_row(
             &self,
-            _scope: &GitHubScope,
+            _user_id: &str,
         ) -> Result<Option<ProviderToken>, sqlx::Error> {
             Ok(None)
         }
 
         async fn upsert_github_row(
             &self,
-            _scope: &GitHubScope,
+            _user_id: &str,
             _auth_method: &str,
             _access_token: &str,
             _token_type: Option<&str>,
@@ -441,7 +443,7 @@ mod tests {
             Ok(())
         }
 
-        async fn delete_github_row(&self, _scope: &GitHubScope) -> Result<(), sqlx::Error> {
+        async fn delete_github_row(&self, _user_id: &str) -> Result<(), sqlx::Error> {
             Ok(())
         }
 
@@ -548,9 +550,7 @@ mod tests {
     async fn store_unchanged_does_not_fan_out() {
         let mut tasks = MockTaskDao::new();
         // Dedup hit → Unchanged → the resolution query must not fire at all.
-        tasks
-            .expect_list_open_codex_tasks_for_scope()
-            .times(0);
+        tasks.expect_list_open_codex_tasks_for_scope().times(0);
         // Seed the same value the caller stores → dedup short-circuit.
         let sync = make_sync(Arc::new(FakeTokens::with_existing("same")), tasks);
 

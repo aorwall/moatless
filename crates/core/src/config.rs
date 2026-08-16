@@ -895,8 +895,6 @@ impl fmt::Debug for TelegramConfig {
 pub struct GithubPrConfig {
     /// Global webhook secret for verifying GitHub webhook signatures.
     pub webhook_secret: Option<String>,
-    /// Global GitHub token for API calls (PAT or GitHub App installation token).
-    pub bot_token: Option<String>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -907,7 +905,6 @@ impl fmt::Debug for GithubPrConfig {
                 "webhook_secret",
                 &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
             )
-            .field("bot_token", &self.bot_token.as_ref().map(|_| "[REDACTED]"))
             .finish()
     }
 }
@@ -1359,7 +1356,6 @@ impl Config {
 
             github_pr: GithubPrConfig {
                 webhook_secret: env_opt("GITHUB_CHANNEL_WEBHOOK_SECRET"),
-                bot_token: env_opt("GITHUB_CHANNEL_TOKEN"),
             },
 
             linear: LinearConfig {
@@ -1776,7 +1772,6 @@ impl Config {
             },
             github_pr: GithubPrConfig {
                 webhook_secret: None,
-                bot_token: None,
             },
             linear: LinearConfig {
                 webhook_secret: None,

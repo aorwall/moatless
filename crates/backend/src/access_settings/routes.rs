@@ -25,9 +25,6 @@ use crate::state::AppState;
         handlers::admin_list_adapter_apps,
         handlers::admin_save_adapter_app,
         handlers::admin_delete_adapter_app,
-        handlers::admin_get_global_github_installation,
-        handlers::admin_put_global_github_installation,
-        handlers::admin_delete_global_github_installation,
         handlers::get_gitness_config,
         handlers::save_gitness_pat,
         handlers::delete_gitness_config,
@@ -63,11 +60,6 @@ pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi
         .routes(routes!(
             handlers::admin_save_adapter_app,
             handlers::admin_delete_adapter_app
-        ))
-        .routes(routes!(
-            handlers::admin_get_global_github_installation,
-            handlers::admin_put_global_github_installation,
-            handlers::admin_delete_global_github_installation
         ))
         .routes(routes!(
             handlers::get_gitness_config,

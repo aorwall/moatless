@@ -17,7 +17,7 @@
 import { randomUUID } from 'node:crypto'
 import { missingCapability } from '../../shared/profile'
 import { ownedByThisRun, scopedName } from '../../shared/run-scope'
-import type { CreateRepositoryRequest, RepositoryResponse } from '../../shared/types'
+import type { CreateRepositoryRequest } from '../../shared/types'
 import { ChainContext } from '../context/chain-context'
 import { expect, test } from '../fixtures/api-fixtures'
 import { createTestRepo, deleteTestRepo } from '../helpers/gh-repo'
@@ -292,42 +292,4 @@ test('REPO-07: Get non-existent repository', async ({ api }) => {
   const response = await api.getRepositoryRaw(fakeId)
 
   expect(response.status).toBe(404)
-})
-
-// ─── REPO-08: Reject an unverifiable repository target ──────────────────
-
-test('REPO-08: Reject an unverifiable repository target', async ({ api }) => {
-  const suffix = randomUUID()
-  const unverifiable: CreateRepositoryRequest[] = [
-    // Nothing to check against.
-    { name: `Verify Missing URL ${suffix}`, kind: 'template' },
-    {
-      name: `Verify Invalid URL ${suffix}`,
-      kind: 'template',
-      remoteUrl: 'not-a-github-url',
-      provider: 'github',
-    },
-    {
-      name: `Verify Gitness ${suffix}`,
-      kind: 'template',
-      remoteUrl: 'https://gitness.example/acme/repo',
-      provider: 'gitness',
-    },
-  ]
-
-  for (const config of unverifiable) {
-    // `repos create` requires a URL, so the no-URL case is posted directly.
-    const repository = config.remoteUrl
-      ? await api.createRepository(config)
-      : ((await api.createRepositoryRaw({ ...config, name: scopedName(config.name) }))
-          .body as RepositoryResponse)
-    try {
-      const response = await api.verifyRepositoryAccessRaw(repository.id)
-
-      // Refused outright — the provider is never contacted.
-      expect(response.status, `${config.name} should be unverifiable`).toBe(400)
-    } finally {
-      await api.deleteRepository(repository.id)
-    }
-  }
 })

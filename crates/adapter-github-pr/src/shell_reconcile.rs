@@ -42,15 +42,15 @@ use serde_json::json;
 use tracing::{debug, info, warn};
 
 use super::adapter::GithubPrAdapter;
-use super::api::GithubPrApi;
 use moatless_backend_core::scope::ScopeContext;
+use moatless_identity::auth::actor::Actor;
+use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_loops::adapters::AdapterDestinationBuilder;
 use moatless_loops::adapters::footer::FOOTER_MARKER;
 use moatless_loops::adapters::metrics::record_shell_claim;
 use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_tasks::message::dao::MessageDao;
 use moatless_tasks::task::dao::TaskDao;
-use moatless_workspaces::repository::access::RepositoryTokenResolver;
 use moatless_workspaces::repository::dao::RepositoryDao;
 
 /// Adapter label on claim metrics and on the tagged assistant row.
@@ -108,7 +108,6 @@ pub async fn reconcile_shell_command(
     messages: &dyn MessageDao,
     tasks: &dyn TaskDao,
     repositories: &dyn RepositoryDao,
-    repo_token_resolver: &RepositoryTokenResolver,
     task_id: &str,
     tool_use_id: &str,
     cmd: &str,
@@ -121,7 +120,6 @@ pub async fn reconcile_shell_command(
             messages,
             tasks,
             repositories,
-            repo_token_resolver,
             task_id,
             tool_use_id,
             result_text,
@@ -240,7 +238,6 @@ async fn handle_gh_pr_create(
     messages: &dyn MessageDao,
     tasks: &dyn TaskDao,
     repositories: &dyn RepositoryDao,
-    repo_token_resolver: &RepositoryTokenResolver,
     task_id: &str,
     tool_use_id: &str,
     result_text: &str,
@@ -316,15 +313,7 @@ async fn handle_gh_pr_create(
 
     // The footer likewise needs the adapter (frontend_url + the credential path).
     if let Some(adapter) = adapter {
-        try_append_task_footer(
-            adapter,
-            tasks,
-            repositories,
-            repo_token_resolver,
-            task_id,
-            &pr,
-        )
-        .await;
+        try_append_task_footer(adapter, tasks, repositories, task_id, &pr).await;
     }
 }
 
@@ -332,7 +321,6 @@ async fn try_append_task_footer(
     adapter: &GithubPrAdapter,
     tasks: &dyn TaskDao,
     repositories: &dyn RepositoryDao,
-    repo_token_resolver: &RepositoryTokenResolver,
     task_id: &str,
     pr: &ParsedPr,
 ) {
@@ -358,30 +346,27 @@ async fn try_append_task_footer(
         }
     };
 
-    let token = match resolve_task_repository_github_token(
-        repositories,
-        repo_token_resolver,
-        &task,
-        &pr.owner,
-        &pr.repo,
-    )
-    .await
+    if let Err(e) = check_pr_targets_task_repository(repositories, &task, &pr.owner, &pr.repo).await
     {
-        Ok(Some(t)) => t,
-        Ok(None) => {
-            warn!(
-                task_id,
-                "No repository-scoped GitHub credential — skipping PR footer"
-            );
-            return;
-        }
+        warn!(task_id, error = %e, "PR footer target is not the task repository");
+        return;
+    }
+
+    let Some(actor) = Actor::owner_of(&task.scoped_resource()) else {
+        warn!(task_id, "Task names no owner — skipping PR footer");
+        return;
+    };
+    let api = match adapter
+        .auth()
+        .client_for(&actor, &GitHostRepo::github(&pr.owner, &pr.repo))
+        .await
+    {
+        Ok(api) => api,
         Err(e) => {
-            warn!(task_id, error = %e, "Failed to resolve GitHub token for PR footer");
+            warn!(task_id, %actor, error = %e, "Failed to resolve GitHub access for PR footer");
             return;
         }
     };
-
-    let api = GithubPrApi::new(&token);
     let pr_info = match api.get_pr(&pr.owner, &pr.repo, pr.number).await {
         Ok(p) => p,
         Err(e) => {
@@ -665,13 +650,14 @@ async fn handle_git_push(
     }
 }
 
-async fn resolve_task_repository_github_token(
+/// The footer is appended to the task's own pull request, never to one the
+/// agent opened somewhere else.
+async fn check_pr_targets_task_repository(
     repositories: &dyn RepositoryDao,
-    repo_token_resolver: &RepositoryTokenResolver,
     task: &moatless_tasks::task::models::Task,
     owner: &str,
     repo_name: &str,
-) -> Result<Option<String>, moatless_workspaces::repository::error::RepositoryError> {
+) -> Result<(), moatless_workspaces::repository::error::RepositoryError> {
     // reason: hook runs in the agent's background flow; the task row was
     // already resolved for this flow and the repo is its configured one.
     #[allow(clippy::disallowed_methods)]
@@ -689,21 +675,21 @@ async fn resolve_task_repository_github_token(
             "Task repository has no remote URL".to_string(),
         )
     })?;
-    let persisted = moatless_workspaces::repository::access::parse_github_owner_repo(remote_url);
-    if persisted
-        .as_ref()
-        .is_none_or(|(persisted_owner, persisted_repo)| {
-            !persisted_owner.eq_ignore_ascii_case(owner)
-                || !persisted_repo.eq_ignore_ascii_case(repo_name)
-        })
-    {
+    let persisted = GitHostRepo::parse(
+        moatless_api_schemas::enums::RepositoryProvider::Github,
+        remote_url,
+    );
+    if persisted.as_ref().is_none_or(|persisted| {
+        !persisted.owner().eq_ignore_ascii_case(owner)
+            || !persisted.name().eq_ignore_ascii_case(repo_name)
+    }) {
         return Err(
             moatless_workspaces::repository::error::RepositoryError::BadRequest(
                 "GitHub target does not match the task repository".to_string(),
             ),
         );
     }
-    repo_token_resolver.resolve(&repository, remote_url).await
+    Ok(())
 }
 
 /// Extract the GitHub repository, remote branch and pushed commit from

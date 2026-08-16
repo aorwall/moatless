@@ -67,15 +67,6 @@ pub struct RepositoryResponse {
     pub provider: Option<RepositoryProvider>,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
-    /// Provider reachability of `remote_url`: `unchecked` | `ok` | `not_found`
-    /// | `forbidden` | `error`. Stamped when the repo is auto-created by a
-    /// git-synced workspace.
-    #[serde(default)]
-    pub access_status: String,
-    #[serde(default)]
-    pub access_checked_at: Option<String>,
-    #[serde(default)]
-    pub access_error: Option<String>,
     pub created_by: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,

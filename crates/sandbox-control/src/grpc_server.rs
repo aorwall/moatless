@@ -28,8 +28,8 @@ use moatless_backend_core::scope::ScopeContext;
 use crate::event_dedup::Admission;
 use crate::jwt;
 use crate::secrets::{
-    resolve_server_env, resolve_task_credential_targets, resolve_task_credentials,
-    resolve_task_ssh_keys, resolve_workspace_credentials, TaskCredentialInputs,
+    TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets,
+    resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
 };
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
@@ -40,6 +40,7 @@ use moatless_identity::auth::models::UserRole;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
 use moatless_identity::auth::users::UserDao;
+use moatless_identity::git_host_tokens::GitHostTokens;
 use moatless_identity::secret::service::SecretService;
 use moatless_tasks::agent::prompt;
 use moatless_tasks::credential_sync::CredentialSync;
@@ -128,6 +129,8 @@ pub struct HandlerDbPorts {
     /// Provider credentials pinned to a workspace — the highest-precedence
     /// source in the credential set a sandbox is handed.
     pub workspace_credentials: Arc<WorkspaceCredentialService>,
+    /// The one way to a git-host token, for the identity the task acts as.
+    pub git_host_tokens: Arc<GitHostTokens>,
     /// File metadata repository — supplies filename and mime type when
     /// fulfilling `download_upload` requests.
     pub files: Arc<dyn FileDao>,
@@ -1219,14 +1222,18 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             Status::internal("Failed to resolve workspace credentials")
         })?;
         let workspace_credential_count = workspace_credentials.len();
+        let actor = resolve_task_actor(
+            handlers.map(|h| &h.workspaces),
+            targets.workspace_id.as_deref(),
+            &grant.ctx.user_id,
+        )
+        .await;
         let mut credentials = resolve_task_credentials(TaskCredentialInputs {
             task_id: &req.task_id,
-            user_id: &grant.ctx.user_id,
+            user_id: actor.user_id(),
             secrets: handlers.map(|h| &h.secrets),
             provider_tokens: handlers.map(|h| &h.provider_tokens),
-            github_app_service: self.github_app_service.as_ref(),
-            provider_token_auth: handlers.map(|h| &h.provider_token_auth),
-            github_apps: Some(&self.github_apps),
+            git_host_tokens: handlers.map(|h| &h.git_host_tokens),
             repository: targets.repository.as_ref(),
             users: handlers.map(|h| &h.users),
             credential_sync: handlers.map(|h| &h.credential_sync),

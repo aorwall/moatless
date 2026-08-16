@@ -32,22 +32,20 @@ use async_trait::async_trait;
 use tracing::warn;
 
 use crate::secrets::{
-    resolve_task_github_token, resolve_workspace_credentials, TaskCredentialInputs,
+    resolve_task_actor, resolve_task_github_token, resolve_workspace_credentials,
 };
+use moatless_api_schemas::enums::RepositoryProvider as GitHostProvider;
 use moatless_backend_core::scope::{Scope, ScopeContext};
-use moatless_identity::auth::github::registry::GitHubAppRegistry;
-use moatless_identity::auth::github::service::GitHubAppService;
 use moatless_identity::auth::models::UserRole;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
 use moatless_identity::auth::users::UserDao;
-use moatless_identity::secret::service::SecretService;
+use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
 use moatless_tasks::credential_sync::CredentialSync;
 use moatless_tasks::task::creation::{PreflightPort, PreflightRejection};
 use moatless_tasks::task::models::Task;
-use moatless_workspaces::repository::access::parse_github_owner_repo;
 use moatless_workspaces::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
+use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 /// The exact set of credential-resolution dependencies the preflight consumes.
 /// Assembled once at the composition root and consumed by `RealPreflight`,
@@ -56,12 +54,13 @@ use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
 /// `Arc` clones.
 #[derive(Clone)]
 pub struct PreflightCredentials {
-    pub secrets: Arc<SecretService>,
-    pub provider_tokens: Arc<dyn ProviderTokenDao>,
-    pub github_app_service: Option<Arc<GitHubAppService>>,
-    pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
-    pub github_apps: Arc<GitHubAppRegistry>,
+    /// The one way to a git-host token. Replaces the five credential ports
+    /// this struct used to thread.
+    pub git_host_tokens: Arc<GitHostTokens>,
     pub users: Arc<dyn UserDao>,
+    /// Read for the Workspace's run-as identity, which outranks the task's own
+    /// owner — see `secrets::resolve_task_actor`.
+    pub workspaces: Arc<dyn WorkspaceDao>,
     pub credential_sync: Arc<CredentialSync>,
     /// Provider credentials pinned to the task's Workspace. Read here as well
     /// as at runtime so preflight validates the token the sandbox will actually
@@ -239,10 +238,17 @@ pub async fn preflight_validate_github_token(
         return Ok(());
     }
 
-    let user_id = task.created_by.as_deref().unwrap_or("system").to_string();
-    // Refusing to start beats starting as the wrong account: a workspace that
-    // pins a credential is asking for exactly one identity.
-    let workspace_credentials = resolve_workspace_credentials(
+    let actor = resolve_task_actor(
+        Some(&creds.workspaces),
+        task.workspace_id.as_deref(),
+        task.created_by.as_deref().unwrap_or("system"),
+    )
+    .await;
+    let user_id = actor.user_id().to_string();
+    // Read only to prove it can be read: a workspace whose pinned credentials
+    // cannot be decrypted would start a sandbox missing them, which is a
+    // different account's access by omission.
+    resolve_workspace_credentials(
         Some(&creds.workspace_credentials),
         task.workspace_id.as_deref(),
     )
@@ -252,25 +258,23 @@ pub async fn preflight_validate_github_token(
         reason: truncate(&e.to_string(), 200),
     })?;
 
-    let token = resolve_task_github_token(TaskCredentialInputs {
-        task_id: &task.task_id,
-        user_id: &user_id,
-        // Required to dereference a `secret_ref` row's sentinel; without it
-        // every PAT-backed credential resolves as absent.
-        secrets: Some(&creds.secrets),
-        provider_tokens: Some(&creds.provider_tokens),
-        github_app_service: creds.github_app_service.as_ref(),
-        provider_token_auth: Some(&creds.provider_token_auth),
-        github_apps: Some(&creds.github_apps),
-        repository: Some(repo),
-        users: Some(&creds.users),
-        credential_sync: Some(&creds.credential_sync),
-        workspace_credentials,
-    })
-    .await
-    .ok_or_else(|| PreflightError::NoGithubToken {
-        user_id: user_id.clone(),
-    })?;
+    let token =
+        match resolve_task_github_token(Some(&creds.git_host_tokens), &actor, Some(repo)).await {
+            Some(Ok(token)) => token,
+            // The identity has not connected GitHub, or the repository names no
+            // GitHub remote this seam can reach. Either way there is no token, and
+            // the sandbox must not start with somebody else's.
+            Some(Err(GitHostTokenError::NoCredential { .. })) | None => {
+                return Err(PreflightError::NoGithubToken { user_id });
+            }
+            // A credential that exists and does not work is a different problem
+            // with a different remedy, so it keeps the resolver's own message.
+            Some(Err(e)) => {
+                return Err(PreflightError::InvalidGithubToken {
+                    reason: truncate(&e.to_string(), 200),
+                });
+            }
+        };
 
     let Some(remote_url) = repo.remote_url.as_deref() else {
         return Ok(());
@@ -285,7 +289,7 @@ pub async fn preflight_validate_github_token(
         return Ok(());
     }
 
-    let Some((owner, repo_name)) = parse_github_owner_repo(remote_url) else {
+    let Some(parsed) = GitHostRepo::parse(GitHostProvider::Github, remote_url) else {
         warn!(
             remote_url,
             task_id = %task.task_id,
@@ -295,12 +299,12 @@ pub async fn preflight_validate_github_token(
     };
 
     if let Err(e) = validator
-        .check_repo_access(&token, &owner, &repo_name)
+        .check_repo_access(&token, parsed.owner(), parsed.name())
         .await
     {
         return Err(PreflightError::NoRepoAccess {
-            owner,
-            repo: repo_name,
+            owner: parsed.owner().to_string(),
+            repo: parsed.name().to_string(),
             reason: truncate(&e, 200),
         });
     }
@@ -484,9 +488,11 @@ mod tests {
         let users = users_with_role(UserRole::User);
         let task = task(Scope::User, Some("alice"), Some("bob"));
 
-        assert!(preflight_validate_task_control(&users, &task)
-            .await
-            .is_err());
+        assert!(
+            preflight_validate_task_control(&users, &task)
+                .await
+                .is_err()
+        );
     }
 
     /// Platform admin short-circuits `can_control`, so the gate would admit the
@@ -507,9 +513,11 @@ mod tests {
         users.expect_get_user().never();
         let task = task(Scope::User, None, None);
 
-        assert!(preflight_validate_task_control(&users, &task)
-            .await
-            .is_err());
+        assert!(
+            preflight_validate_task_control(&users, &task)
+                .await
+                .is_err()
+        );
     }
 
     #[test]
@@ -565,9 +573,6 @@ mod tests {
             scope: moatless_backend_core::scope::Scope::User,
             owner_user_id: None,
             created_by: None,
-            access_status: "unchecked".into(),
-            access_checked_at: None,
-            access_error: None,
             deleted: None,
             created_at: None,
             updated_at: None,

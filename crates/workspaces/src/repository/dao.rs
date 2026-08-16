@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
-use moatless_core::db::DbPool;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
+use moatless_core::db::DbPool;
 
 /// Patch struct for partial updates.
 #[derive(Default)]
@@ -18,9 +18,6 @@ pub struct RepositoryPatch {
     pub default_branch: Option<Option<String>>,
     pub description: Option<Option<String>>,
     pub provider: Option<Option<RepositoryProvider>>,
-    pub access_status: Option<String>,
-    pub access_checked_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
-    pub access_error: Option<Option<String>>,
 }
 
 /// DAO trait for repository persistence.
@@ -53,7 +50,7 @@ pub trait RepositoryDao: Send + Sync {
         owner_user_id: Option<String>,
     ) -> Result<Option<Repository>, sqlx::Error>;
     async fn find_names_by_ids(&self, ids: &[String])
-        -> Result<Vec<(String, String)>, sqlx::Error>;
+    -> Result<Vec<(String, String)>, sqlx::Error>;
     /// Check for a canonical URL within an access owner, including soft-deleted rows.
     async fn exists_by_normalized_remote_url_including_deleted(
         &self,
@@ -110,13 +107,11 @@ impl RepositoryDao for PgRepositoryDao {
             r#"INSERT INTO repositories (
                 id, name, kind, remote_url, default_branch,
                 description, provider, scope, owner_user_id, created_by,
-                deleted, created_at, updated_at,
-                access_status, access_checked_at, access_error
+                deleted, created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5,
                 $6, $7, $8, $9, $10,
-                $11, $12, $13,
-                $14, $15, $16
+                $11, $12, $13
             )"#,
         )
         .bind(&row.id)
@@ -132,9 +127,6 @@ impl RepositoryDao for PgRepositoryDao {
         .bind(row.deleted)
         .bind(row.created_at)
         .bind(row.updated_at)
-        .bind(&row.access_status)
-        .bind(row.access_checked_at)
-        .bind(&row.access_error)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -166,9 +158,6 @@ impl RepositoryDao for PgRepositoryDao {
         push_set!(default_branch);
         push_set!(description);
         push_set!(provider);
-        push_set!(access_status);
-        push_set!(access_checked_at);
-        push_set!(access_error);
 
         if sets.is_empty() {
             return Ok(false);
@@ -204,9 +193,6 @@ impl RepositoryDao for PgRepositoryDao {
         bind_opt!(default_branch);
         bind_opt!(description);
         bind_opt!(provider);
-        bind_opt!(access_status);
-        bind_opt!(access_checked_at);
-        bind_opt!(access_error);
 
         // Bind updated_at then control_filter params
         q = q.bind(now);

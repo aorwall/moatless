@@ -17,7 +17,6 @@ pub fn credential_provider_from_wire(
     provider: WorkspaceCredentialProvider,
 ) -> DomainCredentialProvider {
     match provider {
-        WorkspaceCredentialProvider::Github => DomainCredentialProvider::Github,
         WorkspaceCredentialProvider::Gitlab => DomainCredentialProvider::Gitlab,
         WorkspaceCredentialProvider::Gitness => DomainCredentialProvider::Gitness,
         WorkspaceCredentialProvider::Openai => DomainCredentialProvider::Openai,
@@ -29,7 +28,6 @@ pub fn credential_provider_to_wire(
     provider: DomainCredentialProvider,
 ) -> WorkspaceCredentialProvider {
     match provider {
-        DomainCredentialProvider::Github => WorkspaceCredentialProvider::Github,
         DomainCredentialProvider::Gitlab => WorkspaceCredentialProvider::Gitlab,
         DomainCredentialProvider::Gitness => WorkspaceCredentialProvider::Gitness,
         DomainCredentialProvider::Openai => WorkspaceCredentialProvider::Openai,
@@ -197,6 +195,7 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
         source_key: w.source_key,
         scope: scope_to_wire(w.scope),
         owner_user_id: w.owner_user_id,
+        run_as_user_id: w.run_as_user_id,
         created_by: w.created_by,
         deleted: w.deleted.unwrap_or(false),
         created_at: w.created_at.map(|t| t.to_rfc3339()),

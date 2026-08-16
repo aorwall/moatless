@@ -53,6 +53,7 @@ use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
+use moatless_identity::git_host_tokens::GitHostTokens;
 
 /// Bounded per-Task lock-acquire attempts before a lifecycle call surfaces
 /// `OperationInProgress`. The inline retry is only a latency fast path — the
@@ -132,6 +133,10 @@ pub struct Ports {
     /// Convenience handle to the default (user-auth) App — equivalent to
     /// `github_apps.default_service()`.
     pub github_app_service: Option<Arc<GitHubAppService>>,
+    /// The one way to a git-host token: a named identity and a repository,
+    /// with no scope walk. Built here so the five credential ports it reads are
+    /// supplied in one place.
+    pub git_host_tokens: Arc<GitHostTokens>,
 
     /// The T3 UI-RPC read model (workspaces, conversations, tasks).
     pub ui_rpc_conversations: Arc<moatless_t3code::dao::PgConversationDao>,
@@ -173,6 +178,17 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
     let github_apps = github_app_registry(config, Some(adapter_apps), cipher);
     let github_app_service = github_apps.default_service();
 
+    let provider_tokens: Arc<dyn ProviderTokenDao> = Arc::new(PgProviderTokenDao(pool.clone()));
+    let provider_token_auth: Arc<dyn ProviderTokenAuthDao> =
+        Arc::new(PgProviderTokenAuthDao(pool.clone()));
+    let git_host_tokens = Arc::new(GitHostTokens::new(
+        provider_tokens.clone(),
+        provider_token_auth.clone(),
+        github_app_service.clone(),
+        github_apps.clone(),
+        secrets.clone(),
+    ));
+
     // One PgTaskDao serves both the TaskDao port and the E-(b) TaskAccess port.
     let task_dao = Arc::new(PgTaskDao(pool.clone()));
 
@@ -202,8 +218,8 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
         user_credentials: Arc::new(PgUserCredentialDao(pool.clone())),
         sessions: Arc::new(PgSessionDao(pool.clone())),
         api_keys,
-        provider_tokens: Arc::new(PgProviderTokenDao(pool.clone())),
-        provider_token_auth: Arc::new(PgProviderTokenAuthDao(pool.clone())),
+        provider_tokens,
+        provider_token_auth,
         token_verifier: Arc::new(crate::sandbox::jwt::JwtUserTokenVerifier::new(
             config.sandbox.task_token_secret.clone(),
         )),
@@ -214,6 +230,7 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
         pairing,
         github_apps,
         github_app_service,
+        git_host_tokens,
 
         ui_rpc_conversations: Arc::new(moatless_t3code::dao::PgConversationDao::new(pool.clone())),
 
@@ -325,6 +342,7 @@ impl Ports {
                 adapter_connections: self.adapter_connections.clone(),
                 github_app_service: self.github_app_service.clone(),
                 github_apps: self.github_apps.clone(),
+                git_host_tokens: self.git_host_tokens.clone(),
                 secrets: self.secrets.clone(),
                 task_access: self.task_access.clone(),
                 token_verifier: self.token_verifier.clone(),

@@ -12,6 +12,7 @@ use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
 use crate::repository::dao::RepositoryDao;
 use moatless_backend_core::access_control::resolve_scope_for_create;
+use moatless_identity::auth::users::UserDao;
 use moatless_identity::extractors::AuthUser;
 
 use super::dao::{WorkspaceDao, WorkspacePatch};
@@ -150,6 +151,46 @@ fn ensure_privileged_sandbox_fields(
     )))
 }
 
+/// Restrict naming the identity a Workspace runs as to admins, and require
+/// that the named user exists.
+///
+/// Naming one makes every Task on the Workspace reach a git host with that
+/// user's credential, so without this check anyone who can edit a Workspace
+/// could act as anybody. This is the rule Loop activation already applies to
+/// its own `run_as_user_id` (`loops/http/handlers.rs`).
+///
+/// An empty string clears the field and needs no user to exist, but still
+/// needs admin — un-naming an identity changes which credential the Workspace
+/// acts with just as much as naming one.
+async fn resolve_run_as_user(
+    ctx: &ScopeContext,
+    users: &dyn UserDao,
+    requested: Option<&String>,
+) -> Result<Option<Option<String>>, WorkspaceError> {
+    let Some(requested) = requested else {
+        return Ok(None);
+    };
+    if !ctx.is_admin {
+        return Err(WorkspaceError::Forbidden(
+            "runAsUserId may only be set by an admin — it makes every task on this \
+             workspace act with another account's git-host credential"
+                .to_string(),
+        ));
+    }
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Ok(Some(None));
+    }
+    let user = match requested.parse::<uuid::Uuid>() {
+        Ok(id) => users.get_user(&id).await?,
+        Err(_) => users.find_user_by_legacy_id(requested).await?,
+    };
+    user.map(|user| Some(Some(user.id.to_string())))
+        .ok_or_else(|| {
+            WorkspaceError::BadRequest(format!("Run-as user {requested} does not exist"))
+        })
+}
+
 /// Reject duplicate non-null mount names within a single request payload (the
 /// DB also enforces per-workspace uniqueness).
 fn ensure_unique_mount_names(placements: &[WorkspaceRepoInput]) -> Result<(), WorkspaceError> {
@@ -180,6 +221,7 @@ fn ensure_unique_mount_names(placements: &[WorkspaceRepoInput]) -> Result<(), Wo
 pub async fn create_workspace(
     State(workspaces): State<Arc<dyn WorkspaceDao>>,
     State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(users): State<Arc<dyn UserDao>>,
     auth: AuthUser,
     Json(req): Json<CreateWorkspaceRequest>,
 ) -> Result<(StatusCode, Json<WorkspaceResponse>), WorkspaceError> {
@@ -190,6 +232,13 @@ pub async fn create_workspace(
         req.sandbox_service_account.as_ref(),
         req.network_profile.as_ref(),
     )?;
+    let run_as_user_id = resolve_run_as_user(
+        &auth.scope_context(),
+        users.as_ref(),
+        req.run_as_user_id.as_ref(),
+    )
+    .await?
+    .flatten();
 
     let resolved = resolve_scope_for_create(&auth.scope_context(), req.scope.map(scope_from_wire))?;
 
@@ -215,6 +264,7 @@ pub async fn create_workspace(
         source_config_path: None,
         scope: resolved.scope,
         owner_user_id: resolved.owner_user_id,
+        run_as_user_id,
         created_by: Some(auth.user_id.clone().to_string()),
         deleted: Some(false),
         created_at: None,
@@ -321,6 +371,7 @@ pub async fn get_workspace(
 )]
 pub async fn update_workspace(
     State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(users): State<Arc<dyn UserDao>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,
@@ -336,6 +387,8 @@ pub async fn update_workspace(
         req.sandbox_service_account.as_ref(),
         req.network_profile.as_ref(),
     )?;
+    let run_as_user_id =
+        resolve_run_as_user(&ctx, users.as_ref(), req.run_as_user_id.as_ref()).await?;
 
     // Re-resolve owner_user_id when the scope changes.
     let (scope, owner_user_id) = match req.scope.map(scope_from_wire) {
@@ -367,6 +420,7 @@ pub async fn update_workspace(
             .resources
             .map(|config| to_json(Some(resource_config_from_wire(config)))),
         network_profile: req.network_profile.map(Some),
+        run_as_user_id,
         kind: None,
         // Provenance not editable via the write API.
         source: None,
@@ -433,6 +487,7 @@ pub async fn delete_workspace(
 /// Use `POST /{id}/reset-git` to re-enable git sync.
 pub async fn override_workspace(
     State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(users): State<Arc<dyn UserDao>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,
@@ -458,6 +513,8 @@ pub async fn override_workspace(
         req.sandbox_service_account.as_ref(),
         req.network_profile.as_ref(),
     )?;
+    let run_as_user_id =
+        resolve_run_as_user(&ctx, users.as_ref(), req.run_as_user_id.as_ref()).await?;
 
     let patch = WorkspacePatch {
         name: req.name,
@@ -478,6 +535,7 @@ pub async fn override_workspace(
             .resources
             .map(|config| to_json(Some(resource_config_from_wire(config)))),
         network_profile: req.network_profile.map(Some),
+        run_as_user_id,
         // Mark as manually managed; provenance columns stay unchanged.
         source: Some("manual".to_string()),
         kind: None,
@@ -833,6 +891,7 @@ mod tests {
             source_config_path: None,
             scope: moatless_backend_core::scope::Scope::User,
             owner_user_id: None,
+            run_as_user_id: None,
             created_by: None,
             deleted: Some(false),
             created_at: None,

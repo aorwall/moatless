@@ -17,7 +17,6 @@ use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::test_support::registry as ts;
 use crate::adapters::{AdapterKind, Adapters};
 use moatless_core::db::DbPool;
-use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::test_support::StubProviderTokens;
 use sqlx::postgres::PgPoolOptions;
 
@@ -42,12 +41,8 @@ fn registry_with_all_current_adapters() -> Adapters {
     Arc::new(
         crate::adapters::providers::github_pr::adapter::GithubPrAdapter::new(
             None,
-            None,
             "http://localhost".to_string(),
-            Arc::new(StubProviderTokens::default()),
-            None,
-            None,
-            Arc::new(GitHubAppRegistry::default()),
+            moatless_identity::git_host_tokens::seam_over(Arc::new(StubProviderTokens::default())),
         ),
     )
     .register_into(&mut providers);

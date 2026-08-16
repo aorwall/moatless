@@ -287,7 +287,6 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use moatless_identity::auth::codex_scope::CodexScope;
-    use moatless_identity::auth::github_scope::GitHubScope;
     use moatless_identity::auth::models::{
         GithubTokenPresence, ProviderAccessToken, ProviderToken,
     };
@@ -398,14 +397,14 @@ mod tests {
 
         async fn find_github_row(
             &self,
-            _scope: &GitHubScope,
+            _user_id: &str,
         ) -> Result<Option<ProviderToken>, sqlx::Error> {
             Ok(None)
         }
 
         async fn upsert_github_row(
             &self,
-            _scope: &GitHubScope,
+            _user_id: &str,
             _auth_method: &str,
             _access_token: &str,
             _token_type: Option<&str>,
@@ -416,7 +415,7 @@ mod tests {
             Ok(())
         }
 
-        async fn delete_github_row(&self, _scope: &GitHubScope) -> Result<(), sqlx::Error> {
+        async fn delete_github_row(&self, _user_id: &str) -> Result<(), sqlx::Error> {
             Ok(())
         }
 

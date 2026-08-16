@@ -55,7 +55,7 @@ impl RepositoryBranchSource for AppStateBranches {
     ) -> Result<moatless_api_schemas::repository::BranchListResponse, BranchListError> {
         list_branches(
             &self.0.repositories,
-            &self.0.repo_token_resolver,
+            &self.0.git_host_tokens,
             &self.0.provider_tokens,
             viewer,
             repository_id,
@@ -209,7 +209,12 @@ impl AppStateBoundPullRequests {
             .map_err(|error| PullRequestError::Failed(error.to_string()))?
             .ok_or(PullRequestError::NotFound)?;
         let remote_url = repository.remote_url.ok_or(PullRequestError::NotFound)?;
-        crate::repository::access::parse_github_owner_repo(&remote_url).ok_or_else(|| {
+        moatless_identity::git_host_repo::GitHostRepo::parse(
+            moatless_api_schemas::enums::RepositoryProvider::Github,
+            &remote_url,
+        )
+        .map(|repo| (repo.owner().to_string(), repo.name().to_string()))
+        .ok_or_else(|| {
             PullRequestError::Unavailable("This repository has no GitHub remote.".to_string())
         })
     }
@@ -280,10 +285,13 @@ async fn bind_thread_to_open_pr(
     else {
         return;
     };
-    let Some((owner, repo)) = crate::repository::access::parse_github_owner_repo(&remote_url)
-    else {
+    let Some(parsed) = moatless_identity::git_host_repo::GitHostRepo::parse(
+        moatless_api_schemas::enums::RepositoryProvider::Github,
+        &remote_url,
+    ) else {
         return;
     };
+    let (owner, repo) = (parsed.owner(), parsed.name());
     let Some(adapter) = state
         .adapter_installations
         .as_ref()
@@ -295,8 +303,8 @@ async fn bind_thread_to_open_pr(
         match crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
             &adapter,
             &viewer.user_id,
-            &owner,
-            &repo,
+            owner,
+            repo,
             branch,
         )
         .await

@@ -50,6 +50,10 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
+        /// Identity every task on this workspace acts as on a git host.
+        /// Admin only. Pass an empty string to clear it.
+        #[arg(long)]
+        run_as_user_id: Option<String>,
         /// Repository placements as a JSON array of {repositoryId,...} objects
         #[arg(long)]
         repos_json: Option<String>,
@@ -84,6 +88,10 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
+        /// Identity every task on this workspace acts as on a git host.
+        /// Admin only. Pass an empty string to clear it.
+        #[arg(long)]
+        run_as_user_id: Option<String>,
     },
     /// Override a git-synced workspace. Sets source=manual so git sync skips
     /// it going forward. Provenance fields are kept so the origin is visible.
@@ -114,6 +122,10 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
+        /// Identity every task on this workspace acts as on a git host.
+        /// Admin only. Pass an empty string to clear it.
+        #[arg(long)]
+        run_as_user_id: Option<String>,
     },
     /// Reset an overridden workspace back to git-managed. Re-syncs immediately
     /// from the repository — warning: local changes to this workspace, including
@@ -128,8 +140,9 @@ pub enum WorkspaceAction {
         yes: bool,
     },
     /// Manage provider credentials pinned to a workspace. A workspace
-    /// credential (e.g. a GitHub PAT) overrides the global credential and the
-    /// run-as user's own, so every task on the workspace authenticates with it.
+    /// credential (a GitLab token, say) overrides the run-as user's own, so
+    /// every task on the workspace authenticates with it. GitHub is not one of
+    /// them — set `--run-as-user-id` on the workspace instead.
     Credentials {
         #[command(subcommand)]
         action: CredentialAction,
@@ -143,7 +156,7 @@ pub enum CredentialAction {
     /// Pin a provider credential to a workspace, replacing any current value
     Set {
         workspace_id: String,
-        /// Provider: github, gitlab, gitness, openai, or anthropic
+        /// Provider: gitlab, gitness, openai, or anthropic
         provider: String,
         /// Credential value (use "-" to read from stdin)
         #[arg(long, short = 'v')]
@@ -155,7 +168,7 @@ pub enum CredentialAction {
     /// Remove a pinned credential; the workspace falls back to the run-as user
     Remove {
         workspace_id: String,
-        /// Provider: github, gitlab, gitness, openai, or anthropic
+        /// Provider: gitlab, gitness, openai, or anthropic
         provider: String,
     },
 }
@@ -196,6 +209,7 @@ pub async fn run(
             scripts_json,
             resources_json,
             network_profile,
+            run_as_user_id,
             repos_json,
         } => {
             let repos: Vec<WorkspaceRepoInput> = match repos_json.as_deref() {
@@ -217,6 +231,7 @@ pub async fn run(
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
+                run_as_user_id,
                 repos,
             };
             let created = client.api().create_workspace(&req).await?;
@@ -241,6 +256,7 @@ pub async fn run(
             scripts_json,
             resources_json,
             network_profile,
+            run_as_user_id,
         } => {
             let parsed_scope = parse_scope_arg(scope.as_deref())?;
             let req = UpdateWorkspaceRequest {
@@ -257,6 +273,7 @@ pub async fn run(
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
+                run_as_user_id,
             };
             let updated = client.api().update_workspace(&workspace_id, &req).await?;
             if json {
@@ -279,6 +296,7 @@ pub async fn run(
             scripts_json,
             resources_json,
             network_profile,
+            run_as_user_id,
         } => {
             let req = UpdateWorkspaceRequest {
                 name,
@@ -294,6 +312,7 @@ pub async fn run(
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
+                run_as_user_id,
             };
             let updated = client.api().override_workspace(&workspace_id, &req).await?;
             if json {

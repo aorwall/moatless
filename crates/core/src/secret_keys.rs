@@ -1,14 +1,19 @@
 //! Reserved secret-store key names that lower bands must name.
 //!
-//! A key lives here once a band below `sandbox` names it. `GITHUB_TOKEN` is
-//! named by identity- and workspaces-band credential code; the four
-//! model-credential keys are named by the tasks-band agent catalog, which reads
-//! them to state each agent's required credentials. The remaining provider keys
-//! (GitLab/Gitness tokens, git identity) stay in the sandbox module their only
-//! consumers sit beside.
+//! A key lives here once a band below `sandbox` names it. The three git-host
+//! token keys are named by identity- and workspaces-band credential code; the
+//! four model-credential keys are named by the tasks-band agent catalog, which
+//! reads them to state each agent's required credentials. The git identity keys
+//! stay in the sandbox module their only consumers sit beside.
 
 /// The reserved key name for a task's GitHub token secret.
 pub const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
+
+/// The reserved key name for a task's GitLab token secret.
+pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
+
+/// The reserved key name for a task's Gitness token secret.
+pub const GITNESS_TOKEN: &str = "GITNESS_TOKEN";
 
 /// Anthropic API key — a Claude agent's model credential.
 pub const ANTHROPIC_API_KEY: &str = "ANTHROPIC_API_KEY";

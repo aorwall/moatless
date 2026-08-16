@@ -71,6 +71,18 @@ repository_enum!(RepositoryProvider {
     Gitness => "gitness",
 });
 
+/// The transport spelling of the same closed set. This enum exists separately
+/// only to carry the `sqlx` impls the macro generates.
+impl From<RepositoryProvider> for moatless_api_schemas::enums::RepositoryProvider {
+    fn from(value: RepositoryProvider) -> Self {
+        match value {
+            RepositoryProvider::Github => Self::Github,
+            RepositoryProvider::Gitlab => Self::Gitlab,
+            RepositoryProvider::Gitness => Self::Gitness,
+        }
+    }
+}
+
 // =============================================================================
 // Repository (DB)
 // =============================================================================
@@ -93,14 +105,6 @@ pub struct Repository {
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_by: Option<String>,
-    /// Provider reachability of `remote_url`, stamped when the repo is
-    /// auto-created by a git-synced workspace: `unchecked` | `ok` | `not_found`
-    /// | `forbidden` | `error`. Defaults to `unchecked`.
-    pub access_status: String,
-    /// When `access_status` was last stamped.
-    pub access_checked_at: Option<DateTime<Utc>>,
-    /// Human-readable detail for a non-`ok` `access_status`.
-    pub access_error: Option<String>,
     pub deleted: Option<bool>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,

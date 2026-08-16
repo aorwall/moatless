@@ -87,16 +87,12 @@ impl std::fmt::Debug for ProviderAccessToken {
     }
 }
 
-/// Addressing info for the GitHub `provider_tokens` row that wins the
-/// `user > team > global` scope walk. Carries no token material — reading it
-/// requires no decrypt and no `mark_used` write, so `/me` can report setup
-/// state on every page load without touching the secrets table or GitHub.
+/// State of the GitHub `provider_tokens` row belonging to one user. Carries no
+/// token material — reading it requires no decrypt and no `mark_used` write, so
+/// `/me` can report setup state on every page load without touching the secrets
+/// table or GitHub.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct GithubTokenPresence {
-    /// `provider_tokens.scope` literal: `user` / `team` / `global`.
-    pub scope: String,
-    pub user_id: Option<String>,
-    pub team_id: Option<String>,
     pub auth_method: Option<String>,
     /// `metadata->>'login'` — the GitHub username, when known.
     pub login: Option<String>,

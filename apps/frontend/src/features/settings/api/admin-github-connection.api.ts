@@ -1,9 +1,6 @@
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import {
-  adminDeleteGlobalGithubInstallation,
-  adminGetGlobalGithubInstallation,
   adminListGithubApps,
-  adminPutGlobalGithubInstallation,
   adminRegisterGithubApp,
   adminRemoveGithubApp,
   adminRotateGithubAppKey,
@@ -12,8 +9,6 @@ import type {
   CreateUserResponse,
   GitHubAppRegistrationResponse,
   GitHubAppsResponse,
-  GitHubInstallationBindingRequest,
-  GitHubInstallationBindingResponse,
   RegisterGitHubAppRequest,
   RemoveGitHubAppResponse,
   RotateGitHubAppKeyRequest,
@@ -43,17 +38,4 @@ export const adminGithubConnectionApi = {
   // from GitHub rather than producing a second user.
   createBotUser: async (githubAppKey: string): Promise<CreateUserResponse> =>
     await unwrapResponse<CreateUserResponse>(createUserHandler({ isBot: true, githubAppKey })),
-
-  getGlobalInstallation: async (): Promise<GitHubInstallationBindingResponse> =>
-    await unwrapResponse<GitHubInstallationBindingResponse>(adminGetGlobalGithubInstallation()),
-
-  saveGlobalInstallation: async (
-    request: GitHubInstallationBindingRequest,
-  ): Promise<GitHubInstallationBindingResponse> =>
-    await unwrapResponse<GitHubInstallationBindingResponse>(
-      adminPutGlobalGithubInstallation(request),
-    ),
-
-  removeGlobalInstallation: async (): Promise<GitHubInstallationBindingResponse> =>
-    await unwrapResponse<GitHubInstallationBindingResponse>(adminDeleteGlobalGithubInstallation()),
 }

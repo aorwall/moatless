@@ -63,3 +63,4 @@ http-body-util = "0.1"
 moatless-core = { path = "../core", features = ["test-support"] }
 moatless-identity = { path = "../identity", features = ["test-support"] }
 moatless-tasks = { path = "../tasks", features = ["test-support"] }
+moatless-workspaces = { path = "../workspaces", features = ["test-support"] }

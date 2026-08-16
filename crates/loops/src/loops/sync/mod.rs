@@ -31,20 +31,23 @@ use crate::adapters::common::next_fire_at;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::models::RoutingMode;
 use crate::loops::dao::{LoopDao, ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
+use moatless_api_schemas::enums::RepositoryProvider as GitHostProvider;
+use moatless_identity::auth::actor::Actor;
 use moatless_identity::extractors::AuthUser;
+use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_identity::git_host_tokens::GitHostTokens;
 use moatless_tasks::tag::dao::TagDao;
-use moatless_workspaces::repository::access::{RepositoryTokenResolver, parse_github_owner_repo};
 use moatless_workspaces::repository::models::{Repository, RepositoryProvider};
 
 /// Reconciles a repository's committed loop declarations into the loop tables.
 ///
 /// Holds the four ports the reconcile tree reads: adapter connections, the loop
-/// store, tags, and the GitHub-token resolver.
+/// store, tags, and the git-host token seam.
 pub struct LoopSyncService {
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     loops: Arc<LoopDao>,
     tags: Arc<dyn TagDao>,
-    repo_token_resolver: Arc<RepositoryTokenResolver>,
+    git_host_tokens: Arc<GitHostTokens>,
 }
 
 impl LoopSyncService {
@@ -52,13 +55,13 @@ impl LoopSyncService {
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
         tags: Arc<dyn TagDao>,
-        repo_token_resolver: Arc<RepositoryTokenResolver>,
+        git_host_tokens: Arc<GitHostTokens>,
     ) -> Self {
         Self {
             adapter_connections,
             loops,
             tags,
-            repo_token_resolver,
+            git_host_tokens,
         }
     }
 }
@@ -87,7 +90,7 @@ impl LoopSyncService {
             return Ok(LoopSyncSummary::default());
         }
 
-        let token = self.resolve_github_token(repo, remote_url).await;
+        let token = self.resolve_github_token(auth, remote_url).await;
         let fetcher = GitHubLoopFetcher::new(loop_http_client());
         let files = fetcher
             .fetch_loop_files(remote_url, token.as_deref(), repo.default_branch.as_deref())
@@ -136,7 +139,7 @@ impl LoopSyncService {
                 message: "Loop sync only supports GitHub repositories".to_string(),
             });
         }
-        let token = self.resolve_github_token(repo, remote_url).await;
+        let token = self.resolve_github_token(auth, remote_url).await;
         let fetcher = GitHubLoopFetcher::new(loop_http_client());
         let files = fetcher
             .fetch_loop_files(remote_url, token.as_deref(), repo.default_branch.as_deref())
@@ -339,14 +342,15 @@ impl LoopSyncService {
                         "repository has no remote URL".to_string(),
                     ));
                 };
-                let Some((owner, repo_name)) = parse_github_owner_repo(remote_url) else {
+                let Some(parsed) = GitHostRepo::parse(GitHostProvider::Github, remote_url) else {
                     return Ok(ResolveOutcome::Skipped(format!(
                         "cannot parse owner/repo from {remote_url}"
                     )));
                 };
+                let (owner, repo_name) = (parsed.owner(), parsed.name());
                 let Some(connection) = self
                     .adapter_connections
-                    .find_by_external_account("github", &owner)
+                    .find_by_external_account("github", owner)
                     .await?
                 else {
                     return Ok(ResolveOutcome::Skipped(format!(
@@ -584,24 +588,21 @@ fn managed_loop_input(
 }
 
 impl LoopSyncService {
-    /// Resolve a GitHub token for loop fetching, best-effort.
+    /// The caller's own GitHub token for loop fetching, best-effort.
     ///
-    /// Goes through the canonical resolver so App / installation / `secret_ref`
-    /// rows all yield a usable token. Returns `None` (unauthenticated fetch, works
-    /// for public repos) when there's no connection or resolution fails.
-    async fn resolve_github_token(
-        &self,
-        repository: &Repository,
-        remote_url: &str,
-    ) -> Option<String> {
+    /// Returns `None` — an unauthenticated fetch, which works for public
+    /// repositories — when they have not connected GitHub or the credential
+    /// cannot be minted.
+    async fn resolve_github_token(&self, auth: &AuthUser, remote_url: &str) -> Option<String> {
+        let repo = GitHostRepo::parse(GitHostProvider::Github, remote_url)?;
         match self
-            .repo_token_resolver
-            .resolve(repository, remote_url)
+            .git_host_tokens
+            .token(&Actor::caller(&auth.scope_context()), &repo)
             .await
         {
-            Ok(token) => token,
+            Ok(token) => Some(token),
             Err(e) => {
-                warn!(error = %e, "Loop sync: failed to resolve GitHub token");
+                warn!(error = %e, "Loop sync: fetching unauthenticated");
                 None
             }
         }

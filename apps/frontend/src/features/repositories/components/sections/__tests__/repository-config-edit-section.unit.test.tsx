@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
   updateMutate: vi.fn(),
-  verifyMutate: vi.fn(),
 }))
 
 let currentRepository: RepositoryResponse
@@ -32,7 +31,6 @@ vi.mock('sonner', () => ({
 vi.mock('@/features/repositories/hooks/use-repositories', () => ({
   useRepository: () => ({ data: currentRepository, isLoading: false, error: null }),
   useUpdateRepository: () => ({ mutate: mocks.updateMutate, isPending: false }),
-  useVerifyRepositoryAccess: () => ({ mutate: mocks.verifyMutate, isPending: false }),
   useDeleteRepository: () => ({ mutate: vi.fn(), isPending: false }),
   useConvertToTemplate: () => ({ mutate: vi.fn(), isPending: false }),
   useSyncRepositoryConfig: () => ({
@@ -58,7 +56,6 @@ function repository(overrides: Partial<RepositoryResponse> = {}): RepositoryResp
     provider: 'github',
     scope: 'user',
     ownerUserId: 'owner-1',
-    accessStatus: 'unchecked',
     ...overrides,
   }
 }
@@ -118,15 +115,6 @@ describe('RepositoryConfigEditSection', () => {
     await user.keyboard('{ArrowDown}')
 
     expect(screen.getByRole('option', { name: 'User' })).toHaveAttribute('aria-disabled', 'true')
-  })
-
-  it('keeps verification disabled until edits are saved or discarded', async () => {
-    const user = userEvent.setup()
-    render(<RepositoryConfigEditSection repositoryId="repo-1" />)
-
-    expect(screen.getByRole('button', { name: 'Verify access' })).toBeEnabled()
-    await user.type(screen.getByDisplayValue('Repository'), ' changed')
-    expect(screen.getByRole('button', { name: 'Verify access' })).toBeDisabled()
   })
 
   it('triggers a Git configuration sync and reports success', async () => {

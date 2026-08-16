@@ -9,7 +9,6 @@ import {
   useRepository,
   useSyncRepositoryConfig,
   useUpdateRepository,
-  useVerifyRepositoryAccess,
 } from '@/features/repositories/hooks/use-repositories'
 import { ConfigurationSectionWrapper as ConfigurationSection } from '@/lib/components/configuration'
 import {
@@ -88,7 +87,6 @@ export function RepositoryConfigEditSection({
 }: RepositoryConfigEditSectionProps) {
   const { data: repository, isLoading, error } = useRepository(repositoryId)
   const updateRepository = useUpdateRepository()
-  const verifyRepositoryAccess = useVerifyRepositoryAccess()
   const deleteRepository = useDeleteRepository()
   const convertToTemplate = useConvertToTemplate()
   const syncRepositoryConfig = useSyncRepositoryConfig()
@@ -182,19 +180,6 @@ export function RepositoryConfigEditSection({
     }))
   }
 
-  const handleVerifyAccess = () => {
-    verifyRepositoryAccess.mutate(repositoryId, {
-      onSuccess: () => {
-        toast.success('Repository access verified')
-      },
-      onError: (error) => {
-        toast.error('Failed to verify repository access', {
-          description: getErrorMessage(error),
-        })
-      },
-    })
-  }
-
   const handleDelete = () => {
     deleteRepository.mutate(repositoryId, {
       onSuccess: () => {
@@ -265,13 +250,7 @@ export function RepositoryConfigEditSection({
         scope={formData.scope ?? repository.scope}
         ownerUserId={repository.ownerUserId}
         users={usersQuery.data?.users ?? []}
-        accessStatus={repository.accessStatus}
-        accessCheckedAt={repository.accessCheckedAt}
-        accessError={repository.accessError}
-        isDirty={hasChanges}
-        isVerifying={verifyRepositoryAccess.isPending}
         onScopeChange={handleScopeChange}
-        onVerify={handleVerifyAccess}
       />
 
       <div className="flex justify-between gap-3 pt-6 border-t">

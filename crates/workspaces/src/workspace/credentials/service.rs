@@ -440,6 +440,7 @@ mod tests {
             source_key: None,
             source_config_path: None,
             scope: Scope::User,
+            run_as_user_id: None,
             owner_user_id: Some(owner.to_string()),
             created_by: Some(owner.to_string()),
             deleted: Some(false),
@@ -479,16 +480,16 @@ mod tests {
         svc.set(
             &ctx("owner"),
             "ws_1",
-            WorkspaceCredentialProvider::Github,
-            "ghp_workspace",
+            WorkspaceCredentialProvider::Gitlab,
+            "glpat_workspace",
         )
         .await
         .expect("owner may set");
 
         let env = svc.resolve_env("ws_1").await.expect("resolves");
         assert_eq!(
-            env.get("GITHUB_TOKEN").map(String::as_str),
-            Some("ghp_workspace")
+            env.get("GITLAB_TOKEN").map(String::as_str),
+            Some("glpat_workspace")
         );
     }
 
@@ -500,15 +501,15 @@ mod tests {
         // start.
         let svc = service(cipher());
         let c = ctx("owner");
-        svc.set(&c, "ws_1", WorkspaceCredentialProvider::Github, "first")
+        svc.set(&c, "ws_1", WorkspaceCredentialProvider::Gitlab, "first")
             .await
             .unwrap();
-        svc.set(&c, "ws_1", WorkspaceCredentialProvider::Github, "second")
+        svc.set(&c, "ws_1", WorkspaceCredentialProvider::Gitlab, "second")
             .await
             .unwrap();
 
         let env = svc.resolve_env("ws_1").await.expect("resolves");
-        assert_eq!(env.get("GITHUB_TOKEN").map(String::as_str), Some("second"));
+        assert_eq!(env.get("GITLAB_TOKEN").map(String::as_str), Some("second"));
         assert_eq!(env.len(), 1, "replacement must not leave a second row");
     }
 
@@ -516,7 +517,7 @@ mod tests {
     async fn several_providers_resolve_to_their_own_slots() {
         let svc = service(cipher());
         let c = ctx("owner");
-        svc.set(&c, "ws_1", WorkspaceCredentialProvider::Github, "gh")
+        svc.set(&c, "ws_1", WorkspaceCredentialProvider::Gitlab, "glpat")
             .await
             .unwrap();
         svc.set(&c, "ws_1", WorkspaceCredentialProvider::Openai, "oa")
@@ -524,7 +525,7 @@ mod tests {
             .unwrap();
 
         let env = svc.resolve_env("ws_1").await.unwrap();
-        assert_eq!(env.get("GITHUB_TOKEN").map(String::as_str), Some("gh"));
+        assert_eq!(env.get("GITLAB_TOKEN").map(String::as_str), Some("glpat"));
         assert_eq!(env.get("OPENAI_API_KEY").map(String::as_str), Some("oa"));
     }
 
@@ -535,8 +536,8 @@ mod tests {
             .set(
                 &ctx("someone-else"),
                 "ws_1",
-                WorkspaceCredentialProvider::Github,
-                "ghp_x",
+                WorkspaceCredentialProvider::Gitlab,
+                "glpat_x",
             )
             .await
             .expect_err("only a controller may pin a credential");
@@ -556,7 +557,7 @@ mod tests {
             user_id: "root".to_string(),
             is_admin: true,
         };
-        svc.set(&admin, "ws_1", WorkspaceCredentialProvider::Github, "ghp_a")
+        svc.set(&admin, "ws_1", WorkspaceCredentialProvider::Gitlab, "glpat_a")
             .await
             .expect("admin controls every workspace");
     }
@@ -565,10 +566,10 @@ mod tests {
     async fn deleting_the_credential_empties_the_resolved_env() {
         let svc = service(cipher());
         let c = ctx("owner");
-        svc.set(&c, "ws_1", WorkspaceCredentialProvider::Github, "ghp_x")
+        svc.set(&c, "ws_1", WorkspaceCredentialProvider::Gitlab, "glpat_x")
             .await
             .unwrap();
-        svc.delete(&c, "ws_1", WorkspaceCredentialProvider::Github)
+        svc.delete(&c, "ws_1", WorkspaceCredentialProvider::Gitlab)
             .await
             .unwrap();
 
@@ -592,7 +593,7 @@ mod tests {
         svc.set(
             &c,
             "ws_1",
-            WorkspaceCredentialProvider::Github,
+            WorkspaceCredentialProvider::Gitlab,
             "ghp_secret",
         )
         .await
@@ -600,8 +601,8 @@ mod tests {
 
         let listed = svc.list(&c, "ws_1").await.unwrap();
         assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].provider, WorkspaceCredentialProvider::Github);
-        assert_eq!(listed[0].env_key, "GITHUB_TOKEN");
+        assert_eq!(listed[0].provider, WorkspaceCredentialProvider::Gitlab);
+        assert_eq!(listed[0].env_key, "GITLAB_TOKEN");
         let response = super::super::handlers::credential_response(listed[0].clone());
         let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("ghp_secret"), "{json}");
@@ -614,7 +615,7 @@ mod tests {
             .set(
                 &ctx("owner"),
                 "ws_1",
-                WorkspaceCredentialProvider::Github,
+                WorkspaceCredentialProvider::Gitlab,
                 "  ",
             )
             .await
@@ -638,8 +639,8 @@ mod tests {
             .set(
                 &ctx("owner"),
                 "ws_1",
-                WorkspaceCredentialProvider::Github,
-                "ghp_x",
+                WorkspaceCredentialProvider::Gitlab,
+                "glpat_x",
             )
             .await
             .expect_err("nothing may be stored unencrypted");
@@ -660,8 +661,8 @@ mod tests {
         good.set(
             &ctx("owner"),
             "ws_1",
-            WorkspaceCredentialProvider::Github,
-            "ghp_x",
+            WorkspaceCredentialProvider::Gitlab,
+            "glpat_x",
         )
         .await
         .unwrap();

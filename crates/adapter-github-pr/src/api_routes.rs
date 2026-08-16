@@ -10,11 +10,10 @@
 //! - webhook echo dedup (`recently_sent`) for the PR-opened / comment events
 //!
 //! Tokens come from the calling user's own GitHub row and nothing else — the
-//! same rule the sandbox's `GITHUB_TOKEN` follows since SP-2457, so the
-//! identity that pushed the branch is the identity that opens the PR. Neither
-//! the task repository's persisted scope nor the global `GITHUB_CHANNEL_TOKEN`
-//! is consulted, which is also what lets these routes reach a repository the
-//! task isn't bound to: the user's own access is the only thing that decides.
+//! same rule the sandbox's `GITHUB_TOKEN` follows, so the identity that pushed
+//! the branch is the identity that opens the PR. That is also what lets these
+//! routes reach a repository the task isn't bound to: the caller's own access
+//! is the only thing that decides.
 
 use std::sync::Arc;
 
@@ -32,7 +31,9 @@ use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::footer::FOOTER_MARKER;
 use moatless_loops::adapters::AdapterDestinationBuilder;
 use moatless_loops::bindings::recently_sent::RecentlySent;
+use moatless_identity::auth::actor::Actor;
 use moatless_identity::extractors::AuthUser;
+use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_tasks::task::dao::TaskDao;
 
 use super::adapter::GithubPrAdapter;
@@ -406,7 +407,7 @@ async fn resolve_github_api(
 ) -> Result<GithubPrApi, AdapterError> {
     adapter
         .auth()
-        .client_for_run_as_user(user_id, owner, repo_name)
+        .client_for(&Actor::of(user_id), &GitHostRepo::github(owner, repo_name))
         .await
 }
 

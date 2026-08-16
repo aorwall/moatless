@@ -638,7 +638,6 @@ mod tests {
             },
             github_pr: moatless_core::config::GithubPrConfig {
                 webhook_secret: None,
-                bot_token: None,
             },
             linear: moatless_core::config::LinearConfig {
                 webhook_secret: None,

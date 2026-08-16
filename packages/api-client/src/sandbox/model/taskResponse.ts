@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentType } from './agentType';
+import type { CheckoutMode } from './checkoutMode';
 import type { SandboxDesiredState } from './sandboxDesiredState';
 import type { SandboxStopReason } from './sandboxStopReason';
 import type { Scope } from './scope';
@@ -22,6 +23,7 @@ export interface TaskResponse {
   bindings?: TaskBindingSummary[];
   /** @nullable */
   branch?: string | null;
+  checkoutMode?: null | CheckoutMode;
   createdAt: string;
   /** @nullable */
   createdBy?: string | null;
@@ -69,6 +71,11 @@ intent, not live infrastructure status. */
   sandboxDesiredState: SandboxDesiredState;
   /** RFC3339 timestamp for the last desired-state transition. */
   sandboxDesiredStateUpdatedAt: string;
+  /**
+   * Sandbox this Task belongs to. `None` means it has never been started.
+   * @nullable
+   */
+  sandboxId?: string | null;
   /**
    * RFC3339 timestamp of when the sandbox was last started. `None` if the
 task has never had a sandbox running.

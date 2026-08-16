@@ -15,6 +15,8 @@ pub mod adapter_apps;
 pub mod auth;
 pub mod extractors;
 pub mod git_host_access;
+pub mod git_host_repo;
+pub mod git_host_tokens;
 pub mod secret;
 pub mod setup;
 pub mod team;

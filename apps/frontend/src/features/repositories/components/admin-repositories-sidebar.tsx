@@ -1,9 +1,8 @@
 import type { RepositoryResponse } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
-import { AlertTriangle, FileCode, FolderGit2, Plus } from 'lucide-react'
+import { FileCode, FolderGit2, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { accessFailureLabel, isAccessFailure } from '@/features/repositories/utils/access-status'
 import { getRepositoryLocation } from '@/features/repositories/utils/repository.utils'
 import { Github } from '@/lib/components/ui/brand-icons'
 import { Button } from '@/lib/components/ui/button'
@@ -56,17 +55,6 @@ export function AdminRepositoriesSidebar() {
           leading={getRepositoryIcon(repo)}
           primary={repo.name}
           secondary={getRepositoryLocation(repo) || undefined}
-          trailing={
-            isAccessFailure(repo.accessStatus) ? (
-              <span
-                className="flex shrink-0 items-center gap-1 text-destructive text-xs"
-                title={repo.accessError ?? accessFailureLabel(repo.accessStatus)}
-              >
-                <AlertTriangle className="h-3.5 w-3.5" />
-                {accessFailureLabel(repo.accessStatus)}
-              </span>
-            ) : undefined
-          }
         />
       ))}
     </ListDetailSidebar>

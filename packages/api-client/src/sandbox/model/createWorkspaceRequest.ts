@@ -26,6 +26,12 @@ export interface CreateWorkspaceRequest {
   /** Repository placements. May be empty (a blank/scratch workspace). */
   repos?: WorkspaceRepoInput[];
   resources?: null | ResourceConfig;
+  /**
+   * Identity every Task on this Workspace acts as on a git host. When set it
+outranks the Task's own owner.
+   * @nullable
+   */
+  runAsUserId?: string | null;
   /** @nullable */
   sandboxServiceAccount?: string | null;
   scope?: null | Scope;

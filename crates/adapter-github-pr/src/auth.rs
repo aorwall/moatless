@@ -4,25 +4,19 @@ use std::sync::Arc;
 
 use tracing::debug;
 
+use moatless_core::db::DbPool;
+use moatless_identity::auth::actor::Actor;
+use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::{BindingContext, SubscriptionMatch, TaskBinding};
-use moatless_identity::auth::credentials::resolve_user_github_token;
-use moatless_identity::auth::github::registry::GitHubAppRegistry;
-use moatless_identity::auth::github::service::GitHubAppService;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
-use moatless_identity::secret::service::SecretService;
-use moatless_core::db::DbPool;
 
 use super::api::GithubPrApi;
 
 pub(super) struct GithubPrAuth {
-    global_bot_token: Option<String>,
-    provider_tokens: Arc<dyn ProviderTokenDao>,
-    provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
-    github_app_service: Option<Arc<GitHubAppService>>,
-    github_apps: Arc<GitHubAppRegistry>,
-    secrets: Option<Arc<SecretService>>,
+    /// The one way to a git-host token. This Adapter holds no credential of its
+    /// own: every use case below names an identity and a repository.
+    git_host_tokens: Arc<GitHostTokens>,
     /// REST root every client below is built against, when a test injected one.
     ///
     /// Unlike Slack and Telegram there is no single client to hand in: a token
@@ -39,27 +33,12 @@ pub(super) struct AuthenticatedGithub {
 }
 
 impl GithubPrAuth {
-    pub(super) fn new(
-        global_bot_token: Option<String>,
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-        provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
-        github_app_service: Option<Arc<GitHubAppService>>,
-        github_apps: Arc<GitHubAppRegistry>,
-    ) -> Self {
+    pub(super) fn new(git_host_tokens: Arc<GitHostTokens>) -> Self {
         Self {
-            global_bot_token,
-            provider_tokens,
-            provider_token_auth,
-            github_app_service,
-            github_apps,
-            secrets: None,
+            git_host_tokens,
             #[cfg(test)]
             api_base: None,
         }
-    }
-
-    pub(super) fn set_secrets(&mut self, secrets: Arc<SecretService>) {
-        self.secrets = Some(secrets);
     }
 
     #[cfg(test)]
@@ -90,10 +69,10 @@ impl GithubPrAuth {
         github_login: &str,
         rule: &SubscriptionMatch,
         db: &DbPool,
-        repository_owner: &str,
+        repo: &GitHostRepo,
     ) -> Result<AuthenticatedGithub, AdapterError> {
         let user_id = resolve_sender_user(github_login, rule, db).await;
-        let api = self.client_for_user(&user_id, repository_owner).await?;
+        let api = self.client_for(&Actor::of(&user_id), repo).await?;
         Ok(AuthenticatedGithub { user_id, api })
     }
 
@@ -102,163 +81,104 @@ impl GithubPrAuth {
         author_user_id: Option<&str>,
         binding: &TaskBinding,
         rule: Option<&SubscriptionMatch>,
-        repository_owner: &str,
+        repo: &GitHostRepo,
     ) -> Result<GithubPrApi, AdapterError> {
-        let user_id = outbound_user_id(author_user_id, binding, rule).ok_or_else(|| {
-            SharedAdapterError::AdapterApi(
-                "Cannot resolve GitHub token: no task owner, binding filter_user_id, \
-                 or task trigger attached"
-                    .into(),
-            )
-        })?;
-        self.client_for_user(&user_id, repository_owner).await
+        let actor = outbound_actor(author_user_id, binding, rule)?;
+        self.client_for(&actor, repo).await
     }
 
     pub(super) async fn client_for_reaction(
         &self,
         binding: &BindingContext,
-        repository_owner: &str,
+        repo: &GitHostRepo,
     ) -> Result<GithubPrApi, AdapterError> {
-        let token = self.reaction_token(binding, repository_owner).await?;
-        Ok(self.client(&token))
-    }
-
-    async fn reaction_token(
-        &self,
-        binding: &BindingContext,
-        repository_owner: &str,
-    ) -> Result<String, AdapterError> {
-        let user_id = binding_filter_user_id(&binding.destination_config, &binding.metadata);
-        if let Some(user_id) = user_id {
-            return self
-                .resolve_token_for_user(user_id, Some(repository_owner))
-                .await;
-        }
-
-        self.global_token().map(str::to_string).ok_or_else(|| {
-            SharedAdapterError::AdapterApi(
-                "No GitHub token available for reactions: binding has no filter_user_id and \
-                 GITHUB_CHANNEL_TOKEN env is not set"
-                    .into(),
-            )
-            .into()
-        })
+        let actor = reaction_actor(binding)?;
+        self.client_for(&actor, repo).await
     }
 
     pub(super) async fn client_for_live_status(
         &self,
         acting_user: &str,
-        repository_owner: &str,
+        repo: &GitHostRepo,
     ) -> Result<GithubPrApi, AdapterError> {
-        self.client_for_user(acting_user, repository_owner).await
+        self.client_for(&Actor::of(acting_user), repo).await
     }
 
-    async fn client_for_user(
-        &self,
-        user_id: &str,
-        repository_owner: &str,
-    ) -> Result<GithubPrApi, AdapterError> {
-        let token = self
-            .resolve_token_for_user(user_id, Some(repository_owner))
-            .await?;
-        Ok(self.client(&token))
-    }
-
-    /// Mint a GitHub client from `user_id`'s OWN GitHub row, scoped to
-    /// `owner`/`repo` — the `moat gh` typed-API path (SP-2457), where the
-    /// identity that pushed the branch is the identity that opens the PR or
-    /// posts the comment. Wraps
-    /// [`moatless_identity::auth::credentials::resolve_run_as_user_github_token`], which
-    /// reads only the user's own row keyed on `owner`+`repo`.
+    /// Mint a GitHub client from `actor`'s OWN row, scoped to `repo`.
     ///
-    /// What it deliberately does NOT do, unlike [`Self::client_for_user`]:
-    /// - no scope walk — the repository's persisted scope and the global row are
-    ///   never consulted;
-    /// - no `GITHUB_CHANNEL_TOKEN` bot-token fallback;
-    /// - it fails closed — a user with no matching row cannot reach GitHub here
-    ///   rather than silently acting as the bot.
+    /// This is the only credential rule this Adapter has, for every one of its
+    /// use cases. The identity that pushed the branch is the identity that
+    /// opens the pull request, posts the comment and adds the reaction.
+    ///
+    /// It performs no scope walk: the repository's persisted scope, the org
+    /// credential and the deployment's environment are never consulted. An
+    /// identity with no row cannot reach GitHub here rather than silently
+    /// acting as somebody else.
     ///
     /// Which repository is named therefore only scopes the token, never whether
-    /// one is found: a PR against a repo the task isn't bound to resolves exactly
-    /// like one against its own.
-    ///
-    /// A third GitHub credential policy exists and deliberately does NOT live on
-    /// this struct: the repository-scoped one, keyed on the task's repository row
-    /// rather than on any user and deferring to `RepositoryTokenResolver` — see
-    /// `shell_reconcile::resolve_task_repository_github_token`. It stays with the
-    /// repository ports because it selects no identity; this method and
-    /// `client_for_user` are the two that answer "which identity acts", so a
-    /// reader meeting both here should know the identity-independent one is over
-    /// there.
-    pub(super) async fn client_for_run_as_user(
+    /// one is found: a pull request against a repo the task is not bound to
+    /// resolves exactly like one against its own.
+    pub(super) async fn client_for(
         &self,
-        user_id: &str,
-        owner: &str,
-        repo: &str,
+        actor: &Actor,
+        repo: &GitHostRepo,
     ) -> Result<GithubPrApi, AdapterError> {
-        let token = moatless_identity::auth::credentials::resolve_run_as_user_github_token(
-            self.provider_tokens.as_ref(),
-            self.provider_token_auth.as_deref(),
-            self.github_app_service.as_deref(),
-            self.github_apps.as_ref(),
-            self.secrets.as_deref(),
-            user_id,
-            owner,
-            repo,
-        )
-        .await
-        .map_err(|source| AdapterError::UserCredential {
-            user_id: user_id.to_string(),
-            source,
-        })?
-        .ok_or_else(|| {
-            SharedAdapterError::AdapterApi(format!(
-                "User {user_id} has no GitHub credential — connect GitHub to act on {owner}/{repo}"
-            ))
-        })?;
+        let token = self
+            .git_host_tokens
+            .token(actor, repo)
+            .await
+            .map_err(|source| adapter_error(actor, source))?;
         Ok(self.client(&token))
     }
+}
 
-    async fn resolve_token_for_user(
-        &self,
-        user_id: &str,
-        repository_owner: Option<&str>,
-    ) -> Result<String, AdapterError> {
-        match resolve_user_github_token(
-            self.provider_tokens.as_ref(),
-            self.provider_token_auth.as_deref(),
-            self.github_app_service.as_deref(),
-            self.github_apps.as_ref(),
-            self.secrets.as_deref(),
-            user_id,
-            repository_owner,
-        )
-        .await
-        {
-            Ok(Some(token)) if !token.is_empty() => return Ok(token),
-            Ok(_) => {}
-            Err(source) => {
-                return Err(AdapterError::UserCredential {
-                    user_id: user_id.to_string(),
-                    source,
-                });
-            }
-        }
-
-        if let Some(token) = self.global_token() {
-            return Ok(token.to_string());
-        }
-
-        Err(SharedAdapterError::AdapterApi(format!(
-            "No GitHub token available: user {user_id} has no GitHub provider token and GITHUB_CHANNEL_TOKEN env is not set"
-        )).into())
+/// A failed resolution keeps the seam's own message: it already distinguishes
+/// "has not connected" from "cannot reach this repository" from "broken", and
+/// those have three different remedies.
+fn adapter_error(actor: &Actor, source: GitHostTokenError) -> AdapterError {
+    match source {
+        GitHostTokenError::Database(e) => AdapterError::from(SharedAdapterError::AdapterApi(
+            format!("GitHub token lookup failed for {actor}: {e}"),
+        )),
+        other => SharedAdapterError::AdapterApi(other.to_string()).into(),
     }
+}
 
-    fn global_token(&self) -> Option<&str> {
-        self.global_bot_token
-            .as_deref()
-            .filter(|token| !token.is_empty())
-    }
+/// The identity an outbound reply acts as: the task's own author, else the
+/// binding's filter user, else the subscription's run-as user.
+fn outbound_actor(
+    author_user_id: Option<&str>,
+    binding: &TaskBinding,
+    rule: Option<&SubscriptionMatch>,
+) -> Result<Actor, AdapterError> {
+    outbound_user_id(author_user_id, binding, rule)
+        .map(Actor::of)
+        .ok_or_else(|| {
+            SharedAdapterError::AdapterApi(
+                "Cannot resolve GitHub token: no task owner, binding filter_user_id, \
+                 or task trigger attached"
+                    .into(),
+            )
+            .into()
+        })
+}
+
+/// The identity a reaction acts as.
+///
+/// A `BindingContext` carries no author and no subscription, so the precedence
+/// starts at the binding's filter user. There is no deployment-wide fallback
+/// below it: a reaction is posted by somebody, and nobody is not an answer.
+fn reaction_actor(binding: &BindingContext) -> Result<Actor, AdapterError> {
+    binding_filter_user_id(&binding.destination_config, &binding.metadata)
+        .map(Actor::of)
+        .ok_or_else(|| {
+            SharedAdapterError::AdapterApi(
+                "Cannot resolve GitHub token for a reaction: the binding names no \
+                 filter_user_id"
+                    .into(),
+            )
+            .into()
+        })
 }
 
 pub(super) async fn resolve_sender_user(
@@ -323,21 +243,10 @@ mod tests {
     use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
 
-    fn fake_github_apps() -> Arc<GitHubAppRegistry> {
-        Arc::new(GitHubAppRegistry::default())
-    }
-
-    fn auth_with_tokens(
-        global_token: Option<&str>,
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-    ) -> GithubPrAuth {
-        GithubPrAuth::new(
-            global_token.map(str::to_string),
+    fn auth_with_tokens(provider_tokens: Arc<dyn ProviderTokenDao>) -> GithubPrAuth {
+        GithubPrAuth::new(moatless_identity::git_host_tokens::seam_over(
             provider_tokens,
-            None,
-            None,
-            fake_github_apps(),
-        )
+        ))
     }
 
     fn binding_with_filter(filter_user_id: Option<&str>) -> TaskBinding {
@@ -369,9 +278,9 @@ mod tests {
     }
 
     fn rule_with_run_as(user_id: &str) -> SubscriptionMatch {
-        use moatless_loops::adapters::models::RoutingMode;
         use chrono::Utc;
         use moatless_backend_core::scope::Scope;
+        use moatless_loops::adapters::models::RoutingMode;
 
         SubscriptionMatch {
             id: "rule".into(),
@@ -425,101 +334,98 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn reaction_identity_prefers_binding_filter_then_non_empty_global_token() {
-        let auth = auth_with_tokens(
-            Some("global-token"),
-            Arc::new(StubProviderTokens::with_user_row_for(
-                "filter-user",
-                github_row("manual", "filter-token"),
-            )),
-        );
-        let binding = BindingContext {
+    fn binding_context(filter_user_id: Option<&str>) -> BindingContext {
+        BindingContext {
             binding_id: "binding".into(),
             loop_id: None,
             task_id: "task".into(),
             subject_kind: "github_pr".into(),
             subject_key: "soaplabs/repo#42".into(),
-            destination_config: serde_json::json!({"filter_user_id": "filter-user"}),
+            destination_config: match filter_user_id {
+                Some(id) => serde_json::json!({ "filter_user_id": id }),
+                None => serde_json::json!({}),
+            },
             metadata: serde_json::json!({}),
             last_external_event_id: None,
             last_message_at: chrono::Utc::now(),
             created_at: chrono::Utc::now(),
-        };
+        }
+    }
 
+    #[test]
+    fn reaction_identity_is_the_binding_filter_user_and_nothing_below_it() {
         assert_eq!(
-            auth.reaction_token(&binding, "soaplabs").await.unwrap(),
-            "filter-token"
+            reaction_actor(&binding_context(Some("filter-user")))
+                .expect("a named filter user is an identity")
+                .user_id(),
+            "filter-user"
         );
-
-        let mut no_filter = binding.clone();
-        no_filter.destination_config = serde_json::json!({});
-        assert_eq!(
-            auth.reaction_token(&no_filter, "soaplabs").await.unwrap(),
-            "global-token"
-        );
-
-        let empty_global = auth_with_tokens(Some(""), Arc::new(StubProviderTokens::default()));
         assert!(
-            empty_global
-                .reaction_token(&no_filter, "soaplabs")
-                .await
-                .is_err()
+            reaction_actor(&binding_context(None)).is_err(),
+            "a binding naming nobody has no deployment-wide fallback to reach"
         );
     }
 
     #[tokio::test]
-    async fn user_credentials_keep_non_empty_global_fallback() {
-        let auth = auth_with_tokens(
-            Some("global-token"),
-            Arc::new(StubProviderTokens::default()),
-        );
-        assert_eq!(
-            auth.resolve_token_for_user("unmapped-user", Some("soaplabs"))
-                .await
-                .unwrap(),
-            "global-token"
-        );
-
-        let empty_global = auth_with_tokens(Some(""), Arc::new(StubProviderTokens::default()));
+    async fn a_reaction_acts_as_the_binding_filter_user() {
+        let auth = auth_with_tokens(Arc::new(StubProviderTokens::with_user_row_for(
+            "filter-user",
+            github_row("manual", "filter-token"),
+        )));
         assert!(
-            empty_global
-                .resolve_token_for_user("unmapped-user", Some("soaplabs"))
-                .await
-                .is_err()
+            auth.client_for_reaction(
+                &binding_context(Some("filter-user")),
+                &GitHostRepo::github("soaplabs", "repo"),
+            )
+            .await
+            .is_ok()
         );
     }
 
     #[tokio::test]
-    async fn github_app_installation_resolution_keeps_repository_owner_context() {
+    async fn an_identity_with_no_row_cannot_reach_github() {
+        // The deleted fallback, asserted as absent: no env token, no org row,
+        // no other identity.
+        let auth = auth_with_tokens(Arc::new(StubProviderTokens::default()));
+        let error = auth
+            .client_for(
+                &Actor::of("unmapped-user"),
+                &GitHostRepo::github("soaplabs", "repo"),
+            )
+            .await
+            .err()
+            .expect("an identity holding no row has no token");
+        assert!(
+            error.to_string().contains("has not connected"),
+            "got {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_installation_row_resolves_against_the_named_repository() {
         let mut row = github_row(
             moatless_identity::auth::provider_tokens::AUTH_METHOD_APP_INSTALLATION,
             moatless_identity::auth::provider_tokens::APP_INSTALLATION_TOKEN_PLACEHOLDER,
         );
         row.provider_user_id = Some("missing-test-app".to_string());
-        let auth = auth_with_tokens(
-            None,
-            Arc::new(StubProviderTokens::with_user_row_for("bot-user", row)),
-        );
+        let auth = auth_with_tokens(Arc::new(StubProviderTokens::with_user_row_for(
+            "bot-user", row,
+        )));
 
-        let with_owner = auth
-            .resolve_token_for_user("bot-user", Some("soaplabs"))
+        // The repository is now mandatory in the signature, so the only way to
+        // fail is the registry lookup — which is where an unregistered App key
+        // must surface rather than being masked by an owner-wide mint.
+        let error = auth
+            .client_for(
+                &Actor::of("bot-user"),
+                &GitHostRepo::github("soaplabs", "repo"),
+            )
             .await
-            .expect_err("the test registry has no App");
+            .err()
+            .expect("the test registry has no App");
         assert!(
-            with_owner.to_string().contains("unknown GitHub App key"),
-            "the resolver got past its mandatory repository-owner check: {with_owner}"
-        );
-
-        let without_owner = auth
-            .resolve_token_for_user("bot-user", None)
-            .await
-            .expect_err("installation auth requires repository owner context");
-        assert!(
-            without_owner
-                .to_string()
-                .contains("no repo owner in context"),
-            "{without_owner}"
+            error.to_string().contains("unknown GitHub App key"),
+            "got {error}"
         );
     }
 }

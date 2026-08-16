@@ -24,6 +24,12 @@ export interface UpdateWorkspaceRequest {
   /** @nullable */
   networkProfile?: string | null;
   resources?: null | ResourceConfig;
+  /**
+   * Identity every Task on this Workspace acts as on a git host. When set it
+outranks the Task's own owner. An explicit empty string clears it.
+   * @nullable
+   */
+  runAsUserId?: string | null;
   /** @nullable */
   sandboxServiceAccount?: string | null;
   scope?: null | Scope;

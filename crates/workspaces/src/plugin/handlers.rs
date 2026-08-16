@@ -5,6 +5,7 @@ use axum::extract::{Path, Query, State};
 
 use std::sync::Arc;
 
+use moatless_identity::auth::actor::Actor;
 use moatless_identity::extractors::AuthUser;
 
 use super::activation;
@@ -138,7 +139,7 @@ pub async fn delete_plugin(
 pub async fn list_plugin_skills(
     State(plugins): State<Arc<dyn PluginDao>>,
     State(plugin_sync): State<Arc<PluginSyncService>>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<PluginSkillResponse>>, PluginError> {
     let plugin = plugins
@@ -146,7 +147,9 @@ pub async fn list_plugin_skills(
         .await?
         .ok_or_else(|| PluginError::NotFound(format!("Plugin '{id}' not found")))?;
 
-    let skills = plugin_sync.skills(&plugin).await?;
+    let skills = plugin_sync
+        .skills(&Actor::caller(&auth.scope_context()), &plugin)
+        .await?;
     Ok(Json(
         skills
             .into_iter()

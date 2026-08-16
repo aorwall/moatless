@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use moatless_backend::adapters::delivery::{
-    spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
+    AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission, spawn_adapter_delivery_worker,
 };
 use moatless_backend::adapters::providers::linear;
 use moatless_backend::state::AppState;
@@ -385,13 +385,7 @@ async fn count_records(pool: &PgPool, kind: &str, event_id: &str) -> i64 {
 async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_crash(pool: PgPool) {
     let (base_url, _stub) = default_branch_stub("trunk").await;
     let _github_api = common::github_api_base(&base_url).await;
-    // The token the post-merge read authenticates with. The other three GitHub
-    // kinds never get far enough to need one.
-    let credentialed = || {
-        let mut config = test_config();
-        config.github_pr.bot_token = Some("global-token".to_string());
-        config
-    };
+    let credentialed = test_config;
 
     seed_connection(&pool, CONNECTION_ID, "github", "acme").await;
     seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;

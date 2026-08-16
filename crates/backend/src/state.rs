@@ -32,7 +32,6 @@ use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use crate::plugin::dao::PluginDao;
 use crate::plugin::sync::PluginSyncService;
-use crate::repository::access::RepositoryTokenResolver;
 use crate::repository::dao::RepositoryDao;
 use crate::sandbox::lifecycle::{Lifecycle, NotifyPort};
 use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator, RealPreflight};
@@ -60,6 +59,7 @@ use moatless_core::config::{AuthConfig, CodexOAuthConfig, Config, S3Config, Secr
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 use moatless_identity::git_host_access::{GitHostAccess, ProviderGitHostTokenValidator};
+use moatless_identity::git_host_tokens::GitHostTokens;
 
 /// Shared application state for task/message/agent/file routes.
 ///
@@ -179,9 +179,9 @@ pub struct AppState {
     pub messages: Arc<dyn MessageDao>,
     pub feedback: Arc<dyn FeedbackDao>,
     pub repositories: Arc<dyn RepositoryDao>,
-    /// Resolves a repository's GitHub token from the credential ports, for the
-    /// operations that carry no run-as identity (the repository scope selects).
-    pub repo_token_resolver: Arc<RepositoryTokenResolver>,
+    /// The one way to obtain a git-host token: a named identity and a
+    /// repository, with no scope walk.
+    pub git_host_tokens: Arc<GitHostTokens>,
     pub tags: Arc<dyn TagDao>,
     pub files: Arc<dyn FileDao>,
     pub users: Arc<dyn UserDao>,
@@ -286,6 +286,7 @@ impl AppState {
             secrets,
             github_apps,
             github_app_service,
+            git_host_tokens,
             token_verifier,
             ..
         } = ports.clone();
@@ -320,27 +321,18 @@ impl AppState {
             connector.clone(),
         ));
 
-        let repo_token_resolver = Arc::new(RepositoryTokenResolver::new(
-            provider_tokens.clone(),
-            provider_token_auth.clone(),
-            github_app_service.clone(),
-            github_apps.clone(),
-            secrets.clone(),
-        ));
-
         let git_sync = Arc::new(GitSyncService::new(
             pool.clone(),
             workspaces.clone(),
             repositories.clone(),
-            provider_tokens.clone(),
-            repo_token_resolver.clone(),
+            git_host_tokens.clone(),
         ));
 
         let loop_sync = Arc::new(LoopSyncService::new(
             adapter_connections.clone(),
             loops.clone(),
             tags.clone(),
-            repo_token_resolver.clone(),
+            git_host_tokens.clone(),
         ));
 
         // Hoisted so the self-echo filter and the struct literal share one cache.
@@ -388,20 +380,12 @@ impl AppState {
         let plugin_sync = Arc::new(PluginSyncService::new(
             plugins.clone(),
             skill_fetcher.clone(),
-            provider_tokens.clone(),
-            provider_token_auth.clone(),
-            github_app_service.clone(),
-            github_apps.clone(),
-            secrets.clone(),
+            git_host_tokens.clone(),
         ));
         let skills = Arc::new(SkillService::new(
             repositories.clone(),
             plugins.clone(),
-            provider_tokens.clone(),
-            provider_token_auth.clone(),
-            github_app_service.clone(),
-            github_apps.clone(),
-            secrets.clone(),
+            git_host_tokens.clone(),
             skill_fetcher,
             plugin_sync.clone(),
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
@@ -413,12 +397,9 @@ impl AppState {
         // `task_creation` does rather than reassembling the check per request.
         let preflight: Arc<dyn PreflightPort> = Arc::new(RealPreflight::new(
             PreflightCredentials {
-                secrets: secrets.clone(),
-                provider_tokens: provider_tokens.clone(),
-                github_app_service: github_app_service.clone(),
-                provider_token_auth: provider_token_auth.clone(),
-                github_apps: github_apps.clone(),
+                git_host_tokens: git_host_tokens.clone(),
                 users: users.clone(),
+                workspaces: workspaces.clone(),
                 credential_sync: credential_sync.clone(),
                 workspace_credentials: workspace_credentials.clone(),
             },
@@ -461,8 +442,6 @@ impl AppState {
         ));
         let app_administration = Arc::new(AppAdministration::new(
             github_apps.clone(),
-            provider_tokens.clone(),
-            adapter_connections.clone(),
             users.clone(),
             Arc::new(ProviderGitHubAppProver),
         ));
@@ -538,7 +517,7 @@ impl AppState {
             messages,
             feedback,
             repositories,
-            repo_token_resolver,
+            git_host_tokens,
             tags,
             files,
             users,
@@ -701,9 +680,9 @@ impl axum::extract::FromRef<AppState> for Arc<LoopSyncService> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<RepositoryTokenResolver> {
+impl axum::extract::FromRef<AppState> for Arc<GitHostTokens> {
     fn from_ref(state: &AppState) -> Self {
-        state.repo_token_resolver.clone()
+        state.git_host_tokens.clone()
     }
 }
 

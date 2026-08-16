@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use moatless_backend::compose::{compose, LifecycleOptions};
+use moatless_backend::compose::{LifecycleOptions, compose};
 use moatless_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_backend::sandbox::client::SandboxClient;
@@ -403,7 +403,6 @@ pub fn test_config() -> Config {
         },
         github_pr: GithubPrConfig {
             webhook_secret: None,
-            bot_token: None,
         },
         linear: linear_config(None, None),
         skill: SkillConfig { cache_ttl_secs: 60 },
@@ -599,9 +598,6 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         scope: moatless_core::scope::Scope::User,
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
-        access_status: "unchecked".to_string(),
-        access_checked_at: None,
-        access_error: None,
         deleted: Some(false),
         created_at: Some(now),
         updated_at: Some(now),
@@ -826,6 +822,7 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         source_repository_id: None,
         source_key: None,
         source_config_path: None,
+        run_as_user_id: None,
         scope: moatless_core::scope::Scope::User,
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
