@@ -11,6 +11,7 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use moatless_backend_core::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -124,21 +125,20 @@ fn strip_user_headers(req: &mut Request<Body>) {
 
 fn insert_auth_extensions(req: &mut Request<Body>, identity: AuthIdentity, method: AuthMethod) {
     let ui_rpc_role = match identity.role.as_str() {
-        "admin" => moatless_t3code::UserRole::Admin,
-        _ => moatless_t3code::UserRole::User,
+        "admin" => UserRole::Admin,
+        _ => UserRole::User,
     };
-    req.extensions_mut()
-        .insert(moatless_t3code::UiRpcAuthIdentity {
-            user_id: identity.user_id,
-            login: identity.login.clone(),
-            role: ui_rpc_role,
-            provider: identity.provider.clone(),
-            group_id: identity.group_id.clone(),
-        });
+    req.extensions_mut().insert(UiRpcAuthIdentity {
+        user_id: identity.user_id,
+        login: identity.login.clone(),
+        role: ui_rpc_role,
+        provider: identity.provider.clone(),
+        group_id: identity.group_id.clone(),
+    });
     req.extensions_mut().insert(match method {
-        AuthMethod::SessionCookie => moatless_t3code::UiRpcAuthMethod::SessionCookie,
-        AuthMethod::ApiKey => moatless_t3code::UiRpcAuthMethod::ApiKey,
-        AuthMethod::WebSocketTicket => moatless_t3code::UiRpcAuthMethod::WebSocketTicket,
+        AuthMethod::SessionCookie => UiRpcAuthMethod::SessionCookie,
+        AuthMethod::ApiKey => UiRpcAuthMethod::ApiKey,
+        AuthMethod::WebSocketTicket => UiRpcAuthMethod::WebSocketTicket,
     });
     req.extensions_mut().insert(identity);
     req.extensions_mut().insert(method);

@@ -19,3 +19,4 @@ pub mod models;
 pub mod pairing;
 pub mod sandbox;
 pub mod scope;
+pub mod ui_rpc;

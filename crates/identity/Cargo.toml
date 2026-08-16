@@ -39,7 +39,6 @@ moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
 moatless-core = { path = "../core", features = ["openapi"] }
 moatless-adapter-model = { path = "../adapter-model" }
-moatless-t3code = { path = "../t3code" }
 
 [features]
 # Exposes the `#[cfg(any(test, feature = "test-support"))]` `test_support` modules

@@ -1,3 +1,4 @@
+use moatless_backend_core::ui_rpc::UiRpcAuthIdentity;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -14,30 +15,6 @@ pub struct UiRpcSessionClaims {
     pub iat: u64,
     pub exp: u64,
     pub iss: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UserRole {
-    Admin,
-    User,
-}
-
-impl UserRole {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Admin => "admin",
-            Self::User => "user",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct UiRpcAuthIdentity {
-    pub user_id: Uuid,
-    pub login: String,
-    pub role: UserRole,
-    pub provider: String,
-    pub group_id: Option<String>,
 }
 
 pub fn generate_ws_ticket_jwt(
@@ -78,11 +55,4 @@ pub fn verify_ws_ticket_jwt(
         &validation,
     )
     .map(|data| data.claims)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UiRpcAuthMethod {
-    SessionCookie,
-    ApiKey,
-    WebSocketTicket,
 }

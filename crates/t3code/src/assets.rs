@@ -42,9 +42,9 @@ use moatless_backend_core::sandbox::{SandboxError, classify_grpc_error};
 use serde_json::{Value, json};
 use tracing::{debug, warn};
 
-use crate::auth::UiRpcAuthIdentity;
 use crate::workspace::{self, WorkspaceAccessError};
 use crate::{UiRpcState, projection, viewer_scope};
+use moatless_backend_core::ui_rpc::UiRpcAuthIdentity;
 
 /// Where [`create_url`]'s answers point, and what [`serve`] is mounted at.
 pub(crate) const ASSET_ROUTE_PREFIX: &str = "/api/assets";

@@ -24,8 +24,9 @@ use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::UiRpcState;
-use crate::auth::{UiRpcAuthIdentity, WS_TICKET_TTL_SECS, generate_ws_ticket_jwt};
+use crate::auth::{WS_TICKET_TTL_SECS, generate_ws_ticket_jwt};
 use moatless_backend_core::pairing::{PairingClient, PairingError};
+use moatless_backend_core::ui_rpc::UiRpcAuthIdentity;
 
 /// The scopes this deployment is able to grant, in the order it reports them.
 ///

@@ -52,9 +52,9 @@ mod servers;
 mod terminal;
 pub mod workspace;
 
-pub use auth::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 pub use feed::{ShellFeed, ThreadFeed};
 pub use moatless_backend_core::pairing::DevicePairing;
+pub use moatless_backend_core::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 use moatless_backend_core::sandbox::SandboxError;
 pub use moatless_backend_core::sandbox::{
     ClusterDiagnostics, SandboxConnector, SandboxIntentReader, SandboxObserver,
