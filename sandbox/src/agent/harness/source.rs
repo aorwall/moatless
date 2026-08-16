@@ -5,7 +5,7 @@
 //! return an already-assembled Message: Message assembly is exclusively the
 //! backend's job (server-owned message assembly, the agent.message skeleton, the harness-outcome boundary).
 
-use moatless_api_schemas::content::CanonicalContentBlock;
+use crate::agent::harness::content::CanonicalContentBlock;
 
 use super::signal::SessionId;
 

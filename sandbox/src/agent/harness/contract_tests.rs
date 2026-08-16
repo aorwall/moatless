@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use moatless_api_schemas::content::CanonicalContentBlock;
+use crate::agent::harness::content::CanonicalContentBlock;
 use tokio::sync::mpsc;
 
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};

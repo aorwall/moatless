@@ -32,7 +32,7 @@
 //! tool names, and inventing assistant text or a fake tool call for a status
 //! notice reads worse to the person watching than the notice being absent.
 
-use moatless_api_schemas::content::CanonicalContentBlock;
+use crate::agent::harness::content::CanonicalContentBlock;
 use serde_json::{json, Value};
 
 use moatless_api_schemas::codex::{

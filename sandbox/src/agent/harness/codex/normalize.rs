@@ -11,7 +11,7 @@
 //! `{session}_{nonce}_{item}` scheme is what persisted reads line up against, so
 //! it stays.
 
-use moatless_api_schemas::content::CanonicalContentBlock;
+use crate::agent::harness::content::CanonicalContentBlock;
 
 use crate::agent::codex_app_server::protocol::{ThreadItem, TokenUsageBreakdown, TurnPlanStep};
 

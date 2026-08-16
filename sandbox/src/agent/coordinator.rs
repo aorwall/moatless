@@ -44,7 +44,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use moatless_api_schemas::content::CanonicalContentBlock;
+use crate::agent::harness::content::CanonicalContentBlock;
 use moatless_events::{AgentSubType, SandboxStatus, TaskTurnSubType};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, RwLock};

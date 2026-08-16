@@ -16,7 +16,6 @@ pub mod agent;
 pub mod auth;
 pub mod bindings;
 pub mod codex;
-pub mod content;
 pub mod enums;
 pub mod feedback;
 pub mod file_storage;

@@ -7,7 +7,7 @@
 //! input. The coordinator sees only the same [`Signal`] contract as the one-shot
 //! path; nothing here is tmux-specific.
 
-use moatless_api_schemas::content::CanonicalContentBlock;
+use crate::agent::harness::content::CanonicalContentBlock;
 
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::source::SourceId;

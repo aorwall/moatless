@@ -6,20 +6,16 @@
 //! Both the one-shot subprocess adapter and the persistent tmux adapter share
 //! this normalizer, so neither owns a second copy of the native mapping.
 
-use claude_agent_sdk::types::content::{ContentBlock, ImageSource, ImageSourceType};
+use crate::agent::harness::content::CanonicalContentBlock;
+use claude_agent_sdk::types::content::ContentBlock;
 use claude_agent_sdk::types::messages::{AssistantMessage, ToolProgressMessage, UserMessage};
-use moatless_api_schemas::content::{
-    CanonicalContentBlock, ImageSource as CanonicalImageSource,
-    ImageSourceType as CanonicalImageSourceType,
-};
 
 use super::super::signal::{Activity, SessionId};
 use super::super::source::{NativeMessageId, Role, SourceEvent, SourceId};
 
 /// Map a native Claude `ContentBlock` into the shared [`CanonicalContentBlock`].
 /// The two enums share the Anthropic content-block shape variant-for-variant, so
-/// this is a total, lossless projection — the sandbox owns it because the orphan
-/// rule bars a `From` impl between two foreign types.
+/// this is a total, lossless projection.
 fn canonical_from_claude(block: &ContentBlock) -> CanonicalContentBlock {
     match block {
         ContentBlock::Text { text } => CanonicalContentBlock::Text { text: text.clone() },
@@ -45,7 +41,7 @@ fn canonical_from_claude(block: &ContentBlock) -> CanonicalContentBlock {
             signature: signature.clone(),
         },
         ContentBlock::Image { source } => CanonicalContentBlock::Image {
-            source: canonical_image_source(source),
+            source: source.clone(),
         },
         ContentBlock::ServerToolUse { id, name, input } => CanonicalContentBlock::ServerToolUse {
             id: id.clone(),
@@ -62,18 +58,6 @@ fn canonical_from_claude(block: &ContentBlock) -> CanonicalContentBlock {
         ContentBlock::RedactedThinking { data } => {
             CanonicalContentBlock::RedactedThinking { data: data.clone() }
         }
-    }
-}
-
-fn canonical_image_source(source: &ImageSource) -> CanonicalImageSource {
-    CanonicalImageSource {
-        source_type: match source.source_type {
-            ImageSourceType::Base64 => CanonicalImageSourceType::Base64,
-            ImageSourceType::Url => CanonicalImageSourceType::Url,
-            ImageSourceType::Unknown => CanonicalImageSourceType::Unknown,
-        },
-        media_type: source.media_type.clone(),
-        data: source.data.clone(),
     }
 }
 

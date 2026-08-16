@@ -15,13 +15,13 @@
 //! preserves a native block whose kind the harness does not yet map, so an
 //! upstream CLI addition is never silently dropped.
 
+use claude_agent_sdk::types::content::ImageSource;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// One canonical content block. Tagged by `type`, matching the Anthropic
 /// content-block wire format both the backend assembler and the UI consume.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CanonicalContentBlock {
     /// Assistant or user text.
@@ -32,7 +32,6 @@ pub enum CanonicalContentBlock {
     ToolUse {
         id: String,
         name: String,
-        #[cfg_attr(feature = "openapi", schema(value_type = Object))]
         input: Value,
     },
 
@@ -40,7 +39,6 @@ pub enum CanonicalContentBlock {
     ToolResult {
         tool_use_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
         content: Option<Value>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
@@ -56,7 +54,6 @@ pub enum CanonicalContentBlock {
     ServerToolUse {
         id: String,
         name: String,
-        #[cfg_attr(feature = "openapi", schema(value_type = Object))]
         input: Value,
     },
 
@@ -64,7 +61,6 @@ pub enum CanonicalContentBlock {
     WebSearchToolResult {
         tool_use_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
         content: Option<Value>,
     },
 
@@ -78,31 +74,7 @@ pub enum CanonicalContentBlock {
     /// A native block whose kind the harness does not map. `raw` is the original
     /// native JSON, preserved verbatim so an upstream CLI addition is surfaced
     /// rather than silently discarded.
-    Unknown {
-        #[cfg_attr(feature = "openapi", schema(value_type = Object))]
-        raw: Value,
-    },
-}
-
-/// How an [`ImageSource`] delivers its bytes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum ImageSourceType {
-    Base64,
-    Url,
-    #[serde(other)]
-    Unknown,
-}
-
-/// The source bytes of an inline image.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct ImageSource {
-    #[serde(rename = "type")]
-    pub source_type: ImageSourceType,
-    pub media_type: String,
-    pub data: String,
+    Unknown { raw: Value },
 }
 
 #[cfg(test)]

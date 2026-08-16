@@ -84,7 +84,7 @@ pub enum ImageSourceType {
 }
 
 /// Image source within a content block.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ImageSource {
     #[serde(rename = "type")]

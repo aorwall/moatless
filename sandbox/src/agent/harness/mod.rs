@@ -21,6 +21,7 @@
 //! - `driver` — the shared ordering state machine
 //! - `scripted` — the scripted mock process for lifecycle tests
 
+pub mod content;
 pub mod error;
 pub mod signal;
 pub mod source;
