@@ -15,9 +15,7 @@ use dialoguer::{Confirm, Input, Password, theme::ColorfulTheme};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::helpers::{
-    DEFAULT_NAMESPACE, PULL_SECRET_NAME, SECRET_NAME, kubectl_json, kubectl_stdin,
-};
+use super::helpers::{DEFAULT_NAMESPACE, KubeTarget, PULL_SECRET_NAME, SECRET_NAME};
 use crate::client::ClientError;
 use crate::output;
 
@@ -38,6 +36,10 @@ pub enum SecretsAction {
 
 #[derive(clap::Args)]
 pub struct BootstrapArgs {
+    /// Kubernetes context to target without changing the current context
+    #[arg(long)]
+    pub context: Option<String>,
+
     /// Namespace for the Secret
     #[arg(long, short = 'n', default_value = DEFAULT_NAMESPACE)]
     pub namespace: String,
@@ -65,12 +67,20 @@ pub struct BootstrapArgs {
 
 #[derive(clap::Args)]
 pub struct ScopedArgs {
+    /// Kubernetes context to target without changing the current context
+    #[arg(long)]
+    pub context: Option<String>,
+
     #[arg(long, short = 'n', default_value = DEFAULT_NAMESPACE)]
     pub namespace: String,
 }
 
 #[derive(clap::Args)]
 pub struct SetArgs {
+    /// Kubernetes context to target without changing the current context
+    #[arg(long)]
+    pub context: Option<String>,
+
     #[arg(long, short = 'n', default_value = DEFAULT_NAMESPACE)]
     pub namespace: String,
 
@@ -80,6 +90,10 @@ pub struct SetArgs {
 
 #[derive(clap::Args)]
 pub struct PullTokenArgs {
+    /// Kubernetes context to target without changing the current context
+    #[arg(long)]
+    pub context: Option<String>,
+
     #[arg(long, short = 'n', default_value = DEFAULT_NAMESPACE)]
     pub namespace: String,
 
@@ -239,6 +253,7 @@ fn keys_for_values(values: Option<&serde_yaml::Value>) -> Vec<&'static KeySpec> 
 // ---------------------------------------------------------------------------
 
 async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientError> {
+    let target = KubeTarget::new(args.context.clone());
     // Step 1: load values file (optional).
     let values: Option<serde_yaml::Value> = std::fs::read_to_string(&args.values)
         .ok()
@@ -254,7 +269,7 @@ async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientErro
     let specs = keys_for_values(values.as_ref());
 
     // Step 2: snapshot existing cluster secret.
-    let existing = load_cluster_secret(&args.namespace, SECRET_NAME)
+    let existing = load_cluster_secret(&target, &args.namespace, SECRET_NAME)
         .await
         .unwrap_or_default();
 
@@ -330,11 +345,12 @@ async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientErro
         return Ok(());
     }
 
-    apply_manifest(&manifest).await?;
+    apply_manifest(&target, &manifest).await?;
 
     if json_out {
         output::print_json_typed(&json!({
             "applied": true,
+            "context": target.context(),
             "namespace": args.namespace,
             "secret": SECRET_NAME,
             "keys": combined.keys().collect::<Vec<_>>(),
@@ -395,10 +411,11 @@ fn prompt_value(spec: &KeySpec) -> Result<String, ClientError> {
 // ---------------------------------------------------------------------------
 
 async fn list(args: ScopedArgs, json_out: bool) -> Result<(), ClientError> {
-    let existing = load_cluster_secret(&args.namespace, SECRET_NAME).await?;
+    let target = KubeTarget::new(args.context);
+    let existing = load_cluster_secret(&target, &args.namespace, SECRET_NAME).await?;
     if json_out {
         let keys: Vec<&String> = existing.keys().collect();
-        output::print_json_typed(&json!({ "keys": keys }));
+        output::print_json_typed(&json!({ "context": target.context(), "keys": keys }));
         return Ok(());
     }
     if existing.is_empty() {
@@ -419,20 +436,21 @@ async fn list(args: ScopedArgs, json_out: bool) -> Result<(), ClientError> {
 // ---------------------------------------------------------------------------
 
 async fn set_single(args: SetArgs, json_out: bool) -> Result<(), ClientError> {
+    let target = KubeTarget::new(args.context.clone());
     let value = Password::with_theme(&ColorfulTheme::default())
         .with_prompt(&args.key)
         .interact()
         .map_err(|e| ClientError::Other(format!("Prompt failed: {e}")))?;
 
-    let mut existing = load_cluster_secret(&args.namespace, SECRET_NAME)
+    let mut existing = load_cluster_secret(&target, &args.namespace, SECRET_NAME)
         .await
         .unwrap_or_default();
     existing.insert(args.key.clone(), value);
     let manifest = render_secret_manifest(&args.namespace, SECRET_NAME, &existing);
-    apply_manifest(&manifest).await?;
+    apply_manifest(&target, &manifest).await?;
 
     if json_out {
-        output::print_json_typed(&json!({ "updated": args.key }));
+        output::print_json_typed(&json!({ "context": target.context(), "updated": args.key }));
     } else {
         println!("Updated {} in Secret/{SECRET_NAME}.", args.key);
     }
@@ -444,6 +462,7 @@ async fn set_single(args: SetArgs, json_out: bool) -> Result<(), ClientError> {
 // ---------------------------------------------------------------------------
 
 async fn pull_token(args: PullTokenArgs, json_out: bool) -> Result<(), ClientError> {
+    let target = KubeTarget::new(args.context.clone());
     let username = match args.username {
         Some(u) => u,
         None => Input::<String>::with_theme(&ColorfulTheme::default())
@@ -487,10 +506,14 @@ data:
         data = dockercfg_b64,
     );
 
-    apply_manifest(&manifest).await?;
+    apply_manifest(&target, &manifest).await?;
 
     if json_out {
-        output::print_json_typed(&json!({ "applied": true, "secret": PULL_SECRET_NAME }));
+        output::print_json_typed(&json!({
+            "applied": true,
+            "context": target.context(),
+            "secret": PULL_SECRET_NAME,
+        }));
     } else {
         println!(
             "Applied Secret/{PULL_SECRET_NAME} (dockerconfigjson) to {}.",
@@ -508,10 +531,13 @@ data:
 // ---------------------------------------------------------------------------
 
 async fn load_cluster_secret(
+    target: &KubeTarget,
     namespace: &str,
     name: &str,
 ) -> Result<BTreeMap<String, String>, ClientError> {
-    let Some(v) = kubectl_json(&["-n", namespace, "get", "secret", name, "-o", "json"]).await?
+    let Some(v) = target
+        .kubectl_json(&["-n", namespace, "get", "secret", name, "-o", "json"])
+        .await?
     else {
         return Ok(BTreeMap::new());
     };
@@ -542,8 +568,10 @@ fn render_secret_manifest(namespace: &str, name: &str, data: &BTreeMap<String, S
     yaml
 }
 
-async fn apply_manifest(manifest: &str) -> Result<(), ClientError> {
-    let out = kubectl_stdin(&["apply", "-f", "-"], manifest).await?;
+async fn apply_manifest(target: &KubeTarget, manifest: &str) -> Result<(), ClientError> {
+    let out = target
+        .kubectl_stdin(&["apply", "-f", "-"], manifest)
+        .await?;
     out.into_stdout("kubectl apply").map(|_| ())
 }
 

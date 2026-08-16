@@ -492,6 +492,7 @@ mod tests {
             },
             sandbox_provider: SandboxProviderType::Docker,
             sandbox: SandboxConfig {
+                compute_mode: KubernetesComputeMode::Standard,
                 namespace: "test".into(),
                 image: "sandbox:latest".into(),
                 image_pull_policy: "Never".into(),
@@ -504,6 +505,7 @@ mod tests {
                 sandbox_resources_cpu_limit: "4".into(),
                 sandbox_resources_memory_request: "2Gi".into(),
                 sandbox_resources_memory_limit: "8Gi".into(),
+                ephemeral_storage: None,
                 run_as_non_root: false,
                 shared_data_size: "2Gi".into(),
                 build_cache_size: "1536Mi".into(),

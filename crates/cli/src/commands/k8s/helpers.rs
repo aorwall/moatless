@@ -14,6 +14,81 @@ pub(super) const PULL_SECRET_NAME: &str = "ghcr-secret";
 pub(super) const DEFAULT_CHART_PATH: &str = "k8s/helm/moatless-vibe";
 pub(super) const DEFAULT_VALUES_FILE: &str = "values.local.yaml";
 
+/// Explicit Kubernetes target for kubectl and Helm subprocesses.
+///
+/// When a context is supplied, every cluster operation is pinned to it without
+/// changing the user's current kubectl context. Omitting it preserves the
+/// existing current-context behavior for interactive use.
+#[derive(Clone, Debug, Default)]
+pub(super) struct KubeTarget {
+    context: Option<String>,
+}
+
+impl KubeTarget {
+    pub(super) fn new(context: Option<String>) -> Self {
+        Self { context }
+    }
+
+    pub(super) fn context(&self) -> Option<&str> {
+        self.context.as_deref()
+    }
+
+    pub(super) async fn kubectl(&self, args: &[&str]) -> Result<CmdOutput, ClientError> {
+        let owned = self.kubectl_args(args);
+        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+        run("kubectl", &refs, None).await
+    }
+
+    pub(super) async fn kubectl_stdin(
+        &self,
+        args: &[&str],
+        stdin: &str,
+    ) -> Result<CmdOutput, ClientError> {
+        let owned = self.kubectl_args(args);
+        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+        run("kubectl", &refs, Some(stdin)).await
+    }
+
+    pub(super) async fn kubectl_json(
+        &self,
+        args: &[&str],
+    ) -> Result<Option<serde_json::Value>, ClientError> {
+        kubectl_json_from(self.kubectl(args).await?, args)
+    }
+
+    pub(super) async fn helm(&self, args: &[&str]) -> Result<CmdOutput, ClientError> {
+        let owned = self.helm_args(args);
+        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+        run("helm", &refs, None).await
+    }
+
+    pub(super) async fn helm_streaming(&self, args: &[&str]) -> Result<(), ClientError> {
+        let owned = self.helm_args(args);
+        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+        run_streaming("helm", &refs).await
+    }
+
+    fn kubectl_args(&self, args: &[&str]) -> Vec<String> {
+        let mut result = Vec::with_capacity(args.len() + usize::from(self.context.is_some()) * 2);
+        if let Some(context) = &self.context {
+            result.push("--context".to_string());
+            result.push(context.clone());
+        }
+        result.extend(args.iter().map(|value| (*value).to_string()));
+        result
+    }
+
+    fn helm_args(&self, args: &[&str]) -> Vec<String> {
+        let mut result = Vec::with_capacity(args.len() + usize::from(self.context.is_some()) * 2);
+        if let Some(context) = &self.context {
+            result.push("--kube-context".to_string());
+            result.push(context.clone());
+        }
+        result.extend(args.iter().map(|value| (*value).to_string()));
+        result
+    }
+}
+
 /// Ensure a required binary is on PATH, or return a helpful `ClientError`.
 pub(super) fn require_binary(name: &'static str) -> Result<(), ClientError> {
     which::which(name).map(|_| ()).map_err(|_| {
@@ -57,11 +132,6 @@ pub(super) async fn kubectl(args: &[&str]) -> Result<CmdOutput, ClientError> {
 /// Run `helm` with the given args and return captured output.
 pub(super) async fn helm(args: &[&str]) -> Result<CmdOutput, ClientError> {
     run("helm", args, None).await
-}
-
-/// Run `kubectl` with stdin (used for `kubectl apply -f -`).
-pub(super) async fn kubectl_stdin(args: &[&str], stdin: &str) -> Result<CmdOutput, ClientError> {
-    run("kubectl", args, Some(stdin)).await
 }
 
 /// Stream a child process to inherited stdout/stderr. Useful for long-running
@@ -129,9 +199,10 @@ async fn run(cmd: &str, args: &[&str], stdin: Option<&str>) -> Result<CmdOutput,
     })
 }
 
-/// Fetch a JSON document from kubectl. Returns `None` if the resource doesn't exist.
-pub(super) async fn kubectl_json(args: &[&str]) -> Result<Option<serde_json::Value>, ClientError> {
-    let out = kubectl(args).await?;
+fn kubectl_json_from(
+    out: CmdOutput,
+    args: &[&str],
+) -> Result<Option<serde_json::Value>, ClientError> {
     if !out.success() {
         if out.stderr.contains("NotFound")
             || out.stderr.contains("not found")
@@ -165,5 +236,48 @@ pub(super) async fn current_context() -> Result<Option<String>, ClientError> {
         Ok(None)
     } else {
         Ok(Some(ctx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_pins_kubectl_and_helm_without_changing_subcommand_arguments() {
+        let target = KubeTarget::new(Some("moatless-dev-eu-north-1".to_string()));
+
+        assert_eq!(
+            target.kubectl_args(&["-n", "moatless", "get", "pods"]),
+            [
+                "--context",
+                "moatless-dev-eu-north-1",
+                "-n",
+                "moatless",
+                "get",
+                "pods",
+            ]
+        );
+        assert_eq!(
+            target.helm_args(&["status", "moatless-vibe", "-n", "moatless"]),
+            [
+                "--kube-context",
+                "moatless-dev-eu-north-1",
+                "status",
+                "moatless-vibe",
+                "-n",
+                "moatless",
+            ]
+        );
+    }
+
+    #[test]
+    fn target_preserves_current_context_behavior_when_unspecified() {
+        let target = KubeTarget::default();
+        assert_eq!(target.kubectl_args(&["get", "pods"]), ["get", "pods"]);
+        assert_eq!(
+            target.helm_args(&["list", "--all-namespaces"]),
+            ["list", "--all-namespaces"]
+        );
     }
 }

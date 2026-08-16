@@ -68,7 +68,7 @@ ingress:
   enabled: false
   # KEEP hosts even though enabled=false: the IngressRoute templates read the app
   # host from ingress.hosts[0].host regardless of the enable flag. Omit it and all
-  # 7 routes fall back to vibe.example.com and match nothing.
+  # 7 routes fall back to moatless.example.com and match nothing.
   hosts:
     - host: moatless.localhost
       paths:

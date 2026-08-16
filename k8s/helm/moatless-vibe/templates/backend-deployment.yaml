@@ -74,6 +74,8 @@ spec:
               value: {{ .Values.backend.grpcPort | default 50051 | quote }}
             - name: SANDBOX_GRPC_PORT
               value: {{ .Values.kubernetes.sandboxGrpcPort | default 50052 | quote }}
+            - name: K8S_COMPUTE_MODE
+              value: {{ .Values.kubernetes.computeMode | default "standard" | quote }}
             - name: SANDBOX_NAMESPACE
               value: {{ .Values.kubernetes.namespace | default .Release.Namespace | quote }}
             - name: RUST_LOG
@@ -108,6 +110,10 @@ spec:
               value: {{ .Values.kubernetes.sandboxRunAsNonRoot | default false | quote }}
             - name: K8S_SANDBOX_SHARED_DATA_SIZE
               value: {{ .Values.kubernetes.sandboxSharedDataSize | default "2Gi" | quote }}
+            {{- with .Values.kubernetes.sandboxEphemeralStorage }}
+            - name: K8S_SANDBOX_EPHEMERAL_STORAGE
+              value: {{ . | quote }}
+            {{- end }}
             - name: K8S_SANDBOX_STORAGE_ENABLED
               value: {{ .Values.kubernetes.sandboxStorage.enabled | default true | quote }}
             - name: K8S_SANDBOX_STORAGE_SIZE
@@ -234,7 +240,15 @@ spec:
                   key: SECRETS_ENCRYPTION_KEY
                   optional: true
             - name: REDIS_URL
+            {{- if .Values.redis.urlSecretKey }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: {{ .Values.redis.urlSecretKey }}
+                  optional: false
+            {{- else }}
               value: {{ include "moatless-vibe.redisUrl" . | quote }}
+            {{- end }}
             - name: REDIS_CONSUMER_GROUP
               value: "main-app-consumers"
             - name: REDIS_CONSUMER_ID
@@ -255,8 +269,10 @@ spec:
               value: {{ .Values.storage.s3.region | quote }}
             - name: S3_KEY_PREFIX
               value: {{ .Values.storage.s3.keyPrefix | quote }}
+            {{- if .Values.storage.s3.createSharedVolume }}
             - name: SHARED_STORAGE_PVC_NAME
               value: {{ include "moatless-vibe.fullname" . }}-shared-storage
+            {{- end }}
             {{- else if eq .Values.storage.backend "azure-blob" }}
             - name: FILE_STORAGE_BACKEND
               value: "azure-blob"

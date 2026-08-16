@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::helpers::{helm, require_binary, run_streaming};
+use super::helpers::{KubeTarget, helm, require_binary};
 use super::{InstallArgs, UpgradeArgs};
 use crate::client::ClientError;
 use crate::output;
@@ -25,6 +25,8 @@ pub(super) async fn run(args: InstallArgs, json_out: bool) -> Result<(), ClientE
             args.values
         )));
     }
+
+    let target = KubeTarget::new(args.context.clone());
 
     if !args.skip_deps {
         println!("→ helm dependency update {}", args.chart);
@@ -60,9 +62,10 @@ pub(super) async fn run(args: InstallArgs, json_out: bool) -> Result<(), ClientE
     if json_out {
         // Machine-readable mode — capture output.
         let refs: Vec<&str> = cmd.iter().map(String::as_str).collect();
-        let out = helm(&refs).await?;
+        let out = target.helm(&refs).await?;
         let report = json!({
             "success": out.success(),
+            "context": target.context(),
             "release": args.release,
             "namespace": args.namespace,
             "dryRun": args.dry_run,
@@ -76,9 +79,16 @@ pub(super) async fn run(args: InstallArgs, json_out: bool) -> Result<(), ClientE
     } else {
         let refs: Vec<&str> = cmd.iter().map(String::as_str).collect();
         println!("→ helm {}", refs.join(" "));
-        run_streaming("helm", &refs).await?;
+        target.helm_streaming(&refs).await?;
         println!();
-        println!("Done. Run `moat k8s status` to verify the rollout.");
+        if let Some(context) = target.context() {
+            println!(
+                "Done. Run `moat k8s status --context {context} --namespace {} --release {}` to verify the rollout.",
+                args.namespace, args.release,
+            );
+        } else {
+            println!("Done. Run `moat k8s status` to verify the rollout.");
+        }
     }
 
     Ok(())
@@ -87,8 +97,12 @@ pub(super) async fn run(args: InstallArgs, json_out: bool) -> Result<(), ClientE
 pub(super) async fn upgrade(args: UpgradeArgs, json_out: bool) -> Result<(), ClientError> {
     require_binary("helm")?;
 
+    let target = KubeTarget::new(args.context.clone());
+
     let set_tag = format!("image.tag={}", args.tag);
     let set_sandbox = format!("sandboxImage.tag={}", args.tag);
+    let set_backend = format!("backend.image.tag={}", args.tag);
+    let set_t3 = format!("t3.image.tag={}", args.tag);
     let cmd = vec![
         "upgrade".to_string(),
         args.release.clone(),
@@ -99,13 +113,18 @@ pub(super) async fn upgrade(args: UpgradeArgs, json_out: bool) -> Result<(), Cli
         set_tag,
         "--set".to_string(),
         set_sandbox,
+        "--set".to_string(),
+        set_backend,
+        "--set".to_string(),
+        set_t3,
     ];
     let refs: Vec<&str> = cmd.iter().map(String::as_str).collect();
 
     if json_out {
-        let out = helm(&refs).await?;
+        let out = target.helm(&refs).await?;
         let report = json!({
             "success": out.success(),
+            "context": target.context(),
             "release": args.release,
             "namespace": args.namespace,
             "tag": args.tag,
@@ -118,9 +137,16 @@ pub(super) async fn upgrade(args: UpgradeArgs, json_out: bool) -> Result<(), Cli
         }
     } else {
         println!("→ helm {}", refs.join(" "));
-        run_streaming("helm", &refs).await?;
+        target.helm_streaming(&refs).await?;
         println!();
-        println!("Rolled out {}. Run `moat k8s status` to verify.", args.tag);
+        if let Some(context) = target.context() {
+            println!(
+                "Rolled out {}. Run `moat k8s status --context {context} --namespace {} --release {}` to verify.",
+                args.tag, args.namespace, args.release,
+            );
+        } else {
+            println!("Rolled out {}. Run `moat k8s status` to verify.", args.tag);
+        }
     }
     Ok(())
 }

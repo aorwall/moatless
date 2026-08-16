@@ -1,24 +1,26 @@
 //! `moat k8s uninstall` — helm uninstall + optional cleanup.
 
-use dialoguer::{theme::ColorfulTheme, Confirm};
+use dialoguer::{Confirm, theme::ColorfulTheme};
 use serde_json::json;
 use std::io::IsTerminal;
 
-use super::helpers::{helm, kubectl, kubectl_json, require_binary, SECRET_NAME};
 use super::UninstallArgs;
+use super::helpers::{KubeTarget, SECRET_NAME, require_binary};
 use crate::client::ClientError;
 use crate::output;
 
 pub(super) async fn run(args: UninstallArgs, json_out: bool) -> Result<(), ClientError> {
     require_binary("helm")?;
     require_binary("kubectl")?;
+    let target = KubeTarget::new(args.context.clone());
 
     if std::io::stdin().is_terminal() && !json_out {
         let confirmed = Confirm::with_theme(&ColorfulTheme::default())
             .with_prompt(format!(
-                "Uninstall release '{}' from namespace '{}'{}?",
+                "Uninstall release '{}' from namespace '{}' in context '{}'{}?",
                 args.release,
                 args.namespace,
+                target.context().unwrap_or("<current>"),
                 if args.purge {
                     " (and purge Secret + PVCs)"
                 } else {
@@ -33,7 +35,9 @@ pub(super) async fn run(args: UninstallArgs, json_out: bool) -> Result<(), Clien
         }
     }
 
-    let out = helm(&["uninstall", &args.release, "--namespace", &args.namespace]).await?;
+    let out = target
+        .helm(&["uninstall", &args.release, "--namespace", &args.namespace])
+        .await?;
     if !out.success() {
         return Err(ClientError::Other(format!(
             "helm uninstall failed: {}",
@@ -42,31 +46,33 @@ pub(super) async fn run(args: UninstallArgs, json_out: bool) -> Result<(), Clien
     }
 
     let mut purged = Vec::new();
-    let orphaned_pvcs = list_pvcs(&args.namespace).await?;
+    let orphaned_pvcs = list_pvcs(&target, &args.namespace).await?;
 
     if args.purge {
         // Delete the app secret (best-effort).
-        let _ = kubectl(&[
-            "-n",
-            &args.namespace,
-            "delete",
-            "secret",
-            SECRET_NAME,
-            "--ignore-not-found",
-        ])
-        .await;
-        purged.push(format!("secret/{SECRET_NAME}"));
-
-        for pvc in &orphaned_pvcs {
-            let _ = kubectl(&[
+        let _ = target
+            .kubectl(&[
                 "-n",
                 &args.namespace,
                 "delete",
-                "pvc",
-                pvc,
+                "secret",
+                SECRET_NAME,
                 "--ignore-not-found",
             ])
             .await;
+        purged.push(format!("secret/{SECRET_NAME}"));
+
+        for pvc in &orphaned_pvcs {
+            let _ = target
+                .kubectl(&[
+                    "-n",
+                    &args.namespace,
+                    "delete",
+                    "pvc",
+                    pvc,
+                    "--ignore-not-found",
+                ])
+                .await;
             purged.push(format!("pvc/{pvc}"));
         }
     }
@@ -74,6 +80,7 @@ pub(super) async fn run(args: UninstallArgs, json_out: bool) -> Result<(), Clien
     if json_out {
         output::print_json_typed(&json!({
             "uninstalled": args.release,
+            "context": target.context(),
             "namespace": args.namespace,
             "purged": purged,
             "orphanedPvcs": if args.purge { Vec::<String>::new() } else { orphaned_pvcs },
@@ -101,8 +108,11 @@ pub(super) async fn run(args: UninstallArgs, json_out: bool) -> Result<(), Clien
     Ok(())
 }
 
-async fn list_pvcs(namespace: &str) -> Result<Vec<String>, ClientError> {
-    let Some(v) = kubectl_json(&["-n", namespace, "get", "pvc", "-o", "json"]).await? else {
+async fn list_pvcs(target: &KubeTarget, namespace: &str) -> Result<Vec<String>, ClientError> {
+    let Some(v) = target
+        .kubectl_json(&["-n", namespace, "get", "pvc", "-o", "json"])
+        .await?
+    else {
         return Ok(Vec::new());
     };
     let mut out = Vec::new();

@@ -17,11 +17,9 @@ image:
 sandboxImage:
   # -- Docker image repository for sandbox pods
   repository: aorwall/moatless-sandbox
-  # -- Image pull policy for sandbox pods.
-  # IfNotPresent is the recommended default because sandbox images are large
-  # (5-8GB) and kubernetes.imagePrepull pre-pulls them. Override to "Always"
-  # if you pin to a mutable tag (e.g. "latest").
-  pullPolicy: IfNotPresent
+  # -- Image pull policy for sandbox pods. The default tag is mutable, so each
+  # new pod checks the registry for the current image.
+  pullPolicy: Always
   # -- Overrides the sandbox image tag (default: same as main image tag)
   tag: ""
 
@@ -86,7 +84,7 @@ frontendContainerSecurityContext:
 # "https: http://*.preview.moatless.localhost".
 cspFrameSrc: "https:"
 
-# T3 Code UI — an alternative front end for this same backend, built from
+# T3 Code UI — the default front end for this backend, built from
 # soaplabs/t3code and published as aorwall/moatless-t3.
 #
 # The two front ends cannot share an origin: each owns `/` and every path under
@@ -111,7 +109,7 @@ cspFrameSrc: "https:"
 #     (T3_UI_RPC_ENABLED) and allow-lists the T3 origin for its WebSocket.
 t3:
   # -- Serve the T3 Code UI.
-  enabled: false
+  enabled: true
   # -- Hostname to serve the T3 UI on, e.g. vibe-t3.example.com. Empty serves
   # it on the app host instead, replacing the Moatless SPA.
   #
@@ -190,7 +188,7 @@ ingress:
   annotations: {}
   # -- Ingress hosts
   hosts:
-    - host: vibe.example.com
+    - host: moatless.example.com
       paths:
         - path: /
           pathType: Prefix
@@ -201,7 +199,7 @@ ingress:
   # Example with cert-manager:
   #   - secretName: vibe-tls
   #     hosts:
-  #       - vibe.example.com
+  #       - moatless.example.com
   # Example when TLS is terminated at an external LB (AWS ALB, Azure AGIC):
   #   leave tls: [] and rely on the LB's certificate (set alb.ingress.kubernetes.io/certificate-arn).
 
@@ -271,7 +269,7 @@ backend:
   # -- Backend service image
   image:
     repository: aorwall/moatless-backend
-    tag: ""
+    tag: "latest"
     pullPolicy: Always
   # -- Resource limits for backend service.
   # The backend is Rust + Tokio and handles HTTP, gRPC, SSE, Redis streams,
@@ -420,6 +418,9 @@ storage:
     region: "us-east-1"
     # -- Key prefix in bucket
     keyPrefix: "uploads"
+    # -- Create the S3 CSI-backed shared PV/PVC. Disable for EKS Fargate, where
+    # object storage is accessed through backend APIs and workspace sync.
+    createSharedVolume: true
   azureBlob:
     # -- Azure storage account name (required when backend is 'azure-blob')
     accountName: ""
@@ -551,6 +552,10 @@ redis:
   #   Azure Cache: "redis://:password@my-cache.redis.cache.windows.net:6380"
   #   Existing cluster: "redis://redis.default.svc.cluster.local:6379"
   url: ""
+  # -- Key in the external Secret holding REDIS_URL. When set, the backend reads
+  # the connection URL from the Secret instead of storing it in Helm values.
+  # Set redis.enabled=false when using this option.
+  urlSecretKey: ""
   # -- Bundled Redis image. Official multi-arch (amd64 + arm64).
   image: "redis:7-alpine"
   # -- Image pull policy for the bundled Redis.
@@ -578,6 +583,8 @@ redis:
 #   fs.inotify.max_user_watches = 524288  # Vite/Next.js watchers exhaust default 8192
 #   vm.max_map_count = 1048576            # V8 + esbuild mmap usage during heavy builds
 kubernetes:
+  # -- Sandbox compute substrate: "standard" or "fargate".
+  computeMode: "standard"
   # -- Enable Kubernetes execution mode
   enabled: true
   # -- Namespace for sandbox pods (defaults to release namespace).
@@ -624,6 +631,9 @@ kubernetes:
     requests:
       cpu: "1"
       memory: 2Gi
+  # -- Sandbox container ephemeral-storage request and limit. Set for Fargate
+  # to increase the encrypted pod-local disk beyond its small default.
+  sandboxEphemeralStorage: ""
   # -- Resource limits for server containers
   serverResources:
     limits:
@@ -1273,9 +1283,9 @@ extraEnv:
   # Auth0 configuration (when AUTH_PROVIDER=auth0)
   # AUTH0_DOMAIN: "your-tenant.auth0.com"
   # AUTH0_CLIENT_ID: "your-client-id"
-  # AUTH0_CALLBACK_URL: "https://vibe.example.com/api/v1/auth/auth0/callback"
+  # AUTH0_CALLBACK_URL: "https://moatless.example.com/api/v1/auth/auth0/callback"
   # GitHub App configuration (when AUTH_PROVIDER=github_app)
-  # GITHUB_APP_CALLBACK_URL: "https://vibe.example.com/api/v1/auth/github-app/callback"
+  # GITHUB_APP_CALLBACK_URL: "https://moatless.example.com/api/v1/auth/github-app/callback"
   # Feature flags
   FF_NETLIFY_PUBLISH: "false"
   FF_SHOW_CLAUDE_SETTINGS: "true"

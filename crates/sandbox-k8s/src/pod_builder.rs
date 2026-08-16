@@ -20,7 +20,7 @@ use moatless_core::config::Config;
 use moatless_sandbox_control::error::SandboxError;
 use moatless_sandbox_control::jwt::{self, MintedSandboxTokens};
 use moatless_sandbox_control::lifecycle::runtime::{
-    RuntimeOperationContext, OPERATION_GENERATION_LABEL,
+    OPERATION_GENERATION_LABEL, RuntimeOperationContext,
 };
 use moatless_sandbox_control::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV};
 use moatless_sandbox_control::server_runner::build_server_start_script;
@@ -90,6 +90,7 @@ pub fn build_pod(
     pvc_name: Option<&str>,
     tokens: Option<SandboxAuthTokens<'_>>,
 ) -> Result<Pod, String> {
+    validate_compute_mode(config, plan, pvc_name)?;
     let pod_name = generate_pod_name(&plan.repo_config.name, task_id);
     let namespace = config.sandbox.namespace.clone();
 
@@ -824,6 +825,65 @@ fn merge_resources(
     }
 }
 
+fn validate_fargate_resources(
+    resources: &ResourceRequirements,
+    container: &str,
+) -> Result<(), String> {
+    let requests = resources.requests.as_ref().ok_or_else(|| {
+        format!("EKS Fargate requires resource requests for the {container} container")
+    })?;
+    let limits = resources.limits.as_ref().ok_or_else(|| {
+        format!("EKS Fargate requires resource limits for the {container} container")
+    })?;
+    for name in ["cpu", "memory"] {
+        if requests.get(name) != limits.get(name) {
+            return Err(format!(
+                "EKS Fargate requires equal {name} requests and limits for the {container} container"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_compute_mode(
+    config: &Config,
+    plan: &ProvisionPlan,
+    pvc_name: Option<&str>,
+) -> Result<(), String> {
+    if !config.sandbox.compute_mode.is_fargate() {
+        return Ok(());
+    }
+    if docker_access_enabled(plan) {
+        return Err(
+            "EKS Fargate does not support dockerAccess because privileged DinD containers are unavailable"
+                .to_string(),
+        );
+    }
+    let storage = moatless_sandbox_control::storage::StorageBackend::from_plan(
+        plan,
+        config.sandbox.default_pvc_enabled,
+        config.sandbox.default_s3_enabled,
+    );
+    if storage.uses_pvc() || !storage.syncs_sandbox() {
+        return Err(
+            "EKS Fargate requires resources.pvcEnabled=false and resources.s3Enabled=true"
+                .to_string(),
+        );
+    }
+    if pvc_name.is_some() {
+        return Err("EKS Fargate does not support persistent workspace volume claims".to_string());
+    }
+    if resolve_build_cache_backend(plan).is_node()
+        || !config.sandbox.cache_volumes.is_empty()
+        || config.sandbox.node_archive_enabled
+    {
+        return Err(
+            "EKS Fargate does not support node-backed build or package cache volumes".to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// Build the main sandbox container.
 #[allow(clippy::unnecessary_wraps)] // Result for consistency with build_server_containers
 fn build_sandbox_container(
@@ -1117,6 +1177,20 @@ fn build_sandbox_container(
         &config.sandbox.sandbox_resources_cpu_limit,
         &config.sandbox.sandbox_resources_memory_limit,
     );
+    if config.sandbox.compute_mode.is_fargate() {
+        validate_fargate_resources(&resources, "sandbox")?;
+    }
+    let mut resources = resources;
+    if let Some(size) = &config.sandbox.ephemeral_storage {
+        resources
+            .requests
+            .get_or_insert_with(BTreeMap::new)
+            .insert("ephemeral-storage".to_string(), Quantity(size.clone()));
+        resources
+            .limits
+            .get_or_insert_with(BTreeMap::new)
+            .insert("ephemeral-storage".to_string(), Quantity(size.clone()));
+    }
 
     Ok(Container {
         name: "sandbox".to_string(),
@@ -1260,6 +1334,9 @@ fn build_server_containers(
             &config.sandbox.resources_cpu_limit,
             &config.sandbox.resources_memory_limit,
         );
+        if config.sandbox.compute_mode.is_fargate() {
+            validate_fargate_resources(&resources, &container_name)?;
+        }
 
         containers.push(Container {
             name: container_name,
@@ -1380,9 +1457,20 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
 ///   and friends are owned by UID 1000, so `DAC_OVERRIDE` is required for root to
 ///   write there (gh CLI config, Claude onboarding flag) during init.
 ///
-/// `NET_BIND_SERVICE` is kept in both modes so servers can bind privileged ports
-/// if a repo configures one.
+/// `NET_BIND_SERVICE` is kept in standard mode so servers can bind privileged
+/// ports if a repo configures one. Fargate accepts capability drops but not
+/// capability additions, so its preset runs without added capabilities.
 fn app_security_context(config: &Config) -> SecurityContext {
+    if config.sandbox.compute_mode.is_fargate() {
+        return SecurityContext {
+            allow_privilege_escalation: Some(false),
+            capabilities: Some(Capabilities {
+                drop: Some(vec!["ALL".to_string()]),
+                add: None,
+            }),
+            ..Default::default()
+        };
+    }
     let mut add = vec!["NET_BIND_SERVICE".to_string()];
     if !config.sandbox.run_as_non_root {
         add.push("DAC_OVERRIDE".to_string());
@@ -1611,6 +1699,7 @@ mod tests {
             },
             sandbox_provider: SandboxProviderType::Kubernetes,
             sandbox: SandboxConfig {
+                compute_mode: moatless_core::config::KubernetesComputeMode::Standard,
                 namespace: "test".into(),
                 image: "sandbox:latest".into(),
                 image_pull_policy: "Never".into(),
@@ -1623,6 +1712,7 @@ mod tests {
                 sandbox_resources_cpu_limit: "4".into(),
                 sandbox_resources_memory_request: "2Gi".into(),
                 sandbox_resources_memory_limit: "8Gi".into(),
+                ephemeral_storage: None,
                 run_as_non_root: false,
                 shared_data_size: "2Gi".into(),
                 build_cache_size: "1536Mi".into(),
@@ -2981,6 +3071,130 @@ mod tests {
         );
     }
 
+    fn fargate_config() -> Config {
+        let mut config = test_config();
+        config.sandbox.compute_mode = moatless_core::config::KubernetesComputeMode::Fargate;
+        config.sandbox.default_pvc_enabled = false;
+        config.sandbox.default_s3_enabled = true;
+        config.sandbox.run_as_non_root = true;
+        config.sandbox.ephemeral_storage = Some("40Gi".into());
+        config.sandbox.sandbox_resources_cpu_request = "4".into();
+        config.sandbox.sandbox_resources_cpu_limit = "4".into();
+        config.sandbox.sandbox_resources_memory_request = "16Gi".into();
+        config.sandbox.sandbox_resources_memory_limit = "16Gi".into();
+        config.sandbox.resources_cpu_request = "1000m".into();
+        config.sandbox.resources_cpu_limit = "1000m".into();
+        config.sandbox.resources_memory_request = "1536Mi".into();
+        config.sandbox.resources_memory_limit = "1536Mi".into();
+        config
+    }
+
+    #[test]
+    fn fargate_pod_uses_s3_sync_and_guaranteed_resources() {
+        let config = fargate_config();
+        let plan = test_plan();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let spec = pod.spec.as_ref().unwrap();
+        assert!(
+            spec.containers
+                .iter()
+                .all(|container| container.name != "dind")
+        );
+        assert!(
+            spec.volumes.as_ref().unwrap().iter().all(
+                |volume| volume.host_path.is_none() && volume.persistent_volume_claim.is_none()
+            )
+        );
+
+        for container in &spec.containers {
+            let security = container.security_context.as_ref().unwrap();
+            assert_ne!(security.privileged, Some(true));
+            assert_eq!(security.allow_privilege_escalation, Some(false));
+            let capabilities = security.capabilities.as_ref().unwrap();
+            assert!(capabilities.add.is_none());
+            assert_eq!(
+                capabilities.drop.as_deref(),
+                Some(["ALL".to_string()].as_slice())
+            );
+        }
+
+        let sandbox = spec
+            .containers
+            .iter()
+            .find(|container| container.name == "sandbox")
+            .unwrap();
+        assert!(sandbox.env.as_ref().unwrap().iter().any(|variable| {
+            variable.name == "WORKSPACE_SYNC_ENABLED" && variable.value.as_deref() == Some("true")
+        }));
+        let resources = sandbox.resources.as_ref().unwrap();
+        for name in ["cpu", "memory", "ephemeral-storage"] {
+            assert_eq!(
+                resources.requests.as_ref().unwrap().get(name),
+                resources.limits.as_ref().unwrap().get(name)
+            );
+        }
+        assert_eq!(
+            resources
+                .requests
+                .as_ref()
+                .unwrap()
+                .get("ephemeral-storage")
+                .map(|value| value.0.as_str()),
+            Some("40Gi")
+        );
+    }
+
+    #[test]
+    fn fargate_rejects_docker_access() {
+        let config = fargate_config();
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(true);
+
+        let error = build_pod(&config, "task-1", &plan, None, None).unwrap_err();
+        assert!(error.contains("dockerAccess"));
+    }
+
+    #[test]
+    fn fargate_rejects_repo_storage_override() {
+        use moatless_workspaces::repository::models::ResourceConfig;
+
+        let config = fargate_config();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(ResourceConfig {
+            pvc_enabled: Some(true),
+            ..Default::default()
+        });
+
+        let error = build_pod(&config, "task-1", &plan, None, None).unwrap_err();
+        assert!(error.contains("pvcEnabled=false"));
+    }
+
+    #[test]
+    fn fargate_rejects_workspace_pvc() {
+        let config = fargate_config();
+        let plan = test_plan();
+
+        let error = build_pod(&config, "task-1", &plan, Some("workspace-pvc"), None).unwrap_err();
+        assert!(error.contains("volume claims"));
+    }
+
+    #[test]
+    fn fargate_rejects_per_repo_burstable_resources() {
+        use moatless_workspaces::repository::models::ResourceConfig;
+
+        let config = fargate_config();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(ResourceConfig {
+            requests: Some(HashMap::from([("cpu".to_string(), "1".to_string())])),
+            limits: Some(HashMap::from([("cpu".to_string(), "4".to_string())])),
+            ..Default::default()
+        });
+
+        let error = build_pod(&config, "task-1", &plan, None, None).unwrap_err();
+        assert!(error.contains("equal cpu requests and limits"));
+    }
+
     /// The shared-data emptyDir is always bounded by `shared_data_size`.
     #[test]
     fn shared_data_empty_dir_is_size_capped() {
@@ -3146,14 +3360,18 @@ mod tests {
             .resources
             .as_ref()
             .expect("nvme-setup must declare resources");
-        assert!(resources
-            .requests
-            .as_ref()
-            .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory")));
-        assert!(resources
-            .limits
-            .as_ref()
-            .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory")));
+        assert!(
+            resources
+                .requests
+                .as_ref()
+                .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory"))
+        );
+        assert!(
+            resources
+                .limits
+                .as_ref()
+                .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory"))
+        );
     }
 
     /// The toolchain-persistence and cargo-target flags are off by default —
@@ -3294,12 +3512,13 @@ mod tests {
                 .map(|host_path| host_path.path.as_str()),
             Some("/mnt/cache/build-cache/shared")
         );
-        assert!(spec
-            .init_containers
-            .as_ref()
-            .unwrap()
-            .iter()
-            .any(|container| container.name == "build-cache-setup"));
+        assert!(
+            spec.init_containers
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|container| container.name == "build-cache-setup")
+        );
     }
 
     /// With the flags on: cargo registry/git ride `workspace-data` subPaths
@@ -3378,9 +3597,11 @@ mod tests {
             only_match_field(&preferred[0].preference),
             ("metadata.name", "node-a")
         );
-        assert!(node_affinity
-            .required_during_scheduling_ignored_during_execution
-            .is_none());
+        assert!(
+            node_affinity
+                .required_during_scheduling_ignored_during_execution
+                .is_none()
+        );
     }
 
     #[test]

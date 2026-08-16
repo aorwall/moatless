@@ -1,30 +1,35 @@
-Moatless Vibe has been deployed!
+Moatless has been deployed!
 
 {{- if .Values.ingress.enabled }}
 Access your application at:
 {{- range $host := .Values.ingress.hosts }}
-  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
+  http{{ if or $.Values.ingress.tls (hasKey $.Values.ingress.annotations "alb.ingress.kubernetes.io/certificate-arn") }}s{{ end }}://{{ $host.host }}
 {{- end }}
 {{- else }}
 Get the application URL by running:
+  export KUBE_CONTEXT="<target-context>"
+
   # Frontend (nginx)
-  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless-vibe.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=app" -o jsonpath="{.items[0].metadata.name}")
-  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:80
+  export POD_NAME=$(kubectl --context "$KUBE_CONTEXT" get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless-vibe.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=app" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --context "$KUBE_CONTEXT" --namespace {{ .Release.Namespace }} port-forward "$POD_NAME" 8080:80
   echo "Visit http://localhost:8080"
 
   # Backend API
-  export BACKEND_POD=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless-vibe.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=backend" -o jsonpath="{.items[0].metadata.name}")
-  kubectl --namespace {{ .Release.Namespace }} port-forward $BACKEND_POD 8080:8080
+  export BACKEND_POD=$(kubectl --context "$KUBE_CONTEXT" get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless-vibe.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=backend" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --context "$KUBE_CONTEXT" --namespace {{ .Release.Namespace }} port-forward "$BACKEND_POD" 8080:8080
 {{- end }}
 
-{{- if .Values.kubernetes.enabled }}
+{{- if and .Values.kubernetes.enabled (ne (.Values.kubernetes.computeMode | default "standard") "fargate") }}
 
 Kubernetes Execution Mode is ENABLED
 Sandbox pods will be created in namespace: {{ include "moatless-vibe.sandboxNamespace" . }}
 Sandbox image: {{ include "moatless-vibe.sandboxImage" . }}
 {{- end }}
 
-{{- if .Values.redis.enabled }}
+{{- if .Values.redis.urlSecretKey }}
+
+Using external Redis from Secret key: {{ .Values.redis.urlSecretKey }}
+{{- else if .Values.redis.enabled }}
 
 Redis is deployed with the chart (development mode)
 Redis URL: {{ include "moatless-vibe.redisUrl" . }}
@@ -49,7 +54,7 @@ Create the app Secret ({{ if .Values.postgres.enabled }}DATABASE_URL is set from
 {{- end }}
 {{- end }}
 
-{{- if .Values.kubernetes.enabled }}
+{{- if and .Values.kubernetes.enabled (ne (.Values.kubernetes.computeMode | default "standard") "fargate") }}
 
 Recommended Node-Level Tuning (EKS)
 Set on nodes via Karpenter userData, DaemonSet, or launch template:
@@ -66,4 +71,4 @@ Set on nodes via Karpenter userData, DaemonSet, or launch template:
   configuring kubelet --allowed-unsafe-sysctls=net.core.somaxconn,net.ipv4.tcp_syn_retries
 {{- end }}
 
-For more information, visit: https://github.com/aorwall/moatless-swarm-ui
+For more information, visit: https://github.com/soaplabs/moatless

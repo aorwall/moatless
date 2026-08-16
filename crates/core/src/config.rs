@@ -294,9 +294,42 @@ pub struct SandboxCacheVolume {
     pub env: Vec<(String, String)>,
 }
 
+/// Kubernetes compute substrate used for dynamically created sandbox pods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum KubernetesComputeMode {
+    /// Ordinary Kubernetes nodes with the full pod feature set.
+    #[default]
+    Standard,
+    /// Amazon EKS Fargate: no privileged containers, hostPath, or EBS volumes.
+    Fargate,
+}
+
+impl KubernetesComputeMode {
+    fn from_env() -> Result<Self, ConfigError> {
+        match env_str("K8S_COMPUTE_MODE", "standard")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "standard" => Ok(Self::Standard),
+            "fargate" => Ok(Self::Fargate),
+            value => Err(ConfigError::Invalid(format!(
+                "unknown K8S_COMPUTE_MODE '{value}'; expected standard or fargate"
+            ))),
+        }
+    }
+
+    #[must_use]
+    pub fn is_fargate(self) -> bool {
+        self == Self::Fargate
+    }
+}
+
 /// Sandbox pod configuration (images, resources, storage, idle reaper).
 #[derive(Debug, Clone)]
 pub struct SandboxConfig {
+    /// Kubernetes compute substrate. Env `K8S_COMPUTE_MODE` (`standard` or `fargate`).
+    pub compute_mode: KubernetesComputeMode,
     /// Kubernetes namespace for sandbox pods
     pub namespace: String,
     /// Default sandbox container image
@@ -321,6 +354,10 @@ pub struct SandboxConfig {
     pub sandbox_resources_memory_request: String,
     /// Memory limit for the sandbox (agent) container (env `K8S_RESOURCE_LIMIT_MEMORY`)
     pub sandbox_resources_memory_limit: String,
+    /// Optional ephemeral-storage request and limit for the sandbox container.
+    /// EKS Fargate uses the request to provision pod-local disk. Env
+    /// `K8S_SANDBOX_EPHEMERAL_STORAGE`.
+    pub ephemeral_storage: Option<String>,
     /// Run the sandbox and server containers as the non-root `moatless` user
     /// (UID/GID 1000) via a pod-level securityContext (`runAsNonRoot`, `fsGroup`,
     /// `seccompProfile: RuntimeDefault`). The privileged `dind` sidecar and
@@ -1119,6 +1156,7 @@ impl Config {
             sandbox_provider,
 
             sandbox: SandboxConfig {
+                compute_mode: KubernetesComputeMode::from_env()?,
                 namespace: sandbox_namespace.clone(),
                 image: env_str("SANDBOX_IMAGE", "aorwall/moatless-sandbox:latest"),
                 image_pull_policy: env_str("SANDBOX_IMAGE_PULL_POLICY", "Always"),
@@ -1131,6 +1169,7 @@ impl Config {
                 sandbox_resources_cpu_limit: env_str("K8S_RESOURCE_LIMIT_CPU", "4"),
                 sandbox_resources_memory_request: env_str("K8S_RESOURCE_REQUEST_MEMORY", "2Gi"),
                 sandbox_resources_memory_limit: env_str("K8S_RESOURCE_LIMIT_MEMORY", "16Gi"),
+                ephemeral_storage: env_opt("K8S_SANDBOX_EPHEMERAL_STORAGE"),
                 run_as_non_root: env_bool("K8S_SANDBOX_RUN_AS_NON_ROOT", false),
                 shared_data_size: env_str("K8S_SANDBOX_SHARED_DATA_SIZE", "2Gi"),
                 build_cache_size: env_str("K8S_SANDBOX_BUILD_CACHE_SIZE", "1536Mi"),
@@ -1491,6 +1530,65 @@ impl Config {
                         "SANDBOX_NAMESPACE cannot be empty".into(),
                     ));
                 }
+                if self.sandbox.compute_mode.is_fargate() {
+                    if self.sandbox.default_pvc_enabled || !self.sandbox.default_s3_enabled {
+                        return Err(ConfigError::Invalid(
+                            "K8S_COMPUTE_MODE=fargate requires K8S_SANDBOX_DEFAULT_PVC=false and K8S_SANDBOX_DEFAULT_S3=true"
+                                .into(),
+                        ));
+                    }
+                    if !self.sandbox.run_as_non_root {
+                        return Err(ConfigError::Invalid(
+                            "K8S_COMPUTE_MODE=fargate requires K8S_SANDBOX_RUN_AS_NON_ROOT=true"
+                                .into(),
+                        ));
+                    }
+                    if !self.sandbox.cache_volumes.is_empty() || self.sandbox.node_archive_enabled {
+                        return Err(ConfigError::Invalid(
+                            "K8S_COMPUTE_MODE=fargate does not support node-local cache volumes or archives"
+                                .into(),
+                        ));
+                    }
+                    for (request, limit, name) in [
+                        (
+                            &self.sandbox.sandbox_resources_cpu_request,
+                            &self.sandbox.sandbox_resources_cpu_limit,
+                            "sandbox CPU",
+                        ),
+                        (
+                            &self.sandbox.sandbox_resources_memory_request,
+                            &self.sandbox.sandbox_resources_memory_limit,
+                            "sandbox memory",
+                        ),
+                        (
+                            &self.sandbox.resources_cpu_request,
+                            &self.sandbox.resources_cpu_limit,
+                            "server CPU",
+                        ),
+                        (
+                            &self.sandbox.resources_memory_request,
+                            &self.sandbox.resources_memory_limit,
+                            "server memory",
+                        ),
+                    ] {
+                        if request != limit {
+                            return Err(ConfigError::Invalid(format!(
+                                "K8S_COMPUTE_MODE=fargate requires equal {name} requests and limits"
+                            )));
+                        }
+                    }
+                    if self
+                        .sandbox
+                        .ephemeral_storage
+                        .as_deref()
+                        .is_none_or(|value| value.trim().is_empty())
+                    {
+                        return Err(ConfigError::Invalid(
+                            "K8S_COMPUTE_MODE=fargate requires K8S_SANDBOX_EPHEMERAL_STORAGE"
+                                .into(),
+                        ));
+                    }
+                }
             }
             SandboxProviderType::Docker => {
                 if self.docker.network.is_empty() {
@@ -1532,6 +1630,7 @@ impl Config {
             },
             sandbox_provider: SandboxProviderType::Kubernetes,
             sandbox: SandboxConfig {
+                compute_mode: KubernetesComputeMode::Standard,
                 namespace: "test".into(),
                 image: "test:latest".into(),
                 image_pull_policy: "Never".into(),
@@ -1544,6 +1643,7 @@ impl Config {
                 sandbox_resources_cpu_limit: "4".into(),
                 sandbox_resources_memory_request: "2Gi".into(),
                 sandbox_resources_memory_limit: "8Gi".into(),
+                ephemeral_storage: None,
                 run_as_non_root: false,
                 shared_data_size: "2Gi".into(),
                 build_cache_size: "1536Mi".into(),
@@ -2002,6 +2102,53 @@ mod tests {
         config.sandbox.namespace = String::new();
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("SANDBOX_NAMESPACE"));
+    }
+
+    fn valid_fargate_config() -> Config {
+        let mut config = minimal_config();
+        config.sandbox.compute_mode = KubernetesComputeMode::Fargate;
+        config.sandbox.default_pvc_enabled = false;
+        config.sandbox.default_s3_enabled = true;
+        config.sandbox.run_as_non_root = true;
+        config.sandbox.ephemeral_storage = Some("40Gi".into());
+        config.sandbox.sandbox_resources_cpu_request = "4".into();
+        config.sandbox.sandbox_resources_cpu_limit = "4".into();
+        config.sandbox.sandbox_resources_memory_request = "16Gi".into();
+        config.sandbox.sandbox_resources_memory_limit = "16Gi".into();
+        config.sandbox.resources_cpu_request = "1000m".into();
+        config.sandbox.resources_cpu_limit = "1000m".into();
+        config.sandbox.resources_memory_request = "1536Mi".into();
+        config.sandbox.resources_memory_limit = "1536Mi".into();
+        config
+    }
+
+    #[test]
+    fn validate_fargate_contract_passes() {
+        assert!(valid_fargate_config().validate().is_ok());
+    }
+
+    #[test]
+    fn validate_fargate_rejects_default_pvc_storage() {
+        let mut config = valid_fargate_config();
+        config.sandbox.default_pvc_enabled = true;
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("DEFAULT_PVC=false"));
+    }
+
+    #[test]
+    fn validate_fargate_rejects_disabled_s3_storage() {
+        let mut config = valid_fargate_config();
+        config.sandbox.default_s3_enabled = false;
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("DEFAULT_S3=true"));
+    }
+
+    #[test]
+    fn validate_fargate_rejects_burstable_resources() {
+        let mut config = valid_fargate_config();
+        config.sandbox.sandbox_resources_cpu_request = "1".into();
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("equal sandbox CPU"));
     }
 
     // =========================================================================

@@ -232,7 +232,7 @@ IngressRoute matches on. No API key — local auth resolves every request to
 | `proxy.traefikMiddleware.enabled: true`, `noAuth: false` | The backend stamps the `preview-auth` middleware onto every per-sandbox preview `IngressRoute`; without the CRD Traefik invalidates those routers and 404s every preview host. As real ForwardAuth it sends each preview request to `/api/v1/auth/verify`, which enforces the session and per-task access. Works over http because previews share the app's registrable domain, so the `SameSite=Lax` session cookie is sent to them. |
 | `auth.cookieDomain: moatless.localhost` | Scopes the session cookie to the app host **and** every preview subdomain (`*.preview.moatless.localhost`), so preview ForwardAuth receives it. |
 | `ingress.enabled: false`, `proxyIngress.enabled: false` | Both target a Service named `traefik:80` in-namespace — a cloud shape where an ALB fronts Traefik. Locally Traefik is the controller, so they are circular. |
-| `ingress.hosts` **kept despite `enabled: false`** | Trap: the IngressRoute templates read the app host from `ingress.hosts[0].host` regardless of the enable flag. Omit it and all 7 routes fall back to `vibe.example.com` and match nothing. |
+| `ingress.hosts` **kept despite `enabled: false`** | Trap: the IngressRoute templates read the app host from `ingress.hosts[0].host` regardless of the enable flag. Omit it and all 7 routes fall back to `moatless.example.com` and match nothing. |
 | `postgres.enabled: true`, `redis.enabled: true` | Uses the chart's first-party Postgres/Redis templates. |
 
 ## Notes

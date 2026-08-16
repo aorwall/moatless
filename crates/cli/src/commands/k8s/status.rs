@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::helpers::{helm, kubectl_json};
 use super::StatusArgs;
+use super::helpers::KubeTarget;
 use crate::client::ClientError;
 use crate::output;
 
@@ -26,9 +26,11 @@ struct IngressStatus {
 
 #[derive(Serialize, Deserialize)]
 struct Report {
+    context: Option<String>,
     namespace: String,
     release: String,
     release_revision: Option<String>,
+    release_status: Option<String>,
     deployments: Vec<DeploymentStatus>,
     ingresses: Vec<IngressStatus>,
     pending_pods: Vec<String>,
@@ -36,21 +38,21 @@ struct Report {
 }
 
 pub(super) async fn run(args: StatusArgs, json_out: bool) -> Result<(), ClientError> {
-    let revision = helm_release_revision(&args.release, &args.namespace)
-        .await
-        .ok()
-        .flatten();
+    let target = KubeTarget::new(args.context.clone());
+    let release = helm_release(&target, &args.release, &args.namespace).await?;
 
-    let deployments = gather_deployments(&args.namespace, &args.release).await?;
-    let ingresses = gather_ingresses(&args.namespace).await?;
-    let pending_pods = gather_pending_pods(&args.namespace).await?;
+    let deployments = gather_deployments(&target, &args.namespace, &args.release).await?;
+    let ingresses = gather_ingresses(&target, &args.namespace, &args.release).await?;
+    let pending_pods = gather_pending_pods(&target, &args.namespace, &args.release).await?;
 
-    let all_healthy = deployments.iter().all(|d| d.healthy) && pending_pods.is_empty();
+    let all_healthy = installation_is_healthy(&release, &deployments, &pending_pods);
 
     let report = Report {
+        context: target.context().map(ToString::to_string),
         namespace: args.namespace.clone(),
         release: args.release.clone(),
-        release_revision: revision,
+        release_revision: release.revision,
+        release_status: release.status,
         deployments,
         ingresses,
         pending_pods,
@@ -64,46 +66,77 @@ pub(super) async fn run(args: StatusArgs, json_out: bool) -> Result<(), ClientEr
     }
 
     if !report.all_healthy {
-        return Err(ClientError::Other(
-            "Installation is not fully healthy. See report above; run `kubectl -n {ns} describe ...` or `moat k8s status --json` for details.".to_string(),
-        ));
+        return Err(ClientError::Other(format!(
+            "Installation is not fully healthy. See report above; inspect namespace '{}' in context '{}' for details.",
+            report.namespace,
+            report.context.as_deref().unwrap_or("<current>"),
+        )));
     }
     Ok(())
 }
 
-async fn helm_release_revision(
+#[derive(Default)]
+struct HelmRelease {
+    revision: Option<String>,
+    status: Option<String>,
+}
+
+fn installation_is_healthy(
+    release: &HelmRelease,
+    deployments: &[DeploymentStatus],
+    pending_pods: &[String],
+) -> bool {
+    release.status.as_deref() == Some("deployed")
+        && !deployments.is_empty()
+        && deployments.iter().all(|deployment| deployment.healthy)
+        && pending_pods.is_empty()
+}
+
+async fn helm_release(
+    target: &KubeTarget,
     release: &str,
     namespace: &str,
-) -> Result<Option<String>, ClientError> {
-    let out = helm(&["status", release, "-n", namespace, "-o", "json"]).await?;
+) -> Result<HelmRelease, ClientError> {
+    let out = target
+        .helm(&["status", release, "-n", namespace, "-o", "json"])
+        .await?;
     if !out.success() {
-        return Ok(None);
+        return Ok(HelmRelease::default());
     }
     let v: serde_json::Value = match serde_json::from_str(&out.stdout) {
         Ok(v) => v,
-        Err(_) => return Ok(None),
+        Err(_) => return Ok(HelmRelease::default()),
     };
-    Ok(v.get("version")
-        .and_then(serde_json::Value::as_i64)
-        .map(|i| i.to_string()))
+    Ok(HelmRelease {
+        revision: v
+            .get("version")
+            .and_then(serde_json::Value::as_i64)
+            .map(|value| value.to_string()),
+        status: v
+            .pointer("/info/status")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string),
+    })
 }
 
 async fn gather_deployments(
+    target: &KubeTarget,
     namespace: &str,
     release: &str,
 ) -> Result<Vec<DeploymentStatus>, ClientError> {
     let selector = format!("app.kubernetes.io/instance={release}");
-    let Some(v) = kubectl_json(&[
-        "-n",
-        namespace,
-        "get",
-        "deployment",
-        "-l",
-        &selector,
-        "-o",
-        "json",
-    ])
-    .await?
+    let Some(v) = target
+        .kubectl_json(&[
+            "-n",
+            namespace,
+            "get",
+            "deployment",
+            "-l",
+            &selector,
+            "-o",
+            "json",
+        ])
+        .await?
     else {
         return Ok(Vec::new());
     };
@@ -146,8 +179,18 @@ async fn gather_deployments(
     Ok(out)
 }
 
-async fn gather_ingresses(namespace: &str) -> Result<Vec<IngressStatus>, ClientError> {
-    let Some(v) = kubectl_json(&["-n", namespace, "get", "ingress", "-o", "json"]).await? else {
+async fn gather_ingresses(
+    target: &KubeTarget,
+    namespace: &str,
+    release: &str,
+) -> Result<Vec<IngressStatus>, ClientError> {
+    let selector = format!("app.kubernetes.io/instance={release}");
+    let Some(v) = target
+        .kubectl_json(&[
+            "-n", namespace, "get", "ingress", "-l", &selector, "-o", "json",
+        ])
+        .await?
+    else {
         return Ok(Vec::new());
     };
     let mut out = Vec::new();
@@ -183,8 +226,18 @@ async fn gather_ingresses(namespace: &str) -> Result<Vec<IngressStatus>, ClientE
     Ok(out)
 }
 
-async fn gather_pending_pods(namespace: &str) -> Result<Vec<String>, ClientError> {
-    let Some(v) = kubectl_json(&["-n", namespace, "get", "pods", "-o", "json"]).await? else {
+async fn gather_pending_pods(
+    target: &KubeTarget,
+    namespace: &str,
+    release: &str,
+) -> Result<Vec<String>, ClientError> {
+    let selector = format!("app.kubernetes.io/instance={release}");
+    let Some(v) = target
+        .kubectl_json(&[
+            "-n", namespace, "get", "pods", "-l", &selector, "-o", "json",
+        ])
+        .await?
+    else {
         return Ok(Vec::new());
     };
     let mut out = Vec::new();
@@ -209,10 +262,12 @@ async fn gather_pending_pods(namespace: &str) -> Result<Vec<String>, ClientError
 
 fn print_human(r: &Report) {
     println!(
-        "Release:   {} (revision {})",
+        "Release:   {} (revision {}, status {})",
         r.release,
-        r.release_revision.as_deref().unwrap_or("?")
+        r.release_revision.as_deref().unwrap_or("?"),
+        r.release_status.as_deref().unwrap_or("missing")
     );
+    println!("Context:   {}", r.context.as_deref().unwrap_or("<current>"));
     println!("Namespace: {}", r.namespace);
     println!();
 
@@ -270,5 +325,55 @@ fn print_human(r: &Report) {
         println!("All checks green.");
     } else {
         println!("Some checks failed. Run with --json for the full report.");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn deployment(healthy: bool) -> DeploymentStatus {
+        DeploymentStatus {
+            name: "backend".to_string(),
+            ready: i64::from(healthy),
+            desired: 1,
+            up_to_date: i64::from(healthy),
+            available: i64::from(healthy),
+            healthy,
+        }
+    }
+
+    #[test]
+    fn healthy_requires_a_deployed_release_and_expected_workloads() {
+        let deployed = HelmRelease {
+            revision: Some("1".to_string()),
+            status: Some("deployed".to_string()),
+        };
+
+        assert!(installation_is_healthy(&deployed, &[deployment(true)], &[]));
+        assert!(!installation_is_healthy(&deployed, &[], &[]));
+        assert!(!installation_is_healthy(
+            &HelmRelease {
+                revision: Some("1".to_string()),
+                status: Some("pending-install".to_string()),
+            },
+            &[deployment(true)],
+            &[],
+        ));
+        assert!(!installation_is_healthy(
+            &HelmRelease::default(),
+            &[deployment(true)],
+            &[],
+        ));
+        assert!(!installation_is_healthy(
+            &deployed,
+            &[deployment(false)],
+            &[],
+        ));
+        assert!(!installation_is_healthy(
+            &deployed,
+            &[deployment(true)],
+            &["pod (Pending)".to_string()],
+        ));
     }
 }

@@ -21,7 +21,7 @@ external managed services.
 | Mode | Values |
 |---|---|
 | Bundled (default) | `redis.enabled: true`, `redis.url: ""` — deploys a first-party single-node Redis (`redis:7-alpine`, multi-arch) and resolves the backend's `REDIS_URL` to `redis://{release}-redis-master:6379`. |
-| External (production) | `redis.enabled: false`, `redis.url: "redis://<host>:6379"` — no Redis is deployed; the backend uses the given URL. |
+| External (production) | `redis.enabled: false` with either `redis.urlSecretKey: "REDIS_URL"` (preferred) or `redis.url: "redis://<host>:6379"` — no Redis is deployed. |
 
 The bundled Redis is single-node with an ephemeral data dir — fine for dev, not
 for production. For production use a managed Redis (AWS ElastiCache, Azure Cache
@@ -90,7 +90,7 @@ kubectl create secret generic moatless-secrets \
 helm install moatless ./k8s/helm/moatless-vibe \
   --set postgres.enabled=true \
   --set redis.enabled=true \
-  --set ingress.hosts[0].host=vibe.example.com
+  --set ingress.hosts[0].host=moatless.example.com
 ```
 
 ### Production (external Postgres + Redis)
@@ -107,7 +107,7 @@ helm install moatless ./k8s/helm/moatless-vibe \
   --set externalSecrets.enabled=true \
   --set externalSecrets.secretName=vibe-secrets \
   --set ingress.className=alb \
-  --set ingress.hosts[0].host=vibe.example.com \
+  --set ingress.hosts[0].host=moatless.example.com \
   --set proxyIngress.host="*.preview.example.com"
 ```
 
@@ -129,7 +129,8 @@ helm install moatless ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-l
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `redis.enabled` | Deploy the bundled first-party Redis | `true` |
-| `redis.url` | External Redis URL (used when set; required when `enabled: false`) | `""` |
+| `redis.url` | External Redis URL stored in Helm values | `""` |
+| `redis.urlSecretKey` | Key in the external Secret holding the Redis URL (preferred when `enabled: false`) | `""` |
 | `redis.image` | Bundled Redis image | `redis:7-alpine` |
 | `redis.maxmemory` | `--maxmemory` cap (paired with `--maxmemory-policy noeviction`) | `768mb` |
 
@@ -156,21 +157,61 @@ helm install moatless ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-l
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `replicaCount` | Number of frontend replicas | `1` |
-| `image.repository` | Frontend (nginx) image repository | `aorwall/moatless-frontend` |
-| `image.tag` | Image tag | Chart `appVersion` |
+| `replicaCount` | Number of legacy Moatless frontend replicas when that UI is deployed | `1` |
+| `image.repository` | Legacy Moatless frontend image repository | `aorwall/moatless-frontend` |
+| `image.tag` | Legacy frontend and sandbox fallback image tag | `latest` |
 | `backend.image.repository` | Backend image repository | `aorwall/moatless-backend` |
+| `backend.image.tag` | Backend image tag | `latest` |
 | `sandboxImage.repository` | Sandbox image repository | `aorwall/moatless-sandbox` |
+| `sandboxImage.pullPolicy` | Sandbox image pull policy | `Always` |
+
+### S3-only EKS Fargate
+
+Fargate sandboxes use API-backed S3 workspace sync and pod-local disk. They do
+not mount the S3 CSI shared volume:
+
+```yaml
+storage:
+  backend: s3
+  s3:
+    bucketName: moatless-workspaces
+    region: eu-north-1
+    createSharedVolume: false
+kubernetes:
+  computeMode: fargate
+  sandboxRunAsNonRoot: true
+  sandboxEphemeralStorage: 40Gi
+  sandboxStorage:
+    enabled: false
+    defaultMode: s3
+  imagePrepull:
+    enabled: false
+  cacheVolumes: []
+  nodeArchive:
+    enabled: false
+```
+
+Fargate mode also requires equal CPU and memory requests/limits for sandbox and
+server containers and rejects per-repository DinD, EBS/node workspaces,
+node-local caches, and burstable resource overrides. The EKS VPC CNI does not
+enforce Kubernetes NetworkPolicy for Fargate pods, so use this preset only for
+trusted repositories.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `storage.s3.createSharedVolume` | Create the Mountpoint S3 CSI shared PV/PVC | `true` |
+| `kubernetes.computeMode` | Sandbox compute contract: `standard` or `fargate` | `standard` |
+| `kubernetes.sandboxEphemeralStorage` | Sandbox ephemeral-storage request and limit | `""` |
 
 ### T3 Code UI
 
-An alternative front end for the same backend, built from
+The default front end for the backend, built from
 [soaplabs/t3code](https://github.com/soaplabs/t3code) and published as
-`aorwall/moatless-t3`.
+`aorwall/moatless-t3`. With the default empty `t3.host`, T3 owns the app host
+and the chart omits the unused Moatless frontend Deployment and Service.
 
 ```bash
 helm upgrade --install moatless-vibe ./k8s/helm/moatless-vibe \
-  --set t3.enabled=true \
   --set t3.host=vibe-t3.example.com
 ```
 
@@ -204,7 +245,7 @@ deployment's load balancer, and that load balancer's certificate has to cover
 it. Session cookies are shared with the app host only when `auth.cookieDomain`
 is a parent of both.
 
-Before enabling it on a shared environment: the T3 UI covers less than the
+Before using it on a shared environment: the T3 UI covers less than the
 Moatless UI. The shell, workspace listing and conversation views work; most
 other commands are still refused. See
 [`docs/t3-code-current-state.md`](../../../docs/t3-code-current-state.md) for
@@ -212,7 +253,7 @@ what is actually wired.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `t3.enabled` | Serve the T3 UI | `false` |
+| `t3.enabled` | Serve the T3 UI; `false` restores the Moatless frontend | `true` |
 | `t3.host` | Hostname for the T3 UI; empty replaces the Moatless SPA on the app host | `""` |
 | `t3.image.repository` | T3 SPA image repository | `aorwall/moatless-t3` |
 | `t3.image.tag` | Image tag | `latest` |
@@ -549,14 +590,14 @@ this feature exists to remove.
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `ingress.enabled` | Emit the main Ingress object | `true` |
-| `ingress.hosts[0].host` | App hostname (also read by the Traefik IngressRoutes) | `vibe.example.com` |
+| `ingress.hosts[0].host` | App hostname (also read by the Traefik IngressRoutes) | `moatless.example.com` |
 | `proxy.traefikIngressRoute.enabled` | Emit the app's Traefik IngressRoute CRDs | `false` |
 | `proxyIngress.enabled` | Emit the wildcard preview Ingress | `true` |
 | `proxyIngress.host` | Wildcard host for previews | `*.preview.example.com` |
 
 > The Traefik IngressRoutes read the app host from `ingress.hosts[0].host`
 > regardless of `ingress.enabled`. Keep `ingress.hosts[0].host` set even when you
-> disable the Ingress object, or the routes fall back to `vibe.example.com`.
+> disable the Ingress object, or the routes fall back to `moatless.example.com`.
 
 ## Redis Streams configuration
 

@@ -5,13 +5,14 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::helpers::{kubectl, kubectl_json, require_binary, DEFAULT_NAMESPACE};
-use super::{PreflightArgs, Provider};
+use super::helpers::{DEFAULT_NAMESPACE, KubeTarget, require_binary};
+use super::{ComputeMode, PreflightArgs, Provider, StorageMode};
 use crate::client::ClientError;
 use crate::output;
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct PreflightReport {
+    pub(super) ready: bool,
     pub(super) context: Option<String>,
     pub(super) cluster_type: Provider,
     pub(super) namespace: String,
@@ -35,6 +36,8 @@ pub(super) struct CrdStatus {
 pub(super) struct Check {
     pub(super) name: String,
     pub(super) ok: bool,
+    /// A failed blocking check makes the aggregate report not ready.
+    pub(super) blocking: bool,
     pub(super) detail: String,
     /// If `ok` is false, a one-line remediation hint the skill can surface.
     pub(super) hint: Option<String>,
@@ -43,8 +46,9 @@ pub(super) struct Check {
 pub(super) async fn run(args: PreflightArgs, json: bool) -> Result<(), ClientError> {
     let namespace = args
         .namespace
+        .clone()
         .unwrap_or_else(|| DEFAULT_NAMESPACE.to_string());
-    let report = gather(&namespace).await?;
+    let report = gather(&namespace, &args).await?;
 
     if json {
         output::print_json_typed(&report);
@@ -55,7 +59,7 @@ pub(super) async fn run(args: PreflightArgs, json: bool) -> Result<(), ClientErr
     Ok(())
 }
 
-async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
+async fn gather(namespace: &str, args: &PreflightArgs) -> Result<PreflightReport, ClientError> {
     let mut checks = Vec::new();
 
     // Tooling
@@ -82,24 +86,28 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
     helm_ok?;
 
     // Context
-    let context = super::helpers::current_context().await.ok().flatten();
+    let current_context = super::helpers::current_context().await.ok().flatten();
+    let context = args.context.clone().or(current_context);
+    let target = KubeTarget::new(args.context.clone());
     checks.push(Check {
-        name: "kubectl context".to_string(),
+        name: "target kubectl context".to_string(),
         ok: context.is_some(),
+        blocking: true,
         detail: context.clone().unwrap_or_else(|| "<none>".to_string()),
         hint: if context.is_none() {
-            Some("Select a context: `kubectl config use-context <name>`".to_string())
+            Some("Pass `--context <name>` or select a current kubectl context.".to_string())
         } else {
             None
         },
     });
 
     // Cluster connectivity
-    let nodes = kubectl_json(&["get", "nodes", "-o", "json"]).await?;
+    let nodes = target.kubectl_json(&["get", "nodes", "-o", "json"]).await?;
     let cluster_type = detect_provider(&nodes);
     checks.push(Check {
         name: "cluster reachable".to_string(),
         ok: nodes.is_some(),
+        blocking: true,
         detail: match &nodes {
             Some(v) => format!(
                 "{} node(s), detected {}",
@@ -118,11 +126,14 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
     });
 
     // Namespace
-    let ns = kubectl_json(&["get", "namespace", namespace, "-o", "json"]).await?;
+    let ns = target
+        .kubectl_json(&["get", "namespace", namespace, "-o", "json"])
+        .await?;
     let namespace_exists = ns.is_some();
     checks.push(Check {
         name: format!("namespace '{namespace}' exists"),
         ok: namespace_exists,
+        blocking: true,
         detail: if namespace_exists {
             format!("{namespace} ready")
         } else {
@@ -138,10 +149,11 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
     });
 
     // Ingress controllers
-    let ingress_controllers = detect_ingress_controllers().await?;
+    let ingress_controllers = detect_ingress_controllers(&target).await?;
     checks.push(Check {
         name: "ingress controller present".to_string(),
         ok: !ingress_controllers.is_empty(),
+        blocking: true,
         detail: if ingress_controllers.is_empty() {
             "none detected".to_string()
         } else {
@@ -159,14 +171,20 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
     });
 
     // Storage classes
-    let (storage_classes, default_storage_class) = detect_storage_classes().await?;
+    let (storage_classes, default_storage_class) = detect_storage_classes(&target).await?;
+    let storage_required = !matches!(args.storage_mode, StorageMode::S3 | StorageMode::Ephemeral);
     checks.push(Check {
         name: "default StorageClass present".to_string(),
-        ok: default_storage_class.is_some(),
-        detail: default_storage_class
-            .clone()
-            .unwrap_or_else(|| "none".to_string()),
-        hint: if default_storage_class.is_none() {
+        ok: !storage_required || default_storage_class.is_some(),
+        blocking: storage_required,
+        detail: if storage_required {
+            default_storage_class
+                .clone()
+                .unwrap_or_else(|| "none".to_string())
+        } else {
+            format!("not required for {} workspace storage", args.storage_mode.as_str())
+        },
+        hint: if storage_required && default_storage_class.is_none() {
             Some("Mark a StorageClass default or set `kubernetes.sandboxStorage.storageClass` in values.local.yaml.".to_string())
         } else {
             None
@@ -174,10 +192,11 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
     });
 
     // CRDs
-    let crds = detect_crds().await?;
+    let crds = detect_crds(&target).await?;
     checks.push(Check {
         name: "Traefik IngressRoute CRD".to_string(),
         ok: crds.traefik_ingressroute,
+        blocking: true,
         detail: if crds.traefik_ingressroute {
             "installed".to_string()
         } else {
@@ -193,6 +212,7 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
     checks.push(Check {
         name: "cert-manager CRDs (optional)".to_string(),
         ok: crds.cert_manager,
+        blocking: false,
         detail: if crds.cert_manager { "installed".to_string() } else { "missing".to_string() },
         hint: if crds.cert_manager {
             None
@@ -201,7 +221,24 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
         },
     });
 
+    if matches!(args.compute_mode, ComputeMode::Fargate) {
+        checks.push(Check {
+            name: "sandbox NetworkPolicy enforcement".to_string(),
+            ok: false,
+            blocking: false,
+            detail: "EKS VPC CNI does not enforce Kubernetes NetworkPolicy on Fargate pods"
+                .to_string(),
+            hint: Some(
+                "Use this preset only for trusted repositories; use managed nodes for untrusted code isolation."
+                    .to_string(),
+            ),
+        });
+    }
+
+    let ready = report_ready(&checks);
+
     Ok(PreflightReport {
+        ready,
         context,
         cluster_type,
         namespace: namespace.to_string(),
@@ -214,11 +251,16 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
     })
 }
 
+fn report_ready(checks: &[Check]) -> bool {
+    checks.iter().all(|check| check.ok || !check.blocking)
+}
+
 fn check_from_result(name: &str, result: Result<String, String>, hint: Option<&str>) -> Check {
     match result {
         Ok(detail) => Check {
             name: name.to_string(),
             ok: true,
+            blocking: true,
             detail: if detail.is_empty() {
                 "ok".to_string()
             } else {
@@ -229,6 +271,7 @@ fn check_from_result(name: &str, result: Result<String, String>, hint: Option<&s
         Err(err) => Check {
             name: name.to_string(),
             ok: false,
+            blocking: true,
             detail: err,
             hint: hint.map(ToString::to_string),
         },
@@ -267,9 +310,11 @@ fn detect_provider(nodes: &Option<serde_json::Value>) -> Provider {
     Provider::Generic
 }
 
-async fn detect_ingress_controllers() -> Result<Vec<String>, ClientError> {
+async fn detect_ingress_controllers(target: &KubeTarget) -> Result<Vec<String>, ClientError> {
     let mut found = Vec::new();
-    let classes = kubectl_json(&["get", "ingressclass", "-o", "json"]).await?;
+    let classes = target
+        .kubectl_json(&["get", "ingressclass", "-o", "json"])
+        .await?;
     if let Some(v) = classes {
         if let Some(items) = v.get("items").and_then(|i| i.as_array()) {
             for item in items {
@@ -282,10 +327,14 @@ async fn detect_ingress_controllers() -> Result<Vec<String>, ClientError> {
     Ok(found)
 }
 
-async fn detect_storage_classes() -> Result<(Vec<String>, Option<String>), ClientError> {
+async fn detect_storage_classes(
+    target: &KubeTarget,
+) -> Result<(Vec<String>, Option<String>), ClientError> {
     let mut all = Vec::new();
     let mut default = None;
-    let classes = kubectl_json(&["get", "storageclass", "-o", "json"]).await?;
+    let classes = target
+        .kubectl_json(&["get", "storageclass", "-o", "json"])
+        .await?;
     if let Some(v) = classes {
         if let Some(items) = v.get("items").and_then(|i| i.as_array()) {
             for item in items {
@@ -314,19 +363,19 @@ async fn detect_storage_classes() -> Result<(Vec<String>, Option<String>), Clien
     Ok((all, default))
 }
 
-async fn detect_crds() -> Result<CrdStatus, ClientError> {
-    async fn has(crd: &str) -> bool {
-        match kubectl(&["get", "crd", crd, "--no-headers"]).await {
+async fn detect_crds(target: &KubeTarget) -> Result<CrdStatus, ClientError> {
+    async fn has(target: &KubeTarget, crd: &str) -> bool {
+        match target.kubectl(&["get", "crd", crd, "--no-headers"]).await {
             Ok(o) => o.success(),
             Err(_) => false,
         }
     }
 
     Ok(CrdStatus {
-        traefik_ingressroute: has("ingressroutes.traefik.io").await,
-        cert_manager: has("clusterissuers.cert-manager.io").await,
-        prometheus_operator: has("podmonitors.monitoring.coreos.com").await,
-        cilium: has("ciliumnetworkpolicies.cilium.io").await,
+        traefik_ingressroute: has(target, "ingressroutes.traefik.io").await,
+        cert_manager: has(target, "clusterissuers.cert-manager.io").await,
+        prometheus_operator: has(target, "podmonitors.monitoring.coreos.com").await,
+        cilium: has(target, "ciliumnetworkpolicies.cilium.io").await,
     })
 }
 
@@ -338,6 +387,7 @@ fn print_human(r: &PreflightReport) {
         r.context.as_deref().unwrap_or("<none>")
     );
     println!("Cluster type:    {}", r.cluster_type.as_str());
+    println!("Ready:           {}", r.ready);
     println!(
         "Target namespace: {} ({})",
         r.namespace,
@@ -357,6 +407,8 @@ fn print_human(r: &PreflightReport) {
             vec![
                 if c.ok {
                     "ok".to_string()
+                } else if !c.blocking {
+                    "warn".to_string()
                 } else {
                     "fail".to_string()
                 },
@@ -380,5 +432,30 @@ fn print_human(r: &PreflightReport) {
                 println!("  - {}: {hint}", c.name);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check(ok: bool, blocking: bool) -> Check {
+        Check {
+            name: "test".into(),
+            ok,
+            blocking,
+            detail: String::new(),
+            hint: None,
+        }
+    }
+
+    #[test]
+    fn warnings_do_not_block_readiness() {
+        assert!(report_ready(&[check(true, true), check(false, false)]));
+    }
+
+    #[test]
+    fn failed_requirements_block_readiness() {
+        assert!(!report_ready(&[check(true, true), check(false, true)]));
     }
 }

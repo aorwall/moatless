@@ -38,7 +38,7 @@ spec:
     {{- end }}
 ---
 {{- end }}
-{{- if and .Values.autoscaling .Values.autoscaling.enabled }}
+{{- if and .Values.autoscaling .Values.autoscaling.enabled (not (and .Values.t3.enabled (not .Values.t3.host))) }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

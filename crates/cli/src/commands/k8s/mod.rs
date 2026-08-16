@@ -16,7 +16,7 @@ mod secrets;
 mod status;
 mod uninstall;
 
-#[derive(Copy, Clone, Debug, ValueEnum, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
     /// Azure Kubernetes Service
@@ -25,6 +25,35 @@ pub enum Provider {
     Eks,
     /// Unknown / generic (no provider presets applied)
     Generic,
+}
+
+#[derive(Copy, Clone, Debug, Default, ValueEnum, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ComputeMode {
+    #[default]
+    Standard,
+    Fargate,
+}
+
+#[derive(Copy, Clone, Debug, Default, ValueEnum, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageMode {
+    #[default]
+    Ebs,
+    Ephemeral,
+    S3,
+    Node,
+}
+
+impl StorageMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Ebs => "ebs",
+            Self::Ephemeral => "ephemeral",
+            Self::S3 => "s3",
+            Self::Node => "node",
+        }
+    }
 }
 
 impl Provider {
@@ -69,19 +98,39 @@ pub struct PreflightArgs {
     /// Namespace to inspect (defaults to `vibe`)
     #[arg(long, short = 'n')]
     pub namespace: Option<String>,
+
+    /// Kubernetes context to inspect without changing the current context
+    #[arg(long)]
+    pub context: Option<String>,
+
+    /// Kubernetes compute substrate
+    #[arg(long, value_enum, default_value_t)]
+    pub compute_mode: ComputeMode,
+
+    /// Sandbox workspace storage mode
+    #[arg(long, value_enum, default_value_t)]
+    pub storage_mode: StorageMode,
 }
 
 #[derive(clap::Args)]
 pub struct InitArgs {
+    /// Kubernetes context expected by the infrastructure handoff
+    #[arg(long)]
+    pub context: Option<String>,
+
     /// Target provider preset (auto-detected if omitted)
     #[arg(long, value_enum)]
     pub provider: Option<Provider>,
+
+    /// Infrastructure handoff emitted by the cloud provisioning skill
+    #[arg(long)]
+    pub infrastructure_handoff: Option<String>,
 
     /// Output file (defaults to `values.local.yaml` in cwd)
     #[arg(long, short = 'o')]
     pub output: Option<String>,
 
-    /// Main application domain (e.g. vibe.example.com)
+    /// Main application domain (e.g. moatless.example.com)
     #[arg(long)]
     pub domain: Option<String>,
 
@@ -93,7 +142,11 @@ pub struct InitArgs {
     #[arg(long, short = 'n')]
     pub namespace: Option<String>,
 
-    /// Image tag (e.g. v0.1.21)
+    /// Namespace used for dynamically created sandbox pods
+    #[arg(long)]
+    pub sandbox_namespace: Option<String>,
+
+    /// Image tag (defaults to latest)
     #[arg(long)]
     pub tag: Option<String>,
 
@@ -108,6 +161,10 @@ pub struct InitArgs {
 
 #[derive(clap::Args)]
 pub struct InstallArgs {
+    /// Kubernetes context to target without changing the current context
+    #[arg(long)]
+    pub context: Option<String>,
+
     /// Helm release name
     #[arg(long, default_value = helpers::DEFAULT_RELEASE)]
     pub release: String,
@@ -139,6 +196,10 @@ pub struct InstallArgs {
 
 #[derive(clap::Args)]
 pub struct UpgradeArgs {
+    /// Kubernetes context to target without changing the current context
+    #[arg(long)]
+    pub context: Option<String>,
+
     /// Helm release name
     #[arg(long, default_value = helpers::DEFAULT_RELEASE)]
     pub release: String,
@@ -154,6 +215,10 @@ pub struct UpgradeArgs {
 
 #[derive(clap::Args)]
 pub struct StatusArgs {
+    /// Kubernetes context to inspect without changing the current context
+    #[arg(long)]
+    pub context: Option<String>,
+
     /// Namespace to inspect
     #[arg(long, short = 'n', default_value = helpers::DEFAULT_NAMESPACE)]
     pub namespace: String,
@@ -165,6 +230,10 @@ pub struct StatusArgs {
 
 #[derive(clap::Args)]
 pub struct UninstallArgs {
+    /// Kubernetes context to target without changing the current context
+    #[arg(long)]
+    pub context: Option<String>,
+
     /// Helm release name
     #[arg(long, default_value = helpers::DEFAULT_RELEASE)]
     pub release: String,

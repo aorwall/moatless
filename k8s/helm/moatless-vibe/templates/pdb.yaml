@@ -25,7 +25,7 @@ spec:
       app.kubernetes.io/component: backend
 ---
 {{- end }}
-{{- if and .Values.podDisruptionBudget .Values.podDisruptionBudget.enabled }}
+{{- if and .Values.podDisruptionBudget .Values.podDisruptionBudget.enabled (not (and .Values.t3.enabled (not .Values.t3.host))) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

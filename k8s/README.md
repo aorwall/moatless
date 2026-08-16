@@ -61,14 +61,14 @@ See `helm/moatless-vibe/values.yaml` for all available configuration options.
 # custom-values.yaml
 ingress:
   hosts:
-    - host: my-vibe.example.com
+    - host: moatless.example.com
       paths:
         - path: /
           pathType: Prefix
   tls:
     - secretName: my-vibe-tls
       hosts:
-        - my-vibe.example.com
+        - moatless.example.com
 
 proxyIngress:
   host: "*.preview.example.com"

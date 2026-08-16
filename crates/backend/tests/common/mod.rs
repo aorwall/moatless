@@ -257,6 +257,7 @@ pub fn test_config() -> Config {
         },
         sandbox_provider: SandboxProviderType::Kubernetes,
         sandbox: SandboxConfig {
+            compute_mode: moatless_core::config::KubernetesComputeMode::Standard,
             namespace: "test".into(),
             image: "test-sandbox:latest".into(),
             image_pull_policy: "Never".into(),
@@ -299,6 +300,7 @@ pub fn test_config() -> Config {
             sandbox_resources_cpu_limit: "4".into(),
             sandbox_resources_memory_request: "2Gi".into(),
             sandbox_resources_memory_limit: "8Gi".into(),
+            ephemeral_storage: None,
             node_selector_json: None,
             tolerations_json: None,
             service_account_name: None,

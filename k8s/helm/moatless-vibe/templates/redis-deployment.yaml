@@ -5,7 +5,7 @@ The Service name and pod labels are chosen so:
   - moatless-vibe.redisUrl resolves to redis://{release}-redis-master:6379
   - the sandbox NetworkPolicy egress rule (app.kubernetes.io/name: redis) matches.
 */ -}}
-{{- if and .Values.redis.enabled (not .Values.redis.url) -}}
+{{- if and .Values.redis.enabled (not .Values.redis.url) (not .Values.redis.urlSecretKey) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
