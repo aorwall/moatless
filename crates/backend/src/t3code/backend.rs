@@ -589,6 +589,8 @@ impl ThreadCommandSink for AppStateCommands {
         let request = moatless_api_schemas::task::CreateTaskRequest {
             repository_id: None,
             workspace_id: Some(thread.workspace_id),
+            sandbox_id: None,
+            checkout_mode: None,
             agent_type: Some(moatless_tasks::task::schemas::agent_type_to_wire(
                 &agent_type,
             )),

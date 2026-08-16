@@ -433,6 +433,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sandbox_notify: Arc<dyn sandbox::lifecycle::NotifyPort> = Arc::new(
             sandbox::lifecycle::GrpcNotify::new(sandbox_connector.clone()),
         );
+        let sandbox_member_registry: Arc<dyn sandbox::lifecycle::MemberRegistryPort> = Arc::new(
+            sandbox::lifecycle::GrpcMemberRegistry::new(sandbox_connector.clone()),
+        );
         // The reaper's consumer-owned agent-status port. Handed to
         // `spawn_task_reaper` at construction rather than carried on `AppState`.
         let agent_status: Arc<dyn crate::task::reaper::AgentStatusPort> = Arc::new(
@@ -672,6 +675,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             app_state.sandbox.clone(),
             sandbox_fleet_observer,
             sandbox_notify,
+            sandbox_member_registry,
             sandbox::lifecycle::ReconcilerConfig::default(),
         );
         supervisor.supervise(

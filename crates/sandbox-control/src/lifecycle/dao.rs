@@ -17,7 +17,7 @@ use moatless_tasks::task::models::{
 };
 
 use super::events::LifecycleEvent;
-use super::orchestrator::{IntentWrite, LifecycleDao, StoreError, TaskIntent};
+use super::orchestrator::{IntentWrite, LifecycleDao, SandboxMember, StoreError, TaskIntent};
 use super::types::{
     ArchiveRetention, CorrelationMarker, IntentEffect, OperationGeneration, OperationKind,
 };
@@ -41,21 +41,21 @@ const CLEAR_MARKER_SQL: &str = r#"UPDATE sandboxes SET
        operation_generation = NULL,
        operation_started_at = NULL,
        updated_at = NOW()
-   WHERE task_id = $1 AND operation_generation = $2"#;
+   WHERE sandbox_id = $1 AND operation_generation = $2"#;
 
 /// Clear the correlation marker on `executor`. Generic over the executor so the
 /// completion transaction (`&mut tx`) and the standalone clear (`&pool`) issue
 /// one and the same statement.
 async fn clear_marker_on<'e, E>(
     executor: E,
-    task_id: &str,
+    sandbox_id: &str,
     generation: OperationGeneration,
 ) -> Result<(), sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     sqlx::query(CLEAR_MARKER_SQL)
-        .bind(task_id)
+        .bind(sandbox_id)
         .bind(generation.value())
         .execute(executor)
         .await
@@ -83,6 +83,8 @@ impl LifecycleDao for PgLifecycleDao {
         // converged Stopped (never requested) with an epoch intent timestamp.
         let row: Option<(
             TaskStatus,
+            String,
+            String,
             Option<SandboxDesiredState>,
             Option<SandboxStopReason>,
             Option<String>,
@@ -93,6 +95,8 @@ impl LifecycleDao for PgLifecycleDao {
         )> = sqlx::query_as(
             r#"SELECT
                 t.status,
+                COALESCE(t.sandbox_id, t.task_id) AS sandbox_id,
+                COALESCE(t.workspace_id, 'ws_' || t.repository_id) AS workspace_id,
                 s.desired_state,
                 s.stop_reason,
                 s.archive_retention,
@@ -101,7 +105,7 @@ impl LifecycleDao for PgLifecycleDao {
                 s.operation_started_at,
                 s.desired_state_updated_at
             FROM tasks t
-            LEFT JOIN sandboxes s ON s.task_id = t.task_id
+            LEFT JOIN sandboxes s ON s.sandbox_id = COALESCE(t.sandbox_id, t.task_id)
             WHERE t.task_id = $1"#,
         )
         .bind(task_id)
@@ -112,6 +116,8 @@ impl LifecycleDao for PgLifecycleDao {
         Ok(row.map(
             |(
                 status,
+                sandbox_id,
+                workspace_id,
                 desired_state,
                 stop_reason,
                 retention,
@@ -121,6 +127,8 @@ impl LifecycleDao for PgLifecycleDao {
                 desired_state_updated_at,
             )| TaskIntent {
                 status,
+                sandbox_id,
+                workspace_id,
                 desired_state: desired_state.unwrap_or(SandboxDesiredState::Stopped),
                 stop_reason,
                 retention: retention.as_deref().and_then(ArchiveRetention::from_db_str),
@@ -136,43 +144,108 @@ impl LifecycleDao for PgLifecycleDao {
         // ∪ incomplete-marker Sandboxes (a crashed operation). Backed by
         // `sandboxes_desired_running_idx` and `sandboxes_incomplete_operation_idx`.
         sqlx::query_scalar(
-            r#"SELECT s.task_id FROM sandboxes s
-               JOIN tasks t ON t.task_id = s.task_id
+            r#"SELECT DISTINCT ON (s.sandbox_id) t.task_id
+               FROM sandboxes s
+               JOIN tasks t ON t.sandbox_id = s.sandbox_id
                WHERE (s.desired_state = 'running' AND t.status IN ('open', 'error'))
-                  OR s.operation_generation IS NOT NULL"#,
+                  OR s.operation_generation IS NOT NULL
+               ORDER BY s.sandbox_id, t.created_at_db NULLS LAST, t.task_id"#,
         )
         .fetch_all(&self.pool)
         .await
         .map_err(|e| StoreError::with_source("load reconcile candidates", e))
     }
 
-    async fn allocate_generation(&self, task_id: &str) -> Result<OperationGeneration, StoreError> {
-        // Allocation is also the Sandbox row's lazy birth: the first operation on
-        // a Task inserts its row (seq 1); later operations increment. Serialized
-        // per Task by the lifecycle lock, so no concurrent allocation races.
-        let seq: Option<i64> = sqlx::query_scalar(
-            r#"INSERT INTO sandboxes (task_id, operation_seq)
-               VALUES ($1, 1)
-               ON CONFLICT (task_id) DO UPDATE
-                   SET operation_seq = sandboxes.operation_seq + 1,
-                       updated_at = NOW()
-               RETURNING operation_seq"#,
+    async fn running_sandbox_members(&self) -> Result<Vec<SandboxMember>, StoreError> {
+        let rows: Vec<SandboxMember> = sqlx::query_as(
+            r#"SELECT
+                   t.task_id,
+                   s.sandbox_id,
+                   COALESCE(t.checkout_mode, 'shared') AS checkout_mode
+               FROM sandboxes s
+               JOIN tasks t ON t.sandbox_id = s.sandbox_id
+               WHERE s.desired_state = 'running'
+                 AND t.status IN ('open', 'error')
+               ORDER BY s.sandbox_id, t.created_at_db NULLS LAST, t.task_id"#,
         )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| StoreError::with_source("load running sandbox members", e))?;
+
+        Ok(rows)
+    }
+
+    async fn has_other_active_members(
+        &self,
+        sandbox_id: &str,
+        task_id: &str,
+    ) -> Result<bool, StoreError> {
+        sqlx::query_scalar(
+            r#"SELECT EXISTS (
+                   SELECT 1
+                   FROM tasks
+                   WHERE sandbox_id = $1
+                     AND task_id <> $2
+                     AND status IN ('open', 'error')
+               )"#,
+        )
+        .bind(sandbox_id)
         .bind(task_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| StoreError::with_source("load active sandbox peers", e))
+    }
+
+    async fn allocate_generation(
+        &self,
+        sandbox_id: &str,
+    ) -> Result<OperationGeneration, StoreError> {
+        // Allocation is also the Sandbox row's lazy birth: the first operation
+        // on an ordinary Task inserts a row whose sandbox_id equals task_id.
+        // Later operations increment. Serialized per Sandbox by the lifecycle
+        // lock, so no concurrent allocation races.
+        let seq: Option<i64> = sqlx::query_scalar(
+            r#"WITH member AS (
+                   SELECT task_id, COALESCE(workspace_id, 'ws_' || repository_id) AS workspace_id
+                   FROM tasks
+                   WHERE COALESCE(sandbox_id, task_id) = $1
+                   ORDER BY (task_id = $1) DESC, created_at_db NULLS LAST, task_id
+                   LIMIT 1
+               ),
+               upsert AS (
+                   INSERT INTO sandboxes (sandbox_id, workspace_id, operation_seq)
+                   SELECT $1, workspace_id, 1 FROM member
+                   ON CONFLICT (sandbox_id) DO UPDATE
+                       SET operation_seq = sandboxes.operation_seq + 1,
+                           updated_at = NOW()
+                   RETURNING operation_seq
+               ),
+               bind_initial_member AS (
+                   UPDATE tasks
+                   SET sandbox_id = $1
+                   WHERE task_id = (SELECT task_id FROM member)
+                     AND sandbox_id IS NULL
+               )
+               SELECT operation_seq FROM upsert"#,
+        )
+        .bind(sandbox_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| StoreError::with_source("allocate operation generation", e))?;
 
         seq.map(OperationGeneration).ok_or_else(|| {
-            StoreError::new(format!("task {task_id} not found allocating generation"))
+            StoreError::new(format!(
+                "sandbox {sandbox_id} has no member task allocating generation"
+            ))
         })
     }
 
     async fn persist_intent(
         &self,
-        task_id: &str,
+        sandbox_id: &str,
         write: &IntentWrite,
     ) -> Result<IntentEffect, StoreError> {
+        let task_id = sandbox_id;
         // Single atomic statement, an upsert so the Sandbox row is born through
         // lifecycle and nowhere else. `prev` captures the pre-image under a row
         // lock so `changed` reflects the desired-state / stop-reason / retention
@@ -191,21 +264,28 @@ impl LifecycleDao for PgLifecycleDao {
             r#"WITH prev AS (
                    SELECT desired_state, stop_reason, archive_retention
                    FROM sandboxes
-                   WHERE task_id = $1
+                   WHERE sandbox_id = $1
                    FOR UPDATE
+               ),
+               member AS (
+                   SELECT COALESCE(workspace_id, 'ws_' || repository_id) AS workspace_id
+                   FROM tasks
+                   WHERE COALESCE(sandbox_id, task_id) = $1
+                   ORDER BY (task_id = $1) DESC, created_at_db NULLS LAST, task_id
+                   LIMIT 1
                ),
                upsert AS (
                    INSERT INTO sandboxes AS s (
-                       task_id, desired_state, stop_reason, archive_retention,
+                       sandbox_id, workspace_id, desired_state, stop_reason, archive_retention,
                        operation_kind, operation_generation, operation_started_at,
                        started_at, desired_state_updated_at, updated_at,
                        storage_reclaimed_at
                    ) VALUES (
-                       $1, $2, $3, $4, $5, $6, $7,
+                       $1, (SELECT workspace_id FROM member), $2, $3, $4, $5, $6, $7,
                        CASE WHEN $8 THEN NOW() ELSE NULL END, NOW(), NOW(),
                        NULL
                    )
-                   ON CONFLICT (task_id) DO UPDATE SET
+                   ON CONFLICT (sandbox_id) DO UPDATE SET
                        desired_state = EXCLUDED.desired_state,
                        stop_reason = EXCLUDED.stop_reason,
                        archive_retention = EXCLUDED.archive_retention,
@@ -263,13 +343,14 @@ impl LifecycleDao for PgLifecycleDao {
             Some(true) => Ok(IntentEffect::Changed),
             Some(false) => Ok(IntentEffect::Unchanged),
             None => Err(StoreError::new(format!(
-                "task {task_id} not found persisting intent"
+                "sandbox {sandbox_id} has no member task persisting intent"
             ))),
         }
     }
 
     async fn commit_fact_and_clear_marker(
         &self,
+        sandbox_id: &str,
         task_id: &str,
         event: &LifecycleEvent,
     ) -> Result<(), StoreError> {
@@ -303,7 +384,7 @@ impl LifecycleDao for PgLifecycleDao {
 
         // Clear the marker in the same transaction: the fact is durable and the
         // operation is acknowledged together.
-        clear_marker_on(&mut *tx, task_id, event.generation)
+        clear_marker_on(&mut *tx, sandbox_id, event.generation)
             .await
             .map_err(|e| StoreError::with_source("clear marker on completion", e))?;
 
@@ -314,10 +395,10 @@ impl LifecycleDao for PgLifecycleDao {
 
     async fn clear_marker(
         &self,
-        task_id: &str,
+        sandbox_id: &str,
         generation: OperationGeneration,
     ) -> Result<(), StoreError> {
-        clear_marker_on(&self.pool, task_id, generation)
+        clear_marker_on(&self.pool, sandbox_id, generation)
             .await
             .map_err(|e| StoreError::with_source("clear marker", e))?;
         Ok(())
@@ -335,9 +416,10 @@ impl LifecycleDao for PgLifecycleDao {
         // here the question is which storage exists, not what is desired.
         // Backed by `sandboxes_reclaimable_idx`.
         sqlx::query_as(
-            r#"SELECT task_id, desired_state_updated_at
-               FROM sandboxes
-               WHERE task_id = ANY($1)
+            r#"SELECT t.task_id, s.desired_state_updated_at
+               FROM tasks t
+               JOIN sandboxes s ON s.sandbox_id = t.sandbox_id
+               WHERE t.task_id = ANY($1)
                  AND desired_state = 'stopped'
                  AND storage_reclaimed_at IS NULL"#,
         )
@@ -347,12 +429,12 @@ impl LifecycleDao for PgLifecycleDao {
         .map_err(|e| StoreError::with_source("load stopped sandboxes with storage", e))
     }
 
-    async fn mark_storage_reclaimed(&self, task_id: &str) -> Result<(), StoreError> {
+    async fn mark_storage_reclaimed(&self, sandbox_id: &str) -> Result<(), StoreError> {
         sqlx::query(
             r#"UPDATE sandboxes SET storage_reclaimed_at = NOW(), updated_at = NOW()
-               WHERE task_id = $1"#,
+               WHERE sandbox_id = $1"#,
         )
-        .bind(task_id)
+        .bind(sandbox_id)
         .execute(&self.pool)
         .await
         .map(|_| ())
@@ -480,12 +562,12 @@ mod db_tests {
             failure: None,
         };
         store
-            .commit_fact_and_clear_marker("t1", &event)
+            .commit_fact_and_clear_marker("t1", "t1", &event)
             .await
             .unwrap();
         // At-least-once retry of the same generation must not duplicate the row.
         store
-            .commit_fact_and_clear_marker("t1", &event)
+            .commit_fact_and_clear_marker("t1", "t1", &event)
             .await
             .unwrap();
 
@@ -564,7 +646,7 @@ mod db_tests {
             failure: None,
         };
         store
-            .commit_fact_and_clear_marker("t1", &old_event)
+            .commit_fact_and_clear_marker("t1", "t1", &old_event)
             .await
             .unwrap();
 
@@ -614,7 +696,7 @@ mod db_tests {
         let store = PgLifecycleDao::new(pool.clone());
         let started_at = |pool: PgPool| async move {
             sqlx::query_scalar::<_, Option<chrono::DateTime<Utc>>>(
-                "SELECT started_at FROM sandboxes WHERE task_id = 't1'",
+                "SELECT started_at FROM sandboxes WHERE sandbox_id = 't1'",
             )
             .fetch_one(&pool)
             .await
@@ -664,7 +746,7 @@ mod db_tests {
     // ---- Persistence matrix ----
 
     async fn sandbox_row_count(pool: &PgPool, task_id: &str) -> i64 {
-        sqlx::query_scalar("SELECT count(*) FROM sandboxes WHERE task_id = $1")
+        sqlx::query_scalar("SELECT count(*) FROM sandboxes WHERE sandbox_id = $1")
             .bind(task_id)
             .fetch_one(pool)
             .await
@@ -747,7 +829,7 @@ mod db_tests {
     }
 
     #[sqlx::test]
-    async fn sandbox_row_cascades_with_task_deletion(pool: PgPool) {
+    async fn sandbox_row_survives_task_deletion(pool: PgPool) {
         seed(&pool, "t1").await;
         assert_eq!(sandbox_row_count(&pool, "t1").await, 1);
         sqlx::query("DELETE FROM tasks WHERE task_id = 't1'")
@@ -756,8 +838,8 @@ mod db_tests {
             .unwrap();
         assert_eq!(
             sandbox_row_count(&pool, "t1").await,
-            0,
-            "ON DELETE CASCADE removes the Sandbox row with its Task",
+            1,
+            "a Sandbox row is independent of any one member Task",
         );
     }
 
@@ -833,7 +915,7 @@ mod db_tests {
         seed(&pool, "t1").await;
 
         let mut holder = pool.begin().await.unwrap();
-        sqlx::query("SELECT task_id FROM sandboxes WHERE task_id = 't1' FOR UPDATE")
+        sqlx::query("SELECT sandbox_id FROM sandboxes WHERE sandbox_id = 't1' FOR UPDATE")
             .execute(&mut *holder)
             .await
             .unwrap();

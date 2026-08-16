@@ -6,16 +6,16 @@ pub use moatless_api_schemas::task::*;
 
 use moatless_adapter_model::models::AdapterKind as DomainAdapterKind;
 use moatless_api_schemas::enums::{
-    AdapterKind as WireAdapterKind, SandboxDesiredState as WireSandboxDesiredState,
-    SandboxStopReason as WireSandboxStopReason, Scope as WireScope,
-    TaskRelationType as WireTaskRelationType, TaskStatus as WireTaskStatus,
+    AdapterKind as WireAdapterKind, CheckoutMode as WireCheckoutMode,
+    SandboxDesiredState as WireSandboxDesiredState, SandboxStopReason as WireSandboxStopReason,
+    Scope as WireScope, TaskRelationType as WireTaskRelationType, TaskStatus as WireTaskStatus,
     Visibility as WireVisibility,
 };
 use moatless_api_schemas::shared::AgentType as WireAgentType;
 use moatless_backend_core::scope::Scope;
 use moatless_core::shared_models::AgentType;
 
-use super::models::{SandboxDesiredState, SandboxStopReason, TaskStatus, Visibility};
+use super::models::{CheckoutMode, SandboxDesiredState, SandboxStopReason, TaskStatus, Visibility};
 use super::relations::TaskRelationType;
 
 pub fn agent_type_from_wire(value: WireAgentType) -> AgentType {
@@ -24,6 +24,20 @@ pub fn agent_type_from_wire(value: WireAgentType) -> AgentType {
 
 pub fn agent_type_to_wire(value: &AgentType) -> WireAgentType {
     WireAgentType(value.0.clone())
+}
+
+pub fn checkout_mode_from_wire(value: WireCheckoutMode) -> CheckoutMode {
+    match value {
+        WireCheckoutMode::Shared => CheckoutMode::Shared,
+        WireCheckoutMode::Isolated => CheckoutMode::Isolated,
+    }
+}
+
+pub fn checkout_mode_to_wire(value: CheckoutMode) -> WireCheckoutMode {
+    match value {
+        CheckoutMode::Shared => WireCheckoutMode::Shared,
+        CheckoutMode::Isolated => WireCheckoutMode::Isolated,
+    }
 }
 
 pub fn task_status_from_wire(value: WireTaskStatus) -> TaskStatus {
@@ -155,6 +169,11 @@ mod tests {
 
     #[test]
     fn every_task_discriminant_maps_both_ways_with_identical_json() {
+        for domain in [CheckoutMode::Shared, CheckoutMode::Isolated] {
+            let wire = checkout_mode_to_wire(domain);
+            assert_eq!(checkout_mode_from_wire(wire), domain);
+            same_json(domain, wire);
+        }
         for domain in [TaskStatus::Open, TaskStatus::Closed, TaskStatus::Error] {
             let wire = task_status_to_wire(domain);
             assert_eq!(task_status_from_wire(wire), domain);

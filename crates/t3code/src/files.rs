@@ -62,7 +62,7 @@ pub async fn list_entries(
         .await
         .map_err(workspace::sandbox_access)?;
     let files = client
-        .list_files(".", true, true)
+        .list_files_for_task(Some(&task_id), ".", true, true)
         .await
         .map_err(|status| workspace::sandbox_access(classify_grpc_error(status, "list_files")))?;
 
@@ -131,9 +131,12 @@ pub async fn search_entries(
         .map_err(WorkspaceAccessError::NotRunning)?;
 
     let (mut entries, truncated) = if query.is_empty() {
-        let files = client.list_files(".", true, true).await.map_err(|status| {
-            WorkspaceAccessError::Sandbox(classify_grpc_error(status, "list_files"))
-        })?;
+        let files = client
+            .list_files_for_task(Some(&task_id), ".", true, true)
+            .await
+            .map_err(|status| {
+                WorkspaceAccessError::Sandbox(classify_grpc_error(status, "list_files"))
+            })?;
         let truncated = files.len() > limit;
         let entries: Vec<Value> = files
             .iter()
@@ -143,7 +146,12 @@ pub async fn search_entries(
         (entries, truncated)
     } else {
         let found = client
-            .search_files_by_name(query, false, i32::try_from(limit).unwrap_or(i32::MAX))
+            .search_files_by_name_for_task(
+                Some(&task_id),
+                query,
+                false,
+                i32::try_from(limit).unwrap_or(i32::MAX),
+            )
             .await
             .map_err(|status| {
                 WorkspaceAccessError::Sandbox(classify_grpc_error(status, "search_files_by_name"))
@@ -207,7 +215,7 @@ pub async fn write_file(
         .sandbox_client(&task_id)
         .await
         .map_err(WorkspaceAccessError::NotRunning)?
-        .write_file(relative_path, contents)
+        .write_file_for_task(Some(&task_id), relative_path, contents)
         .await
         .map_err(|status| {
             WorkspaceAccessError::Sandbox(classify_grpc_error(status, "write_file"))
@@ -246,12 +254,15 @@ pub async fn read_file(
     // Without the git overlay: the contract's result carries contents and
     // nothing else, so asking for a diff would only cost the Sandbox a `git`
     // invocation per opened file.
-    let (path, file) = match client.read_file(relative_path, false).await {
+    let (path, file) = match client
+        .read_file_for_task(Some(&task_id), relative_path, false)
+        .await
+    {
         Err(status) if status.code() == tonic::Code::NotFound => {
-            match nested_in_a_checkout(&client, relative_path).await {
+            match nested_in_a_checkout(&client, &task_id, relative_path).await {
                 Some(nested) => {
                     let file = client
-                        .read_file(&nested, false)
+                        .read_file_for_task(Some(&task_id), &nested, false)
                         .await
                         .map_err(read_failed)?;
                     (nested, file)
@@ -301,6 +312,7 @@ pub async fn read_file(
 /// same mention always opens the same file rather than depending on walk order.
 pub(crate) async fn nested_in_a_checkout(
     client: &moatless_backend_core::sandbox::SandboxClient,
+    task_id: &str,
     relative_path: &str,
 ) -> Option<String> {
     let needle = relative_path.trim_start_matches("./").trim_end_matches('/');
@@ -308,7 +320,7 @@ pub(crate) async fn nested_in_a_checkout(
         return None;
     }
     let listing = client
-        .list_files(".", true, true)
+        .list_files_for_task(Some(task_id), ".", true, true)
         .await
         .inspect_err(|error| {
             warn!(%error, "Could not list the workspace to resolve a repository-relative path");

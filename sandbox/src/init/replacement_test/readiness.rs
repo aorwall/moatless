@@ -12,7 +12,7 @@ use crate::agent::dispatcher::dispatch_pending_messages;
 use crate::agent::prompt::{PendingPrompt, PromptResponse, PromptToolName};
 use crate::agent::types::ResumeSession;
 use crate::backend_client::BackendClient;
-use crate::init::{open_for_work, InitPhase, WorkspaceOrigin};
+use crate::init::{InitPhase, WorkspaceOrigin, open_for_work};
 
 /// True when `input` is the interrupted-run replay for the restored session.
 fn is_restored_recover(input: &crate::agent::harness::Input) -> bool {
@@ -151,10 +151,14 @@ async fn prompt_resolution_is_serialised_under_the_dispatch_guard() {
     let (state, recorder) = recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());
 
     // Prompt acknowledgement needs an active run's session + run id.
-    state.agent.set_session_id("sess-1".to_string()).await;
-    state.agent.set_run_id("run-1".to_string()).await;
+    let context = state
+        .task_context(None)
+        .await
+        .expect("test state has one task context");
+    context.agent.set_session_id("sess-1".to_string()).await;
+    context.agent.set_run_id("run-1".to_string()).await;
     let (tx, mut rx) = tokio::sync::oneshot::channel();
-    state
+    context
         .agent
         .set_pending_prompt(PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
@@ -165,7 +169,7 @@ async fn prompt_resolution_is_serialised_under_the_dispatch_guard() {
         .await;
 
     // Hold the guard, then dispatch: it must block before the prompt branch.
-    let held = state.dispatch_lock.clone().lock_owned().await;
+    let held = context.dispatch_lock.clone().lock_owned().await;
     let dispatch = tokio::spawn(dispatch_pending_messages(state.clone()));
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -174,7 +178,7 @@ async fn prompt_resolution_is_serialised_under_the_dispatch_guard() {
         "the prompt must not be answered while the dispatch guard is held"
     );
     assert!(
-        state.agent.has_pending_prompt().await,
+        context.agent.has_pending_prompt().await,
         "the prompt must remain pending until the guard is free"
     );
 
@@ -313,10 +317,14 @@ async fn prompt_ack_failure_never_becomes_normal_input() {
     let (state, recorder) = recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());
 
     // Prompt acknowledgement needs an active run's session + run id.
-    state.agent.set_session_id("sess-1".to_string()).await;
-    state.agent.set_run_id("run-1".to_string()).await;
+    let context = state
+        .task_context(None)
+        .await
+        .expect("test state has one task context");
+    context.agent.set_session_id("sess-1".to_string()).await;
+    context.agent.set_run_id("run-1".to_string()).await;
     let (tx, rx) = tokio::sync::oneshot::channel();
-    state
+    context
         .agent
         .set_pending_prompt(PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
@@ -354,7 +362,7 @@ async fn prompt_ack_failure_never_becomes_normal_input() {
         "an answered prompt must never leak into the harness as ordinary input"
     );
     assert!(
-        !state.agent.has_pending_prompt().await,
+        !context.agent.has_pending_prompt().await,
         "the prompt was consumed as an answer, not left pending for re-dispatch"
     );
 

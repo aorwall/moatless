@@ -7,11 +7,11 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use axum::Router;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -23,16 +23,16 @@ use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use moatless_sandbox::backend_client::BackendGrpcClient;
 use moatless_sandbox::config::Config;
+use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::credentials::broker::{self, BrokerState};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::credentials::sinks::{ClaudeOauthSink, CodexAuthJsonSink, GitTokenSink};
-use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::grpc_server::SandboxServiceImpl;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::shutdown;
-use moatless_sandbox::state::SandboxState;
-use moatless_sandbox::supervisor::{Criticality, Supervisor, SHUTDOWN_JOIN_DEADLINE};
+use moatless_sandbox::state::{SandboxState, TaskContext};
+use moatless_sandbox::supervisor::{Criticality, SHUTDOWN_JOIN_DEADLINE, Supervisor};
 
 /// Unix socket file for the in-pod credential broker, inside
 /// [`config::RUNTIME_DIR`].
@@ -94,7 +94,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Checked here, after logging and before the backend client, because a
     // one-shot has no backend to reach: it is scheduled onto a volume whose
     // sandbox is already gone, holding a presigned URL and nothing else.
-    if let Some(mode) = std::env::var("SANDBOX_ONESHOT").ok().filter(|m| !m.is_empty()) {
+    if let Some(mode) = std::env::var("SANDBOX_ONESHOT")
+        .ok()
+        .filter(|m| !m.is_empty())
+    {
         return run_oneshot(&mode, &config).await;
     }
 
@@ -219,23 +222,35 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         workspace_sync.clone(),
     );
     late_injector.set(Box::new(agent_handle.clone()));
+    let initial_task_context = Arc::new(TaskContext::new(
+        config.task_id.clone(),
+        config.workspace_dir.clone(),
+        config.repo_dir.clone(),
+        moatless_sandbox::state::CheckoutMode::Shared,
+        agent_state,
+        agent_handle,
+        scheduled_jobs,
+        credential_failures,
+        system_prompt_cache,
+    ));
+    let task_contexts = Arc::new(RwLock::new(std::collections::HashMap::from([(
+        initial_task_context.task_id.clone(),
+        initial_task_context,
+    )])));
+    let task_context_registration = Arc::new(tokio::sync::Mutex::new(()));
 
     let state = SandboxState {
         config: config_arc,
         events: event_publisher,
-        agent: agent_state,
-        agent_handle,
+        task_contexts,
+        task_context_registration,
         heartbeat,
-        scheduled_jobs,
         backend_client,
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
         credentials,
         lifecycle_cancel,
         credential_dispatcher,
-        credential_failures,
         codex_watcher_handle,
-        system_prompt_cache,
-        dispatch_lock: Default::default(),
         supervisor_health: supervisor.health(),
         terminals: moatless_sandbox::terminal::TerminalManager::new(config.workspace_dir.clone()),
         workspace_sync,
@@ -385,7 +400,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // gRPC server the connection is fine, and a fatal exit is exactly when a
     // terminal lifecycle event most needs to land. The future is not polled
     // unless a fatal exit actually happens.
-    let teardown = shutdown::perform_shutdown(&state.agent, &state.lifecycle_cancel, Some(&state));
+    let teardown = shutdown::perform_shutdown_for_state(&state);
     let outcome = supervisor.run(SHUTDOWN_JOIN_DEADLINE, teardown).await;
     match &outcome {
         Ok(()) => info!("Sandbox exiting cleanly"),

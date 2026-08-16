@@ -74,6 +74,7 @@ pub async fn create_sandbox_service(
         "moatless".to_string(),
     );
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
+    labels.insert("moatless.io/sandbox-id".to_string(), task_id.to_string());
 
     let mut selector = BTreeMap::new();
     selector.insert("moatless.io/task-id".to_string(), task_id.to_string());

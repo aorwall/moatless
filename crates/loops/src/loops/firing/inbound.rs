@@ -111,6 +111,10 @@ pub async fn create_task_from_loop(
         visibility: params.visibility,
         loop_id: Some(config.id.clone()),
         workspace_id: None,
+        // A loop firing has no sandbox to join: it is triggered by an inbound
+        // event, not by another task that already has one warm.
+        sandbox_id: None,
+        checkout_mode: None,
         template_id: None,
         vibe: None,
         append_system_prompt,

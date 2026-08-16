@@ -1,7 +1,7 @@
-//! Postgres [`LifecycleLock`] — per-Task serialization via **session** advisory
+//! Postgres [`LifecycleLock`] — per-Sandbox serialization via **session** advisory
 //! locks on a dedicated lock-only pool.
 //!
-//! Every operation takes `pg_try_advisory_lock` keyed on the Task. The two-int
+//! Every operation takes `pg_try_advisory_lock` keyed on the Sandbox. The two-int
 //! lock space is used deliberately: it never collides with the one-int
 //! `pg_advisory_*` locks elsewhere (codex refresh, task turns). The holder keeps
 //! its lock connection for the operation's whole duration; on drop the connection
@@ -85,7 +85,7 @@ impl LifecycleLock for PgLifecycleLock {
                 // No error channel on the port — a lock-pool failure reads as
                 // contention so the caller retries, and exhausted retries surface
                 // OperationInProgress rather than proceeding without the lock.
-                tracing::warn!(task_id, error = %e, "lifecycle lock pool acquire failed");
+                tracing::warn!(sandbox_id = task_id, error = %e, "lifecycle lock pool acquire failed");
                 return Err(kind);
             }
         };
@@ -126,7 +126,7 @@ impl PgLifecycleLock {
         fallback: OperationKind,
     ) -> OperationKind {
         let marker: Result<Option<String>, _> =
-            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = $1")
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE sandbox_id = $1")
                 .bind(task_id)
                 .fetch_optional(&mut **conn)
                 .await
@@ -161,7 +161,7 @@ mod db_tests {
     async fn contended_acquire_returns_holder_kind_from_marker(pool: PgPool) {
         seed(&pool, "t1").await;
         // Mark an in-flight remove so the holder kind is readable.
-        sqlx::query("UPDATE sandboxes SET operation_kind = 'remove' WHERE task_id = 't1'")
+        sqlx::query("UPDATE sandboxes SET operation_kind = 'remove' WHERE sandbox_id = 't1'")
             .execute(&pool)
             .await
             .unwrap();

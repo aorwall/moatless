@@ -25,7 +25,7 @@ pub async fn notify_task_over_grpc(connector: &dyn SandboxConnector, task_id: &s
         }
     };
 
-    client.notify_messages().await;
+    client.notify_messages_for_task(Some(task_id)).await;
 }
 
 /// Sandbox-control implementation of the tasks-band [`SandboxWaker`] port.

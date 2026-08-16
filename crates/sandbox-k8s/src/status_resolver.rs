@@ -12,18 +12,18 @@ use tracing::{debug, warn};
 use super::client::K8sClient;
 use super::deployment;
 use super::pod_reader;
-use super::service;
 use super::pod_status::{
     check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod,
 };
-use moatless_workspaces::repository::models::ServerConfig;
+use super::service;
+use moatless_backend_core::sandbox::SandboxConnector;
+use moatless_core::config::Config;
 use moatless_sandbox_control::live_status::{AgentStatus, LiveStatus, derive_live_status};
 use moatless_sandbox_control::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use moatless_sandbox_control::models::*;
 use moatless_sandbox_control::schemas::*;
 use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
-use moatless_backend_core::sandbox::SandboxConnector;
-use moatless_core::config::Config;
+use moatless_workspaces::repository::models::ServerConfig;
 
 /// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
 /// live background processes.
@@ -65,13 +65,14 @@ impl StatusResolver {
     pub async fn resolve_sandbox_status(
         &self,
         task_id: &str,
+        sandbox_id: &str,
         server_configs: &[ServerConfig],
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
         connector: &dyn SandboxConnector,
     ) -> SandboxStatusFullResponse {
         let (phase, resolver_error, current_sandbox_image) = self
-            .resolve_pod_phase_and_error(task_id, desired_state)
+            .resolve_pod_phase_and_error(sandbox_id, desired_state)
             .await;
         let sandbox_status = phase.sandbox_status();
         let is_running = phase == PodPhase::Running;
@@ -79,7 +80,7 @@ impl StatusResolver {
         if is_running {
             // Config-first: start from server configs, overlay K8s container statuses
             let container_statuses =
-                pod_reader::fetch_server_container_statuses(&self.k8s, task_id).await;
+                pod_reader::fetch_server_container_statuses(&self.k8s, sandbox_id).await;
 
             let servers: Vec<ServerEntry> = server_configs
                 .iter()
@@ -94,7 +95,7 @@ impl StatusResolver {
                     let status = container.map_or(ServerStatus::Starting, |cs| {
                         cs.to_server_status_with_timeout(timeout)
                     });
-                    let url = self.build_proxy_url(task_id, config.port);
+                    let url = self.build_proxy_url(sandbox_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
                         label: config.label.clone().unwrap_or_else(|| config.name.clone()),
@@ -126,7 +127,7 @@ impl StatusResolver {
             );
 
             // Fetch all container statuses for diagnostics
-            let container_diagnostics = self.fetch_container_diagnostics(task_id).await;
+            let container_diagnostics = self.fetch_container_diagnostics(sandbox_id).await;
 
             return SandboxStatusFullResponse {
                 sandbox_status: live_status.sandbox_status,
@@ -151,7 +152,7 @@ impl StatusResolver {
             PodPhase::Pending | PodPhase::Failed | PodPhase::Unknown
         ) {
             let container_statuses =
-                pod_reader::fetch_server_container_statuses(&self.k8s, task_id).await;
+                pod_reader::fetch_server_container_statuses(&self.k8s, sandbox_id).await;
 
             server_configs
                 .iter()
@@ -166,7 +167,7 @@ impl StatusResolver {
                     let status = container.map_or(ServerStatus::Starting, |cs| {
                         cs.to_server_status_with_timeout(timeout)
                     });
-                    let url = self.build_proxy_url(task_id, config.port);
+                    let url = self.build_proxy_url(sandbox_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
                         label: config.label.clone().unwrap_or_else(|| config.name.clone()),
@@ -189,7 +190,7 @@ impl StatusResolver {
             server_configs
                 .iter()
                 .map(|config| {
-                    let url = self.build_proxy_url(task_id, config.port);
+                    let url = self.build_proxy_url(sandbox_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
                         label: config.label.clone().unwrap_or_else(|| config.name.clone()),
@@ -211,14 +212,14 @@ impl StatusResolver {
             PodPhase::Pending | PodPhase::Failed | PodPhase::Unknown
         );
         let container_diagnostics = if fetch_diagnostics {
-            self.fetch_container_diagnostics(task_id).await
+            self.fetch_container_diagnostics(sandbox_id).await
         } else {
             None
         };
 
         // Fetch runtime events for error/initializing states
         let runtime_events = if fetch_diagnostics {
-            let events = pod_reader::fetch_pod_runtime_events(&self.k8s, task_id).await;
+            let events = pod_reader::fetch_pod_runtime_events(&self.k8s, sandbox_id).await;
             if events.is_empty() {
                 None
             } else {
@@ -257,12 +258,13 @@ impl StatusResolver {
     pub async fn resolve_live_status(
         &self,
         task_id: &str,
+        sandbox_id: &str,
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
         connector: &dyn SandboxConnector,
     ) -> LiveStatus {
         let (phase, resolver_error, _) = self
-            .resolve_pod_phase_and_error(task_id, desired_state)
+            .resolve_pod_phase_and_error(sandbox_id, desired_state)
             .await;
         let sandbox_status = phase.sandbox_status();
         let agent_status = if sandbox_status == SandboxStatus::Ready {
@@ -301,7 +303,7 @@ impl StatusResolver {
             }
         };
 
-        match client.get_agent_status().await {
+        match client.get_agent_status_for_task(Some(task_id)).await {
             Ok(resp) => AgentStatusSnapshot {
                 status: Some(AgentStatus::from(resp.status.as_str())),
                 scheduled_jobs: resp

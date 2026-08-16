@@ -43,7 +43,10 @@ impl AgentStopPort for GrpcAgentStop {
     async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason) {
         match self.connector.sandbox_client(task_id).await {
             Ok(client) => {
-                if let Err(e) = client.stop_agent(stop_source(reason)).await {
+                if let Err(e) = client
+                    .stop_agent_for_task(Some(task_id), stop_source(reason))
+                    .await
+                {
                     tracing::debug!(task_id, error = %e, "graceful StopAgent failed (continuing)");
                 }
             }

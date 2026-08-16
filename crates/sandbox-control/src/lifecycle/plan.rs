@@ -8,14 +8,14 @@ use std::sync::Arc;
 
 use moatless_backend_core::scope::ScopeContext;
 
+use crate::auto_provision::{build_provision_request, get_server_configs_for_task};
+use crate::models::ProvisionRequest;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::users::UserDao;
+use moatless_tasks::task::dao::TaskDao;
 use moatless_workspaces::plugin::dao::PluginDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
-use crate::auto_provision::{build_provision_request, get_server_configs_for_task};
 use moatless_workspaces::repository::models::ServerConfig;
-use crate::models::ProvisionRequest;
-use moatless_tasks::task::dao::TaskDao;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 use super::error::RuntimeError;
@@ -56,10 +56,7 @@ impl ProvisionDeps {
         }
     }
 
-    pub async fn build_request(
-        &self,
-        task_id: &str,
-    ) -> Result<ProvisionRequest, RuntimeError> {
+    pub async fn build_request(&self, sandbox_id: &str) -> Result<ProvisionRequest, RuntimeError> {
         build_provision_request(
             self.tasks.as_ref(),
             self.repos.as_ref(),
@@ -67,10 +64,23 @@ impl ProvisionDeps {
             self.plugins.as_ref(),
             self.workspaces.as_ref(),
             self.users.as_ref(),
-            task_id,
+            sandbox_id,
         )
         .await
         .map_err(map_sandbox_error)
+    }
+
+    pub async fn sandbox_id_for_task(&self, task_id: &str) -> Result<String, RuntimeError> {
+        // reason: endpoint resolution is a system read of task membership.
+        #[allow(clippy::disallowed_methods)]
+        let sys = ScopeContext::system();
+        let task = self
+            .tasks
+            .find_by_id(task_id, &sys)
+            .await
+            .map_err(|e| RuntimeError::Infrastructure(format!("read task sandbox id: {e}")))?
+            .ok_or_else(|| RuntimeError::Rejected(format!("task {task_id} not found")))?;
+        Ok(task.sandbox_id.unwrap_or_else(|| task.task_id.clone()))
     }
 
     pub async fn server_configs(&self, task_id: &str) -> Vec<ServerConfig> {
@@ -119,12 +129,14 @@ mod db_tests {
     fn deps_from_pool(pool: &PgPool) -> ProvisionDeps {
         ProvisionDeps::new(
             Arc::new(moatless_tasks::task::dao::PgTaskDao(pool.clone())),
-            Arc::new(moatless_workspaces::repository::dao::PgRepositoryDao(pool.clone())),
-            Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(
+            Arc::new(moatless_workspaces::repository::dao::PgRepositoryDao(
                 pool.clone(),
             )),
+            Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(pool.clone())),
             Arc::new(moatless_workspaces::plugin::dao::PgPluginDao(pool.clone())),
-            Arc::new(moatless_workspaces::workspace::dao::PgWorkspaceDao(pool.clone())),
+            Arc::new(moatless_workspaces::workspace::dao::PgWorkspaceDao(
+                pool.clone(),
+            )),
             Arc::new(moatless_identity::auth::users::PgUserDao(pool.clone())),
         )
     }

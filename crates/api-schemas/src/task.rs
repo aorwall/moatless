@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::bindings::TaskBindingSummary;
 use crate::enums::{
-    SandboxDesiredState, SandboxStopReason, Scope, TaskRelationType, TaskStatus, Visibility,
+    CheckoutMode, SandboxDesiredState, SandboxStopReason, Scope, TaskRelationType, TaskStatus,
+    Visibility,
 };
 use crate::shared::{AgentMode, AgentType};
 
@@ -37,6 +38,12 @@ pub struct CreateTaskRequest {
     /// derives the repository's deterministic shadow workspace, keeping the
     /// single-repo path unchanged.
     pub workspace_id: Option<String>,
+    /// Existing running Sandbox to join. Omit to create the task's own Sandbox.
+    pub sandbox_id: Option<String>,
+    /// Checkout relationship to other members when `sandbox_id` is supplied.
+    /// Omit for the shared checkout, which is also the single-member behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout_mode: Option<CheckoutMode>,
     pub agent_type: Option<AgentType>,
     pub name: Option<String>,
     pub description: Option<String>,
@@ -209,6 +216,13 @@ pub struct TaskResponse {
     /// `None` when the workspace row is deleted or its lookup failed; clients
     /// showing this as a label fall back to the repository.
     pub workspace_name: Option<String>,
+    /// Sandbox this Task belongs to. `None` means it has never been started.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_id: Option<String>,
+    /// Checkout relationship to other members of the Sandbox. `None` reads as
+    /// `shared` for tasks created before this field existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkout_mode: Option<CheckoutMode>,
     pub branch: Option<String>,
     pub model: Option<String>,
     pub created_at: String,

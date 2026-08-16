@@ -114,7 +114,9 @@ pub struct Config {
     pub port: u16,
     /// gRPC port for sandbox service (default: 50052)
     pub grpc_port: u16,
-    /// Task ID (required)
+    /// Sandbox ID (required for new pods; falls back to TASK_ID for older local fixtures).
+    pub sandbox_id: String,
+    /// Initial member Task ID.
     pub task_id: String,
     /// The Task's selected Agent harness, fixed for the Sandbox lifetime and
     /// delivered at construction via the `AGENT_TYPE` env (the fixed-harness decision). `None`
@@ -453,6 +455,11 @@ impl Config {
                 .unwrap_or(50052),
 
             #[allow(clippy::expect_used)] // required env var, crash at startup if missing
+            sandbox_id: env::var("SANDBOX_ID")
+                .or_else(|_| env::var("TASK_ID"))
+                .expect("SANDBOX_ID or TASK_ID is required"),
+
+            #[allow(clippy::expect_used)] // initial member env var, crash at startup if missing
             task_id: env::var("TASK_ID").expect("TASK_ID is required"),
 
             agent_type: resolve_agent_type_env(),
@@ -587,6 +594,7 @@ pub(crate) mod test_support {
         Config {
             port: 8001,
             grpc_port: 50052,
+            sandbox_id: "test-sandbox".to_string(),
             task_id: "test-task".to_string(),
             agent_type: None,
             workspace_dir: "/tmp/workspace".to_string(),
@@ -683,8 +691,8 @@ fn parse_repo_config() -> ParsedRepoConfig {
 mod tests {
     use super::test_support::minimal_config;
     use super::{
-        PermissionMode, env_flag_value_enabled, is_safe_mount_name, parse_permission_mode,
-        parse_repo_checkouts, primary_checkout,
+        env_flag_value_enabled, is_safe_mount_name, parse_permission_mode, parse_repo_checkouts,
+        primary_checkout, PermissionMode,
     };
 
     /// Point the persisted-token dir at an empty temp dir so resolution falls
@@ -824,11 +832,9 @@ mod tests {
         let mut config = minimal_config();
         config.workspace_dir = "/opt/moatless/workspace".to_string();
         config.data_dir = "/opt/moatless/data".to_string();
-        assert!(
-            !config
-                .persisted_user_token_path()
-                .starts_with(&config.workspace_dir)
-        );
+        assert!(!config
+            .persisted_user_token_path()
+            .starts_with(&config.workspace_dir));
     }
 
     #[test]

@@ -508,17 +508,34 @@ pub async fn delete_task(
 ) -> Result<axum::http::StatusCode, TaskError> {
     let scope_ctx = auth.scope_context();
 
-    // Permanent deletion is strict remove with archive deletion, and the row is
-    // deleted only on success. The lifecycle handle owns the graceful agent stop
-    // and awaits observed absence; on failure the typed error surfaces, the row
-    // survives with `Removed` intent, and the reconciler keeps retrying.
-    sandbox
-        .remove(&task_id, ArchiveRetention::DeleteArchives)
+    // Leave the active member set before lifecycle decides whether this is a
+    // member detach or the final sandbox-scoped remove. Concurrent deletes of
+    // all members then serialize with at least one caller seeing no open/error
+    // peers, so runtime resources are removed before the last row disappears.
+    let closed = tasks
+        .update_task(
+            &task_id,
+            &TaskPatch {
+                status: Some(TaskStatus::Closed),
+                ..Default::default()
+            },
+            &scope_ctx,
+        )
         .await?;
+    if !closed {
+        return Err(TaskError::NotFound(task_id.clone()));
+    }
 
     // Stop external listeners. `task_bindings.task_id` is not an FK, so rows
     // don't cascade on delete — deactivate them so inbound routing stops.
     deactivate_task_bindings(task_bindings.as_ref(), &task_id).await;
+
+    // Permanent deletion is strict remove with archive deletion. The row is
+    // deleted only on success; on failure it survives Closed with lifecycle
+    // intent for the reconciler to finish.
+    sandbox
+        .remove(&task_id, ArchiveRetention::DeleteArchives)
+        .await?;
 
     let deleted = tasks.delete_task(&task_id, &scope_ctx).await?;
     if !deleted {
@@ -1116,7 +1133,65 @@ mod tests {
     use super::*;
 
     use crate::task::binding_dao::{LoopRecentTaskRow, TaskBindingInfo};
+    use crate::task::dao::MockTaskDao;
+    use crate::task::models::{SandboxDesiredState, SandboxStopReason};
     use moatless_adapter_model::models::TaskBinding;
+    use uuid::Uuid;
+
+    struct RecordingSandbox {
+        log: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl SandboxLifecycle for RecordingSandbox {
+        async fn start(
+            &self,
+            _task_id: &str,
+        ) -> Result<(), crate::task::sandbox_lifecycle::SandboxOpError> {
+            unimplemented!("not reachable from delete_task ordering test")
+        }
+
+        async fn stop(
+            &self,
+            _task_id: &str,
+            _reason: SandboxStopReason,
+        ) -> Result<(), crate::task::sandbox_lifecycle::SandboxOpError> {
+            unimplemented!("not reachable from delete_task ordering test")
+        }
+
+        async fn remove(
+            &self,
+            _task_id: &str,
+            _retention: ArchiveRetention,
+        ) -> Result<(), crate::task::sandbox_lifecycle::SandboxOpError> {
+            self.log.lock().expect("log").push("remove");
+            Ok(())
+        }
+
+        async fn archive_storage(
+            &self,
+            _task_id: &str,
+        ) -> Result<(), crate::task::sandbox_lifecycle::SandboxOpError> {
+            unimplemented!("not reachable from delete_task ordering test")
+        }
+
+        async fn stopped_with_storage(
+            &self,
+            _task_ids: &[String],
+        ) -> Result<
+            std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>,
+            crate::task::sandbox_lifecycle::SandboxOpError,
+        > {
+            unimplemented!("not reachable from delete_task ordering test")
+        }
+
+        async fn desired_state(
+            &self,
+            _task_id: &str,
+        ) -> Result<SandboxDesiredState, crate::task::sandbox_lifecycle::SandboxOpError> {
+            unimplemented!("not reachable from delete_task ordering test")
+        }
+    }
 
     /// `TaskBindingDao` fake that only answers `deactivate_by_task`.
     ///
@@ -1285,5 +1360,55 @@ mod tests {
         deactivate_task_bindings(&bindings, "task-2").await;
 
         assert_eq!(bindings.calls(), vec!["task-2".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn delete_closes_task_before_lifecycle_remove() {
+        let log: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut tasks = MockTaskDao::new();
+        let update_log = Arc::clone(&log);
+        tasks
+            .expect_update_task()
+            .withf(|task_id, patch, _ctx| {
+                task_id == "task-1" && patch.status == Some(TaskStatus::Closed)
+            })
+            .once()
+            .returning(move |_, _, _| {
+                update_log.lock().expect("log").push("close");
+                Ok(true)
+            });
+        let delete_log = Arc::clone(&log);
+        tasks
+            .expect_delete_task()
+            .withf(|task_id, _ctx| task_id == "task-1")
+            .once()
+            .returning(move |_, _| {
+                delete_log.lock().expect("log").push("delete");
+                Ok(true)
+            });
+
+        let status = delete_task(
+            State(Arc::new(RecordingSandbox {
+                log: Arc::clone(&log),
+            }) as Arc<dyn SandboxLifecycle>),
+            State(Arc::new(FakeBindings::returning(Ok(0))) as Arc<dyn TaskBindingDao>),
+            State(Arc::new(tasks) as Arc<dyn TaskDao>),
+            AuthUser {
+                user_id: Uuid::parse_str("00000000-0000-0000-0000-000000000001")
+                    .expect("valid uuid"),
+                login: "user-1".to_string(),
+                role: None,
+                provider: None,
+                group_id: None,
+                task_id: None,
+                is_agent_context: false,
+            },
+            Path("task-1".to_string()),
+        )
+        .await
+        .expect("delete succeeds");
+
+        assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
+        assert_eq!(*log.lock().expect("log"), vec!["close", "remove", "delete"]);
     }
 }

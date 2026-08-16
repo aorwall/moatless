@@ -29,10 +29,20 @@ pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
     .expect("seed team");
 
     sqlx::query(
+        "INSERT INTO workspaces (id, name, scope, team_id, owner_user_id, created_by)
+         VALUES ('ws_repo-x', 'Repo X', 'user', 'team-x', 'user-1', 'user-1')
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .execute(pool)
+    .await
+    .expect("seed workspace");
+
+    sqlx::query(
         r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_type, repository_id,
-               status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id)
+               status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id,
+               workspace_id)
            VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', $2, 0,
-               'private', 'user', 'team-x', 'user-1', 'user-1')"#,
+               'private', 'user', 'team-x', 'user-1', 'user-1', 'ws_repo-x')"#,
     )
     .bind(task_id)
     .bind(status)

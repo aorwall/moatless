@@ -13,8 +13,8 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::PgPool;
 use tokio::sync::Notify;
 
 use moatless_tasks::task::models::SandboxStopReason;
@@ -229,7 +229,7 @@ fn build(
 // columns directly.
 async fn desired(pool: &PgPool, task_id: &str) -> (String, Option<String>, Option<String>) {
     sqlx::query_as(
-        "SELECT desired_state, stop_reason, operation_kind FROM sandboxes WHERE task_id = $1",
+        "SELECT desired_state, stop_reason, operation_kind FROM sandboxes WHERE sandbox_id = $1",
     )
     .bind(task_id)
     .fetch_one(pool)
@@ -258,13 +258,12 @@ async fn start_persists_running_and_publishes_initializing(
     let (state, reason, _kind) = desired(&h.pool, "t1").await;
     assert_eq!(state, "running");
     assert_eq!(reason, None);
-    assert!(
-        h.sink
-            .facts
-            .lock()
-            .unwrap()
-            .contains(&EventFact::Initializing)
-    );
+    assert!(h
+        .sink
+        .facts
+        .lock()
+        .unwrap()
+        .contains(&EventFact::Initializing));
     // The allocated generation reached the runtime context.
     assert_eq!(*h.runtime.last_generation.lock().unwrap(), Some(1));
     // A start that ends Starting leaves its marker for the watcher's convergence.

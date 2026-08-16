@@ -17,7 +17,7 @@ use crate::sandbox_service_client::SandboxServiceClient;
 use crate::{
     ApplyServerConfigRequest, ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse,
     GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
-    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest,
+    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, JoinTaskRequest,
     ListFilesRequest, ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest,
     ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, SearchFilesByNameRequest,
     SearchFilesByNameResponse, StopAgentRequest, SyncWorkspaceRequest, SyncWorkspaceResponse,
@@ -50,6 +50,8 @@ impl ServerOverride {
 
 /// Raise from tonic's 4 MB default so binary files (audio, images) can round-trip.
 const MAX_GRPC_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+const SHORT_RPC_TIMEOUT: Duration = Duration::from_secs(10);
+const JOIN_TASK_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Errors that can occur when constructing a [`SandboxClient`].
 #[derive(Debug, thiserror::Error)]
@@ -81,7 +83,6 @@ impl SandboxClient {
     pub fn connect(url: &str) -> Result<Self, ClientError> {
         let channel = Channel::from_shared(url.to_string())?
             .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(10))
             .http2_keep_alive_interval(Duration::from_secs(30))
             .keep_alive_timeout(Duration::from_secs(10))
             .connect_lazy();
@@ -96,20 +97,77 @@ impl SandboxClient {
     /// Execute agent on the sandbox.
     pub async fn execute_agent(&self, request: ExecuteAgentRequest) -> Result<(), tonic::Status> {
         let mut client = self.client.clone();
-        client.execute_agent(request).await?;
-        Ok(())
+        let result = tokio::time::timeout(SHORT_RPC_TIMEOUT, client.execute_agent(request)).await;
+
+        match result {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "ExecuteAgent gRPC request timed out",
+            )),
+        }
+    }
+
+    /// Register a task as a member of an already-running warm sandbox.
+    pub async fn join_task(
+        &self,
+        task_id: &str,
+        checkout_mode: Option<&str>,
+    ) -> Result<(), tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(JOIN_TASK_TIMEOUT, async {
+            client
+                .join_task(JoinTaskRequest {
+                    task_id: task_id.to_string(),
+                    checkout_mode: checkout_mode.map(str::to_string),
+                })
+                .await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "JoinTask gRPC request timed out",
+            )),
+        }
+    }
+
+    #[cfg(test)]
+    fn join_task_timeout() -> Duration {
+        JOIN_TASK_TIMEOUT
     }
 
     /// Stop the running agent. `source` is echoed on the terminal
     /// `agent.stopped` event so the stop is attributed to its initiator.
     pub async fn stop_agent(&self, source: crate::AgentStopSource) -> Result<(), tonic::Status> {
+        self.stop_agent_for_task(None, source).await
+    }
+
+    pub async fn stop_agent_for_task(
+        &self,
+        task_id: Option<&str>,
+        source: crate::AgentStopSource,
+    ) -> Result<(), tonic::Status> {
         let mut client = self.client.clone();
-        client
-            .stop_agent(StopAgentRequest {
-                source: source.into(),
-            })
-            .await?;
-        Ok(())
+        let result = tokio::time::timeout(SHORT_RPC_TIMEOUT, async {
+            client
+                .stop_agent(StopAgentRequest {
+                    source: source.into(),
+                    task_id: task_id.map(str::to_string),
+                })
+                .await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "StopAgent gRPC request timed out",
+            )),
+        }
     }
 
     /// Push the workspace to S3 now, ahead of an effect that destroys the live
@@ -130,9 +188,20 @@ impl SandboxClient {
 
     /// Get the current agent status from the sandbox.
     pub async fn get_agent_status(&self) -> Result<GetAgentStatusResponse, tonic::Status> {
+        self.get_agent_status_for_task(None).await
+    }
+
+    pub async fn get_agent_status_for_task(
+        &self,
+        task_id: Option<&str>,
+    ) -> Result<GetAgentStatusResponse, tonic::Status> {
         let mut client = self.client.clone();
         let result = tokio::time::timeout(Duration::from_secs(5), async {
-            client.get_agent_status(GetAgentStatusRequest {}).await
+            client
+                .get_agent_status(GetAgentStatusRequest {
+                    task_id: task_id.map(str::to_string),
+                })
+                .await
         })
         .await;
 
@@ -149,13 +218,29 @@ impl SandboxClient {
     ///
     /// Fire-and-forget: logs warnings on failure, never propagates errors.
     pub async fn notify_messages(&self) {
+        self.notify_messages_for_task(None).await;
+    }
+
+    pub async fn notify_messages_for_task(&self, task_id: Option<&str>) {
         let mut client = self.client.clone();
-        match client.notify_messages(NotifyMessagesRequest {}).await {
-            Ok(_) => {
+        let result = tokio::time::timeout(SHORT_RPC_TIMEOUT, async {
+            client
+                .notify_messages(NotifyMessagesRequest {
+                    task_id: task_id.map(str::to_string),
+                })
+                .await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(_)) => {
                 debug!("Notified sandbox pod via gRPC");
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 tracing::warn!(error = %e, "Failed to notify sandbox pod via gRPC");
+            }
+            Err(_) => {
+                tracing::warn!("NotifyMessages gRPC request timed out");
             }
         }
     }
@@ -166,12 +251,23 @@ impl SandboxClient {
         root_path: &str,
         recursive: bool,
     ) -> Result<GetFileTreeResponse, tonic::Status> {
+        self.get_file_tree_for_task(None, root_path, recursive)
+            .await
+    }
+
+    pub async fn get_file_tree_for_task(
+        &self,
+        task_id: Option<&str>,
+        root_path: &str,
+        recursive: bool,
+    ) -> Result<GetFileTreeResponse, tonic::Status> {
         let mut client = self.client.clone();
         let result = tokio::time::timeout(Duration::from_secs(30), async {
             client
                 .get_file_tree(GetFileTreeRequest {
                     root_path: root_path.to_string(),
                     recursive,
+                    task_id: task_id.map(str::to_string),
                 })
                 .await
         })
@@ -192,12 +288,22 @@ impl SandboxClient {
         path: &str,
         include_changes: bool,
     ) -> Result<ReadFileResponse, tonic::Status> {
+        self.read_file_for_task(None, path, include_changes).await
+    }
+
+    pub async fn read_file_for_task(
+        &self,
+        task_id: Option<&str>,
+        path: &str,
+        include_changes: bool,
+    ) -> Result<ReadFileResponse, tonic::Status> {
         let mut client = self.client.clone();
         let result = tokio::time::timeout(Duration::from_secs(15), async {
             client
                 .read_file(ReadFileRequest {
                     path: path.to_string(),
                     include_changes,
+                    task_id: task_id.map(str::to_string),
                 })
                 .await
         })
@@ -214,12 +320,22 @@ impl SandboxClient {
 
     /// Write a file in the sandbox workspace.
     pub async fn write_file(&self, path: &str, content: &str) -> Result<(), tonic::Status> {
+        self.write_file_for_task(None, path, content).await
+    }
+
+    pub async fn write_file_for_task(
+        &self,
+        task_id: Option<&str>,
+        path: &str,
+        content: &str,
+    ) -> Result<(), tonic::Status> {
         let mut client = self.client.clone();
-        let result = tokio::time::timeout(Duration::from_secs(10), async {
+        let result = tokio::time::timeout(SHORT_RPC_TIMEOUT, async {
             client
                 .write_file(WriteFileRequest {
                     path: path.to_string(),
                     content: content.to_string(),
+                    task_id: task_id.map(str::to_string),
                 })
                 .await
         })
@@ -241,13 +357,25 @@ impl SandboxClient {
         recursive: bool,
         respect_gitignore: bool,
     ) -> Result<Vec<String>, tonic::Status> {
+        self.list_files_for_task(None, path, recursive, respect_gitignore)
+            .await
+    }
+
+    pub async fn list_files_for_task(
+        &self,
+        task_id: Option<&str>,
+        path: &str,
+        recursive: bool,
+        respect_gitignore: bool,
+    ) -> Result<Vec<String>, tonic::Status> {
         let mut client = self.client.clone();
-        let result = tokio::time::timeout(Duration::from_secs(10), async {
+        let result = tokio::time::timeout(SHORT_RPC_TIMEOUT, async {
             client
                 .list_files(ListFilesRequest {
                     path: path.to_string(),
                     recursive,
                     respect_gitignore,
+                    task_id: task_id.map(str::to_string),
                 })
                 .await
         })
@@ -509,13 +637,25 @@ impl SandboxClient {
         case_sensitive: bool,
         max_results: i32,
     ) -> Result<SearchFilesByNameResponse, tonic::Status> {
+        self.search_files_by_name_for_task(None, query, case_sensitive, max_results)
+            .await
+    }
+
+    pub async fn search_files_by_name_for_task(
+        &self,
+        task_id: Option<&str>,
+        query: &str,
+        case_sensitive: bool,
+        max_results: i32,
+    ) -> Result<SearchFilesByNameResponse, tonic::Status> {
         let mut client = self.client.clone();
-        let result = tokio::time::timeout(Duration::from_secs(10), async {
+        let result = tokio::time::timeout(SHORT_RPC_TIMEOUT, async {
             client
                 .search_files_by_name(SearchFilesByNameRequest {
                     query: query.to_string(),
                     case_sensitive,
                     max_results,
+                    task_id: task_id.map(str::to_string),
                 })
                 .await
         })
@@ -540,12 +680,23 @@ impl SandboxClient {
         base_ref: Option<String>,
         ignore_whitespace: bool,
     ) -> Result<GetGitDiffPreviewResponse, tonic::Status> {
+        self.get_git_diff_preview_for_task(None, base_ref, ignore_whitespace)
+            .await
+    }
+
+    pub async fn get_git_diff_preview_for_task(
+        &self,
+        task_id: Option<&str>,
+        base_ref: Option<String>,
+        ignore_whitespace: bool,
+    ) -> Result<GetGitDiffPreviewResponse, tonic::Status> {
         let mut client = self.client.clone();
         let result = tokio::time::timeout(Duration::from_secs(45), async {
             client
                 .get_git_diff_preview(GetGitDiffPreviewRequest {
                     base_ref,
                     ignore_whitespace,
+                    task_id: task_id.map(str::to_string),
                 })
                 .await
         })
@@ -562,9 +713,20 @@ impl SandboxClient {
 
     /// The primary repository's branch state.
     pub async fn get_git_status(&self) -> Result<GetGitStatusResponse, tonic::Status> {
+        self.get_git_status_for_task(None).await
+    }
+
+    pub async fn get_git_status_for_task(
+        &self,
+        task_id: Option<&str>,
+    ) -> Result<GetGitStatusResponse, tonic::Status> {
         let mut client = self.client.clone();
-        let result = tokio::time::timeout(Duration::from_secs(10), async {
-            client.get_git_status(GetGitStatusRequest {}).await
+        let result = tokio::time::timeout(SHORT_RPC_TIMEOUT, async {
+            client
+                .get_git_status(GetGitStatusRequest {
+                    task_id: task_id.map(str::to_string),
+                })
+                .await
         })
         .await;
 
@@ -579,9 +741,20 @@ impl SandboxClient {
 
     /// The primary repository's branches.
     pub async fn list_git_refs(&self) -> Result<ListGitRefsResponse, tonic::Status> {
+        self.list_git_refs_for_task(None).await
+    }
+
+    pub async fn list_git_refs_for_task(
+        &self,
+        task_id: Option<&str>,
+    ) -> Result<ListGitRefsResponse, tonic::Status> {
         let mut client = self.client.clone();
-        let result = tokio::time::timeout(Duration::from_secs(10), async {
-            client.list_git_refs(ListGitRefsRequest {}).await
+        let result = tokio::time::timeout(SHORT_RPC_TIMEOUT, async {
+            client
+                .list_git_refs(ListGitRefsRequest {
+                    task_id: task_id.map(str::to_string),
+                })
+                .await
         })
         .await;
 
@@ -592,5 +765,16 @@ impl SandboxClient {
                 "Git ref listing gRPC request timed out",
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn join_task_deadline_allows_clone_scale_materialization() {
+        assert!(SandboxClient::join_task_timeout() > SHORT_RPC_TIMEOUT);
+        assert!(SandboxClient::join_task_timeout() >= Duration::from_secs(120));
     }
 }

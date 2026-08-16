@@ -28,8 +28,8 @@ use moatless_backend_core::scope::ScopeContext;
 use crate::event_dedup::Admission;
 use crate::jwt;
 use crate::secrets::{
-    TaskCredentialInputs, resolve_server_env, resolve_task_credential_targets,
-    resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
+    resolve_server_env, resolve_task_credential_targets, resolve_task_credentials,
+    resolve_task_ssh_keys, resolve_workspace_credentials, TaskCredentialInputs,
 };
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
@@ -52,7 +52,7 @@ use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::relations::TaskRelationDao;
 use moatless_tasks::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use moatless_tasks::task_turn::dao::{TaskTurnDao, TurnStateEvent};
-use moatless_tasks::task_turn::models::{TurnStatus, classify_turn_transition};
+use moatless_tasks::task_turn::models::{classify_turn_transition, TurnStatus};
 use moatless_workspaces::credentials::WriteSource;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
@@ -207,13 +207,12 @@ pub struct BackendSandboxServiceImpl {
 
 /// A resolved authorization to act on one task over the sandbox gRPC API.
 ///
-/// Produced by [`SandboxAuthorizer`]. Carries the *authoritative* task id (the
-/// token's binding, never the raw attacker-controllable request field) plus the
+/// Produced by [`SandboxAuthorizer`]. Carries the sandbox binding plus the
 /// caller's scope context, so handlers can run scoped DB work as the caller.
 #[derive(Debug)]
 pub(crate) struct TaskGrant {
-    /// The task the caller is authorized to operate on.
-    pub task_id: String,
+    /// The sandbox the task is a member of.
+    pub sandbox_id: String,
     /// The caller's scope context (user id + platform-admin flag).
     pub ctx: ScopeContext,
     /// The caller's login. Needed by `GetCredentials` to mint the delivered user
@@ -232,6 +231,12 @@ enum VerifiedToken {
     TaskBound {
         claims: jwt::UserTokenClaims,
         task_id: String,
+    },
+    /// A token carrying a `sandboxId` claim. The requested task must be a
+    /// member of that sandbox.
+    SandboxBound {
+        claims: jwt::UserTokenClaims,
+        sandbox_id: String,
     },
     /// A claim-less token accepted under the grace flag. Its request `task_id`
     /// is authorized purely by the DB control check.
@@ -339,11 +344,14 @@ impl SandboxAuthorizer {
         }
         .map_err(|e| Status::unauthenticated(format!("Invalid token: {e}")))?;
 
+        if let Some(sandbox_id) = claims.sandbox_id.clone() {
+            return Ok(VerifiedToken::SandboxBound { claims, sandbox_id });
+        }
         match claims.task_id.clone() {
             Some(task_id) => Ok(VerifiedToken::TaskBound { claims, task_id }),
             None if self.accept_claimless => Ok(VerifiedToken::Claimless { claims }),
             None => Err(Status::unauthenticated(
-                "Token missing task binding (taskId claim)",
+                "Token missing sandbox binding (sandboxId claim)",
             )),
         }
     }
@@ -366,7 +374,7 @@ impl SandboxAuthorizer {
                 #[allow(clippy::disallowed_methods)]
                 let ctx = ScopeContext::system();
                 Ok(TaskGrant {
-                    task_id: request_task_id.to_string(),
+                    sandbox_id: request_task_id.to_string(),
                     ctx,
                     login: String::new(),
                 })
@@ -384,6 +392,10 @@ impl SandboxAuthorizer {
                     ));
                 }
                 self.resolve_control(&claims, request_task_id).await
+            }
+            VerifiedToken::SandboxBound { claims, sandbox_id } => {
+                self.resolve_sandbox_membership(&claims, request_task_id, &sandbox_id)
+                    .await
             }
             VerifiedToken::Claimless { claims } => {
                 self.resolve_control(&claims, request_task_id).await
@@ -439,7 +451,7 @@ impl SandboxAuthorizer {
 
         if ctx.can_control(&task.scoped_resource()) {
             Ok(TaskGrant {
-                task_id: task_id.to_string(),
+                sandbox_id: task.sandbox_id.unwrap_or_else(|| task_id.to_string()),
                 login: claims.login.clone(),
                 ctx,
             })
@@ -452,6 +464,51 @@ impl SandboxAuthorizer {
             );
             Err(Status::permission_denied("Not authorized for this task"))
         }
+    }
+
+    async fn resolve_sandbox_membership(
+        &self,
+        claims: &jwt::UserTokenClaims,
+        task_id: &str,
+        sandbox_id: &str,
+    ) -> Result<TaskGrant, Status> {
+        let tasks = self
+            .tasks
+            .as_ref()
+            .ok_or_else(|| Status::internal("Tasks repository not configured"))?;
+
+        let ctx = self.scope_context_for(claims).await?;
+        let task = tasks
+            .find_by_id(task_id, &ctx)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, task_id, sandbox_id, "resolve_sandbox_membership: task lookup failed");
+                Status::permission_denied("Sandbox membership could not be confirmed")
+            })?
+            .ok_or_else(|| Status::permission_denied("Task is not a member of this sandbox"))?;
+
+        let task_sandbox_id = task.sandbox_id.as_deref().unwrap_or(&task.task_id);
+        if task_sandbox_id != sandbox_id {
+            warn!(
+                task_id,
+                task_sandbox_id,
+                claim_sandbox_id = %sandbox_id,
+                user_id = %claims.user_id,
+                "Rejected sandbox gRPC call: token sandbox binding does not match task membership"
+            );
+            return Err(Status::permission_denied(
+                "Token is not valid for this task's sandbox",
+            ));
+        }
+        if !ctx.can_control(&task.scoped_resource()) {
+            return Err(Status::permission_denied("Not authorized for this task"));
+        }
+
+        Ok(TaskGrant {
+            sandbox_id: sandbox_id.to_string(),
+            login: claims.login.clone(),
+            ctx,
+        })
     }
 
     /// Hydrate the caller's `ScopeContext` from the DB. The sandbox JWT carries
@@ -1181,7 +1238,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // the pod spec. The sandbox swaps its bootstrap token for this one and
         // re-fetches on the 15-min refresh loop, so a rotated token propagates.
         if let Some(user_token) =
-            self.mint_user_auth_token(&grant.ctx.user_id, &grant.login, &grant.task_id)
+            self.mint_user_auth_token(&grant.ctx.user_id, &grant.login, &grant.sandbox_id)
         {
             credentials.insert(CredentialKey::USER_AUTH_TOKEN.to_string(), user_token);
         }
@@ -2019,6 +2076,8 @@ mod tests {
             inactive_ttl_days: 0,
             loop_id: None,
             workspace_id: None,
+            sandbox_id: None,
+            checkout_mode: None,
             disabled_servers: None,
             skills: Vec::new(),
         }
@@ -2046,6 +2105,7 @@ mod tests {
             user_id: uid(user_id).to_string(),
             login: user_id.to_string(),
             task_id: None,
+            sandbox_id: None,
             iat: 0,
             exp: u64::MAX,
             iss: "moatless-vibe-backend".to_string(),
@@ -2106,12 +2166,11 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
             users_regular(),
         );
-        assert!(
-            svc.authorizer
-                .resolve_control(&claims_for("owner"), "task-1")
-                .await
-                .is_ok()
-        );
+        assert!(svc
+            .authorizer
+            .resolve_control(&claims_for("owner"), "task-1")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -2166,13 +2225,11 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::Global, None))),
             users_admin(),
         );
-        assert!(
-            allowed
-                .authorizer
-                .resolve_control(&claims_for("admin"), "task-1")
-                .await
-                .is_ok()
-        );
+        assert!(allowed
+            .authorizer
+            .resolve_control(&claims_for("admin"), "task-1")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -2182,12 +2239,11 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::User, Some("other-user")))),
             users_admin(),
         );
-        assert!(
-            svc.authorizer
-                .resolve_control(&claims_for("admin"), "task-1")
-                .await
-                .is_ok()
-        );
+        assert!(svc
+            .authorizer
+            .resolve_control(&claims_for("admin"), "task-1")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -2231,8 +2287,8 @@ mod tests {
 
     #[tokio::test]
     async fn task_bound_token_match_allows_owner() {
-        // Matching binding + owner control → granted, with the authoritative
-        // task id echoed back on the grant.
+        // Matching binding + owner control → granted, with the sandbox binding
+        // echoed back on the grant.
         let svc = service_with(
             tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
             users_regular(),
@@ -2242,6 +2298,6 @@ mod tests {
             .resolve_grant(task_bound("owner", "task-1"), "task-1")
             .await
             .expect("matching binding + owner must be granted");
-        assert_eq!(grant.task_id, "task-1");
+        assert_eq!(grant.sandbox_id, "task-1");
     }
 }

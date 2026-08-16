@@ -1,7 +1,7 @@
 //! Provider-agnostic lifecycle plan construction and pod-watcher config reads.
 //!
 //! Lifecycle uses [`build_provision_request`] to assemble a fresh runtime plan
-//! from durable Task, Workspace, repository, and plugin state. The Kubernetes
+//! from durable Sandbox, Task, Workspace, repository, and plugin state. The Kubernetes
 //! pod watcher also uses the server-config/disabled-server parsing helpers when
 //! classifying and remediating server failures. HTTP and adapter callers do not
 //! provision through this module; they call `state.sandbox`.
@@ -12,23 +12,23 @@ use tracing::{info, warn};
 
 use moatless_backend_core::scope::ScopeContext;
 
+use crate::error::SandboxError;
+use crate::models::{
+    derive_mount_name, sanitize_mount_name, ProvisionRequest, RepoCheckout, RepoConfig,
+};
+use crate::preflight::preflight_validate_task_control;
+use moatless_api_schemas::plugin::PluginDelivery;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::users::UserDao;
+use moatless_tasks::task::dao::TaskDao;
+use moatless_tasks::task::models::Task;
 use moatless_workspaces::plugin::activation;
 use moatless_workspaces::plugin::dao::PluginDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::repository::models::RepositoryProvider;
 use moatless_workspaces::repository::models::{ResourceConfig, ServerConfig};
-use crate::error::SandboxError;
-use crate::models::{
-    ProvisionRequest, RepoCheckout, RepoConfig, derive_mount_name, sanitize_mount_name,
-};
-use crate::preflight::preflight_validate_task_control;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::models::Task;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 use moatless_workspaces::workspace::models::Workspace;
-use moatless_api_schemas::plugin::PluginDelivery;
 
 // Workspace-sourced run-config builders. A task's run-config comes from its
 // workspace (`build_repo_config_from_workspace` and friends); the repository row
@@ -195,10 +195,10 @@ fn assign_missing_ports(servers: &mut [ServerConfig]) {
 /// Provider-agnostic: works for both K8s and Docker sandboxes.
 ///
 /// Steps:
-/// 1. Read the task row to get the workspace/repository reference + branch
+/// 1. Read the sandbox row and its first member task to get the workspace/repository reference + branch
 /// 2. Resolve the primary repository (via the workspace when present) and read
 ///    its row to get repo config
-/// 3. Check the sandbox's own identity can control the task
+/// 3. Check the sandbox's initial member identity can control the task
 /// 4. Assemble the ProvisionRequest. Runtime credentials are fetched later
 ///    over gRPC by the sandbox.
 ///
@@ -220,20 +220,25 @@ pub async fn build_provision_request(
     plugins: &dyn PluginDao,
     workspaces: &dyn WorkspaceDao,
     users: &dyn UserDao,
-    task_id: &str,
+    sandbox_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
-    // 1. Read task from DB
+    // 1. Read the sandbox's first member task from DB.
     // reason: lifecycle plan construction acts on behalf of the system, not a user
     #[allow(clippy::disallowed_methods)]
     let sys = ScopeContext::system();
     let task = tasks
-        .find_by_id(task_id, &sys)
+        .find_by_id(sandbox_id, &sys)
         .await
         .map_err(|source| SandboxError::Database {
             context: "reading the task row for provisioning",
             source,
         })?
-        .ok_or_else(|| SandboxError::Internal(format!("Task '{task_id}' not found in database")))?;
+        .ok_or_else(|| {
+            SandboxError::Internal(format!(
+                "Initial member task for sandbox '{sandbox_id}' not found in database"
+            ))
+        })?;
+    let task_id = task.task_id.clone();
 
     // Gate: never provision a pod for a Closed task. A webhook racing a close is
     // rejected here because the Closed status is authoritative. Only `Closed` is
@@ -307,7 +312,7 @@ pub async fn build_provision_request(
 
     // Every repository the workspace places in the sandbox. The primary is
     // always first and always present.
-    let placements = resolve_placements(repos, workspaces, task_id, task.workspace_id.as_deref())
+    let placements = resolve_placements(repos, workspaces, &task_id, task.workspace_id.as_deref())
         .await
         .unwrap_or_default();
     let repo_checkouts = build_repo_checkouts(

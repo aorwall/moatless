@@ -304,9 +304,20 @@ export class MoatApi {
        * task's agent is not given them.
        */
       headless?: boolean
+      /** Create this task as a member of the named task's warm sandbox. */
+      sameSandboxTaskId?: string
+      /** Checkout relationship for a same-sandbox member. */
+      checkoutMode?: 'shared' | 'isolated'
     },
   ): Promise<TaskResponse> {
+    if (config.checkoutMode && !config.sameSandboxTaskId) {
+      throw new Error('checkoutMode requires sameSandboxTaskId')
+    }
+
     if (config.agentMode) {
+      if (config.sameSandboxTaskId || config.checkoutMode) {
+        throw new Error('agentMode task creation cannot use same-sandbox CLI flags')
+      }
       const created = this.expect<CreatedTask>(
         await this.moat.raw('POST', '/api/v1/tasks', {
           ...('workspaceId' in config
@@ -325,7 +336,9 @@ export class MoatApi {
 
     const args = ['tasks', 'create']
     args.push('--name', scopedName(config.name ?? 'task'))
-    if ('workspaceId' in config) {
+    if (config.sameSandboxTaskId) {
+      args.push('--same-sandbox', config.sameSandboxTaskId)
+    } else if ('workspaceId' in config) {
       args.push('--workspace', config.workspaceId)
     } else {
       args.push('--repo', config.templateId)
@@ -334,6 +347,7 @@ export class MoatApi {
     args.push('--agent-type', config.agentType ?? 'claude-code')
     if (config.model) args.push('--model', config.model)
     if (config.headless !== undefined) args.push('--headless', String(config.headless))
+    if (config.checkoutMode) args.push('--checkout-mode', config.checkoutMode)
     const created = await this.moat.json<CreatedTask>(args)
     return created.task
   }

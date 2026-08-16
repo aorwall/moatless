@@ -29,12 +29,12 @@ use moatless_sandbox::agent::heartbeat::Heartbeat;
 use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::Config;
-use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::credentials::Dispatcher;
+use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::outbox::EventOutbox;
-use moatless_sandbox::state::SandboxState;
+use moatless_sandbox::state::{SandboxState, TaskContext};
 use moatless_sandbox::supervisor::{Criticality, Supervisor};
 
 /// Long enough that a test never trips it by accident, short enough that the
@@ -349,7 +349,11 @@ async fn shutdown_flushes_the_outbox_before_cancelling() {
     wait_until(|| backend.publish_attempts() >= 1).await;
     assert_eq!(backend.delivered().len(), 0);
 
-    moatless_sandbox::shutdown::perform_shutdown(&state.agent, &lifecycle_cancel, Some(&state))
+    let context = state
+        .task_context(None)
+        .await
+        .expect("test state has one task context");
+    moatless_sandbox::shutdown::perform_shutdown(&context.agent, &lifecycle_cancel, Some(&state))
         .await;
 
     assert_eq!(
@@ -398,8 +402,15 @@ async fn fatal_exit_flushes_the_outbox_before_cancelling() {
         .registrar()
         .supervise("grpc-server", Criticality::Fatal, tokio::spawn(async {}));
 
-    let teardown =
-        moatless_sandbox::shutdown::perform_shutdown(&state.agent, &lifecycle_cancel, Some(&state));
+    let context = state
+        .task_context(None)
+        .await
+        .expect("test state has one task context");
+    let teardown = moatless_sandbox::shutdown::perform_shutdown(
+        &context.agent,
+        &lifecycle_cancel,
+        Some(&state),
+    );
     let exit = supervisor
         .run(JOIN_DEADLINE, teardown)
         .await
@@ -562,6 +573,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         port: 0,
         grpc_port: 0,
         task_id: "test-task".to_string(),
+        sandbox_id: "test-task".to_string(),
         agent_type: Some("claude-code".to_string()),
         workspace_dir: path("workspace"),
         repo_dir: path("workspace"),
@@ -633,25 +645,36 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         heartbeat.clone(),
         moatless_sandbox::init::workspace_sync::WorkspaceSyncTracker::new(),
     );
+    let task_context = Arc::new(TaskContext::new(
+        config.task_id.clone(),
+        config.workspace_dir.clone(),
+        config.repo_dir.clone(),
+        moatless_sandbox::state::CheckoutMode::Shared,
+        agent_state,
+        agent_handle,
+        scheduled_jobs,
+        credential_failures,
+        system_prompt_cache,
+    ));
+    let task_contexts = Arc::new(RwLock::new(HashMap::from([(
+        task_context.task_id.clone(),
+        task_context,
+    )])));
     let terminals = moatless_sandbox::terminal::TerminalManager::new(config.workspace_dir.clone());
 
     SandboxState {
         workspace_sync: Default::default(),
         config,
         events,
-        agent: agent_state,
-        agent_handle,
+        task_contexts,
+        task_context_registration: Arc::new(tokio::sync::Mutex::new(())),
         heartbeat,
-        scheduled_jobs,
         backend_client: backend,
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
         credentials,
         lifecycle_cancel,
         credential_dispatcher,
-        credential_failures,
         codex_watcher_handle: Arc::new(RwLock::new(None)),
-        system_prompt_cache,
-        dispatch_lock: Default::default(),
         supervisor_health: Default::default(),
         terminals,
     }

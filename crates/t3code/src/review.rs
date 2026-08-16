@@ -52,7 +52,11 @@ pub async fn diff_preview(
         .await
         .map_err(workspace::sandbox_access)?;
     let preview = client
-        .get_git_diff_preview(base_ref.map(str::to_string), ignore_whitespace)
+        .get_git_diff_preview_for_task(
+            Some(&task_id),
+            base_ref.map(str::to_string),
+            ignore_whitespace,
+        )
         .await
         .map_err(|status| {
             workspace::sandbox_access(classify_grpc_error(status, "get_git_diff_preview"))
@@ -156,9 +160,12 @@ pub async fn list_refs(
         .sandbox_client(&task_id)
         .await
         .map_err(workspace::sandbox_access)?;
-    let listing = client.list_git_refs().await.map_err(|status| {
-        workspace::sandbox_access(classify_grpc_error(status, "list_git_refs"))
-    })?;
+    let listing = client
+        .list_git_refs_for_task(Some(&task_id))
+        .await
+        .map_err(|status| {
+            workspace::sandbox_access(classify_grpc_error(status, "list_git_refs"))
+        })?;
 
     Ok(ref_page(&listing, request))
 }
@@ -498,9 +505,12 @@ async fn read_status(
         .sandbox_client(&task_id)
         .await
         .map_err(workspace::sandbox_access)?;
-    let status = client.get_git_status().await.map_err(|status| {
-        workspace::sandbox_access(classify_grpc_error(status, "get_git_status"))
-    })?;
+    let status = client
+        .get_git_status_for_task(Some(&task_id))
+        .await
+        .map_err(|status| {
+            workspace::sandbox_access(classify_grpc_error(status, "get_git_status"))
+        })?;
     let pr = pull_requests.bound_pull_request(&task_id).await;
     Ok((status, pr))
 }

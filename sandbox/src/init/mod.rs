@@ -16,7 +16,7 @@ pub(crate) mod codex_watcher;
 pub(crate) mod credentials;
 mod dirs;
 pub(crate) mod gh_hosts;
-mod git;
+pub(crate) mod git;
 pub(crate) mod home_skills;
 pub(crate) mod plugin_skills;
 pub(crate) mod refresher;
@@ -473,6 +473,13 @@ pub(crate) async fn recover_interrupted_run_unless_pending(
 /// state (unpushed commits, or just gitignored build artifacts) is gone.
 async fn recover_interrupted_run(state: &SandboxState, origin: WorkspaceOrigin) {
     let task_id = &state.config.task_id;
+    let context = match state.task_context(Some(task_id)).await {
+        Ok(context) => context,
+        Err(e) => {
+            tracing::warn!(error = %e, task_id = %task_id, "Cannot recover interrupted run without task context");
+            return;
+        }
+    };
     match state.backend_client.recover_interrupted_run(task_id).await {
         Ok(Some(turn)) => {
             tracing::warn!(
@@ -489,7 +496,7 @@ async fn recover_interrupted_run(state: &SandboxState, origin: WorkspaceOrigin) 
                 Some(note) => format!("{note}{}", turn.prompt_text),
                 None => turn.prompt_text,
             };
-            state.agent_handle.recover(
+            context.agent_handle.recover(
                 prompt_text,
                 turn.agent_type,
                 turn.agent_mode,

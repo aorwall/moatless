@@ -103,7 +103,7 @@ mod tests {
     use crate::credentials::recovery::CredentialFailureDetector;
     use crate::events::GrpcEventPublisher;
     use crate::init::InitPhase;
-    use crate::state::SandboxState;
+    use crate::state::{SandboxState, TaskContext};
 
     struct CountingBackend {
         call_count: AtomicUsize,
@@ -191,6 +191,7 @@ mod tests {
         Config {
             port: 0,
             grpc_port: 0,
+            sandbox_id: "task-refresher".to_string(),
             task_id: "task-refresher".to_string(),
             agent_type: None,
             workspace_dir: tmp.path().join("workspace").display().to_string(),
@@ -265,24 +266,35 @@ mod tests {
             crate::init::workspace_sync::WorkspaceSyncTracker::new(),
         );
         late_injector.set(Box::new(agent_handle.clone()));
+        let task_context = Arc::new(TaskContext::new(
+            config.task_id.clone(),
+            config.workspace_dir.clone(),
+            config.repo_dir.clone(),
+            crate::state::CheckoutMode::Shared,
+            agent_state,
+            agent_handle,
+            scheduled_jobs,
+            credential_failures,
+            system_prompt_cache,
+        ));
+        let task_contexts = Arc::new(RwLock::new(HashMap::from([(
+            task_context.task_id.clone(),
+            task_context,
+        )])));
         let terminals = crate::terminal::TerminalManager::new(config.workspace_dir.clone());
 
         SandboxState {
             config,
             events,
-            agent: agent_state,
-            agent_handle,
+            task_contexts,
+            task_context_registration: Arc::new(tokio::sync::Mutex::new(())),
             heartbeat,
-            scheduled_jobs,
             backend_client: backend,
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
             credentials,
             lifecycle_cancel: CancellationToken::new(),
             credential_dispatcher,
-            credential_failures,
             codex_watcher_handle: Arc::new(RwLock::new(None)),
-            system_prompt_cache,
-            dispatch_lock: Default::default(),
             workspace_sync: Default::default(),
             supervisor_health: Default::default(),
             terminals,

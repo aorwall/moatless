@@ -42,7 +42,7 @@ async fn load_sandbox_intent_views(
         r#"SELECT t.task_id, s.started_at, s.desired_state, s.stop_reason,
                   s.desired_state_updated_at
            FROM tasks t
-           LEFT JOIN sandboxes s ON s.task_id = t.task_id
+           LEFT JOIN sandboxes s ON s.sandbox_id = t.sandbox_id
            WHERE t.task_id = ANY($1)"#,
     )
     .bind(task_ids)
@@ -101,6 +101,22 @@ pub trait TaskDao: Send + Sync {
     /// repository's shadow workspace this resolves — callers building a response
     /// from the in-memory row need it to label the workspace.
     async fn insert_task(&self, row: &Task) -> Result<String, sqlx::Error>;
+    /// Compensate a create-time shared-sandbox join failure after `insert_task`
+    /// committed. This removes the just-created Task and create-side rows, but
+    /// deliberately does not mutate the Sandbox row: the Sandbox belongs to the
+    /// existing members the failed Task tried to join.
+    async fn delete_inserted_task_after_join_failure(
+        &self,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error>;
+    /// Resolve the workspace a task row will use before inserting it. Callers
+    /// that need to validate against that workspace before the task row exists
+    /// must use this instead of relying on `insert_task`'s returned value.
+    async fn resolve_workspace_id(
+        &self,
+        repository_id: &str,
+        workspace_id: Option<String>,
+    ) -> Result<String, sqlx::Error>;
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error>;
     /// Update task fields for the caller's scope. Per-field statements embed the
     /// control_filter so the caller only modifies rows they own. Returns `true`
@@ -301,8 +317,9 @@ impl TaskDao for PgTaskDao {
             }
         };
 
-        // Durable Sandbox state lives in `sandboxes`, born lazily through
-        // lifecycle — task creation writes none of it.
+        // Durable Sandbox lifecycle state lives in `sandboxes`, born lazily
+        // through lifecycle for ordinary tasks. A shared-sandbox task may point
+        // at an already-running row through `tasks.sandbox_id`.
         let mut tx = self.0.begin().await?;
         sqlx::query(
             r#"INSERT INTO tasks (
@@ -312,12 +329,12 @@ impl TaskDao for PgTaskDao {
                 created_by, visibility, scope, owner_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
                 inactive_ttl_days, loop_id, disabled_servers, model,
-                workspace_id, skills
+                workspace_id, sandbox_id, checkout_mode, skills
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, NOW(), $22, $23, $24, $25, $26,
-                $27, $28, $29
+                $27, $28, $29, $30, $31
             )"#,
         )
         .bind(&row.task_id)
@@ -348,6 +365,8 @@ impl TaskDao for PgTaskDao {
         .bind(&row.disabled_servers)
         .bind(&row.model)
         .bind(&workspace_id)
+        .bind(&row.sandbox_id)
+        .bind(row.checkout_mode)
         .bind(&row.skills)
         .execute(&mut *tx)
         .await?;
@@ -379,6 +398,51 @@ impl TaskDao for PgTaskDao {
         Ok(workspace_id)
     }
 
+    async fn delete_inserted_task_after_join_failure(
+        &self,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        sqlx::query("DELETE FROM task_tags WHERE task_id = $1")
+            .bind(task_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM task_follows WHERE task_id = $1")
+            .bind(task_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM task_read_receipts WHERE task_id = $1")
+            .bind(task_id)
+            .execute(&mut *tx)
+            .await?;
+
+        let deleted: Option<String> =
+            sqlx::query_scalar("DELETE FROM tasks WHERE task_id = $1 RETURNING task_id")
+                .bind(task_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let did_delete = deleted.is_some();
+        if did_delete {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+        Ok(did_delete)
+    }
+
+    async fn resolve_workspace_id(
+        &self,
+        repository_id: &str,
+        workspace_id: Option<String>,
+    ) -> Result<String, sqlx::Error> {
+        match workspace_id {
+            Some(id) => Ok(id),
+            None => {
+                moatless_workspaces::workspace::dao::ensure_shadow_workspace(&self.0, repository_id)
+                    .await
+            }
+        }
+    }
+
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error> {
         // One row of the joined result set: the total, plus the page columns.
         //
@@ -396,6 +460,8 @@ impl TaskDao for PgTaskDao {
             agent_type: Option<AgentType>,
             repository_id: Option<String>,
             workspace_id: Option<String>,
+            sandbox_id: Option<String>,
+            checkout_mode: Option<super::models::CheckoutMode>,
             status: Option<TaskStatus>,
             total_cost_usd: Option<f64>,
             site_url: Option<String>,
@@ -442,6 +508,8 @@ impl TaskDao for PgTaskDao {
                     agent_type: self.agent_type?,
                     repository_id: self.repository_id?,
                     workspace_id: self.workspace_id,
+                    sandbox_id: self.sandbox_id,
+                    checkout_mode: self.checkout_mode,
                     status: self.status?,
                     total_cost_usd: self.total_cost_usd?,
                     site_url: self.site_url,
@@ -492,6 +560,7 @@ impl TaskDao for PgTaskDao {
                 SELECT
                     t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
                     t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
+                    t.sandbox_id, t.checkout_mode,
                     t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                     t.model, t.created_by, t.visibility, t.scope, t.owner_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
@@ -726,23 +795,50 @@ impl TaskDao for PgTaskDao {
 
     async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         let ctrl = ctx.control_filter("", 2);
-        let sql = format!("DELETE FROM tasks WHERE task_id = $1 AND {}", ctrl.sql());
+        let sql = format!(
+            "DELETE FROM tasks WHERE task_id = $1 AND {} RETURNING task_id, sandbox_id",
+            ctrl.sql()
+        );
         let mut tx = self.0.begin().await?;
-        let res = sqlx::query(AssertSqlSafe(sql))
+        let deleted: Option<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .execute(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await?;
-        // The record outlives the Task it names — `task_listing_changes` has no
-        // foreign key precisely so that a deletion is still replayable. A
-        // watching client re-reads this id, finds nothing, and drops the row it
-        // holds.
-        if res.rows_affected() > 0 {
-            task_listing::record_change(&mut tx, task_id).await?;
+        let did_delete = deleted.is_some();
+        if let Some((deleted_task_id, sandbox_id)) = deleted {
+            if let Some(sandbox_id) = sandbox_id {
+                let sandbox_exists: Option<String> = sqlx::query_scalar(
+                    "SELECT sandbox_id FROM sandboxes WHERE sandbox_id = $1 FOR UPDATE",
+                )
+                .bind(&sandbox_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if sandbox_exists.is_some() {
+                    let has_remaining_members: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM tasks WHERE sandbox_id = $1)",
+                    )
+                    .bind(&sandbox_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    if !has_remaining_members {
+                        sqlx::query("DELETE FROM sandboxes WHERE sandbox_id = $1")
+                            .bind(&sandbox_id)
+                            .execute(&mut *tx)
+                            .await?;
+                    }
+                }
+            }
+
+            // The record outlives the Task it names — `task_listing_changes` has no
+            // foreign key precisely so that a deletion is still replayable. A
+            // watching client re-reads this id, finds nothing, and drops the row it
+            // holds.
+            task_listing::record_change(&mut tx, &deleted_task_id).await?;
         }
         tx.commit().await?;
-        Ok(res.rows_affected() > 0)
+        Ok(did_delete)
     }
 
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error> {
@@ -781,9 +877,10 @@ impl TaskDao for PgTaskDao {
         }
 
         let rows: Vec<(String, DateTime<Utc>)> = sqlx::query_as(
-            r#"SELECT task_id, started_at
-               FROM sandboxes
-               WHERE task_id = ANY($1) AND started_at IS NOT NULL"#,
+            r#"SELECT t.task_id, s.started_at
+               FROM tasks t
+               JOIN sandboxes s ON s.sandbox_id = t.sandbox_id
+               WHERE t.task_id = ANY($1) AND s.started_at IS NOT NULL"#,
         )
         .bind(task_ids)
         .fetch_all(&self.0)
@@ -1265,6 +1362,33 @@ mod tests {
     use crate::task::test_support::seed_bare_task;
     use sqlx::PgPool;
 
+    async fn seed_sandbox_member(pool: &PgPool, task_id: &str, sandbox_id: &str) {
+        sqlx::query(
+            r#"INSERT INTO sandboxes (sandbox_id, workspace_id, desired_state, desired_state_updated_at)
+               SELECT $1, COALESCE(workspace_id, 'ws_' || repository_id), 'stopped', NOW()
+               FROM tasks WHERE task_id = $2
+               ON CONFLICT (sandbox_id) DO NOTHING"#,
+        )
+        .bind(sandbox_id)
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .expect("seed sandbox");
+        sqlx::query("UPDATE tasks SET sandbox_id = $1 WHERE task_id = $2")
+            .bind(sandbox_id)
+            .bind(task_id)
+            .execute(pool)
+            .await
+            .expect("bind task to sandbox");
+    }
+
+    fn owner_ctx() -> ScopeContext {
+        ScopeContext {
+            user_id: "user-1".to_string(),
+            is_admin: false,
+        }
+    }
+
     /// A Task with no `sandboxes` row projects as converged Stopped at the
     /// no-intent epoch — the lazy-row semantic this task-response projection
     /// owns. Deleting the projection would silently drop it.
@@ -1281,5 +1405,45 @@ mod tests {
             !view.has_explicit_intent(),
             "a no-row task must not look like an explicit stop"
         );
+    }
+
+    #[sqlx::test]
+    async fn delete_task_deletes_the_last_member_sandbox_row(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        seed_sandbox_member(&pool, "t1", "t1").await;
+        let dao = PgTaskDao(pool.clone());
+
+        assert!(dao.delete_task("t1", &owner_ctx()).await.unwrap());
+
+        let sandbox_count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM sandboxes WHERE sandbox_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(sandbox_count, 0);
+    }
+
+    #[sqlx::test]
+    async fn delete_task_keeps_sandbox_row_when_members_remain(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        seed_bare_task(&pool, "t2", "open").await;
+        seed_sandbox_member(&pool, "t1", "t1").await;
+        seed_sandbox_member(&pool, "t2", "t1").await;
+        let dao = PgTaskDao(pool.clone());
+
+        assert!(dao.delete_task("t1", &owner_ctx()).await.unwrap());
+
+        let sandbox_count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM sandboxes WHERE sandbox_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(sandbox_count, 1);
+        let remaining_member_sandbox: Option<String> =
+            sqlx::query_scalar("SELECT sandbox_id FROM tasks WHERE task_id = 't2'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(remaining_member_sandbox.as_deref(), Some("t1"));
     }
 }

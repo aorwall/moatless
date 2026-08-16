@@ -74,6 +74,7 @@ mod tests {
         Config {
             port: 8001,
             grpc_port: 50052,
+            sandbox_id: "task-1".to_string(),
             task_id: "task-1".to_string(),
             agent_type: None,
             workspace_dir: tmp.path().join("workspace").display().to_string(),

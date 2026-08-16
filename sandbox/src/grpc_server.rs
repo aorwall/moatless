@@ -7,6 +7,7 @@
 //! which is what lets a server be reconfigured without rebuilding the pod.
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 use futures::Stream;
 use tokio_stream::wrappers::ReceiverStream;
@@ -19,27 +20,42 @@ use sandbox_proto::{
     ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
     GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
     GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse,
-    GitRef, GitRepoRange, GitWorkingTreeFile, ListFilesRequest,
-    ListFilesResponse, ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest,
-    NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
-    RefreshCredentialResponse, ScheduledJobInfo,
-    SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest,
-    StopAgentResponse, SyncWorkspaceRequest, SyncWorkspaceResponse, TerminalAttachRequest,
-    TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest,
-    TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse,
-    TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse,
-    WakeupJobInfo, WriteFileRequest, WriteFileResponse, scheduled_job_info,
+    GitRef, GitRepoRange, GitWorkingTreeFile, ListFilesRequest, ListFilesResponse,
+    ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest, NotifyMessagesResponse,
+    ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse,
+    ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride,
+    StopAgentRequest, StopAgentResponse, SyncWorkspaceRequest, SyncWorkspaceResponse,
+    TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse,
+    TerminalCloseRequest, TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest,
+    TerminalResizeResponse, TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest,
+    TerminalWriteResponse, WakeupJobInfo, WriteFileRequest, WriteFileResponse, scheduled_job_info,
 };
 
 use crate::agent::scheduled_job::JobSnapshot;
 use crate::agent::types::AgentStatus;
 use crate::files;
 use crate::server_control;
-use crate::state::SandboxState;
+use crate::state::{RegisterTaskContextError, SandboxState, TaskContext, TaskContextLookupError};
 
 /// gRPC server for sandbox commands.
 pub struct SandboxServiceImpl {
     pub state: SandboxState,
+}
+
+impl SandboxServiceImpl {
+    async fn resolve_member_context(
+        &self,
+        task_id: Option<&str>,
+    ) -> Result<Arc<TaskContext>, Status> {
+        self.state.task_context(task_id).await.map_err(|e| match e {
+            TaskContextLookupError::NotFound(_) | TaskContextLookupError::Empty => {
+                Status::not_found("Task is not registered in this sandbox process")
+            }
+            TaskContextLookupError::Ambiguous => {
+                Status::invalid_argument("task_id is required for shared sandbox requests")
+            }
+        })
+    }
 }
 
 #[tonic::async_trait]
@@ -48,10 +64,41 @@ impl SandboxService for SandboxServiceImpl {
         Pin<Box<dyn Stream<Item = Result<TerminalAttachStreamEvent, Status>> + Send + 'static>>;
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn join_task(
+        &self,
+        request: Request<sandbox_proto::JoinTaskRequest>,
+    ) -> Result<Response<sandbox_proto::JoinTaskResponse>, Status> {
+        let req = request.into_inner();
+        let context = self
+            .state
+            .register_task_context(req.task_id, req.checkout_mode.as_deref())
+            .await
+            .map_err(|e| match e {
+                RegisterTaskContextError::EmptyTaskId => Status::invalid_argument(e.to_string()),
+                RegisterTaskContextError::InvalidCheckoutMode(_) => {
+                    Status::invalid_argument(e.to_string())
+                }
+                RegisterTaskContextError::CheckoutMaterialization(_) => {
+                    Status::failed_precondition(e.to_string())
+                }
+            })?;
+        info!(
+            task_id = %context.task_id,
+            checkout_mode = context.checkout_mode.as_str(),
+            checkout_dir = %context.checkout_dir,
+            "Task joined sandbox process"
+        );
+        Ok(Response::new(sandbox_proto::JoinTaskResponse {}))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn execute_agent(
         &self,
-        _request: Request<ExecuteAgentRequest>,
+        request: Request<ExecuteAgentRequest>,
     ) -> Result<Response<ExecuteAgentResponse>, Status> {
+        let context = self
+            .resolve_member_context(request.get_ref().task_id.as_deref())
+            .await?;
         // Fetch pending messages and send to the agent lifecycle task.
         // The coordinator handles whether to start a new session or inject into a running one.
         //
@@ -61,8 +108,9 @@ impl SandboxService for SandboxServiceImpl {
         // single-flight guard across its ack retries. `spawn_supervised` changes
         // nothing about that lifetime; it only stops a panic from disappearing.
         let state = self.state.clone();
+        let task_id = context.task_id.clone();
         crate::agent::dispatcher::spawn_supervised("execute-agent-dispatch", async move {
-            crate::agent::dispatcher::dispatch_pending_messages(state).await;
+            crate::agent::dispatcher::dispatch_pending_messages_for_task(state, task_id).await;
         });
 
         info!("Agent execution triggered via gRPC");
@@ -74,25 +122,28 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<StopAgentRequest>,
     ) -> Result<Response<StopAgentResponse>, Status> {
+        let context = self
+            .resolve_member_context(request.get_ref().task_id.as_deref())
+            .await?;
         // Route the stop through the lifecycle owner — never publishing the
         // terminal event here, and never branching on harness selection. The
         // ack resolves once exactly one `agent.stopped` has been published and the
         // Turn closed, so returning Ok means the stop was processed, not queued.
         let source = crate::agent::types::StopSource::from(request.get_ref().source());
-        let ack_rx = self.state.agent_handle.stop(source);
+        let ack_rx = context.agent_handle.stop(source);
         match tokio::time::timeout(std::time::Duration::from_secs(30), ack_rx).await {
             Ok(Ok(())) => {}
             Ok(Err(_)) => {
                 // The lifecycle owner dropped the ack (e.g. the loop exited
                 // without acking). The stop still took effect; log and continue.
                 tracing::warn!(
-                    task_id = %self.state.config.task_id,
+                    task_id = %context.task_id,
                     "stop ack sender dropped before delivery"
                 );
             }
             Err(_elapsed) => {
                 tracing::warn!(
-                    task_id = %self.state.config.task_id,
+                    task_id = %context.task_id,
                     "stop ack timed out after 30s"
                 );
                 return Err(Status::deadline_exceeded("agent stop timed out"));
@@ -127,9 +178,12 @@ impl SandboxService for SandboxServiceImpl {
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn get_agent_status(
         &self,
-        _request: Request<GetAgentStatusRequest>,
+        request: Request<GetAgentStatusRequest>,
     ) -> Result<Response<GetAgentStatusResponse>, Status> {
-        let agent_status = self.state.agent.status().await;
+        let context = self
+            .resolve_member_context(request.get_ref().task_id.as_deref())
+            .await?;
+        let agent_status = context.agent.status().await;
         let status = match agent_status {
             AgentStatus::Idle => "idle",
             AgentStatus::Running => "running",
@@ -137,8 +191,7 @@ impl SandboxService for SandboxServiceImpl {
             AgentStatus::Waiting => "waiting",
         };
 
-        let scheduled_jobs = self
-            .state
+        let scheduled_jobs = context
             .scheduled_jobs
             .list()
             .await
@@ -175,7 +228,7 @@ impl SandboxService for SandboxServiceImpl {
         // work. In tmux mode the persistent session keeps the CLI + tmux server
         // alive even at idle, which would read as always-busy, so report empty
         // there as before.
-        let tmux_pane_pid = self.state.agent.tmux_pane_pid().await;
+        let tmux_pane_pid = context.agent.tmux_pane_pid().await;
         let background_processes: Vec<BackgroundProcess> = if should_report_background_processes(
             self.state.config.use_tmux,
             agent_status,
@@ -205,8 +258,8 @@ impl SandboxService for SandboxServiceImpl {
 
         Ok(Response::new(GetAgentStatusResponse {
             status: status.to_string(),
-            session_id: self.state.agent.last_session_id().await,
-            last_error: self.state.agent.last_error().await,
+            session_id: context.agent.last_session_id().await,
+            last_error: context.agent.last_error().await,
             scheduled_jobs,
             busy_processes,
             background_processes,
@@ -216,12 +269,16 @@ impl SandboxService for SandboxServiceImpl {
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn notify_messages(
         &self,
-        _request: Request<NotifyMessagesRequest>,
+        request: Request<NotifyMessagesRequest>,
     ) -> Result<Response<NotifyMessagesResponse>, Status> {
+        let context = self
+            .resolve_member_context(request.get_ref().task_id.as_deref())
+            .await?;
         // Same detached-but-supervised shape as `execute_agent` above.
         let state = self.state.clone();
+        let task_id = context.task_id.clone();
         crate::agent::dispatcher::spawn_supervised("notify-messages-dispatch", async move {
-            crate::agent::dispatcher::dispatch_pending_messages(state).await;
+            crate::agent::dispatcher::dispatch_pending_messages_for_task(state, task_id).await;
         });
         info!("Message processing triggered via gRPC");
         Ok(Response::new(NotifyMessagesResponse {}))
@@ -437,7 +494,8 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<GetFileTreeRequest>,
     ) -> Result<Response<GetFileTreeResponse>, Status> {
         let req = request.into_inner();
-        let root_dir = &self.state.config.workspace_dir;
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let root_dir = &context.workspace_dir;
         let root_path = if req.root_path.is_empty() {
             "."
         } else {
@@ -469,7 +527,8 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<ReadFileRequest>,
     ) -> Result<Response<ReadFileResponse>, Status> {
         let req = request.into_inner();
-        let root_dir = &self.state.config.workspace_dir;
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let root_dir = &context.workspace_dir;
 
         if req.include_changes {
             let result = files::read_write::read_file_with_changes(root_dir, &req.path)
@@ -506,7 +565,8 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<WriteFileRequest>,
     ) -> Result<Response<WriteFileResponse>, Status> {
         let req = request.into_inner();
-        let root_dir = &self.state.config.workspace_dir;
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let root_dir = &context.workspace_dir;
 
         files::read_write::write_file(root_dir, &req.path, &req.content)
             .await
@@ -522,7 +582,8 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<ListFilesRequest>,
     ) -> Result<Response<ListFilesResponse>, Status> {
         let req = request.into_inner();
-        let root_dir = &self.state.config.workspace_dir;
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let root_dir = &context.workspace_dir;
         let path = if req.path.is_empty() { "." } else { &req.path };
 
         let files = files::tree::list_files(root_dir, path, req.recursive, req.respect_gitignore)
@@ -538,7 +599,8 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<SearchFilesByNameRequest>,
     ) -> Result<Response<SearchFilesByNameResponse>, Status> {
         let req = request.into_inner();
-        let root_dir = &self.state.config.workspace_dir;
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let root_dir = &context.workspace_dir;
 
         let results = files::search::search_files_by_name(
             root_dir,
@@ -575,8 +637,9 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<GetGitDiffPreviewRequest>,
     ) -> Result<Response<GetGitDiffPreviewResponse>, Status> {
         let req = request.into_inner();
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
         let preview = files::review::diff_preview(
-            &self.state.config.workspace_dir,
+            &context.workspace_dir,
             req.base_ref.as_deref(),
             req.ignore_whitespace,
         )
@@ -602,13 +665,11 @@ impl SandboxService for SandboxServiceImpl {
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn get_git_status(
         &self,
-        _request: Request<GetGitStatusRequest>,
+        request: Request<GetGitStatusRequest>,
     ) -> Result<Response<GetGitStatusResponse>, Status> {
-        let status = files::review::status(
-            &self.state.config.workspace_dir,
-            &self.state.config.repo_dir,
-        )
-        .await;
+        let req = request.into_inner();
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let status = files::review::status(&context.workspace_dir, &context.checkout_dir).await;
 
         Ok(Response::new(GetGitStatusResponse {
             is_repo: status.is_repo,
@@ -635,9 +696,11 @@ impl SandboxService for SandboxServiceImpl {
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn list_git_refs(
         &self,
-        _request: Request<ListGitRefsRequest>,
+        request: Request<ListGitRefsRequest>,
     ) -> Result<Response<ListGitRefsResponse>, Status> {
-        let listing = files::review::list_refs(&self.state.config.repo_dir).await;
+        let req = request.into_inner();
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let listing = files::review::list_refs(&context.checkout_dir).await;
 
         Ok(Response::new(ListGitRefsResponse {
             is_repo: listing.is_repo,

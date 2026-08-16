@@ -17,11 +17,13 @@ use super::naming::{
     generate_sandbox_host_path, generate_server_container_name,
 };
 use moatless_core::config::Config;
-use moatless_sandbox_control::resource_parse::{parse_cpu_to_millicores, parse_memory_to_bytes};
-use moatless_sandbox_control::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
-use moatless_workspaces::repository::models::ServerConfig;
+use moatless_sandbox_control::lifecycle::runtime::{
+    RuntimeOperationContext, OPERATION_GENERATION_LABEL,
+};
 use moatless_sandbox_control::models::{ProvisionPlan, WORKSPACE_REPOS_ENV};
+use moatless_sandbox_control::resource_parse::{parse_cpu_to_millicores, parse_memory_to_bytes};
 use moatless_sandbox_control::server_runner::build_server_start_script;
+use moatless_workspaces::repository::models::ServerConfig;
 
 pub(crate) const CREATED_BY_LABEL: &str = "created-by";
 pub(crate) const CREATED_BY_VALUE: &str = "moatless";
@@ -62,6 +64,7 @@ pub fn build_container_config(
     // ── Environment variables ─────────────────────────────────────
     let mut env = vec![
         format!("TASK_ID={task_id}"),
+        format!("SANDBOX_ID={task_id}"),
         format!("GIT_CLONE_URL={}", plan.git_clone_url),
         format!(
             "BACKEND_GRPC_URL=http://{}:{}",
@@ -749,7 +752,8 @@ mod tests {
             .iter()
             .find_map(|e| e.strip_prefix(&format!("{WORKSPACE_REPOS_ENV}=")))
             .expect("WORKSPACE_REPOS present");
-        let parsed: Vec<moatless_sandbox_control::models::RepoCheckout> = serde_json::from_str(raw).unwrap();
+        let parsed: Vec<moatless_sandbox_control::models::RepoCheckout> =
+            serde_json::from_str(raw).unwrap();
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[1].mount_name, "shared");
 
@@ -766,13 +770,14 @@ mod tests {
     fn container_config_applies_resource_limits_from_repo_config() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
-            limits: Some(HashMap::from([
-                ("memory".to_string(), "8Gi".to_string()),
-                ("cpu".to_string(), "4".to_string()),
-            ])),
-            ..Default::default()
-        });
+        plan.repo_config.resources =
+            Some(moatless_workspaces::repository::models::ResourceConfig {
+                limits: Some(HashMap::from([
+                    ("memory".to_string(), "8Gi".to_string()),
+                    ("cpu".to_string(), "4".to_string()),
+                ])),
+                ..Default::default()
+            });
         let cc = build_container_config(&config, "task-1", &plan, None);
         let hc = cc.host_config.unwrap();
         assert_eq!(hc.memory, Some(8 * 1024 * 1024 * 1024));
@@ -806,7 +811,9 @@ mod tests {
         let mut cc = build_container_config(&config, "task-1", &plan, None);
         stamp_operation_generation(
             &mut cc,
-            RuntimeOperationContext::new(moatless_sandbox_control::lifecycle::OperationGeneration(17)),
+            RuntimeOperationContext::new(moatless_sandbox_control::lifecycle::OperationGeneration(
+                17,
+            )),
         );
         assert_eq!(
             cc.labels

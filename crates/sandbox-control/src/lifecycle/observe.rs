@@ -9,11 +9,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::status_reader::SandboxStatusReader;
+use moatless_backend_core::sandbox::{SandboxConnector, classify_grpc_error};
 use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
-use moatless_backend_core::sandbox::SandboxConnector;
 
 use super::convergence::SandboxObservedStatus;
-use super::reconciler::{NotifyPort, ObserveError};
+use super::orchestrator::SandboxMember;
+use super::reconciler::{MemberRegistryError, MemberRegistryPort, NotifyPort, ObserveError};
 
 /// Confirm a Task's status authoritatively via the observer's live-status read.
 pub async fn confirm(
@@ -45,5 +46,37 @@ impl GrpcNotify {
 impl NotifyPort for GrpcNotify {
     async fn notify(&self, task_id: &str) {
         crate::notify::notify_task_over_grpc(self.connector.as_ref(), task_id).await;
+    }
+}
+
+/// gRPC member registrar: rebuilds in-pod Task contexts from durable DB
+/// membership after pod restarts.
+pub struct GrpcMemberRegistry {
+    connector: Arc<dyn SandboxConnector>,
+}
+
+impl GrpcMemberRegistry {
+    pub fn new(connector: Arc<dyn SandboxConnector>) -> Self {
+        Self { connector }
+    }
+}
+
+#[async_trait]
+impl MemberRegistryPort for GrpcMemberRegistry {
+    async fn ensure_registered(&self, member: &SandboxMember) -> Result<(), MemberRegistryError> {
+        let client = self
+            .connector
+            .sandbox_client(&member.task_id)
+            .await
+            .map_err(|e| MemberRegistryError::with_source("connect sandbox for JoinTask", e))?;
+        client
+            .join_task(&member.task_id, Some(member.checkout_mode.as_str()))
+            .await
+            .map_err(|e| {
+                MemberRegistryError::with_source(
+                    "JoinTask failed",
+                    classify_grpc_error(e, "JoinTask"),
+                )
+            })
     }
 }

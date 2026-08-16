@@ -32,7 +32,7 @@ use async_trait::async_trait;
 use tracing::warn;
 
 use crate::secrets::{
-    TaskCredentialInputs, resolve_task_github_token, resolve_workspace_credentials,
+    resolve_task_github_token, resolve_workspace_credentials, TaskCredentialInputs,
 };
 use moatless_backend_core::scope::{Scope, ScopeContext};
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
@@ -409,6 +409,8 @@ mod tests {
             inactive_ttl_days: 0,
             loop_id: None,
             workspace_id: None,
+            sandbox_id: None,
+            checkout_mode: None,
             disabled_servers: None,
             skills: Vec::new(),
         }
@@ -482,11 +484,9 @@ mod tests {
         let users = users_with_role(UserRole::User);
         let task = task(Scope::User, Some("alice"), Some("bob"));
 
-        assert!(
-            preflight_validate_task_control(&users, &task)
-                .await
-                .is_err()
-        );
+        assert!(preflight_validate_task_control(&users, &task)
+            .await
+            .is_err());
     }
 
     /// Platform admin short-circuits `can_control`, so the gate would admit the
@@ -507,11 +507,9 @@ mod tests {
         users.expect_get_user().never();
         let task = task(Scope::User, None, None);
 
-        assert!(
-            preflight_validate_task_control(&users, &task)
-                .await
-                .is_err()
-        );
+        assert!(preflight_validate_task_control(&users, &task)
+            .await
+            .is_err());
     }
 
     #[test]

@@ -264,6 +264,8 @@ mod tests {
             inactive_ttl_days: 7,
             loop_id: None,
             workspace_id: None,
+            sandbox_id: None,
+            checkout_mode: None,
             disabled_servers: None,
             skills: Vec::new(),
         }

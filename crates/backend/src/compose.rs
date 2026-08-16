@@ -32,9 +32,9 @@ use crate::repository::dao::{PgRepositoryDao, RepositoryDao};
 use crate::sandbox::lifecycle::orchestrator::LifecycleDao;
 use crate::sandbox::lifecycle::runtime::SandboxRuntime;
 use crate::sandbox::lifecycle::{
-    FleetObserver, GrpcAgentStop, GrpcWorkspaceSync, Lifecycle, NotifyPort, OutboxEventSink,
-    PgLifecycleDao, PgLifecycleLock, ProvisionDeps, Reconciler, ReconcilerConfig,
-    S3WorkspaceArchive, SystemWallClock,
+    FleetObserver, GrpcAgentStop, GrpcWorkspaceSync, Lifecycle, MemberRegistryPort, NotifyPort,
+    OutboxEventSink, PgLifecycleDao, PgLifecycleLock, ProvisionDeps, Reconciler, ReconcilerConfig,
+    ReconcilerDeps, S3WorkspaceArchive, SystemWallClock,
 };
 use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
 use crate::secret::dao::{PgSecretDao, SecretDao};
@@ -289,15 +289,19 @@ impl Ports {
         lifecycle: Arc<Lifecycle>,
         observer: Arc<dyn FleetObserver>,
         notify: Arc<dyn NotifyPort>,
+        member_registry: Arc<dyn MemberRegistryPort>,
         config: ReconcilerConfig,
     ) -> Reconciler {
         Reconciler::new(
             (*lifecycle).clone(),
-            self.lifecycle_store.clone(),
-            self.messages.clone(),
-            observer,
-            notify,
-            Arc::new(SystemWallClock),
+            ReconcilerDeps {
+                store: self.lifecycle_store.clone(),
+                messages: self.messages.clone(),
+                observer,
+                notify,
+                member_registry,
+                clock: Arc::new(SystemWallClock),
+            },
             config,
         )
     }

@@ -352,6 +352,8 @@ pub(crate) fn build_task_response(
         repository_name: names.repository,
         workspace_id: row.workspace_id.clone(),
         workspace_name: names.workspace,
+        sandbox_id: row.sandbox_id.clone(),
+        checkout_mode: row.checkout_mode.map(checkout_mode_to_wire),
         branch: row.branch.clone(),
         model: row.model.clone(),
         created_at: row.created_at.clone(),

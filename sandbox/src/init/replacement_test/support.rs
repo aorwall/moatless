@@ -17,14 +17,14 @@ use crate::agent::harness::{Harness, Input, Script, SessionId, Step};
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use crate::backend_client::BackendClient;
-use crate::config::test_support::minimal_config;
 use crate::config::Config;
-use crate::credentials::recovery::CredentialFailureDetector;
+use crate::config::test_support::minimal_config;
 use crate::credentials::Dispatcher;
+use crate::credentials::recovery::CredentialFailureDetector;
 use crate::events::GrpcEventPublisher;
 use crate::init::InitPhase;
 use crate::outbox::EventOutbox;
-use crate::state::SandboxState;
+use crate::state::{SandboxState, TaskContext};
 
 /// A shared sink of the full `Input`s the harness accepted, in submit order.
 pub(super) type InputRecorder = Arc<Mutex<Vec<Input>>>;
@@ -39,24 +39,35 @@ fn build_state(
     agent_handle: AgentHandle,
     events: GrpcEventPublisher,
 ) -> SandboxState {
+    let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new())));
+    let task_context = Arc::new(TaskContext::new(
+        config.task_id.clone(),
+        config.workspace_dir.clone(),
+        config.repo_dir.clone(),
+        crate::state::CheckoutMode::Shared,
+        agent,
+        agent_handle,
+        scheduled_jobs,
+        CredentialFailureDetector::default(),
+        Arc::new(RwLock::new(None)),
+    ));
     let terminals = crate::terminal::TerminalManager::new(config.workspace_dir.clone());
     SandboxState {
         config,
         events,
-        agent,
-        agent_handle,
+        task_contexts: Arc::new(RwLock::new(HashMap::from([(
+            task_context.task_id.clone(),
+            task_context,
+        )]))),
+        task_context_registration: Arc::new(tokio::sync::Mutex::new(())),
         heartbeat: Heartbeat::new(),
-        scheduled_jobs: Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
         backend_client: backend,
         workspace_sync: Default::default(),
         init_phase: Arc::new(RwLock::new(phase)),
         credentials: Arc::new(RwLock::new(HashMap::new())),
         lifecycle_cancel: CancellationToken::new(),
         credential_dispatcher: Arc::new(Dispatcher::new()),
-        credential_failures: CredentialFailureDetector::default(),
         codex_watcher_handle: Arc::new(RwLock::new(None)),
-        system_prompt_cache: Arc::new(RwLock::new(None)),
-        dispatch_lock: Default::default(),
         supervisor_health: Default::default(),
         terminals,
     }

@@ -23,12 +23,18 @@ pub(crate) async fn seed_task(pool: &PgPool, task_id: &str) {
 pub(crate) async fn seed_task_with(pool: &PgPool, task_id: &str, status: &str, desired: &str) {
     seed_bare_task(pool, task_id, status).await;
     sqlx::query(
-        r#"INSERT INTO sandboxes (task_id, desired_state, desired_state_updated_at)
-           VALUES ($1, $2, NOW())"#,
+        r#"INSERT INTO sandboxes (sandbox_id, workspace_id, desired_state, desired_state_updated_at)
+           SELECT $1, COALESCE(workspace_id, 'ws_' || repository_id), $2, NOW()
+           FROM tasks WHERE task_id = $1"#,
     )
     .bind(task_id)
     .bind(desired)
     .execute(pool)
     .await
     .expect("seed sandbox");
+    sqlx::query("UPDATE tasks SET sandbox_id = $1 WHERE task_id = $1")
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .expect("bind task to sandbox");
 }

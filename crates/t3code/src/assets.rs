@@ -218,13 +218,20 @@ pub(crate) async fn serve(
         }
     };
 
-    let file = match client.read_file(&relative_path, false).await {
+    let file = match client
+        .read_file_for_task(Some(&task_id), &relative_path, false)
+        .await
+    {
         Err(status) if status.code() == tonic::Code::NotFound => {
-            let Some(nested) = crate::files::nested_in_a_checkout(&client, &relative_path).await
+            let Some(nested) =
+                crate::files::nested_in_a_checkout(&client, &task_id, &relative_path).await
             else {
                 return refusal(&thread_id, &relative_path, &sandbox_failure(status));
             };
-            match client.read_file(&nested, false).await {
+            match client
+                .read_file_for_task(Some(&task_id), &nested, false)
+                .await
+            {
                 Ok(file) => file,
                 Err(status) => {
                     return refusal(&thread_id, &relative_path, &sandbox_failure(status));

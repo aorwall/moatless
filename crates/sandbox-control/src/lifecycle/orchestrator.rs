@@ -29,7 +29,9 @@ use tracing::Instrument;
 use moatless_backend_core::sandbox as core_sandbox;
 
 use crate::error::SandboxError;
-use moatless_tasks::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use moatless_tasks::task::models::{
+    CheckoutMode, SandboxDesiredState, SandboxStopReason, TaskStatus,
+};
 use moatless_tasks::task::sandbox_lifecycle::{SandboxLifecycle, SandboxOpError};
 
 use super::error::LifecycleError;
@@ -41,10 +43,12 @@ use super::types::{
     OperationKind, RuntimeEffect,
 };
 
-/// Persisted lifecycle intent for one Task.
+/// Persisted lifecycle intent for one Task's Sandbox membership.
 #[derive(Debug, Clone)]
 pub struct TaskIntent {
     pub status: TaskStatus,
+    pub sandbox_id: String,
+    pub workspace_id: String,
     pub desired_state: SandboxDesiredState,
     pub stop_reason: Option<SandboxStopReason>,
     /// Retention persisted alongside a `Removed` intent so a crashed remove is
@@ -52,6 +56,14 @@ pub struct TaskIntent {
     pub retention: Option<ArchiveRetention>,
     pub marker: Option<CorrelationMarker>,
     pub desired_state_updated_at: DateTime<Utc>,
+}
+
+/// One durable member of a running Sandbox.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct SandboxMember {
+    pub task_id: String,
+    pub sandbox_id: String,
+    pub checkout_mode: CheckoutMode,
 }
 
 /// The pre-effect facts of a finished operation, handed to `finalize`. Groups
@@ -118,6 +130,22 @@ pub trait LifecycleDao: Send + Sync {
     /// fleet to decide which have actually diverged.
     async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError>;
 
+    /// All open/error Task members of Sandboxes that durably desire Running.
+    /// Used by the reconciler to rebuild in-pod member contexts after a pod
+    /// restart from DB truth, not process memory.
+    async fn running_sandbox_members(&self) -> Result<Vec<SandboxMember>, StoreError>;
+
+    /// Whether another active Task still points at the same Sandbox.
+    ///
+    /// A member close/delete may stop that member's agent, but the runtime
+    /// resources belong to the Sandbox and stay while any open/error peer is
+    /// still attached.
+    async fn has_other_active_members(
+        &self,
+        sandbox_id: &str,
+        task_id: &str,
+    ) -> Result<bool, StoreError>;
+
     /// Allocate the next durable operation generation for the Task.
     async fn allocate_generation(&self, task_id: &str) -> Result<OperationGeneration, StoreError>;
 
@@ -135,6 +163,7 @@ pub trait LifecycleDao: Send + Sync {
     /// publishes only after this returns `Ok`.
     async fn commit_fact_and_clear_marker(
         &self,
+        sandbox_id: &str,
         task_id: &str,
         event: &LifecycleEvent,
     ) -> Result<(), StoreError>;
@@ -531,8 +560,10 @@ impl Lifecycle {
 
     #[tracing::instrument(skip_all, fields(task_id = %task_id, op = "start"))]
     async fn op_start(self, task_id: String) -> Result<LifecycleOutcome, LifecycleError> {
-        let _guard = self.acquire(&task_id, OperationKind::Start).await?;
         let intent = self.require_intent(&task_id).await?;
+        let _guard = self
+            .acquire(&intent.sandbox_id, OperationKind::Start)
+            .await?;
         Self::guard_toward_running(&task_id, OperationKind::Start, &intent)?;
         self.run_toward_running(&task_id, OperationKind::Start, &intent)
             .await
@@ -544,8 +575,8 @@ impl Lifecycle {
         task_id: String,
         kind: OperationKind,
     ) -> Result<LifecycleOutcome, LifecycleError> {
-        let _guard = self.acquire(&task_id, kind).await?;
         let intent = self.require_intent(&task_id).await?;
+        let _guard = self.acquire(&intent.sandbox_id, kind).await?;
         Self::guard_toward_running(&task_id, kind, &intent)?;
         self.run_toward_running(&task_id, kind, &intent).await
     }
@@ -556,8 +587,10 @@ impl Lifecycle {
         task_id: String,
         reason: SandboxStopReason,
     ) -> Result<LifecycleOutcome, LifecycleError> {
-        let _guard = self.acquire(&task_id, OperationKind::Stop).await?;
         let intent = self.require_intent(&task_id).await?;
+        let _guard = self
+            .acquire(&intent.sandbox_id, OperationKind::Stop)
+            .await?;
         // stop is permitted in every status (idempotent for Closed).
         self.run_stop(&task_id, &intent, reason).await
     }
@@ -568,8 +601,10 @@ impl Lifecycle {
         task_id: String,
         retention: ArchiveRetention,
     ) -> Result<LifecycleOutcome, LifecycleError> {
-        let _guard = self.acquire(&task_id, OperationKind::Remove).await?;
         let intent = self.require_intent(&task_id).await?;
+        let _guard = self
+            .acquire(&intent.sandbox_id, OperationKind::Remove)
+            .await?;
         // remove is permitted in every status.
         self.run_remove(&task_id, &intent, retention).await
     }
@@ -587,8 +622,10 @@ impl Lifecycle {
         // it, and reusing the kind keeps it mutually exclusive with every other
         // operation without adding a variant that the event, marker, classify
         // and reconciler paths would each have to learn.
-        let _guard = self.acquire(&task_id, OperationKind::Stop).await?;
         let intent = self.require_intent(&task_id).await?;
+        let _guard = self
+            .acquire(&intent.sandbox_id, OperationKind::Stop)
+            .await?;
 
         // Intent is re-read under the lock on purpose: the caller decided this
         // Task was cold from a snapshot taken before the lock, and a start in
@@ -646,10 +683,10 @@ impl Lifecycle {
         // A fresh generation, as for any operation that mutates runtime
         // resources: it labels the rescue workload and correlates the deletions
         // that follow it.
-        let ctx = RuntimeOperationContext::new(self.allocate(&task_id).await?);
+        let ctx = RuntimeOperationContext::new(self.allocate(&intent.sandbox_id).await?);
         match self
             .runtime
-            .reclaim_storage(&task_id, rescue_url.as_deref(), ctx)
+            .reclaim_storage(&intent.sandbox_id, rescue_url.as_deref(), ctx)
             .await
         {
             Ok(outcome) => {
@@ -664,7 +701,7 @@ impl Lifecycle {
                 // before returning, and `NoOp` means it was already gone), so
                 // record it and stop offering this Task to the cold branch. A
                 // failed mark only costs one idempotent retry next cycle.
-                if let Err(e) = self.store.mark_storage_reclaimed(&task_id).await {
+                if let Err(e) = self.store.mark_storage_reclaimed(&intent.sandbox_id).await {
                     tracing::warn!(error = %e, "could not record the storage reclaim");
                 }
                 Ok(LifecycleOutcome::new(
@@ -690,6 +727,15 @@ impl Lifecycle {
             RuntimeEffect::NoOp,
             ObservedStatus::Stopped,
         )
+    }
+
+    fn member_detach_noop(intent: &TaskIntent) -> LifecycleOutcome {
+        let observed = match intent.desired_state {
+            SandboxDesiredState::Running => ObservedStatus::Ready,
+            SandboxDesiredState::Stopped => ObservedStatus::Stopped,
+            SandboxDesiredState::Removed => ObservedStatus::Removed,
+        };
+        LifecycleOutcome::new(IntentEffect::Unchanged, RuntimeEffect::NoOp, observed)
     }
 
     // ---- Shared helpers ----
@@ -792,7 +838,7 @@ impl Lifecycle {
     ) -> Result<LifecycleOutcome, LifecycleError> {
         let target = SandboxDesiredState::Running;
         let (generation, marker_was_incomplete) = self
-            .resolve_generation(task_id, kind, intent, target)
+            .resolve_generation(&intent.sandbox_id, kind, intent, target)
             .await?;
         let marker = CorrelationMarker::new(kind, generation, self.clock.now());
         let write = IntentWrite {
@@ -801,16 +847,16 @@ impl Lifecycle {
             retention: None,
             marker,
         };
-        let intent_effect = match self.persist(task_id, &write).await {
+        let intent_effect = match self.persist(&intent.sandbox_id, &write).await {
             Ok(effect) => effect,
             Err(e) => return Err(self.publish_failure(task_id, kind, generation, e).await),
         };
 
         let ctx = RuntimeOperationContext::new(generation);
         let runtime_result = match kind {
-            OperationKind::Start => self.runtime.ensure_running(task_id, ctx).await,
-            OperationKind::Restart => self.runtime.restart(task_id, ctx).await,
-            OperationKind::Redeploy => self.runtime.redeploy(task_id, ctx).await,
+            OperationKind::Start => self.runtime.ensure_running(&intent.sandbox_id, ctx).await,
+            OperationKind::Restart => self.runtime.restart(&intent.sandbox_id, ctx).await,
+            OperationKind::Redeploy => self.runtime.redeploy(&intent.sandbox_id, ctx).await,
             OperationKind::Stop | OperationKind::Remove => {
                 unreachable!("toward-running kinds only")
             }
@@ -818,6 +864,7 @@ impl Lifecycle {
 
         self.finalize(
             task_id,
+            &intent.sandbox_id,
             OperationRun {
                 kind,
                 generation,
@@ -849,7 +896,7 @@ impl Lifecycle {
 
         let target = SandboxDesiredState::Stopped;
         let (generation, marker_was_incomplete) = self
-            .resolve_generation(task_id, OperationKind::Stop, intent, target)
+            .resolve_generation(&intent.sandbox_id, OperationKind::Stop, intent, target)
             .await?;
         let marker = CorrelationMarker::new(OperationKind::Stop, generation, self.clock.now());
         let write = IntentWrite {
@@ -858,7 +905,7 @@ impl Lifecycle {
             retention: None,
             marker,
         };
-        let intent_effect = match self.persist(task_id, &write).await {
+        let intent_effect = match self.persist(&intent.sandbox_id, &write).await {
             Ok(effect) => effect,
             Err(e) => {
                 return Err(self
@@ -875,10 +922,11 @@ impl Lifecycle {
         self.sync_workspace_before_effect(task_id).await;
 
         let ctx = RuntimeOperationContext::new(generation);
-        let runtime_result = self.runtime.stop(task_id, ctx).await;
+        let runtime_result = self.runtime.stop(&intent.sandbox_id, ctx).await;
 
         self.finalize(
             task_id,
+            &intent.sandbox_id,
             OperationRun {
                 kind: OperationKind::Stop,
                 generation,
@@ -897,9 +945,24 @@ impl Lifecycle {
         intent: &TaskIntent,
         requested_retention: ArchiveRetention,
     ) -> Result<LifecycleOutcome, LifecycleError> {
+        if self
+            .store
+            .has_other_active_members(&intent.sandbox_id, task_id)
+            .await
+            .map_err(|e| LifecycleError::IntentLoad {
+                task_id: task_id.to_string(),
+                reason: e.to_string(),
+            })?
+        {
+            self.agent_stop
+                .stop_agent(task_id, SandboxStopReason::Cleanup)
+                .await;
+            return Ok(Self::member_detach_noop(intent));
+        }
+
         let target = SandboxDesiredState::Removed;
         let (generation, marker_was_incomplete) = self
-            .resolve_generation(task_id, OperationKind::Remove, intent, target)
+            .resolve_generation(&intent.sandbox_id, OperationKind::Remove, intent, target)
             .await?;
         // Recovery reuses the persisted retention; a fresh caller op uses the
         // supplied policy.
@@ -915,7 +978,7 @@ impl Lifecycle {
             retention: Some(retention),
             marker,
         };
-        let intent_effect = match self.persist(task_id, &write).await {
+        let intent_effect = match self.persist(&intent.sandbox_id, &write).await {
             Ok(effect) => effect,
             Err(e) => {
                 return Err(self
@@ -952,10 +1015,14 @@ impl Lifecycle {
         }
 
         let ctx = RuntimeOperationContext::new(generation);
-        let runtime_result = self.runtime.remove(task_id, retention, ctx).await;
+        let runtime_result = self
+            .runtime
+            .remove(&intent.sandbox_id, retention, ctx)
+            .await;
 
         self.finalize(
             task_id,
+            &intent.sandbox_id,
             OperationRun {
                 kind: OperationKind::Remove,
                 generation,
@@ -981,6 +1048,7 @@ impl Lifecycle {
     async fn finalize(
         &self,
         task_id: &str,
+        sandbox_id: &str,
         run: OperationRun,
         runtime_result: Result<RuntimeOutcome, super::error::RuntimeError>,
     ) -> Result<LifecycleOutcome, LifecycleError> {
@@ -1030,7 +1098,7 @@ impl Lifecycle {
                 // a Task diverged with an empty event stream.
                 if let Err(e) = self
                     .store
-                    .commit_fact_and_clear_marker(task_id, &event)
+                    .commit_fact_and_clear_marker(sandbox_id, task_id, &event)
                     .await
                 {
                     return Err(self
@@ -1067,7 +1135,8 @@ impl Lifecycle {
             && outcome.is_pure_no_op()
             && Self::observed_is_converged_target(run.kind, outcome.observed)
         {
-            self.clear_marker_best_effort(task_id, run.generation).await;
+            self.clear_marker_best_effort(sandbox_id, run.generation)
+                .await;
         }
 
         Ok(outcome)
@@ -1130,11 +1199,11 @@ impl Lifecycle {
             .await;
     }
 
-    async fn clear_marker_best_effort(&self, task_id: &str, generation: OperationGeneration) {
+    async fn clear_marker_best_effort(&self, sandbox_id: &str, generation: OperationGeneration) {
         // A no-op-generation marker owes no completion fact; if the clear fails
         // the reconciler's marker acknowledgement is the backstop.
-        if let Err(e) = self.store.clear_marker(task_id, generation).await {
-            tracing::warn!(task_id = %task_id, error = %e, "failed to clear no-op marker");
+        if let Err(e) = self.store.clear_marker(sandbox_id, generation).await {
+            tracing::warn!(sandbox_id = %sandbox_id, error = %e, "failed to clear no-op marker");
         }
     }
 
@@ -1149,6 +1218,7 @@ impl Lifecycle {
         kind: OperationKind,
         generation: OperationGeneration,
     ) -> Result<(), LifecycleError> {
+        let intent = self.require_intent(task_id).await?;
         let failure = FailureDetail::new(
             kind,
             "edge_abandoned",
@@ -1159,7 +1229,7 @@ impl Lifecycle {
         );
         let event = events::error_event(task_id, generation, failure);
         self.store
-            .commit_fact_and_clear_marker(task_id, &event)
+            .commit_fact_and_clear_marker(&intent.sandbox_id, task_id, &event)
             .await
             .map_err(|e| LifecycleError::CompletionCommit {
                 task_id: task_id.to_string(),
@@ -1311,6 +1381,7 @@ mod tests {
         commits: Mutex<Vec<String>>,
         marker_cleared: Mutex<bool>,
         storage_reclaimed: Mutex<bool>,
+        other_active_members: Mutex<bool>,
         fail_persist: bool,
         fail_commit: bool,
     }
@@ -1323,6 +1394,7 @@ mod tests {
                 commits: Mutex::new(vec![]),
                 marker_cleared: Mutex::new(false),
                 storage_reclaimed: Mutex::new(false),
+                other_active_members: Mutex::new(false),
                 fail_persist: false,
                 fail_commit: false,
             })
@@ -1334,9 +1406,14 @@ mod tests {
                 commits: Mutex::new(vec![]),
                 marker_cleared: Mutex::new(false),
                 storage_reclaimed: Mutex::new(false),
+                other_active_members: Mutex::new(false),
                 fail_persist: false,
                 fail_commit: false,
             })
+        }
+        fn with_other_active_members(self: &Arc<Self>) -> Arc<Self> {
+            *self.other_active_members.lock().expect("lock") = true;
+            Arc::clone(self)
         }
         fn current(&self) -> Option<TaskIntent> {
             self.intent.lock().expect("lock").clone()
@@ -1359,6 +1436,16 @@ mod tests {
         }
         async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
             Ok(vec![])
+        }
+        async fn running_sandbox_members(&self) -> Result<Vec<SandboxMember>, StoreError> {
+            Ok(vec![])
+        }
+        async fn has_other_active_members(
+            &self,
+            _sandbox_id: &str,
+            _task_id: &str,
+        ) -> Result<bool, StoreError> {
+            Ok(*self.other_active_members.lock().expect("lock"))
         }
         async fn allocate_generation(
             &self,
@@ -1389,8 +1476,16 @@ mod tests {
                 _ => IntentEffect::Changed,
             };
             let status = slot.as_ref().map_or(TaskStatus::Open, |c| c.status);
+            let sandbox_id = slot
+                .as_ref()
+                .map_or_else(|| "t".to_string(), |c| c.sandbox_id.clone());
+            let workspace_id = slot
+                .as_ref()
+                .map_or_else(|| "ws_repo-x".to_string(), |c| c.workspace_id.clone());
             *slot = Some(TaskIntent {
                 status,
+                sandbox_id,
+                workspace_id,
                 desired_state: write.desired_state,
                 stop_reason: write.stop_reason,
                 retention: write.retention,
@@ -1401,6 +1496,7 @@ mod tests {
         }
         async fn commit_fact_and_clear_marker(
             &self,
+            _sandbox_id: &str,
             _task_id: &str,
             event: &LifecycleEvent,
         ) -> Result<(), StoreError> {
@@ -1734,6 +1830,8 @@ mod tests {
     ) -> TaskIntent {
         TaskIntent {
             status,
+            sandbox_id: "t".to_string(),
+            workspace_id: "ws_repo-x".to_string(),
             desired_state: desired,
             stop_reason: reason,
             retention,
@@ -1920,6 +2018,7 @@ mod tests {
             commits: Mutex::new(vec![]),
             marker_cleared: Mutex::new(false),
             storage_reclaimed: Mutex::new(false),
+            other_active_members: Mutex::new(false),
             fail_persist: true,
             fail_commit: false,
         });
@@ -1941,6 +2040,16 @@ mod tests {
             async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
                 Ok(vec![])
             }
+            async fn running_sandbox_members(&self) -> Result<Vec<SandboxMember>, StoreError> {
+                Ok(vec![])
+            }
+            async fn has_other_active_members(
+                &self,
+                _sandbox_id: &str,
+                _task_id: &str,
+            ) -> Result<bool, StoreError> {
+                Ok(false)
+            }
             async fn allocate_generation(
                 &self,
                 _t: &str,
@@ -1956,6 +2065,7 @@ mod tests {
             }
             async fn commit_fact_and_clear_marker(
                 &self,
+                _sandbox_id: &str,
                 _t: &str,
                 _e: &LifecycleEvent,
             ) -> Result<(), StoreError> {
@@ -2079,6 +2189,42 @@ mod tests {
         assert!(
             !log.iter().any(|s| s == "sync_workspace"),
             "a hard delete must not spend the stop budget on an upload: {log:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn remove_of_shared_member_keeps_runtime_while_active_peers_remain() {
+        let store = InMemoryLifecycleDao::with_intent(open_running()).with_other_active_members();
+        let h = harness_with(store.clone(), FlakyLock::free());
+
+        let outcome = h
+            .lifecycle
+            .remove("t", ArchiveRetention::DeleteArchives)
+            .await
+            .expect("member detach succeeds");
+
+        assert_eq!(
+            outcome,
+            LifecycleOutcome::new(
+                IntentEffect::Unchanged,
+                RuntimeEffect::NoOp,
+                ObservedStatus::Ready,
+            )
+        );
+        assert_eq!(
+            store.current().expect("intent").desired_state,
+            SandboxDesiredState::Running,
+            "member detach must not move sandbox intent to Removed"
+        );
+        let log = h.log.lock().expect("lock").clone();
+        assert!(log.iter().any(|s| s == "stop_agent"));
+        assert!(
+            !log.iter().any(|s| s == "sync_workspace"),
+            "peer detach must not push the whole shared workspace: {log:?}"
+        );
+        assert!(
+            !log.iter().any(|s| s == "runtime_remove"),
+            "peer detach must not remove shared runtime resources: {log:?}"
         );
     }
 
@@ -2382,6 +2528,7 @@ mod tests {
             commits: Mutex::new(vec![]),
             marker_cleared: Mutex::new(false),
             storage_reclaimed: Mutex::new(false),
+            other_active_members: Mutex::new(false),
             fail_persist: false,
             fail_commit: true,
         });
@@ -2466,6 +2613,7 @@ mod tests {
             commits: Mutex::new(vec![]),
             marker_cleared: Mutex::new(false),
             storage_reclaimed: Mutex::new(false),
+            other_active_members: Mutex::new(false),
             fail_persist: false,
             fail_commit: false,
         });

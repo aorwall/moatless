@@ -41,8 +41,9 @@ use crate::skill::service::SkillService;
 use crate::tag::dao::TagDao;
 use crate::task::binding_dao::TaskBindingDao;
 use crate::task::closer::TaskCloser;
-use crate::task::creation::{PreflightPort, TaskCreationService};
+use crate::task::creation::{PreflightPort, SandboxJoiner, TaskCreationService};
 use crate::task::dao::TaskDao;
+use crate::task::models::CheckoutMode;
 use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelationDao;
 use crate::task::sandbox_lifecycle::SandboxLifecycle;
@@ -52,7 +53,7 @@ use crate::team::dao::TeamDao;
 use crate::workspace::credentials::service::WorkspaceCredentialService;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::GitSyncService;
-use moatless_backend_core::sandbox::SandboxConnector;
+use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_grpc_error};
 use moatless_core::config::{AuthConfig, CodexOAuthConfig, Config, S3Config, SecretsConfig};
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
@@ -307,7 +308,7 @@ impl AppState {
         let credential_sync = Arc::new(CredentialSync::new(
             credentials_svc.clone(),
             tasks.clone(),
-            connector,
+            connector.clone(),
         ));
 
         let repo_token_resolver = Arc::new(RepositoryTokenResolver::new(
@@ -415,6 +416,9 @@ impl AppState {
             Arc::new(RealGithubValidator),
         ));
 
+        let sandbox_joiner: Arc<dyn SandboxJoiner> = Arc::new(ConnectorSandboxJoiner {
+            connector: connector.clone(),
+        });
         let task_creation = Arc::new(TaskCreationService::new(
             tasks.clone(),
             tags.clone(),
@@ -422,6 +426,7 @@ impl AppState {
             repositories.clone(),
             events.clone(),
             lifecycle.clone(),
+            sandbox_joiner,
             preflight.clone(),
         ));
 
@@ -552,6 +557,25 @@ impl AppState {
                     .build(),
             ),
         }
+    }
+}
+
+struct ConnectorSandboxJoiner {
+    connector: Arc<dyn SandboxConnector>,
+}
+
+#[async_trait::async_trait]
+impl SandboxJoiner for ConnectorSandboxJoiner {
+    async fn join_task(
+        &self,
+        task_id: &str,
+        checkout_mode: CheckoutMode,
+    ) -> Result<(), SandboxError> {
+        let client = self.connector.sandbox_client(task_id).await?;
+        client
+            .join_task(task_id, Some(checkout_mode.as_str()))
+            .await
+            .map_err(|error| classify_grpc_error(error, "JoinTask"))
     }
 }
 

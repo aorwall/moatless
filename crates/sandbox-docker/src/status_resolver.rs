@@ -8,14 +8,14 @@ use tracing::{debug, warn};
 
 use super::client::DockerClient;
 use super::naming::{generate_container_name, generate_server_container_name};
-use moatless_workspaces::repository::models::ServerConfig;
+use moatless_backend_core::sandbox::SandboxConnector;
+use moatless_core::config::Config;
 use moatless_sandbox_control::live_status::{AgentStatus, LiveStatus, derive_live_status};
 use moatless_sandbox_control::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use moatless_sandbox_control::models::*;
 use moatless_sandbox_control::schemas::*;
 use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
-use moatless_backend_core::sandbox::SandboxConnector;
-use moatless_core::config::Config;
+use moatless_workspaces::repository::models::ServerConfig;
 
 /// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
 /// live background processes.
@@ -93,12 +93,13 @@ impl DockerStatusResolver {
     pub async fn resolve_sandbox_status(
         &self,
         task_id: &str,
+        sandbox_id: &str,
         server_configs: &[ServerConfig],
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
         connector: &dyn SandboxConnector,
     ) -> SandboxStatusFullResponse {
-        let container_name = generate_container_name(task_id);
+        let container_name = generate_container_name(sandbox_id);
         let (sandbox_status, resolver_error) = self.inspect_sandbox_status(&container_name).await;
         let current_sandbox_image = self.inspect_current_image(&container_name).await;
         let is_running = sandbox_status == SandboxStatus::Ready;
@@ -109,7 +110,9 @@ impl DockerStatusResolver {
                 scheduled_jobs,
                 background_processes,
             } = self.fetch_agent_status(task_id, connector).await;
-            let servers = self.resolve_server_entries(task_id, server_configs).await;
+            let servers = self
+                .resolve_server_entries(sandbox_id, server_configs)
+                .await;
             let live_status = derive_live_status(
                 task_status,
                 desired_state,
@@ -184,11 +187,12 @@ impl DockerStatusResolver {
     pub async fn resolve_live_status(
         &self,
         task_id: &str,
+        sandbox_id: &str,
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
         connector: &dyn SandboxConnector,
     ) -> LiveStatus {
-        let container_name = generate_container_name(task_id);
+        let container_name = generate_container_name(sandbox_id);
         let (sandbox_status, resolver_error) = self.inspect_sandbox_status(&container_name).await;
         let agent_status = if sandbox_status == SandboxStatus::Ready {
             self.fetch_agent_status(task_id, connector).await.status
@@ -292,7 +296,7 @@ impl DockerStatusResolver {
             }
         };
 
-        match client.get_agent_status().await {
+        match client.get_agent_status_for_task(Some(task_id)).await {
             Ok(resp) => AgentStatusSnapshot {
                 status: Some(AgentStatus::from(resp.status.as_str())),
                 scheduled_jobs: resp

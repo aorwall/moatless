@@ -28,22 +28,22 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use moatless_backend_core::sandbox::SandboxStarter;
+use moatless_backend_core::sandbox::{SandboxError, SandboxStarter};
 use moatless_backend_core::scope::{Scope, ScopeContext};
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
-use moatless_core::events::EventPublisher;
-use moatless_core::shared_models::{AgentMode, AgentType};
 use crate::tag::dao::TagDao;
-use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::repository::models::Repository;
 use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
-use crate::task::models::{Task, TaskStatus, Visibility};
+use crate::task::models::{CheckoutMode, Task, TaskStatus, Visibility};
 use crate::task::relations::{
     CreatedByParent, RelatedTask, TaskRelationDao, record_created_by, record_related_to,
 };
 use crate::task::schemas::MessageContextInput;
+use moatless_core::events::EventPublisher;
+use moatless_core::shared_models::{AgentMode, AgentType};
+use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_workspaces::repository::models::Repository;
 
 /// Preflight seam: GitHub-token validation before a sandbox is provisioned.
 /// Wired once in state assembly (`RealPreflight`, in `sandbox::preflight`) so
@@ -52,6 +52,17 @@ use crate::task::schemas::MessageContextInput;
 #[async_trait]
 pub trait PreflightPort: Send + Sync {
     async fn validate(&self, task: &Task, repo: &Repository) -> Result<(), PreflightRejection>;
+}
+
+/// Registers a task as a member of an already-running sandbox process.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait SandboxJoiner: Send + Sync {
+    async fn join_task(
+        &self,
+        task_id: &str,
+        checkout_mode: CheckoutMode,
+    ) -> Result<(), SandboxError>;
 }
 
 /// Band-clean preflight failure returned by [`PreflightPort`]. The
@@ -85,6 +96,8 @@ pub struct NewTaskRequest {
     pub visibility: Visibility,
     pub loop_id: Option<String>,
     pub workspace_id: Option<String>,
+    pub sandbox_id: Option<String>,
+    pub checkout_mode: Option<crate::task::models::CheckoutMode>,
     pub template_id: Option<String>,
     pub vibe: Option<bool>,
     pub append_system_prompt: Option<String>,
@@ -175,6 +188,12 @@ pub enum TaskCreationError {
     #[error("repository {0} not found")]
     RepoNotFound(String),
     #[error("{0}")]
+    BadRequest(String),
+    #[error("failed to join sandbox: {0}")]
+    SandboxJoin(String),
+    #[error("failed to join sandbox and cleanup inserted task: join={join}; cleanup={cleanup}")]
+    SandboxJoinCleanup { join: String, cleanup: String },
+    #[error("{0}")]
     Preflight(String),
     #[error("failed to generate a unique short id")]
     ShortId,
@@ -186,6 +205,11 @@ impl From<TaskCreationError> for TaskError {
     fn from(e: TaskCreationError) -> Self {
         match e {
             TaskCreationError::RepoNotFound(id) => TaskError::RepoNotFound(id),
+            TaskCreationError::BadRequest(msg) => TaskError::BadRequest(msg),
+            TaskCreationError::SandboxJoin(msg) => TaskError::Internal(msg),
+            TaskCreationError::SandboxJoinCleanup { join, cleanup } => {
+                TaskError::Internal(format!("{join}; cleanup failed: {cleanup}"))
+            }
             TaskCreationError::Preflight(msg) => TaskError::Forbidden(msg),
             TaskCreationError::ShortId => {
                 TaskError::Internal("Failed to generate unique short ID".to_string())
@@ -205,13 +229,14 @@ pub struct TaskCreationService {
     repositories: Arc<dyn RepositoryDao>,
     events: Option<Arc<dyn EventPublisher>>,
     starter: Arc<dyn SandboxStarter>,
+    joiner: Arc<dyn SandboxJoiner>,
     preflight: Arc<dyn PreflightPort>,
 }
 
 impl TaskCreationService {
     // reason: independent injected collaborators (four DAOs, the event
-    // publisher, the provision seam, the preflight seam); bundling them behind a
-    // one-use struct only shuffles the same fields.
+    // publisher, the lifecycle seams, the preflight seam); bundling them behind
+    // a one-use struct only shuffles the same fields.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tasks: Arc<dyn TaskDao>,
@@ -220,6 +245,7 @@ impl TaskCreationService {
         repositories: Arc<dyn RepositoryDao>,
         events: Option<Arc<dyn EventPublisher>>,
         starter: Arc<dyn SandboxStarter>,
+        joiner: Arc<dyn SandboxJoiner>,
         preflight: Arc<dyn PreflightPort>,
     ) -> Self {
         Self {
@@ -229,6 +255,7 @@ impl TaskCreationService {
             repositories,
             events,
             starter,
+            joiner,
             preflight,
         }
     }
@@ -255,9 +282,23 @@ impl TaskCreationService {
             .task_id
             .take()
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        if req.sandbox_id.is_none() && req.checkout_mode.is_some() {
+            return Err(TaskCreationError::BadRequest(
+                "checkout_mode requires sandbox_id".to_string(),
+            ));
+        }
+        let join_checkout_mode = req.sandbox_id.as_ref().map(|_| {
+            req.checkout_mode
+                .unwrap_or(crate::task::models::CheckoutMode::Shared)
+        });
+        let persisted_checkout_mode = join_checkout_mode.or(req.checkout_mode);
         let short_id = self.generate_unique_short_id().await?;
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let owner_user_id = req.created_by.clone();
+        let workspace_id = self
+            .tasks
+            .resolve_workspace_id(&req.repository_id, req.workspace_id.clone())
+            .await?;
 
         let mut row = Task {
             task_id: task_id.clone(),
@@ -288,7 +329,9 @@ impl TaskCreationService {
             ttl_minutes: req.ttl_minutes,
             inactive_ttl_days: req.inactive_ttl_days,
             loop_id: req.loop_id.clone(),
-            workspace_id: req.workspace_id.clone(),
+            workspace_id: Some(workspace_id.clone()),
+            sandbox_id: req.sandbox_id.clone(),
+            checkout_mode: persisted_checkout_mode,
             disabled_servers: None,
             skills: req.skills.clone(),
         };
@@ -352,6 +395,39 @@ impl TaskCreationService {
             record_related_to(self.relations.as_ref(), &task_id, related).await;
         }
 
+        // Join an existing sandbox before delivering a first message. The DB
+        // membership row must exist first so the sandbox-bound token can
+        // authorize this task on later per-task RPCs.
+        if let Some(checkout_mode) = join_checkout_mode {
+            if let Err(error) = self.joiner.join_task(&task_id, checkout_mode).await {
+                tracing::warn!(
+                    task_id = %task_id,
+                    sandbox_id = ?row.sandbox_id,
+                    checkout_mode = checkout_mode.as_str(),
+                    error = %error,
+                    "Sandbox join failed during task creation"
+                );
+                let join_error = map_join_error(error);
+                if let Err(cleanup_error) = self
+                    .tasks
+                    .delete_inserted_task_after_join_failure(&task_id)
+                    .await
+                {
+                    tracing::error!(
+                        task_id = %task_id,
+                        sandbox_id = ?row.sandbox_id,
+                        error = %cleanup_error,
+                        "Failed to cleanup task after sandbox join failure"
+                    );
+                    return Err(TaskCreationError::SandboxJoinCleanup {
+                        join: join_error.to_string(),
+                        cleanup: cleanup_error.to_string(),
+                    });
+                }
+                return Err(join_error);
+            }
+        }
+
         // Optional first message (best-effort; the caller's callback logs).
         // Persist it before provisioning so the sandbox's authoritative startup
         // dispatch cannot race ahead of the initial prompt and find no pending
@@ -369,7 +445,9 @@ impl TaskCreationService {
         // Note this is not the same as "no first message": the bindings runtime
         // and the schedule runner create with `first_message: None` and deliver
         // it themselves, and they do need a sandbox.
-        let provision = if req.provision {
+        let provision = if row.sandbox_id.is_some() {
+            ProvisionOutcome::Started
+        } else if req.provision {
             match self.starter.start(&task_id).await {
                 Ok(()) => ProvisionOutcome::Started,
                 Err(e) => {
@@ -442,24 +520,46 @@ impl TaskCreationService {
     }
 }
 
+fn map_join_error(error: SandboxError) -> TaskCreationError {
+    match error {
+        SandboxError::BadRequest(message) => TaskCreationError::BadRequest(message),
+        SandboxError::NotFound(message) => {
+            TaskCreationError::BadRequest(format!("sandbox not found for join: {message}"))
+        }
+        other => TaskCreationError::SandboxJoin(other.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    use moatless_workspaces::repository::dao::MockRepositoryDao;
-    use moatless_workspaces::repository::models::{Repository, RepositoryKind};
     use crate::tag::dao::MockTagDao;
     use crate::task::dao::MockTaskDao;
     use crate::task::relations::MockTaskRelationDao;
-    use moatless_core::events::test_support::RecordingPublisher;
     use moatless_backend_core::sandbox::SandboxError;
+    use moatless_core::events::test_support::RecordingPublisher;
+    use moatless_workspaces::repository::dao::MockRepositoryDao;
+    use moatless_workspaces::repository::models::{Repository, RepositoryKind};
 
     mockall::mock! {
         Starter {}
         #[async_trait]
         impl SandboxStarter for Starter {
             async fn start(&self, task_id: &str) -> Result<(), SandboxError>;
+        }
+    }
+
+    mockall::mock! {
+        Joiner {}
+        #[async_trait]
+        impl SandboxJoiner for Joiner {
+            async fn join_task(
+                &self,
+                task_id: &str,
+                checkout_mode: CheckoutMode,
+            ) -> Result<(), SandboxError>;
         }
     }
 
@@ -503,6 +603,8 @@ mod tests {
             task_id: None,
             provision: true,
             workspace_id: None,
+            sandbox_id: None,
+            checkout_mode: None,
             template_id: None,
             vibe: None,
             append_system_prompt: None,
@@ -534,6 +636,7 @@ mod tests {
     fn service(
         tasks: MockTaskDao,
         starter: MockStarter,
+        joiner: MockJoiner,
         preflight: Arc<dyn PreflightPort>,
         publisher: Arc<RecordingPublisher>,
     ) -> TaskCreationService {
@@ -550,14 +653,31 @@ mod tests {
             Arc::new(repos),
             Some(publisher as Arc<dyn EventPublisher>),
             Arc::new(starter),
+            Arc::new(joiner),
             preflight,
         )
+    }
+
+    fn joiner_never() -> MockJoiner {
+        let mut joiner = MockJoiner::new();
+        joiner.expect_join_task().never();
+        joiner
+    }
+
+    fn expect_default_workspace_resolution(tasks: &mut MockTaskDao) {
+        tasks
+            .expect_resolve_workspace_id()
+            .times(1)
+            .returning(|_, explicit| {
+                Ok(explicit.as_deref().unwrap_or(SHADOW_WORKSPACE).to_string())
+            });
     }
 
     #[tokio::test]
     async fn happy_path_inserts_open_row_and_publishes_created_event() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.status == TaskStatus::Open)
@@ -567,7 +687,13 @@ mod tests {
         starter.expect_start().times(1).returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
-        let svc = service(tasks, starter, preflight_ok(), publisher.clone());
+        let svc = service(
+            tasks,
+            starter,
+            joiner_never(),
+            preflight_ok(),
+            publisher.clone(),
+        );
 
         let outcome = svc
             .create(sample_request(), empty_payload, no_message)
@@ -579,24 +705,31 @@ mod tests {
         assert!(publisher.sandbox_statuses().is_empty());
     }
 
-    /// The request named no workspace, so the insert resolved the repository's
-    /// shadow one. The create response and the `task.created` event are built
-    /// from this row rather than re-read, so a row left with `None` here
-    /// publishes a task whose workspace no client can name.
+    /// The request named no workspace, so creation resolves the repository's
+    /// shadow one before insert. The create response and the `task.created`
+    /// event are built from this row rather than re-read, so a row left with
+    /// `None` here publishes a task whose workspace no client can name.
     #[tokio::test]
     async fn the_returned_row_carries_the_workspace_the_insert_resolved() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
-            .withf(|row| row.workspace_id.is_none())
+            .withf(|row| row.workspace_id.as_deref() == Some(SHADOW_WORKSPACE))
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
-        let svc = service(tasks, starter, preflight_ok(), publisher.clone());
+        let svc = service(
+            tasks,
+            starter,
+            joiner_never(),
+            preflight_ok(),
+            publisher.clone(),
+        );
 
         let outcome = svc
             .create(sample_request(), empty_payload, no_message)
@@ -614,18 +747,17 @@ mod tests {
     async fn a_task_is_always_user_scoped_and_owned_by_its_creator() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
-            .withf(|row| {
-                row.scope == Scope::User && row.owner_user_id.as_deref() == Some("bot1")
-            })
+            .withf(|row| row.scope == Scope::User && row.owner_user_id.as_deref() == Some("bot1"))
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
-        let svc = service(tasks, starter, preflight_ok(), publisher);
+        let svc = service(tasks, starter, joiner_never(), preflight_ok(), publisher);
         let mut req = sample_request();
         req.created_by = Some("bot1".into());
 
@@ -642,6 +774,7 @@ mod tests {
     async fn task_creation_persists_requested_model_on_the_task() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.model.as_deref() == Some("claude-opus-4-6"))
@@ -651,7 +784,7 @@ mod tests {
         starter.expect_start().returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
-        let svc = service(tasks, starter, preflight_ok(), publisher);
+        let svc = service(tasks, starter, joiner_never(), preflight_ok(), publisher);
         let mut req = sample_request();
         req.model = Some("claude-opus-4-6".to_string());
 
@@ -669,6 +802,7 @@ mod tests {
 
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .times(1)
@@ -682,7 +816,7 @@ mod tests {
         });
 
         let publisher = Arc::new(RecordingPublisher::new());
-        let svc = service(tasks, starter, preflight_ok(), publisher);
+        let svc = service(tasks, starter, joiner_never(), preflight_ok(), publisher);
 
         let mut req = sample_request();
         req.first_message = Some(FirstMessage {
@@ -717,6 +851,7 @@ mod tests {
     async fn preflight_failure_marks_errored_publishes_error_event_and_skips_provision() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.status == TaskStatus::Error)
@@ -734,7 +869,13 @@ mod tests {
         });
 
         let publisher = Arc::new(RecordingPublisher::new());
-        let svc = service(tasks, starter, Arc::new(preflight), publisher.clone());
+        let svc = service(
+            tasks,
+            starter,
+            joiner_never(),
+            Arc::new(preflight),
+            publisher.clone(),
+        );
 
         let err = svc
             .create(sample_request(), empty_payload, no_message)
@@ -750,6 +891,7 @@ mod tests {
     async fn provision_failure_still_succeeds_and_publishes_sandbox_error() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.status == TaskStatus::Open)
@@ -762,7 +904,13 @@ mod tests {
             .returning(|_| Err(SandboxError::Other("boom".into())));
 
         let publisher = Arc::new(RecordingPublisher::new());
-        let svc = service(tasks, starter, preflight_ok(), publisher.clone());
+        let svc = service(
+            tasks,
+            starter,
+            joiner_never(),
+            preflight_ok(),
+            publisher.clone(),
+        );
 
         let outcome = svc
             .create(sample_request(), empty_payload, no_message)
@@ -788,6 +936,7 @@ mod tests {
             .times(1)
             .in_sequence(&mut seq)
             .returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .times(1)
@@ -796,7 +945,13 @@ mod tests {
         starter.expect_start().returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
-        let svc = service(tasks, starter, preflight_ok(), publisher.clone());
+        let svc = service(
+            tasks,
+            starter,
+            joiner_never(),
+            preflight_ok(),
+            publisher.clone(),
+        );
 
         let outcome = svc
             .create(sample_request(), empty_payload, no_message)
@@ -813,6 +968,7 @@ mod tests {
     async fn a_supplied_task_id_is_used_verbatim() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.task_id == "3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30")
@@ -822,7 +978,13 @@ mod tests {
         starter.expect_start().returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
-        let svc = service(tasks, starter, preflight_ok(), publisher.clone());
+        let svc = service(
+            tasks,
+            starter,
+            joiner_never(),
+            preflight_ok(),
+            publisher.clone(),
+        );
 
         let mut req = sample_request();
         req.task_id = Some("3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30".into());
@@ -841,6 +1003,7 @@ mod tests {
     async fn provisioning_is_skipped_when_the_request_does_not_ask_for_it() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .times(1)
@@ -849,7 +1012,13 @@ mod tests {
         starter.expect_start().never();
 
         let publisher = Arc::new(RecordingPublisher::new());
-        let svc = service(tasks, starter, preflight_ok(), publisher.clone());
+        let svc = service(
+            tasks,
+            starter,
+            joiner_never(),
+            preflight_ok(),
+            publisher.clone(),
+        );
 
         let mut req = sample_request();
         req.provision = false;
@@ -861,5 +1030,154 @@ mod tests {
         assert_eq!(outcome.provision, ProvisionOutcome::Skipped);
         assert_eq!(publisher.task_subtypes(), vec![TaskSubType::Created]);
         assert!(publisher.sandbox_statuses().is_empty());
+    }
+
+    #[tokio::test]
+    async fn shared_sandbox_create_joins_before_first_message_and_skips_provisioning() {
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
+        tasks
+            .expect_insert_task()
+            .withf(|row| {
+                row.sandbox_id.as_deref() == Some("sandbox-1")
+                    && row.checkout_mode == Some(CheckoutMode::Shared)
+            })
+            .times(1)
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+
+        let mut starter = MockStarter::new();
+        starter.expect_start().never();
+        let mut joiner = MockJoiner::new();
+        let join_order = Arc::clone(&order);
+        joiner
+            .expect_join_task()
+            .withf(|task_id, checkout_mode| {
+                !task_id.is_empty() && *checkout_mode == CheckoutMode::Shared
+            })
+            .times(1)
+            .returning(move |_, _| {
+                join_order.lock().expect("order lock").push("join");
+                Ok(())
+            });
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, joiner, preflight_ok(), publisher.clone());
+
+        let mut req = sample_request();
+        req.sandbox_id = Some("sandbox-1".to_string());
+        req.first_message = Some(FirstMessage {
+            text: "hello".into(),
+            model: None,
+            agent_mode: None,
+            effort: None,
+            file_ids: vec![],
+            contexts: vec![],
+            sent_by: Some("user1".into()),
+            message_uuid: None,
+            skills: vec![],
+        });
+
+        let message_order = Arc::clone(&order);
+        let outcome = svc
+            .create(req, empty_payload, move |_, _| {
+                let message_order = Arc::clone(&message_order);
+                async move {
+                    message_order.lock().expect("order lock").push("message");
+                }
+            })
+            .await
+            .expect("shared sandbox creation succeeds");
+
+        assert_eq!(outcome.provision, ProvisionOutcome::Started);
+        assert_eq!(publisher.task_subtypes(), vec![TaskSubType::Created]);
+        assert_eq!(
+            order.lock().expect("order lock").as_slice(),
+            ["join", "message"]
+        );
+    }
+
+    #[tokio::test]
+    async fn shared_sandbox_join_failure_cleans_up_before_first_message() {
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
+        tasks
+            .expect_insert_task()
+            .times(1)
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+        let cleanup_order = Arc::clone(&order);
+        tasks
+            .expect_delete_inserted_task_after_join_failure()
+            .withf(|task_id| !task_id.is_empty())
+            .times(1)
+            .returning(move |_| {
+                cleanup_order.lock().expect("order lock").push("cleanup");
+                Ok(true)
+            });
+
+        let mut starter = MockStarter::new();
+        starter.expect_start().never();
+        let mut joiner = MockJoiner::new();
+        let join_order = Arc::clone(&order);
+        joiner.expect_join_task().times(1).returning(move |_, _| {
+            join_order.lock().expect("order lock").push("join");
+            Err(SandboxError::NotReady("starting".to_string()))
+        });
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, joiner, preflight_ok(), publisher);
+
+        let mut req = sample_request();
+        req.sandbox_id = Some("sandbox-1".to_string());
+        req.first_message = Some(FirstMessage {
+            text: "hello".into(),
+            model: None,
+            agent_mode: None,
+            effort: None,
+            file_ids: vec![],
+            contexts: vec![],
+            sent_by: Some("user1".into()),
+            message_uuid: None,
+            skills: vec![],
+        });
+
+        let err = svc
+            .create(req, empty_payload, |_, _| async {
+                panic!("first message must not send after join failure");
+            })
+            .await
+            .expect_err("join failure rejects create");
+
+        assert!(matches!(err, TaskCreationError::SandboxJoin(_)));
+        assert_eq!(
+            order.lock().expect("order lock").as_slice(),
+            ["join", "cleanup"]
+        );
+    }
+
+    #[tokio::test]
+    async fn checkout_mode_without_sandbox_id_is_rejected_before_persistence() {
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().never();
+        tasks.expect_resolve_workspace_id().never();
+        tasks.expect_insert_task().never();
+
+        let mut starter = MockStarter::new();
+        starter.expect_start().never();
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, joiner_never(), preflight_ok(), publisher);
+
+        let mut req = sample_request();
+        req.checkout_mode = Some(CheckoutMode::Shared);
+        let err = svc
+            .create(req, empty_payload, no_message)
+            .await
+            .expect_err("checkout mode without sandbox is rejected");
+
+        assert!(matches!(
+            err,
+            TaskCreationError::BadRequest(msg) if msg.contains("checkout_mode requires sandbox_id")
+        ));
     }
 }

@@ -326,9 +326,9 @@ fn is_auth_rejection(mode: PersistMode, code: tonic::Code) -> bool {
 /// from the same ReplicaSet, so only fixing the task itself helps.
 fn terminal_rejection_reason(_mode: PersistMode, code: tonic::Code) -> Option<&'static str> {
     match code {
-        tonic::Code::PermissionDenied => Some(
-            "not authorized for this task; its sandbox runs as a user that cannot control it",
-        ),
+        tonic::Code::PermissionDenied => {
+            Some("not authorized for this task; its sandbox runs as a user that cannot control it")
+        }
         _ => None,
     }
 }
@@ -542,10 +542,9 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        PersistMode, exposed_user_token_paths, fallback_tokens, filter_agent_credentials,
-        is_auth_rejection, persist_agent_credentials, persist_user_auth_token,
-        purge_exposed_user_tokens, server_sidecar_env, terminal_rejection_reason,
-        MAX_RETRY_DELAY, RETRY_BUDGET,
+        exposed_user_token_paths, fallback_tokens, filter_agent_credentials, is_auth_rejection,
+        persist_agent_credentials, persist_user_auth_token, purge_exposed_user_tokens,
+        server_sidecar_env, terminal_rejection_reason, PersistMode, MAX_RETRY_DELAY, RETRY_BUDGET,
     };
     use crate::config::{AgentConfig, Config, ProxyConfig};
 
@@ -710,6 +709,7 @@ mod tests {
         Config {
             port: 8001,
             grpc_port: 50052,
+            sandbox_id: "task-1".to_string(),
             task_id: "task-1".to_string(),
             agent_type: None,
             workspace_dir: tmp.path().join("workspace").display().to_string(),

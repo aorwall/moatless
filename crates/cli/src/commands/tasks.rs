@@ -5,7 +5,7 @@ use std::fmt::Write;
 
 use clap::Subcommand;
 use futures_util::StreamExt;
-use moatless_api_schemas::enums::TaskStatus;
+use moatless_api_schemas::enums::{CheckoutMode, TaskStatus};
 use moatless_api_schemas::sandbox::{
     SandboxStatusFullResponse, ServerConfigResponse, ServerOverride, ServerOverridesResponse,
     ServerStatusResponse, UpdateServerConfigRequest,
@@ -38,11 +38,40 @@ pub enum TaskAction {
     Create {
         /// Repository ID or name. Optional when --workspace is given (the
         /// workspace's primary repository is used)
-        #[arg(long, required_unless_present = "workspace")]
+        #[arg(long, required_unless_present_any = ["workspace", "same_sandbox"])]
         repo: Option<String>,
         /// Workspace ID (ws_...) or name to run the task in; wins over --repo
         #[arg(long)]
         workspace: Option<String>,
+        /// Run in the same Sandbox as another task, reusing its warm checkout
+        /// instead of provisioning a new one. Takes that task's id or short id
+        /// — not a sandbox id, which nobody has to hand. With no value it means
+        /// the task this CLI is running as, so an agent inside a sandbox can
+        /// spawn a sibling into it with a bare `--same-sandbox`.
+        ///
+        /// A Sandbox materializes exactly one Workspace, so joining one settles
+        /// where the task runs; --repo and --workspace have nothing left to say.
+        #[arg(
+            long,
+            value_name = "TASK_ID",
+            num_args = 0..=1,
+            conflicts_with_all = ["repo", "workspace"]
+        )]
+        same_sandbox: Option<Option<String>>,
+        /// Whether this task shares the joined Sandbox's checkout (`shared`,
+        /// the default) or gets its own (`isolated`).
+        ///
+        // `requires` alone is not enough: clap skips it when the required arg
+        // conflicts with one that *is* present, so `--repo x --checkout-mode
+        // isolated` would parse and then be silently dropped. Conflicting with
+        // the same two args as --same-sandbox makes that combination an error.
+        #[arg(
+            long,
+            value_parser = ["shared", "isolated"],
+            requires = "same_sandbox",
+            conflicts_with_all = ["repo", "workspace"]
+        )]
+        checkout_mode: Option<String>,
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
@@ -280,6 +309,8 @@ pub async fn run(
         TaskAction::Create {
             repo,
             workspace,
+            same_sandbox,
+            checkout_mode,
             name,
             parent,
             message,
@@ -293,13 +324,22 @@ pub async fn run(
             // ambient task, even if an explicit parent was also supplied.
             let parent_task_id = resolve_parent_task_id(config.task_id(), parent);
 
+            let joined = match &same_sandbox {
+                Some(task_ref) => {
+                    Some(resolve_same_sandbox(client, config.task_id(), task_ref.as_deref()).await?)
+                }
+                None => None,
+            };
+
             let repository_id = match &repo {
                 Some(r) => Some(resolve_repo_id(client, r).await?),
                 None => None,
             };
-            let workspace_id = match &workspace {
-                Some(w) => Some(resolve_workspace_id(client, w).await?),
-                None => None,
+            // `--same-sandbox` conflicts with both, so at most one arm applies.
+            let workspace_id = match (&workspace, &joined) {
+                (Some(w), _) => Some(resolve_workspace_id(client, w).await?),
+                (None, Some(join)) => join.workspace.clone(),
+                (None, None) => None,
             };
 
             validate_context_files_have_message(&message, &context_files)?;
@@ -308,6 +348,12 @@ pub async fn run(
             let req = CreateTaskRequest {
                 repository_id,
                 workspace_id,
+                sandbox_id: joined.as_ref().map(|j| j.sandbox.clone()),
+                checkout_mode: checkout_mode.as_deref().map(|m| match m {
+                    "isolated" => CheckoutMode::Isolated,
+                    // The value_parser admits nothing else.
+                    _ => CheckoutMode::Shared,
+                }),
                 name,
                 message,
                 branch,
@@ -324,16 +370,23 @@ pub async fn run(
                 skills: Vec::new(),
             };
             let created = client.api().create_task(&req).await?;
+            // A joined task skips provisioning entirely — saying "sandbox
+            // provisioning" would be describing the thing --same-sandbox exists
+            // to avoid.
+            let sandbox_note = match &joined {
+                Some(join) => format!("Joining task {}'s sandbox", join.task),
+                None => "Sandbox provisioning".to_string(),
+            };
             if json {
                 output::print_json_typed(&created);
             } else if has_message {
                 println!(
-                    "Task {} created and started (status: {}). Sandbox provisioning; agent will begin once the sandbox is ready.",
+                    "Task {} created and started (status: {}). {sandbox_note}; agent will begin once the sandbox is ready.",
                     created.task_id, created.status
                 );
             } else {
                 println!(
-                    "Task {} created (status: {}). Sandbox provisioning; send a message with `moat send --task <id>` to start the agent.",
+                    "Task {} created (status: {}). {sandbox_note}; send a message with `moat send --task <id>` to start the agent.",
                     created.task_id, created.status
                 );
             }
@@ -827,6 +880,54 @@ async fn resolve_task_id(client: &MoatClient, task_ref: &str) -> Result<String, 
             ),
         }),
     }
+}
+
+/// The Sandbox a `--same-sandbox` task will join, and the Workspace that
+/// Sandbox already materializes.
+struct JoinTarget {
+    task: String,
+    sandbox: String,
+    /// `None` only for a task whose workspace lookup came back empty; the
+    /// server then resolves it the same way it would for a fresh task.
+    workspace: Option<String>,
+}
+
+/// Resolve `--same-sandbox` to the Sandbox to join.
+///
+/// The flag takes a *task* id because that is the identifier a caller has —
+/// sandbox ids appear in no listing anyone reads. `task_ref` is `None` for a
+/// bare `--same-sandbox`, meaning "the task I am running as", which only has an
+/// answer inside a sandbox.
+///
+/// The workspace rides along: joining requires matching the Sandbox's
+/// workspace, so making the caller name it again would only be a way to get it
+/// wrong.
+async fn resolve_same_sandbox(
+    client: &MoatClient,
+    ambient_task_id: Option<&str>,
+    task_ref: Option<&str>,
+) -> Result<JoinTarget, ClientError> {
+    let task_id = match task_ref {
+        Some(task_ref) => resolve_task_id(client, task_ref).await?,
+        None => ambient_task_id
+            .map(String::from)
+            .ok_or_else(|| ClientError::Api {
+                status: 400,
+                body: "--same-sandbox needs a task id when run outside a sandbox: TASK_ID is not set, so there is no current task whose sandbox to join.".to_string(),
+            })?,
+    };
+    let task = client.api().get_task(&task_id).await?;
+    let sandbox = task.sandbox_id.ok_or_else(|| ClientError::Api {
+        status: 400,
+        body: format!(
+            "Task {task_id} has no sandbox to join — it has never been started. Start it with 'moat tasks start {task_id}', or omit --same-sandbox to give this task its own sandbox."
+        ),
+    })?;
+    Ok(JoinTarget {
+        task: task_id,
+        sandbox,
+        workspace: task.workspace_id,
+    })
 }
 
 /// Resolve a repo argument to a repository ID.
@@ -1371,8 +1472,77 @@ mod tests {
 
     use super::{
         context_files_to_contexts, label, looks_like_task_id, normalize_context_file_path,
-        resolve_parent_task_id, validate_context_files_have_message,
+        resolve_parent_task_id, validate_context_files_have_message, TaskAction,
     };
+
+    /// `TaskAction` is a `Subcommand`, so parsing it standalone needs a
+    /// `Parser` to hang it off.
+    #[derive(clap::Parser)]
+    struct TestCli {
+        #[command(subcommand)]
+        action: TaskAction,
+    }
+
+    fn parse_create(extra: &[&str]) -> Result<TaskAction, clap::Error> {
+        let mut argv = vec!["moat", "create", "--agent-type", "claude-code"];
+        argv.extend_from_slice(extra);
+        <TestCli as clap::Parser>::try_parse_from(argv).map(|cli| cli.action)
+    }
+
+    /// `(flag present, explicit task id)` — flattened rather than handed back
+    /// as the `Option<Option<_>>` clap parses it into, which trips
+    /// `clippy::option_option`.
+    fn same_sandbox_of(action: &TaskAction) -> (bool, Option<&str>) {
+        match action {
+            TaskAction::Create { same_sandbox, .. } => (
+                same_sandbox.is_some(),
+                same_sandbox.as_ref().and_then(|v| v.as_deref()),
+            ),
+            _ => unreachable!("parse_create only builds Create"),
+        }
+    }
+
+    #[test]
+    fn bare_same_sandbox_parses_as_present_without_a_task_id() {
+        // The distinction the flag turns on: absent (no join) vs present with
+        // no value (join the ambient task) vs present with an explicit target.
+        let absent = parse_create(&["--repo", "moatless"]).expect("no join");
+        assert_eq!(same_sandbox_of(&absent), (false, None));
+
+        let ambient = parse_create(&["--same-sandbox"]).expect("bare join");
+        assert_eq!(same_sandbox_of(&ambient), (true, None));
+
+        let explicit = parse_create(&["--same-sandbox", "abc-123"]).expect("explicit join");
+        assert_eq!(same_sandbox_of(&explicit), (true, Some("abc-123")));
+    }
+
+    #[test]
+    fn same_sandbox_stands_in_for_the_otherwise_required_repo() {
+        assert!(
+            parse_create(&[]).is_err(),
+            "--repo is required with neither --workspace nor a join"
+        );
+        parse_create(&["--same-sandbox"]).expect("a join settles where the task runs");
+    }
+
+    #[test]
+    fn same_sandbox_conflicts_with_naming_a_repo_or_workspace() {
+        // The joined Sandbox already fixes both, so either one could only agree
+        // redundantly or contradict — better rejected here than server-side.
+        assert!(parse_create(&["--same-sandbox", "--repo", "moatless"]).is_err());
+        assert!(parse_create(&["--same-sandbox", "--workspace", "ws_1"]).is_err());
+    }
+
+    #[test]
+    fn checkout_mode_requires_a_join_and_admits_only_the_two_modes() {
+        assert!(
+            parse_create(&["--repo", "moatless", "--checkout-mode", "isolated"]).is_err(),
+            "checkout mode is meaningless without a sandbox to be isolated from"
+        );
+        parse_create(&["--same-sandbox", "--checkout-mode", "isolated"]).expect("isolated");
+        parse_create(&["--same-sandbox", "--checkout-mode", "shared"]).expect("shared");
+        assert!(parse_create(&["--same-sandbox", "--checkout-mode", "private"]).is_err());
+    }
 
     #[test]
     fn label_prefers_name_then_id_then_dash() {

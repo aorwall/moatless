@@ -16,12 +16,14 @@ use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info, warn};
 
 use super::naming::generate_pod_name;
+use moatless_core::config::Config;
 use moatless_sandbox_control::error::SandboxError;
 use moatless_sandbox_control::jwt::{self, MintedSandboxTokens};
-use moatless_sandbox_control::lifecycle::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
+use moatless_sandbox_control::lifecycle::runtime::{
+    RuntimeOperationContext, OPERATION_GENERATION_LABEL,
+};
 use moatless_sandbox_control::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV};
 use moatless_sandbox_control::server_runner::build_server_start_script;
-use moatless_core::config::Config;
 
 /// Auth tokens delivered to a sandbox pod.
 ///
@@ -94,6 +96,7 @@ pub fn build_pod(
     // ── Labels ──────────────────────────────────────────────────────
     let mut labels = BTreeMap::new();
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
+    labels.insert("moatless.io/sandbox-id".to_string(), task_id.to_string());
     labels.insert(
         "app.kubernetes.io/name".to_string(),
         "moatless-sandbox".to_string(),
@@ -841,6 +844,7 @@ fn build_sandbox_container(
     // embedded in the pod spec.
     let mut env = vec![
         env_var("TASK_ID", task_id),
+        env_var("SANDBOX_ID", task_id),
         env_var("GIT_CLONE_URL", &redact_url_userinfo(&plan.git_clone_url)),
         env_var(
             "BACKEND_GRPC_URL",
@@ -1544,8 +1548,8 @@ pub fn admitted_server_ports(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_workspaces::repository::models::ServerConfig;
     use moatless_sandbox_control::models::RepoConfig;
+    use moatless_workspaces::repository::models::ServerConfig;
 
     #[test]
     fn admitted_server_ports_drops_reserved_infra_ports() {
@@ -1573,7 +1577,9 @@ mod tests {
         let mut pod = Pod::default();
         stamp_operation_generation(
             &mut pod,
-            RuntimeOperationContext::new(moatless_sandbox_control::lifecycle::OperationGeneration(31)),
+            RuntimeOperationContext::new(moatless_sandbox_control::lifecycle::OperationGeneration(
+                31,
+            )),
         );
         assert_eq!(
             pod.metadata
@@ -2470,11 +2476,12 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(true);
-        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
-            docker_storage: Some("50Gi".into()),
-            docker_storage_mode: Some("emptyDir".into()),
-            ..Default::default()
-        });
+        plan.repo_config.resources =
+            Some(moatless_workspaces::repository::models::ResourceConfig {
+                docker_storage: Some("50Gi".into()),
+                docker_storage_mode: Some("emptyDir".into()),
+                ..Default::default()
+            });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         let ds_limit = pod
@@ -2492,10 +2499,11 @@ mod tests {
         assert_eq!(ds_limit.as_deref(), Some("50Gi"));
 
         // EmptyDir mode with no override → global default from config.
-        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
-            docker_storage_mode: Some("emptyDir".into()),
-            ..Default::default()
-        });
+        plan.repo_config.resources =
+            Some(moatless_workspaces::repository::models::ResourceConfig {
+                docker_storage_mode: Some("emptyDir".into()),
+                ..Default::default()
+            });
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         let ds_limit = pod
             .spec
@@ -2522,10 +2530,11 @@ mod tests {
         config.sandbox.cache_host_root = "/mnt/cache".into();
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(true);
-        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
-            docker_storage: Some("50Gi".into()),
-            ..Default::default()
-        });
+        plan.repo_config.resources =
+            Some(moatless_workspaces::repository::models::ResourceConfig {
+                docker_storage: Some("50Gi".into()),
+                ..Default::default()
+            });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         let docker_storage = pod
@@ -3133,18 +3142,14 @@ mod tests {
             .resources
             .as_ref()
             .expect("nvme-setup must declare resources");
-        assert!(
-            resources
-                .requests
-                .as_ref()
-                .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory"))
-        );
-        assert!(
-            resources
-                .limits
-                .as_ref()
-                .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory"))
-        );
+        assert!(resources
+            .requests
+            .as_ref()
+            .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory")));
+        assert!(resources
+            .limits
+            .as_ref()
+            .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory")));
     }
 
     /// The toolchain-persistence and cargo-target flags are off by default —
@@ -3189,10 +3194,11 @@ mod tests {
     fn build_cache_size_can_be_overridden_per_repo() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
-            build_cache: Some("40Gi".into()),
-            ..Default::default()
-        });
+        plan.repo_config.resources =
+            Some(moatless_workspaces::repository::models::ResourceConfig {
+                build_cache: Some("40Gi".into()),
+                ..Default::default()
+            });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
@@ -3214,12 +3220,13 @@ mod tests {
     fn build_cache_can_use_task_scoped_node_host_path() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
-            build_cache: Some("40Gi".into()),
-            build_cache_mode: Some("node".into()),
-            build_cache_scope: Some("task".into()),
-            ..Default::default()
-        });
+        plan.repo_config.resources =
+            Some(moatless_workspaces::repository::models::ResourceConfig {
+                build_cache: Some("40Gi".into()),
+                build_cache_mode: Some("node".into()),
+                build_cache_scope: Some("task".into()),
+                ..Default::default()
+            });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         let spec = pod.spec.as_ref().unwrap();
@@ -3260,11 +3267,12 @@ mod tests {
     fn build_cache_can_use_shared_node_host_path() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
-            build_cache_mode: Some("node".into()),
-            build_cache_scope: Some("node".into()),
-            ..Default::default()
-        });
+        plan.repo_config.resources =
+            Some(moatless_workspaces::repository::models::ResourceConfig {
+                build_cache_mode: Some("node".into()),
+                build_cache_scope: Some("node".into()),
+                ..Default::default()
+            });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         let spec = pod.spec.as_ref().unwrap();
@@ -3282,13 +3290,12 @@ mod tests {
                 .map(|host_path| host_path.path.as_str()),
             Some("/mnt/cache/build-cache/shared")
         );
-        assert!(
-            spec.init_containers
-                .as_ref()
-                .unwrap()
-                .iter()
-                .any(|container| container.name == "build-cache-setup")
-        );
+        assert!(spec
+            .init_containers
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|container| container.name == "build-cache-setup"));
     }
 
     /// With the flags on: cargo registry/git ride `workspace-data` subPaths
@@ -3367,11 +3374,9 @@ mod tests {
             only_match_field(&preferred[0].preference),
             ("metadata.name", "node-a")
         );
-        assert!(
-            node_affinity
-                .required_during_scheduling_ignored_during_execution
-                .is_none()
-        );
+        assert!(node_affinity
+            .required_during_scheduling_ignored_during_execution
+            .is_none());
     }
 
     #[test]

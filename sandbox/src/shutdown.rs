@@ -53,6 +53,26 @@ pub async fn perform_shutdown(
     lifecycle_cancel: &CancellationToken,
     state: Option<&SandboxState>,
 ) {
+    stop_agent(agent).await;
+    finish_shutdown(lifecycle_cancel, state).await;
+}
+
+/// Variant used by the sandbox runtime, which owns all registered task
+/// contexts and therefore stops every member agent on process teardown.
+pub async fn perform_shutdown_for_state(state: &SandboxState) {
+    let agents: Vec<Arc<AgentState>> = state
+        .task_contexts_snapshot()
+        .await
+        .into_iter()
+        .map(|context| Arc::clone(&context.agent))
+        .collect();
+    for agent in agents {
+        stop_agent(&agent).await;
+    }
+    finish_shutdown(&state.lifecycle_cancel, Some(state)).await;
+}
+
+async fn stop_agent(agent: &AgentState) {
     // Cancel the in-flight turn so the Claude CLI subprocess is killed and the
     // turn ends now, instead of being SIGKILLed at grace-period end.
     // `AgentNotRunning` (an idle agent) is expected on a routine idle-down and
@@ -68,7 +88,9 @@ pub async fn perform_shutdown(
         Ok(()) => info!("Shutdown: stopped running agent"),
         Err(e) => info!(error = %e, "Shutdown: no running agent to stop (continuing)"),
     }
+}
 
+async fn finish_shutdown(lifecycle_cancel: &CancellationToken, state: Option<&SandboxState>) {
     // Drain the event outbox BEFORE the transcript flush and BEFORE cancelling
     // the lifecycle token (which stops the drainer). Stopping the agent above
     // emits the terminal `agent`/`taskTurn` events we most need delivered, so
@@ -128,7 +150,7 @@ pub async fn perform_shutdown(
 /// Resolves as soon as either signal is delivered. SIGTERM is what Kubernetes
 /// sends on pod termination; SIGINT covers `Ctrl-C` in local runs.
 pub async fn await_shutdown_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
 
     let mut sigterm = match signal(SignalKind::terminate()) {
         Ok(s) => s,
@@ -169,9 +191,7 @@ pub fn spawn_shutdown_driver(state: SandboxState) -> tokio::task::JoinHandle<()>
     tokio::spawn(async move {
         await_shutdown_signal().await;
         info!("Shutdown signal received — stopping agent and winding down");
-        let agent = Arc::clone(&state.agent);
-        let lifecycle_cancel = state.lifecycle_cancel.clone();
-        perform_shutdown(&agent, &lifecycle_cancel, Some(&state)).await;
+        perform_shutdown_for_state(&state).await;
     })
 }
 

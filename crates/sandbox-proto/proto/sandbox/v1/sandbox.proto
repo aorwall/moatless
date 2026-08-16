@@ -317,6 +317,7 @@ message InterruptedTurn {
 // ── Sandbox gRPC API (backend is the client) ────────────────────
 
 service SandboxService {
+  rpc JoinTask(JoinTaskRequest) returns (JoinTaskResponse);
   rpc ExecuteAgent(ExecuteAgentRequest) returns (ExecuteAgentResponse);
   rpc StopAgent(StopAgentRequest) returns (StopAgentResponse);
   rpc GetAgentStatus(GetAgentStatusRequest) returns (GetAgentStatusResponse);
@@ -561,9 +562,17 @@ message ExecuteAgentRequest {
   optional bool resume = 4;
   optional string agent_type = 5;
   optional string agent_mode = 6;
+  optional string task_id = 7;
 }
 
 message ExecuteAgentResponse {}
+
+message JoinTaskRequest {
+  string task_id = 1;
+  optional string checkout_mode = 2;
+}
+
+message JoinTaskResponse {}
 
 // Who initiated an agent stop. Mirrors the backend's `SandboxStopReason` and
 // is echoed as `source` on the terminal `agent.stopped` event payload so the
@@ -580,6 +589,7 @@ enum AgentStopSource {
 
 message StopAgentRequest {
   AgentStopSource source = 1;
+  optional string task_id = 2;
 }
 message StopAgentResponse {}
 
@@ -592,7 +602,9 @@ message SyncWorkspaceResponse {
   int64 bytes = 2;
 }
 
-message GetAgentStatusRequest {}
+message GetAgentStatusRequest {
+  optional string task_id = 1;
+}
 message GetAgentStatusResponse {
   string status = 1;             // "idle", "running", "stopped"
   optional string session_id = 2;
@@ -650,7 +662,9 @@ message BackgroundWatchJobInfo {
   repeated string commands = 2;
 }
 
-message NotifyMessagesRequest {}
+message NotifyMessagesRequest {
+  optional string task_id = 1;
+}
 message NotifyMessagesResponse {}
 
 // ── File operations ──────────────────────────────────────────────
@@ -663,6 +677,7 @@ enum FileNodeType {
 message GetFileTreeRequest {
   string root_path = 1;  // relative to workspace, default "."
   bool recursive = 2;    // false → direct children only (default)
+  optional string task_id = 3;
 }
 
 message GetFileTreeResponse {
@@ -695,6 +710,7 @@ message GitSummary {
 message ReadFileRequest {
   string path = 1;
   bool include_changes = 2;  // if true, include git diff info
+  optional string task_id = 3;
 }
 
 message ReadFileResponse {
@@ -710,6 +726,7 @@ message ReadFileResponse {
 message WriteFileRequest {
   string path = 1;
   string content = 2;
+  optional string task_id = 3;
 }
 
 message WriteFileResponse {}
@@ -721,6 +738,7 @@ message ListFilesRequest {
   // field existed ignores it and returns the whole walk, which is what every
   // caller asked for until now.
   bool respect_gitignore = 3;
+  optional string task_id = 4;
 }
 
 message ListFilesResponse {
@@ -731,6 +749,7 @@ message SearchFilesByNameRequest {
   string query = 1;
   bool case_sensitive = 2;
   int32 max_results = 3;  // 0 = default (100)
+  optional string task_id = 4;
 }
 
 message SearchFilesByNameResponse {
@@ -758,6 +777,7 @@ message GetGitDiffPreviewRequest {
   // repository that cannot resolve it contributes nothing to the branch scope.
   optional string base_ref = 1;
   bool ignore_whitespace = 2;
+  optional string task_id = 3;
 }
 
 message GetGitDiffPreviewResponse {
@@ -782,7 +802,9 @@ message GitRepoRange {
   string head_ref = 3;
 }
 
-message GetGitStatusRequest {}
+message GetGitStatusRequest {
+  optional string task_id = 1;
+}
 
 message GetGitStatusResponse {
   bool is_repo = 1;
@@ -810,7 +832,9 @@ message GitWorkingTreeFile {
   uint32 deletions = 3;
 }
 
-message ListGitRefsRequest {}
+message ListGitRefsRequest {
+  optional string task_id = 1;
+}
 
 message ListGitRefsResponse {
   bool is_repo = 1;

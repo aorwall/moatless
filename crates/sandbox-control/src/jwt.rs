@@ -35,6 +35,11 @@ pub struct UserTokenClaims {
     /// accepted only when the claim grace flag is on (see `SandboxAuthorizer`).
     #[serde(rename = "taskId", default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    /// The sandbox this token is minted for. When present, backend gRPC
+    /// authorization admits any requested task that is a member of this
+    /// sandbox.
+    #[serde(rename = "sandboxId", default, skip_serializing_if = "Option::is_none")]
+    pub sandbox_id: Option<String>,
     /// Issued at (unix timestamp)
     pub iat: u64,
     /// Expiration (unix timestamp)
@@ -82,7 +87,8 @@ pub fn generate_user_auth_token(
     let claims = UserTokenClaims {
         user_id: user_id.to_string(),
         login: login.to_string(),
-        task_id: Some(task_id.to_string()),
+        task_id: None,
+        sandbox_id: Some(task_id.to_string()),
         iat: now,
         exp: now + ttl_secs,
         iss: "moatless-vibe-backend".to_string(),
@@ -110,7 +116,8 @@ pub fn generate_bootstrap_token(
     let claims = UserTokenClaims {
         user_id: user_id.to_string(),
         login: login.to_string(),
-        task_id: Some(task_id.to_string()),
+        task_id: None,
+        sandbox_id: Some(task_id.to_string()),
         iat: now,
         exp: now + ttl_secs,
         iss: "moatless-vibe-backend".to_string(),
@@ -248,7 +255,10 @@ impl moatless_identity::extractors::UserTokenVerifier for JwtUserTokenVerifier {
     fn verify_user_token(
         &self,
         token: &str,
-    ) -> Result<moatless_identity::extractors::VerifiedUserToken, moatless_identity::extractors::TokenVerifyError> {
+    ) -> Result<
+        moatless_identity::extractors::VerifiedUserToken,
+        moatless_identity::extractors::TokenVerifyError,
+    > {
         let secret = self
             .secret
             .as_deref()
@@ -283,7 +293,8 @@ mod tests {
         let claims = verify_user_auth_token(&token, "test-secret").unwrap();
         assert_eq!(claims.user_id, "user-456");
         assert_eq!(claims.login, "john");
-        assert_eq!(claims.task_id.as_deref(), Some("task-1"));
+        assert_eq!(claims.task_id, None);
+        assert_eq!(claims.sandbox_id.as_deref(), Some("task-1"));
         assert_eq!(claims.iss, "moatless-vibe-backend");
         assert_eq!(claims.aud, None);
     }
@@ -316,7 +327,8 @@ mod tests {
         let claims = verify_bootstrap_or_user_token(&token, "test-secret").unwrap();
         assert_eq!(claims.aud.as_deref(), Some(AUDIENCE_BOOTSTRAP));
         assert_eq!(claims.user_id, "user-456");
-        assert_eq!(claims.task_id.as_deref(), Some("task-1"));
+        assert_eq!(claims.task_id, None);
+        assert_eq!(claims.sandbox_id.as_deref(), Some("task-1"));
     }
 
     #[test]

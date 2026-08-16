@@ -18,11 +18,11 @@ use moatless_sandbox::agent::prompt::{PendingPrompt, PromptResponse, PromptToolN
 use moatless_sandbox::agent::types::{AgentStatus, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::Config;
-use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::credentials::Dispatcher;
+use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::init::InitPhase;
-use moatless_sandbox::state::SandboxState;
+use moatless_sandbox::state::{SandboxState, TaskContext};
 
 use sandbox_proto::{
     DownloadUploadResponse, GetCredentialsResponse, PendingAgentDelivery,
@@ -184,6 +184,7 @@ fn test_config() -> Config {
         port: 0,
         grpc_port: 0,
         task_id: "test-task-1".to_string(),
+        sandbox_id: "test-task-1".to_string(),
         agent_type: Some("claude-code".to_string()),
         workspace_dir: "/tmp/test-workspace".to_string(),
         repo_dir: "/tmp/test-workspace".to_string(),
@@ -257,25 +258,36 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         moatless_sandbox::init::workspace_sync::WorkspaceSyncTracker::new(),
     );
     late_injector.set(Box::new(agent_handle.clone()));
+    let task_context = Arc::new(TaskContext::new(
+        config.task_id.clone(),
+        config.workspace_dir.clone(),
+        config.repo_dir.clone(),
+        moatless_sandbox::state::CheckoutMode::Shared,
+        agent_state,
+        agent_handle,
+        scheduled_jobs,
+        credential_failures,
+        system_prompt_cache,
+    ));
+    let task_contexts = Arc::new(RwLock::new(HashMap::from([(
+        task_context.task_id.clone(),
+        task_context,
+    )])));
     let terminals = moatless_sandbox::terminal::TerminalManager::new(config.workspace_dir.clone());
 
     SandboxState {
         workspace_sync: Default::default(),
         config,
         events,
-        agent: agent_state,
-        agent_handle,
+        task_contexts,
+        task_context_registration: Arc::new(tokio::sync::Mutex::new(())),
         heartbeat,
-        scheduled_jobs,
         backend_client: backend,
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
         credentials,
         lifecycle_cancel: CancellationToken::new(),
         credential_dispatcher,
-        credential_failures,
         codex_watcher_handle: Arc::new(RwLock::new(None)),
-        system_prompt_cache,
-        dispatch_lock: Default::default(),
         supervisor_health: Default::default(),
         terminals,
     }
@@ -283,6 +295,13 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
 
 fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
     test_state_with_config(backend, test_config())
+}
+
+async fn test_task_context(state: &SandboxState) -> Arc<TaskContext> {
+    state
+        .task_context(None)
+        .await
+        .expect("test state has one task context")
 }
 
 // =============================================================================
@@ -309,7 +328,11 @@ async fn dispatcher_fetches_pending_messages_but_ack_waits_for_agent_acceptance(
     let mut config = test_config();
     config.agent_type = Some("codex".to_string());
     let state = test_state_with_config(Arc::clone(&backend) as _, config);
-    state.agent.set_running(CancellationToken::new()).await;
+    test_task_context(&state)
+        .await
+        .agent
+        .set_running(CancellationToken::new())
+        .await;
 
     moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
 
@@ -392,7 +415,11 @@ async fn redispatch_skipped_when_circuit_breaker_active() {
     // re-dispatch gate trips regardless of when the coordinator's own failure
     // increments the counter.
     for _ in 0..3 {
-        state.agent.set_error("induced failure".to_string()).await;
+        test_task_context(&state)
+            .await
+            .agent
+            .set_error("induced failure".to_string())
+            .await;
     }
 
     moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
@@ -421,16 +448,28 @@ async fn dropped_ack_redispatch_is_skipped_when_agent_is_stopped() {
     // Wait for the first dispatch to fail startup and schedule redispatch, then
     // model a user Stop landing before that backoff fires.
     let mut waited_secs = 0;
-    while state.agent.consecutive_errors().await == 0 && waited_secs < 120 {
+    while test_task_context(&state)
+        .await
+        .agent
+        .consecutive_errors()
+        .await
+        == 0
+        && waited_secs < 120
+    {
         tokio::time::sleep(Duration::from_secs(1)).await;
         waited_secs += 1;
     }
     assert!(
-        state.agent.consecutive_errors().await > 0,
+        test_task_context(&state)
+            .await
+            .agent
+            .consecutive_errors()
+            .await
+            > 0,
         "test setup did not reach the dropped-ack failure path"
     );
 
-    state.agent.set_stopped().await;
+    test_task_context(&state).await.agent.set_stopped().await;
     tokio::time::sleep(Duration::from_mins(1)).await;
 
     assert_eq!(
@@ -449,16 +488,22 @@ async fn prompt_response_acknowledges_consumed_message() {
     let state = test_state(Arc::clone(&backend) as _);
     // A pending prompt only exists mid-run, so a run_id is always set alongside
     // the session id — the ack attributes the response to that run's turn.
-    state
+    test_task_context(&state)
+        .await
         .agent
         .set_session_id("session-active".to_string())
         .await;
     // A pending prompt only exists during an active run, which always holds a
     // run_id; the ack attributes the response to that run's turn.
-    state.agent.set_run_id("run-active".to_string()).await;
+    test_task_context(&state)
+        .await
+        .agent
+        .set_run_id("run-active".to_string())
+        .await;
 
     let (tx, rx) = tokio::sync::oneshot::channel();
-    state
+    test_task_context(&state)
+        .await
         .agent
         .set_pending_prompt(PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
@@ -512,14 +557,20 @@ async fn panel_answer_is_not_named_on_its_acknowledgement() {
         ..Default::default()
     }]]));
     let state = test_state(Arc::clone(&backend) as _);
-    state
+    test_task_context(&state)
+        .await
         .agent
         .set_session_id("session-active".to_string())
         .await;
-    state.agent.set_run_id("run-active".to_string()).await;
+    test_task_context(&state)
+        .await
+        .agent
+        .set_run_id("run-active".to_string())
+        .await;
 
     let (tx, rx) = tokio::sync::oneshot::channel();
-    state
+    test_task_context(&state)
+        .await
         .agent
         .set_pending_prompt(PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
@@ -561,7 +612,8 @@ async fn prompt_without_run_identity_is_left_pending_not_answered_unackably() {
     let state = test_state(Arc::clone(&backend) as _);
 
     let (tx, mut rx) = tokio::sync::oneshot::channel();
-    state
+    test_task_context(&state)
+        .await
         .agent
         .set_pending_prompt(PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
@@ -578,7 +630,11 @@ async fn prompt_without_run_identity_is_left_pending_not_answered_unackably() {
         "an unacknowledgeable prompt must not be answered"
     );
     assert!(
-        state.agent.has_pending_prompt().await,
+        test_task_context(&state)
+            .await
+            .agent
+            .has_pending_prompt()
+            .await,
         "the prompt stays pending for a later pass, not consumed"
     );
     assert_eq!(
@@ -596,7 +652,7 @@ async fn agent_handle_send_triggers_actor() {
     // Send directly to agent handle — coordinator will try to start a session.
     // It will fail (no real CLI) but the send itself should not panic.
     // Drop the ack receiver since we don't need it.
-    let _ack_rx = state.agent_handle.send(
+    let _ack_rx = test_task_context(&state).await.agent_handle.send(
         "test message".to_string(),
         None,
         None,
@@ -618,12 +674,15 @@ async fn agent_handle_stop_exits_cleanly() {
     let backend = Arc::new(MockBackendClient::new(vec![]));
     let state = test_state(Arc::clone(&backend) as _);
 
-    state.agent_handle.stop(StopSource::User);
+    test_task_context(&state)
+        .await
+        .agent_handle
+        .stop(StopSource::User);
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert_eq!(
-        state.agent.status().await,
+        test_task_context(&state).await.agent.status().await,
         AgentStatus::Stopped,
         "Agent should be stopped after handle.stop()"
     );
@@ -641,7 +700,7 @@ async fn agent_handle_rapid_fire_send_no_panic() {
     // Send 10 messages rapidly — coordinator processes them without panic or deadlock.
     // Drop ack receivers since we only care about channel stability.
     for i in 0..10 {
-        let _ack_rx = state.agent_handle.send(
+        let _ack_rx = test_task_context(&state).await.agent_handle.send(
             format!("rapid message {i}"),
             None,
             None,
@@ -655,11 +714,14 @@ async fn agent_handle_rapid_fire_send_no_panic() {
     // Give the coordinator service time to attempt processing
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    state.agent_handle.stop(StopSource::User);
+    test_task_context(&state)
+        .await
+        .agent_handle
+        .stop(StopSource::User);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert_eq!(
-        state.agent.status().await,
+        test_task_context(&state).await.agent.status().await,
         AgentStatus::Stopped,
         "Agent should be stopped cleanly after rapid-fire sends"
     );
@@ -670,13 +732,16 @@ async fn agent_handle_send_after_stop_does_not_panic() {
     let backend = Arc::new(MockBackendClient::new(vec![]));
     let state = test_state(Arc::clone(&backend) as _);
 
-    state.agent_handle.stop(StopSource::User);
+    test_task_context(&state)
+        .await
+        .agent_handle
+        .stop(StopSource::User);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // A stop terminates the active turn, not the lifecycle service. A later send
     // can be accepted by the command channel; in this test environment it then
     // fails at CLI startup and drops the ack.
-    let ack1 = state.agent_handle.send(
+    let ack1 = test_task_context(&state).await.agent_handle.send(
         "should be ignored".to_string(),
         None,
         None,
@@ -685,7 +750,7 @@ async fn agent_handle_send_after_stop_does_not_panic() {
         None,
         false,
     );
-    let ack2 = state.agent_handle.send(
+    let ack2 = test_task_context(&state).await.agent_handle.send(
         "also ignored".to_string(),
         None,
         None,
@@ -700,7 +765,7 @@ async fn agent_handle_send_after_stop_does_not_panic() {
     assert!(ack2.await.is_err(), "ack should fail after stop");
 
     assert_eq!(
-        state.agent.status().await,
+        test_task_context(&state).await.agent.status().await,
         AgentStatus::Idle,
         "Agent should remain live for future turns after failed sends"
     );
@@ -714,7 +779,7 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
     // Spawn 5 tasks that all send concurrently
     let mut join_handles = Vec::new();
     for i in 0..5 {
-        let handle = state.agent_handle.clone();
+        let handle = test_task_context(&state).await.agent_handle.clone();
         join_handles.push(tokio::spawn(async move {
             let _ack_rx = handle.send(
                 format!("concurrent task {i}"),
@@ -735,11 +800,14 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
 
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    state.agent_handle.stop(StopSource::User);
+    test_task_context(&state)
+        .await
+        .agent_handle
+        .stop(StopSource::User);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert_eq!(
-        state.agent.status().await,
+        test_task_context(&state).await.agent.status().await,
         AgentStatus::Stopped,
         "Agent should stop cleanly after concurrent sends"
     );
@@ -757,11 +825,13 @@ async fn dispatch_does_not_ack_without_real_session() {
     let state = test_state(Arc::clone(&backend) as _);
 
     // Simulate agent state as "running" without a real CLI session.
-    state
+    test_task_context(&state)
+        .await
         .agent
         .set_running(tokio_util::sync::CancellationToken::new())
         .await;
-    state
+    test_task_context(&state)
+        .await
         .agent
         .set_session_id("session-active".to_string())
         .await;

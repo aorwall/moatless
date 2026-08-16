@@ -120,6 +120,8 @@ mod tests {
     ) -> TaskIntent {
         TaskIntent {
             status,
+            sandbox_id: "t1".to_string(),
+            workspace_id: "ws_repo-x".to_string(),
             desired_state,
             stop_reason: None,
             retention,

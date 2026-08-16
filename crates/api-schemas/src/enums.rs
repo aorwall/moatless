@@ -135,6 +135,47 @@ impl TryFrom<&str> for SandboxStopReason {
 }
 
 // =============================================================================
+// CheckoutMode
+// =============================================================================
+
+/// How a task's checkout relates to other members of the same Sandbox.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CheckoutMode {
+    /// One checkout for every member — the single-member behaviour too.
+    #[default]
+    Shared,
+    Isolated,
+}
+
+impl CheckoutMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Shared => "shared",
+            Self::Isolated => "isolated",
+        }
+    }
+}
+
+impl std::fmt::Display for CheckoutMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for CheckoutMode {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, String> {
+        match s {
+            "shared" => Ok(Self::Shared),
+            "isolated" => Ok(Self::Isolated),
+            other => Err(format!("unknown CheckoutMode: {other:?}")),
+        }
+    }
+}
+
+// =============================================================================
 // TaskRelationType
 // =============================================================================
 

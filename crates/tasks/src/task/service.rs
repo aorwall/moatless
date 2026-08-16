@@ -272,6 +272,10 @@ pub async fn normalize(
         visibility: Visibility::Private,
         loop_id: None,
         workspace_id: req.workspace_id.clone(),
+        sandbox_id: req.sandbox_id.clone(),
+        checkout_mode: req
+            .checkout_mode
+            .map(super::schemas::checkout_mode_from_wire),
         template_id: if is_template {
             Some(repository_id)
         } else {

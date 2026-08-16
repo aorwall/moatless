@@ -937,6 +937,7 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         task_status: moatless_tasks::task::models::TaskStatus,
         desired_state: moatless_tasks::task::models::SandboxDesiredState,
     ) -> Result<SandboxStatusFullResponse, SandboxError> {
+        let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         let server_configs = if let Some(plan) = &self.plan {
             plan.server_configs(task_id).await
         } else {
@@ -945,7 +946,14 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         };
         Ok(self
             .status_resolver
-            .resolve_sandbox_status(task_id, &server_configs, task_status, desired_state, self)
+            .resolve_sandbox_status(
+                task_id,
+                &sandbox_id,
+                &server_configs,
+                task_status,
+                desired_state,
+                self,
+            )
             .await)
     }
 
@@ -955,9 +963,10 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         task_status: moatless_tasks::task::models::TaskStatus,
         desired_state: moatless_tasks::task::models::SandboxDesiredState,
     ) -> Result<moatless_sandbox_control::live_status::LiveStatus, SandboxError> {
+        let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         Ok(self
             .status_resolver
-            .resolve_live_status(task_id, task_status, desired_state, self)
+            .resolve_live_status(task_id, &sandbox_id, task_status, desired_state, self)
             .await)
     }
 
@@ -972,9 +981,15 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         } else {
             format!("{server_name}-server")
         };
+        let sandbox_id = self.sandbox_id_for_task(task_id).await?;
 
-        match pod_reader::stream_container_logs_k8s(&self.k8s, task_id, &container_name, options)
-            .await
+        match pod_reader::stream_container_logs_k8s(
+            &self.k8s,
+            &sandbox_id,
+            &container_name,
+            options,
+        )
+        .await
         {
             Ok(stream) => Ok(stream),
             Err(
@@ -995,10 +1010,14 @@ impl core_sandbox::SandboxConnector for K8sSandboxAdapter {
         &self,
         task_id: &str,
     ) -> Result<SandboxClient, core_sandbox::SandboxError> {
-        self.require_sandbox_ready(task_id)
+        let sandbox_id = self
+            .sandbox_id_for_task(task_id)
             .await
             .map_err(SandboxError::into_contract)?;
-        let service_name = generate_service_name(task_id);
+        self.require_sandbox_ready(&sandbox_id)
+            .await
+            .map_err(SandboxError::into_contract)?;
+        let service_name = generate_service_name(&sandbox_id);
         SandboxClient::for_service(
             &service_name,
             self.k8s.namespace(),
@@ -1029,13 +1048,30 @@ impl core_sandbox::SandboxPortPublisher for K8sSandboxAdapter {
             )));
         }
 
-        self.require_sandbox_ready(task_id)
+        let sandbox_id = self
+            .sandbox_id_for_task(task_id)
             .await
             .map_err(SandboxError::into_contract)?;
 
-        edge::publish_task_port(&self.k8s, task_id, name, port, &self.config)
+        self.require_sandbox_ready(&sandbox_id)
+            .await
+            .map_err(SandboxError::into_contract)?;
+
+        edge::publish_task_port(&self.k8s, &sandbox_id, name, port, &self.config)
             .await
             .map_err(|e| core_sandbox::SandboxError::Other(e.to_string()))
+    }
+}
+
+impl K8sSandboxAdapter {
+    async fn sandbox_id_for_task(&self, task_id: &str) -> Result<String, SandboxError> {
+        match &self.plan {
+            Some(plan) => plan
+                .sandbox_id_for_task(task_id)
+                .await
+                .map_err(SandboxError::Runtime),
+            None => Ok(task_id.to_string()),
+        }
     }
 }
 

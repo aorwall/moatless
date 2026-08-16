@@ -39,7 +39,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use moatless_sandbox::agent::agent_state::AgentState;
-use moatless_sandbox::agent::handle::{spawn_agent, AgentHandle};
+use moatless_sandbox::agent::handle::{AgentHandle, spawn_agent};
 use moatless_sandbox::agent::harness::{
     ClaudeConfig, ErrorClass, Harness, HarnessError, Input, Outcome, Rejection, SessionImpact,
     Signal,
@@ -47,8 +47,8 @@ use moatless_sandbox::agent::harness::{
 use moatless_sandbox::agent::types::{AgentStatus, ResumeSession, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::{AgentConfig, Config, ProxyConfig};
-use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::credentials::Dispatcher;
+use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
 
 use sandbox_proto::{
@@ -207,6 +207,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         port: 0,
         grpc_port: 0,
         task_id: "agent-transport-e2e".to_string(),
+        sandbox_id: "agent-transport-e2e".to_string(),
         agent_type: None,
         workspace_dir: tmp.path().join("workspace").display().to_string(),
         repo_dir: tmp.path().join("workspace").display().to_string(),

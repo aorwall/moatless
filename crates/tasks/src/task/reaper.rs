@@ -780,7 +780,7 @@ impl AgentStatusPort for ConnectorAgentStatus {
                 return None;
             }
         };
-        match client.get_agent_status().await {
+        match client.get_agent_status_for_task(Some(task_id)).await {
             Ok(resp) => Some(resp),
             Err(e) => {
                 debug!(task_id, error = %e, "reconcile: get_agent_status failed");

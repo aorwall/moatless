@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use moatless_backend::compose::{LifecycleOptions, compose};
+use moatless_backend::compose::{compose, LifecycleOptions};
 use moatless_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_backend::sandbox::client::SandboxClient;
@@ -571,6 +571,8 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         inactive_ttl_days: 7,
         loop_id: None,
         workspace_id: None,
+        sandbox_id: None,
+        checkout_mode: None,
         disabled_servers: None,
         skills: Vec::new(),
     }

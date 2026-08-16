@@ -619,6 +619,7 @@ impl SandboxStatusReader for DockerSandboxAdapter {
         task_status: moatless_tasks::task::models::TaskStatus,
         desired_state: moatless_tasks::task::models::SandboxDesiredState,
     ) -> Result<SandboxStatusFullResponse, SandboxError> {
+        let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         let server_configs = if let Some(plan) = &self.plan {
             plan.server_configs(task_id).await
         } else {
@@ -627,7 +628,14 @@ impl SandboxStatusReader for DockerSandboxAdapter {
         };
         Ok(self
             .status_resolver
-            .resolve_sandbox_status(task_id, &server_configs, task_status, desired_state, self)
+            .resolve_sandbox_status(
+                task_id,
+                &sandbox_id,
+                &server_configs,
+                task_status,
+                desired_state,
+                self,
+            )
             .await)
     }
 
@@ -637,9 +645,10 @@ impl SandboxStatusReader for DockerSandboxAdapter {
         task_status: moatless_tasks::task::models::TaskStatus,
         desired_state: moatless_tasks::task::models::SandboxDesiredState,
     ) -> Result<moatless_sandbox_control::live_status::LiveStatus, SandboxError> {
+        let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         Ok(self
             .status_resolver
-            .resolve_live_status(task_id, task_status, desired_state, self)
+            .resolve_live_status(task_id, &sandbox_id, task_status, desired_state, self)
             .await)
     }
 
@@ -661,16 +670,32 @@ impl core_sandbox::SandboxConnector for DockerSandboxAdapter {
         &self,
         task_id: &str,
     ) -> Result<SandboxClient, core_sandbox::SandboxError> {
-        self.require_sandbox_ready(task_id)
+        let sandbox_id = self
+            .sandbox_id_for_task(task_id)
             .await
             .map_err(SandboxError::into_contract)?;
-        let container_name = generate_container_name(task_id);
+        self.require_sandbox_ready(&sandbox_id)
+            .await
+            .map_err(SandboxError::into_contract)?;
+        let container_name = generate_container_name(&sandbox_id);
         let url = format!(
             "http://{}:{}",
             container_name, self.config.sandbox.grpc_port
         );
         SandboxClient::connect(&url)
             .map_err(|e| core_sandbox::SandboxError::GrpcClient(e.to_string()))
+    }
+}
+
+impl DockerSandboxAdapter {
+    async fn sandbox_id_for_task(&self, task_id: &str) -> Result<String, SandboxError> {
+        match &self.plan {
+            Some(plan) => plan
+                .sandbox_id_for_task(task_id)
+                .await
+                .map_err(SandboxError::Runtime),
+            None => Ok(task_id.to_string()),
+        }
     }
 }
 

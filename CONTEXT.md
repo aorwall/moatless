@@ -12,13 +12,28 @@ synonyms to avoid — not how anything is implemented.
 ### Runtime
 
 **Sandbox**:
-The per-task, on-demand isolated container (a Kubernetes pod or Docker container)
-that runs the coding agent and its servers. Exactly one per Task; ephemeral.
-A Sandbox materializes a Workspace on disk under its workspace directory.
+The on-demand isolated container (a Kubernetes pod or Docker container) that runs
+coding agents and their servers. Ephemeral, and identified by its own `sandbox_id`
+— never by a Task's id. A Sandbox materializes exactly one Workspace on disk under
+its workspace directory.
 Its durable lifecycle record (desired state, stop reason, archive retention,
-operation marker) belongs to the Task and outlives the ephemeral container;
+operation marker) belongs to the Sandbox and outlives the ephemeral container;
 absence of the record means no Sandbox was ever requested.
 _Avoid_: worker, environment, workspace pod
+
+**Member** (of a Sandbox):
+A Task that runs inside a Sandbox, referencing it through `tasks.sandbox_id`. A
+Sandbox has one or more Members and they are peers — none owns the pod, and no
+Member's stop implies another's. A Member joins at Task creation and cannot move
+to another Sandbox afterwards. Every Member runs against the Sandbox's one
+Workspace; a join for a Task on another Workspace is refused.
+_Avoid_: lead task, host task, guest, owner
+
+**Checkout mode**:
+How a Member's files relate to its co-members': `shared` (the same directory and
+git state) or `isolated` (its own checkout inside the same pod, reusing the warm
+caches but nothing else). Chosen when the Task is created.
+_Avoid_: isolation level, workspace mode
 
 ### Workspace & repositories
 
@@ -239,8 +254,9 @@ _Avoid_: bare "route" / `TaskRoute` for the loop's config
 
 **Agent**:
 The coding-agent CLI process controlled by the Agent harness inside a Sandbox.
-At most one Agent process is active in a Sandbox at a time; a Session can outlive
-and be resumed by a replacement Agent process.
+At most one Agent process is active per Member at a time, so a Sandbox runs as
+many as it has Members; a Session can outlive and be resumed by a replacement
+Agent process.
 _Avoid_: agent run; "agent" as a synonym for a running Task
 
 **Agent harness**:

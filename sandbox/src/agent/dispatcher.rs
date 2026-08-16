@@ -19,7 +19,7 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::files::uploads::fetch_uploads_for_messages;
-use crate::state::SandboxState;
+use crate::state::{SandboxState, TaskContext};
 
 use super::prompt::{PromptResponse, PromptToolName};
 use super::types::AgentStatus;
@@ -57,6 +57,31 @@ pub(crate) fn spawn_supervised(
 /// If the agent is waiting for user input (AskUserQuestion/ExitPlanMode),
 /// resolves the pending prompt. Otherwise sends text to the agent lifecycle task.
 pub async fn dispatch_pending_messages(state: SandboxState) {
+    let context = match state.task_context(None).await {
+        Ok(context) => context,
+        Err(e) => {
+            warn!(error = %e, "Dispatch skipped: task context unavailable");
+            return;
+        }
+    };
+    dispatch_pending_messages_for_context(state, context).await;
+}
+
+pub async fn dispatch_pending_messages_for_task(state: SandboxState, task_id: String) {
+    let context = match state.task_context(Some(&task_id)).await {
+        Ok(context) => context,
+        Err(e) => {
+            warn!(error = %e, task_id = %task_id, "Dispatch skipped: task context unavailable");
+            return;
+        }
+    };
+    dispatch_pending_messages_for_context(state, context).await;
+}
+
+async fn dispatch_pending_messages_for_context(
+    state: SandboxState,
+    context: std::sync::Arc<TaskContext>,
+) {
     // The pod is shutting down (SIGTERM mid-boot or between notifications) —
     // don't start a new turn that would just be torn down. The lifecycle token
     // is cancelled by the shutdown driver.
@@ -88,7 +113,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
     // Acquisition is cancellation-aware: a dispatcher queued on the lock across a
     // shutdown must not acquire it and start new work after the pod is stopping.
     let dispatch_guard = tokio::select! {
-        guard = state.dispatch_lock.clone().lock_owned() => guard,
+        guard = context.dispatch_lock.clone().lock_owned() => guard,
         () = state.lifecycle_cancel.cancelled() => {
             info!("Dispatch skipped: shutting down while awaiting the dispatch lock");
             return;
@@ -102,13 +127,13 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
     // If agent is waiting for user input, resolve the prompt — under the guard, so
     // the prompt Message is answered and acknowledged before any concurrent
     // dispatcher can re-fetch it.
-    if state.agent.has_pending_prompt().await {
-        resolve_pending_prompt(&state).await;
+    if context.agent.has_pending_prompt().await {
+        resolve_pending_prompt(&state, &context).await;
         return;
     }
 
     // Fetch pending messages from backend
-    let task_id = &state.config.task_id;
+    let task_id = &context.task_id;
     let deliveries = match state.backend_client.get_pending_messages(task_id).await {
         Ok(deliveries) => deliveries,
         Err(e) => {
@@ -179,7 +204,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
 
     // Send to agent lifecycle task — it handles injection vs new session.
     // Ack is deferred until the agent confirms it processed the message.
-    let ack_rx = state.agent_handle.send(
+    let ack_rx = context.agent_handle.send(
         text,
         model,
         agent_type,
@@ -191,6 +216,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
 
     if !uuids.is_empty() {
         let redelivery_state = state.clone();
+        let redelivery_context = std::sync::Arc::clone(&context);
         spawn_supervised("dispatch-ack", async move {
             // Held from the fetch above until the ack below prunes the rows.
             // Released before any re-dispatch, which re-acquires the same lock.
@@ -208,7 +234,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
             let Ok(ack) = ack else {
                 warn!("Agent ack channel dropped — messages not acknowledged");
                 drop(dispatch_guard);
-                schedule_redispatch(redelivery_state).await;
+                schedule_redispatch(redelivery_state, redelivery_context).await;
                 return;
             };
             // The harness has already accepted this Input, so the Message must
@@ -218,6 +244,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
             // cannot re-fetch and re-run the already-accepted Message.
             let acked = acknowledge_until_settled(
                 &redelivery_state,
+                &redelivery_context,
                 uuids,
                 &ack.session_id,
                 &ack.run_id,
@@ -229,7 +256,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
             // pending ones — re-dispatch them, but only once this batch is
             // durably acked and not while the pod is shutting down.
             if acked && deferred > 0 {
-                schedule_dispatch(redelivery_state).await;
+                schedule_dispatch(redelivery_state, redelivery_context).await;
             }
         });
     }
@@ -299,26 +326,28 @@ const MAX_REDISPATCH_CONSECUTIVE_ERRORS: u32 = 3;
 /// through the cycle.
 fn schedule_redispatch(
     state: SandboxState,
+    context: std::sync::Arc<TaskContext>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
     Box::pin(async move {
-        if matches!(state.agent.status().await, AgentStatus::Stopped) {
+        if matches!(context.agent.status().await, AgentStatus::Stopped) {
             info!("Skipping pending-message re-dispatch — agent is stopped");
             return;
         }
-        let consecutive_errors = state.agent.consecutive_errors().await;
+        let consecutive_errors = context.agent.consecutive_errors().await;
         if consecutive_errors >= MAX_REDISPATCH_CONSECUTIVE_ERRORS {
             warn!(
+                task_id = %context.task_id,
                 consecutive_errors,
                 "Skipping pending-message re-dispatch — agent circuit breaker active"
             );
             return;
         }
         tokio::time::sleep(REDISPATCH_BACKOFF).await;
-        if matches!(state.agent.status().await, AgentStatus::Stopped) {
+        if matches!(context.agent.status().await, AgentStatus::Stopped) {
             info!("Skipping pending-message re-dispatch after backoff — agent is stopped");
             return;
         }
-        dispatch_pending_messages(state).await;
+        dispatch_pending_messages_for_context(state, context).await;
     })
 }
 
@@ -326,8 +355,8 @@ fn schedule_redispatch(
 ///
 /// Runs under the dispatch guard held by the caller, so the prompt Message is
 /// answered and acknowledged before any concurrent dispatcher can re-fetch it.
-async fn resolve_pending_prompt(state: &SandboxState) {
-    let task_id = &state.config.task_id;
+async fn resolve_pending_prompt(state: &SandboxState, context: &std::sync::Arc<TaskContext>) {
+    let task_id = &context.task_id;
 
     let deliveries = match state.backend_client.get_pending_messages(task_id).await {
         Ok(deliveries) => deliveries,
@@ -352,8 +381,8 @@ async fn resolve_pending_prompt(state: &SandboxState) {
     // prompt and message pending for a later pass rather than answering
     // unacknowledgeably.
     let (Some(session_id), Some(run_id)) = (
-        state.agent.last_session_id().await,
-        state.agent.current_run_id().await,
+        context.agent.last_session_id().await,
+        context.agent.current_run_id().await,
     ) else {
         warn!(
             task_id = %task_id,
@@ -362,13 +391,16 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         return;
     };
 
-    let Some(prompt) = state.agent.take_pending_prompt().await else {
+    let Some(prompt) = context.agent.take_pending_prompt().await else {
         // The prompt was consumed elsewhere between the guard's check and here,
         // so this is no longer a prompt answer. Re-dispatch the messages through
         // the normal acked path (spawned so it re-acquires the guard we still
         // hold) rather than submitting unacknowledged input.
         info!("Pending prompt was already consumed, dispatching normally");
-        spawn_supervised("prompt-redispatch", schedule_dispatch(state.clone()));
+        spawn_supervised(
+            "prompt-redispatch",
+            schedule_dispatch(state.clone(), std::sync::Arc::clone(context)),
+        );
         return;
     };
 
@@ -401,6 +433,7 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         // a re-run or an ordinary Agent input.
         acknowledge_until_settled(
             state,
+            context,
             prompt_response_uuids,
             &session_id,
             &run_id,
@@ -412,7 +445,7 @@ async fn resolve_pending_prompt(state: &SandboxState) {
     if has_remaining_messages {
         spawn_supervised(
             "prompt-remaining-redispatch",
-            schedule_dispatch(state.clone()),
+            schedule_dispatch(state.clone(), std::sync::Arc::clone(context)),
         );
     }
 }
@@ -457,9 +490,10 @@ fn prompt_response(
 
 fn schedule_dispatch(
     state: SandboxState,
+    context: std::sync::Arc<TaskContext>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
     Box::pin(async move {
-        dispatch_pending_messages(state).await;
+        dispatch_pending_messages_for_context(state, context).await;
     })
 }
 
@@ -478,6 +512,7 @@ fn schedule_dispatch(
 /// pod's post-restore dispatch (the existing cross-pod at-least-once path).
 async fn acknowledge_until_settled(
     state: &SandboxState,
+    context: &TaskContext,
     uuids: Vec<String>,
     session_id: &str,
     run_id: &str,
@@ -490,7 +525,7 @@ async fn acknowledge_until_settled(
     loop {
         let ack = tokio::select! {
             result = state.backend_client.acknowledge_messages(
-                &state.config.task_id,
+                &context.task_id,
                 uuids.clone(),
                 session_id,
                 run_id,
@@ -512,7 +547,7 @@ async fn acknowledge_until_settled(
                         "Failed to acknowledge messages, retrying until acked or shutdown"
                     );
                 }
-                let delay = ack_retry_delay(&state.config.task_id, attempt);
+                let delay = ack_retry_delay(&context.task_id, attempt);
                 tokio::select! {
                     () = tokio::time::sleep(delay) => {}
                     () = state.lifecycle_cancel.cancelled() => {

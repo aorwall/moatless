@@ -96,8 +96,11 @@ pub use types::{
 // The desired-state reconciler and its gRPC notifier, assembled by
 // `compose::Ports::build_reconciler` and spawned by `main`. The provider
 // fleet-observer adapters live in `sandbox::k8s` and `sandbox::docker`.
-pub use observe::GrpcNotify;
-pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig, RuntimeObservation};
+pub use observe::{GrpcMemberRegistry, GrpcNotify};
+pub use reconciler::{
+    FleetObserver, MemberRegistryPort, NotifyPort, Reconciler, ReconcilerConfig, ReconcilerDeps,
+    RuntimeObservation,
+};
 
 // The system clock and concrete port adapters the composition root assembles
 // into a `Lifecycle`/`Reconciler`. These are `pub` because the composition root
@@ -107,11 +110,11 @@ pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig, Ru
 // this module's *curated* contract — a caller other than the composition root
 // has no business naming a raw port adapter — but visibility follows real
 // consumers, and the real consumer is now in another crate.
-pub use orchestrator::SystemWallClock;
 pub use agent_stop::GrpcAgentStop;
 pub use dao::PgLifecycleDao;
 pub use event_sink::OutboxEventSink;
 pub use lock::PgLifecycleLock;
+pub use orchestrator::SystemWallClock;
+pub use plan::ProvisionDeps;
 pub use workspace_archive::S3WorkspaceArchive;
 pub use workspace_sync::GrpcWorkspaceSync;
-pub use plan::ProvisionDeps;

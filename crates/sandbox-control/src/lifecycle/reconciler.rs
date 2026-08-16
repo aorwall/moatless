@@ -27,7 +27,7 @@ use moatless_tasks::task::models::{SandboxDesiredState, SandboxStopReason, TaskS
 
 use super::attempt::AttemptBudget;
 use super::convergence::{ReconcileAction, SandboxObservedStatus};
-use super::orchestrator::{Lifecycle, LifecycleDao, WallClock};
+use super::orchestrator::{Lifecycle, LifecycleDao, SandboxMember, WallClock};
 use super::reconcile::{ReconcileInput, decide};
 use super::types::{ArchiveRetention, OperationGeneration};
 
@@ -111,6 +111,70 @@ pub trait NotifyPort: Send + Sync {
     async fn notify(&self, task_id: &str);
 }
 
+/// Registers durable Sandbox members into a running sandbox process.
+///
+/// Replaying a registered member must be harmless: the sandbox-side
+/// `JoinTask` handler is idempotent, and the reconciler uses that property to
+/// repair pod restarts without relying on process memory.
+#[async_trait]
+pub trait MemberRegistryPort: Send + Sync {
+    async fn ensure_registered(&self, member: &SandboxMember) -> Result<(), MemberRegistryError>;
+}
+
+/// A member registration attempt failed. The reconciler logs and retries on a
+/// later tick; it never creates a member context without a successful join.
+#[derive(Debug, thiserror::Error)]
+#[error("{context}")]
+pub struct MemberRegistryError {
+    pub context: String,
+    #[source]
+    pub source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+}
+
+impl MemberRegistryError {
+    pub fn new(context: impl Into<String>) -> Self {
+        Self {
+            context: context.into(),
+            source: None,
+        }
+    }
+
+    pub fn with_source(
+        context: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            context: context.into(),
+            source: Some(Box::new(source)),
+        }
+    }
+}
+
+async fn ensure_running_members_registered(
+    store: &dyn LifecycleDao,
+    member_registry: &dyn MemberRegistryPort,
+) {
+    let members = match store.running_sandbox_members().await {
+        Ok(members) => members,
+        Err(e) => {
+            warn!(error = %e, "reconciler: running-member enumeration failed");
+            return;
+        }
+    };
+
+    for member in members {
+        if let Err(e) = member_registry.ensure_registered(&member).await {
+            warn!(
+                task_id = %member.task_id,
+                sandbox_id = %member.sandbox_id,
+                checkout_mode = member.checkout_mode.as_str(),
+                error = %e,
+                "reconciler: failed to register sandbox member"
+            );
+        }
+    }
+}
+
 /// Reconciler tuning.
 #[derive(Debug, Clone)]
 pub struct ReconcilerConfig {
@@ -170,28 +234,31 @@ pub struct Reconciler {
     messages: Arc<dyn MessageDao>,
     observer: Arc<dyn FleetObserver>,
     notify: Arc<dyn NotifyPort>,
+    member_registry: Arc<dyn MemberRegistryPort>,
     clock: Arc<dyn WallClock>,
     retries: Mutex<HashMap<String, TaskRetry>>,
     config: ReconcilerConfig,
 }
 
+pub struct ReconcilerDeps {
+    pub store: Arc<dyn LifecycleDao>,
+    pub messages: Arc<dyn MessageDao>,
+    pub observer: Arc<dyn FleetObserver>,
+    pub notify: Arc<dyn NotifyPort>,
+    pub member_registry: Arc<dyn MemberRegistryPort>,
+    pub clock: Arc<dyn WallClock>,
+}
+
 impl Reconciler {
-    pub fn new(
-        lifecycle: Lifecycle,
-        store: Arc<dyn LifecycleDao>,
-        messages: Arc<dyn MessageDao>,
-        observer: Arc<dyn FleetObserver>,
-        notify: Arc<dyn NotifyPort>,
-        clock: Arc<dyn WallClock>,
-        config: ReconcilerConfig,
-    ) -> Self {
+    pub fn new(lifecycle: Lifecycle, deps: ReconcilerDeps, config: ReconcilerConfig) -> Self {
         Self {
             lifecycle,
-            store,
-            messages,
-            observer,
-            notify,
-            clock,
+            store: deps.store,
+            messages: deps.messages,
+            observer: deps.observer,
+            notify: deps.notify,
+            member_registry: deps.member_registry,
+            clock: deps.clock,
             retries: Mutex::new(HashMap::new()),
             config,
         }
@@ -212,6 +279,7 @@ impl Reconciler {
         };
 
         let pending_map = self.pending_messages().await;
+        ensure_running_members_registered(self.store.as_ref(), self.member_registry.as_ref()).await;
 
         let mut candidates: HashSet<String> = match self.store.reconcile_candidates().await {
             Ok(c) => c.into_iter().collect(),
@@ -572,6 +640,139 @@ impl Reconciler {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use moatless_tasks::task::models::CheckoutMode;
+
+    use super::super::events::LifecycleEvent;
+    use super::super::orchestrator::{IntentWrite, StoreError, TaskIntent};
+    use super::super::types::IntentEffect;
+
+    struct MemberStore {
+        members: Result<Vec<SandboxMember>, StoreError>,
+    }
+
+    #[async_trait]
+    impl LifecycleDao for MemberStore {
+        async fn load(&self, _task_id: &str) -> Result<Option<TaskIntent>, StoreError> {
+            panic!("member registration test must not load task intent")
+        }
+
+        async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
+            panic!("member registration test must not enumerate reconcile candidates")
+        }
+
+        async fn running_sandbox_members(&self) -> Result<Vec<SandboxMember>, StoreError> {
+            match &self.members {
+                Ok(members) => Ok(members.clone()),
+                Err(e) => Err(StoreError::new(e.to_string())),
+            }
+        }
+
+        async fn has_other_active_members(
+            &self,
+            _sandbox_id: &str,
+            _task_id: &str,
+        ) -> Result<bool, StoreError> {
+            panic!("member registration test must not enumerate active peers")
+        }
+
+        async fn allocate_generation(
+            &self,
+            _task_id: &str,
+        ) -> Result<OperationGeneration, StoreError> {
+            panic!("member registration test must not allocate generations")
+        }
+
+        async fn persist_intent(
+            &self,
+            _task_id: &str,
+            _write: &IntentWrite,
+        ) -> Result<IntentEffect, StoreError> {
+            panic!("member registration test must not persist intent")
+        }
+
+        async fn commit_fact_and_clear_marker(
+            &self,
+            _sandbox_id: &str,
+            _task_id: &str,
+            _event: &LifecycleEvent,
+        ) -> Result<(), StoreError> {
+            panic!("member registration test must not commit lifecycle facts")
+        }
+
+        async fn clear_marker(
+            &self,
+            _task_id: &str,
+            _generation: OperationGeneration,
+        ) -> Result<(), StoreError> {
+            panic!("member registration test must not clear markers")
+        }
+
+        async fn stopped_with_storage(
+            &self,
+            _task_ids: &[String],
+        ) -> Result<Vec<(String, DateTime<Utc>)>, StoreError> {
+            panic!("member registration test must not enumerate stopped storage")
+        }
+
+        async fn mark_storage_reclaimed(&self, _task_id: &str) -> Result<(), StoreError> {
+            panic!("member registration test must not mark storage reclaimed")
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingRegistry {
+        calls: Mutex<Vec<SandboxMember>>,
+    }
+
+    #[async_trait]
+    impl MemberRegistryPort for RecordingRegistry {
+        async fn ensure_registered(
+            &self,
+            member: &SandboxMember,
+        ) -> Result<(), MemberRegistryError> {
+            self.calls.lock().unwrap().push(member.clone());
+            Ok(())
+        }
+    }
+
+    fn member(task_id: &str, sandbox_id: &str) -> SandboxMember {
+        SandboxMember {
+            task_id: task_id.to_string(),
+            sandbox_id: sandbox_id.to_string(),
+            checkout_mode: CheckoutMode::Shared,
+        }
+    }
+
+    #[tokio::test]
+    async fn running_members_are_registered_from_durable_store() {
+        let members = vec![member("lead", "sandbox-1"), member("guest", "sandbox-1")];
+        let store = MemberStore {
+            members: Ok(members.clone()),
+        };
+        let registry = RecordingRegistry::default();
+
+        ensure_running_members_registered(&store, &registry).await;
+
+        assert_eq!(*registry.calls.lock().unwrap(), members);
+    }
+
+    #[tokio::test]
+    async fn member_enumeration_failure_registers_nothing() {
+        let store = MemberStore {
+            members: Err(StoreError::new("database unavailable")),
+        };
+        let registry = RecordingRegistry::default();
+
+        ensure_running_members_registered(&store, &registry).await;
+
+        assert!(registry.calls.lock().unwrap().is_empty());
+    }
+}
+
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
     use super::*;
@@ -723,6 +924,21 @@ mod db_tests {
         }
     }
 
+    #[derive(Default)]
+    struct RecordingMemberRegistry {
+        calls: Mutex<Vec<SandboxMember>>,
+    }
+    #[async_trait]
+    impl MemberRegistryPort for RecordingMemberRegistry {
+        async fn ensure_registered(
+            &self,
+            member: &SandboxMember,
+        ) -> Result<(), MemberRegistryError> {
+            self.calls.lock().unwrap().push(member.clone());
+            Ok(())
+        }
+    }
+
     /// A fixed fleet + confirm status the whole tick sees.
     struct FixedObserver {
         fleet: HashMap<String, RuntimeObservation>,
@@ -772,6 +988,7 @@ mod db_tests {
             runtime,
             observer,
             Arc::new(RecordingNotify::default()),
+            Arc::new(RecordingMemberRegistry::default()),
             Arc::new(SystemWallClock),
             ReconcilerConfig {
                 grace,
@@ -780,12 +997,14 @@ mod db_tests {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_with(
         pool: PgPool,
         lock_pool: PgPool,
         runtime: Arc<RecordingRuntime>,
         observer: Arc<dyn FleetObserver>,
         notify: Arc<dyn NotifyPort>,
+        member_registry: Arc<dyn MemberRegistryPort>,
         clock: Arc<dyn WallClock>,
         config: ReconcilerConfig,
     ) -> (Reconciler, Arc<CollectSink>) {
@@ -801,11 +1020,14 @@ mod db_tests {
         );
         let reconciler = Reconciler::new(
             lifecycle,
-            store,
-            Arc::new(PgMessageDao(pool)),
-            observer,
-            notify,
-            clock,
+            ReconcilerDeps {
+                store,
+                messages: Arc::new(PgMessageDao(pool)),
+                observer,
+                notify,
+                member_registry,
+                clock,
+            },
             config,
         );
         (reconciler, sink)
@@ -893,7 +1115,7 @@ mod db_tests {
 
         assert_eq!(runtime.calls().0, 1, "wake drove a start");
         let desired: String =
-            sqlx::query_scalar("SELECT desired_state FROM sandboxes WHERE task_id = 't1'")
+            sqlx::query_scalar("SELECT desired_state FROM sandboxes WHERE sandbox_id = 't1'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -917,7 +1139,7 @@ mod db_tests {
 
         assert_eq!(runtime.calls().0, 1, "durable pending Message drove start");
         let desired: String =
-            sqlx::query_scalar("SELECT desired_state FROM sandboxes WHERE task_id = 't1'")
+            sqlx::query_scalar("SELECT desired_state FROM sandboxes WHERE sandbox_id = 't1'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -945,6 +1167,7 @@ mod db_tests {
             runtime.clone(),
             observer(&[], SandboxObservedStatus::Absent),
             Arc::new(RecordingNotify::default()),
+            Arc::new(RecordingMemberRegistry::default()),
             clock,
             ReconcilerConfig {
                 grace: Duration::ZERO,
@@ -989,6 +1212,7 @@ mod db_tests {
             runtime.clone(),
             observer(&[], SandboxObservedStatus::Absent),
             Arc::new(RecordingNotify::default()),
+            Arc::new(RecordingMemberRegistry::default()),
             clock,
             ReconcilerConfig {
                 grace: Duration::ZERO,
@@ -1050,6 +1274,7 @@ mod db_tests {
                 SandboxObservedStatus::Ready,
             ),
             notify.clone(),
+            Arc::new(RecordingMemberRegistry::default()),
             Arc::new(SystemWallClock),
             ReconcilerConfig {
                 grace: Duration::ZERO,
@@ -1069,6 +1294,55 @@ mod db_tests {
             *notify.count.lock().unwrap(),
             1,
             "notify fired once; the second immediate tick is backoff-suppressed",
+        );
+    }
+
+    #[sqlx::test]
+    async fn reissues_join_task_for_all_running_sandbox_members(pool: PgPool) {
+        seed(&pool, "t1", "open", "running").await;
+        seed_bare_task(&pool, "t2", "open").await;
+        sqlx::query("UPDATE tasks SET sandbox_id = 't1' WHERE task_id = 't2'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let runtime = Arc::new(RecordingRuntime::new());
+        let registry = Arc::new(RecordingMemberRegistry::default());
+        let (rec, _sink) = build_with(
+            pool.clone(),
+            pool,
+            runtime.clone(),
+            observer(
+                &[("t1", SandboxObservedStatus::Ready)],
+                SandboxObservedStatus::Ready,
+            ),
+            Arc::new(RecordingNotify::default()),
+            registry.clone(),
+            Arc::new(SystemWallClock),
+            ReconcilerConfig {
+                grace: Duration::ZERO,
+                ..Default::default()
+            },
+        );
+
+        rec.reconcile_once().await;
+
+        let mut calls = registry.calls.lock().unwrap().clone();
+        calls.sort_by(|a, b| a.task_id.cmp(&b.task_id));
+        assert_eq!(
+            calls,
+            vec![
+                SandboxMember {
+                    task_id: "t1".to_string(),
+                    sandbox_id: "t1".to_string(),
+                    checkout_mode: moatless_tasks::task::models::CheckoutMode::Shared,
+                },
+                SandboxMember {
+                    task_id: "t2".to_string(),
+                    sandbox_id: "t1".to_string(),
+                    checkout_mode: moatless_tasks::task::models::CheckoutMode::Shared,
+                },
+            ],
+            "reconciler rebuilds in-pod members from DB membership after restart"
         );
     }
 
@@ -1207,7 +1481,7 @@ mod db_tests {
         rec.reconcile_once().await;
 
         let marker: Option<String> =
-            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE sandbox_id = 't1'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -1247,7 +1521,7 @@ mod db_tests {
         rec.reconcile_once().await;
 
         let marker: Option<String> =
-            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE sandbox_id = 't1'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -1288,7 +1562,7 @@ mod db_tests {
         rec.reconcile_once().await;
 
         let marker: Option<String> =
-            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE sandbox_id = 't1'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -1336,7 +1610,7 @@ mod db_tests {
         rec.reconcile_once().await;
 
         let marker: Option<String> =
-            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE sandbox_id = 't1'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -1381,7 +1655,7 @@ mod db_tests {
         rec.reconcile_once().await;
 
         let marker: Option<String> =
-            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE sandbox_id = 't1'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();

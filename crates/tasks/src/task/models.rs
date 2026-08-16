@@ -7,6 +7,65 @@ use moatless_core::shared_models::AgentType;
 
 pub use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 
+/// How a task's checkout relates to other members of the same Sandbox.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckoutMode {
+    /// One checkout for every member — the single-member behavior too.
+    #[default]
+    Shared,
+    Isolated,
+}
+
+impl CheckoutMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Shared => "shared",
+            Self::Isolated => "isolated",
+        }
+    }
+}
+
+impl std::fmt::Display for CheckoutMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for CheckoutMode {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "shared" => Ok(Self::Shared),
+            "isolated" => Ok(Self::Isolated),
+            other => Err(format!("unknown CheckoutMode: {other:?}")),
+        }
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for CheckoutMode {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for CheckoutMode {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let value = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Self::try_from(value.as_str()).map_err(Into::into)
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for CheckoutMode {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
+    }
+}
+
 /// Task visibility level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -100,6 +159,13 @@ pub struct Task {
     /// provisioning resolves the repository composition via the workspace;
     /// otherwise it falls back to `repository_id`.
     pub workspace_id: Option<String>,
+    /// Sandbox this task belongs to. A task with no row here has never been
+    /// started; the ordinary first start mints a sandbox whose id equals the
+    /// task id.
+    pub sandbox_id: Option<String>,
+    /// Checkout relationship to other members. `None` is read as shared for
+    /// rows predating shared-sandbox membership.
+    pub checkout_mode: Option<CheckoutMode>,
     pub status: TaskStatus,
     pub total_cost_usd: f64,
     pub site_url: Option<String>,
