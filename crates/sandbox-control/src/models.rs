@@ -141,42 +141,7 @@ impl ServerOverride {
 }
 
 pub use super::live_status::SandboxStatus;
-
-/// Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum ServerStatus {
-    Stopped,
-    Installing,
-    Starting,
-    Started,
-    Failed,
-}
-
-impl From<&str> for ServerStatus {
-    fn from(s: &str) -> Self {
-        match s {
-            "stopped" => ServerStatus::Stopped,
-            "installing" => ServerStatus::Installing,
-            "starting" => ServerStatus::Starting,
-            "started" => ServerStatus::Started,
-            "failed" => ServerStatus::Failed,
-            _ => ServerStatus::Stopped,
-        }
-    }
-}
-
-impl std::fmt::Display for ServerStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Stopped => write!(f, "stopped"),
-            Self::Installing => write!(f, "installing"),
-            Self::Starting => write!(f, "starting"),
-            Self::Started => write!(f, "started"),
-            Self::Failed => write!(f, "failed"),
-        }
-    }
-}
+pub use moatless_events::ServerStatus;
 
 /// Pod phase as returned by K8s API
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -280,17 +245,7 @@ pub struct ResourceMetrics {
     pub uptime_seconds: f64,
 }
 
-/// Server capabilities (deterministic from server name)
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerCapabilities {
-    pub address_bar: bool,
-    pub inspector: bool,
-    pub reload: bool,
-    pub open_external: bool,
-    pub viewport: bool,
-    pub console: bool,
-}
+pub use moatless_events::ServerCapabilities;
 
 // =============================================================================
 // Container status types (K8s API-based server monitoring)

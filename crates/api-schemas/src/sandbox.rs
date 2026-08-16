@@ -101,108 +101,9 @@ pub fn sanitize_mount_name(name: &str) -> Option<String> {
 // Sandbox model types (shared between schemas and backend)
 // =============================================================================
 
-pub use moatless_events::SandboxStatus;
-
-/// Observed Agent lifecycle status for a ready Sandbox.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum AgentStatus {
-    Running,
-    /// Parked on a person: the run is open, and nothing is running until it is
-    /// answered. Must stay in step with `backend::sandbox::live_status`, which
-    /// is what serializes the value this deserializes.
-    Waiting,
-    Idle,
-    Unknown,
-}
-
-impl std::fmt::Display for AgentStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AgentStatus::Running => write!(f, "running"),
-            AgentStatus::Waiting => write!(f, "waiting"),
-            AgentStatus::Idle => write!(f, "idle"),
-            AgentStatus::Unknown => write!(f, "unknown"),
-        }
-    }
-}
-
-impl From<&str> for AgentStatus {
-    fn from(s: &str) -> Self {
-        match s {
-            "running" => AgentStatus::Running,
-            "waiting" => AgentStatus::Waiting,
-            "idle" | "stopped" => AgentStatus::Idle,
-            _ => AgentStatus::Unknown,
-        }
-    }
-}
-
-#[cfg(test)]
-mod agent_status_tests {
-    use super::AgentStatus;
-
-    /// Every status the backend can serialize must round-trip here — a missing
-    /// variant fails the whole `/sandbox/status` response, not just the field.
-    #[test]
-    fn every_backend_status_deserializes() {
-        for wire in ["running", "waiting", "idle", "unknown"] {
-            let json = format!("\"{wire}\"");
-            let parsed: AgentStatus =
-                serde_json::from_str(&json).unwrap_or_else(|e| panic!("{wire}: {e}"));
-            assert_eq!(parsed.to_string(), wire);
-            assert_eq!(AgentStatus::from(wire), parsed);
-        }
-    }
-}
-
-/// Small live-status resource shared by list, sidebar, and dashboard views.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct LiveStatus {
-    pub sandbox_status: SandboxStatus,
-    pub agent_status: Option<AgentStatus>,
-    pub sandbox_error: Option<String>,
-}
-
-/// Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum ServerStatus {
-    Stopped,
-    Installing,
-    Starting,
-    Started,
-    Failed,
-}
-
-impl From<&str> for ServerStatus {
-    fn from(s: &str) -> Self {
-        match s {
-            "stopped" => ServerStatus::Stopped,
-            "installing" => ServerStatus::Installing,
-            "starting" => ServerStatus::Starting,
-            "started" => ServerStatus::Started,
-            "failed" => ServerStatus::Failed,
-            _ => ServerStatus::Stopped,
-        }
-    }
-}
-
-impl std::fmt::Display for ServerStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Stopped => write!(f, "stopped"),
-            Self::Installing => write!(f, "installing"),
-            Self::Starting => write!(f, "starting"),
-            Self::Started => write!(f, "started"),
-            Self::Failed => write!(f, "failed"),
-        }
-    }
-}
+pub use moatless_events::{
+    AgentStatus, LiveStatus, SandboxStatus, ServerCapabilities, ServerEntry, ServerStatus,
+};
 
 /// Server snapshot from sandbox GET /status
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -237,40 +138,9 @@ pub struct ResourceMetrics {
     pub uptime_seconds: f64,
 }
 
-/// Server capabilities (deterministic from server name)
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerCapabilities {
-    pub address_bar: bool,
-    pub inspector: bool,
-    pub reload: bool,
-    pub open_external: bool,
-    pub viewport: bool,
-    pub console: bool,
-}
-
 // =============================================================================
 // API response schemas
 // =============================================================================
-
-/// Single server entry in the workspace status response
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerEntry {
-    pub name: String,
-    pub label: String,
-    pub port: u16,
-    pub status: ServerStatus,
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-    pub default: bool,
-    pub capabilities: ServerCapabilities,
-}
 
 /// A provider-agnostic runtime event associated with a sandbox.
 #[derive(Debug, Serialize, Deserialize)]

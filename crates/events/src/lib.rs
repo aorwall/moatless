@@ -121,6 +121,136 @@ impl TryFrom<&str> for SandboxStatus {
     }
 }
 
+/// Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum ServerStatus {
+    Stopped,
+    Installing,
+    Starting,
+    Started,
+    Failed,
+}
+
+impl ServerStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Stopped => "stopped",
+            Self::Installing => "installing",
+            Self::Starting => "starting",
+            Self::Started => "started",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+impl std::fmt::Display for ServerStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<&str> for ServerStatus {
+    /// Lenient: an unrecognised value reads as [`ServerStatus::Stopped`] rather
+    /// than failing.
+    fn from(s: &str) -> Self {
+        match s {
+            "installing" => Self::Installing,
+            "starting" => Self::Starting,
+            "started" => Self::Started,
+            "failed" => Self::Failed,
+            _ => Self::Stopped,
+        }
+    }
+}
+
+/// Server capabilities (deterministic from server name)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerCapabilities {
+    pub address_bar: bool,
+    pub inspector: bool,
+    pub reload: bool,
+    pub open_external: bool,
+    pub viewport: bool,
+    pub console: bool,
+}
+
+/// Single server entry in the workspace status response
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerEntry {
+    pub name: String,
+    pub label: String,
+    pub port: u16,
+    pub status: ServerStatus,
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    pub default: bool,
+    pub capabilities: ServerCapabilities,
+}
+
+/// Observed Agent lifecycle while its Sandbox is ready.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum AgentStatus {
+    Running,
+    /// Parked on a person: the run is open, and nothing is running until it is
+    /// answered.
+    Waiting,
+    Idle,
+    Unknown,
+}
+
+impl AgentStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Waiting => "waiting",
+            Self::Idle => "idle",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for AgentStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<&str> for AgentStatus {
+    /// Lenient: an unrecognised value reads as [`AgentStatus::Unknown`] rather
+    /// than failing, and legacy `"stopped"` reads as [`AgentStatus::Idle`].
+    fn from(s: &str) -> Self {
+        match s {
+            "running" => Self::Running,
+            "waiting" => Self::Waiting,
+            "idle" | "stopped" => Self::Idle,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// The complete live status of a Task's Sandbox and Agent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct LiveStatus {
+    pub sandbox_status: SandboxStatus,
+    #[cfg_attr(feature = "openapi", schema(required = true))]
+    pub agent_status: Option<AgentStatus>,
+    #[cfg_attr(feature = "openapi", schema(required = true))]
+    pub sandbox_error: Option<String>,
+}
+
 /// Server sub-types — server container lifecycle.
 ///
 /// `Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).
@@ -652,6 +782,30 @@ mod tests {
             serde_json::to_string(&EventType::Sandbox).unwrap(),
             "\"sandbox\""
         );
+    }
+
+    /// Every status the backend can serialize must round-trip here — a missing
+    /// variant fails the whole `/sandbox/status` response, not just the field.
+    #[test]
+    fn every_agent_status_deserializes() {
+        for wire in ["running", "waiting", "idle", "unknown"] {
+            let json = format!("\"{wire}\"");
+            let parsed: AgentStatus =
+                serde_json::from_str(&json).unwrap_or_else(|e| panic!("{wire}: {e}"));
+            assert_eq!(parsed.to_string(), wire);
+            assert_eq!(AgentStatus::from(wire), parsed);
+        }
+    }
+
+    #[test]
+    fn every_server_status_deserializes() {
+        for wire in ["stopped", "installing", "starting", "started", "failed"] {
+            let json = format!("\"{wire}\"");
+            let parsed: ServerStatus =
+                serde_json::from_str(&json).unwrap_or_else(|e| panic!("{wire}: {e}"));
+            assert_eq!(parsed.to_string(), wire);
+            assert_eq!(ServerStatus::from(wire), parsed);
+        }
     }
 
     #[test]

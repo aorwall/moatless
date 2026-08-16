@@ -3,46 +3,9 @@
 //! Callers provide the durable Task intent plus raw Sandbox and Agent signals;
 //! [`derive_live_status`] owns every rule that turns them into display status.
 
-use serde::Serialize;
-use utoipa::ToSchema;
-
 use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
 
-pub use moatless_events::SandboxStatus;
-
-/// Observed Agent lifecycle while its Sandbox is ready.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentStatus {
-    Running,
-    /// Parked on a person: the run is open, and nothing is running until it is
-    /// answered.
-    Waiting,
-    Idle,
-    Unknown,
-}
-
-impl From<&str> for AgentStatus {
-    fn from(value: &str) -> Self {
-        match value {
-            "running" => Self::Running,
-            "waiting" => Self::Waiting,
-            "idle" | "stopped" => Self::Idle,
-            _ => Self::Unknown,
-        }
-    }
-}
-
-/// The complete live status of a Task's Sandbox and Agent.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct LiveStatus {
-    pub sandbox_status: SandboxStatus,
-    #[schema(required = true)]
-    pub agent_status: Option<AgentStatus>,
-    #[schema(required = true)]
-    pub sandbox_error: Option<String>,
-}
+pub use moatless_events::{AgentStatus, LiveStatus, SandboxStatus};
 
 /// Combine raw runtime signals and durable Task intent into canonical live status.
 pub fn derive_live_status(

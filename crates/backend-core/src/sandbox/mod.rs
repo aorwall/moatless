@@ -1,9 +1,11 @@
 pub use crate::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-pub use moatless_events::SandboxStatus;
+pub use moatless_events::{
+    AgentStatus, LiveStatus, SandboxStatus, ServerCapabilities, ServerEntry, ServerStatus,
+};
 pub use sandbox_proto::client::{ClientError, SandboxClient, ServerOverride};
 
 /// Which container runtime a sandbox is running on.
@@ -93,71 +95,10 @@ impl Default for LogOptions {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ServerStatus {
-    Stopped,
-    Installing,
-    Starting,
-    Started,
-    Failed,
-}
-
-impl std::fmt::Display for ServerStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Stopped => "stopped",
-            Self::Installing => "installing",
-            Self::Starting => "starting",
-            Self::Started => "started",
-            Self::Failed => "failed",
-        })
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ServerCapabilities {
-    pub address_bar: bool,
-    pub inspector: bool,
-    pub reload: bool,
-    pub open_external: bool,
-    pub viewport: bool,
-    pub console: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct ServerEntry {
-    pub name: String,
-    pub label: String,
-    pub port: u16,
-    pub status: ServerStatus,
-    pub url: Option<String>,
-    pub error: Option<String>,
-    pub detail: Option<String>,
-    pub default: bool,
-    pub capabilities: ServerCapabilities,
-}
-
 #[derive(Debug, Clone)]
 pub struct SandboxStatusFullResponse {
     pub sandbox_status: SandboxStatus,
     pub servers: Vec<ServerEntry>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentStatus {
-    Running,
-    Waiting,
-    Idle,
-    Unknown,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LiveStatus {
-    pub sandbox_status: SandboxStatus,
-    pub agent_status: Option<AgentStatus>,
-    pub sandbox_error: Option<String>,
 }
 
 pub type ServerLogStream = BoxStream<'static, Result<String, SandboxError>>;
