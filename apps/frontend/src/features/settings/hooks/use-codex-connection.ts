@@ -1,17 +1,17 @@
+import type {
+  CodexAgentHarnessCredentialStatusResponse,
+  CodexDeviceCodePollRequest,
+  CodexDeviceCodePollResponse,
+  CodexDeviceCodeStartResponse,
+  SaveCodexAgentHarnessCredentialRequest,
+} from '@moatless/api-client/sandbox/model'
 import {
   type UseMutationOptions,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import {
-  type CodexConfigResponse,
-  type CodexDeviceCodePollRequest,
-  type CodexDeviceCodePollResponse,
-  type CodexDeviceCodeStartResponse,
-  codexConnectionApi,
-  type SaveCodexAuthRequest,
-} from '@/features/settings/api/codex-connection.api'
+import { codexConnectionApi } from '@/features/settings/api/codex-connection.api'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 
@@ -22,7 +22,9 @@ export function useCodexConfig() {
   })
 }
 
-export function useDisconnectCodex(options?: UseMutationOptions<CodexConfigResponse, ApiError>) {
+export function useDisconnectCodex(
+  options?: UseMutationOptions<CodexAgentHarnessCredentialStatusResponse, ApiError>,
+) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: codexConnectionApi.disconnect,
@@ -34,7 +36,11 @@ export function useDisconnectCodex(options?: UseMutationOptions<CodexConfigRespo
 }
 
 export function useSaveCodexAuthJson(
-  options?: UseMutationOptions<CodexConfigResponse, ApiError, SaveCodexAuthRequest>,
+  options?: UseMutationOptions<
+    CodexAgentHarnessCredentialStatusResponse,
+    ApiError,
+    SaveCodexAgentHarnessCredentialRequest
+  >,
 ) {
   const queryClient = useQueryClient()
   return useMutation({

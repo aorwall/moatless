@@ -229,7 +229,7 @@ impl SecretService {
             .await?;
         records
             .into_iter()
-            // `provider_token` secrets are owned by the provider-settings flow
+            // `provider_token` secrets are owned by the git-host access flow
             // (which validates them against the provider) and are not editable
             // as generic secrets.
             .filter(|record| record.kind != SecretKind::ProviderToken.as_str())

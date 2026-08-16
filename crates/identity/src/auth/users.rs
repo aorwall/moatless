@@ -15,6 +15,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::models::UserRole;
@@ -61,6 +62,7 @@ pub trait UserDao: Send + Sync {
     async fn get_users_by_ids(&self, user_ids: &[Uuid]) -> Result<Vec<User>, sqlx::Error>;
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error>;
     async fn list_users(&self) -> Result<Vec<User>, sqlx::Error>;
+    async fn list_bot_users_by_app_key(&self) -> Result<HashMap<String, String>, sqlx::Error>;
     async fn update_user_profile(
         &self,
         user_id: &Uuid,
@@ -106,7 +108,7 @@ pub trait UserDao: Send + Sync {
         provider_user_id: &str,
     ) -> Result<Option<User>, sqlx::Error>;
     async fn delete_provider_id(&self, user_id: &Uuid, provider: &str)
-        -> Result<bool, sqlx::Error>;
+    -> Result<bool, sqlx::Error>;
     async fn list_provider_ids(
         &self,
         user_id: &Uuid,
@@ -170,6 +172,23 @@ impl UserDao for PgUserDao {
         sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY login ASC")
             .fetch_all(&self.0)
             .await
+    }
+
+    async fn list_bot_users_by_app_key(&self) -> Result<HashMap<String, String>, sqlx::Error> {
+        let rows: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT id, provider_user_id FROM users \
+             WHERE is_bot = true AND provider_user_id LIKE 'bot:%'",
+        )
+        .fetch_all(&self.0)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, provider_user_id)| {
+                provider_user_id
+                    .strip_prefix("bot:")
+                    .map(|app_key| (app_key.to_string(), id.to_string()))
+            })
+            .collect())
     }
 
     async fn update_user_profile(

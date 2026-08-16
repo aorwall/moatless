@@ -1,4 +1,13 @@
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import {
+  adminDeleteGlobalGithubInstallation,
+  adminGetGlobalGithubInstallation,
+  adminListGithubApps,
+  adminPutGlobalGithubInstallation,
+  adminRegisterGithubApp,
+  adminRemoveGithubApp,
+  adminRotateGithubAppKey,
+} from '@moatless/api-client/sandbox/app-administration/app-administration'
 import type {
   CreateUserResponse,
   GitHubAppRegistrationResponse,
@@ -9,15 +18,6 @@ import type {
   RemoveGitHubAppResponse,
   RotateGitHubAppKeyRequest,
 } from '@moatless/api-client/sandbox/model'
-import {
-  adminDeleteGlobalGithubInstallation,
-  adminGetGlobalGithubInstallation,
-  adminListGithubApps,
-  adminPutGlobalGithubInstallation,
-  adminRegisterGithubApp,
-  adminRemoveGithubApp,
-  adminRotateGithubAppKey,
-} from '@moatless/api-client/sandbox/provider-settings/provider-settings'
 import { createUserHandler } from '@moatless/api-client/sandbox/users/users'
 
 export const adminGithubConnectionApi = {

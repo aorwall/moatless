@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct GitHubConfigResponse {
+pub struct GitHubProviderTokenStatusResponse {
     pub connected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login: Option<String>,
@@ -16,11 +16,19 @@ pub struct GitHubConfigResponse {
     pub has_pat_override: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct SavePatRequest {
+pub struct SaveGitHubProviderTokenRequest {
     pub token: String,
+}
+
+impl std::fmt::Debug for SaveGitHubProviderTokenRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SaveGitHubProviderTokenRequest")
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -89,7 +97,7 @@ pub struct GitHubAppsResponse {
     pub apps: Vec<GitHubAppOption>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterGitHubAppRequest {
@@ -104,13 +112,32 @@ pub struct RegisterGitHubAppRequest {
     pub default_installation_id: Option<u64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl std::fmt::Debug for RegisterGitHubAppRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisterGitHubAppRequest")
+            .field("github_app_key", &self.github_app_key)
+            .field("app_id", &self.app_id)
+            .field("private_key_pem", &"[REDACTED]")
+            .field("default_installation_id", &self.default_installation_id)
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RotateGitHubAppKeyRequest {
     /// The replacement signing key. Proved before the stored one is replaced,
     /// so a bad key leaves the App exactly as it was.
     pub private_key_pem: String,
+}
+
+impl std::fmt::Debug for RotateGitHubAppKeyRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RotateGitHubAppKeyRequest")
+            .field("private_key_pem", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// What GitHub confirmed about an App that was just registered or rotated.
@@ -142,7 +169,7 @@ pub struct RemoveGitHubAppResponse {
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct CodexConfigResponse {
+pub struct CodexAgentHarnessCredentialStatusResponse {
     pub connected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_type: Option<String>,
@@ -161,11 +188,19 @@ pub struct CodexConfigResponse {
     pub needs_reconnect: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct SaveCodexAuthRequest {
+pub struct SaveCodexAgentHarnessCredentialRequest {
     pub auth_json: String,
+}
+
+impl std::fmt::Debug for SaveCodexAgentHarnessCredentialRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SaveCodexAgentHarnessCredentialRequest")
+            .field("auth_json", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -205,7 +240,7 @@ pub enum CodexDeviceCodePollResponse {
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct GitnessConfigResponse {
+pub struct GitnessProviderTokenStatusResponse {
     pub connected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login: Option<String>,
@@ -213,12 +248,21 @@ pub struct GitnessConfigResponse {
     pub base_url: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct SaveGitnessPATRequest {
+pub struct SaveGitnessProviderTokenRequest {
     pub base_url: String,
     pub token: String,
+}
+
+impl std::fmt::Debug for SaveGitnessProviderTokenRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SaveGitnessProviderTokenRequest")
+            .field("base_url", &self.base_url)
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -241,7 +285,7 @@ pub struct AdapterAppsResponse {
     pub apps: Vec<AdapterAppSummary>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SaveSlackAdapterAppRequest {
@@ -251,7 +295,17 @@ pub struct SaveSlackAdapterAppRequest {
     pub bot_user_id: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl std::fmt::Debug for SaveSlackAdapterAppRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SaveSlackAdapterAppRequest")
+            .field("bot_token", &"[REDACTED]")
+            .field("signing_secret", &"[REDACTED]")
+            .field("bot_user_id", &self.bot_user_id)
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SaveTelegramAdapterAppRequest {
@@ -260,7 +314,16 @@ pub struct SaveTelegramAdapterAppRequest {
     pub mode: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl std::fmt::Debug for SaveTelegramAdapterAppRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SaveTelegramAdapterAppRequest")
+            .field("bot_token", &"[REDACTED]")
+            .field("mode", &self.mode)
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SaveLinearAdapterAppRequest {
@@ -276,6 +339,27 @@ pub struct SaveLinearAdapterAppRequest {
     pub api_base_url: Option<String>,
 }
 
+impl std::fmt::Debug for SaveLinearAdapterAppRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SaveLinearAdapterAppRequest")
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "oauth_client_id",
+                &self.oauth_client_id.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "oauth_client_secret",
+                &self.oauth_client_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("oauth_callback_url", &self.oauth_callback_url)
+            .field("api_base_url", &self.api_base_url)
+            .finish()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "adapterKind", rename_all = "snake_case")]
@@ -283,4 +367,87 @@ pub enum SaveAdapterAppRequest {
     Slack(SaveSlackAdapterAppRequest),
     Telegram(SaveTelegramAdapterAppRequest),
     Linear(SaveLinearAdapterAppRequest),
+}
+
+#[deprecated(note = "use GitHubProviderTokenStatusResponse")]
+pub type GitHubConfigResponse = GitHubProviderTokenStatusResponse;
+
+#[deprecated(note = "use SaveGitHubProviderTokenRequest")]
+pub type SavePatRequest = SaveGitHubProviderTokenRequest;
+
+#[deprecated(note = "use GitnessProviderTokenStatusResponse")]
+pub type GitnessConfigResponse = GitnessProviderTokenStatusResponse;
+
+#[deprecated(note = "use SaveGitnessProviderTokenRequest")]
+pub type SaveGitnessPATRequest = SaveGitnessProviderTokenRequest;
+
+#[deprecated(note = "use CodexAgentHarnessCredentialStatusResponse")]
+pub type CodexConfigResponse = CodexAgentHarnessCredentialStatusResponse;
+
+#[deprecated(note = "use SaveCodexAgentHarnessCredentialRequest")]
+pub type SaveCodexAuthRequest = SaveCodexAgentHarnessCredentialRequest;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credential_requests_redact_secrets_from_debug_output() {
+        let values = [
+            format!(
+                "{:?}",
+                SaveGitHubProviderTokenRequest {
+                    token: "github-secret".to_string(),
+                }
+            ),
+            format!(
+                "{:?}",
+                SaveGitnessProviderTokenRequest {
+                    base_url: "https://gitness.example".to_string(),
+                    token: "gitness-secret".to_string(),
+                }
+            ),
+            format!(
+                "{:?}",
+                SaveCodexAgentHarnessCredentialRequest {
+                    auth_json: "codex-secret".to_string(),
+                }
+            ),
+            format!(
+                "{:?}",
+                RegisterGitHubAppRequest {
+                    github_app_key: "example".to_string(),
+                    app_id: 1,
+                    private_key_pem: "github-app-secret".to_string(),
+                    default_installation_id: None,
+                }
+            ),
+        ];
+
+        for value in values {
+            assert!(value.contains("[REDACTED]"));
+            assert!(!value.contains("secret"));
+        }
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn compatibility_aliases_preserve_json_fields() {
+        let request: SavePatRequest = serde_json::from_value(serde_json::json!({
+            "token": "pat"
+        }))
+        .expect("compatibility request should deserialize");
+        assert_eq!(request.token, "pat");
+
+        let response: CodexConfigResponse = serde_json::from_value(serde_json::json!({
+            "connected": true,
+            "tokenType": "auth_json",
+            "authMethod": "device_code",
+            "email": "user@example.com",
+            "planType": "pro",
+            "needsReconnect": false
+        }))
+        .expect("compatibility response should deserialize");
+        assert_eq!(response.auth_method.as_deref(), Some("device_code"));
+    }
 }

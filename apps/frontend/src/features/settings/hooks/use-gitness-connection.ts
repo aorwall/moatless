@@ -1,4 +1,7 @@
-import type { SaveGitnessPATRequest } from '@moatless/api-client/sandbox/model'
+import type {
+  GitnessProviderTokenStatusResponse,
+  SaveGitnessProviderTokenRequest,
+} from '@moatless/api-client/sandbox/model'
 import {
   type UseMutationOptions,
   useMutation,
@@ -23,7 +26,7 @@ export function useGitnessConfig() {
  * Disconnect Gitness service connection
  */
 export function useDisconnectGitness(
-  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError>,
+  options?: UseMutationOptions<GitnessProviderTokenStatusResponse, ApiError>,
 ) {
   const queryClient = useQueryClient()
 
@@ -41,9 +44,9 @@ export function useDisconnectGitness(
  */
 export function useSaveGitnessPAT(
   options?: UseMutationOptions<
-    { success: boolean; message: string },
+    GitnessProviderTokenStatusResponse,
     ApiError,
-    SaveGitnessPATRequest
+    SaveGitnessProviderTokenRequest
   >,
 ) {
   const queryClient = useQueryClient()

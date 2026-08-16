@@ -6,9 +6,12 @@
  */
 
 export * from './sandbox/adapters/adapters'
+export * from './sandbox/agent-harness-access/agent-harness-access'
 export * from './sandbox/api-keys/api-keys'
+export * from './sandbox/app-administration/app-administration'
 export * from './sandbox/auth/auth'
 export * from './sandbox/file-storage/file-storage'
+export * from './sandbox/git-host-access/git-host-access'
 export * from './sandbox/loops/loops'
 export * from './sandbox/messages/messages'
 export * from './sandbox/model'

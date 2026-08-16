@@ -1,5 +1,5 @@
 //! The shared failure type for the HTTP git-provider credential clients
-//! (`github_client`, `provider_settings::gitness_client`).
+//! (`github_client`, `identity::git_host_access`).
 
 /// Failure from a git-provider credential check (GitHub or Gitness).
 ///

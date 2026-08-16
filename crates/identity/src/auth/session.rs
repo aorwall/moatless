@@ -239,7 +239,7 @@ pub async fn create_session_from_user(
 /// Create a session from a user row, stamping an explicit provider.
 ///
 /// The provider string lands in the JWT and flows through to
-/// `AuthUser.provider`, which the provider-settings handlers branch on.
+/// `AuthUser.provider`, which the git-host access handlers branch on.
 pub async fn create_session_from_user_with_provider(
     sessions: &dyn SessionDao,
     user: &User,

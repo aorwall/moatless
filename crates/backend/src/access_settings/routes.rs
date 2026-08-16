@@ -1,4 +1,4 @@
-//! Provider settings API routes with OpenAPI documentation.
+//! Access administration routes and OpenAPI tags.
 
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -9,7 +9,9 @@ use crate::state::AppState;
 #[derive(OpenApi)]
 #[openapi(
     tags(
-        (name = "provider-settings", description = "GitHub, Gitness, and Codex credential management"),
+        (name = "git-host-access", description = "GitHub and Gitness provider-token access"),
+        (name = "agent-harness-access", description = "Agent harness credential access"),
+        (name = "app-administration", description = "Adapter and GitHub App administration"),
     ),
     paths(
         handlers::get_github_config,
@@ -36,13 +38,13 @@ use crate::state::AppState;
         handlers::admin_delete_global_codex_config,
         handlers::start_codex_device_login,
         handlers::poll_codex_device_login,
+        handlers::admin_set_codex_provider_token_handler,
     )
 )]
-pub struct ProviderSettingsApiDoc;
+pub struct AccessSettingsApiDoc;
 
-/// Build the provider settings router with OpenAPI metadata.
-pub fn provider_settings_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
-    let (router, api) = OpenApiRouter::with_openapi(ProviderSettingsApiDoc::openapi())
+pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
+    let (router, api) = OpenApiRouter::with_openapi(AccessSettingsApiDoc::openapi())
         .routes(routes!(
             handlers::get_github_config,
             handlers::delete_github_config
@@ -83,8 +85,8 @@ pub fn provider_settings_router(state: AppState) -> (axum::Router, utoipa::opena
         ))
         .routes(routes!(handlers::start_codex_device_login))
         .routes(routes!(handlers::poll_codex_device_login))
+        .routes(routes!(handlers::admin_set_codex_provider_token_handler))
         .with_state(state)
         .split_for_parts();
-
     (router, api)
 }

@@ -17,10 +17,11 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::AssertSqlSafe;
 
+use crate::adapter_apps::{AdapterAppInput, StoredAdapterApp};
 use crate::auth::error::AuthError;
-use moatless_core::db::DbPool;
 use crate::secret::models::EncryptedSecretValue;
 use crate::secret::service::SecretCipher;
+use moatless_core::db::DbPool;
 
 /// Name of the one-time carry-over of `GITHUB_APPS_JSON` into durable storage.
 pub const ENV_CARRY_OVER: &str = "github_apps_json_carry_over";
@@ -141,6 +142,21 @@ pub struct GitHubAppAuditEntry<'a> {
 /// Durable state behind Adapter app administration.
 #[async_trait]
 pub trait AdapterAppDao: Send + Sync {
+    async fn list_adapter_apps(&self) -> Result<Vec<StoredAdapterApp>, AuthError>;
+
+    async fn upsert_adapter_app(
+        &self,
+        input: AdapterAppInput,
+        cipher: &dyn SecretCipher,
+        actor_id: &str,
+    ) -> Result<StoredAdapterApp, AuthError>;
+
+    async fn delete_adapter_app(
+        &self,
+        adapter_kind: &str,
+        app_key: &str,
+    ) -> Result<bool, AuthError>;
+
     async fn list_github_apps(&self) -> Result<Vec<GitHubAppRecord>, AuthError>;
 
     async fn find_github_app_by_key(
@@ -316,6 +332,27 @@ pub struct PgAdapterAppDao(pub DbPool);
 
 #[async_trait]
 impl AdapterAppDao for PgAdapterAppDao {
+    async fn list_adapter_apps(&self) -> Result<Vec<StoredAdapterApp>, AuthError> {
+        super::list_adapter_apps(&self.0).await
+    }
+
+    async fn upsert_adapter_app(
+        &self,
+        input: AdapterAppInput,
+        cipher: &dyn SecretCipher,
+        actor_id: &str,
+    ) -> Result<StoredAdapterApp, AuthError> {
+        super::upsert_adapter_app_with_cipher(&self.0, cipher, input, actor_id).await
+    }
+
+    async fn delete_adapter_app(
+        &self,
+        adapter_kind: &str,
+        app_key: &str,
+    ) -> Result<bool, AuthError> {
+        super::delete_adapter_app(&self.0, adapter_kind, app_key).await
+    }
+
     async fn list_github_apps(&self) -> Result<Vec<GitHubAppRecord>, AuthError> {
         let rows: Vec<GitHubAppRow> = sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {SELECT_COLUMNS}
@@ -488,8 +525,13 @@ impl AdapterAppDao for PgAdapterAppDao {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_support {
+    #![allow(
+        clippy::expect_used,
+        reason = "poisoned test-fixture mutexes should fail the test immediately"
+    )]
+
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -501,7 +543,9 @@ pub mod test_support {
     #[derive(Default)]
     pub struct InMemoryAdapterAppDao {
         apps: Mutex<HashMap<String, GitHubAppRecord>>,
+        adapter_apps: Mutex<HashMap<(String, String), crate::adapter_apps::StoredAdapterApp>>,
         migrations: Mutex<Vec<String>>,
+        audits: Mutex<Vec<(String, String, String)>>,
         pub reads: Mutex<usize>,
         pub fail_reads: Mutex<bool>,
         pub fail_writes: Mutex<bool>,
@@ -534,10 +578,77 @@ pub mod test_support {
         pub fn read_count(&self) -> usize {
             *self.reads.lock().expect("lock")
         }
+
+        pub fn github_app_count(&self) -> usize {
+            self.apps.lock().expect("lock").len()
+        }
+
+        pub fn audit_entries(&self) -> Vec<(String, String, String)> {
+            self.audits.lock().expect("lock").clone()
+        }
     }
 
     #[async_trait]
     impl AdapterAppDao for InMemoryAdapterAppDao {
+        async fn list_adapter_apps(
+            &self,
+        ) -> Result<Vec<crate::adapter_apps::StoredAdapterApp>, AuthError> {
+            let mut apps: Vec<_> = self
+                .adapter_apps
+                .lock()
+                .expect("lock")
+                .values()
+                .cloned()
+                .collect();
+            apps.sort_by(|a, b| (&a.adapter_kind, &a.app_key).cmp(&(&b.adapter_kind, &b.app_key)));
+            Ok(apps)
+        }
+
+        async fn upsert_adapter_app(
+            &self,
+            input: crate::adapter_apps::AdapterAppInput,
+            _cipher: &dyn crate::secret::service::SecretCipher,
+            _actor_id: &str,
+        ) -> Result<crate::adapter_apps::StoredAdapterApp, AuthError> {
+            let key = (input.adapter_kind.to_string(), input.app_key.clone());
+            let mut apps = self.adapter_apps.lock().expect("lock");
+            let revision = apps.get(&key).map_or(1, |app| app.revision + 1);
+            let app = crate::adapter_apps::StoredAdapterApp {
+                id: crate::adapter_apps::app_id(input.adapter_kind, &input.app_key),
+                adapter_kind: input.adapter_kind.to_string(),
+                app_key: input.app_key,
+                display_name: input.display_name,
+                config_json: input.config_json,
+                secret_fingerprints: input
+                    .secrets
+                    .into_iter()
+                    .map(|secret| {
+                        (
+                            secret.name.to_string(),
+                            crate::adapter_apps::secret_fingerprint(&secret.plaintext),
+                        )
+                    })
+                    .collect(),
+                revision,
+                updated_at: chrono::Utc::now(),
+            };
+            apps.insert(key, app.clone());
+            Ok(app)
+        }
+
+        async fn delete_adapter_app(
+            &self,
+            adapter_kind: &str,
+            app_key: &str,
+        ) -> Result<bool, AuthError> {
+            Ok(self
+                .adapter_apps
+                .lock()
+                .expect("lock")
+                .remove(&(adapter_kind.to_string(), app_key.to_string()))
+                .is_some())
+        }
+
         async fn list_github_apps(&self) -> Result<Vec<GitHubAppRecord>, AuthError> {
             if *self.fail_reads.lock().expect("lock") {
                 return Err(AuthError::Internal("store unavailable".into()));
@@ -628,8 +739,13 @@ pub mod test_support {
 
         async fn record_github_app_audit(
             &self,
-            _entry: GitHubAppAuditEntry<'_>,
+            entry: GitHubAppAuditEntry<'_>,
         ) -> Result<(), AuthError> {
+            self.audits.lock().expect("lock").push((
+                entry.app_key.to_string(),
+                entry.action.to_string(),
+                entry.result.to_string(),
+            ));
             Ok(())
         }
     }
@@ -638,8 +754,8 @@ pub mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_core::config::SecretsConfig;
     use crate::secret::service::LocalEnvelopeSecretCipher;
+    use moatless_core::config::SecretsConfig;
 
     fn cipher() -> std::sync::Arc<dyn SecretCipher> {
         LocalEnvelopeSecretCipher::from_config(&SecretsConfig {

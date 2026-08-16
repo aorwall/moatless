@@ -136,6 +136,12 @@ A configured, credentialed installation of an Adapter (webhook secret, transport
 config). Stored in the `integration_connections` table.
 _Avoid_: integration connection (the table name), bare "connection"
 
+**Adapter App**:
+Installation-wide credentials and configuration that let an Adapter connect to
+its external system. An Adapter App is identified by Adapter kind and App key;
+many Adapter connections may use it.
+_Avoid_: provider settings, integration App, bare "App"
+
 **GitHub App**:
 A machine identity registered at GitHub, holding a signing key this installation
 stores, from which short-lived tokens are minted per account it is installed on.
@@ -265,6 +271,11 @@ The execution implementation that controls the Agent process, such as
 Task's lifetime, and instantiated inside its Sandbox; transport, model, and mode
 variants are configuration, not distinct harnesses.
 _Avoid_: Agent type, treating `claude-code-tui` / `-cli` / `-fable` as harnesses
+
+**Agent harness credential**:
+A user- or installation-scoped credential consumed by an Agent harness, such as
+Codex `auth.json`. It is persisted before running Sandboxes are told to refresh.
+_Avoid_: provider token when the credential is for the harness itself
 
 **Agent mode**:
 How the Agent runs a Turn: `plan` or `edit`.

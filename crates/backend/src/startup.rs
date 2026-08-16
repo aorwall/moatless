@@ -740,6 +740,7 @@ pub fn build_docker_sandbox_adapter(
 /// All `*ApiDoc` structs register their paths via `#[openapi(paths(...))]`,
 /// so we can build the full spec without constructing any routers.
 pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
+    use crate::access_settings::routes::AccessSettingsApiDoc;
     use crate::adapters::routes::AdapterApiDoc;
     use crate::agent::routes::AgentApiDoc;
     use crate::auth::routes::AuthApiDoc;
@@ -749,7 +750,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::loops::http::LoopsApiDoc;
     use crate::message::routes::MessageApiDoc;
     use crate::plugin::routes::PluginApiDoc;
-    use crate::provider_settings::routes::ProviderSettingsApiDoc;
     use crate::repository::routes::RepositoryApiDoc;
     use crate::repository_sync::routes::RepositorySyncApiDoc;
     use crate::sandbox::routes::SandboxApiDoc;
@@ -817,7 +817,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(RepositorySyncApiDoc::openapi());
     merged.merge(SecretApiDoc::openapi());
     merged.merge(TagApiDoc::openapi());
-    merged.merge(ProviderSettingsApiDoc::openapi());
+    merged.merge(AccessSettingsApiDoc::openapi());
     merged.merge(AdapterApiDoc::openapi());
     merged.merge(LoopsApiDoc::openapi());
     merged.merge(TeamApiDoc::openapi());

@@ -5,11 +5,12 @@
 //! tests use this hand-written stub.
 
 use async_trait::async_trait;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
 use super::provider_token_dao::ProviderTokenDao;
-use crate::auth::github_scope::GitHubScope;
 use crate::auth::codex_scope::CodexScope;
+use crate::auth::github_scope::GitHubScope;
 
 /// Canned `provider_tokens` rows at each scope. Writes are accepted and
 /// dropped. Reads honour the same `user > global` precedence as
@@ -22,6 +23,8 @@ pub struct StubProviderTokens {
     pub user_id: Option<String>,
     /// The singleton global github row.
     pub global_row: Option<ProviderToken>,
+    /// Number of persistence mutations attempted through this stub.
+    pub writes: AtomicUsize,
 }
 
 impl StubProviderTokens {
@@ -134,6 +137,7 @@ impl ProviderTokenDao for StubProviderTokens {
         _token_type: Option<&str>,
         _metadata: Option<&serde_json::Value>,
     ) -> Result<(), sqlx::Error> {
+        self.writes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -147,10 +151,12 @@ impl ProviderTokenDao for StubProviderTokens {
         _token_type: Option<&str>,
         _metadata: Option<&serde_json::Value>,
     ) -> Result<(), sqlx::Error> {
+        self.writes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     async fn delete_token(&self, _user_id: &str, _provider: &str) -> Result<(), sqlx::Error> {
+        self.writes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -169,10 +175,12 @@ impl ProviderTokenDao for StubProviderTokens {
         _token_type: Option<&str>,
         _metadata: Option<&serde_json::Value>,
     ) -> Result<(), sqlx::Error> {
+        self.writes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     async fn delete_codex_blob(&self, _scope: &CodexScope) -> Result<(), sqlx::Error> {
+        self.writes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -196,10 +204,12 @@ impl ProviderTokenDao for StubProviderTokens {
         _provider_user_id: Option<&str>,
         _provider_login: Option<&str>,
     ) -> Result<(), sqlx::Error> {
+        self.writes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     async fn delete_github_row(&self, _scope: &GitHubScope) -> Result<(), sqlx::Error> {
+        self.writes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 

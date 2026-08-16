@@ -13,7 +13,7 @@
 //! Callers of the wrapper (`CredentialSync`), for orientation:
 //! - `sandbox::secrets` — resolves a fresh Codex blob for sandbox provisioning.
 //! - `sandbox::grpc_server::update_credential` — sandbox pushed a rotated blob.
-//! - `provider_settings::handlers::*` — user saved a token via the UI.
+//! - `agent_harness_access::AgentHarnessAccess` — user saved a token via the UI.
 
 pub mod codex;
 pub mod error;

@@ -1,4 +1,4 @@
-import type { GitHubConfigResponse } from '@moatless/api-client/sandbox/model'
+import type { GitHubProviderTokenStatusResponse } from '@moatless/api-client/sandbox/model'
 import { Loader2, LogOut, Plug } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
@@ -26,7 +26,7 @@ import { getErrorMessage } from '@/lib/utils/error'
 function GitHubPATOverrideSection({
   githubConfig,
 }: {
-  githubConfig: GitHubConfigResponse | undefined
+  githubConfig: GitHubProviderTokenStatusResponse | undefined
 }) {
   const savePAT = useSaveGitHubPAT()
   const removePATOverride = useRemoveGitHubPATOverride()

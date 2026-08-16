@@ -206,7 +206,7 @@ moatless-identity = { path = "../identity", features = ["test-support"] }
 # `cargo build`. No `db-tests` forward: no integration test names a workspaces mock.
 moatless-workspaces = { path = "../workspaces", features = ["test-support"] }
 # tasks' `MockTaskDao` (automock on `TaskDao`) for the backend's own `#[cfg(test)]`
-# unit tests (sandbox::handlers, sandbox::grpc_server, provider_settings::codex_save),
+# unit tests (sandbox::handlers, sandbox::grpc_server, agent_harness_access),
 # reached through the `task` facade. Dev-dependency features do not unify into the
 # normal build under resolver 2, so this stays out of `cargo build`.
 moatless-tasks = { path = "../tasks", features = ["test-support"] }

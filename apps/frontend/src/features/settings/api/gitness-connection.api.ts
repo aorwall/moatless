@@ -1,30 +1,23 @@
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import {
+  deleteGitnessConfig,
+  getGitnessConfig,
+  saveGitnessPat,
+} from '@moatless/api-client/sandbox/git-host-access/git-host-access'
 import type {
-  GitnessConfigResponse,
-  SaveGitnessPATRequest,
+  GitnessProviderTokenStatusResponse,
+  SaveGitnessProviderTokenRequest,
 } from '@moatless/api-client/sandbox/model'
-import { apiClient } from '@/lib/api/client'
-
-type DisconnectGitnessResponse = { success: boolean; message: string }
-type SaveGitnessPATResponse = { success: boolean; message: string }
 
 export const gitnessConnectionApi = {
-  getConfig: async (): Promise<GitnessConfigResponse> => {
-    const response = await apiClient.get<GitnessConfigResponse>('/api/v1/settings/gitness/config')
-    return response
-  },
+  getConfig: (): Promise<GitnessProviderTokenStatusResponse> =>
+    unwrapResponse<GitnessProviderTokenStatusResponse>(getGitnessConfig()),
 
-  disconnect: async (): Promise<DisconnectGitnessResponse> => {
-    const response = await apiClient.delete<DisconnectGitnessResponse>(
-      '/api/v1/settings/gitness/config',
-    )
-    return response
-  },
+  disconnect: (): Promise<GitnessProviderTokenStatusResponse> =>
+    unwrapResponse<GitnessProviderTokenStatusResponse>(deleteGitnessConfig()),
 
-  savePAT: async (request: SaveGitnessPATRequest): Promise<SaveGitnessPATResponse> => {
-    const response = await apiClient.put<SaveGitnessPATResponse>('/api/v1/settings/gitness/pat', {
-      baseUrl: request.baseUrl,
-      token: request.token,
-    })
-    return response
-  },
+  savePAT: (
+    request: SaveGitnessProviderTokenRequest,
+  ): Promise<GitnessProviderTokenStatusResponse> =>
+    unwrapResponse<GitnessProviderTokenStatusResponse>(saveGitnessPat(request)),
 }

@@ -25,7 +25,7 @@ use moatless_backend::startup;
 use moatless_backend::state::AppState;
 use moatless_backend::supervisor::{Criticality, Supervisor};
 use moatless_backend::{
-    adapters, feedback, file_storage, loops, message, plugin, provider_settings, repository,
+    access_settings, adapters, feedback, file_storage, loops, message, plugin, repository,
     repository_sync, secret, skill, t3code, tag, task, task_connections, task_event, task_listing,
     team, workspace,
 };
@@ -484,7 +484,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             repository_sync::routes::repository_sync_router(app_state.clone()),
             secret::routes::secret_router(app_state.clone()),
             tag::routes::tag_router(app_state.clone()),
-            provider_settings::routes::provider_settings_router(app_state.clone()),
+            access_settings::routes::access_settings_router(app_state.clone()),
             adapters::routes::adapter_router(app_state.clone()),
             loops::http::loops_router(app_state.clone()),
             team::routes::team_router(app_state.clone()),

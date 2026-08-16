@@ -1,4 +1,7 @@
-import type { GitHubConfigResponse, SavePatRequest } from '@moatless/api-client/sandbox/model'
+import type {
+  GitHubProviderTokenStatusResponse,
+  SaveGitHubProviderTokenRequest,
+} from '@moatless/api-client/sandbox/model'
 import {
   type UseMutationOptions,
   useMutation,
@@ -23,7 +26,7 @@ export function useGitHubConfig() {
  * Disconnect GitHub service connection
  */
 export function useDisconnectGitHub(
-  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError>,
+  options?: UseMutationOptions<GitHubProviderTokenStatusResponse, ApiError>,
 ) {
   const queryClient = useQueryClient()
 
@@ -44,7 +47,11 @@ export function useDisconnectGitHub(
  * Save Personal Access Token
  */
 export function useSaveGitHubPAT(
-  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError, SavePatRequest>,
+  options?: UseMutationOptions<
+    GitHubProviderTokenStatusResponse,
+    ApiError,
+    SaveGitHubProviderTokenRequest
+  >,
 ) {
   const queryClient = useQueryClient()
 
@@ -65,7 +72,7 @@ export function useSaveGitHubPAT(
  * Remove a PAT override and restore the GitHub App user token.
  */
 export function useRemoveGitHubPATOverride(
-  options?: UseMutationOptions<GitHubConfigResponse, ApiError>,
+  options?: UseMutationOptions<GitHubProviderTokenStatusResponse, ApiError>,
 ) {
   const queryClient = useQueryClient()
 

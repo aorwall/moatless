@@ -8,7 +8,7 @@ import {
   adminDeleteAdapterApp,
   adminListAdapterApps,
   adminSaveAdapterApp,
-} from '@moatless/api-client/sandbox/provider-settings/provider-settings'
+} from '@moatless/api-client/sandbox/app-administration/app-administration'
 
 export const adapterAppsApi = {
   async list(): Promise<AdapterAppSummary[]> {

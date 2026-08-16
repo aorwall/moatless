@@ -1409,7 +1409,7 @@
     "/api/v1/admin/settings/adapter-apps": {
       "get": {
         "tags": [
-          "provider-settings"
+          "app-administration"
         ],
         "operationId": "admin_list_adapter_apps",
         "responses": {
@@ -1449,7 +1449,7 @@
     "/api/v1/admin/settings/adapter-apps/{adapter_kind}/{app_key}": {
       "put": {
         "tags": [
-          "provider-settings"
+          "app-administration"
         ],
         "operationId": "admin_save_adapter_app",
         "parameters": [
@@ -1527,7 +1527,7 @@
       },
       "delete": {
         "tags": [
-          "provider-settings"
+          "app-administration"
         ],
         "operationId": "admin_delete_adapter_app",
         "parameters": [
@@ -1590,16 +1590,14 @@
     "/api/v1/admin/settings/codex/config": {
       "post": {
         "tags": [
-          "provider-settings"
+          "agent-harness-access"
         ],
-        "summary": "Save the instance-wide (global) Codex blob. Admin only.",
-        "description": "Sits at the bottom of the precedence chain: any user with their own row\nor a member of a team with a team row will shadow this. Useful for\nseeding bots (e.g. `bot:reviewer`) without per-bot upserts.",
         "operationId": "admin_save_global_codex_auth",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SaveCodexAuthRequest"
+                "$ref": "#/components/schemas/SaveCodexAgentHarnessCredentialRequest"
               }
             }
           },
@@ -1611,7 +1609,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CodexConfigResponse"
+                  "$ref": "#/components/schemas/CodexAgentHarnessCredentialStatusResponse"
                 }
               }
             }
@@ -1650,9 +1648,8 @@
       },
       "delete": {
         "tags": [
-          "provider-settings"
+          "agent-harness-access"
         ],
-        "summary": "Delete the instance-wide (global) Codex blob. Admin only.",
         "operationId": "admin_delete_global_codex_config",
         "responses": {
           "200": {
@@ -1660,7 +1657,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CodexConfigResponse"
+                  "$ref": "#/components/schemas/CodexAgentHarnessCredentialStatusResponse"
                 }
               }
             }
@@ -1691,7 +1688,7 @@
     "/api/v1/admin/settings/github/apps": {
       "get": {
         "tags": [
-          "provider-settings"
+          "app-administration"
         ],
         "operationId": "admin_list_github_apps",
         "responses": {
@@ -1729,7 +1726,7 @@
       },
       "post": {
         "tags": [
-          "provider-settings"
+          "app-administration"
         ],
         "operationId": "admin_register_github_app",
         "requestBody": {
@@ -1799,7 +1796,7 @@
     "/api/v1/admin/settings/github/apps/{github_app_key}": {
       "delete": {
         "tags": [
-          "provider-settings"
+          "app-administration"
         ],
         "operationId": "admin_remove_github_app",
         "parameters": [
@@ -1860,7 +1857,7 @@
     "/api/v1/admin/settings/github/apps/{github_app_key}/key": {
       "put": {
         "tags": [
-          "provider-settings"
+          "app-administration"
         ],
         "operationId": "admin_rotate_github_app_key",
         "parameters": [
@@ -1941,7 +1938,7 @@
     "/api/v1/admin/settings/github/installation": {
       "get": {
         "tags": [
-          "provider-settings"
+          "app-administration"
         ],
         "operationId": "admin_get_global_github_installation",
         "responses": {
@@ -1979,7 +1976,7 @@
       },
       "put": {
         "tags": [
-          "provider-settings"
+          "app-administration"
         ],
         "operationId": "admin_put_global_github_installation",
         "requestBody": {
@@ -2037,7 +2034,7 @@
       },
       "delete": {
         "tags": [
-          "provider-settings"
+          "app-administration"
         ],
         "operationId": "admin_delete_global_github_installation",
         "responses": {
@@ -2146,10 +2143,8 @@
     "/api/v1/admin/users/{user_id}/provider-tokens/codex": {
       "post": {
         "tags": [
-          "users"
+          "agent-harness-access"
         ],
-        "summary": "Seed (or overwrite) a target user's codex provider_tokens row from an\nalready-minted `auth.json` blob. Admin-only — used to clone a working\nCodex blob onto a bot user (e.g. `bot:reviewer`) that has no way to run\nthe device-code flow itself.",
-        "description": "Body shape mirrors `SaveCodexAuthRequest`. Side effects mirror\n`provider_settings::save_codex_auth`: persists to `provider_tokens` and\nbroadcasts via `CredentialService` to any running sandbox owned by the\ntarget user.",
         "operationId": "admin_set_codex_provider_token_handler",
         "parameters": [
           {
@@ -2166,7 +2161,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SaveCodexAuthRequest"
+                "$ref": "#/components/schemas/SaveCodexAgentHarnessCredentialRequest"
               }
             }
           },
@@ -2178,7 +2173,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CodexConfigResponse"
+                  "$ref": "#/components/schemas/CodexAgentHarnessCredentialStatusResponse"
                 }
               }
             }
@@ -5327,9 +5322,8 @@
     "/api/v1/settings/codex/config": {
       "get": {
         "tags": [
-          "provider-settings"
+          "agent-harness-access"
         ],
-        "summary": "Get current Codex configuration for the user.",
         "operationId": "get_codex_config",
         "responses": {
           "200": {
@@ -5337,7 +5331,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CodexConfigResponse"
+                  "$ref": "#/components/schemas/CodexAgentHarnessCredentialStatusResponse"
                 }
               }
             }
@@ -5356,15 +5350,14 @@
       },
       "put": {
         "tags": [
-          "provider-settings"
+          "agent-harness-access"
         ],
-        "summary": "Save Codex auth.json contents for sandbox startup.",
         "operationId": "save_codex_auth",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SaveCodexAuthRequest"
+                "$ref": "#/components/schemas/SaveCodexAgentHarnessCredentialRequest"
               }
             }
           },
@@ -5376,7 +5369,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CodexConfigResponse"
+                  "$ref": "#/components/schemas/CodexAgentHarnessCredentialStatusResponse"
                 }
               }
             }
@@ -5405,9 +5398,8 @@
       },
       "delete": {
         "tags": [
-          "provider-settings"
+          "agent-harness-access"
         ],
-        "summary": "Disconnect Codex by deleting the stored auth blob.",
         "operationId": "delete_codex_config",
         "responses": {
           "200": {
@@ -5415,7 +5407,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CodexConfigResponse"
+                  "$ref": "#/components/schemas/CodexAgentHarnessCredentialStatusResponse"
                 }
               }
             }
@@ -5436,9 +5428,8 @@
     "/api/v1/settings/codex/login/poll": {
       "post": {
         "tags": [
-          "provider-settings"
+          "agent-harness-access"
         ],
-        "summary": "Poll one tick of the Codex device-code flow. The frontend drives the\ncadence (~5s typical). On success, we persist the assembled auth.json blob\nto `provider_tokens` and return the connected metadata.",
         "operationId": "poll_codex_device_login",
         "requestBody": {
           "content": {
@@ -5487,9 +5478,8 @@
     "/api/v1/settings/codex/login/start": {
       "post": {
         "tags": [
-          "provider-settings"
+          "agent-harness-access"
         ],
-        "summary": "Begin a Codex device-code OAuth flow. The frontend shows the returned\n`userCode` to the user and points them at `verificationUrl` to approve.",
         "operationId": "start_codex_device_login",
         "responses": {
           "200": {
@@ -5528,9 +5518,8 @@
     "/api/v1/settings/github/config": {
       "get": {
         "tags": [
-          "provider-settings"
+          "git-host-access"
         ],
-        "summary": "Get current GitHub configuration for the user.",
         "operationId": "get_github_config",
         "responses": {
           "200": {
@@ -5538,7 +5527,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                  "$ref": "#/components/schemas/GitHubProviderTokenStatusResponse"
                 }
               }
             }
@@ -5557,9 +5546,8 @@
       },
       "delete": {
         "tags": [
-          "provider-settings"
+          "git-host-access"
         ],
-        "summary": "Disconnect GitHub by deleting the stored token.",
         "operationId": "delete_github_config",
         "responses": {
           "200": {
@@ -5567,7 +5555,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                  "$ref": "#/components/schemas/GitHubProviderTokenStatusResponse"
                 }
               }
             }
@@ -5588,15 +5576,14 @@
     "/api/v1/settings/github/pat": {
       "put": {
         "tags": [
-          "provider-settings"
+          "git-host-access"
         ],
-        "summary": "Save a GitHub Personal Access Token after validating it.",
         "operationId": "save_github_pat",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SavePatRequest"
+                "$ref": "#/components/schemas/SaveGitHubProviderTokenRequest"
               }
             }
           },
@@ -5608,7 +5595,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                  "$ref": "#/components/schemas/GitHubProviderTokenStatusResponse"
                 }
               }
             }
@@ -5627,9 +5614,8 @@
       },
       "delete": {
         "tags": [
-          "provider-settings"
+          "git-host-access"
         ],
-        "summary": "Remove a PAT override for a GitHub App user, restoring the App user token.",
         "operationId": "delete_github_pat_override",
         "responses": {
           "200": {
@@ -5637,7 +5623,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                  "$ref": "#/components/schemas/GitHubProviderTokenStatusResponse"
                 }
               }
             }
@@ -5668,9 +5654,8 @@
     "/api/v1/settings/gitness/config": {
       "get": {
         "tags": [
-          "provider-settings"
+          "git-host-access"
         ],
-        "summary": "Get current Gitness configuration for the user.",
         "operationId": "get_gitness_config",
         "responses": {
           "200": {
@@ -5678,7 +5663,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitnessConfigResponse"
+                  "$ref": "#/components/schemas/GitnessProviderTokenStatusResponse"
                 }
               }
             }
@@ -5697,9 +5682,8 @@
       },
       "delete": {
         "tags": [
-          "provider-settings"
+          "git-host-access"
         ],
-        "summary": "Disconnect Gitness by deleting the stored token.",
         "operationId": "delete_gitness_config",
         "responses": {
           "200": {
@@ -5707,7 +5691,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitnessConfigResponse"
+                  "$ref": "#/components/schemas/GitnessProviderTokenStatusResponse"
                 }
               }
             }
@@ -5728,15 +5712,14 @@
     "/api/v1/settings/gitness/pat": {
       "put": {
         "tags": [
-          "provider-settings"
+          "git-host-access"
         ],
-        "summary": "Save a Gitness Personal Access Token after validating it.",
         "operationId": "save_gitness_pat",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SaveGitnessPATRequest"
+                "$ref": "#/components/schemas/SaveGitnessProviderTokenRequest"
               }
             }
           },
@@ -5748,7 +5731,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitnessConfigResponse"
+                  "$ref": "#/components/schemas/GitnessProviderTokenStatusResponse"
                 }
               }
             }
@@ -9751,7 +9734,7 @@
           }
         }
       },
-      "CodexConfigResponse": {
+      "CodexAgentHarnessCredentialStatusResponse": {
         "type": "object",
         "required": [
           "connected"
@@ -11591,36 +11574,6 @@
           }
         }
       },
-      "GitHubConfigResponse": {
-        "type": "object",
-        "required": [
-          "connected"
-        ],
-        "properties": {
-          "connected": {
-            "type": "boolean"
-          },
-          "hasPatOverride": {
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "description": "True when a GitHub App user has an active PAT override."
-          },
-          "login": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "tokenType": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "GitHubInstallationBindingRequest": {
         "type": "object",
         "required": [
@@ -11695,6 +11648,36 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "GitHubProviderTokenStatusResponse": {
+        "type": "object",
+        "required": [
+          "connected"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "hasPatOverride": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "True when a GitHub App user has an active PAT override."
+          },
+          "login": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokenType": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -11919,7 +11902,7 @@
           }
         }
       },
-      "GitnessConfigResponse": {
+      "GitnessProviderTokenStatusResponse": {
         "type": "object",
         "required": [
           "connected"
@@ -14187,7 +14170,7 @@
           }
         ]
       },
-      "SaveCodexAuthRequest": {
+      "SaveCodexAgentHarnessCredentialRequest": {
         "type": "object",
         "required": [
           "authJson"
@@ -14198,7 +14181,18 @@
           }
         }
       },
-      "SaveGitnessPATRequest": {
+      "SaveGitHubProviderTokenRequest": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "SaveGitnessProviderTokenRequest": {
         "type": "object",
         "required": [
           "baseUrl",
@@ -14245,17 +14239,6 @@
               "string",
               "null"
             ]
-          }
-        }
-      },
-      "SavePatRequest": {
-        "type": "object",
-        "required": [
-          "token"
-        ],
-        "properties": {
-          "token": {
-            "type": "string"
           }
         }
       },
@@ -18038,8 +18021,16 @@
       "description": "Tag listing"
     },
     {
-      "name": "provider-settings",
-      "description": "GitHub, Gitness, and Codex credential management"
+      "name": "git-host-access",
+      "description": "GitHub and Gitness provider-token access"
+    },
+    {
+      "name": "agent-harness-access",
+      "description": "Agent harness credential access"
+    },
+    {
+      "name": "app-administration",
+      "description": "Adapter and GitHub App administration"
     },
     {
       "name": "adapters",

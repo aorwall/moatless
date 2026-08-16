@@ -6,16 +6,16 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use tracing::{info, warn};
 
 use crate::auth::error::AuthError;
-use moatless_core::config::{Config, LinearConfig, SecretsConfig, SlackConfig, TelegramConfig};
-use moatless_core::db::DbPool;
 use crate::secret::models::EncryptedSecretValue;
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher};
+use moatless_core::config::{Config, LinearConfig, SecretsConfig, SlackConfig, TelegramConfig};
+use moatless_core::db::DbPool;
 
 pub mod dao;
 
@@ -201,8 +201,17 @@ pub async fn upsert_adapter_app(
     input: AdapterAppInput,
     actor_id: &str,
 ) -> Result<StoredAdapterApp, AuthError> {
-    validate_adapter_app(&input)?;
     let cipher = require_cipher(secrets)?;
+    upsert_adapter_app_with_cipher(db, cipher.as_ref(), input, actor_id).await
+}
+
+pub(crate) async fn upsert_adapter_app_with_cipher(
+    db: &DbPool,
+    cipher: &dyn SecretCipher,
+    input: AdapterAppInput,
+    actor_id: &str,
+) -> Result<StoredAdapterApp, AuthError> {
+    validate_adapter_app(&input)?;
     let id = app_id(input.adapter_kind, &input.app_key);
     let fingerprints: Value = input
         .secrets
@@ -805,7 +814,7 @@ async fn carry_over_one(
 
 #[cfg(test)]
 mod tests {
-    use super::{app_key_from_transport_config, DEFAULT_APP_KEY};
+    use super::{DEFAULT_APP_KEY, app_key_from_transport_config};
 
     #[test]
     fn transport_config_app_key_defaults_when_absent_or_blank() {

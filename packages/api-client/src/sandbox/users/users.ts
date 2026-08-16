@@ -27,12 +27,10 @@ import type {
 import type {
   AdminResetPasswordRequest,
   AdminUpdateUserRequest,
-  CodexConfigResponse,
   CreateUserRequest,
   CreateUserResponse,
   ErrorBody,
   MessageResponse,
-  SaveCodexAuthRequest,
   SendDmRequest,
   SendDmResponse,
   SetProviderIdRequest,
@@ -54,121 +52,6 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 /**
- * Body shape mirrors `SaveCodexAuthRequest`. Side effects mirror
-`provider_settings::save_codex_auth`: persists to `provider_tokens` and
-broadcasts via `CredentialService` to any running sandbox owned by the
-target user.
- * @summary Seed (or overwrite) a target user's codex provider_tokens row from an
-already-minted `auth.json` blob. Admin-only — used to clone a working
-Codex blob onto a bot user (e.g. `bot:reviewer`) that has no way to run
-the device-code flow itself.
- */
-export type adminSetCodexProviderTokenHandlerResponse200 = {
-  data: CodexConfigResponse
-  status: 200
-}
-
-export type adminSetCodexProviderTokenHandlerResponse400 = {
-  data: ErrorBody
-  status: 400
-}
-
-export type adminSetCodexProviderTokenHandlerResponse401 = {
-  data: ErrorBody
-  status: 401
-}
-
-export type adminSetCodexProviderTokenHandlerResponse403 = {
-  data: ErrorBody
-  status: 403
-}
-
-export type adminSetCodexProviderTokenHandlerResponse500 = {
-  data: ErrorBody
-  status: 500
-}
-    
-export type adminSetCodexProviderTokenHandlerResponseSuccess = (adminSetCodexProviderTokenHandlerResponse200) & {
-  headers: Headers;
-};
-export type adminSetCodexProviderTokenHandlerResponseError = (adminSetCodexProviderTokenHandlerResponse400 | adminSetCodexProviderTokenHandlerResponse401 | adminSetCodexProviderTokenHandlerResponse403 | adminSetCodexProviderTokenHandlerResponse500) & {
-  headers: Headers;
-};
-
-export type adminSetCodexProviderTokenHandlerResponse = (adminSetCodexProviderTokenHandlerResponseSuccess | adminSetCodexProviderTokenHandlerResponseError)
-
-export const getAdminSetCodexProviderTokenHandlerUrl = (userId: string,) => {
-
-
-  
-
-  return `/api/v1/admin/users/${userId}/provider-tokens/codex`
-}
-
-export const adminSetCodexProviderTokenHandler = async (userId: string,
-    saveCodexAuthRequest: SaveCodexAuthRequest, options?: RequestInit): Promise<adminSetCodexProviderTokenHandlerResponse> => {
-  
-  return customInstance<adminSetCodexProviderTokenHandlerResponse>(getAdminSetCodexProviderTokenHandlerUrl(userId),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      saveCodexAuthRequest,)
-  }
-);}
-
-
-
-
-export const getAdminSetCodexProviderTokenHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>, TError,{userId: string;data: SaveCodexAuthRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>, TError,{userId: string;data: SaveCodexAuthRequest}, TContext> => {
-
-const mutationKey = ['adminSetCodexProviderTokenHandler'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-      
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>, {userId: string;data: SaveCodexAuthRequest}> = (props) => {
-          const {userId,data} = props ?? {};
-
-          return  adminSetCodexProviderTokenHandler(userId,data,requestOptions)
-        }
-
-
-
-        
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type AdminSetCodexProviderTokenHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>>
-    export type AdminSetCodexProviderTokenHandlerMutationBody = SaveCodexAuthRequest
-    export type AdminSetCodexProviderTokenHandlerMutationError = ErrorType<ErrorBody>
-
-    /**
- * @summary Seed (or overwrite) a target user's codex provider_tokens row from an
-already-minted `auth.json` blob. Admin-only — used to clone a working
-Codex blob onto a bot user (e.g. `bot:reviewer`) that has no way to run
-the device-code flow itself.
- */
-export const useAdminSetCodexProviderTokenHandler = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>, TError,{userId: string;data: SaveCodexAuthRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>,
-        TError,
-        {userId: string;data: SaveCodexAuthRequest},
-        TContext
-      > => {
-      return useMutation(getAdminSetCodexProviderTokenHandlerMutationOptions(options), queryClient);
-    }
-    /**
  * @summary List all registered users.
  */
 export type listUsersHandlerResponse200 = {

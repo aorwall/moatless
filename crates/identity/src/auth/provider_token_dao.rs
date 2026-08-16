@@ -69,7 +69,7 @@ pub trait ProviderTokenDao: Send + Sync {
 
     /// Find the codex `provider_tokens` row addressed by `scope`. Returns the
     /// full row (including `metadata`) so callers can build a
-    /// `CodexConfigResponse` without a follow-up read.
+    /// the Agent-harness credential status response without a follow-up read.
     async fn find_codex_blob(
         &self,
         scope: &CodexScope,

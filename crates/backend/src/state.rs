@@ -12,6 +12,8 @@ use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::self_echo::SelfEchoFilter;
+use crate::agent_harness_access::{AgentHarnessAccess, ProviderCodexDeviceLogin};
+use crate::app_administration::{AppAdministration, ProviderGitHubAppProver};
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
@@ -57,6 +59,7 @@ use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_gr
 use moatless_core::config::{AuthConfig, CodexOAuthConfig, Config, S3Config, SecretsConfig};
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
+use moatless_identity::git_host_access::{GitHostAccess, ProviderGitHostTokenValidator};
 
 /// Shared application state for task/message/agent/file routes.
 ///
@@ -121,6 +124,12 @@ pub struct AppState {
     /// service with the in-flight guard and the rotation broadcast to running
     /// sandboxes (9c).
     pub credential_sync: Arc<CredentialSync>,
+    /// GitHub and Gitness provider-token workflows.
+    pub git_host_access: Arc<GitHostAccess>,
+    /// Codex credential and device-login workflows.
+    pub agent_harness_access: Arc<AgentHarnessAccess>,
+    /// Installation-wide Adapter and GitHub App workflows.
+    pub app_administration: Arc<AppAdministration>,
     /// Short-lived in-memory cache of `(task_id, external_event_id)` we
     /// just sent outbound — closes the race where the inbound webhook lands
     /// before `set_external_event_id` commits. See [`RecentlySent`].
@@ -438,6 +447,26 @@ impl AppState {
         let secrets_config = Arc::new(config.secrets.clone());
         let s3_config = Arc::new(config.s3.clone());
 
+        let git_host_access = Arc::new(GitHostAccess::new(
+            provider_tokens.clone(),
+            secrets.clone(),
+            Arc::new(ProviderGitHostTokenValidator::default()),
+        ));
+        let agent_harness_access = Arc::new(AgentHarnessAccess::new(
+            provider_tokens.clone(),
+            credential_sync.clone(),
+            codex_oauth_config.clone(),
+            Arc::new(ProviderCodexDeviceLogin::default()),
+            users.clone(),
+        ));
+        let app_administration = Arc::new(AppAdministration::new(
+            github_apps.clone(),
+            provider_tokens.clone(),
+            adapter_connections.clone(),
+            users.clone(),
+            Arc::new(ProviderGitHubAppProver),
+        ));
+
         // The tasks-band wake port, implemented in sandbox-control. Built here
         // because it needs the task DAO, the lifecycle handle, and the notify
         // port — the same three the composition root already assembled.
@@ -548,6 +577,9 @@ impl AppState {
             github_app_service,
             github_apps,
             credential_sync,
+            git_host_access,
+            agent_harness_access,
+            app_administration,
             recently_sent,
             linear_active_turns: Arc::new(ActiveLinearTurns::new()),
             tool_call_names: Arc::new(
@@ -744,6 +776,24 @@ impl axum::extract::FromRef<AppState> for Arc<GitHubAppRegistry> {
 impl axum::extract::FromRef<AppState> for Arc<CredentialSync> {
     fn from_ref(state: &AppState) -> Self {
         state.credential_sync.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<GitHostAccess> {
+    fn from_ref(state: &AppState) -> Self {
+        state.git_host_access.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<AgentHarnessAccess> {
+    fn from_ref(state: &AppState) -> Self {
+        state.agent_harness_access.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<AppAdministration> {
+    fn from_ref(state: &AppState) -> Self {
+        state.app_administration.clone()
     }
 }
 

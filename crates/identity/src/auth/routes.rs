@@ -176,7 +176,6 @@ pub struct AuthState {
         set_user_provider_id_handler,
         delete_user_provider_id_handler,
         list_user_provider_ids_handler,
-        admin_set_codex_provider_token_handler,
     )
 )]
 pub struct AuthApiDoc;
@@ -204,7 +203,6 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
             delete_user_provider_id_handler
         ))
         .routes(routes!(list_user_provider_ids_handler))
-        .routes(routes!(admin_set_codex_provider_token_handler))
         .with_state(state.clone())
         .split_for_parts();
 
@@ -1906,86 +1904,6 @@ async fn create_user_handler(
             provider: "github_app".to_string(),
             role: "user".to_string(),
         }),
-    ))
-}
-
-/// Seed (or overwrite) a target user's codex provider_tokens row from an
-/// already-minted `auth.json` blob. Admin-only — used to clone a working
-/// Codex blob onto a bot user (e.g. `bot:reviewer`) that has no way to run
-/// the device-code flow itself.
-///
-/// Body shape mirrors `SaveCodexAuthRequest`. Side effects mirror
-/// `provider_settings::save_codex_auth`: persists to `provider_tokens` and
-/// broadcasts via `CredentialService` to any running sandbox owned by the
-/// target user.
-#[utoipa::path(
-    post,
-    path = "/api/v1/admin/users/{user_id}/provider-tokens/codex",
-    tag = "users",
-    params(("user_id" = String, Path, description = "Target user id")),
-    request_body = moatless_api_schemas::provider_settings::SaveCodexAuthRequest,
-    responses(
-        (status = 200, description = "Codex provider_token seeded",
-            body = moatless_api_schemas::provider_settings::CodexConfigResponse),
-        (status = 400, description = "Invalid Codex auth JSON", body = ErrorBody),
-        (status = 401, description = "Unauthorized", body = ErrorBody),
-        (status = 403, description = "Admin only", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody),
-    )
-)]
-async fn admin_set_codex_provider_token_handler(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Path(target_user_id): Path<String>,
-    Json(req): Json<moatless_api_schemas::provider_settings::SaveCodexAuthRequest>,
-) -> Result<Json<moatless_api_schemas::provider_settings::CodexConfigResponse>, AuthError> {
-    let identity = authenticate_request(&state, &headers).await?;
-    if identity.role != UserRole::Admin {
-        return Err(AuthError::Forbidden);
-    }
-
-    // Validate the target user exists so we don't silently seed an orphan row.
-    let target = match target_user_id.parse::<uuid::Uuid>() {
-        Ok(uid) => state.users.get_user(&uid).await?,
-        Err(_) => None,
-    };
-    if target.is_none() {
-        return Err(AuthError::BadRequest(format!(
-            "Unknown target user '{target_user_id}'"
-        )));
-    }
-
-    let parsed = crate::auth::codex_auth_json::parse_codex_auth_json(&req.auth_json)?;
-    let metadata = crate::auth::codex_auth_json::build_codex_metadata(&parsed);
-    let serialized = parsed.to_string();
-
-    state
-        .provider_tokens_dao
-        .upsert_token(
-            &target_user_id,
-            "codex",
-            &serialized,
-            None,
-            Some("auth_json"),
-            Some(&metadata),
-        )
-        .await?;
-
-    info!(
-        actor = %identity.user_id,
-        target_user = %target_user_id,
-        "Admin seeded Codex provider_token"
-    );
-
-    Ok(Json(
-        moatless_api_schemas::provider_settings::CodexConfigResponse {
-            connected: true,
-            token_type: Some("auth_json".to_string()),
-            auth_method: Some("auth_json".to_string()),
-            email: None,
-            plan_type: None,
-            needs_reconnect: Some(false),
-        },
     ))
 }
 

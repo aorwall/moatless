@@ -11,11 +11,14 @@
 
 //! Sandbox Controller library — re-exports all modules for integration tests.
 
+pub mod access_settings;
 pub mod adapter_apps;
 pub mod adapter_installations;
 pub mod adapters;
 pub mod agent;
 pub mod agent_event;
+pub mod agent_harness_access;
+pub mod app_administration;
 pub mod auth;
 pub mod bindings;
 pub mod compose;
@@ -30,7 +33,6 @@ pub mod file_storage;
 pub mod loops;
 pub mod message;
 pub mod plugin;
-pub mod provider_settings;
 pub mod repository;
 pub mod repository_sync;
 pub mod sandbox;
