@@ -439,21 +439,37 @@ config:
 
 # Authentication configuration
 auth:
-  # -- Auth provider: "github_app", "auth0", or "" / "local" for
-  # local username/password auth (the default). Under local auth an admin
+  # -- Auth provider: "oidc", "github_app", "auth0", or "" / "local" for
+  # local email/password auth (the default). Under local auth an admin
   # account is seeded at startup from `secrets.adminPassword`; when that is
   # unset a random password is generated and logged once at WARN.
   provider: ""
-  # -- Local username/password settings (used when provider is "" or "local").
+  # -- Local email/password and optional break-glass settings.
   local:
     # -- Login of the bootstrap admin account.
     adminLogin: "admin"
+    # -- Email used to create or attach the bootstrap/break-glass credential.
+    adminEmail: "admin@example.com"
+    # -- Keep an unadvertised local administrator credential when OIDC is active.
+    breakGlassEnabled: false
   # -- Frontend URL for OAuth redirects
   frontendUrl: ""
   # -- Cookie domain for cross-subdomain sharing (e.g., ".moatless.xyz")
   cookieDomain: ""
   # -- Session max age in seconds (default: 604800 = 7 days)
   sessionMaxAge: ""
+  # -- Absolute auth-session lifetime in seconds (default: 2592000 = 30 days)
+  sessionAbsoluteAge: ""
+  # -- Standards-based OpenID Connect login.
+  oidc:
+    enabled: false
+    providerId: "company"
+    name: "Company SSO"
+    issuer: ""
+    callbackUrl: ""
+    autoProvision: true
+    autoLinkVerifiedEmail: true
+    allowedDomains: []
   # -- GitHub App settings (fine-grained permissions and refreshable user tokens)
   githubApp:
     enabled: false
@@ -914,9 +930,8 @@ secrets:
   # -- HMAC secret for task-scoped JWTs (backend↔sandbox auth). Required — every
   # provision fails without it. Generate with `openssl rand -hex 32`.
   taskTokenSecret: ""
-  # -- Secret for signing session cookies. When empty the backend falls back to
-  # `taskTokenSecret`, which couples the two: rotating `taskTokenSecret` then
-  # invalidates every active session. Set this to decouple them.
+  # -- Secret for short-lived WebSocket tickets. Browser auth sessions are
+  # opaque database-backed tokens and do not use this key.
   # Generate with `openssl rand -hex 32`.
   sessionJwtSecret: ""
   # -- Password for the bootstrap admin under local auth. Minimum 12

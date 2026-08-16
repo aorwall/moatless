@@ -106,7 +106,7 @@ async fn probe_auth_mode(url: &str) -> ProbedAuthMode {
     }
 }
 
-/// Username/password login.
+/// Email/password login.
 ///
 /// Composes two existing endpoints — no server-side CLI flow needed:
 /// 1. `POST /api/v1/auth/password/login` → session cookie
@@ -114,16 +114,17 @@ async fn probe_auth_mode(url: &str) -> ProbedAuthMode {
 ///
 /// Only the key is persisted; the password never touches disk.
 async fn login_password(url: &str) -> Result<(), ClientError> {
-    let username = match std::env::var("MOATLESS_USERNAME") {
-        Ok(u) if !u.is_empty() => u,
-        _ => dialoguer::Input::<String>::new()
-            .with_prompt("Username")
-            .interact_text()
-            .map_err(|e| ClientError::Api {
-                status: 0,
-                body: format!("Failed to read username: {e}"),
-            })?,
-    };
+    let email =
+        match std::env::var("MOATLESS_EMAIL").or_else(|_| std::env::var("MOATLESS_USERNAME")) {
+            Ok(value) if !value.is_empty() => value,
+            _ => dialoguer::Input::<String>::new()
+                .with_prompt("Email")
+                .interact_text()
+                .map_err(|e| ClientError::Api {
+                    status: 0,
+                    body: format!("Failed to read email: {e}"),
+                })?,
+        };
     let password = match std::env::var("MOATLESS_PASSWORD") {
         Ok(p) if !p.is_empty() => p,
         _ => dialoguer::Password::new()
@@ -135,7 +136,7 @@ async fn login_password(url: &str) -> Result<(), ClientError> {
             })?,
     };
 
-    let cookie = password_login_cookie(url, &username, &password).await?;
+    let cookie = password_login_cookie(url, &email, &password).await?;
 
     // Mint a long-lived API key using the freshly minted session.
     let client = MoatClient::new_with_session_cookie(url, &cookie);
@@ -149,21 +150,21 @@ async fn login_password(url: &str) -> Result<(), ClientError> {
         .await?;
 
     let host = crate::config::host_from_url(url);
-    crate::credentials::save_profile(&host, &key.key, &username, Some(url), true).map_err(|e| {
+    crate::credentials::save_profile(&host, &key.key, &email, Some(url), true).map_err(|e| {
         ClientError::Api {
             status: 500,
             body: format!("Failed to save credentials: {e}"),
         }
     })?;
 
-    println!("Logged in as {username}");
+    println!("Logged in as {email}");
     Ok(())
 }
 
 /// Log in with a password and return the raw `name=value` session cookie.
 async fn password_login_cookie(
     url: &str,
-    username: &str,
+    email: &str,
     password: &str,
 ) -> Result<String, ClientError> {
     let http = reqwest::Client::builder()
@@ -176,7 +177,7 @@ async fn password_login_cookie(
 
     let resp = http
         .post(format!("{url}/api/v1/auth/password/login"))
-        .json(&serde_json::json!({ "username": username, "password": password }))
+        .json(&serde_json::json!({ "email": email, "password": password }))
         .send()
         .await
         .map_err(|e| ClientError::Api {
@@ -188,7 +189,7 @@ async fn password_login_cookie(
     if status == 401 {
         return Err(ClientError::Api {
             status,
-            body: "Invalid username or password".to_string(),
+            body: "Invalid email or password".to_string(),
         });
     }
     if !resp.status().is_success() {

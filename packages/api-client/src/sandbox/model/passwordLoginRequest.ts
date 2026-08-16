@@ -12,6 +12,6 @@
 `Debug` is hand-written to redact `password`.
  */
 export interface PasswordLoginRequest {
+  email: string;
   password: string;
-  username: string;
 }

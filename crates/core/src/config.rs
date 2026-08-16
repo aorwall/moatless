@@ -61,15 +61,16 @@ pub const MIN_ADMIN_PASSWORD_LEN: usize = 12;
 
 /// Supported auth providers.
 ///
-/// `Local` is the default: username/password against the `user_credentials`
-/// table, with a bootstrap admin seeded at startup. Exactly one provider is
-/// active at a time — local password auth is never a companion to OAuth.
+/// `Local` is the default: email/password against the `user_credentials`
+/// table, with a bootstrap admin seeded at startup. OIDC deployments may keep
+/// a separately enabled break-glass administrator credential.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AuthProvider {
     #[default]
     Local,
     GitHubApp,
     Auth0,
+    Oidc,
 }
 
 impl fmt::Display for AuthProvider {
@@ -78,6 +79,7 @@ impl fmt::Display for AuthProvider {
             Self::Local => write!(f, "local"),
             Self::GitHubApp => write!(f, "github_app"),
             Self::Auth0 => write!(f, "auth0"),
+            Self::Oidc => write!(f, "oidc"),
         }
     }
 }
@@ -91,13 +93,14 @@ impl FromStr for AuthProvider {
             // Legacy spellings of the removed no-auth mode.
             "" | "disabled" | "none" => {
                 tracing::warn!(
-                    "AUTH_PROVIDER={s:?} is deprecated and now means local username/password \
+                    "AUTH_PROVIDER={s:?} is deprecated and now means local email/password \
                      auth. Set AUTH_PROVIDER=local (or leave it unset) instead."
                 );
                 Ok(Self::Local)
             }
             "github_app" | "github-app" => Ok(Self::GitHubApp),
             "auth0" => Ok(Self::Auth0),
+            "oidc" => Ok(Self::Oidc),
             _ => Err(format!("unknown auth provider: {s}")),
         }
     }
@@ -117,6 +120,30 @@ fn env_or<T: FromStr>(key: &str, default: T) -> T {
         }
         Err(_) => default,
     }
+}
+
+fn oidc_config_from_env() -> Option<OidcConfig> {
+    let issuer = env_opt("OIDC_ISSUER")?;
+    Some(OidcConfig {
+        provider_id: env_str("OIDC_PROVIDER_ID", "company"),
+        name: env_str("OIDC_NAME", "Company SSO"),
+        issuer,
+        client_id: env_opt("OIDC_CLIENT_ID").unwrap_or_default(),
+        client_secret: env_opt("OIDC_CLIENT_SECRET").unwrap_or_default(),
+        callback_url: env_opt("OIDC_CALLBACK_URL").unwrap_or_default(),
+        auto_provision: env_bool("OIDC_AUTO_PROVISION", true),
+        auto_link_verified_email: env_bool("OIDC_AUTO_LINK_VERIFIED_EMAIL", true),
+        allowed_domains: env_opt("OIDC_ALLOWED_DOMAINS")
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|domain| !domain.is_empty())
+                    .map(str::to_ascii_lowercase)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
 }
 
 /// Parse a JSON array of `{"name":"...", "value":"..."}` objects from an env var.
@@ -553,7 +580,7 @@ pub struct SseConfig {
 #[derive(Clone)]
 pub struct AuthConfig {
     /// Active auth provider. Defaults to [`AuthProvider::Local`]
-    /// (username/password against `user_credentials`).
+    /// (email/password against `user_credentials`).
     pub provider: AuthProvider,
     /// Required GitHub organization login. When set, only members of this org can log in.
     pub github_required_org: Option<String>,
@@ -569,8 +596,13 @@ pub struct AuthConfig {
     pub auth0_audience: Option<String>,
     /// Auth0 JWT claim key for groups (default: "https://moatless.ai/groups")
     pub auth0_groups_claim: String,
+    /// Standards-based OpenID Connect provider. Auth0 settings above remain a
+    /// compatibility input and are translated into this representation.
+    pub oidc: Option<OidcConfig>,
     /// Session max age in seconds (default: 604800 = 7 days)
     pub session_max_age_secs: u64,
+    /// Hard auth-session lifetime regardless of activity.
+    pub session_absolute_age_secs: u64,
     /// Frontend URL for redirects (default: "http://localhost:3000")
     pub frontend_url: String,
     /// Cookie domain (e.g., ".moatless.xyz"). None for localhost.
@@ -582,9 +614,13 @@ pub struct AuthConfig {
     /// Login of the bootstrap admin seeded at startup under
     /// [`AuthProvider::Local`] (env: `ADMIN_USERNAME`, default `"admin"`).
     pub admin_username: String,
+    /// Email address used by the bootstrap and break-glass administrator.
+    pub admin_email: Option<String>,
     /// Password for the bootstrap admin (env: `ADMIN_PASSWORD`). When unset a
     /// random one is generated on first boot and logged once at WARN.
     pub admin_password: Option<String>,
+    /// Register the unadvertised administrator-only password login route.
+    pub break_glass_enabled: bool,
     /// Auth cache TTL in seconds (default: 30).
     pub cache_ttl_secs: u64,
     /// Secret for signing session JWTs (env: SESSION_JWT_SECRET).
@@ -622,6 +658,35 @@ pub struct AuthConfig {
     /// `provider_tokens` row stores the matching `key` in `provider_user_id`,
     /// so credential resolution picks the right App.
     pub github_apps: Vec<GitHubAppConfig>,
+}
+
+#[derive(Clone)]
+pub struct OidcConfig {
+    pub provider_id: String,
+    pub name: String,
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub callback_url: String,
+    pub auto_provision: bool,
+    pub auto_link_verified_email: bool,
+    pub allowed_domains: Vec<String>,
+}
+
+impl fmt::Debug for OidcConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OidcConfig")
+            .field("provider_id", &self.provider_id)
+            .field("name", &self.name)
+            .field("issuer", &self.issuer)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[REDACTED]")
+            .field("callback_url", &self.callback_url)
+            .field("auto_provision", &self.auto_provision)
+            .field("auto_link_verified_email", &self.auto_link_verified_email)
+            .field("allowed_domains", &self.allowed_domains)
+            .finish()
+    }
 }
 
 /// One GitHub App registration, used by the `GitHubAppRegistry`.
@@ -675,15 +740,19 @@ impl fmt::Debug for AuthConfig {
                 &self.auth0_client_secret.as_ref().map(|_| "[REDACTED]"),
             )
             .field("auth0_callback_url", &self.auth0_callback_url)
+            .field("oidc", &self.oidc)
             .field("session_max_age_secs", &self.session_max_age_secs)
+            .field("session_absolute_age_secs", &self.session_absolute_age_secs)
             .field("frontend_url", &self.frontend_url)
             .field("cookie_domain", &self.cookie_domain)
             .field("is_production", &self.is_production)
             .field("admin_username", &self.admin_username)
+            .field("admin_email", &self.admin_email)
             .field(
                 "admin_password",
                 &self.admin_password.as_ref().map(|_| "[REDACTED]"),
             )
+            .field("break_glass_enabled", &self.break_glass_enabled)
             .field(
                 "session_jwt_secret",
                 &self.session_jwt_secret.as_ref().map(|_| "[REDACTED]"),
@@ -1201,7 +1270,9 @@ impl Config {
                 auth0_callback_url: env_opt("AUTH0_CALLBACK_URL"),
                 auth0_audience: env_opt("AUTH0_AUDIENCE"),
                 auth0_groups_claim: env_str("AUTH0_GROUPS_CLAIM", "https://moatless.ai/groups"),
+                oidc: oidc_config_from_env(),
                 session_max_age_secs: env_or("SESSION_MAX_AGE", 604_800),
+                session_absolute_age_secs: env_or("SESSION_ABSOLUTE_MAX_AGE", 2_592_000),
                 frontend_url: env_str("FRONTEND_URL", "http://localhost:3000"),
                 cookie_domain: env_opt("COOKIE_DOMAIN"),
                 session_cookie_name: env_str("SESSION_COOKIE_NAME", "moatless_session"),
@@ -1209,7 +1280,9 @@ impl Config {
                     .or_else(|_| env::var("NODE_ENV"))
                     .is_ok_and(|v| v == "production"),
                 admin_username: env_str("ADMIN_USERNAME", "admin"),
+                admin_email: Some(env_str("ADMIN_EMAIL", "admin@localhost")),
                 admin_password: env_opt("ADMIN_PASSWORD"),
+                break_glass_enabled: env_bool("AUTH_BREAK_GLASS_ENABLED", false),
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
                 session_jwt_secret: env_opt("SESSION_JWT_SECRET"),
                 test_api_key: env_opt("TEST_API_KEY").map(|s| s.trim().to_string()),
@@ -1295,21 +1368,20 @@ impl Config {
             ));
         }
 
-        // Local password auth signs session cookies and stores credentials in
-        // Postgres — without either, nobody can log in.
+        // Local password auth stores credentials and opaque auth sessions in
+        // Postgres. Every bootstrap administrator has an email because local
+        // login is email-based.
         if self.auth.provider == AuthProvider::Local {
-            if self.auth.session_jwt_secret.is_none() && self.sandbox.task_token_secret.is_none() {
-                return Err(ConfigError::Invalid(
-                    "SESSION_JWT_SECRET (or TASK_TOKEN_SECRET) required when AUTH_PROVIDER=local \
-                     — session cookies cannot be signed without it."
-                        .into(),
-                ));
-            }
             if self.database.url.is_none() {
                 return Err(ConfigError::Invalid(
                     "DATABASE_URL required when AUTH_PROVIDER=local — credentials are stored in \
                      the user_credentials table."
                         .into(),
+                ));
+            }
+            if self.auth.admin_email.as_deref().is_none_or(str::is_empty) {
+                return Err(ConfigError::Invalid(
+                    "ADMIN_EMAIL required when AUTH_PROVIDER=local".into(),
                 ));
             }
             if let Some(ref pw) = self.auth.admin_password {
@@ -1354,6 +1426,46 @@ impl Config {
                 return Err(ConfigError::Invalid(
                     "AUTH0_CLIENT_SECRET required when AUTH_PROVIDER=auth0".into(),
                 ));
+            }
+        }
+        if self.auth.provider == AuthProvider::Oidc {
+            let oidc = self.auth.oidc.as_ref().ok_or_else(|| {
+                ConfigError::Invalid(
+                    "OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, and OIDC_CALLBACK_URL \
+                     are required when AUTH_PROVIDER=oidc"
+                        .into(),
+                )
+            })?;
+            if oidc.issuer.is_empty()
+                || oidc.client_id.is_empty()
+                || oidc.client_secret.is_empty()
+                || oidc.callback_url.is_empty()
+            {
+                return Err(ConfigError::Invalid(
+                    "OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, and OIDC_CALLBACK_URL must \
+                     not be empty"
+                        .into(),
+                ));
+            }
+        }
+        if self.auth.break_glass_enabled {
+            if self.auth.admin_email.as_deref().is_none_or(str::is_empty)
+                || self.auth.admin_password.is_none()
+            {
+                return Err(ConfigError::Invalid(
+                    "ADMIN_EMAIL and ADMIN_PASSWORD are required when AUTH_BREAK_GLASS_ENABLED=true"
+                        .into(),
+                ));
+            }
+            if self
+                .auth
+                .admin_password
+                .as_ref()
+                .is_some_and(|password| password.chars().count() < MIN_ADMIN_PASSWORD_LEN)
+            {
+                return Err(ConfigError::Invalid(format!(
+                    "ADMIN_PASSWORD must be at least {MIN_ADMIN_PASSWORD_LEN} characters"
+                )));
             }
         }
 
@@ -1523,13 +1635,17 @@ impl Config {
                 auth0_callback_url: None,
                 auth0_audience: None,
                 auth0_groups_claim: String::new(),
+                oidc: None,
                 session_max_age_secs: 3600,
+                session_absolute_age_secs: 7200,
                 frontend_url: "http://localhost:3000".into(),
                 cookie_domain: None,
                 session_cookie_name: "test".into(),
                 is_production: false,
                 admin_username: "admin".into(),
+                admin_email: Some("admin@example.com".into()),
                 admin_password: None,
+                break_glass_enabled: false,
                 cache_ttl_secs: 0,
                 session_jwt_secret: Some("test-session-secret".into()),
                 test_api_key: None,
@@ -1623,6 +1739,7 @@ mod tests {
     fn auth_provider_display() {
         assert_eq!(AuthProvider::GitHubApp.to_string(), "github_app");
         assert_eq!(AuthProvider::Auth0.to_string(), "auth0");
+        assert_eq!(AuthProvider::Oidc.to_string(), "oidc");
     }
 
     #[test]
@@ -1736,12 +1853,11 @@ mod tests {
     }
 
     #[test]
-    fn validate_local_requires_session_jwt_secret() {
+    fn opaque_browser_sessions_do_not_require_a_signing_secret() {
         let mut config = minimal_config();
         config.auth.session_jwt_secret = None;
         config.sandbox.task_token_secret = None;
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("SESSION_JWT_SECRET"));
+        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -1842,6 +1958,42 @@ mod tests {
         config.auth.auth0_client_id = Some("id".into());
         config.auth.auth0_client_secret = Some("secret".into());
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_oidc_complete_passes() {
+        let mut config = minimal_config();
+        config.auth.provider = AuthProvider::Oidc;
+        config.auth.oidc = Some(OidcConfig {
+            provider_id: "company".into(),
+            name: "Company SSO".into(),
+            issuer: "https://id.example.com/".into(),
+            client_id: "vibe".into(),
+            client_secret: "secret".into(),
+            callback_url: "https://moatless.example.com/api/v1/auth/oidc/company/callback".into(),
+            auto_provision: true,
+            auto_link_verified_email: true,
+            allowed_domains: vec!["example.com".into()],
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_oidc_rejects_empty_issuer() {
+        let mut config = minimal_config();
+        config.auth.provider = AuthProvider::Oidc;
+        config.auth.oidc = Some(OidcConfig {
+            provider_id: "company".into(),
+            name: "Company SSO".into(),
+            issuer: String::new(),
+            client_id: "vibe".into(),
+            client_secret: "secret".into(),
+            callback_url: "https://moatless.example.com/api/v1/auth/oidc/company/callback".into(),
+            auto_provision: true,
+            auto_link_verified_email: true,
+            allowed_domains: Vec::new(),
+        });
+        assert!(config.validate().is_err());
     }
 
     #[test]

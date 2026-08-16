@@ -29,7 +29,7 @@ export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
   }
 
   const handleLogout = () => {
-    logout()
+    logout().catch(() => undefined)
     setIsMenuOpen(false)
   }
 

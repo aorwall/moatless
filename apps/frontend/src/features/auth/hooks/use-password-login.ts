@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { consumeReturnTo } from '../utils/return-to'
 
 /**
- * Log in with a username and password.
+ * Log in with an email and password.
  *
  * `meta.skipAuthRedirect` is load-bearing: a wrong password answers 401, and
  * without the opt-out the global handler in `query-client.ts` would navigate

@@ -59,6 +59,7 @@ pub struct UserProviderAccount {
 pub trait UserDao: Send + Sync {
     async fn get_user(&self, user_id: &Uuid) -> Result<Option<User>, sqlx::Error>;
     async fn get_user_by_login(&self, login: &str) -> Result<Option<User>, sqlx::Error>;
+    async fn find_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error>;
     async fn get_users_by_ids(&self, user_ids: &[Uuid]) -> Result<Vec<User>, sqlx::Error>;
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error>;
     async fn list_users(&self) -> Result<Vec<User>, sqlx::Error>;
@@ -135,6 +136,15 @@ impl UserDao for PgUserDao {
             .bind(user_ids)
             .fetch_all(&self.0)
             .await
+    }
+
+    async fn find_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>(
+            "SELECT * FROM users WHERE email_normalized = lower(btrim($1)) AND NOT is_bot",
+        )
+        .bind(email)
+        .fetch_optional(&self.0)
+        .await
     }
 
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error> {

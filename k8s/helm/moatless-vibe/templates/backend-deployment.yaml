@@ -202,8 +202,7 @@ spec:
                   name: {{ include "moatless-vibe.secretsName" . }}
                   key: TASK_TOKEN_SECRET
                   optional: true
-            # Signs session cookies. Absent, the backend falls back to
-            # TASK_TOKEN_SECRET — rotating that then invalidates every session.
+            # Signs short-lived WebSocket tickets. Browser auth sessions are opaque.
             - name: SESSION_JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -281,6 +280,12 @@ spec:
             - name: ADMIN_USERNAME
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.auth.local.adminEmail }}
+            - name: ADMIN_EMAIL
+              value: {{ . | quote }}
+            {{- end }}
+            - name: AUTH_BREAK_GLASS_ENABLED
+              value: {{ .Values.auth.local.breakGlassEnabled | quote }}
             {{- with .Values.auth.frontendUrl }}
             - name: FRONTEND_URL
               value: {{ . | quote }}
@@ -291,6 +296,10 @@ spec:
             {{- end }}
             {{- with .Values.auth.sessionMaxAge }}
             - name: SESSION_MAX_AGE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.sessionAbsoluteAge }}
+            - name: SESSION_ABSOLUTE_MAX_AGE
               value: {{ . | quote }}
             {{- end }}
             - name: NODE_ENV
@@ -330,6 +339,34 @@ spec:
             {{- with .Values.auth.githubApp.defaultInstallationId }}
             - name: GITHUB_APP_DEFAULT_INSTALLATION_ID
               value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.auth.oidc.enabled }}
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: OIDC_CLIENT_ID
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: OIDC_CLIENT_SECRET
+            - name: OIDC_PROVIDER_ID
+              value: {{ .Values.auth.oidc.providerId | quote }}
+            - name: OIDC_NAME
+              value: {{ .Values.auth.oidc.name | quote }}
+            - name: OIDC_ISSUER
+              value: {{ .Values.auth.oidc.issuer | quote }}
+            - name: OIDC_CALLBACK_URL
+              value: {{ .Values.auth.oidc.callbackUrl | quote }}
+            - name: OIDC_AUTO_PROVISION
+              value: {{ .Values.auth.oidc.autoProvision | quote }}
+            - name: OIDC_AUTO_LINK_VERIFIED_EMAIL
+              value: {{ .Values.auth.oidc.autoLinkVerifiedEmail | quote }}
+            {{- if .Values.auth.oidc.allowedDomains }}
+            - name: OIDC_ALLOWED_DOMAINS
+              value: {{ join "," .Values.auth.oidc.allowedDomains | quote }}
             {{- end }}
             {{- end }}
             {{- if .Values.auth.auth0.enabled }}

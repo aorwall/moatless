@@ -16,12 +16,17 @@ the server resolves the App's `{slug}[bot]` identity from
 `provider_tokens` row atomically. `githubAppKey` is required in this mode.
 
 With `isBot: false`, creates a human user with a local password. Only
-available when the server runs local password auth; `login` and `password`
-are required in this mode.
+available when the server runs local password auth; `email`, `login`, and
+`password` are required in this mode.
 
 `Debug` is hand-written to redact `password`.
  */
 export interface CreateUserRequest {
+  /**
+   * Email address for a human user. Required when `isBot` is `false`.
+   * @nullable
+   */
+  email?: string | null;
   /**
    * Registry key of a configured GitHub App (e.g. `"dev-bot"`). Required
 when `isBot` is `true`.

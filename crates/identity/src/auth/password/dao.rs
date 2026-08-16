@@ -11,9 +11,8 @@ use moatless_core::db::DbPool;
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait UserCredentialDao: Send + Sync {
-    /// Look up a credential by username, case-insensitively.
-    async fn find_by_username(&self, username: &str)
-        -> Result<Option<UserCredential>, sqlx::Error>;
+    /// Look up a credential through its user's normalized email.
+    async fn find_by_email(&self, email: &str) -> Result<Option<UserCredential>, sqlx::Error>;
     async fn find_by_user_id(&self, user_id: &Uuid) -> Result<Option<UserCredential>, sqlx::Error>;
     /// Insert or replace a user's credential.
     async fn upsert(
@@ -43,16 +42,15 @@ pub struct PgUserCredentialDao(pub DbPool);
 
 #[async_trait]
 impl UserCredentialDao for PgUserCredentialDao {
-    async fn find_by_username(
-        &self,
-        username: &str,
-    ) -> Result<Option<UserCredential>, sqlx::Error> {
+    async fn find_by_email(&self, email: &str) -> Result<Option<UserCredential>, sqlx::Error> {
         sqlx::query_as::<_, UserCredential>(
-            "SELECT user_id, username, password_hash, must_change, failed_attempts, \
-                    last_login_at, password_changed_at, created_at, updated_at \
-             FROM user_credentials WHERE lower(username) = lower($1)",
+            "SELECT c.user_id, c.username, c.password_hash, c.must_change, c.failed_attempts, \
+                    c.last_login_at, c.password_changed_at, c.created_at, c.updated_at \
+             FROM user_credentials c \
+             JOIN users u ON u.id = c.user_id \
+             WHERE u.email_normalized = lower(btrim($1)) AND NOT u.is_bot",
         )
-        .bind(username)
+        .bind(email)
         .fetch_optional(&self.0)
         .await
     }

@@ -1,15 +1,17 @@
 import type { ProviderConnection, SessionResponse } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
-import { meHandler } from '@moatless/api-client/sandbox/auth/auth'
+import { logoutHandler, meHandler } from '@moatless/api-client/sandbox/auth/auth'
 import { queryOptions, useQuery } from '@tanstack/react-query'
 
 import { queryKeys } from '@/lib/api/query-keys'
 import { isServerUnavailable } from '@/lib/api/server-status'
 
-const API_BASE_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?? '')
-
-function logout() {
-  window.location.href = `${API_BASE_URL}/api/v1/auth/logout`
+async function logout() {
+  try {
+    await logoutHandler()
+  } finally {
+    window.location.href = '/login'
+  }
 }
 
 /**

@@ -1,46 +1,65 @@
-//! Session table queries.
+//! Authoritative browser auth-session persistence.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 use super::models::UserRole;
 use moatless_core::db::DbPool;
 
-#[derive(sqlx::FromRow, Debug)]
-pub struct Session {
-    pub id: String,
-    pub provider: String,
-    pub user_id: String,
-    pub user_login: String,
-    pub user_email: Option<String>,
-    pub user_name: Option<String>,
-    pub avatar_url: Option<String>,
-    pub access_token: Option<String>,
-    pub id_token: Option<String>,
-    pub token_type: Option<String>,
-    pub scope: Option<String>,
-    pub role: UserRole,
+/// A newly issued auth session. The browser receives the raw token; this row
+/// contains only its SHA-256 digest.
+#[derive(Debug)]
+pub struct NewAuthSession {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub token_hash: Vec<u8>,
+    pub csrf_token_hash: Vec<u8>,
+    pub authenticated_via: String,
     pub group_id: Option<String>,
     pub created_at: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub idle_expires_at: DateTime<Utc>,
+    pub absolute_expires_at: DateTime<Utc>,
 }
 
-/// DAO trait for session persistence.
+/// The current account and session facts returned for a valid opaque token.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct AuthenticatedSession {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub login: String,
+    pub role: UserRole,
+    pub authenticated_via: String,
+    pub csrf_token_hash: Vec<u8>,
+    pub group_id: Option<String>,
+    pub last_seen_at: DateTime<Utc>,
+    pub idle_expires_at: DateTime<Utc>,
+    pub absolute_expires_at: DateTime<Utc>,
+}
+
+/// Persistence seam exercised by auth route and middleware tests.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait SessionDao: Send + Sync {
-    async fn get_session(&self, session_id: &str) -> Result<Option<Session>, sqlx::Error>;
-    async fn insert_session(&self, session: &Session) -> Result<(), sqlx::Error>;
-    async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
-    /// Delete every session belonging to a user. Used on password change so a
-    /// stolen cookie dies with the old password.
-    async fn delete_sessions_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error>;
-    async fn update_user_info(
+    async fn insert_session(&self, session: &NewAuthSession) -> Result<(), sqlx::Error>;
+    async fn find_active_by_token_hash(
         &self,
-        user_id: &str,
-        name: Option<String>,
-        email: Option<String>,
+        token_hash: &[u8],
+        now: DateTime<Utc>,
+    ) -> Result<Option<AuthenticatedSession>, sqlx::Error>;
+    async fn touch(
+        &self,
+        session_id: Uuid,
+        now: DateTime<Utc>,
+        idle_expires_at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error>;
+    async fn revoke_by_token_hash(
+        &self,
+        token_hash: &[u8],
+        now: DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error>;
+    async fn delete_sessions_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`SessionDao`].
@@ -48,74 +67,130 @@ pub struct PgSessionDao(pub DbPool);
 
 #[async_trait]
 impl SessionDao for PgSessionDao {
-    async fn get_session(&self, session_id: &str) -> Result<Option<Session>, sqlx::Error> {
-        sqlx::query_as::<_, Session>("SELECT * FROM sessions WHERE id = $1")
-            .bind(session_id)
-            .fetch_optional(&self.0)
-            .await
-    }
-
-    async fn insert_session(&self, session: &Session) -> Result<(), sqlx::Error> {
+    async fn insert_session(&self, session: &NewAuthSession) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            INSERT INTO sessions (
-                id, provider, user_id, user_login, user_email, user_name,
-                avatar_url, access_token, id_token, token_type, scope,
-                role, group_id, created_at, expires_at
+            WITH inserted AS (
+                INSERT INTO auth_sessions (
+                    id, user_id, token_hash, csrf_token_hash, authenticated_via,
+                    group_id, created_at, last_seen_at, idle_expires_at,
+                    absolute_expires_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                RETURNING id, user_id, authenticated_via
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            INSERT INTO auth_audit_events
+                (id, user_id, auth_session_id, event, authentication_method, success)
+            SELECT gen_random_uuid(), user_id, id, 'session_created', authenticated_via, true
+            FROM inserted
             "#,
         )
-        .bind(&session.id)
-        .bind(&session.provider)
-        .bind(&session.user_id)
-        .bind(&session.user_login)
-        .bind(&session.user_email)
-        .bind(&session.user_name)
-        .bind(&session.avatar_url)
-        .bind(&session.access_token)
-        .bind(&session.id_token)
-        .bind(&session.token_type)
-        .bind(&session.scope)
-        .bind(session.role)
+        .bind(session.id)
+        .bind(session.user_id)
+        .bind(&session.token_hash)
+        .bind(&session.csrf_token_hash)
+        .bind(&session.authenticated_via)
         .bind(&session.group_id)
         .bind(session.created_at)
-        .bind(session.expires_at)
+        .bind(session.last_seen_at)
+        .bind(session.idle_expires_at)
+        .bind(session.absolute_expires_at)
         .execute(&self.0)
         .await?;
         Ok(())
     }
 
-    async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM sessions WHERE id = $1")
-            .bind(session_id)
-            .execute(&self.0)
-            .await?;
+    async fn find_active_by_token_hash(
+        &self,
+        token_hash: &[u8],
+        now: DateTime<Utc>,
+    ) -> Result<Option<AuthenticatedSession>, sqlx::Error> {
+        sqlx::query_as::<_, AuthenticatedSession>(
+            r#"
+            SELECT s.id, s.user_id, u.login, u.role, s.authenticated_via,
+                   s.csrf_token_hash, s.group_id, s.last_seen_at, s.idle_expires_at,
+                   s.absolute_expires_at
+            FROM auth_sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.token_hash = $1
+              AND s.revoked_at IS NULL
+              AND s.idle_expires_at > $2
+              AND s.absolute_expires_at > $2
+              AND u.status = 'active'
+              AND NOT u.is_bot
+            "#,
+        )
+        .bind(token_hash)
+        .bind(now)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn touch(
+        &self,
+        session_id: Uuid,
+        now: DateTime<Utc>,
+        idle_expires_at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE auth_sessions
+            SET last_seen_at = $2,
+                idle_expires_at = LEAST($3, absolute_expires_at)
+            WHERE id = $1 AND revoked_at IS NULL
+            "#,
+        )
+        .bind(session_id)
+        .bind(now)
+        .bind(idle_expires_at)
+        .execute(&self.0)
+        .await?;
         Ok(())
+    }
+
+    async fn revoke_by_token_hash(
+        &self,
+        token_hash: &[u8],
+        now: DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"WITH revoked AS (
+                   UPDATE auth_sessions
+                   SET revoked_at = $2
+                   WHERE token_hash = $1 AND revoked_at IS NULL
+                   RETURNING id, user_id, authenticated_via
+               )
+               INSERT INTO auth_audit_events
+                   (id, user_id, auth_session_id, event, authentication_method, success)
+               SELECT gen_random_uuid(), user_id, id, 'session_revoked', authenticated_via, true
+               FROM revoked"#,
+        )
+        .bind(token_hash)
+        .bind(now)
+        .execute(&self.0)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     async fn delete_sessions_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM sessions WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&self.0)
-            .await?;
-        Ok(result.rows_affected())
-    }
-
-    async fn update_user_info(
-        &self,
-        user_id: &str,
-        name: Option<String>,
-        email: Option<String>,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE sessions SET user_name = COALESCE($2, user_name), user_email = COALESCE($3, user_email) WHERE user_id = $1",
+        let user_id = Uuid::parse_str(user_id).map_err(|error| {
+            sqlx::Error::Protocol(format!("invalid auth-session user id: {error}"))
+        })?;
+        let result = sqlx::query(
+            r#"WITH revoked AS (
+                   UPDATE auth_sessions
+                   SET revoked_at = now()
+                   WHERE user_id = $1 AND revoked_at IS NULL
+                   RETURNING id, user_id, authenticated_via
+               )
+               INSERT INTO auth_audit_events
+                   (id, user_id, auth_session_id, event, authentication_method, success)
+               SELECT gen_random_uuid(), user_id, id, 'session_revoked_all', authenticated_via, true
+               FROM revoked"#,
         )
         .bind(user_id)
-        .bind(name)
-        .bind(email)
         .execute(&self.0)
         .await?;
-        Ok(())
+        Ok(result.rows_affected())
     }
 }

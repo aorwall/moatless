@@ -20,6 +20,11 @@ export interface AuthModeResponse {
    */
   loginUrl?: string | null;
   mode: AuthMode;
-  /** Provider identifier (`local`, `github`, `github_app`, `auth0`). */
+  /** Provider identifier (`local`, `oidc`, `github_app`, `auth0`). */
   provider: string;
+  /**
+   * Human-readable provider label for the login UI (for example, `Google`).
+   * @nullable
+   */
+  providerName?: string | null;
 }

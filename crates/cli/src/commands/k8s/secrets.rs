@@ -192,6 +192,21 @@ const AUTH0_KEYS: &[KeySpec] = &[
     },
 ];
 
+const OIDC_KEYS: &[KeySpec] = &[
+    KeySpec {
+        key: "OIDC_CLIENT_ID",
+        required: true,
+        hint: "OpenID Connect client ID",
+        secret: false,
+    },
+    KeySpec {
+        key: "OIDC_CLIENT_SECRET",
+        required: true,
+        hint: "OpenID Connect client secret",
+        secret: true,
+    },
+];
+
 fn keys_for_values(values: Option<&serde_yaml::Value>) -> Vec<&'static KeySpec> {
     let mut keys: Vec<&'static KeySpec> = CORE_KEYS.iter().collect();
 
@@ -213,6 +228,7 @@ fn keys_for_values(values: Option<&serde_yaml::Value>) -> Vec<&'static KeySpec> 
     match auth_provider {
         "github_app" => keys.extend(GITHUB_APP_AUTH_KEYS.iter()),
         "auth0" => keys.extend(AUTH0_KEYS.iter()),
+        "oidc" => keys.extend(OIDC_KEYS.iter()),
         _ => {}
     }
     keys
@@ -660,6 +676,15 @@ mod tests {
         assert!(keys.iter().any(|k| k.key == "GITHUB_APP_CLIENT_SECRET"));
         assert!(!keys.iter().any(|k| k.key == "AUTH0_DOMAIN"));
         assert!(!keys.iter().any(|k| k.key == "ANTHROPIC_API_KEY"));
+    }
+
+    #[test]
+    fn keys_for_oidc() {
+        let values: serde_yaml::Value = serde_yaml::from_str("auth:\n  provider: oidc\n").unwrap();
+        let keys = keys_for_values(Some(&values));
+        assert!(keys.iter().any(|key| key.key == "OIDC_CLIENT_ID"));
+        assert!(keys.iter().any(|key| key.key == "OIDC_CLIENT_SECRET"));
+        assert!(!keys.iter().any(|key| key.key == "AUTH0_CLIENT_ID"));
     }
 
     #[test]

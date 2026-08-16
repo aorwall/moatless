@@ -1,6 +1,6 @@
 //! Application-level auth middleware.
 //!
-//! Validates session cookies (JWT) and API keys directly, independent of any
+//! Validates opaque auth-session cookies and API keys directly, independent of any
 //! ingress-layer ForwardAuth. Strips inbound `X-User-*` headers to prevent
 //! spoofing, then injects validated headers for downstream extractors.
 
@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::body::Body;
-use axum::http::{Request, StatusCode, header};
+use axum::http::{Method, Request, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use tracing::{debug, warn};
@@ -17,9 +17,11 @@ use uuid::Uuid;
 use super::api_key::validate_key_cached;
 use super::api_keys::ApiKeyDao;
 use super::cache::AuthCache;
-use super::cookie::get_all_cookie_values;
+use super::cookie::{CSRF_COOKIE_NAME, get_all_cookie_values, get_cookie_value};
 use super::identity::{AuthIdentity, AuthMethod};
 use super::jwt;
+use super::session;
+use super::sessions::SessionDao;
 use super::users::UserDao;
 use moatless_core::config::Config;
 use moatless_core::error::ErrorBody;
@@ -36,14 +38,31 @@ const WEBSOCKET_TICKET_PARAM: &str = "wsTicket";
 pub struct AuthMiddlewareState {
     pub api_keys: Arc<dyn ApiKeyDao>,
     pub users: Arc<dyn UserDao>,
+    pub sessions: Arc<dyn SessionDao>,
     pub cache: AuthCache,
     pub config: Arc<Config>,
 }
 
 /// Paths exempt from auth middleware validation.
 fn is_exempt(path: &str) -> bool {
-    // Auth routes handle their own authentication
-    if path.starts_with("/api/v1/auth/") || path == "/api/v1/auth" {
+    // Login/bootstrap routes carry their own one-time credential. Authenticated
+    // auth-management routes intentionally remain behind this middleware.
+    if matches!(
+        path,
+        "/api/v1/auth/mode"
+            | "/api/v1/auth/password/login"
+            | "/api/v1/auth/login"
+            | "/api/v1/auth/cli/login"
+            | "/api/v1/auth/github-app"
+            | "/api/v1/auth/github-app/callback"
+            | "/api/v1/auth/auth0"
+            | "/api/v1/auth/auth0/callback"
+            | "/api/v1/auth/linear/install"
+            | "/api/v1/auth/linear/callback"
+            | "/api/v1/auth/token/session"
+    ) || (path.starts_with("/api/v1/auth/oidc/")
+        && (path.ends_with("/start") || path.ends_with("/callback")))
+    {
         return true;
     }
 
@@ -232,36 +251,44 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         }
     }
 
-    // Try session cookies (JWT)
-    let Some(jwt_secret) = jwt::get_jwt_secret(&state.config) else {
-        warn!(path = %path, "Auth middleware: no JWT secret configured");
-        return unauthorized_response();
-    };
-
+    // Try opaque auth-session cookies. The database row is authoritative, so
+    // revocation and account disablement take effect on the next request.
     let tokens = get_all_cookie_values(req.headers(), &state.config.auth.session_cookie_name);
 
     for token in &tokens {
-        match jwt::verify_session_jwt(token, jwt_secret) {
-            Ok(claims) => {
-                debug!(user_id = %claims.sub, path = %path, "Auth middleware: session JWT valid");
+        match session::validate_session(
+            state.sessions.as_ref(),
+            token,
+            state.config.auth.session_max_age_secs,
+        )
+        .await
+        {
+            Ok(Some(auth_session)) => {
+                if is_unsafe(req.method())
+                    && !valid_csrf(req.headers(), &auth_session.csrf_token_hash, &state.config)
+                {
+                    warn!(path = %path, "Auth middleware: CSRF validation failed");
+                    return forbidden_response("CSRF validation failed");
+                }
+                debug!(user_id = %auth_session.user_id, path = %path, "Auth middleware: auth session valid");
                 // Stamp user_id onto the surrounding request-trace span so
                 // every downstream log line carries it.
-                tracing::Span::current().record("user_id", claims.sub.to_string().as_str());
-                let role = claims.user_role();
+                tracing::Span::current()
+                    .record("user_id", auth_session.user_id.to_string().as_str());
                 insert_auth_extensions(
                     &mut req,
                     AuthIdentity {
-                        user_id: claims.sub,
-                        login: claims.login,
-                        role,
-                        provider: claims.provider,
-                        group_id: claims.group_id,
+                        user_id: auth_session.user_id,
+                        login: auth_session.login,
+                        role: auth_session.role,
+                        provider: auth_session.authenticated_via,
+                        group_id: auth_session.group_id,
                     },
                     AuthMethod::SessionCookie,
                 );
                 return next.run(req).await;
             }
-            Err(_) => continue,
+            Ok(None) | Err(_) => continue,
         }
     }
 
@@ -272,6 +299,32 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         warn!(path = %path, count = tokens.len(), "Auth middleware: all session cookies invalid/expired");
     }
     unauthorized_response()
+}
+
+fn is_unsafe(method: &Method) -> bool {
+    !matches!(method, &Method::GET | &Method::HEAD | &Method::OPTIONS)
+}
+
+fn valid_csrf(headers: &axum::http::HeaderMap, expected_hash: &[u8], config: &Config) -> bool {
+    let Some(header_token) = headers
+        .get("x-csrf-token")
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    let Some(cookie_token) = get_cookie_value(headers, CSRF_COOKIE_NAME) else {
+        return false;
+    };
+    if header_token != cookie_token || session::hash_token(header_token) != expected_hash {
+        return false;
+    }
+
+    headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|origin| {
+            origin.trim_end_matches('/') == config.auth.frontend_url.trim_end_matches('/')
+        })
 }
 
 /// The WebSocket ticket this request presents, if it presents one.
@@ -300,20 +353,52 @@ fn unauthorized_response() -> Response {
         .into_response()
 }
 
+fn forbidden_response(message: &str) -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(ErrorBody {
+            error: message.to_string(),
+        }),
+    )
+        .into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn exempt_auth_routes() {
-        assert!(is_exempt("/api/v1/auth/me"));
-        assert!(is_exempt("/api/v1/auth/verify"));
+    fn only_authentication_entry_routes_are_exempt() {
+        assert!(!is_exempt("/api/v1/auth/me"));
+        assert!(!is_exempt("/api/v1/auth/verify"));
         assert!(is_exempt("/api/v1/auth/login"));
         assert!(is_exempt("/api/v1/auth/auth0"));
         assert!(is_exempt("/api/v1/auth/auth0/callback"));
-        assert!(is_exempt("/api/v1/auth/logout"));
-        assert!(is_exempt("/api/v1/auth/api-keys"));
-        assert!(is_exempt("/api/v1/auth/api-key/session"));
+        assert!(is_exempt("/api/v1/auth/oidc/company/start"));
+        assert!(is_exempt("/api/v1/auth/oidc/company/callback"));
+        assert!(!is_exempt("/api/v1/auth/logout"));
+        assert!(!is_exempt("/api/v1/auth/api-keys"));
+        assert!(!is_exempt("/api/v1/auth/api-key/session"));
+    }
+
+    #[test]
+    fn csrf_requires_the_cookie_header_binding_and_same_origin() {
+        let config = Config::test_minimal();
+        let token = "csrf-token";
+        let expected = session::hash_token(token);
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            format!("{CSRF_COOKIE_NAME}={token}").parse().unwrap(),
+        );
+        headers.insert("x-csrf-token", token.parse().unwrap());
+        headers.insert(header::ORIGIN, config.auth.frontend_url.parse().unwrap());
+        assert!(valid_csrf(&headers, &expected, &config));
+
+        headers.insert(header::ORIGIN, "https://evil.example".parse().unwrap());
+        assert!(!valid_csrf(&headers, &expected, &config));
+        headers.insert("x-csrf-token", "another-token".parse().unwrap());
+        assert!(!valid_csrf(&headers, &expected, &config));
     }
 
     #[test]

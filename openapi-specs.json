@@ -2422,6 +2422,27 @@
         }
       }
     },
+    "/api/v1/auth/logout-all": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Revoke every auth session belonging to the current user.",
+        "operationId": "logout_all_handler",
+        "responses": {
+          "200": {
+            "description": "All sessions revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/me": {
       "get": {
         "tags": [
@@ -2632,7 +2653,7 @@
         "tags": [
           "auth"
         ],
-        "summary": "Log in with a username and password, returning a session cookie.",
+        "summary": "Log in with an email and password, returning an auth-session cookie.",
         "operationId": "password_login_handler",
         "requestBody": {
           "content": {
@@ -9628,7 +9649,14 @@
           },
           "provider": {
             "type": "string",
-            "description": "Provider identifier (`local`, `github`, `github_app`, `auth0`)."
+            "description": "Provider identifier (`local`, `oidc`, `github_app`, `auth0`)."
+          },
+          "providerName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable provider label for the login UI (for example, `Google`)."
           }
         }
       },
@@ -10842,11 +10870,18 @@
       },
       "CreateUserRequest": {
         "type": "object",
-        "description": "POST /api/v1/users request.\n\nWith `isBot: true`, creates a bot user backed by a configured GitHub App:\nthe server resolves the App's `{slug}[bot]` identity from\n`GitHubAppRegistry` and writes both the `users` row and the matching\n`provider_tokens` row atomically. `githubAppKey` is required in this mode.\n\nWith `isBot: false`, creates a human user with a local password. Only\navailable when the server runs local password auth; `login` and `password`\nare required in this mode.\n\n`Debug` is hand-written to redact `password`.",
+        "description": "POST /api/v1/users request.\n\nWith `isBot: true`, creates a bot user backed by a configured GitHub App:\nthe server resolves the App's `{slug}[bot]` identity from\n`GitHubAppRegistry` and writes both the `users` row and the matching\n`provider_tokens` row atomically. `githubAppKey` is required in this mode.\n\nWith `isBot: false`, creates a human user with a local password. Only\navailable when the server runs local password auth; `email`, `login`, and\n`password` are required in this mode.\n\n`Debug` is hand-written to redact `password`.",
         "required": [
           "isBot"
         ],
         "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Email address for a human user. Required when `isBot` is `false`."
+          },
           "githubAppKey": {
             "type": [
               "string",
@@ -12974,14 +13009,14 @@
         "type": "object",
         "description": "POST /api/v1/auth/password/login request.\n\n`Debug` is hand-written to redact `password`.",
         "required": [
-          "username",
+          "email",
           "password"
         ],
         "properties": {
-          "password": {
+          "email": {
             "type": "string"
           },
-          "username": {
+          "password": {
             "type": "string"
           }
         }

@@ -66,8 +66,19 @@ export const customInstance = async <T>(
 		}
 	}
 
+	const headers = new Headers(options?.headers);
+	const csrfToken = document.cookie
+		.split(";")
+		.map((part) => part.trim())
+		.find((part) => part.startsWith("moatless_csrf="))
+		?.slice("moatless_csrf=".length);
+	if (csrfToken) {
+		headers.set("X-CSRF-Token", csrfToken);
+	}
+
 	const response = await fetch(targetUrl.toString(), {
 		...options,
+		headers,
 		credentials: "include",
 	});
 

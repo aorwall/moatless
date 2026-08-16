@@ -1,9 +1,11 @@
 //! Cookie utilities for session management.
 
-use moatless_core::config::Config;
-use axum::http::header;
 use axum::http::HeaderMap;
+use axum::http::header;
 use cookie::{Cookie, SameSite};
+use moatless_core::config::Config;
+
+pub const CSRF_COOKIE_NAME: &str = "moatless_csrf";
 
 /// Extract a cookie value from the request headers (returns the first match).
 pub fn get_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -68,6 +70,34 @@ pub fn build_clear_session_cookie(config: &Config) -> String {
         builder = builder.domain(domain.clone());
     }
 
+    builder.build().to_string()
+}
+
+/// Build the readable half of the double-submit CSRF token. Its digest is
+/// bound to the authoritative auth-session row.
+pub fn build_csrf_cookie(config: &Config, token: &str, max_age_secs: u64) -> String {
+    let mut builder = Cookie::build((CSRF_COOKIE_NAME, token.to_string()))
+        .http_only(false)
+        .path("/")
+        .same_site(SameSite::Lax)
+        .max_age(cookie::time::Duration::seconds(max_age_secs as i64))
+        .secure(config.auth.is_production);
+    if let Some(ref domain) = config.auth.cookie_domain {
+        builder = builder.domain(domain.clone());
+    }
+    builder.build().to_string()
+}
+
+pub fn build_clear_csrf_cookie(config: &Config) -> String {
+    let mut builder = Cookie::build((CSRF_COOKIE_NAME, ""))
+        .http_only(false)
+        .path("/")
+        .same_site(SameSite::Lax)
+        .max_age(cookie::time::Duration::ZERO)
+        .secure(config.auth.is_production);
+    if let Some(ref domain) = config.auth.cookie_domain {
+        builder = builder.domain(domain.clone());
+    }
     builder.build().to_string()
 }
 

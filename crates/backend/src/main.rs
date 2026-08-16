@@ -400,17 +400,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Auth routes (needs DB)
     let mut auth_middleware_state: Option<auth::middleware::AuthMiddlewareState> = None;
     if let Some(ref ports) = ports {
-        let auth_state = ports.build_auth_state(Arc::new(config.clone()));
-
-        // Build middleware state sharing the same repos and cache
-        auth_middleware_state = Some(auth::middleware::AuthMiddlewareState {
-            api_keys: auth_state.api_keys.clone(),
-            users: auth_state.users.clone(),
-            cache: auth_state.cache.clone(),
-            config: auth_state.config.clone(),
-        });
-
-        let (auth_router, auth_api) = auth::routes::auth_router(auth_state);
+        let authentication = ports
+            .build_authentication(Arc::new(config.clone()))
+            .map_err(|error| format!("failed to build authentication: {error}"))?;
+        auth_middleware_state = Some(authentication.layer());
+        let (auth_router, auth_api) = authentication.routes();
         router = router.merge(auth_router);
         api.merge(auth_api);
         info!(auth_provider = ?config.auth.provider, "Auth routes registered");
@@ -561,7 +555,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // startup seeds this aborts on failure: a local-auth instance with no
         // admin credential is unreachable, and continuing would produce a
         // server nobody can log into.
-        if config.auth.provider == moatless_core::config::AuthProvider::Local {
+        if config.auth.provider == moatless_core::config::AuthProvider::Local
+            || config.auth.break_glass_enabled
+        {
             auth::password::bootstrap::ensure_local_admin(
                 ports.users.as_ref(),
                 ports.user_credentials.as_ref(),

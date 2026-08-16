@@ -65,6 +65,14 @@ async function performRequest(path: string, options: RequestOptions = {}): Promi
   if (fetchOptions.body !== undefined) {
     headers['Content-Type'] = 'application/json'
   }
+  const csrfToken = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('moatless_csrf='))
+    ?.slice('moatless_csrf='.length)
+  if (csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken
+  }
 
   const response = await fetch(url, {
     ...fetchOptions,

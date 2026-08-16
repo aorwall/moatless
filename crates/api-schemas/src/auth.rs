@@ -211,8 +211,8 @@ pub struct UserListResponse {
 /// `provider_tokens` row atomically. `githubAppKey` is required in this mode.
 ///
 /// With `isBot: false`, creates a human user with a local password. Only
-/// available when the server runs local password auth; `login` and `password`
-/// are required in this mode.
+/// available when the server runs local password auth; `email`, `login`, and
+/// `password` are required in this mode.
 ///
 /// `Debug` is hand-written to redact `password`.
 #[derive(Serialize, Deserialize)]
@@ -228,6 +228,9 @@ pub struct CreateUserRequest {
     /// Login handle for a local user. Required when `isBot` is `false`.
     #[serde(default)]
     pub login: Option<String>,
+    /// Email address for a human user. Required when `isBot` is `false`.
+    #[serde(default)]
+    pub email: Option<String>,
     /// Initial password for a local user. Required when `isBot` is `false`.
     #[serde(default)]
     pub password: Option<String>,
@@ -245,6 +248,7 @@ impl std::fmt::Debug for CreateUserRequest {
             .field("is_bot", &self.is_bot)
             .field("github_app_key", &self.github_app_key)
             .field("login", &self.login)
+            .field("email", &self.email)
             .field("password", &self.password.as_ref().map(|_| "[REDACTED]"))
             .field("role", &self.role)
             .field("must_change_password", &self.must_change_password)
@@ -259,14 +263,15 @@ impl std::fmt::Debug for CreateUserRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PasswordLoginRequest {
-    pub username: String,
+    #[serde(alias = "username")]
+    pub email: String,
     pub password: String,
 }
 
 impl std::fmt::Debug for PasswordLoginRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PasswordLoginRequest")
-            .field("username", &self.username)
+            .field("email", &self.email)
             .field("password", &"[REDACTED]")
             .finish()
     }
@@ -320,7 +325,7 @@ impl std::fmt::Debug for AdminResetPasswordRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum AuthMode {
-    /// Local username/password against `user_credentials`.
+    /// Local email/password against `user_credentials`.
     Password,
     /// Redirect to a configured OAuth provider.
     Oauth,
@@ -335,8 +340,10 @@ pub enum AuthMode {
 #[serde(rename_all = "camelCase")]
 pub struct AuthModeResponse {
     pub mode: AuthMode,
-    /// Provider identifier (`local`, `github`, `github_app`, `auth0`).
+    /// Provider identifier (`local`, `oidc`, `github_app`, `auth0`).
     pub provider: String,
+    /// Human-readable provider label for the login UI (for example, `Google`).
+    pub provider_name: Option<String>,
     /// Where to send the browser to start an OAuth login. `None` in password mode.
     pub login_url: Option<String>,
 }
@@ -389,7 +396,7 @@ pub fn format_datetime_opt(dt: Option<chrono::DateTime<chrono::Utc>>) -> Option<
 mod tests {
     use serde_json::json;
 
-    use super::AdminUpdateUserRequest;
+    use super::{AdminUpdateUserRequest, PasswordLoginRequest};
 
     #[test]
     fn admin_update_user_distinguishes_omitted_null_and_value() {
@@ -406,5 +413,23 @@ mod tests {
             serde_json::from_value(json!({ "name": "Ada", "email": "ada@example.com" })).unwrap();
         assert_eq!(updated.name, Some(Some("Ada".to_string())));
         assert_eq!(updated.email, Some(Some("ada@example.com".to_string())));
+    }
+
+    #[test]
+    fn password_login_writes_email_and_accepts_the_username_alias() {
+        let request = PasswordLoginRequest {
+            email: "ada@example.com".into(),
+            password: "not-logged".into(),
+        };
+        let serialized = serde_json::to_value(&request).unwrap();
+        assert_eq!(serialized["email"], "ada@example.com");
+        assert!(serialized.get("username").is_none());
+
+        let legacy: PasswordLoginRequest = serde_json::from_value(json!({
+            "username": "legacy@example.com",
+            "password": "not-logged"
+        }))
+        .unwrap();
+        assert_eq!(legacy.email, "legacy@example.com");
     }
 }

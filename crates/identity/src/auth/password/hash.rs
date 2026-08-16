@@ -20,7 +20,7 @@ const PARALLELISM: u32 = 1;
 const PASSWORD_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 /// A PHC string produced with the parameters above, used to burn the same CPU
-/// time as a real verify when the username is unknown.
+/// time as a real verify when the email is unknown.
 const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$\
                           Iu6BbTFHUMHXKsPBvXNIkJXpDlmHNBAeZAiHl3Y9NNs";
 
@@ -77,7 +77,7 @@ pub async fn verify_password(password: String, phc: String) -> Result<bool, Pass
 
 /// Burn a verify's worth of CPU against a fixed hash.
 ///
-/// Called when the username is unknown so response timing does not leak
+/// Called when the email is unknown so response timing does not leak
 /// account existence.
 pub async fn verify_dummy(password: String) {
     let _ =
@@ -117,9 +117,11 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_hash_verifies_false() {
-        assert!(!verify_password("x".into(), "not-a-phc-string".into())
-            .await
-            .unwrap());
+        assert!(
+            !verify_password("x".into(), "not-a-phc-string".into())
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]

@@ -2,25 +2,65 @@
 
 use chrono::Utc;
 use rand::RngExt;
-use tracing::{error, info, warn};
+use sha2::{Digest, Sha256};
+use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::jwt;
 use super::models::{OAuthTokens, ProviderUserInfo, UserRole};
 use super::provider_tokens::{ProviderToken, ProviderTokenAuthDao};
-use super::sessions::{Session, SessionDao};
+use super::sessions::{AuthenticatedSession, NewAuthSession, SessionDao};
 use super::users::{User, UserDao};
 
 /// Generate a cryptographically secure session ID (64 hex chars).
-fn generate_session_id() -> String {
+fn generate_token() -> String {
     let bytes: [u8; 32] = rand::rng().random();
     hex::encode(bytes)
+}
+
+/// Raw bearer and CSRF values returned exactly once when a session is issued.
+pub struct IssuedAuthSession {
+    pub token: String,
+    pub csrf_token: String,
+}
+
+pub(crate) fn hash_token(token: &str) -> Vec<u8> {
+    Sha256::digest(token.as_bytes()).to_vec()
+}
+
+async fn issue_auth_session(
+    sessions: &dyn SessionDao,
+    user_id: Uuid,
+    group_id: Option<&str>,
+    authenticated_via: &str,
+    idle_timeout_secs: u64,
+    absolute_lifetime_secs: u64,
+) -> Result<IssuedAuthSession, crate::auth::error::AuthError> {
+    let now = Utc::now();
+    let idle_expires_at = now + chrono::Duration::seconds(idle_timeout_secs as i64);
+    let absolute_expires_at = now + chrono::Duration::seconds(absolute_lifetime_secs as i64);
+    let token = generate_token();
+    let csrf_token = generate_token();
+    sessions
+        .insert_session(&NewAuthSession {
+            id: Uuid::new_v4(),
+            user_id,
+            token_hash: hash_token(&token),
+            csrf_token_hash: hash_token(&csrf_token),
+            authenticated_via: authenticated_via.to_string(),
+            group_id: group_id.map(String::from),
+            created_at: now,
+            last_seen_at: now,
+            idle_expires_at: idle_expires_at.min(absolute_expires_at),
+            absolute_expires_at,
+        })
+        .await?;
+    Ok(IssuedAuthSession { token, csrf_token })
 }
 
 /// Create a new session after OAuth login.
 ///
 /// Upserts the user, creates a session row (audit trail + provider token persistence),
-/// and returns a signed JWT for the session cookie.
+/// and returns an opaque token for the auth-session cookie.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_session(
     users: &dyn UserDao,
@@ -32,11 +72,10 @@ pub async fn create_session(
     tokens: &OAuthTokens,
     user_info: &ProviderUserInfo,
     group_id: Option<&str>,
-    session_max_age_secs: u64,
-    jwt_secret: &str,
-) -> Result<String, crate::auth::error::AuthError> {
+    idle_timeout_secs: u64,
+    absolute_lifetime_secs: u64,
+) -> Result<IssuedAuthSession, crate::auth::error::AuthError> {
     let now = Utc::now();
-    let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
     let user_id_str = user_id.to_string();
 
     // GitHub App login uses the stable `github` identity key shared with
@@ -49,6 +88,16 @@ pub async fn create_session(
 
     // Upsert user (keyed on the internal uuid).
     let existing_user = users.get_user(&user_id).await?;
+    if existing_user.is_none()
+        && !user_info
+            .email
+            .as_deref()
+            .is_some_and(|email| email.contains('@'))
+    {
+        return Err(crate::auth::error::AuthError::OAuth(
+            "provider did not supply the email required for a human account".into(),
+        ));
+    }
     let role = existing_user.as_ref().map_or(UserRole::User, |u| u.role);
 
     let user_row = User {
@@ -91,27 +140,6 @@ pub async fn create_session(
         "{} user record",
         action,
     );
-
-    // Create session row (audit trail)
-    let session_id = generate_session_id();
-    let session = Session {
-        id: session_id.clone(),
-        provider: provider_id.to_string(),
-        user_id: user_id_str.clone(),
-        user_login: user_info.login.clone(),
-        user_email: user_info.email.clone(),
-        user_name: user_info.name.clone(),
-        avatar_url: user_info.avatar_url.clone(),
-        role,
-        access_token: Some(tokens.access_token.clone()),
-        id_token: tokens.id_token.clone(),
-        token_type: Some(tokens.token_type.clone()),
-        scope: tokens.scope.clone(),
-        group_id: group_id.map(String::from),
-        created_at: now,
-        expires_at,
-    };
-    sessions.insert_session(&session).await?;
 
     // Persist GitHub App user tokens for cross-context access.
     // If a PAT override is active, update the stashed OAuth token instead of overwriting.
@@ -188,20 +216,15 @@ pub async fn create_session(
         }
     }
 
-    // Generate JWT
-    let token = jwt::generate_session_jwt(
+    let token = issue_auth_session(
+        sessions,
         user_id,
-        &user_info.login,
-        role,
-        provider_id,
         group_id,
-        jwt_secret,
-        session_max_age_secs,
+        provider_id,
+        idle_timeout_secs,
+        absolute_lifetime_secs,
     )
-    .map_err(|e| {
-        error!(error = %e, "Failed to generate session JWT");
-        crate::auth::error::AuthError::Config("Failed to generate session token".to_string())
-    })?;
+    .await?;
 
     info!(
         user_login = %user_info.login,
@@ -217,20 +240,20 @@ pub async fn create_session(
 ///
 /// Unlike `create_session`, this doesn't require OAuth tokens — it creates
 /// a session with `provider = "api-key"` and no token fields.
-/// Returns a signed JWT for the session cookie.
+/// Returns an opaque token for the auth-session cookie.
 pub async fn create_session_from_user(
     sessions: &dyn SessionDao,
     user: &User,
     group_id: Option<&str>,
-    session_max_age_secs: u64,
-    jwt_secret: &str,
-) -> Result<String, crate::auth::error::AuthError> {
+    idle_timeout_secs: u64,
+    absolute_lifetime_secs: u64,
+) -> Result<IssuedAuthSession, crate::auth::error::AuthError> {
     create_session_from_user_with_provider(
         sessions,
         user,
         group_id,
-        session_max_age_secs,
-        jwt_secret,
+        idle_timeout_secs,
+        absolute_lifetime_secs,
         "api-key",
     )
     .await
@@ -238,53 +261,25 @@ pub async fn create_session_from_user(
 
 /// Create a session from a user row, stamping an explicit provider.
 ///
-/// The provider string lands in the JWT and flows through to
-/// `AuthUser.provider`, which the git-host access handlers branch on.
+/// `provider` records how this auth session was established and flows through
+/// to `AuthUser.provider`; it is not an application identity key.
 pub async fn create_session_from_user_with_provider(
     sessions: &dyn SessionDao,
     user: &User,
     group_id: Option<&str>,
-    session_max_age_secs: u64,
-    jwt_secret: &str,
+    idle_timeout_secs: u64,
+    absolute_lifetime_secs: u64,
     provider: &str,
-) -> Result<String, crate::auth::error::AuthError> {
-    let now = Utc::now();
-    let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
-    let session_id = generate_session_id();
-
-    let session = Session {
-        id: session_id.clone(),
-        provider: provider.to_string(),
-        user_id: user.id.to_string(),
-        user_login: user.login.clone(),
-        user_email: user.email.clone(),
-        user_name: user.name.clone(),
-        avatar_url: user.avatar_url.clone(),
-        role: user.role,
-        access_token: None,
-        id_token: None,
-        token_type: None,
-        scope: None,
-        group_id: group_id.map(String::from),
-        created_at: now,
-        expires_at,
-    };
-    sessions.insert_session(&session).await?;
-
-    // Generate JWT
-    let token = jwt::generate_session_jwt(
+) -> Result<IssuedAuthSession, crate::auth::error::AuthError> {
+    let token = issue_auth_session(
+        sessions,
         user.id,
-        &user.login,
-        user.role,
-        provider,
         group_id,
-        jwt_secret,
-        session_max_age_secs,
+        provider,
+        idle_timeout_secs,
+        absolute_lifetime_secs,
     )
-    .map_err(|e| {
-        error!(error = %e, "Failed to generate session JWT");
-        crate::auth::error::AuthError::Config("Failed to generate session token".to_string())
-    })?;
+    .await?;
 
     info!(
         user_login = %user.login,
@@ -296,36 +291,102 @@ pub async fn create_session_from_user_with_provider(
     Ok(token)
 }
 
-/// Validate a session by ID. Returns None if expired or not found.
+/// Resolve an opaque auth-session token. Revoked, expired, disabled-account,
+/// and unknown tokens all produce `None`.
 pub async fn validate_session(
     sessions: &dyn SessionDao,
-    session_id: &str,
-) -> Result<Option<Session>, crate::auth::error::AuthError> {
-    let session = sessions.get_session(session_id).await?;
-
-    let Some(session) = session else {
+    token: &str,
+    idle_timeout_secs: u64,
+) -> Result<Option<AuthenticatedSession>, crate::auth::error::AuthError> {
+    let now = Utc::now();
+    let session = sessions
+        .find_active_by_token_hash(&hash_token(token), now)
+        .await?;
+    let Some(mut session) = session else {
         return Ok(None);
     };
 
-    // Check expiry
-    let now = Utc::now();
-    if now > session.expires_at {
-        info!(session_id = %session_id, "Session expired");
-        if let Err(e) = sessions.delete_session(session_id).await {
-            error!(error = %e, "Failed to delete expired session");
-        }
-        return Ok(None);
+    if now - session.last_seen_at >= chrono::Duration::minutes(5) {
+        let idle_expires_at = now + chrono::Duration::seconds(idle_timeout_secs as i64);
+        sessions.touch(session.id, now, idle_expires_at).await?;
+        session.last_seen_at = now;
+        session.idle_expires_at = idle_expires_at.min(session.absolute_expires_at);
     }
-
     Ok(Some(session))
 }
 
-/// Delete a session by ID.
-pub async fn delete_session_by_id(
+/// Revoke the auth session represented by a raw browser token.
+pub async fn revoke_session(
     sessions: &dyn SessionDao,
-    session_id: &str,
-) -> Result<(), crate::auth::error::AuthError> {
-    sessions.delete_session(session_id).await?;
-    info!(session_id = %session_id, "Deleted session");
-    Ok(())
+    token: &str,
+) -> Result<bool, crate::auth::error::AuthError> {
+    Ok(sessions
+        .revoke_by_token_hash(&hash_token(token), Utc::now())
+        .await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use chrono::Duration;
+
+    use super::*;
+    use crate::auth::sessions::MockSessionDao;
+
+    #[tokio::test]
+    async fn revoking_the_row_immediately_invalidates_the_cookie_token() {
+        let revoked = Arc::new(AtomicBool::new(false));
+        let session_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        let now = Utc::now();
+
+        let lookup_revoked = revoked.clone();
+        let mut sessions = MockSessionDao::new();
+        sessions
+            .expect_find_active_by_token_hash()
+            .times(2)
+            .returning(move |_, _| {
+                if lookup_revoked.load(Ordering::SeqCst) {
+                    Ok(None)
+                } else {
+                    Ok(Some(AuthenticatedSession {
+                        id: session_id,
+                        user_id,
+                        login: "alice".into(),
+                        role: UserRole::User,
+                        authenticated_via: "oidc:company".into(),
+                        csrf_token_hash: hash_token("csrf"),
+                        group_id: None,
+                        last_seen_at: now,
+                        idle_expires_at: now + Duration::hours(1),
+                        absolute_expires_at: now + Duration::days(1),
+                    }))
+                }
+            });
+        let revoke_flag = revoked.clone();
+        sessions
+            .expect_revoke_by_token_hash()
+            .withf(|hash, _| hash == hash_token("browser-cookie"))
+            .once()
+            .returning(move |_, _| {
+                revoke_flag.store(true, Ordering::SeqCst);
+                Ok(true)
+            });
+
+        assert!(
+            validate_session(&sessions, "browser-cookie", 3600)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(revoke_session(&sessions, "browser-cookie").await.unwrap());
+        assert!(
+            validate_session(&sessions, "browser-cookie", 3600)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
 }

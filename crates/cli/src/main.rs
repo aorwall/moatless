@@ -234,7 +234,8 @@ enum StandaloneCommands {
     ///
     /// Asks the server which flow it runs (`GET /api/v1/auth/mode`):
     /// - Local password auth → prompts for a username and password. Honors
-    ///   `MOATLESS_USERNAME` / `MOATLESS_PASSWORD` for non-interactive use.
+    ///   `MOATLESS_EMAIL` / `MOATLESS_PASSWORD` for non-interactive use.
+    ///   `MOATLESS_USERNAME` remains accepted as a compatibility alias.
     /// - An OAuth provider → runs the browser-based flow.
     Login {
         /// URL to authenticate against. Defaults to the configured API URL

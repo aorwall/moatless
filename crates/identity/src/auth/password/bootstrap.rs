@@ -5,7 +5,7 @@ use thiserror::Error;
 use tracing::{info, warn};
 
 use super::dao::UserCredentialDao;
-use super::hash::{generate_password, hash_password, PasswordHashError};
+use super::hash::{PasswordHashError, generate_password, hash_password};
 use crate::auth::models::UserRole;
 use crate::auth::users::{User, UserDao};
 use moatless_core::config::AuthConfig;
@@ -15,6 +15,8 @@ const GENERATED_PASSWORD_LEN: usize = 24;
 
 #[derive(Debug, Error)]
 pub enum BootstrapError {
+    #[error("ADMIN_EMAIL is required for the bootstrap administrator")]
+    MissingEmail,
     #[error("failed to read existing admin credential: {0}")]
     Read(sqlx::Error),
     #[error("failed to persist admin user: {0}")]
@@ -25,40 +27,62 @@ pub enum BootstrapError {
 
 /// Ensure the local admin account exists and can log in.
 ///
-/// Behaviour by `(ADMIN_PASSWORD, existing credential)`:
-/// - `(Some, _)` — the password is declarative; the hash is re-upserted every boot.
-/// - `(None, Some)` — an admin already exists; left untouched.
-/// - `(None, None)` — a password is generated, stored hashed, and logged **once**
-///   at WARN. The plaintext is never persisted.
+/// An existing credential is never changed at startup. For a first-time seed,
+/// `ADMIN_PASSWORD` is used when present; otherwise a random password is logged
+/// once and marked for change.
 pub async fn ensure_local_admin(
     users: &dyn UserDao,
     credentials: &dyn UserCredentialDao,
     config: &AuthConfig,
 ) -> Result<(), BootstrapError> {
     let username = config.admin_username.trim();
-    // The `local:<username>` handle is the provider identity. Reuse the internal
+    let email = config
+        .admin_email
+        .as_deref()
+        .map(str::trim)
+        .filter(|email| email.contains('@'))
+        .ok_or(BootstrapError::MissingEmail)?
+        .to_lowercase();
+    // The `local:<email>` handle is the provider identity. Reuse the internal
     // id already mapped to it (an admin seeded before the uuid migration keeps
     // the id that migration assigned); only mint the deterministic v5 id for a
     // brand-new admin, so the seed stays idempotent across restarts.
-    let provider_user_id = format!("local:{}", username.to_lowercase());
-    let user_id = match users
-        .find_user_by_provider_id("local", &provider_user_id)
+    let provider_user_id = format!("local:{email}");
+    let existing_user = match users
+        .find_user_by_email(&email)
         .await
         .map_err(BootstrapError::Read)?
     {
-        Some(existing) => existing.id,
-        None => uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, provider_user_id.as_bytes()),
+        Some(existing) => Some(existing),
+        None => users
+            .find_user_by_provider_id("local", &provider_user_id)
+            .await
+            .map_err(BootstrapError::Read)?,
     };
+    let user_id = existing_user.as_ref().map_or_else(
+        || uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, provider_user_id.as_bytes()),
+        |existing| existing.id,
+    );
+
+    if existing_user.is_some() {
+        users
+            .update_user_profile_and_role(&user_id, None, None, Some(UserRole::Admin))
+            .await
+            .map_err(BootstrapError::Persist)?;
+    }
 
     let existing = credentials
         .find_by_user_id(&user_id)
         .await
         .map_err(BootstrapError::Read)?;
 
-    let (password, must_change, generated) = match (&config.admin_password, &existing) {
-        (Some(pw), _) => (pw.clone(), false, false),
-        (None, Some(_)) => return Ok(()),
-        (None, None) => (generate_password(GENERATED_PASSWORD_LEN), true, true),
+    if existing.is_some() {
+        return Ok(());
+    }
+
+    let (password, must_change, generated) = match &config.admin_password {
+        Some(password) => (password.clone(), false, false),
+        None => (generate_password(GENERATED_PASSWORD_LEN), true, true),
     };
 
     let password_hash = hash_password(password.clone()).await?;
@@ -67,7 +91,7 @@ pub async fn ensure_local_admin(
     let user = User {
         id: user_id,
         login: username.to_string(),
-        email: None,
+        email: Some(email.clone()),
         name: Some(username.to_string()),
         avatar_url: None,
         provider: "local".to_string(),
@@ -79,19 +103,21 @@ pub async fn ensure_local_admin(
         is_bot: false,
     };
 
-    users
-        .upsert_user(&user)
-        .await
-        .map_err(BootstrapError::Persist)?;
+    if existing_user.is_none() {
+        users
+            .upsert_user(&user)
+            .await
+            .map_err(BootstrapError::Persist)?;
+    }
 
-    // Keep the `local:<username>` identity resolvable (legacy refs, re-login).
+    // Keep the `local:<email>` identity resolvable (legacy refs, re-login).
     users
         .upsert_provider_id(&user_id, "local", &provider_user_id)
         .await
         .map_err(BootstrapError::Persist)?;
 
     credentials
-        .upsert(&user_id, username, &password_hash, must_change)
+        .upsert(&user_id, &email, &password_hash, must_change)
         .await
         .map_err(BootstrapError::Persist)?;
 
@@ -139,6 +165,7 @@ mod tests {
             .expect_upsert_provider_id()
             .returning(|_, _, _| Ok(()));
         // No admin is mapped yet → the seed mints the deterministic v5 id.
+        users.expect_find_user_by_email().returning(|_| Ok(None));
         users
             .expect_find_user_by_provider_id()
             .returning(|_, _| Ok(None));
@@ -186,14 +213,16 @@ mod tests {
         let (user_id, username, hash, must_change) =
             captured.lock().unwrap().clone().expect("upsert not called");
         let expected_id =
-            uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"local:admin").to_string();
+            uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"local:admin@example.com").to_string();
         assert_eq!(user_id, expected_id);
-        assert_eq!(username, "admin");
+        assert_eq!(username, "admin@example.com");
         assert!(!must_change);
         assert_ne!(hash, "hunter2-hunter2", "plaintext must never be persisted");
-        assert!(verify_password("hunter2-hunter2".into(), hash)
-            .await
-            .unwrap());
+        assert!(
+            verify_password("hunter2-hunter2".into(), hash)
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]
@@ -209,7 +238,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn configured_password_overwrites_existing_credential() {
+    async fn configured_password_does_not_overwrite_existing_credential() {
         let (users, credentials, captured) = mocks(true);
         ensure_local_admin(
             &users,
@@ -218,10 +247,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let (_, _, hash, _) = captured.lock().unwrap().clone().expect("upsert not called");
-        assert!(verify_password("new-password-1234".into(), hash)
-            .await
-            .unwrap());
+        assert!(captured.lock().unwrap().is_none());
     }
 
     #[tokio::test]
@@ -232,7 +258,17 @@ mod tests {
         let captured: Captured = Arc::new(Mutex::new(None));
 
         let mut users = MockUserDao::new();
-        users.expect_upsert_user().returning(|_| Ok(()));
+        users.expect_find_user_by_email().returning(|_| Ok(None));
+        users.expect_upsert_user().never();
+        users
+            .expect_update_user_profile_and_role()
+            .withf(move |user_id, name, email, role| {
+                *user_id == mapped_id
+                    && name.is_none()
+                    && email.is_none()
+                    && *role == Some(UserRole::Admin)
+            })
+            .returning(|_, _, _, _| Ok(None));
         users
             .expect_upsert_provider_id()
             .returning(|_, _, _| Ok(()));
@@ -242,7 +278,7 @@ mod tests {
                 Ok(Some(User {
                     id: mapped_id,
                     login: "admin".into(),
-                    email: None,
+                    email: Some("admin@example.com".into()),
                     name: Some("admin".into()),
                     avatar_url: None,
                     provider: "local".into(),

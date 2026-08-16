@@ -29,9 +29,9 @@ use super::error::AuthError;
 use super::github::registry::GitHubAppRegistry;
 use super::github::service::GitHubAppService;
 use super::identity::AuthIdentity;
-use super::jwt::{self, SessionClaims};
 use super::models::UserRole;
 use super::oauth::provider::OAuthProvider;
+use super::oidc::OidcService;
 use super::provider_token_dao::ProviderTokenDao;
 use super::provider_tokens::ProviderTokenAuthDao;
 use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
@@ -49,12 +49,13 @@ use super::schemas::{
     UserListResponse, format_datetime, format_datetime_opt, user_role_from_wire, user_role_to_wire,
 };
 use super::session;
+use super::session::IssuedAuthSession;
 use super::sessions::SessionDao;
 use super::users::UserDao;
 
 /// Type-safe container for configured OAuth providers.
 #[derive(Clone, Default)]
-pub struct OAuthProviders {
+pub(super) struct OAuthProviders {
     pub github_app: Option<Arc<dyn OAuthProvider>>,
     pub auth0: Option<Arc<dyn OAuthProvider>>,
     /// Linear workspace install. Not used for user login — issued tokens are
@@ -66,7 +67,7 @@ impl OAuthProviders {
     /// Build providers from application config.
     ///
     /// Each provider is only created when its required env vars are set.
-    pub fn from_config(config: &Config) -> Self {
+    pub(super) fn from_config(config: &Config) -> Self {
         let github_app =
             super::oauth::github_app::GitHubAppOAuthProvider::from_config(config).map(|p| {
                 tracing::info!("GitHub App OAuth provider configured");
@@ -100,52 +101,56 @@ impl OAuthProviders {
             AuthProvider::Local => None,
             AuthProvider::GitHubApp => self.github_app.as_ref(),
             AuthProvider::Auth0 => self.auth0.as_ref(),
+            // Standards-compliant OIDC has its own typed client and does not
+            // go through the provider-specific OAuth abstraction.
+            AuthProvider::Oidc => None,
         }
     }
 }
 
 /// Shared state for auth routes.
 #[derive(Clone)]
-pub struct AuthState {
-    pub db: DbPool,
-    pub config: Arc<Config>,
-    pub providers: Arc<OAuthProviders>,
-    pub cache: AuthCache,
-    pub sessions: Arc<dyn SessionDao>,
-    pub api_keys: Arc<dyn ApiKeyDao>,
+pub(super) struct AuthState {
+    pub(super) db: DbPool,
+    pub(super) config: Arc<Config>,
+    pub(super) providers: Arc<OAuthProviders>,
+    pub(super) oidc: Option<Arc<OidcService>>,
+    pub(super) cache: AuthCache,
+    pub(super) sessions: Arc<dyn SessionDao>,
+    pub(super) api_keys: Arc<dyn ApiKeyDao>,
     /// Mints the codes that pair a client on another device to an account. The
     /// exchange half runs in the T3 compatibility module, against this same
     /// service.
-    pub pairing: Arc<DevicePairing>,
-    pub users: Arc<dyn UserDao>,
+    pub(super) pairing: Arc<DevicePairing>,
+    pub(super) users: Arc<dyn UserDao>,
     /// Local password credentials (`user_credentials`).
-    pub credentials: Arc<dyn UserCredentialDao>,
-    /// Per-username failed-login counter for the password endpoint.
-    pub login_throttle: LoginThrottle,
-    pub provider_tokens: Arc<dyn ProviderTokenAuthDao>,
+    pub(super) credentials: Arc<dyn UserCredentialDao>,
+    /// Shared per-email and per-source failed-login counters.
+    pub(super) login_throttle: LoginThrottle,
+    pub(super) provider_tokens: Arc<dyn ProviderTokenAuthDao>,
     /// DAO for credential lookups (full-row reads, refresh persistence).
     /// Separate from `provider_tokens` (which handles upsert/metadata paths).
-    pub provider_tokens_dao: Arc<dyn ProviderTokenDao>,
+    pub(super) provider_tokens_dao: Arc<dyn ProviderTokenDao>,
     /// Optional GitHub App service used to refresh expiring user tokens when
     /// reporting provider connection status on `/me`. Convenience handle to
     /// `github_apps.default_service()`.
-    pub github_app_service: Option<Arc<GitHubAppService>>,
+    pub(super) github_app_service: Option<Arc<GitHubAppService>>,
     /// Registry of all configured GitHub Apps.
-    pub github_apps: Arc<GitHubAppRegistry>,
+    pub(super) github_apps: Arc<GitHubAppRegistry>,
     /// Encrypted secret store — holds the OAuth token stashed behind a PAT
     /// override, and the validated PAT itself.
-    pub secrets: Arc<SecretService>,
+    pub(super) secrets: Arc<SecretService>,
     /// Preview-URL access for the session gate — the one `may_access_task` bool
     /// the ForwardAuth gate needs (E-(b)), behind a port so this crate holds no
     /// `task` import.
-    pub task_access: Arc<dyn crate::extractors::TaskAccess>,
+    pub(super) task_access: Arc<dyn crate::extractors::TaskAccess>,
     /// Verifies the sandbox-issued `X-User-Token` on `exchange_token`, behind a
     /// port so this crate holds neither the token secret nor a `sandbox` import.
-    pub token_verifier: Arc<dyn crate::extractors::UserTokenVerifier>,
+    pub(super) token_verifier: Arc<dyn crate::extractors::UserTokenVerifier>,
     /// Adapter connections (`adapter_connections`). The Linear OAuth
     /// callback mirrors the authorized workspace into this table so inbound
     /// Linear webhooks resolve a connection.
-    pub adapter_connections: Arc<dyn AdapterConnectionDao>,
+    pub(super) adapter_connections: Arc<dyn AdapterConnectionDao>,
 }
 
 #[derive(OpenApi)]
@@ -164,6 +169,7 @@ pub struct AuthState {
         me_handler,
         update_me_handler,
         logout_handler,
+        logout_all_handler,
         exchange_api_key_handler,
         exchange_token_handler,
         create_api_key_handler,
@@ -181,28 +187,9 @@ pub struct AuthState {
 pub struct AuthApiDoc;
 
 /// Create the auth router with all endpoints.
-pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi) {
+pub(super) fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi) {
     // Build OpenAPI-documented routes
-    let (openapi_router, api) = OpenApiRouter::with_openapi(AuthApiDoc::openapi())
-        .routes(routes!(verify_handler))
-        .routes(routes!(auth_mode_handler))
-        .routes(routes!(password_login_handler))
-        .routes(routes!(change_password_handler))
-        .routes(routes!(admin_reset_password_handler))
-        .routes(routes!(me_handler, update_me_handler))
-        .routes(routes!(logout_handler))
-        .routes(routes!(exchange_api_key_handler))
-        .routes(routes!(exchange_token_handler))
-        .routes(routes!(create_api_key_handler, list_api_keys_handler))
-        .routes(routes!(revoke_api_key_handler))
-        .routes(routes!(create_pairing_code_handler))
-        .routes(routes!(list_users_handler, create_user_handler))
-        .routes(routes!(update_user_handler))
-        .routes(routes!(
-            set_user_provider_id_handler,
-            delete_user_provider_id_handler
-        ))
-        .routes(routes!(list_user_provider_ids_handler))
+    let (openapi_router, api) = documented_auth_routes()
         .with_state(state.clone())
         .split_for_parts();
 
@@ -217,6 +204,14 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         )
         .route("/api/v1/auth/auth0", get(auth0_init_handler))
         .route("/api/v1/auth/auth0/callback", get(auth0_callback_handler))
+        .route(
+            "/api/v1/auth/oidc/{provider}/start",
+            get(oidc_start_handler),
+        )
+        .route(
+            "/api/v1/auth/oidc/{provider}/callback",
+            get(oidc_callback_handler),
+        )
         .route("/api/v1/auth/linear/install", get(linear_install_handler))
         .route("/api/v1/auth/linear/callback", get(linear_callback_handler))
         .route("/api/v1/auth/logout", get(logout_get_handler))
@@ -228,8 +223,32 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
     (router, api)
 }
 
+fn documented_auth_routes() -> OpenApiRouter<AuthState> {
+    OpenApiRouter::with_openapi(AuthApiDoc::openapi())
+        .routes(routes!(verify_handler))
+        .routes(routes!(auth_mode_handler))
+        .routes(routes!(password_login_handler))
+        .routes(routes!(change_password_handler))
+        .routes(routes!(admin_reset_password_handler))
+        .routes(routes!(me_handler, update_me_handler))
+        .routes(routes!(logout_handler))
+        .routes(routes!(logout_all_handler))
+        .routes(routes!(exchange_api_key_handler))
+        .routes(routes!(exchange_token_handler))
+        .routes(routes!(create_api_key_handler, list_api_keys_handler))
+        .routes(routes!(revoke_api_key_handler))
+        .routes(routes!(create_pairing_code_handler))
+        .routes(routes!(list_users_handler, create_user_handler))
+        .routes(routes!(update_user_handler))
+        .routes(routes!(
+            set_user_provider_id_handler,
+            delete_user_provider_id_handler
+        ))
+        .routes(routes!(list_user_provider_ids_handler))
+}
+
 // ============================================================================
-// Local username/password authentication
+// Local email/password authentication
 // ============================================================================
 
 /// Minimum length accepted for any password set through the API.
@@ -245,10 +264,38 @@ fn validate_password(password: &str) -> Result<(), AuthError> {
     Ok(())
 }
 
-/// 404 unless this deployment runs local password auth, so the endpoint is not
-/// advertised on OAuth deployments.
+fn issued_session_headers(state: &AuthState, issued: &IssuedAuthSession) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    let session_cookie = cookie::build_session_cookie(
+        &state.config,
+        &issued.token,
+        state.config.auth.session_absolute_age_secs,
+    );
+    let csrf_cookie = cookie::build_csrf_cookie(
+        &state.config,
+        &issued.csrf_token,
+        state.config.auth.session_absolute_age_secs,
+    );
+    if let Ok(value) = session_cookie.parse() {
+        headers.append(header::SET_COOKIE, value);
+    }
+    if let Ok(value) = csrf_cookie.parse() {
+        headers.append(header::SET_COOKIE, value);
+    }
+    headers
+}
+
+async fn revoke_present_session(state: &AuthState, headers: &HeaderMap) -> Result<(), AuthError> {
+    if let Some(token) = cookie::get_cookie_value(headers, &state.config.auth.session_cookie_name) {
+        session::revoke_session(state.sessions.as_ref(), &token).await?;
+    }
+    Ok(())
+}
+
+/// 404 unless this deployment runs local password auth or explicitly enables
+/// the unadvertised break-glass credential.
 fn require_local_auth(state: &AuthState) -> Result<(), AuthError> {
-    if state.config.auth.provider == AuthProvider::Local {
+    if state.config.auth.provider == AuthProvider::Local || state.config.auth.break_glass_enabled {
         Ok(())
     } else {
         Err(AuthError::NotFound(
@@ -269,19 +316,43 @@ fn require_local_auth(state: &AuthState) -> Result<(), AuthError> {
 )]
 async fn auth_mode_handler(State(state): State<AuthState>) -> Json<AuthModeResponse> {
     let provider = state.config.auth.provider;
-    let (mode, login_url) = match provider {
-        AuthProvider::Local => (AuthMode::Password, None),
-        AuthProvider::GitHubApp => (AuthMode::Oauth, Some("/api/v1/auth/github-app".to_string())),
-        AuthProvider::Auth0 => (AuthMode::Oauth, Some("/api/v1/auth/auth0".to_string())),
+    let (mode, provider_name, login_url) = match provider {
+        AuthProvider::Local => (AuthMode::Password, None, None),
+        AuthProvider::GitHubApp => (
+            AuthMode::Oauth,
+            Some("GitHub".to_string()),
+            Some("/api/v1/auth/github-app".to_string()),
+        ),
+        AuthProvider::Auth0 => (
+            AuthMode::Oauth,
+            Some("Auth0".to_string()),
+            Some("/api/v1/auth/auth0".to_string()),
+        ),
+        AuthProvider::Oidc => (
+            AuthMode::Oauth,
+            state
+                .config
+                .auth
+                .oidc
+                .as_ref()
+                .map(|provider| provider.name.clone()),
+            state
+                .config
+                .auth
+                .oidc
+                .as_ref()
+                .map(|provider| format!("/api/v1/auth/oidc/{}/start", provider.provider_id)),
+        ),
     };
     Json(AuthModeResponse {
         mode,
         provider: provider.to_string(),
+        provider_name,
         login_url,
     })
 }
 
-/// Log in with a username and password, returning a session cookie.
+/// Log in with an email and password, returning an auth-session cookie.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/password/login",
@@ -296,22 +367,38 @@ async fn auth_mode_handler(State(state): State<AuthState>) -> Json<AuthModeRespo
 )]
 async fn password_login_handler(
     State(state): State<AuthState>,
+    headers: HeaderMap,
     Json(req): Json<PasswordLoginRequest>,
 ) -> Result<Response, AuthError> {
     require_local_auth(&state)?;
 
-    if state.login_throttle.is_locked(&req.username).await {
-        warn!(username = %req.username, "Login rejected: throttled");
+    let email = req.email.trim().to_lowercase();
+    let source = request_source(&headers);
+    let email_locked = state
+        .login_throttle
+        .is_locked("password_email", &email)
+        .await?;
+    let source_locked = match source {
+        Some(source) => {
+            state
+                .login_throttle
+                .is_locked("password_source", source)
+                .await?
+        }
+        None => false,
+    };
+    if email_locked || source_locked {
+        warn!("Password login rejected: throttled");
         return Err(AuthError::TooManyRequests);
     }
 
-    let credential = state.credentials.find_by_username(&req.username).await?;
+    let credential = state.credentials.find_by_email(&email).await?;
 
-    // An unknown username must cost the same as a wrong password, and answer
+    // An unknown email must cost the same as a wrong password, and answer
     // identically, or the endpoint becomes an account-existence oracle.
     let Some(credential) = credential else {
         hash::verify_dummy(req.password).await;
-        state.login_throttle.record_failure(&req.username).await;
+        record_login_failure(&state, &email, source).await?;
         return Err(AuthError::Unauthorized);
     };
 
@@ -320,7 +407,7 @@ async fn password_login_handler(
         .map_err(AuthError::PasswordVerification)?;
 
     if !matches {
-        state.login_throttle.record_failure(&req.username).await;
+        record_login_failure(&state, &email, source).await?;
         if let Err(e) = state
             .credentials
             .record_login_failure(&credential.user_id)
@@ -343,18 +430,18 @@ async fn password_login_handler(
             ))
         })?;
 
-    let jwt_secret = require_jwt_secret(&state.config)?;
-    let token = session::create_session_from_user_with_provider(
+    revoke_present_session(&state, &headers).await?;
+    let issued = session::create_session_from_user_with_provider(
         state.sessions.as_ref(),
         &user,
         None,
         state.config.auth.session_max_age_secs,
-        jwt_secret,
+        state.config.auth.session_absolute_age_secs,
         "local",
     )
     .await?;
 
-    state.login_throttle.clear(&req.username).await;
+    state.login_throttle.clear("password_email", &email).await?;
     if let Err(e) = state
         .credentials
         .record_login_success(&credential.user_id, chrono::Utc::now())
@@ -363,18 +450,10 @@ async fn password_login_handler(
         warn!(error = %e, "Failed to record login success");
     }
 
-    let cookie = cookie::build_session_cookie(
-        &state.config,
-        &token,
-        state.config.auth.session_max_age_secs,
-    );
-    let mut resp_headers = HeaderMap::new();
-    if let Ok(v) = cookie.parse() {
-        resp_headers.insert(header::SET_COOKIE, v);
-    }
+    let resp_headers = issued_session_headers(&state, &issued);
 
     let expires_at = chrono::Utc::now()
-        + chrono::Duration::seconds(state.config.auth.session_max_age_secs as i64);
+        + chrono::Duration::seconds(state.config.auth.session_absolute_age_secs as i64);
 
     info!(user_id = %user.id, login = %user.login, "Password login succeeded");
 
@@ -398,6 +477,34 @@ async fn password_login_handler(
         .into_response())
 }
 
+async fn record_login_failure(
+    state: &AuthState,
+    email: &str,
+    source: Option<&str>,
+) -> Result<(), AuthError> {
+    state
+        .login_throttle
+        .record_failure("password_email", email)
+        .await?;
+    if let Some(source) = source {
+        state
+            .login_throttle
+            .record_failure("password_source", source)
+            .await?;
+    }
+    Ok(())
+}
+
+fn request_source(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
 /// Change your own password.
 #[utoipa::path(
     put,
@@ -418,7 +525,7 @@ async fn change_password_handler(
 ) -> Result<Json<MessageResponse>, AuthError> {
     require_local_auth(&state)?;
     // Cookie only: an API key must not be escalatable into account takeover.
-    let claims = authenticate_from_cookie(&state.config, &headers)?;
+    let claims = authenticate_from_cookie(&state, &headers).await?;
     validate_password(&req.new_password)?;
 
     let credential = state
@@ -488,9 +595,14 @@ async fn admin_reset_password_handler(
     }
     validate_password(&req.new_password)?;
 
+    let user = state
+        .users
+        .get_user_by_login(&login)
+        .await?
+        .ok_or_else(|| AuthError::NotFound(format!("user '{login}' not found")))?;
     let credential = state
         .credentials
-        .find_by_username(&login)
+        .find_by_user_id(&user.id)
         .await?
         .ok_or_else(|| AuthError::NotFound(format!("no local credential for '{login}'")))?;
 
@@ -533,6 +645,11 @@ async fn create_local_user(
     state: &AuthState,
     req: CreateUserRequest,
 ) -> Result<(StatusCode, Json<CreateUserResponse>), AuthError> {
+    if state.config.auth.provider != AuthProvider::Local {
+        return Err(AuthError::BadRequest(
+            "human password users can only be created in local auth mode".into(),
+        ));
+    }
     require_local_auth(state).map_err(|_| {
         AuthError::BadRequest(
             "human users can only be created when the server runs local password auth".into(),
@@ -545,21 +662,30 @@ async fn create_local_user(
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .ok_or_else(|| AuthError::BadRequest("login is required when isBot is false".into()))?;
+    let email = req
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|email| email.contains('@'))
+        .ok_or_else(|| AuthError::BadRequest("valid email is required when isBot is false".into()))?
+        .to_lowercase();
     let password = req
         .password
         .ok_or_else(|| AuthError::BadRequest("password is required when isBot is false".into()))?;
     validate_password(&password)?;
 
-    if state.credentials.find_by_username(login).await?.is_some() {
+    if state.credentials.find_by_email(&email).await?.is_some()
+        || state.users.find_user_by_email(&email).await?.is_some()
+    {
         return Err(AuthError::Conflict(format!(
-            "a user with login '{login}' already exists"
+            "a user with email '{email}' already exists"
         )));
     }
 
     let role = req.role.map_or(UserRole::User, user_role_from_wire);
     // The internal id is a uuid; the `local:<login>` handle is preserved as the
     // provider identity so it resolves back to this uuid.
-    let provider_user_id = format!("local:{}", login.to_lowercase());
+    let provider_user_id = format!("local:{email}");
     let user_id = uuid::Uuid::new_v4();
 
     // Hash before opening the transaction — argon2 costs ~100ms and must not
@@ -574,12 +700,13 @@ async fn create_local_user(
     sqlx::query(
         r#"
         INSERT INTO users (id, login, email, name, avatar_url, provider, provider_user_id, role, created_at, last_login_at, is_bot)
-        VALUES ($1, $2, NULL, $3, NULL, 'local', $4, $5, $6, $6, false)
+        VALUES ($1, $2, $3, $4, NULL, 'local', $5, $6, $7, $7, false)
         ON CONFLICT (id) DO NOTHING
         "#,
     )
     .bind(user_id)
     .bind(login)
+    .bind(&email)
     .bind(login)
     .bind(&provider_user_id)
     .bind(role)
@@ -603,7 +730,7 @@ async fn create_local_user(
            ON CONFLICT DO NOTHING"#,
     )
     .bind(user_id)
-    .bind(login)
+    .bind(&email)
     .bind(&password_hash)
     .bind(req.must_change_password.unwrap_or(false))
     .execute(&mut *tx)
@@ -624,7 +751,7 @@ async fn create_local_user(
         Json(CreateUserResponse {
             id: user_id,
             login: login.to_string(),
-            email: None,
+            email: Some(email),
             is_bot: false,
             provider: "local".to_string(),
             role: role.to_string(),
@@ -636,25 +763,44 @@ async fn create_local_user(
 // Helper: resolve JWT secret from config
 // ============================================================================
 
-/// Resolve the session JWT secret, returning an error if none is available.
-fn require_jwt_secret(config: &Config) -> Result<&str, AuthError> {
-    jwt::get_jwt_secret(config)
-        .ok_or_else(|| AuthError::Config("No session JWT secret configured".to_string()))
+// ============================================================================
+// Helper: authenticate from an opaque auth-session cookie
+// ============================================================================
+
+struct CookieSession {
+    sub: uuid::Uuid,
+    role: UserRole,
+    provider: String,
+    group_id: Option<String>,
+    expires_at: chrono::DateTime<chrono::Utc>,
 }
 
-// ============================================================================
-// Helper: authenticate from session cookie (JWT)
-// ============================================================================
+impl CookieSession {
+    fn user_role(&self) -> UserRole {
+        self.role
+    }
+}
 
-/// Try to authenticate from session cookie, returning the JWT claims.
-fn authenticate_from_cookie(
-    config: &Config,
+async fn authenticate_from_cookie(
+    state: &AuthState,
     headers: &HeaderMap,
-) -> Result<SessionClaims, AuthError> {
-    let secret = require_jwt_secret(config)?;
-    let token = cookie::get_cookie_value(headers, &config.auth.session_cookie_name)
+) -> Result<CookieSession, AuthError> {
+    let token = cookie::get_cookie_value(headers, &state.config.auth.session_cookie_name)
         .ok_or(AuthError::Unauthorized)?;
-    jwt::verify_session_jwt(&token, secret).map_err(|_| AuthError::SessionExpired)
+    let resolved = session::validate_session(
+        state.sessions.as_ref(),
+        &token,
+        state.config.auth.session_max_age_secs,
+    )
+    .await?
+    .ok_or(AuthError::SessionExpired)?;
+    Ok(CookieSession {
+        sub: resolved.user_id,
+        role: resolved.role,
+        provider: resolved.authenticated_via,
+        group_id: resolved.group_id,
+        expires_at: resolved.absolute_expires_at,
+    })
 }
 
 // ============================================================================
@@ -699,22 +845,26 @@ async fn authenticate_request(
         }
     }
 
-    // Try session cookies (JWT)
-    let jwt_secret = require_jwt_secret(&state.config)?;
+    // Try opaque auth-session cookies.
     let tokens = cookie::get_all_cookie_values(headers, &state.config.auth.session_cookie_name);
     if tokens.is_empty() {
         return Err(AuthError::Unauthorized);
     }
 
     for token in &tokens {
-        if let Ok(claims) = jwt::verify_session_jwt(token, jwt_secret) {
-            let role = claims.user_role();
+        if let Some(auth_session) = session::validate_session(
+            state.sessions.as_ref(),
+            token,
+            state.config.auth.session_max_age_secs,
+        )
+        .await?
+        {
             return Ok(AuthIdentity {
-                user_id: claims.sub,
-                login: claims.login,
-                role,
-                provider: claims.provider,
-                group_id: claims.group_id,
+                user_id: auth_session.user_id,
+                login: auth_session.login,
+                role: auth_session.role,
+                provider: auth_session.authenticated_via,
+                group_id: auth_session.group_id,
             });
         }
     }
@@ -1008,7 +1158,7 @@ async fn update_me_handler(
     headers: HeaderMap,
     Json(body): Json<UpdateUserRequest>,
 ) -> Result<Json<SessionResponse>, AuthError> {
-    let claims = authenticate_from_cookie(&state.config, &headers)?;
+    let claims = authenticate_from_cookie(&state, &headers).await?;
 
     let role = claims.user_role();
 
@@ -1018,8 +1168,6 @@ async fn update_me_handler(
         .update_user_profile(&claims.sub, body.name.clone(), body.email.clone())
         .await?
         .ok_or_else(|| AuthError::NotFound("User not found".to_string()))?;
-
-    let expires_at = chrono::DateTime::from_timestamp(claims.exp as i64, 0);
 
     Ok(Json(SessionResponse {
         user: Some(UserInfo {
@@ -1031,7 +1179,7 @@ async fn update_me_handler(
             provider: claims.provider,
             role: user_role_to_wire(role),
         }),
-        expires_at: expires_at.map(format_datetime),
+        expires_at: Some(format_datetime(claims.expires_at)),
         providers: Vec::new(),
         setup: None,
     }))
@@ -1050,6 +1198,18 @@ async fn login_handler(State(state): State<AuthState>) -> Result<Response, AuthE
         }
         AuthProvider::GitHubApp => Ok(Redirect::to("/api/v1/auth/github-app").into_response()),
         AuthProvider::Auth0 => Ok(Redirect::to("/api/v1/auth/auth0").into_response()),
+        AuthProvider::Oidc => {
+            let provider = state
+                .config
+                .auth
+                .oidc
+                .as_ref()
+                .ok_or_else(|| AuthError::Internal("OIDC provider is not configured".into()))?;
+            Ok(
+                Redirect::to(&format!("/api/v1/auth/oidc/{}/start", provider.provider_id))
+                    .into_response(),
+            )
+        }
     }
 }
 
@@ -1066,6 +1226,15 @@ async fn cli_login_handler(
     axum::extract::Query(query): axum::extract::Query<CliLoginQuery>,
 ) -> Result<Response, AuthError> {
     let provider_id = state.config.auth.provider;
+
+    if provider_id == AuthProvider::Oidc {
+        let oidc = state
+            .oidc
+            .as_ref()
+            .ok_or_else(|| AuthError::Config("OIDC provider not configured".into()))?;
+        let url = oidc.start(None, Some(i32::from(query.port))).await?;
+        return Ok(Redirect::to(&url).into_response());
+    }
 
     let provider = state
         .providers
@@ -1182,9 +1351,6 @@ async fn handle_oauth_callback(
     // Extract group (optional)
     let group_id = provider.extract_user_group(&tokens).await;
 
-    // Resolve JWT secret
-    let jwt_secret = require_jwt_secret(&state.config)?;
-
     // GitHub App login uses the stable `github` identity key shared with
     // repository credentials.
     let provider_str = provider_id.to_string();
@@ -1203,8 +1369,9 @@ async fn handle_oauth_callback(
         None => uuid::Uuid::new_v4(),
     };
 
-    // Create session (returns JWT)
-    let jwt_token = session::create_session(
+    // Every login mechanism converges on the opaque auth-session issuer.
+    revoke_present_session(state, headers).await?;
+    let issued = session::create_session(
         state.users.as_ref(),
         state.sessions.as_ref(),
         state.provider_tokens.as_ref(),
@@ -1215,7 +1382,7 @@ async fn handle_oauth_callback(
         &user_info,
         group_id.as_deref(),
         state.config.auth.session_max_age_secs,
-        jwt_secret,
+        state.config.auth.session_absolute_age_secs,
     )
     .await?;
 
@@ -1263,17 +1430,9 @@ async fn handle_oauth_callback(
     }
 
     // Normal flow: set session cookie, clear state cookie, redirect to frontend
-    let session_cookie = cookie::build_session_cookie(
-        &state.config,
-        &jwt_token,
-        state.config.auth.session_max_age_secs,
-    );
     let clear_state_cookie = cookie::build_clear_oauth_state_cookie(&state.config);
 
-    let mut resp_headers = HeaderMap::new();
-    if let Ok(v) = session_cookie.parse() {
-        resp_headers.append(header::SET_COOKIE, v);
-    }
+    let mut resp_headers = issued_session_headers(state, &issued);
     if let Ok(v) = clear_state_cookie.parse() {
         resp_headers.append(header::SET_COOKIE, v);
     }
@@ -1333,24 +1492,149 @@ async fn auth0_callback_handler(
 }
 
 // ============================================================================
+// OpenID Connect
+// ============================================================================
+
+#[derive(serde::Deserialize)]
+struct OidcStartQuery {
+    return_to: Option<String>,
+    port: Option<i32>,
+}
+
+async fn oidc_start_handler(
+    State(state): State<AuthState>,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<OidcStartQuery>,
+) -> Result<Response, AuthError> {
+    let oidc = state
+        .oidc
+        .as_ref()
+        .filter(|oidc| oidc.provider_id() == provider)
+        .ok_or_else(|| AuthError::NotFound("OIDC provider is not configured".into()))?;
+    if query
+        .port
+        .is_some_and(|port| !(1..=u16::MAX as i32).contains(&port))
+    {
+        return Err(AuthError::BadRequest("invalid CLI callback port".into()));
+    }
+    if let Some(source) = request_source(&headers) {
+        if state.login_throttle.is_locked("oidc_start", source).await? {
+            return Err(AuthError::TooManyRequests);
+        }
+        state
+            .login_throttle
+            .record_failure("oidc_start", source)
+            .await?;
+    }
+    let url = oidc.start(query.return_to, query.port).await?;
+    Ok(Redirect::to(&url).into_response())
+}
+
+async fn oidc_callback_handler(
+    State(state): State<AuthState>,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<OAuthCallbackQuery>,
+) -> Result<Response, AuthError> {
+    let oidc = state
+        .oidc
+        .as_ref()
+        .filter(|oidc| oidc.provider_id() == provider)
+        .ok_or_else(|| AuthError::NotFound("OIDC provider is not configured".into()))?;
+    let source = request_source(&headers);
+    if let Some(source) = source {
+        if state
+            .login_throttle
+            .is_locked("oidc_callback_failure", source)
+            .await?
+        {
+            return Err(AuthError::TooManyRequests);
+        }
+    }
+    let result = match oidc
+        .finish(
+            query.state.as_deref().ok_or(AuthError::InvalidState)?,
+            query.code,
+        )
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            if let Some(source) = source {
+                state
+                    .login_throttle
+                    .record_failure("oidc_callback_failure", source)
+                    .await?;
+            }
+            return Err(error);
+        }
+    };
+    if let Some(port) = result.cli_callback_port {
+        let key = api_key::generate_key(
+            state.api_keys.as_ref(),
+            &result.user.id.to_string(),
+            "moat-cli",
+            None,
+            None,
+            None,
+        )
+        .await?;
+        let key = urlencoding::encode(&key.key);
+        let login = urlencoding::encode(&result.user.login);
+        let location = format!("http://127.0.0.1:{port}/callback?key={key}&login={login}");
+        return Ok(Redirect::to(&location).into_response());
+    }
+
+    revoke_present_session(&state, &headers).await?;
+    let issued = session::create_session_from_user_with_provider(
+        state.sessions.as_ref(),
+        &result.user,
+        None,
+        state.config.auth.session_max_age_secs,
+        state.config.auth.session_absolute_age_secs,
+        &format!("oidc:{}", oidc.provider_id()),
+    )
+    .await?;
+
+    let headers = issued_session_headers(&state, &issued);
+    let path = result
+        .redirect_after_login
+        .unwrap_or_else(|| "/".to_string());
+    let location = format!(
+        "{}{}",
+        state.config.auth.frontend_url.trim_end_matches('/'),
+        path
+    );
+    Ok((StatusCode::FOUND, headers, [("Location", location)]).into_response())
+}
+
+// ============================================================================
 // Logout
 // ============================================================================
 
 async fn do_logout(state: &AuthState, headers: &HeaderMap) -> Result<Response, AuthError> {
-    // Decode JWT to determine provider (for Auth0 redirect)
     let mut session_provider: Option<AuthProvider> = None;
     if let Some(token) = cookie::get_cookie_value(headers, &state.config.auth.session_cookie_name) {
-        if let Some(secret) = jwt::get_jwt_secret(&state.config) {
-            if let Ok(claims) = jwt::verify_session_jwt(&token, secret) {
-                session_provider = claims.provider.parse().ok();
-            }
+        if let Some(auth_session) = session::validate_session(
+            state.sessions.as_ref(),
+            &token,
+            state.config.auth.session_max_age_secs,
+        )
+        .await?
+        {
+            session_provider = auth_session.authenticated_via.parse().ok();
         }
+        session::revoke_session(state.sessions.as_ref(), &token).await?;
     }
 
     let clear_cookie = cookie::build_clear_session_cookie(&state.config);
     let mut resp_headers = HeaderMap::new();
     if let Ok(v) = clear_cookie.parse() {
-        resp_headers.insert(header::SET_COOKIE, v);
+        resp_headers.append(header::SET_COOKIE, v);
+    }
+    if let Ok(v) = cookie::build_clear_csrf_cookie(&state.config).parse() {
+        resp_headers.append(header::SET_COOKIE, v);
     }
 
     // Auth0 requires server-side logout
@@ -1402,6 +1686,25 @@ async fn logout_get_handler(
     do_logout(&state, &headers).await
 }
 
+/// Revoke every auth session belonging to the current user.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/logout-all",
+    tag = "auth",
+    responses((status = 200, description = "All sessions revoked", body = MessageResponse))
+)]
+async fn logout_all_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+) -> Result<Response, AuthError> {
+    let current = authenticate_from_cookie(&state, &headers).await?;
+    state
+        .sessions
+        .delete_sessions_for_user(&current.sub.to_string())
+        .await?;
+    do_logout(&state, &headers).await
+}
+
 // ============================================================================
 // POST /api/v1/auth/api-key/session — exchange API key for session cookie
 // ============================================================================
@@ -1444,22 +1747,15 @@ async fn exchange_api_key_handler(
         .await?
         .ok_or(AuthError::Unauthorized)?;
 
-    let jwt_secret = require_jwt_secret(&state.config)?;
-
-    let jwt_token = session::create_session_from_user(
+    revoke_present_session(&state, &headers).await?;
+    let issued = session::create_session_from_user(
         state.sessions.as_ref(),
         &user,
         payload.group_id.as_deref(),
         state.config.auth.session_max_age_secs,
-        jwt_secret,
+        state.config.auth.session_absolute_age_secs,
     )
     .await?;
-
-    let session_cookie = cookie::build_session_cookie(
-        &state.config,
-        &jwt_token,
-        state.config.auth.session_max_age_secs,
-    );
 
     // Build response from user data + claims
     let body = SessionResponse {
@@ -1477,10 +1773,7 @@ async fn exchange_api_key_handler(
         setup: None,
     };
 
-    let mut resp_headers = HeaderMap::new();
-    if let Ok(v) = session_cookie.parse() {
-        resp_headers.insert(header::SET_COOKIE, v);
-    }
+    let resp_headers = issued_session_headers(&state, &issued);
 
     Ok((resp_headers, Json(body)).into_response())
 }
@@ -1532,28 +1825,21 @@ async fn exchange_token_handler(
         .await?
         .ok_or(AuthError::Unauthorized)?;
 
-    let jwt_secret = require_jwt_secret(&state.config)?;
-
-    let jwt_token = session::create_session_from_user(
+    revoke_present_session(&state, &headers).await?;
+    let issued = session::create_session_from_user(
         state.sessions.as_ref(),
         &user,
         None, // sandbox tokens don't carry group_id
         state.config.auth.session_max_age_secs,
-        jwt_secret,
+        state.config.auth.session_absolute_age_secs,
     )
     .await?;
 
-    let session_cookie = cookie::build_session_cookie(
-        &state.config,
-        &jwt_token,
-        state.config.auth.session_max_age_secs,
-    );
-
     let expires_at = chrono::Utc::now()
-        + chrono::Duration::seconds(state.config.auth.session_max_age_secs as i64);
+        + chrono::Duration::seconds(state.config.auth.session_absolute_age_secs as i64);
 
     let body = TokenSessionResponse {
-        token: jwt_token,
+        token: issued.token.clone(),
         user: UserInfo {
             id: user.id,
             login: user.login,
@@ -1566,10 +1852,7 @@ async fn exchange_token_handler(
         expires_at: format_datetime(expires_at),
     };
 
-    let mut resp_headers = HeaderMap::new();
-    if let Ok(v) = session_cookie.parse() {
-        resp_headers.insert(header::SET_COOKIE, v);
-    }
+    let resp_headers = issued_session_headers(&state, &issued);
 
     Ok((resp_headers, Json(body)).into_response())
 }
@@ -1594,7 +1877,7 @@ async fn create_api_key_handler(
     headers: HeaderMap,
     Json(body): Json<CreateApiKeyRequest>,
 ) -> Result<(StatusCode, Json<ApiKeyCreateResponse>), AuthError> {
-    let claims = authenticate_from_cookie(&state.config, &headers)?;
+    let claims = authenticate_from_cookie(&state, &headers).await?;
 
     let expires_at = body
         .expires_in_days
@@ -1648,7 +1931,7 @@ async fn create_pairing_code_handler(
     // another credential, so the one thing that may ask for it is a person at a
     // browser they logged into — not a key, and least of all a key some other
     // device was paired with.
-    let claims = authenticate_from_cookie(&state.config, &headers)?;
+    let claims = authenticate_from_cookie(&state, &headers).await?;
 
     let issued = state
         .pairing
@@ -1685,7 +1968,7 @@ async fn list_api_keys_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ApiKeyListItem>>, AuthError> {
-    let claims = authenticate_from_cookie(&state.config, &headers)?;
+    let claims = authenticate_from_cookie(&state, &headers).await?;
     let keys = api_key::list_keys(state.api_keys.as_ref(), &claims.sub.to_string()).await?;
 
     let items: Vec<ApiKeyListItem> = keys
@@ -1726,7 +2009,7 @@ async fn revoke_api_key_handler(
     headers: HeaderMap,
     Path(key_id): Path<String>,
 ) -> Result<Json<MessageResponse>, AuthError> {
-    let claims = authenticate_from_cookie(&state.config, &headers)?;
+    let claims = authenticate_from_cookie(&state, &headers).await?;
     let result =
         api_key::revoke_key(state.api_keys.as_ref(), &key_id, &claims.sub.to_string()).await?;
 
@@ -1966,6 +2249,11 @@ async fn update_user_handler(
     Path(login): Path<String>,
     Json(body): Json<AdminUpdateUserRequest>,
 ) -> Result<Json<UserInfo>, AuthError> {
+    if matches!(body.email, Some(None)) {
+        return Err(AuthError::BadRequest(
+            "human users must retain an email address".into(),
+        ));
+    }
     let identity = authenticate_request(&state, &headers).await?;
     let user_id = resolve_login_to_user_id(&state, &login).await?;
 
@@ -2352,6 +2640,11 @@ mod tests {
             user_id: "user-1".to_string(),
             is_admin: false,
         }
+    }
+
+    #[test]
+    fn documented_auth_routes_can_be_constructed() {
+        let _ = documented_auth_routes();
     }
 
     #[tokio::test]

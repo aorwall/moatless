@@ -1,107 +1,98 @@
-//! Per-username login throttle.
-//!
-//! Keyed on the lowercased username so `Admin` and `admin` share a counter.
+//! Shared failed-login rate limiting.
 
-use std::sync::Arc;
-use std::time::Duration;
+use chrono::{DateTime, TimeDelta, Utc};
+use sha2::{Digest, Sha256};
 
-use moka::future::Cache;
+use moatless_core::db::DbPool;
 
-/// Failed attempts tolerated before a username is locked out.
-const MAX_FAILURES: u32 = 10;
-/// How long the counter survives without a new failure.
-const WINDOW_SECS: u64 = 15 * 60;
+const MAX_FAILURES: i32 = 10;
+const WINDOW_SECS: i64 = 15 * 60;
 
-/// Tracks consecutive failed password attempts per username.
+/// PostgreSQL-backed limiter shared by every backend replica.
 #[derive(Clone)]
 pub struct LoginThrottle {
-    failures: Arc<Cache<String, u32>>,
+    db: DbPool,
 }
 
 impl LoginThrottle {
-    pub fn new() -> Self {
-        Self {
-            failures: Arc::new(
-                Cache::builder()
-                    .max_capacity(10_000)
-                    .time_to_live(Duration::from_secs(WINDOW_SECS))
-                    .build(),
-            ),
-        }
+    pub fn new(db: DbPool) -> Self {
+        Self { db }
     }
 
-    fn key(username: &str) -> String {
-        username.to_lowercase()
+    pub async fn is_locked(&self, bucket: &str, subject: &str) -> Result<bool, sqlx::Error> {
+        let attempts = sqlx::query_scalar::<_, i32>(
+            r#"SELECT attempts
+               FROM auth_rate_limits
+               WHERE bucket = $1 AND subject_hash = $2 AND window_started_at = $3"#,
+        )
+        .bind(bucket)
+        .bind(subject_hash(subject))
+        .bind(window_start(Utc::now()))
+        .fetch_optional(&self.db)
+        .await?
+        .unwrap_or(0);
+        Ok(attempts >= MAX_FAILURES)
     }
 
-    /// Whether this username has exhausted its attempts.
-    pub async fn is_locked(&self, username: &str) -> bool {
-        self.failures
-            .get(&Self::key(username))
-            .await
-            .is_some_and(|n| n >= MAX_FAILURES)
+    pub async fn record_failure(&self, bucket: &str, subject: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"WITH cleaned AS (
+                   DELETE FROM auth_rate_limits
+                   WHERE window_started_at < now() - interval '1 day'
+               )
+               INSERT INTO auth_rate_limits
+               (bucket, subject_hash, window_started_at, attempts)
+               VALUES ($1, $2, $3, 1)
+               ON CONFLICT (bucket, subject_hash, window_started_at)
+               DO UPDATE SET attempts = auth_rate_limits.attempts + 1"#,
+        )
+        .bind(bucket)
+        .bind(subject_hash(subject))
+        .bind(window_start(Utc::now()))
+        .execute(&self.db)
+        .await?;
+        Ok(())
     }
 
-    /// Record a failed attempt.
-    pub async fn record_failure(&self, username: &str) {
-        let key = Self::key(username);
-        let next = self.failures.get(&key).await.unwrap_or(0) + 1;
-        self.failures.insert(key, next).await;
-    }
-
-    /// Clear the counter after a successful login.
-    pub async fn clear(&self, username: &str) {
-        self.failures.invalidate(&Self::key(username)).await;
+    pub async fn clear(&self, bucket: &str, subject: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM auth_rate_limits WHERE bucket = $1 AND subject_hash = $2")
+            .bind(bucket)
+            .bind(subject_hash(subject))
+            .execute(&self.db)
+            .await?;
+        Ok(())
     }
 }
 
-impl Default for LoginThrottle {
-    fn default() -> Self {
-        Self::new()
-    }
+fn subject_hash(subject: &str) -> Vec<u8> {
+    Sha256::digest(subject.trim().to_lowercase().as_bytes()).to_vec()
+}
+
+fn window_start(now: DateTime<Utc>) -> DateTime<Utc> {
+    let seconds = now.timestamp().div_euclid(WINDOW_SECS) * WINDOW_SECS;
+    DateTime::from_timestamp(seconds, 0).unwrap_or(now - TimeDelta::seconds(WINDOW_SECS))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn locks_after_max_failures() {
-        let throttle = LoginThrottle::new();
-        for _ in 0..MAX_FAILURES - 1 {
-            throttle.record_failure("alice").await;
-        }
-        assert!(!throttle.is_locked("alice").await);
-        throttle.record_failure("alice").await;
-        assert!(throttle.is_locked("alice").await);
+    #[test]
+    fn subjects_are_case_and_whitespace_insensitive() {
+        assert_eq!(
+            subject_hash(" Alice@Example.com "),
+            subject_hash("alice@example.com")
+        );
     }
 
-    #[tokio::test]
-    async fn counter_is_case_insensitive() {
-        let throttle = LoginThrottle::new();
-        for _ in 0..MAX_FAILURES {
-            throttle.record_failure("ALICE").await;
-        }
-        assert!(throttle.is_locked("alice").await);
-    }
-
-    #[tokio::test]
-    async fn clear_resets_the_counter() {
-        let throttle = LoginThrottle::new();
-        for _ in 0..MAX_FAILURES {
-            throttle.record_failure("alice").await;
-        }
-        throttle.clear("Alice").await;
-        assert!(!throttle.is_locked("alice").await);
-    }
-
-    #[tokio::test]
-    async fn usernames_are_tracked_independently() {
-        let throttle = LoginThrottle::new();
-        for _ in 0..MAX_FAILURES {
-            throttle.record_failure("alice").await;
-        }
-        assert!(throttle.is_locked("alice").await);
-        assert!(!throttle.is_locked("bob").await);
+    #[test]
+    fn fixed_windows_are_fifteen_minutes_wide() {
+        let first = DateTime::parse_from_rfc3339("2026-08-12T10:01:00Z")
+            .unwrap()
+            .to_utc();
+        let second = DateTime::parse_from_rfc3339("2026-08-12T10:14:59Z")
+            .unwrap()
+            .to_utc();
+        assert_eq!(window_start(first), window_start(second));
     }
 }

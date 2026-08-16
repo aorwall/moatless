@@ -10,13 +10,19 @@ export const Route = createFileRoute('/login')({
   component: LoginPage,
 })
 
-function OAuthSignInLink() {
+function OAuthSignInLink({
+  loginUrl,
+  providerName,
+}: {
+  loginUrl: string
+  providerName: string | null | undefined
+}) {
   return (
     <a
-      href={`${API_BASE_URL}/api/v1/auth/login`}
+      href={`${API_BASE_URL}${loginUrl}`}
       className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
     >
-      Sign in
+      {providerName ? `Continue with ${providerName}` : 'Sign in'}
     </a>
   )
 }
@@ -33,7 +39,14 @@ function LoginPage() {
         <p className="text-muted-foreground mb-8">Sign in to continue</p>
         {/* Fall back to the OAuth link on error as well — an unreachable mode
             endpoint must not brick sign-in on OAuth deployments. */}
-        {isLoading ? null : showPasswordForm ? <PasswordLoginForm /> : <OAuthSignInLink />}
+        {isLoading ? null : showPasswordForm ? (
+          <PasswordLoginForm />
+        ) : (
+          <OAuthSignInLink
+            loginUrl={data?.loginUrl ?? '/api/v1/auth/login'}
+            providerName={data?.providerName}
+          />
+        )}
       </div>
     </div>
   )

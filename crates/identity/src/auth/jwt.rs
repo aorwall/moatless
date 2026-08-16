@@ -3,7 +3,7 @@
 //! Distinct from `sandbox/jwt.rs` which handles sandbox task tokens.
 //! Uses HS256 signing — same algorithm, separate claims structure.
 
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use uuid::Uuid;
@@ -170,9 +170,8 @@ pub fn verify_ws_ticket_jwt(
 
 /// Resolve the JWT secret from config.
 ///
-/// Prefers `SESSION_JWT_SECRET`, falls back to `TASK_TOKEN_SECRET`. Under the
-/// fallback, session cookies are signed with the sandbox secret, so rotating
-/// `TASK_TOKEN_SECRET` logs everyone out — see [`warn_on_jwt_secret_fallback`].
+/// Prefers `SESSION_JWT_SECRET`, falling back to `TASK_TOKEN_SECRET` for the
+/// short-lived JWTs still used outside browser-session authentication.
 pub fn get_jwt_secret(config: &Config) -> Option<&str> {
     config
         .auth
@@ -186,9 +185,8 @@ pub fn get_jwt_secret(config: &Config) -> Option<&str> {
 pub fn warn_on_jwt_secret_fallback(config: &Config) {
     if config.auth.session_jwt_secret.is_none() && config.sandbox.task_token_secret.is_some() {
         tracing::warn!(
-            "SESSION_JWT_SECRET is unset — signing session cookies with TASK_TOKEN_SECRET. \
-             Rotating TASK_TOKEN_SECRET will invalidate every active session. Set \
-             SESSION_JWT_SECRET to decouple them."
+            "SESSION_JWT_SECRET is unset — signing short-lived authentication tickets with \
+             TASK_TOKEN_SECRET. Set SESSION_JWT_SECRET to decouple those keys."
         );
     }
 }
