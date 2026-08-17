@@ -42,6 +42,7 @@ moatless-backend-core = { path = "../backend-core", features = ["database", "ope
 moatless-core = { path = "../core", features = ["openapi"] }
 moatless-events = { path = "../events" }
 moatless-identity = { path = "../identity" }
+moatless-s3 = { path = "../s3" }
 moatless-tasks = { path = "../tasks" }
 moatless-workspaces = { path = "../workspaces" }
 

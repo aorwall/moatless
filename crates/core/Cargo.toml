@@ -3,7 +3,7 @@ name = "moatless-core"
 version = "0.1.0"
 edition = "2021"
 authors = ["Moatless Team"]
-description = "Lowest-band backend crate: config, db, error, events, file storage, and core-clean vocabularies"
+description = "Lowest-band backend crate: config, db, error, events, file metadata, and core-clean vocabularies"
 
 [dependencies]
 # Async runtime
@@ -31,9 +31,6 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # HTTP client (GitHub client, git provider)
 reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
-
-# S3 client for the file-storage objects.
-aws-sdk-s3 = "1"
 
 # Crypto
 rand = "0.10"

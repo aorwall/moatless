@@ -17,7 +17,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use moatless_core::file_storage::s3::{self as file_s3, S3Storage};
+use moatless_s3::{self as file_s3, S3Storage};
 
 use super::orchestrator::WorkspaceArchivePort;
 use crate::storage::sandbox_key;

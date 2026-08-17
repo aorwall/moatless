@@ -1,4 +1,10 @@
-//! S3 operations for file storage.
+// Allow unwrap/expect in test code — production code still enforces the deny.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
+//! S3 object operations and presigning.
+//!
+//! A leaf over `aws-sdk-s3` with no in-workspace dependency, so the SDK
+//! compiles in parallel with the band graph instead of gating it.
 
 use std::time::{Duration, SystemTime};
 

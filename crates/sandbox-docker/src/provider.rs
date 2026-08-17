@@ -1112,7 +1112,7 @@ impl DockerSandboxAdapter {
             return Ok(());
         };
         let prefix = format!("{}/{task_id}/", root.trim_end_matches('/'));
-        moatless_core::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
+        moatless_s3::delete_objects_by_prefix(s3, bucket, &prefix)
             .await
             .map_err(|e| {
                 moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(format!(

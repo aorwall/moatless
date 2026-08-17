@@ -1300,12 +1300,11 @@ impl K8sSandboxAdapter {
             self.config.s3.transcript_prefix.trim_end_matches('/'),
             task_id
         );
-        let deleted =
-            moatless_core::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
-                .await
-                .map_err(|e| {
-                    SandboxError::Internal(format!("delete transcripts for {task_id}: {e}"))
-                })?;
+        let deleted = moatless_s3::delete_objects_by_prefix(s3, bucket, &prefix)
+            .await
+            .map_err(|e| {
+                SandboxError::Internal(format!("delete transcripts for {task_id}: {e}"))
+            })?;
         if deleted > 0 {
             info!(task_id, deleted, prefix = %prefix, "Deleted task transcripts from S3");
         }
@@ -1329,12 +1328,9 @@ impl K8sSandboxAdapter {
             self.config.s3.workspace_prefix.trim_end_matches('/'),
             task_id
         );
-        let deleted =
-            moatless_core::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
-                .await
-                .map_err(|e| {
-                    SandboxError::Internal(format!("delete workspace for {task_id}: {e}"))
-                })?;
+        let deleted = moatless_s3::delete_objects_by_prefix(s3, bucket, &prefix)
+            .await
+            .map_err(|e| SandboxError::Internal(format!("delete workspace for {task_id}: {e}")))?;
         if deleted > 0 {
             info!(task_id, deleted, prefix = %prefix, "Deleted task workspace from S3");
         }

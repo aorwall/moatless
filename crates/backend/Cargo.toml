@@ -128,8 +128,10 @@ moatless-identity = { path = "../identity" }
 # Workspaces band: workspace sync, repository, skill, plugin, credentials (lifted
 # out of crates/backend/src). Composed through permanent facade modules that re-export it.
 moatless-workspaces = { path = "../workspaces" }
-# Tasks band: task lifecycle, messages, agent turns, activities, ingress, feedback,
-# and file storage (lifted out of crates/backend/src). Composed through permanent facade
+# S3 object operations, behind the `file_storage::s3` facade.
+moatless-s3 = { path = "../s3" }
+# Tasks band: task lifecycle, messages, agent turns, activities, ingress, and
+# feedback (lifted out of crates/backend/src). Composed through permanent facade
 # modules that re-export it, so higher bands keep naming `crate::task::…` etc.
 moatless-tasks = { path = "../tasks" }
 # Loops band: loops, bindings, and the Adapter core that no single Adapter owns

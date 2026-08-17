@@ -34,6 +34,7 @@ moatless-backend-core = { path = "../backend-core", features = ["database", "ope
 moatless-core = { path = "../core", features = ["openapi"] }
 moatless-events = { path = "../events", features = ["openapi"] }
 moatless-identity = { path = "../identity" }
+moatless-s3 = { path = "../s3" }
 moatless-tasks = { path = "../tasks" }
 moatless-workspaces = { path = "../workspaces" }
 # Shared gRPC wire vocabulary (proto types) — a floor crate, legal downward.
