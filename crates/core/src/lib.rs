@@ -18,6 +18,7 @@ pub mod db;
 pub mod error;
 pub mod events;
 pub mod feature_flags;
+pub mod file_storage;
 pub mod git_provider;
 pub mod github_client;
 pub mod leader;

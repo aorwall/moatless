@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_core::error::error_response;
+use crate::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileStorageError {

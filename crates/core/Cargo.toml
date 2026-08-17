@@ -3,7 +3,7 @@ name = "moatless-core"
 version = "0.1.0"
 edition = "2021"
 authors = ["Moatless Team"]
-description = "Lowest-band backend crate: config, db, error, events, and core-clean vocabularies"
+description = "Lowest-band backend crate: config, db, error, events, file storage, and core-clean vocabularies"
 
 [dependencies]
 # Async runtime
@@ -32,8 +32,15 @@ chrono = { version = "0.4", features = ["serde"] }
 # HTTP client (GitHub client, git provider)
 reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
 
+# S3 client for the file-storage objects.
+aws-sdk-s3 = "1"
+
 # Crypto
 rand = "0.10"
+
+# Mock generation, enabled off `test-support` so the bands above can name
+# `MockFileDao` across the crate boundary.
+mockall = { version = "0.15", optional = true }
 
 # Error handling
 thiserror = "2"
@@ -68,9 +75,18 @@ openapi = [
     "moatless-events/openapi",
     "moatless-backend-core/openapi",
 ]
-# Exposes test-only constructors such as `Config::test_minimal` to downstream
-# crates. No shipping build enables it, so those stay unreachable in production.
-test-support = []
+# Exposes test-only constructors such as `Config::test_minimal` and the
+# `#[cfg(any(test, feature = "test-support"))]` DAO mocks to downstream crates.
+# The gate keeps the `test,` disjunct FIRST: the census keys on the substring
+# "test" in the cfg token stream (crate-census scan.rs), so items gated this way
+# stay test-context and are never scored as a production edge. No shipping build
+# enables it. `dep:mockall` provides the generators.
+test-support = ["dep:mockall"]
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# The optional dependency above is off in this crate's own test build, so the
+# mocks the `test` disjunct generates need it named here as well.
+mockall = "0.15"

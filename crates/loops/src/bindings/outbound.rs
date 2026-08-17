@@ -14,8 +14,8 @@ use crate::adapters::{AdapterKind, Adapters};
 use moatless_tasks::task::binding_dao::TaskBindingDao;
 use crate::bindings::metrics::record_outbound;
 use crate::bindings::recently_sent::RecentlySent;
-use moatless_tasks::file_storage::dao::FileDao;
-use moatless_tasks::file_storage::s3::S3Storage;
+use moatless_core::file_storage::dao::FileDao;
+use moatless_core::file_storage::s3::S3Storage;
 use crate::loops::dao::LoopDao;
 use moatless_tasks::message::dao::MessageDao;
 use moatless_tasks::message::models::{MessageRole, MessageType, TaskMessage};
@@ -367,7 +367,7 @@ pub async fn resolve_files_with(
         };
 
         let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
-        match moatless_tasks::file_storage::s3::get_object(&s3_client.client, bucket, &s3_key).await {
+        match moatless_core::file_storage::s3::get_object(&s3_client.client, bucket, &s3_key).await {
             Ok((data, _content_type)) => {
                 resolved.push(OutboundFile {
                     filename: meta.filename,

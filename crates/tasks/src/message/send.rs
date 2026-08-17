@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use super::models::{TaskMessage, TaskMessageContext};
-use crate::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
 use crate::message::models::{MessageRole, MessageType, TOOL_RESPONSE_USER_TYPE};
 use crate::task::dao::{TaskDao, TaskPatch};
@@ -11,6 +10,7 @@ use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::mapping::{ActivityStatus, ConversationWrite, ToolOutcome};
 use crate::task_turn::dao::TaskTurnDao;
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::file_storage::dao::FileDao;
 use moatless_core::shared_models::AgentMode;
 
 use super::contexts::message_context_input_to_row;

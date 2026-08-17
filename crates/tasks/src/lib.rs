@@ -8,7 +8,7 @@
 //!
 //! The backend composes this crate through permanent facade modules
 //! (`backend/src/{task,message,agent,agent_event,credential_sync,event_ingress,
-//! feedback,file_storage,tag,task_activities,task_event,task_listing,task_turn}`) that re-export
+//! feedback,tag,task_activities,task_event,task_listing,task_turn}`) that re-export
 //! these paths, so the higher bands still in the backend keep naming
 //! `crate::task::…` etc. The facade is not transitional: the backend stays the
 //! composition root that wires these ports into `AppState`. Every router here is
@@ -20,7 +20,6 @@ pub mod agent_event;
 pub mod credential_sync;
 pub mod event_ingress;
 pub mod feedback;
-pub mod file_storage;
 pub mod message;
 pub mod tag;
 pub mod task;

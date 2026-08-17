@@ -34,6 +34,8 @@ use crate::sandbox::secrets::{
 use crate::sandbox::storage::sandbox_key;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
+use moatless_core::file_storage::dao::FileDao;
+use moatless_core::file_storage::s3 as file_s3;
 use moatless_core::shared_models::AgentType;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::github::service::GitHubAppService;
@@ -47,8 +49,6 @@ use moatless_tasks::agent::prompt;
 use moatless_tasks::credential_sync::CredentialSync;
 use moatless_tasks::event_ingress::outbox::IngressOutbox;
 use moatless_tasks::event_ingress::{AdmissionError, AdmissionRequest, EventAdmission};
-use moatless_tasks::file_storage::dao::FileDao;
-use moatless_tasks::file_storage::s3 as file_s3;
 use moatless_tasks::message::dao::MessageDao;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::relations::TaskRelationDao;
@@ -184,7 +184,7 @@ pub struct BackendSandboxServiceImpl {
     /// narrow the forward to; narrowing the builders belongs to their own module.
     pub backend_config: Arc<Config>,
     /// S3 handle used by `download_upload` and workspace sync.
-    pub s3: Option<Arc<moatless_tasks::file_storage::s3::S3Storage>>,
+    pub s3: Option<Arc<moatless_core::file_storage::s3::S3Storage>>,
     /// S3 bucket name (`config.s3.bucket_name`).
     pub s3_bucket: Option<String>,
     /// S3 key prefix for uploaded files (`config.s3.key_prefix`).

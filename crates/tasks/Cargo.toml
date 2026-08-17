@@ -2,15 +2,11 @@
 name = "moatless-tasks"
 version = "0.1.0"
 edition = "2021"
-description = "Tasks band: task lifecycle, messages, tags, listing feed, activities, ingress, and file storage for Moatless"
+description = "Tasks band: task lifecycle, messages, tags, listing feed, activities, and ingress for Moatless"
 
 [dependencies]
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
-# Multipart extractor for the file-storage upload handlers.
-axum-extra = { version = "0.12", features = ["multipart"] }
-# S3 client for the file-storage backend.
-aws-sdk-s3 = "1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"

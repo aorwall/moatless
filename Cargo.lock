@@ -3653,6 +3653,7 @@ name = "moatless-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-sdk-s3",
  "axum",
  "chrono",
  "dotenvy",
@@ -3660,6 +3661,7 @@ dependencies = [
  "metrics-exporter-prometheus",
  "moatless-backend-core",
  "moatless-events",
+ "mockall",
  "rand 0.10.1",
  "redis",
  "reqwest 0.13.4",
@@ -3918,9 +3920,7 @@ name = "moatless-tasks"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "aws-sdk-s3",
  "axum",
- "axum-extra",
  "base64 0.22.1",
  "chrono",
  "futures",

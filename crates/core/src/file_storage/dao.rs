@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 use super::models::FileMetadata;
-use moatless_core::db::DbPool;
+use crate::db::DbPool;
 
 /// DAO trait for file metadata persistence.
-#[cfg_attr(test, mockall::automock)]
+#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub trait FileDao: Send + Sync {
     async fn insert_metadata(&self, row: &FileMetadata) -> Result<(), sqlx::Error>;

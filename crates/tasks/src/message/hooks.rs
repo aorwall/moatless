@@ -22,7 +22,7 @@ use tracing::{debug, warn};
 use super::models::MessageType;
 use super::schemas::{SubagentStatus, UiMessage};
 use moatless_core::events::EventPublisher;
-use crate::file_storage::dao::FileDao;
+use moatless_core::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
 
 /// One shell tool call resolved from a persisted message, ready to hand to the

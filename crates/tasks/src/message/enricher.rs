@@ -7,9 +7,9 @@ use serde_json::Value;
 
 use super::contexts::task_message_context_to_input;
 use super::models::{TaskMessage, TaskMessageContext};
-use crate::file_storage::dao::FileDao;
 use crate::task::schemas::MessageContextInput;
 use moatless_core::config::Config;
+use moatless_core::file_storage::dao::FileDao;
 
 /// Content block for agent request.
 #[derive(Debug, serde::Serialize)]
@@ -447,8 +447,8 @@ async fn build_file_attachment_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file_storage::dao::MockFileDao;
-    use crate::file_storage::models::FileMetadata;
+    use moatless_core::file_storage::dao::MockFileDao;
+    use moatless_core::file_storage::models::FileMetadata;
     use serde_json::json;
 
     fn pending_message(id: i32, uuid: &str, text: &str) -> TaskMessage {

@@ -10,12 +10,12 @@ use moatless_api_schemas::codex::{CodexToolInput, CodexToolResult};
 
 use super::contexts::task_message_context_to_input;
 use super::models::{TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
-use crate::file_storage::models::FileMetadata;
 use crate::message::models::MessageType;
 use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::dao::Activity;
 use crate::task_activities::mapping::{ActivityKind, ActivityStatus};
 use crate::task_activities::view::ActivityView;
+use moatless_core::file_storage::models::FileMetadata;
 
 use super::schemas::*;
 

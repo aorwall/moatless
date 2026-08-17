@@ -6,11 +6,11 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use serde::Deserialize;
 
-use crate::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use crate::task::dao::TaskDao;
 use crate::task::sandbox_waker::SandboxWaker;
+use moatless_core::file_storage::dao::FileDao;
 use moatless_identity::extractors::AuthUser;
 
 use super::error::MessageError;

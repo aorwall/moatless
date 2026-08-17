@@ -1301,7 +1301,7 @@ impl K8sSandboxAdapter {
             task_id
         );
         let deleted =
-            moatless_tasks::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
+            moatless_core::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
                 .await
                 .map_err(|e| {
                     SandboxError::Internal(format!("delete transcripts for {task_id}: {e}"))
@@ -1330,7 +1330,7 @@ impl K8sSandboxAdapter {
             task_id
         );
         let deleted =
-            moatless_tasks::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
+            moatless_core::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
                 .await
                 .map_err(|e| {
                     SandboxError::Internal(format!("delete workspace for {task_id}: {e}"))
