@@ -21,14 +21,12 @@ tracing = "0.1"
 utoipa = { version = "5", features = ["axum_extras"] }
 
 moatless-core = { path = "../core" }
-moatless-events = { path = "../events" }
 moatless-api-schemas = { path = "../api-schemas" }
 moatless-adapter-model = { path = "../adapter-model" }
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
 moatless-identity = { path = "../identity" }
 moatless-loops = { path = "../loops" }
 moatless-tasks = { path = "../tasks" }
-moatless-workspaces = { path = "../workspaces" }
 
 [lints]
 workspace = true

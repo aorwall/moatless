@@ -419,17 +419,16 @@ Ticket 00 answers one question with evidence: does `shell_reconcile.rs` contain 
 belong in `routing.rs`, `outbound.rs`, or `external_id.rs`, or is it one coherent workflow that is
 merely long?
 
-**Superseded — the module is being removed rather than placed.** The verdict below asked where
+**Superseded — the module is gone, not placed.** The verdict below asked where
 `shell_reconcile.rs` belongs among the three named modules and answered "nowhere, it is coherent".
 It did not ask the prior question: whether the reconstruction has to happen at all. It does not.
-`moat gh api` now records what its POST created, from the response it already holds — so every
-comment, review and review comment this module recognises is recorded by the command that made the
+`moat gh api` records what its POST created, from the response it already holds — so every comment,
+review and review comment the module recognised is now recorded by the command that makes the
 change, synchronously, and survives a restart via `task_outbound_events`. A push binds to nothing:
 the commit it writes is not an event, and the `pull_request.synchronize` it triggers is recognised
-by the footer and the bindings like any other pull-request event. The recognisers moved to
-`crates/cli/src/commands/gh.rs` with their tests; the module is deleted once no running sandbox is
-still on a prompt that sends agents down the raw-`gh` path. The analysis below stands as a record of
-what the module was.
+by the footer and the bindings like any other pull-request event. The recognisers live in
+`crates/cli/src/commands/gh.rs` with their tests. The analysis below stands as a record of what the
+module was.
 
 **Original verdict: one coherent workflow that is merely long. The exclusion stands, and no ticket is
 added.** Measured on the ticket-01 branch, 1,836 lines is 692 lines of tests and ~1,141 of

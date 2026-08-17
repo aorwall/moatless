@@ -1,17 +1,9 @@
 //! Hooks invoked after agent messages are persisted.
 //!
-//! Message-domain work only: walk the persisted `tool_result` blocks, resolve
-//! the tool call each result belongs to, unwrap the agent harness's shell
-//! wrapper, normalize line continuations — and return the resulting command
-//! lines and their output as targets. Dispatching those targets to the GitHub
-//! adapter's shell reconciler (which owns every GitHub-specific behaviour — the
-//! GitHub PR status/reaction design) is the server-band caller's job: that
-//! `tasks -> adapter` step lives at the call site, not in this hook.
-//!
-//! Also hosts the derived, UI-only `message.upsert` / `subagentProgress`
-//! assembly (server-owned assembly and skeleton-message model).
+//! The derived, UI-only `message.upsert` / `subagentProgress` assembly
+//! (server-owned assembly and skeleton-message model): re-assemble the Message a
+//! persisted row affects and publish it for the live Chat.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -19,107 +11,10 @@ use moatless_events::{EventType, MessageSubType};
 use serde_json::json;
 use tracing::{debug, warn};
 
-use super::models::MessageType;
 use super::schemas::{SubagentStatus, UiMessage};
 use moatless_core::events::EventPublisher;
 use moatless_core::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
-
-/// One shell tool call resolved from a persisted message, ready to hand to the
-/// GitHub reconciler: the command line (wrapper stripped, continuations joined)
-/// and its result text, keyed by the `tool_use_id` the gh claim is recorded
-/// against.
-pub struct ShellReconcileTarget {
-    pub tool_use_id: String,
-    pub cmd: String,
-    pub result_text: String,
-}
-
-/// Resolve every shell tool call in the just-persisted message to the command
-/// line and result the GitHub reconciler needs. This is the message-domain half
-/// and stays in the tasks band: walk the `tool_result` blocks, resolve each to
-/// its `tool_use` call, unwrap the agent harness's shell wrapper, normalize line
-/// continuations. Dispatching the targets to the adapter is the (server-band)
-/// caller's job — it owns the `tasks -> adapter` direction, so the parse and the
-/// dispatch live on opposite sides of that band edge.
-///
-/// `message_type` gates the walk to system-role messages (SDK "user" role),
-/// where tool results land. Lookups that fail are logged and skipped — the
-/// event-handler loop is fire-and-forget.
-pub async fn extract_shell_reconcile_targets(
-    messages: &Arc<dyn MessageDao>,
-    task_id: &str,
-    message_type: MessageType,
-    content: &serde_json::Value,
-) -> Vec<ShellReconcileTarget> {
-    let mut targets = Vec::new();
-
-    // Tool results land on system-role messages (SDK "user" role).
-    if message_type != MessageType::System {
-        return targets;
-    }
-
-    let Some(blocks) = content.as_array() else {
-        return targets;
-    };
-
-    for block in blocks {
-        if block.get("type").and_then(|v| v.as_str()) != Some("tool_result") {
-            continue;
-        }
-        let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) else {
-            continue;
-        };
-
-        let tool_call = match messages.find_tool_call(task_id, tool_use_id).await {
-            Ok(Some(c)) => c,
-            Ok(None) => {
-                debug!(task_id, tool_use_id, "tool_use not found for tool_result");
-                continue;
-            }
-            Err(e) => {
-                warn!(task_id, tool_use_id, error = %e, "find_tool_call failed");
-                continue;
-            }
-        };
-
-        let raw_cmd = tool_call
-            .tool_input
-            .get("command")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if raw_cmd.is_empty() {
-            continue;
-        }
-
-        // Claude Code's `Bash` and Codex's `codex.shell` use the same
-        // tool_input.command field, but Codex always wraps the command as
-        // `/bin/bash -lc '<inner>'` — unwrap it so the reconciler's command
-        // parsers can match.
-        let cmd: &str = match tool_call.tool_name.as_str() {
-            "Bash" => raw_cmd,
-            "codex.shell" => unwrap_shell_wrapper(raw_cmd),
-            _ => continue,
-        };
-        // Backslash-newline continuations (`cd x && \⏎gh pr create …`) defeat
-        // the reconciler's whitespace tokenizers — join them before handing
-        // the command over.
-        let cmd = normalize_line_continuations(cmd);
-
-        let result_text = block.get("content").and_then(|v| v.as_str()).unwrap_or("");
-
-        // The claim is recorded on the call, not on the Message it was made
-        // from: a turn that only ran the command said nothing and wrote no
-        // Message row for the claim to land on.
-        targets.push(ShellReconcileTarget {
-            tool_use_id: tool_use_id.to_string(),
-            cmd: cmd.into_owned(),
-            result_text: result_text.to_string(),
-        });
-    }
-
-    targets
-}
 
 // =============================================================================
 // message.upsert — derived, UI-only assembled Message events (server-owned assembly and skeleton-message model)
@@ -309,72 +204,4 @@ pub async fn emit_subagent_progress(
             payload,
         )
         .await;
-}
-
-/// Strip a `<shell> -<flags> '<inner>'` wrapper that Codex always wraps
-/// shell commands in (production form: `/bin/bash -lc '<inner>'`). Falls
-/// through unchanged if no recognized wrapper is present.
-pub fn unwrap_shell_wrapper(cmd: &str) -> &str {
-    let trimmed = cmd.trim();
-    const PREFIXES: &[&str] = &[
-        "/bin/bash -lc ",
-        "/bin/bash -c ",
-        "/bin/sh -lc ",
-        "/bin/sh -c ",
-        "bash -lc ",
-        "bash -c ",
-        "sh -c ",
-    ];
-    for prefix in PREFIXES {
-        if let Some(rest) = trimmed.strip_prefix(prefix) {
-            let rest = rest.trim();
-            if let Some(inner) = rest.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
-                return inner;
-            }
-            if let Some(inner) = rest.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-                return inner;
-            }
-            return rest;
-        }
-    }
-    cmd
-}
-
-/// Join shell line continuations (`\` followed by a newline) into a single
-/// space so the whitespace tokenizers downstream see one logical command line.
-pub fn normalize_line_continuations(cmd: &str) -> Cow<'_, str> {
-    if cmd.contains("\\\n") || cmd.contains("\\\r\n") {
-        Cow::Owned(cmd.replace("\\\r\n", " ").replace("\\\n", " "))
-    } else {
-        Cow::Borrowed(cmd)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unwrap_shell_wrapper_strips_bin_bash_lc() {
-        assert_eq!(
-            unwrap_shell_wrapper("/bin/bash -lc 'gh pr create --title foo'"),
-            "gh pr create --title foo"
-        );
-    }
-
-    #[test]
-    fn unwrap_shell_wrapper_strips_double_quoted() {
-        assert_eq!(
-            unwrap_shell_wrapper("/bin/bash -c \"gh pr view 1\""),
-            "gh pr view 1"
-        );
-    }
-
-    #[test]
-    fn unwrap_shell_wrapper_passthrough_when_no_wrapper() {
-        assert_eq!(
-            unwrap_shell_wrapper("gh pr create --title foo"),
-            "gh pr create --title foo"
-        );
-    }
 }

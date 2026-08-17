@@ -441,40 +441,13 @@ pub async fn find_tool_call(
         .await
 }
 
-/// Claim what a call created on the other side, once.
-///
-/// `external_event_id IS NULL` is first-writer-wins: a command re-parsed from a
-/// redelivered result must not restate a claim, and two different ids for one
-/// call would mean the parse is wrong.
-///
-/// Returns whether this call took the claim.
-pub async fn claim_external(
-    pool: &DbPool,
-    task_id: &str,
-    tool_use_id: &str,
-    external_id: &str,
-    adapter: &str,
-    source_name: Option<&str>,
-) -> Result<bool, sqlx::Error> {
-    let claimed = sqlx::query(
-        r#"UPDATE task_activities
-              SET external_event_id    = $3,
-                  external_adapter     = $4,
-                  external_source_name = $5
-            WHERE task_id = $1 AND tool_use_id = $2 AND external_event_id IS NULL"#,
-    )
-    .bind(task_id)
-    .bind(tool_use_id)
-    .bind(external_id)
-    .bind(adapter)
-    .bind(source_name)
-    .execute(pool)
-    .await?
-    .rows_affected();
-    Ok(claimed > 0)
-}
-
 /// Whether any of this Task's calls already claims one of these ids.
+///
+/// `task_activities.external_event_id` is read-only: this reader and the two
+/// below are what keep a claim already in the table suppressing its echo. New
+/// claims go to `message::outbound_claims`, which is keyed on the id rather
+/// than on the call, because the `moat` command that records one runs in a
+/// sandbox shell and has no tool-use id.
 pub async fn claims_any_external(
     pool: &DbPool,
     task_id: &str,

@@ -741,40 +741,6 @@ async fn footer_echo_skips_only_its_authoring_task(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn pushed_commit_claim_skips_only_its_pusher(pool: PgPool) {
-    let pusher = "task-commit-pusher";
-    let sibling = "task-commit-sibling";
-    seed_fixtures(&pool, pusher).await;
-    seed_bound_task(&pool, sibling, "binding-commit-sibling", "connected_thread").await;
-    let state = replica(&pool).await;
-    assert!(state.recently_sent.note_commit(pusher, "7fc0612"));
-
-    let mut payload = pull_request_payload("synchronize", "open", false);
-    payload["before"] = serde_json::json!("1111111111111111111111111111111111111111");
-    payload["after"] = serde_json::json!("7fc0612a1b2c3d4e5f60718293a4b5c6d7e8f901");
-    deliver(&state, "pull_request", "delivery-commit-echo", &payload).await;
-    let pool_for_check = pool.clone();
-    run_worker_until(&state, Duration::from_secs(30), async || {
-        matches!(
-            status_of(&pool_for_check, GITHUB_PR_MESSAGE, "delivery-commit-echo").await,
-            Some((ref status, _)) if status == "succeeded" || status == "failed"
-        )
-    })
-    .await;
-
-    assert_eq!(
-        message_count(&pool, pusher).await,
-        0,
-        "the commit claim names exactly the pushing task"
-    );
-    assert_eq!(
-        message_count(&pool, sibling).await,
-        1,
-        "a sibling Binding still receives the synchronize event"
-    );
-}
-
-#[sqlx::test]
 async fn inbound_sender_prefers_mapped_login_then_connection_owner(pool: PgPool) {
     seed_fixtures(&pool, "task-inbound-identity").await;
     sqlx::query(

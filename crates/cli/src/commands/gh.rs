@@ -623,8 +623,6 @@ fn parse_repo_arg(value: &str) -> Option<(String, String)> {
 
 /// Decompose a GitHub remote URL into `(owner, repo)`. Supports HTTPS, SSH
 /// shorthand (`git@github.com:owner/repo`), and the explicit `ssh://` form.
-/// Mirrors `parse_github_remote` in the backend's
-/// `adapters/github_pr/shell_reconcile.rs`.
 fn parse_github_remote(url: &str) -> Option<(String, String)> {
     let path = url
         .strip_prefix("https://github.com/")

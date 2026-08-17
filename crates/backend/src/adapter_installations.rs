@@ -85,7 +85,6 @@ impl AdapterInstallations {
     /// registers nothing and the event handler is unchanged by it.
     pub fn event_subscribers(&self, state: &AppState) -> TaskEventSubscribers {
         let mut subscribers = TaskEventSubscribers::new();
-        self.github_pr.subscribe_events(&mut subscribers, state);
         self.linear.subscribe_events(&mut subscribers, state);
         subscribers
     }
@@ -203,7 +202,6 @@ impl GithubPrInstallation {
                 state.routing.clone(),
                 state.messages.clone(),
                 state.task_relations.clone(),
-                state.recently_sent.clone(),
                 state.tasks.clone(),
                 state.db.clone(),
                 state.task_creation.clone(),
@@ -213,21 +211,6 @@ impl GithubPrInstallation {
             ),
         );
         crate::adapters::providers::github_pr::delivery::register(handlers, router);
-    }
-
-    fn subscribe_events(&self, subscribers: &mut TaskEventSubscribers, state: &AppState) {
-        crate::adapters::providers::github_pr::event_subscriber::subscribe(
-            subscribers,
-            Arc::new(
-                crate::adapters::providers::github_pr::event_subscriber::GithubPrEventSubscriber::new(
-                    self.adapter.clone(),
-                    state.recently_sent.clone(),
-                    state.messages.clone(),
-                    state.tasks.clone(),
-                    state.repositories.clone(),
-                ),
-            ),
-        );
     }
 }
 

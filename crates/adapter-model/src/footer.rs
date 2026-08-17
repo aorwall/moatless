@@ -16,14 +16,13 @@
 
 /// Footer marker so we can detect if the URL was already appended (and skip
 /// re-appending on retries). Stable across runs. Shared with the GitHub PR-body
-/// footer (`adapters::github_pr::shell_reconcile::compose_footer` and the typed
-/// `/api/v1/github/*` endpoints), which embed the same marker.
+/// footer the typed `/api/v1/github/*` endpoints bake in
+/// (`github_pr::api_routes::compose_footer`), which embeds the same marker.
 pub const FOOTER_MARKER: &str = "Moatless task:";
 
 /// Format the footer suffix from already-resolved inputs. Returns `None` when
-/// `frontend_url` is empty (matches the PR-body footer behaviour in
-/// `adapters::github_pr::shell_reconcile`). The string includes the leading
-/// separator, e.g.
+/// `frontend_url` is empty, which is also what the GitHub PR-body footer does.
+/// The string includes the leading separator, e.g.
 /// `"\n\n---\nMoatless task: [My task](https://app/tasks/abc)"`.
 pub fn render_footer(frontend_url: &str, task_id: &str, name: Option<&str>) -> Option<String> {
     let base = frontend_url.trim_end_matches('/');

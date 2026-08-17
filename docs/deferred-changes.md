@@ -74,7 +74,7 @@ in the change that found them.
 | Control-scoped writes discard the bool that denies them | `workspace/handlers.rs` — `create_workspace`, `update_workspace`, `override_workspace`, `add_workspace_repo`, `remove_workspace_repo`, `set_workspace_primary_repo` (nine call sites) | Needs a design decision plus a new test; see below |
 | The docker preview-server readiness timeout never fires | `sandbox/docker/status_resolver.rs::inspect_server_container` | Tracked by the `test.fixme` on SERVER-02 in `tests/api/specs/sandbox-errors.spec.ts` |
 | The GitHub preflight never runs on a restart | `crates/sandbox-control/src/auto_provision.rs::build_provision_request` runs only `preflight::preflight_validate_task_control`; `RealPreflight`'s repo-access probe reaches only creation and task start | When `SandboxRuntime::ensure_running` no longer builds a plan on the reuse path; see below |
-| A shell GitHub write leaves no source chip on the call | `crates/adapter-github-pr/src/api_routes.rs::record_external_event` writes `task_outbound_events`, not `messages::claim_activity_external_source` | When a tool-use id reaches the sandbox shell; see below |
+| A GitHub write from the shell leaves no source chip on the call | `crates/adapter-github-pr/src/api_routes.rs::record_external_event` writes `task_outbound_events`; nothing writes `task_activities.external_event_id` | When a tool-use id reaches the sandbox shell; see below |
 
 **Workspace control-filter writes.** `WorkspaceDao`'s `update`, `add_repo`,
 `remove_repo` and `set_primary` all return `bool`, and the trait documents it:
@@ -134,16 +134,18 @@ Widen it when `ensure_running` can tell "reuse a live sandbox" from "create or
 start one" without building the plan first; the probe then belongs on the
 second branch only.
 
-**The source chip on a shell GitHub write.** `claim_activity_external_source`
-records the claim *on the tool call that made the change*, which is also what the
-chat reads to render the source chip on that call. It is keyed on `tool_use_id`,
-and a sandbox shell has no tool-use id: `TASK_ID` and the user token reach it,
-nothing that names the call it is running inside. So `moat gh api` records the
-event in `task_outbound_events`, which is keyed on the id alone. Suppression and
-provenance both still work — those readers consult the table — but the call the
-agent ran shows no chip. Restoring it needs a tool-use identifier exposed to the
-sandbox shell; until one exists there is nothing to key on, and inventing a second
-identity for the same call would be worse than the missing chip.
+**The source chip on a GitHub write from the shell.** The chat renders a source
+chip on a tool call from `task_activities.external_event_id`, recorded *on the
+call that made the change*. That column is keyed on `tool_use_id`, and a sandbox
+shell has no tool-use id: `TASK_ID` and the user token reach it, nothing that
+names the call it is running inside. So `moat gh api` records the event in
+`task_outbound_events`, which is keyed on the id alone. Suppression and
+provenance both still work — `has_any_external_event_id` and
+`find_task_id_by_any_external_event_id` consult both — but nothing writes the
+activity column any more, so the call the agent ran shows no chip. Restoring it
+needs a tool-use identifier exposed to the sandbox shell; until one exists there
+is nothing to key on, and inventing a second identity for the same call would be
+worse than the missing chip.
 
 ## Test and CI structure
 
@@ -217,6 +219,7 @@ of its own.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | Access-administration compatibility aliases | `crates/api-schemas/src/provider_settings.rs` deprecated Rust aliases and `packages/api-client/src/sandbox/model/provider-settings-compatibility.ts` | Remove the old DTO and `sandbox/provider-settings/provider-settings` TypeScript exports in the next major wire-contract release |
+| `TaskEventSubscriber` has one production implementation | `crates/loops/src/adapters/events.rs::TaskEventSubscriber` — Linear is the only Adapter that reacts to a task's own events; the seam's own tests supply the second and third | When a second Adapter earns live status — Slack and Telegram react to no agent event today. Not a candidate for collapsing: deleting the seam puts eleven provider dispatches back into `event_handler/`, which is what it exists to keep out |
 | `PluginDao::clear_activation` takes an owned skill name | `crates/workspaces/src/plugin/dao.rs::PluginDao::clear_activation` — `skill_name: Option<String>` | Nothing requires the owned form; narrow it to `Option<&str>` when this signature is being changed for another reason, rather than touching a request path for that alone |
 | `bindings/runtime.rs` has two doors onto binding upsert | `bindings/runtime.rs::upsert_binding` (`&AppState`) delegating to `::upsert_binding_into` (`&dyn TaskBindingDao`) | Delete the `&AppState` door when `runtime.rs`'s own `&AppState` functions are ported and its nine external callers move to the port-typed core |
 | `bindings/runtime.rs` keeps three provider-facing `&AppState` doors | `bindings/runtime.rs` — `parent_author_task_id` and `external_id_aliases` (delegate to `state.routing`), `upsert_binding` (delegates to `upsert_binding_into`). The routing subgraph itself is off `AppState` — `RoutingService` owns its ten ports and `route_inbound_message`/`fan_out` are methods — but these three doors keep `runtime.rs` naming `AppState`, its one remaining loops→server edge. (`resolve_chat_provider_event` was a fourth; it read only `adapter_connections` and `loops`, so C6 gave it those two ports directly and its Slack/Telegram ingress callers pass them — unblocking those two files plus `telegram/poller` in the carve, without clearing `runtime.rs`.) | Each door's callers are provider-band files that still hold `AppState`; a door closes when the provider slice that owns its callers passes the port at the call site (`state.routing`), the same move the four register/subject-router sites made in Step 5. `runtime.rs` drops `AppState` when the last of the three goes. See the 9/5 partition in `.plans/backend-ports-and-crates.md` |

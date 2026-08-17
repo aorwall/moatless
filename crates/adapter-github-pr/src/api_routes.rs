@@ -1,10 +1,9 @@
 //! Typed `/api/v1/github/*` API surface for sandbox agents (via `moat gh`).
 //!
-//! Mirrors the `moat linear` pattern: instead of the agent shelling out to
-//! `gh pr create` / `gh pr comment` and the backend reconstructing the side
-//! effects by parsing the shell command post-hoc (fragile — see
-//! `github_pr::shell_reconcile`), these endpoints make the side effects part of
-//! the API call itself:
+//! Mirrors the `moat linear` pattern: rather than leaving the agent to shell
+//! out to `gh pr create` / `gh pr comment` and having the side effects
+//! reconstructed afterwards, these endpoints make them part of the API call
+//! itself:
 //! - task↔PR binding upsert (`connect_github_binding`)
 //! - `Moatless task: <url>` footer baked into the PR body at creation
 //! - webhook echo dedup (`recently_sent`) for the PR-opened / comment events
@@ -15,6 +14,7 @@
 //! routes reach a repository the task isn't bound to: the caller's own access
 //! is the only thing that decides.
 
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use axum::Json;
@@ -42,7 +42,6 @@ use moatless_tasks::task::dao::TaskDao;
 use super::adapter::GithubPrAdapter;
 use super::api::{GithubPrApi, MAX_COMMENT_LENGTH};
 use super::external_id;
-use super::shell_reconcile::compose_footer;
 
 /// Extract the configured GitHub PR adapter or answer "adapter not configured".
 ///
@@ -474,6 +473,22 @@ pub async fn record_external_event(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Append the `Moatless task: <url>` footer to a body.
+///
+/// Baked into the PR body at creation so the link is there from the first
+/// revision, and so the inbound echo filter can recover the authoring task from
+/// any comment quoting it.
+fn compose_footer(existing: &str, task_url: &str) -> String {
+    let trimmed = existing.trim_end_matches('\n').to_string();
+    if trimmed.is_empty() {
+        format!("{FOOTER_MARKER} {task_url}\n")
+    } else {
+        let mut out = trimmed;
+        let _ = write!(out, "\n\n---\n{FOOTER_MARKER} {task_url}\n");
+        out
+    }
+}
 
 /// Record `external_id` as `task_id`'s own work, in memory and durably.
 ///

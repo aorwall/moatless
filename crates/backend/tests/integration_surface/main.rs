@@ -8,7 +8,6 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-mod agent_handlers_hooks_test;
 mod agent_handlers_per_block_test;
 mod closed_terminal_test;
 mod device_pairing_test;

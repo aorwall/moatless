@@ -21,7 +21,6 @@ use std::sync::Arc;
 use moatless_core::db::DbPool;
 
 use moatless_loops::adapters::dao::AdapterConnectionDao;
-use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_loops::loops::dao::LoopDao;
 use moatless_tasks::message::dao::MessageDao;
@@ -50,7 +49,6 @@ pub struct GithubPrInboundRouter {
     /// Records the related-to relation on review-task spawn.
     pub(super) task_relations: Arc<dyn TaskRelationDao>,
     /// Push-echo dedup — which task claimed a `synchronize` sha.
-    pub(super) recently_sent: Arc<RecentlySent>,
     /// Task rows — the close pre-check (already-closed / not-found skip).
     pub(super) tasks: Arc<dyn TaskDao>,
     /// Sender-user resolution for the synthetic close-notice message, and the
@@ -73,7 +71,7 @@ impl GithubPrInboundRouter {
     /// Wire the router from the composition root's ports.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the inbound-routing substrate is genuinely wide — thirteen downward ports the four delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, the four delivery closures, and every handler, which is the whole point of a constructed-once service."
+        reason = "the inbound-routing substrate is genuinely wide — twelve downward ports the four delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, the four delivery closures, and every handler, which is the whole point of a constructed-once service."
     )]
     pub fn new(
         adapter_connections: Arc<dyn AdapterConnectionDao>,
@@ -82,7 +80,6 @@ impl GithubPrInboundRouter {
         routing: Arc<RoutingService>,
         messages: Arc<dyn MessageDao>,
         task_relations: Arc<dyn TaskRelationDao>,
-        recently_sent: Arc<RecentlySent>,
         tasks: Arc<dyn TaskDao>,
         db: DbPool,
         task_creation: Arc<TaskCreationService>,
@@ -97,7 +94,6 @@ impl GithubPrInboundRouter {
             routing,
             messages,
             task_relations,
-            recently_sent,
             tasks,
             db,
             task_creation,

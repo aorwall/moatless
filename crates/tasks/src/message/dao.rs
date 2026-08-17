@@ -342,18 +342,6 @@ pub trait MessageDao: Send + Sync {
         source_name: Option<&'a str>,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Claim, on the call that made it, what that call created on the other
-    /// side. The Message twin of this writes to a row that a turn which only ran
-    /// the command never created; the call always has one.
-    async fn claim_activity_external_source<'a>(
-        &self,
-        task_id: &'a str,
-        tool_use_id: &'a str,
-        external_id: &'a str,
-        provider: &'a str,
-        source_name: Option<&'a str>,
-    ) -> Result<bool, sqlx::Error>;
-
     /// Record an external event this Task produced.
     ///
     /// The entry for a caller with no `tool_use_id` to hang the record on — a
@@ -1197,25 +1185,6 @@ impl MessageDao for PgMessageDao {
         .await?;
 
         Ok(result.rows_affected() > 0)
-    }
-
-    async fn claim_activity_external_source<'a>(
-        &self,
-        task_id: &'a str,
-        tool_use_id: &'a str,
-        external_id: &'a str,
-        provider: &'a str,
-        source_name: Option<&'a str>,
-    ) -> Result<bool, sqlx::Error> {
-        activities::claim_external(
-            &self.0,
-            task_id,
-            tool_use_id,
-            external_id,
-            provider,
-            source_name,
-        )
-        .await
     }
 
     async fn record_external_event<'a>(

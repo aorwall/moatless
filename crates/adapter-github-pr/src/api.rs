@@ -30,7 +30,6 @@ pub(super) struct ReactionUser {
 pub(super) struct PrInfo {
     pub(super) number: u64,
     pub(super) title: String,
-    pub(super) body: Option<String>,
     pub(super) state: String,
     /// Whether the PR was merged. Distinguishes `merged` from a plain `closed`
     /// PR (GitHub reports both as `state = "closed"`). Absent on older
@@ -663,36 +662,6 @@ impl GithubPrApi {
             .ok_or_else(|| {
                 SharedAdapterError::AdapterApi("GitHub user: missing login".into()).into()
             })
-    }
-
-    /// Update a PR's body.
-    pub(super) async fn update_pr_body(
-        &self,
-        owner: &str,
-        repo: &str,
-        pr_number: u64,
-        body: &str,
-    ) -> Result<(), AdapterError> {
-        let url = format!("{}/repos/{owner}/{repo}/pulls/{pr_number}", self.base_url);
-
-        let resp = self
-            .request(reqwest::Method::PATCH, &url)
-            .json(&serde_json::json!({ "body": body }))
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub update_pr_body", e))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            warn!(status = %status, body = %text, "GitHub update_pr_body error");
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub update_pr_body returned {status}: {text}"
-            ))
-            .into());
-        }
-
-        Ok(())
     }
 }
 

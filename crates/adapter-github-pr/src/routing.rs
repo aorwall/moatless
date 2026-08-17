@@ -15,7 +15,6 @@ use moatless_loops::adapters::models::{
     InboundMessage, RoutingMode, SubscriptionMatch, TaskBinding,
 };
 use moatless_loops::bindings::metrics::{inbound_reason, record_inbound};
-use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_tasks::task::closer::CloseEvent;
 use moatless_tasks::task::creation::TaskCreationError;
 use moatless_tasks::task::models::Visibility;
@@ -122,9 +121,8 @@ impl GithubPrInboundRouter {
         // Provenance: who wrote this event, where it can be named. The
         // `Moatless task:` footer link `<frontend_url>/tasks/<id>` the adapter
         // parsed off the body is authoritative and costs no round-trip; failing
-        // that, an event identifier already recorded against a task names it. A
-        // third signal — the commit a task claimed when it pushed — needs the
-        // bindings in hand and is resolved below. Nothing here is an identity.
+        // that, an event identifier already recorded against a task names it.
+        // Nothing here is an identity.
         let origin_task_id = match msg.source_task_id.clone() {
             Some(task_id) => Some(task_id),
             None => match msg.external_event_id.as_deref() {
@@ -201,10 +199,10 @@ impl GithubPrInboundRouter {
                 .await?
                 .is_some();
             if let (false, Some(rule)) = (has_provider_event_task, rule) {
-                // The eager `gh pr create` hook (see `github_pr::shell_reconcile`)
-                // upserts a connected_thread binding for the originating task at the
-                // moment the agent created the PR — so by the time pr_opened fires,
-                // the earliest binding is the originating task. Link the new review
+                // `moat gh pr create` upserts a connected_thread binding for the
+                // originating task as part of creating the PR — so by the time
+                // pr_opened fires, the earliest binding is the originating
+                // task. Link the new review
                 // task to it as a `related_to` peer (it shares the PR subject_key,
                 // it isn't a child of the originator).
                 let related = originator_binding_summary
@@ -295,18 +293,6 @@ impl GithubPrInboundRouter {
             return Ok(());
         }
 
-        // A push returns no event identifier of its own, so the task that wrote it
-        // is named by the commit it claimed when it pushed. Delivering a push echo
-        // is worse than delivering a comment echo — it wakes a stopped sandbox and
-        // starts paid work.
-        let author_task_id = match origin_task_id {
-            Some(task_id) => Some(task_id),
-            None => task_that_pushed(
-                &self.recently_sent,
-                msg.external_event_id.as_deref(),
-                &bindings,
-            ),
-        };
 
         // Metering and message labelling need a route; a repo with no trigger of
         // its own routes under the delivery-only one owned by routing.
@@ -330,7 +316,7 @@ impl GithubPrInboundRouter {
                 subject_kind: SUBJECT_KIND,
                 subject_key: &subject_key,
                 bindings,
-                author_task_id: author_task_id.as_deref(),
+                author_task_id: origin_task_id.as_deref(),
                 new_task_binding_id: new_task_binding_id.as_deref(),
             },
         )
@@ -652,30 +638,6 @@ impl GithubPrInboundRouter {
     }
 }
 
-/// The task that claimed the commit this event carries, if any.
-///
-/// Only a `pull_request.synchronize` notification carries one; every other
-/// event names no commit and so names no task. The webhook carries the head
-/// commit in full while the claim recorded from `git push` output is
-/// abbreviated, so [`RecentlySent`] matches the two on their leading
-/// characters.
-///
-/// This is provenance, not a guard: it says who wrote the push, and the shared
-/// router draws the same conclusion from it as from a footer or a recorded
-/// event identifier. Only tasks already bound to the pull request are
-/// considered, because only they could receive the push in the first place.
-fn task_that_pushed(
-    recently_sent: &RecentlySent,
-    external_event_id: Option<&str>,
-    bindings: &[TaskBinding],
-) -> Option<String> {
-    let sha = external_event_id.and_then(super::external_id::synchronize_sha)?;
-    bindings
-        .iter()
-        .find(|binding| recently_sent.contains_commit(&binding.task_id, sha))
-        .map(|binding| binding.task_id.clone())
-}
-
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
@@ -714,120 +676,4 @@ mod tests {
         assert_eq!(rule.run_as_user_id.as_deref(), Some("u_owner"));
     }
 
-    mod push_claim {
-        use super::super::task_that_pushed;
-        use crate::external_id;
-        use chrono::Utc;
-        use moatless_loops::adapters::models::{CONNECTED_THREAD_BINDING_ORIGIN, TaskBinding};
-        use moatless_loops::bindings::recently_sent::RecentlySent;
-
-        const FULL_SHA: &str = "7fc0612a1b2c3d4e5f60718293a4b5c6d7e8f901";
-
-        /// Only the task id and the fact of being bound matter here.
-        fn bound(task_ids: &[&str]) -> Vec<TaskBinding> {
-            let now = Utc::now();
-            task_ids
-                .iter()
-                .map(|task_id| TaskBinding {
-                    id: format!("ts_{task_id}"),
-                    task_id: (*task_id).to_string(),
-                    adapter_kind: "github".to_string(),
-                    subject_kind: "github_pr".to_string(),
-                    subject_key: "acme/widget#42".to_string(),
-                    connection_id: "pc_org".to_string(),
-                    loop_id: None,
-                    destination_config: serde_json::json!({}),
-                    metadata: serde_json::json!({}),
-                    last_external_event_id: None,
-                    origin: CONNECTED_THREAD_BINDING_ORIGIN.to_string(),
-                    created_at: now,
-                    last_event_at: now,
-                    external_status: None,
-                    external_state_kind: None,
-                    external_status_raw: None,
-                    external_review_decision: None,
-                    external_mergeable_state: None,
-                    external_status_updated_at: None,
-                    active: true,
-                    deactivated_at: None,
-                })
-                .collect()
-        }
-
-        #[test]
-        fn sync_event_for_a_claimed_commit_names_the_task_that_pushed() {
-            let recently_sent = RecentlySent::new();
-            // What `git push` printed — abbreviated.
-            recently_sent.note_commit("task-1", "7fc0612");
-            // What the webhook carries — full length.
-            let sync = external_id::pr_synchronize(42, FULL_SHA);
-            assert_eq!(
-                task_that_pushed(&recently_sent, Some(&sync), &bound(&["task-2", "task-1"])),
-                Some("task-1".to_string())
-            );
-        }
-
-        #[test]
-        fn another_tasks_push_and_another_commit_name_nobody() {
-            let recently_sent = RecentlySent::new();
-            recently_sent.note_commit("task-1", "7fc0612");
-            let sync = external_id::pr_synchronize(42, FULL_SHA);
-            assert_eq!(
-                task_that_pushed(&recently_sent, Some(&sync), &bound(&["task-2"])),
-                None
-            );
-
-            let other = external_id::pr_synchronize(42, "deadbee1a1b2c3d4e5f60718293a4b5c6d7e8f90");
-            assert_eq!(
-                task_that_pushed(&recently_sent, Some(&other), &bound(&["task-1"])),
-                None
-            );
-        }
-
-        #[test]
-        fn degenerate_claim_never_matches_a_sync_event() {
-            let recently_sent = RecentlySent::new();
-            recently_sent.note_commit("task-1", "");
-            recently_sent.note_commit("task-1", "7fc");
-            let sync = external_id::pr_synchronize(42, FULL_SHA);
-            assert_eq!(
-                task_that_pushed(&recently_sent, Some(&sync), &bound(&["task-1"])),
-                None
-            );
-        }
-
-        #[test]
-        fn only_sync_events_carry_a_commit_to_match() {
-            let recently_sent = RecentlySent::new();
-            recently_sent.note_commit("task-1", "7fc0612");
-            let bindings = bound(&["task-1"]);
-            for id in [
-                external_id::pr_opened(42),
-                external_id::issue_comment(7),
-                external_id::review_comment(7),
-                String::new(),
-            ] {
-                assert_eq!(
-                    task_that_pushed(&recently_sent, Some(&id), &bindings),
-                    None,
-                    "{id} names no commit"
-                );
-            }
-            assert_eq!(task_that_pushed(&recently_sent, None, &bindings), None);
-        }
-
-        /// A forced push prints a different range marker but the same commit,
-        /// so the claim recorded from it matches the same way a fast-forward
-        /// one does — the router never sees the difference.
-        #[test]
-        fn a_forced_push_is_claimed_like_a_fast_forward_one() {
-            let recently_sent = RecentlySent::new();
-            recently_sent.note_commit("task-1", "deadbee");
-            let sync = external_id::pr_synchronize(42, "deadbee1a1b2c3d4e5f60718293a4b5c6d7e8f90");
-            assert_eq!(
-                task_that_pushed(&recently_sent, Some(&sync), &bound(&["task-1"])),
-                Some("task-1".to_string())
-            );
-        }
-    }
 }
