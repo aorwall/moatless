@@ -53,7 +53,7 @@ mod terminal;
 pub mod workspace;
 
 pub use feed::{ShellFeed, ThreadFeed};
-pub use moatless_backend_core::pairing::DevicePairing;
+pub use moatless_identity::auth::pairing::DevicePairing;
 pub use moatless_backend_core::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 use moatless_backend_core::sandbox::SandboxError;
 pub use moatless_backend_core::sandbox::{
@@ -93,7 +93,7 @@ use crate::sandbox::{SandboxRpcError, SandboxState};
 use crate::scripts::{ScriptsError, ScriptsState};
 use crate::servers::{ServersError, ServersState};
 use crate::workspace::WorkspaceAccessError;
-use moatless_backend_core::activity::{ConversationHead, Resume, resume};
+use moatless_tasks::task_activities::{ConversationHead, Resume, resume};
 use moatless_backend_core::scope::ScopeContext;
 
 /// The largest WebSocket message this socket reads or writes.
@@ -3492,7 +3492,7 @@ mod tests {
     use crate::listing::UiRpcListingHead;
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
-    use moatless_backend_core::pairing::{
+    use moatless_identity::auth::pairing::{
         PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key,
     };
     use moatless_backend_core::sandbox::{

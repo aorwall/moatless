@@ -28,8 +28,8 @@ use super::dao::ConversationDao;
 use super::{AgentModelDefaults, projection};
 use crate::data::T3WorkspaceDao;
 use crate::listing::UiRpcEnvironmentIdentity;
-use moatless_backend_core::activity::{self, ConversationChange, ConversationHead};
 use moatless_backend_core::scope::ScopeContext;
+use moatless_tasks::task_activities::{self, ConversationChange, ConversationHead};
 
 /// How many recorded changes one poll reads. A cap rather than a limit — the
 /// cursor still advances to the last record read, so a full batch only splits
@@ -355,7 +355,7 @@ impl ThreadFeed {
     pub fn resuming_from(task_id: String, after: i64) -> Self {
         Self {
             task_id,
-            cursor: activity::position_of(after),
+            cursor: task_activities::position_of(after),
             delivered: after,
         }
     }
@@ -500,10 +500,10 @@ fn coalesced(changes: Vec<ConversationChange>) -> Vec<ConversationChange> {
 mod tests {
     use super::*;
     use crate::dao::{Conversation, MockConversationDao, Transcript, TranscriptMessage};
-    use moatless_backend_core::activity::EVENTS_PER_CHANGE;
     use moatless_backend_core::models::AgentType;
     use moatless_backend_core::models::SandboxDesiredState;
     use moatless_backend_core::models::{MessageRole, MessageType};
+    use moatless_tasks::task_activities::EVENTS_PER_CHANGE;
 
     fn change(position: i64, uuid: Option<&str>) -> ConversationChange {
         ConversationChange {

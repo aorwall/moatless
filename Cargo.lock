@@ -3892,6 +3892,7 @@ dependencies = [
  "metrics",
  "moatless-api-schemas",
  "moatless-backend-core",
+ "moatless-identity",
  "moatless-tasks",
  "mockall",
  "opentelemetry",

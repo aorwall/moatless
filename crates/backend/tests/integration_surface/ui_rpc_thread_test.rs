@@ -20,7 +20,7 @@
 
 use crate::common;
 
-use moatless_backend_core::activity::mapping::{ActivityKind, ActivityStatus};
+use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
 use moatless_api_schemas::task::{FileContextData, MessageContextInput, PreviewUrlContextData};
 use moatless_events::SandboxEventPayload;
 use moatless_t3code::dao::{ConversationDao, PgConversationDao};

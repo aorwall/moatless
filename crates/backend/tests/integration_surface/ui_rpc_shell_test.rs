@@ -38,7 +38,7 @@ use moatless_backend::task_activities::mapping::{BlockContext, ConversationWrite
 use moatless_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
 use moatless_backend::task_turn::models::classify_turn_transition;
 use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
-use moatless_backend_core::activity::{ConversationChange, ConversationHead};
+use moatless_tasks::task_activities::{ConversationChange, ConversationHead};
 use moatless_backend_core::sandbox::{
     ClusterDiagnostics, LiveStatus, LogOptions, SandboxDiagnosticsEntry, SandboxError,
     SandboxPortPublisher, SandboxStatusFullResponse, ServerLogStream,

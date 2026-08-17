@@ -15,10 +15,10 @@ use super::dao::{Conversation, ConversationMatch, Transcript, TranscriptMessage}
 use crate::activity::T3ActivityViewExt;
 use crate::agent::catalog::{self, UiRpcAgentKind};
 use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
-use moatless_backend_core::activity::dao::Activity;
-use moatless_backend_core::activity::mapping::ActivityKind;
-use moatless_backend_core::activity::view::ActivityView;
-use moatless_backend_core::activity::{ConversationChange, EVENTS_PER_CHANGE};
+use moatless_tasks::task_activities::dao::Activity;
+use moatless_tasks::task_activities::mapping::ActivityKind;
+use moatless_tasks::task_activities::view::ActivityView;
+use moatless_tasks::task_activities::{ConversationChange, EVENTS_PER_CHANGE};
 use moatless_backend_core::models::MessageType;
 use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason};
 
@@ -404,7 +404,7 @@ fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<V
         .iter()
         .filter(|activity| {
             activity.kind == ActivityKind::ToolCall
-                && activity.summary == moatless_backend_core::activity::mapping::PLAN_TOOL
+                && activity.summary == moatless_tasks::task_activities::mapping::PLAN_TOOL
                 && !activity.is_settled()
         })
         .filter_map(|activity| {
@@ -1741,7 +1741,7 @@ mod tests {
 
     use super::*;
     use crate::activity_dao::SubagentUsage;
-    use moatless_backend_core::activity::mapping::{ActivityKind, ActivityStatus};
+    use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
     use moatless_backend_core::models::AgentType;
     use moatless_backend_core::models::MessageRole;
     use moatless_backend_core::scope::Scope;
@@ -2706,7 +2706,7 @@ mod tests {
         activity.tool_use_id = Some(id.to_string());
         let mut payload = json!({
             "title": name,
-            "itemType": moatless_backend_core::activity::mapping::item_type(name),
+            "itemType": moatless_tasks::task_activities::mapping::item_type(name),
             "status": "completed",
             "data": { "toolCallId": id },
             "input": input,
@@ -3533,7 +3533,7 @@ mod tests {
             2,
             0,
             "call-1",
-            moatless_backend_core::activity::mapping::PLAN_TOOL,
+            moatless_tasks::task_activities::mapping::PLAN_TOOL,
             json!({ "plan": "1. Do the thing" }),
         );
         proposed.status = ActivityStatus::InProgress;
@@ -3568,7 +3568,7 @@ mod tests {
                 2,
                 0,
                 "call-1",
-                moatless_backend_core::activity::mapping::PLAN_TOOL,
+                moatless_tasks::task_activities::mapping::PLAN_TOOL,
                 input,
             );
             proposed.status = ActivityStatus::InProgress;

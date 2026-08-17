@@ -37,11 +37,11 @@ pub mod pruner;
 pub mod view;
 
 pub use dao::{
-    changes_from, current_head, prune_changes, record_activity_change, record_message_change,
-    record_session_change,
+    Activity, changes_from, current_head, prune_changes, record_activity_change,
+    record_message_change, record_session_change,
 };
 pub use models::{
-    position_of, resume, ConversationChange, ConversationHead, Resume, EVENTS_PER_CHANGE,
-    RESUME_WINDOW, RETAINED_CHANGES,
+    ConversationChange, ConversationHead, EVENTS_PER_CHANGE, RESUME_WINDOW, RETAINED_CHANGES,
+    Resume, position_of, resume,
 };
 pub use pruner::spawn_change_pruner;

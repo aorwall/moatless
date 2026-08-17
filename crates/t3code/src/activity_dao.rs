@@ -6,9 +6,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use moatless_backend_core::activity::dao::Activity;
-use moatless_backend_core::activity::mapping::ActivityKind;
-use moatless_backend_core::activity::view::ActivityView;
+use moatless_tasks::task_activities::dao::Activity;
+use moatless_tasks::task_activities::mapping::ActivityKind;
+use moatless_tasks::task_activities::view::ActivityView;
 use serde_json::Value;
 
 use crate::UiRpcDbPool;

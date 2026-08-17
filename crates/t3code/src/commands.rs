@@ -41,7 +41,7 @@ use super::ports::{
 };
 use super::providers;
 use crate::agent::catalog;
-use moatless_backend_core::activity::mapping;
+use moatless_tasks::task_activities::mapping;
 use moatless_backend_core::models::AgentMode;
 
 /// What the surface needs in order to answer a command.

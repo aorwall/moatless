@@ -30,9 +30,9 @@ use crate::data::{T3TaskDao, T3WorkspaceDao, TaskView};
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::workspace::UiRpcListedWorkspace;
 use moatless_api_schemas::workspace::ScriptConfig;
-use moatless_backend_core::activity::dao::Activity;
-use moatless_backend_core::activity::mapping::{PLAN_TOOL, QUESTION_TOOL};
-use moatless_backend_core::activity::{ConversationChange, ConversationHead};
+use moatless_tasks::task_activities::dao::Activity;
+use moatless_tasks::task_activities::mapping::{PLAN_TOOL, QUESTION_TOOL};
+use moatless_tasks::task_activities::{ConversationChange, ConversationHead};
 use moatless_backend_core::models::AgentType;
 use moatless_backend_core::models::{MessageRole, MessageType};
 use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
@@ -367,7 +367,7 @@ pub trait ConversationDao: Send + Sync {
 
     /// This conversation's changes at or after `from`, oldest first, capped at
     /// `limit`. At `from` rather than after it — see
-    /// [`moatless_backend_core::activity::changes_from`].
+    /// [`moatless_tasks::task_activities::changes_from`].
     async fn conversation_changes(
         &self,
         task_id: &str,
