@@ -24,18 +24,20 @@ use tokio::sync::Semaphore;
 use tracing::warn;
 
 use crate::UiRpcDbPool;
-use crate::activity_dao as activities;
+use crate::activity_dao;
 use crate::activity_dao::SubagentUsage;
 use crate::data::{T3TaskDao, T3WorkspaceDao, TaskView};
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::workspace::UiRpcListedWorkspace;
 use moatless_api_schemas::workspace::ScriptConfig;
 use moatless_backend_core::activity::dao::Activity;
+use moatless_backend_core::activity::mapping::{PLAN_TOOL, QUESTION_TOOL};
 use moatless_backend_core::activity::{ConversationChange, ConversationHead};
 use moatless_backend_core::models::AgentType;
 use moatless_backend_core::models::{MessageRole, MessageType};
 use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
+use moatless_tasks::task_activities::dao as activities;
 
 /// One Task, with the derived values a sidebar row is assembled from.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -529,11 +531,6 @@ fn escape_like(query: &str) -> String {
 const LISTING_DURATION: &str = "moatless_ui_shell_listing_duration_seconds";
 const LISTING_REJECTIONS: &str = "moatless_ui_shell_listing_rejections_total";
 
-/// Tool calls the agent uses to hand the conversation back to a person. An
-/// unanswered one is what "the agent is waiting" means in this backend.
-const QUESTION_TOOL: &str = "AskUserQuestion";
-const PLAN_TOOL: &str = "ExitPlanMode";
-
 impl PgConversationDao {
     pub fn new(pool: UiRpcDbPool) -> Self {
         metrics::describe_histogram!(
@@ -1015,14 +1012,12 @@ impl ConversationDao for PgConversationDao {
         task_id: &str,
         tool_use_id: &str,
     ) -> Result<Option<InteractiveCall>, sqlx::Error> {
-        Ok(
-            crate::activity_dao::find_tool_call(&self.pool, task_id, tool_use_id)
-                .await?
-                .map(|activity| InteractiveCall {
-                    settled: activity.is_settled(),
-                    tool_name: activity.summary.clone(),
-                }),
-        )
+        Ok(activities::find_tool_call(&self.pool, task_id, tool_use_id)
+            .await?
+            .map(|activity| InteractiveCall {
+                settled: activity.is_settled(),
+                tool_name: activity.summary.clone(),
+            }))
     }
 
     async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error> {
@@ -1096,8 +1091,8 @@ impl ConversationDao for PgConversationDao {
         .await?;
 
         let settled_requests =
-            activities::settled_requests(&self.pool, task_id, &activities).await?;
-        let subagent_usage = activities::subagent_usage(&self.pool, task_id, &activities).await?;
+            activity_dao::settled_requests(&self.pool, task_id, &activities).await?;
+        let subagent_usage = activity_dao::subagent_usage(&self.pool, task_id, &activities).await?;
 
         Ok(Transcript {
             messages,
@@ -1194,8 +1189,8 @@ impl ConversationDao for PgConversationDao {
         let mut activities = activities::for_messages(&self.pool, task_id, uuids).await?;
         activities.extend(activities::for_activity_ids(&self.pool, task_id, activity_ids).await?);
         let settled_requests =
-            activities::settled_requests(&self.pool, task_id, &activities).await?;
-        let subagent_usage = activities::subagent_usage(&self.pool, task_id, &activities).await?;
+            activity_dao::settled_requests(&self.pool, task_id, &activities).await?;
+        let subagent_usage = activity_dao::subagent_usage(&self.pool, task_id, &activities).await?;
 
         Ok(Transcript {
             messages,
