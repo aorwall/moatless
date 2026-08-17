@@ -49,7 +49,6 @@ use moatless_sandbox_control::lifecycle::watcher::{
     classify_observation, publish_sandbox_observation,
 };
 use moatless_sandbox_control::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
-use moatless_tasks::task_event::dao::TaskEventDao;
 
 /// Dependencies the watcher needs to remediate a crash-looping sandbox. The
 /// lifecycle owns plan construction and intent, so the watcher only carries the
@@ -65,10 +64,6 @@ struct WatcherDeps {
     /// watcher drives crash auto-stop (`stop`) through it. `None` in DB-less
     /// setups, where crash mitigation degrades to a raw scale-to-0.
     lifecycle: Option<Arc<Lifecycle>>,
-    /// Task-event repo, used to look up the active turn when a pod terminates
-    /// involuntarily so `turn_interrupted` carries the right turn context (and
-    /// is suppressed when no turn is in flight). `None` in DB-less setups.
-    task_events: Option<Arc<dyn TaskEventDao>>,
     /// Attach-failure remediation. When a pvc+s3 pod stalls Pending on a volume
     /// attach failure, the watcher asks the runtime to rebuild it on an emptyDir
     /// that restores from S3. `None` disables the fallback (the pod keeps
@@ -215,9 +210,9 @@ impl PodObservedState {
 /// 2. If leader, start watching pods.
 /// 3. If not leader, sleep and retry.
 /// 4. On watch stream error, re-enter the leadership loop.
-// reason: the watcher wires eight collaborators (client, publisher, cancel, the
-// crash threshold, archive feature gate, the lifecycle handle, the task-event
-// repo, and the storage fallback) into one spawned task.
+// reason: the watcher wires seven collaborators (client, publisher, cancel, the
+// crash threshold, archive feature gate, the lifecycle handle, and the storage
+// fallback) into one spawned task.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_pod_lifecycle_watcher(
     k8s: K8sClient,
@@ -226,7 +221,6 @@ pub fn spawn_pod_lifecycle_watcher(
     max_crash_restart_count: i32,
     node_archive_enabled: bool,
     lifecycle: Option<Arc<Lifecycle>>,
-    task_events: Option<Arc<dyn TaskEventDao>>,
     storage_fallback: Option<Arc<dyn StorageFallback>>,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
@@ -241,7 +235,6 @@ pub fn spawn_pod_lifecycle_watcher(
     let deps = WatcherDeps {
         node_archive_enabled,
         lifecycle,
-        task_events,
         storage_fallback,
     };
 
@@ -799,9 +792,6 @@ async fn process_watcher_event(
                 if let Some(ref disruption) = new_state.disruption_reason {
                     parts.push(format!("Disruption: `{disruption}`"));
                 }
-                if let Some(note) = workspace_preservation_note(deps, &task_id).await {
-                    parts.push(note);
-                }
                 if let Some(ref logs) = logs {
                     parts.push(format!("Container logs:\n```\n{logs}\n```"));
                 }
@@ -824,15 +814,14 @@ async fn process_watcher_event(
                     )
                     .await;
 
-                // If a turn is in flight, surface the interruption immediately as
-                // a taskTurn fact (with cause) instead of waiting up to ~5 min for
-                // the reaper's delayed `reconciled_orphaned_turn`.
+                // Surface the interruption immediately as a taskTurn fact (with
+                // cause) instead of waiting up to ~5 min for the reaper's
+                // delayed `reconciled_orphaned_turn`.
                 let cause = new_state
                     .disruption_reason
                     .clone()
                     .or_else(|| new_state.effective_terminated_reason());
-                emit_turn_interrupted_if_active(deps, event_publisher, &task_id, cause.as_deref())
-                    .await;
+                emit_turn_interrupted(event_publisher, &task_id, cause.as_deref()).await;
 
                 new_state.fatal_published = true;
             }
@@ -1626,32 +1615,15 @@ async fn fetch_pod_event_cause(k8s: &K8sClient, pod_name: &str) -> Option<String
     }
 }
 
-/// Emit a `taskTurn` `turn_interrupted` event when the task has a turn in
-/// flight. No-op (with a debug log) when there's no task-event repo, no active
-/// turn, or the lookup fails — the eventual terminal event / reaper still closes
-/// the turn, so a missed interruption marker is a cosmetic loss, not correctness.
-async fn emit_turn_interrupted_if_active(
-    deps: &WatcherDeps,
+/// Emit a `taskTurn` `turn_interrupted` event. The event is SSE-only, so it
+/// carries no turn context: the eventual terminal event / reaper is what closes
+/// the turn.
+async fn emit_turn_interrupted(
     event_publisher: &dyn EventPublisher,
     task_id: &str,
     cause: Option<&str>,
 ) {
-    let Some(task_events) = deps.task_events.as_ref() else {
-        return;
-    };
-    let turn = match task_events.active_turn_for_task(task_id).await {
-        Ok(Some(turn)) => turn,
-        Ok(None) => {
-            debug!(task_id = %task_id, "Pod interrupted but no active turn — skipping turn_interrupted");
-            return;
-        }
-        Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to look up active turn for turn_interrupted");
-            return;
-        }
-    };
-
-    let mut message = match cause {
+    let message = match cause {
         Some(c) => format!(
             "Turn interrupted — sandbox pod terminated involuntarily ({c}). Resuming when it reschedules."
         ),
@@ -1660,10 +1632,6 @@ async fn emit_turn_interrupted_if_active(
                 .to_string()
         }
     };
-    if let Some(note) = workspace_preservation_note(deps, task_id).await {
-        message.push('\n');
-        message.push_str(&note);
-    }
     let mut payload = serde_json::json!({ "message": message });
     if let Some(c) = cause {
         payload["reason"] = serde_json::Value::String(c.to_string());
@@ -1671,58 +1639,12 @@ async fn emit_turn_interrupted_if_active(
 
     info!(
         task_id = %task_id,
-        turn_number = ?turn.turn_number,
         cause = ?cause,
-        "Emitting turn_interrupted for active turn"
+        "Emitting turn_interrupted"
     );
     event_publisher
-        .publish_task_turn_event(
-            task_id,
-            TaskTurnSubType::Interrupted,
-            turn.agent_type.as_deref(),
-            turn.turn_number,
-            payload,
-        )
+        .publish_task_turn_event(task_id, TaskTurnSubType::Interrupted, None, None, payload)
         .await;
-}
-
-async fn workspace_preservation_note(deps: &WatcherDeps, task_id: &str) -> Option<String> {
-    let task_events = deps.task_events.as_ref()?;
-    match task_events
-        .latest_successful_workspace_upload(task_id)
-        .await
-    {
-        Ok(Some(upload)) => {
-            let synced_at = upload
-                .created_at
-                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-            Some(format!(
-                "Workspace data was synced to S3 before termination; the latest preserved archive was uploaded at `{synced_at}` ({}).",
-                format_bytes(upload.bytes.max(0) as u64)
-            ))
-        }
-        Ok(None) => None,
-        Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to read workspace sync marker for termination message");
-            None
-        }
-    }
-}
-
-fn format_bytes(bytes: u64) -> String {
-    const KIB: u64 = 1024;
-    const MIB: u64 = KIB * 1024;
-    const GIB: u64 = MIB * 1024;
-
-    if bytes >= GIB {
-        format!("{:.1} GiB", bytes as f64 / GIB as f64)
-    } else if bytes >= MIB {
-        format!("{:.1} MiB", bytes as f64 / MIB as f64)
-    } else if bytes >= KIB {
-        format!("{:.1} KiB", bytes as f64 / KIB as f64)
-    } else {
-        format!("{bytes} B")
-    }
 }
 
 /// Periodic sweep over tracked pods that emits the threshold-driven visibility
@@ -2252,13 +2174,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn format_bytes_uses_binary_units() {
-        assert_eq!(format_bytes(42), "42 B");
-        assert_eq!(format_bytes(1536), "1.5 KiB");
-        assert_eq!(format_bytes(2 * 1024 * 1024), "2.0 MiB");
-    }
-
     /// A `StorageFallback` double that records its calls and returns a fixed
     /// outcome, so the watcher's remediation glue is testable without a cluster.
     struct FakeFallback {
@@ -2297,7 +2212,6 @@ mod tests {
         WatcherDeps {
             node_archive_enabled: false,
             lifecycle: None,
-            task_events: None,
             storage_fallback: Some(fallback),
         }
     }

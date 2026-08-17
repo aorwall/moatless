@@ -20,10 +20,8 @@ pub struct TaskEvent {
 
 /// A task whose most recent turn is still open (`active` or `interrupted`) and
 /// older than a cutoff — the reaper's stuck-turn backstop. Surfaced fleet-wide
-/// by the `task_turns`-table query `TaskTurnDao::list_unclosed_active_turns`
-/// and, for a single task, by the event-log-derived
-/// [`crate::task_event::dao::TaskEventDao::active_turn_for_task`]. Both share
-/// this type; `task_turn::models` re-exports it.
+/// by the `task_turns`-table query `TaskTurnDao::list_unclosed_active_turns`;
+/// `task_turn::models` re-exports this type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnclosedTurn {
     pub task_id: String,

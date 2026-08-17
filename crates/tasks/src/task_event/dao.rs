@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use super::models::{TaskEvent, UnclosedTurn};
+use super::models::TaskEvent;
 use moatless_core::db::DbPool;
 
 /// Insert parameters for a new task event.
@@ -19,13 +19,6 @@ pub struct InsertTaskEvent {
     pub turn_number: Option<i32>,
     pub payload: serde_json::Value,
     pub timestamp: String,
-}
-
-/// Latest successful S3 workspace upload reported by a sandbox.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkspaceSyncUpload {
-    pub bytes: i64,
-    pub created_at: DateTime<Utc>,
 }
 
 /// DAO trait for task event persistence.
@@ -62,19 +55,6 @@ pub trait TaskEventDao: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<TaskEvent>, sqlx::Error>;
-
-    /// Return the currently-active (unclosed) turn for a single task, if any.
-    ///
-    /// Yields `Some` only when the task's latest `taskTurn` event is `active`
-    /// (no terminal event has superseded it). Used by the pod watcher to attach
-    /// turn context to a `turn_interrupted` event and to suppress it when no
-    /// turn is in flight. The reaper's fleet-wide equivalent reads the
-    /// authoritative `task_turns` table via
-    /// `TaskTurnDao::list_unclosed_active_turns`.
-    async fn active_turn_for_task(
-        &self,
-        task_id: &str,
-    ) -> Result<Option<UnclosedTurn>, sqlx::Error>;
 
     /// Whether the task's agent run had already reached a terminal state
     /// (`completed` | `stopped` | `error`) by the time `event_id` was logged —
@@ -122,16 +102,6 @@ pub trait TaskEventDao: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
-
-    /// Return the task's most recent successful workspace upload marker.
-    ///
-    /// These markers are written from `ReportWorkspaceSync` after the sandbox
-    /// completes a direct S3 upload. A present row means the backend has durable
-    /// evidence that workspace data reached S3 before a later pod death.
-    async fn latest_successful_workspace_upload(
-        &self,
-        task_id: &str,
-    ) -> Result<Option<WorkspaceSyncUpload>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TaskEventDao`].
@@ -228,35 +198,6 @@ impl TaskEventDao for PgTaskEventDao {
         Ok(rows)
     }
 
-    async fn active_turn_for_task(
-        &self,
-        task_id: &str,
-    ) -> Result<Option<UnclosedTurn>, sqlx::Error> {
-        // Take this task's single most-recent taskTurn event (the inner LIMIT 1),
-        // then keep it only when that latest row is `active` — a terminal event
-        // would have produced a newer row and superseded it.
-        let row: Option<(Option<i32>, Option<String>)> = sqlx::query_as(
-            r#"SELECT latest.turn_number, latest.agent_type
-               FROM (
-                 SELECT sub_type, turn_number, agent_type
-                 FROM task_events
-                 WHERE task_id = $1 AND type = 'taskTurn'
-                 ORDER BY created_at DESC, id DESC
-                 LIMIT 1
-               ) latest
-               WHERE latest.sub_type = 'active'"#,
-        )
-        .bind(task_id)
-        .fetch_optional(&self.0)
-        .await?;
-
-        Ok(row.map(|(turn_number, agent_type)| UnclosedTurn {
-            task_id: task_id.to_string(),
-            turn_number,
-            agent_type,
-        }))
-    }
-
     async fn agent_run_already_terminal(
         &self,
         task_id: &str,
@@ -342,27 +283,5 @@ impl TaskEventDao for PgTaskEventDao {
         .await?;
 
         Ok(rows.into_iter().collect())
-    }
-
-    async fn latest_successful_workspace_upload(
-        &self,
-        task_id: &str,
-    ) -> Result<Option<WorkspaceSyncUpload>, sqlx::Error> {
-        let row: Option<(i64, DateTime<Utc>)> = sqlx::query_as(
-            r#"SELECT COALESCE((payload::jsonb ->> 'bytes')::bigint, 0) AS bytes, created_at
-               FROM task_events
-               WHERE task_id = $1
-                 AND type = 'sandbox'
-                 AND sub_type = 'workspace_synced'
-                 AND payload::jsonb ->> 'direction' = 'upload'
-                 AND COALESCE((payload::jsonb ->> 'ok')::boolean, false)
-               ORDER BY created_at DESC, id DESC
-               LIMIT 1"#,
-        )
-        .bind(task_id)
-        .fetch_optional(&self.0)
-        .await?;
-
-        Ok(row.map(|(bytes, created_at)| WorkspaceSyncUpload { bytes, created_at }))
     }
 }

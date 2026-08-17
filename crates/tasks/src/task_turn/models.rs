@@ -97,10 +97,9 @@ pub fn classify_turn_transition(event_type: &str, sub_type: &str) -> Option<Turn
     }
 }
 
-/// Re-exported from [`crate::task_event::models`], which owns the type: the
-/// single-task lookup that also yields it ([`crate::task_event::dao::TaskEventDao::active_turn_for_task`])
-/// is event-log derived and lives there. [`crate::task_turn::dao::TaskTurnDao::list_unclosed_active_turns`]
-/// is the authoritative fleet-wide producer.
+/// Re-exported from [`crate::task_event::models`], which owns the type.
+/// [`crate::task_turn::dao::TaskTurnDao::list_unclosed_active_turns`] is the
+/// authoritative fleet-wide producer.
 pub use crate::task_event::models::UnclosedTurn;
 
 #[cfg(test)]

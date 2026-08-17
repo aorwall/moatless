@@ -290,11 +290,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Build router ────────────────────────────────────────────────────
 
-    // Sandbox route state keeps only authorization DAOs. The pod watcher
-    // separately needs the task-event DAO.
+    // Sandbox route state keeps only authorization DAOs.
     let sandbox_tasks = ports.as_ref().map(|p| p.tasks.clone());
     let sandbox_teams = ports.as_ref().map(|p| p.teams.clone());
-    let sandbox_task_events = ports.as_ref().map(|p| p.task_events.clone());
 
     // Build the shared durable Sandbox lifecycle handle once (requires the DB).
     // The sandbox API, the pod watcher, and AppState all drive transitions
@@ -371,7 +369,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     config.sandbox.max_crash_restart_count,
                     config.sandbox.node_archive_enabled,
                     lifecycle.clone(),
-                    sandbox_task_events.clone(),
                     storage_fallback.clone(),
                 ),
             );
