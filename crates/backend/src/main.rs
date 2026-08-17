@@ -599,7 +599,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         // The same job for the conversation feed, and Optional for the same
-        // reason — `task_activities::resume` refuses the cursors this
+        // reason — `moatless_backend_core::change_feed::conversation::resume` refuses the cursors this
         // reclaims, whether or not it has run.
         supervisor.supervise(
             "conversation-change-pruner",

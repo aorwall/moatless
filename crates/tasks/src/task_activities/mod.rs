@@ -32,16 +32,8 @@
 
 pub mod dao;
 pub mod mapping;
-pub mod models;
 pub mod pruner;
 pub mod view;
 
-pub use dao::{
-    Activity, changes_from, current_head, prune_changes, record_activity_change,
-    record_message_change, record_session_change,
-};
-pub use models::{
-    ConversationChange, ConversationHead, EVENTS_PER_CHANGE, RESUME_WINDOW, RETAINED_CHANGES,
-    Resume, position_of, resume,
-};
+pub use dao::Activity;
 pub use pruner::spawn_change_pruner;

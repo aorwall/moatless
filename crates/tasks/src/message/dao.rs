@@ -23,7 +23,6 @@ use crate::task_activities;
 use crate::task_activities::dao::{self as activities, Activity};
 use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
 use moatless_core::db::DbPool;
-use crate::task_listing;
 
 /// The tool calls that hand a conversation back to a person. A sidebar shows
 /// whether one is outstanding, so the message that raises one moves a listing
@@ -646,7 +645,12 @@ impl MessageDao for PgMessageDao {
         // activity that happened on it, so they interleave in one stream.
         let position = match msg.parent_uuid.as_deref() {
             None => {
-                task_activities::record_message_change(&mut tx, &msg.task_id, &msg.uuid).await?
+                moatless_backend_core::change_feed::conversation::record_message_change(
+                    &mut tx,
+                    &msg.task_id,
+                    &msg.uuid,
+                )
+                .await?
             }
             // A subagent's rows are never in the Task's own stream, so they
             // allocate nothing from its counter — see the note below on why they
@@ -692,7 +696,8 @@ impl MessageDao for PgMessageDao {
         // last", and this is the busiest transaction that allocates.
         if moves_a_listing_row(msg, conversation) {
             task_dao::clear_settled_for_all_followers(&mut tx, &msg.task_id).await?;
-            task_listing::record_change(&mut tx, &msg.task_id).await?;
+            moatless_backend_core::change_feed::listing::record_change(&mut tx, &msg.task_id)
+                .await?;
         }
 
         tx.commit().await?;
@@ -721,7 +726,14 @@ impl MessageDao for PgMessageDao {
             .find_map(|activity| activity.parent_uuid.as_deref());
         let position = match parent_uuid {
             Some(parent_uuid) => next_subagent_position(&mut tx, task_id, parent_uuid).await?,
-            None => task_activities::record_message_change(&mut tx, task_id, message_uuid).await?,
+            None => {
+                moatless_backend_core::change_feed::conversation::record_message_change(
+                    &mut tx,
+                    task_id,
+                    message_uuid,
+                )
+                .await?
+            }
         };
 
         for activity in &conversation.activities {
@@ -739,7 +751,7 @@ impl MessageDao for PgMessageDao {
             activity.kind == ActivityKind::ToolCall
                 && INTERACTIVE_TOOLS.contains(&activity.summary.as_str())
         }) {
-            task_listing::record_change(&mut tx, task_id).await?;
+            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
 
         tx.commit().await?;
@@ -768,7 +780,7 @@ impl MessageDao for PgMessageDao {
         // `record_activity_change`, not `record_session_change`: the change names
         // this activity, so a live reader re-reads the one row rather than the
         // conversation's own session, which nothing about the reading moved.
-        let position = task_activities::record_activity_change(
+        let position = moatless_backend_core::change_feed::conversation::record_activity_change(
             &mut tx,
             &activity.task_id,
             &activity.activity_id,

@@ -10,8 +10,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use super::dao::prune_changes;
-use super::models::RETAINED_CHANGES;
+use moatless_backend_core::change_feed::listing::RETAINED_CHANGES;
+use moatless_backend_core::change_feed::listing::prune_changes;
 use moatless_core::db::DbPool;
 
 /// How often the pruner deletes what has fallen out of the retention window.

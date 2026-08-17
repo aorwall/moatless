@@ -30,23 +30,23 @@ use moatless_backend::message::service as message_service;
 use moatless_backend::repository::dao as repository_dao;
 use moatless_backend::repository::routes::repository_router;
 use moatless_backend::t3code::backend as t3code_backend;
+use moatless_backend::tag::dao::{PgTagDao, TagDao};
 use moatless_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
 use moatless_backend::task::models::{
     SandboxDesiredState, SandboxStopReason, Task, TaskStatus, Visibility,
 };
 use moatless_backend::task_activities::mapping::{BlockContext, ConversationWrite, map_content};
+use moatless_backend::task_listing::record_change;
 use moatless_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
 use moatless_backend::task_turn::models::classify_turn_transition;
 use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
-use moatless_tasks::task_activities::{ConversationChange, ConversationHead};
+use moatless_backend_core::change_feed::conversation::{ConversationChange, ConversationHead};
 use moatless_backend_core::sandbox::{
     ClusterDiagnostics, LiveStatus, LogOptions, SandboxDiagnosticsEntry, SandboxError,
     SandboxPortPublisher, SandboxStatusFullResponse, ServerLogStream,
 };
 use moatless_core::scope::{Scope, ScopeContext};
 use moatless_core::shared_models::AgentType;
-use moatless_backend::tag::dao::{PgTagDao, TagDao};
-use moatless_backend::task_listing::record_change;
 use moatless_t3code::dao::{
     Conversation, ConversationDao, ConversationMatch, InteractiveCall, PgConversationDao,
     Transcript,

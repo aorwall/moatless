@@ -12,6 +12,9 @@
 )]
 
 pub mod access_control;
+// Both feeds allocate and read positions, so the whole module needs `sqlx`.
+#[cfg(feature = "database")]
+pub mod change_feed;
 pub mod models;
 pub mod sandbox;
 pub mod scope;

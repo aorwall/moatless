@@ -13,15 +13,13 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use sqlx::Postgres;
 use sqlx::postgres::PgArguments;
 use sqlx::query::Query;
-use sqlx::Postgres;
 
 use super::models::{TurnStatus, TurnTransition, UnclosedTurn};
-use moatless_core::db::DbPool;
 use crate::task::dao as task_dao;
-use crate::task_activities;
-use crate::task_listing;
+use moatless_core::db::DbPool;
 
 /// A state-bearing event applied transactionally at the gRPC ingress.
 ///
@@ -114,8 +112,9 @@ async fn record_turn_change(
     rows_affected: u64,
 ) -> Result<(), sqlx::Error> {
     if rows_affected > 0 {
-        task_activities::record_session_change(tx, task_id).await?;
-        task_listing::record_change(tx, task_id).await?;
+        moatless_backend_core::change_feed::conversation::record_session_change(tx, task_id)
+            .await?;
+        moatless_backend_core::change_feed::listing::record_change(tx, task_id).await?;
     }
     Ok(())
 }
@@ -183,7 +182,7 @@ pub trait TaskTurnDao: Send + Sync {
     /// Every turn's stored metrics, oldest first. Turns that never completed
     /// (or predate the column) are omitted.
     async fn list_turn_metrics(&self, task_id: &str)
-        -> Result<Vec<serde_json::Value>, sqlx::Error>;
+    -> Result<Vec<serde_json::Value>, sqlx::Error>;
 
     /// Store the SDK result message's turn totals on the turn row.
     ///
@@ -415,8 +414,9 @@ impl TaskTurnDao for PgTaskTurnDao {
         // advisory lock and both `task_turns` writes — `record_change`'s "call
         // this last", with the conversation's allocator ahead of it.
         task_dao::clear_settled_for_all_followers(&mut tx, task_id).await?;
-        task_activities::record_session_change(&mut tx, task_id).await?;
-        task_listing::record_change(&mut tx, task_id).await?;
+        moatless_backend_core::change_feed::conversation::record_session_change(&mut tx, task_id)
+            .await?;
+        moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
 
         tx.commit().await?;
         Ok(turn_number)

@@ -30,14 +30,14 @@ use crate::data::{T3TaskDao, T3WorkspaceDao, TaskView};
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::workspace::UiRpcListedWorkspace;
 use moatless_api_schemas::workspace::ScriptConfig;
-use moatless_tasks::task_activities::dao::Activity;
-use moatless_tasks::task_activities::mapping::{PLAN_TOOL, QUESTION_TOOL};
-use moatless_tasks::task_activities::{ConversationChange, ConversationHead};
+use moatless_backend_core::change_feed::conversation::{ConversationChange, ConversationHead};
 use moatless_backend_core::models::AgentType;
 use moatless_backend_core::models::{MessageRole, MessageType};
 use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
 use moatless_tasks::task_activities::dao as activities;
+use moatless_tasks::task_activities::dao::Activity;
+use moatless_tasks::task_activities::mapping::{PLAN_TOOL, QUESTION_TOOL};
 
 /// One Task, with the derived values a sidebar row is assembled from.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -367,7 +367,7 @@ pub trait ConversationDao: Send + Sync {
 
     /// This conversation's changes at or after `from`, oldest first, capped at
     /// `limit`. At `from` rather than after it — see
-    /// [`moatless_tasks::task_activities::changes_from`].
+    /// [`moatless_backend_core::change_feed::conversation::changes_from`].
     async fn conversation_changes(
         &self,
         task_id: &str,
@@ -1126,7 +1126,7 @@ impl ConversationDao for PgConversationDao {
     }
 
     async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error> {
-        activities::current_head(&self.pool, task_id).await
+        moatless_backend_core::change_feed::conversation::current_head(&self.pool, task_id).await
     }
 
     async fn conversation_changes(
@@ -1135,7 +1135,10 @@ impl ConversationDao for PgConversationDao {
         from: i64,
         limit: i64,
     ) -> Result<Vec<ConversationChange>, sqlx::Error> {
-        activities::changes_from(&self.pool, task_id, from, limit).await
+        moatless_backend_core::change_feed::conversation::changes_from(
+            &self.pool, task_id, from, limit,
+        )
+        .await
     }
 
     async fn changed_messages(

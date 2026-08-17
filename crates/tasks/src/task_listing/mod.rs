@@ -1,24 +1,8 @@
-//! The durable record that a Task's listing-visible state changed.
+//! The pruner that keeps the listing change feed bounded.
 //!
-//! The record is written by the code performing the mutation, in that
-//! mutation's own transaction, and its position is allocated there too — from
-//! one counter row for the whole deployment, held until commit. A `bigserial`
-//! will not do: an id assigned at INSERT and made visible at COMMIT can be read
-//! out of order, so two writers take 100 and 101, 101 commits first, and a
-//! reader polling `> 99` advances past 100 and never sees it, silently, while
-//! reporting itself up to date. Holding the counter makes commit order and
-//! position order the same order; what that costs callers is
-//! [`dao::record_change`]'s "call this last".
-//!
-//! No T3 vocabulary appears here — `moatless-t3code` turns the record into a
-//! shell event.
+//! The feed itself is [`moatless_backend_core::change_feed::listing`] — it is
+//! written from more than one band, so it lives below all of them.
 
-pub mod dao;
-pub mod models;
 pub mod pruner;
 
-pub use dao::{changes_after, current_head, current_position, prune_changes, record_change};
-pub use models::{
-    resume, EnvironmentIdentity, ListingChange, ListingHead, Resume, RESUME_WINDOW, RETAINED_CHANGES,
-};
 pub use pruner::spawn_change_pruner;

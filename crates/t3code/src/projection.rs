@@ -15,12 +15,12 @@ use super::dao::{Conversation, ConversationMatch, Transcript, TranscriptMessage}
 use crate::activity::T3ActivityViewExt;
 use crate::agent::catalog::{self, UiRpcAgentKind};
 use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
+use moatless_backend_core::change_feed::conversation::{ConversationChange, EVENTS_PER_CHANGE};
+use moatless_backend_core::models::MessageType;
+use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason};
 use moatless_tasks::task_activities::dao::Activity;
 use moatless_tasks::task_activities::mapping::ActivityKind;
 use moatless_tasks::task_activities::view::ActivityView;
-use moatless_tasks::task_activities::{ConversationChange, EVENTS_PER_CHANGE};
-use moatless_backend_core::models::MessageType;
-use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason};
 
 const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
 
@@ -1741,10 +1741,10 @@ mod tests {
 
     use super::*;
     use crate::activity_dao::SubagentUsage;
-    use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
     use moatless_backend_core::models::AgentType;
     use moatless_backend_core::models::MessageRole;
     use moatless_backend_core::scope::Scope;
+    use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
 
     fn matched(workspace_id: Option<&str>, from_user: bool, text: &str) -> ConversationMatch {
         ConversationMatch {
