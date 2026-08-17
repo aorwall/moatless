@@ -110,7 +110,7 @@ pub fn record_restart(backend: StorageBackend, elapsed: Duration) {
 ///
 /// `direction` is validated to `"upload"` / `"download"` (anything else →
 /// `"other"`) to keep the label bounded.
-pub(crate) fn record_workspace_sync(direction: &str, bytes: u64, duration: Duration, ok: bool) {
+pub fn record_workspace_sync(direction: &str, bytes: u64, duration: Duration, ok: bool) {
     let direction: &'static str = match direction {
         "upload" => "upload",
         "download" => "download",

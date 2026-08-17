@@ -173,7 +173,8 @@ prost = "0.14"
 [features]
 # Gate integration tests that need a running PostgreSQL (DATABASE_URL). Forwards
 # to core's test-support so the db-tests-gated `Config::test_minimal` caller
-# (sandbox::grpc_server::for_ingress_tests) compiles; no shipping build enables it.
+# (`sandbox::grpc_server::for_ingress_tests`, defined in this crate) compiles;
+# no shipping build enables it.
 db-tests = [
     "moatless-core/test-support",
     "moatless-identity/test-support",

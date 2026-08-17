@@ -25,12 +25,13 @@ use sandbox_proto::{
 
 use moatless_backend_core::scope::ScopeContext;
 
-use crate::event_dedup::Admission;
-use crate::jwt;
-use crate::secrets::{
+use crate::sandbox::event_dedup::Admission;
+use crate::sandbox::jwt;
+use crate::sandbox::secrets::{
     TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets,
     resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
 };
+use crate::sandbox::storage::sandbox_key;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::shared_models::AgentType;
@@ -89,13 +90,6 @@ fn transcript_key(prefix: &str, task_id: &str) -> String {
         prefix.trim_end_matches('/'),
         task_id
     )
-}
-
-/// Build the S3 key for a task's workspace archive:
-/// `<prefix>/<task_id>/workspace.tar`. The `<prefix>/<task_id>/` portion is the
-/// same one the Kubernetes runtime removes, so uploads and cleanup stay aligned.
-pub(crate) fn sandbox_key(prefix: &str, task_id: &str) -> String {
-    format!("{}/{}/workspace.tar", prefix.trim_end_matches('/'), task_id)
 }
 
 /// Lifetime of the presigned workspace-sync URLs. The sandbox re-mints them on
@@ -205,7 +199,7 @@ pub struct BackendSandboxServiceImpl {
     /// Ingress dedup for sandbox-published events. The sandbox outbox delivers
     /// at-least-once (retries reuse the same `event_id`); this drops retried
     /// duplicates before they reach Redis so SSE consumers don't see them twice.
-    pub event_dedup: Arc<crate::event_dedup::EventDedup>,
+    pub event_dedup: Arc<crate::sandbox::event_dedup::EventDedup>,
 }
 
 /// A resolved authorization to act on one task over the sandbox gRPC API.
@@ -569,7 +563,7 @@ impl BackendSandboxServiceImpl {
             }),
             authorizer: SandboxAuthorizer::dev_unauthenticated(None, None),
             github_apps: Arc::new(GitHubAppRegistry::default()),
-            event_dedup: Arc::new(crate::event_dedup::EventDedup::new()),
+            event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::new()),
             task_token_secret: None,
             github_app_service: None,
             backend_config: Arc::new(Config::test_minimal()),
@@ -1664,7 +1658,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         self.authorizer.authorize(&request, &task_id).await?;
         let req = request.into_inner();
 
-        crate::metrics::record_workspace_sync(
+        crate::sandbox::metrics::record_workspace_sync(
             &req.direction,
             req.bytes.max(0) as u64,
             std::time::Duration::from_millis(req.duration_ms.max(0) as u64),
@@ -2139,7 +2133,7 @@ mod tests {
             s3_key_prefix: String::new(),
             transcript_s3_prefix: String::new(),
             workspace_s3_prefix: String::new(),
-            event_dedup: Arc::new(crate::event_dedup::EventDedup::default()),
+            event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::default()),
         }
     }
 

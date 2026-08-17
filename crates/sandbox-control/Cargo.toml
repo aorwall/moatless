@@ -41,10 +41,9 @@ sandbox-proto = { path = "../sandbox-proto" }
 
 [features]
 # Gate the `#[sqlx::test]` blocks that need a running PostgreSQL (lifecycle DAO,
-# lock, plan, reconciler) and the `grpc_server::for_ingress_tests` harness the
-# backend's integration tests reach across the facade. Forwards to the lower
-# bands' test-support so the db-tests-gated `Config::test_minimal`,
-# `seed_bare_task`, and mock DAOs compile; no shipping build enables it.
+# lock, plan, reconciler). Forwards to the lower bands' test-support so the
+# db-tests-gated `Config::test_minimal`, `seed_bare_task`, and mock DAOs
+# compile; no shipping build enables it.
 db-tests = [
     "moatless-core/test-support",
     "moatless-identity/test-support",

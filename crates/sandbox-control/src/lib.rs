@@ -24,7 +24,6 @@ pub mod client;
 pub mod error;
 pub mod event_dedup;
 pub mod file_handlers;
-pub mod grpc_server;
 pub mod handlers;
 pub mod jwt;
 pub mod lifecycle;

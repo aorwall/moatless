@@ -39,8 +39,9 @@ provider SDK (`kube`/`bollard`) — its error type boxes any provider error behi
   was never requested, is converged Stopped, and is wakeable.
 - `delete_task` requires successful `lifecycle.remove` before deleting the task
   row (enforced in `moatless-tasks`).
-- Completion facts commit before publication. `grpc_server.rs::publish_event`
-  returns success only after the complete payload is durably admitted.
+- Completion facts commit before publication. The backend's
+  `sandbox::grpc_server::publish_event` returns success only after the complete
+  payload is durably admitted, through this crate's `event_dedup`.
 - `event_dedup.rs` records admission, not receipt. Failed admission must leave
   retries real, and concurrent duplicates should retry rather than be
   acknowledged.

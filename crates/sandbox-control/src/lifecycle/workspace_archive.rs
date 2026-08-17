@@ -20,7 +20,7 @@ use chrono::{DateTime, Utc};
 use moatless_tasks::file_storage::s3::{self as file_s3, S3Storage};
 
 use super::orchestrator::WorkspaceArchivePort;
-use crate::grpc_server::sandbox_key;
+use crate::storage::sandbox_key;
 
 /// Lifetime of a rescue upload URL.
 ///

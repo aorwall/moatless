@@ -92,6 +92,13 @@ impl StorageBackend {
     }
 }
 
+/// Build the S3 key for a task's workspace archive:
+/// `<prefix>/<task_id>/workspace.tar`. The `<prefix>/<task_id>/` portion is the
+/// same one the Kubernetes runtime removes, so uploads and cleanup stay aligned.
+pub fn sandbox_key(prefix: &str, task_id: &str) -> String {
+    format!("{}/{}/workspace.tar", prefix.trim_end_matches('/'), task_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

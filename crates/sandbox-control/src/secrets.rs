@@ -194,13 +194,13 @@ pub async fn resolve_server_env(
 /// owner/name a GitHub credential is minted for, and the workspace whose pinned
 /// credentials outrank everything else.
 #[derive(Default)]
-pub(crate) struct TaskCredentialTargets {
+pub struct TaskCredentialTargets {
     pub repository: Option<Repository>,
     pub workspace_id: Option<String>,
 }
 
 /// Resolve the repository and workspace attached to a task, in one task read.
-pub(crate) async fn resolve_task_credential_targets(
+pub async fn resolve_task_credential_targets(
     tasks: Option<&Arc<dyn TaskDao>>,
     repositories: Option<&Arc<dyn RepositoryDao>>,
     task_id: &str,
