@@ -6,13 +6,15 @@
 -- credential is still derived from an identity rather than pinned beside one.
 --
 -- Nullable: a Workspace that names nobody leaves every Task acting as its own
--- owner, which is the ordinary case. ON DELETE SET NULL rather than RESTRICT —
--- deleting the named user degrades the Workspace to that ordinary case instead
--- of blocking the deletion.
+-- owner, which is the ordinary case.
+--
+-- `text` holding a `users.id` uuid and no foreign key — the shape
+-- `loop_configs.run_as_user_id` and this table's own `owner_user_id` already
+-- have. A named user that no longer exists resolves to no credential, so the
+-- git-host call refuses by name instead of acting as somebody else.
 
 ALTER TABLE "workspaces"
-    ADD COLUMN IF NOT EXISTS "run_as_user_id" text
-    REFERENCES "users"("id") ON DELETE SET NULL;
+    ADD COLUMN IF NOT EXISTS "run_as_user_id" text;
 
 CREATE INDEX IF NOT EXISTS "workspaces_run_as_user_id_idx"
     ON "workspaces" ("run_as_user_id")
