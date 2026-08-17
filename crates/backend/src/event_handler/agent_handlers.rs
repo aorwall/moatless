@@ -1,12 +1,19 @@
 //! Agent event handlers — process agent.completed, agent.stopped, agent.error events.
 
+use std::sync::Arc;
+
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::events::EventPublisher;
 use moatless_events::{TaskSubType, TaskTurnSubType};
 
+use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::message::models::{MessageRole, MessageType, TaskMessage, TaskMessageContext};
+use crate::message::send::MessageSendService;
 use crate::state::AppState;
-use crate::task::dao::TaskPatch;
+use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::models::TaskStatus;
+use crate::task::relations::TaskRelationDao;
+use crate::task::sandbox_waker::SandboxWaker;
 use crate::task_activities::mapping::{BlockContext, ConversationWrite, map_content};
 
 use super::models::SdkResultMessage;
@@ -42,7 +49,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // it through the same error-message machinery as `handle_agent_error` so the
     // failure is visible in chat instead of disappearing into status flips.
     if sdk_result.is_error.unwrap_or(false) {
-        handle_agent_error(state, event).await;
+        handle_agent_error(&AgentErrorPorts::from(state), event).await;
         return;
     }
 
@@ -286,15 +293,17 @@ async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) 
         body.push_str(&footer);
     }
 
-    tokio::spawn(crate::adapters::providers::linear::activity::notify_linear_status(
-        state.db.clone(),
-        state.adapter_connections.clone(),
-        state.config.clone(),
-        task_id.to_string(),
-        crate::adapters::providers::linear::activity::ActivityKind::Response,
-        body,
-        false,
-    ));
+    tokio::spawn(
+        crate::adapters::providers::linear::activity::notify_linear_status(
+            state.db.clone(),
+            state.adapter_connections.clone(),
+            state.config.clone(),
+            task_id.to_string(),
+            crate::adapters::providers::linear::activity::ActivityKind::Response,
+            body,
+            false,
+        ),
+    );
 }
 
 /// Handle `agent.session_init` event — Claude Code session started.
@@ -401,8 +410,23 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     state.linear_active_turns.close(&event.task_id);
 }
 
+/// The ports an errored run is closed over.
+///
+/// Two callers reach this path: the event consumer, which projects the set out
+/// of `AppState`, and the task reaper, which holds the same ports directly and
+/// never names `AppState`.
+#[derive(Clone)]
+pub struct AgentErrorPorts {
+    pub tasks: Arc<dyn TaskDao>,
+    pub task_relations: Arc<dyn TaskRelationDao>,
+    pub message_send: Arc<MessageSendService>,
+    pub sandbox_waker: Arc<dyn SandboxWaker>,
+    pub linear_active_turns: Arc<ActiveLinearTurns>,
+    pub events: Option<Arc<dyn EventPublisher>>,
+}
+
 /// Handle `agent.error` or `sandbox.fatal` event.
-pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
+pub async fn handle_agent_error(ports: &AgentErrorPorts, event: &AgentEvent) {
     // reason: agent-lifecycle event handler runs as background system with no caller identity
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
@@ -427,7 +451,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     // (`sandbox/k8s/pod_watcher.rs:803`). What is left here is the turn's own
     // status and the Events tab, which keeps every one of these.
 
-    if let Err(e) = state
+    if let Err(e) = ports
         .tasks
         .update_task(
             &event.task_id,
@@ -447,7 +471,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     // single guard also keeps the reaper from re-opening a closed task: the
     // synthetic error still publishes `taskTurn.error` (the UI unblocks), but
     // the status stays Closed.
-    let child_not_closed = match state
+    let child_not_closed = match ports
         .tasks
         .update_status_if_not_closed(&event.task_id, TaskStatus::Open, &sys_ctx)
         .await
@@ -459,7 +483,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         }
     };
 
-    if let Some(ref events) = state.events {
+    if let Some(ref events) = ports.events {
         events
             .publish_task_turn_event(
                 &event.task_id,
@@ -472,19 +496,23 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     }
 
     if child_not_closed {
-        notify_parent_task_of_child_error(state, event, error_msg).await;
+        notify_parent_task_of_child_error(ports, event, error_msg).await;
     }
 
     // Close the Linear turn gate after the consumer's adjacent
     // notify_linear_status(Error) spawn has been issued. Also covers
     // `handle_sandbox_fatal` transitively.
-    state.linear_active_turns.close(&event.task_id);
+    ports.linear_active_turns.close(&event.task_id);
 }
 
 /// Tell the parent task that this child errored. A child that completes
 /// reports its own result to the parent, so only errors are forwarded here.
-async fn notify_parent_task_of_child_error(state: &AppState, event: &AgentEvent, error_msg: &str) {
-    let relation = match state.task_relations.find_created_by(&event.task_id).await {
+async fn notify_parent_task_of_child_error(
+    ports: &AgentErrorPorts,
+    event: &AgentEvent,
+    error_msg: &str,
+) {
+    let relation = match ports.task_relations.find_created_by(&event.task_id).await {
         Ok(Some(relation)) => relation,
         Ok(None) => return,
         Err(e) => {
@@ -502,7 +530,7 @@ async fn notify_parent_task_of_child_error(state: &AppState, event: &AgentEvent,
         event.task_id, error_msg
     );
 
-    match state
+    match ports
         .message_send
         .send_message_flow(
             &relation.to_task_id,
@@ -525,8 +553,8 @@ async fn notify_parent_task_of_child_error(state: &AppState, event: &AgentEvent,
         .await
     {
         Ok(_message_uuid) => {
-            if let Err(error_msg) = state.sandbox_waker.wake(&relation.to_task_id).await {
-                state
+            if let Err(error_msg) = ports.sandbox_waker.wake(&relation.to_task_id).await {
+                ports
                     .message_send
                     .persist_error_result(&relation.to_task_id, &error_msg)
                     .await;
@@ -552,8 +580,8 @@ async fn notify_parent_task_of_child_error(state: &AppState, event: &AgentEvent,
 
 /// Handle `sandbox.fatal` event — delegates to `handle_agent_error` to create
 /// an error result message when the sandbox crashes fatally (OOM, crash loop, etc.).
-pub async fn handle_sandbox_fatal(state: &AppState, event: &AgentEvent) {
-    handle_agent_error(state, event).await;
+pub async fn handle_sandbox_fatal(ports: &AgentErrorPorts, event: &AgentEvent) {
+    handle_agent_error(ports, event).await;
 }
 
 /// Persist a Sandbox lifecycle change as its own activity — a status, a warning,

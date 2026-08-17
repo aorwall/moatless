@@ -1032,7 +1032,7 @@ fn spawn_task_reaper(
         app_state.task_bindings.clone(),
         app_state.events.clone(),
         app_state.config.clone(),
-        app_state.clone(),
+        app_state.into(),
         k8s,
     )
     .spawn(cancel);

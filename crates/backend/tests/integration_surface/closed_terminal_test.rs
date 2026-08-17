@@ -16,10 +16,10 @@
 
 use crate::common;
 
+use moatless_backend::agent_event::AgentEvent;
 use moatless_backend::event_handler::agent_handlers::{
     handle_agent_completed, handle_agent_error, handle_agent_stopped,
 };
-use moatless_backend::agent_event::AgentEvent;
 use moatless_backend::message::dao as message_dao;
 use moatless_backend::message::models::{MessageRole, MessageType};
 use moatless_backend::repository::dao as repository_dao;
@@ -137,10 +137,11 @@ async fn update_status_if_not_closed_flips_open_and_error(pool: PgPool) {
 
     // Open → Open still matches the predicate (status <> 'closed').
     seed_with_status(&pool, "task-open", TaskStatus::Open).await;
-    assert!(repo
-        .update_status_if_not_closed("task-open", TaskStatus::Open, &user_scope("user-1"))
-        .await
-        .unwrap());
+    assert!(
+        repo.update_status_if_not_closed("task-open", TaskStatus::Open, &user_scope("user-1"))
+            .await
+            .unwrap()
+    );
     assert_eq!(status_of(&pool, "task-open").await, TaskStatus::Open);
 
     // Error → Open flips (preserves the start_task-from-Error path).
@@ -155,10 +156,11 @@ async fn update_status_if_not_closed_flips_open_and_error(pool: PgPool) {
         )
         .await
         .unwrap();
-    assert!(repo
-        .update_status_if_not_closed("task-open", TaskStatus::Open, &user_scope("user-1"))
-        .await
-        .unwrap());
+    assert!(
+        repo.update_status_if_not_closed("task-open", TaskStatus::Open, &user_scope("user-1"))
+            .await
+            .unwrap()
+    );
     assert_eq!(status_of(&pool, "task-open").await, TaskStatus::Open);
 }
 
@@ -204,7 +206,7 @@ async fn error_does_not_reopen_closed_task(pool: PgPool) {
         "error",
         serde_json::json!({ "error": "boom" }),
     );
-    handle_agent_error(&state, &event).await;
+    handle_agent_error(&(&state).into(), &event).await;
 
     assert_eq!(status_of(&pool, "task-e").await, TaskStatus::Closed);
 }
@@ -266,7 +268,7 @@ async fn errored_child_notifies_parent_with_error_message(pool: PgPool) {
         "error",
         serde_json::json!({ "error": "sandbox exploded" }),
     );
-    handle_agent_error(&state, &event).await;
+    handle_agent_error(&(&state).into(), &event).await;
 
     let texts = visible_parent_texts(&pool, "task-parent").await;
     assert!(
@@ -298,7 +300,7 @@ async fn reconcile_error_keeps_closed_and_says_nothing(pool: PgPool) {
             "reason": "reconciled_orphaned_turn",
         }),
     );
-    handle_agent_error(&state, &event).await;
+    handle_agent_error(&(&state).into(), &event).await;
 
     assert_eq!(status_of(&pool, "task-r").await, TaskStatus::Closed);
 

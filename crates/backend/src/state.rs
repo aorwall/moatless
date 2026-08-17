@@ -878,6 +878,22 @@ impl axum::extract::FromRef<AppState> for Arc<dyn crate::task::sandbox_waker::Sa
     }
 }
 
+/// Project the ports an errored run is closed over. The event consumer and the
+/// task reaper both close a turn through the same handler; the reaper holds the
+/// projection so it never names `AppState`.
+impl From<&AppState> for crate::event_handler::agent_handlers::AgentErrorPorts {
+    fn from(state: &AppState) -> Self {
+        Self {
+            tasks: state.tasks.clone(),
+            task_relations: state.task_relations.clone(),
+            message_send: state.message_send.clone(),
+            sandbox_waker: state.sandbox_waker.clone(),
+            linear_active_turns: state.linear_active_turns.clone(),
+            events: state.events.clone(),
+        }
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<TaskPresenter> {
     fn from_ref(state: &AppState) -> Self {
         state.task_presenter.clone()

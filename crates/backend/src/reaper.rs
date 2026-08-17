@@ -24,8 +24,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::agent_event::AgentEvent;
+use crate::event_handler::agent_handlers::AgentErrorPorts;
 use crate::message::dao::MessageDao;
-use crate::state::AppState;
 use crate::task::binding_dao::TaskBindingDao;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::models::{ArchiveRetention, SandboxDesiredState, SandboxStopReason, TaskStatus};
@@ -69,9 +69,10 @@ enum ReaperError {
 }
 
 /// The unified task reaper's ports — one background job reads all of them, so
-/// the struct is the explicit manifest of what a reap cycle touches. `state` is
-/// held for one thing only: delivering the synthetic `agent.error` that closes
-/// an orphaned turn through the same handler a real one takes.
+/// the struct is the explicit manifest of what a reap cycle touches.
+/// `agent_error` is held for one thing only: delivering the synthetic
+/// `agent.error` that closes an orphaned turn through the same handler a real
+/// one takes.
 pub struct TaskReaper {
     connector: Arc<dyn SandboxConnector>,
     leader: Arc<dyn LeaderGuard>,
@@ -83,13 +84,13 @@ pub struct TaskReaper {
     task_bindings: Arc<dyn TaskBindingDao>,
     events: Option<Arc<dyn EventPublisher>>,
     config: Arc<Config>,
-    state: AppState,
+    agent_error: AgentErrorPorts,
     k8s: moatless_sandbox_k8s::client::K8sClient,
 }
 
 impl TaskReaper {
     /// Assemble the reaper at the composition root from its ports — each wired
-    /// from the router-held `AppState` there.
+    /// from the router-held state there.
     #[expect(
         clippy::too_many_arguments,
         reason = "the reaper's ports are its explicit per-cycle manifest; the composition root wires each one"
@@ -105,7 +106,7 @@ impl TaskReaper {
         task_bindings: Arc<dyn TaskBindingDao>,
         events: Option<Arc<dyn EventPublisher>>,
         config: Arc<Config>,
-        state: AppState,
+        agent_error: AgentErrorPorts,
         k8s: moatless_sandbox_k8s::client::K8sClient,
     ) -> Self {
         Self {
@@ -119,7 +120,7 @@ impl TaskReaper {
             task_bindings,
             events,
             config,
-            state,
+            agent_error,
             k8s,
         }
     }
@@ -844,7 +845,7 @@ impl TaskReaper {
             }
         }
 
-        close_orphaned_turn_as_error(&self.state, turn).await;
+        close_orphaned_turn_as_error(&self.agent_error, turn).await;
     }
 
     /// Close a stuck turn whose agent had already delivered its final reply — its
@@ -927,9 +928,9 @@ impl TaskReaper {
 ///
 /// Free so the reconcile delivery is testable without constructing a full
 /// reaper.
-async fn close_orphaned_turn_as_error(state: &AppState, turn: &UnclosedTurn) {
+async fn close_orphaned_turn_as_error(ports: &AgentErrorPorts, turn: &UnclosedTurn) {
     let event = reconcile_error_event(turn);
-    crate::event_handler::agent_handlers::handle_agent_error(state, &event).await;
+    crate::event_handler::agent_handlers::handle_agent_error(ports, &event).await;
     metrics::counter!("task_turns_reconciled_total").increment(1);
     info!(
         task_id = %turn.task_id,

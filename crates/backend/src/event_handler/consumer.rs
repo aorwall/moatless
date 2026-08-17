@@ -455,7 +455,7 @@ impl EventHandlerConsumer {
             EventKey::Agent(AgentSubType::Error) => {
                 // handle_agent_error publishes task_turn.error; external
                 // notification is handled by the agent via `moat reply`.
-                agent_handlers::handle_agent_error(&self.state, event).await;
+                agent_handlers::handle_agent_error(&(&self.state).into(), event).await;
                 // Also emit a persistent `error` activity on any active
                 // Linear session so the failure is visible mid-flight.
                 let body = event
@@ -522,7 +522,7 @@ impl EventHandlerConsumer {
                     ));
                 }
                 agent_handlers::handle_sandbox_activity(&self.state, event, "error", true).await;
-                agent_handlers::handle_sandbox_fatal(&self.state, event).await;
+                agent_handlers::handle_sandbox_fatal(&(&self.state).into(), event).await;
             }
             // Sandbox lifecycle transitions — surface as ephemeral `action`
             // activities so each new status replaces the previous one in
