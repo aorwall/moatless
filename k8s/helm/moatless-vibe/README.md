@@ -520,7 +520,7 @@ sandboxAccess:
         - apiGroups: ["argoproj.io", "cilium.io", "traefik.io"]
           resources: ["*"]
           verbs: ["get", "list", "watch"]
-    moatless-admin:
+    admin:
       enabled: true
       access: namespace-admin
       serviceAccount: moatless-admin
@@ -536,6 +536,11 @@ Then opt one workspace into one profile — nothing else changes:
 moat workspaces update <workspace-id> \
   --sandbox-service-account moatless-cluster-reader \
   --network-profile cluster-reader
+
+# …or the admin profile, to read Secrets and restart workloads:
+moat workspaces update <workspace-id> \
+  --sandbox-service-account moatless-admin \
+  --network-profile admin
 ```
 
 `update` only accepts a **manual** workspace. One synced from a repo's

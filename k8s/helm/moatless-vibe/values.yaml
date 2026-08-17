@@ -1250,8 +1250,12 @@ sandboxAccess:
       #       - protocol: TCP
       #         port: 5432
       extraEgress: []
-    # Deep troubleshooting — read Secrets, delete and restart workloads, but only
-    # inside the app and sandbox namespaces.
+    # Cluster administration — read Secrets, delete, patch and restart workloads
+    # (e.g. `kubectl rollout restart` of the backend and t3 Deployments), but
+    # only inside the app and sandbox namespaces. This is the profile a sandbox
+    # opts into when it needs to administer the installation, not just inspect
+    # it. Pair it with `sandboxServiceAccount: moatless-admin` and
+    # `networkProfile: admin`.
     #
     # SECURITY: the app namespace holds the backend's own Secrets (database
     # credentials, provider API keys, session signing keys). Enabling this gives
@@ -1259,7 +1263,7 @@ sandboxAccess:
     # on anything running there. Troubleshooting clusters only — point exactly
     # one workspace at it and revoke when done. Prefer cluster-reader when
     # read-only inspection is enough.
-    moatless-admin:
+    admin:
       # -- Create this profile's ServiceAccount, RBAC and egress NetworkPolicy.
       enabled: false
       # -- RBAC preset: `namespace-admin` = Role + RoleBinding in the app and
