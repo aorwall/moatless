@@ -21,14 +21,9 @@ Defined in `backend/src/sandbox/k8s/pod_builder.rs`; overridable via repo
 
 | Volume | Mount | Env knob | Default |
 |---|---|---|---|
-| `build-cache` | build caches (e.g. cargo target) | `K8S_SANDBOX_BUILD_CACHE_SIZE` | `1536Mi` |
 | `shared-data` | `/opt/moatless/data` (server logs/artifacts) | `K8S_SANDBOX_SHARED_DATA_SIZE` | `2Gi` |
 | `workspace-data` (Ephemeral/S3 tiers) | workspace | `K8S_SANDBOX_STORAGE_SIZE` | `3Gi` |
 | `docker-storage` (dind, opt-in) | dind data | `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` | `10Gi` |
-
-> Watch out: if `K8S_SANDBOX_CARGO_TARGET_ON_BUILD_CACHE=true` moves
-> `CARGO_TARGET_DIR` onto `build-cache`, a large Rust repo can blow the 1536Mi
-> cap and get evicted — raise `K8S_SANDBOX_BUILD_CACHE_SIZE`.
 
 ## Storage backends (workspace persistence)
 

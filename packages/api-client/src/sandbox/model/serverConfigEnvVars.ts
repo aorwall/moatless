@@ -8,6 +8,5 @@
 
 /**
  * Per-server environment variables.
- * @nullable
  */
-export type ServerConfigEnvVars = {[key: string]: string} | null;
+export type ServerConfigEnvVars = {[key: string]: string};

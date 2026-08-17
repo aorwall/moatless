@@ -94,6 +94,8 @@ pub struct BranchEntry {
 
 #[cfg(test)]
 mod tests {
+    use crate::workspace::StorageMedium;
+
     use super::*;
 
     #[test]
@@ -124,23 +126,11 @@ mod tests {
     #[test]
     fn resource_config_serializes_docker_storage_as_camel_case() {
         let cfg = ResourceConfig {
-            build_cache: Some("40Gi".to_string()),
-            build_cache_mode: Some("node".to_string()),
-            build_cache_scope: Some("task".to_string()),
             docker_storage: Some("50Gi".to_string()),
-            docker_storage_mode: Some("node".to_string()),
+            docker_storage_mode: Some(StorageMedium::Node),
             ..Default::default()
         };
         let value = serde_json::to_value(&cfg).expect("serialize ResourceConfig");
-        assert_eq!(value.get("buildCache"), Some(&serde_json::json!("40Gi")));
-        assert_eq!(
-            value.get("buildCacheMode"),
-            Some(&serde_json::json!("node"))
-        );
-        assert_eq!(
-            value.get("buildCacheScope"),
-            Some(&serde_json::json!("task"))
-        );
         assert_eq!(value.get("dockerStorage"), Some(&serde_json::json!("50Gi")));
         assert_eq!(
             value.get("dockerStorageMode"),
@@ -154,37 +144,6 @@ mod tests {
             value.get("docker_storage_mode").is_none(),
             "snake_case key must not be emitted"
         );
-        assert!(
-            value.get("build_cache").is_none(),
-            "snake_case key must not be emitted"
-        );
-        assert!(
-            value.get("build_cache_mode").is_none(),
-            "snake_case key must not be emitted"
-        );
-        assert!(
-            value.get("build_cache_scope").is_none(),
-            "snake_case key must not be emitted"
-        );
-    }
-
-    #[test]
-    fn resource_config_deserializes_camel_case_build_cache() {
-        let cfg: ResourceConfig =
-            serde_json::from_value(serde_json::json!({ "buildCache": "40Gi" }))
-                .expect("deserialize ResourceConfig");
-        assert_eq!(cfg.build_cache.as_deref(), Some("40Gi"));
-    }
-
-    #[test]
-    fn resource_config_deserializes_camel_case_build_cache_mode_and_scope() {
-        let cfg: ResourceConfig = serde_json::from_value(serde_json::json!({
-            "buildCacheMode": "node",
-            "buildCacheScope": "task"
-        }))
-        .expect("deserialize ResourceConfig");
-        assert_eq!(cfg.build_cache_mode.as_deref(), Some("node"));
-        assert_eq!(cfg.build_cache_scope.as_deref(), Some("task"));
     }
 
     #[test]
@@ -200,7 +159,22 @@ mod tests {
         let cfg: ResourceConfig =
             serde_json::from_value(serde_json::json!({ "dockerStorageMode": "emptyDir" }))
                 .expect("deserialize ResourceConfig");
-        assert_eq!(cfg.docker_storage_mode.as_deref(), Some("emptyDir"));
+        assert_eq!(cfg.docker_storage_mode, Some(StorageMedium::EmptyDir));
+    }
+
+    /// The medium is a closed set, so an unrecognised spelling is rejected at
+    /// the API rather than silently falling back to the default backend.
+    #[test]
+    fn resource_config_rejects_an_unknown_docker_storage_mode() {
+        for mode in ["tmpfs", "NODE", "emptydir"] {
+            assert!(
+                serde_json::from_value::<ResourceConfig>(
+                    serde_json::json!({ "dockerStorageMode": mode })
+                )
+                .is_err(),
+                "{mode} must be rejected"
+            );
+        }
     }
 
     #[test]

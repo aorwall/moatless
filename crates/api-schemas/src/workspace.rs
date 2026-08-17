@@ -4,7 +4,7 @@
 //! (`WorkspaceRepo`). Run-config fields use the [`ServerConfig`] and
 //! [`ResourceConfig`] wire shapes defined here.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -14,39 +14,59 @@ use crate::enums::Scope;
 // ResourceConfig
 // =============================================================================
 
+/// Where a node-local sandbox volume is backed.
+///
+/// Mirrors `moatless_backend_core::run_config::StorageMedium`. The wire crate
+/// stays free of backend dependencies, so the pair is kept in step by the
+/// round-trip test in `moatless-workspaces`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum StorageMedium {
+    /// A Kubernetes `emptyDir`, capped by the paired size quantity.
+    EmptyDir,
+    /// A node-local `hostPath` under `K8S_SANDBOX_CACHE_HOST_ROOT`. Kubernetes
+    /// enforces no size cap; capacity is the node filesystem.
+    Node,
+}
+
+/// A container's CPU and memory for one direction (requests or limits), as
+/// Kubernetes quantity strings (`"250m"`, `"4Gi"`).
+///
+/// Each field overrides the deployment default independently: a block that
+/// names only `memory` keeps the configured CPU default.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceQuantities {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<String>,
+}
+
+impl ResourceQuantities {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.cpu.is_none() && self.memory.is_none()
+    }
+}
+
 /// Per-repository K8s resource requests/limits configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceConfig {
-    pub requests: Option<HashMap<String, String>>,
-    pub limits: Option<HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "ResourceQuantities::is_empty")]
+    pub requests: ResourceQuantities,
+    #[serde(default, skip_serializing_if = "ResourceQuantities::is_empty")]
+    pub limits: ResourceQuantities,
     /// Per-repository workspace storage size override (e.g. "8Gi"). Sizes the
     /// per-task PVC when `pvc_enabled`, and the node-local emptyDir otherwise.
     /// When unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never
     /// copied into container resource specs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
-    /// Per-repository size cap for the transient `build-cache` emptyDir mounted
-    /// at `/opt/moatless/build-cache` (e.g. "40Gi"). Use with workspace env vars
-    /// such as `CARGO_TARGET_DIR=/opt/moatless/build-cache/target` for large
-    /// build artifacts that should not fill the workspace volume. Exceeding the
-    /// cap gets the pod **evicted** by the kubelet. When unset, the global
-    /// `K8S_SANDBOX_BUILD_CACHE_SIZE` default applies.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub build_cache: Option<String>,
-    /// Storage backend for the `build-cache` volume mounted at
-    /// `/opt/moatless/build-cache`:
-    /// - `"emptyDir"` (default) — node-local emptyDir capped by `buildCache`.
-    /// - `"node"` — node-local hostPath under `K8S_SANDBOX_CACHE_HOST_ROOT`.
-    ///   Kubernetes does not enforce `buildCache` as a size cap for this mode.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub build_cache_mode: Option<String>,
-    /// Scope for `buildCacheMode: "node"`:
-    /// - `"task"` (default) — per-task hostPath, cleaned up with the task.
-    /// - `"node"` — shared by all sandboxes scheduled on the same node.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub build_cache_scope: Option<String>,
     /// Whether this repo's sandbox gets a per-task PVC mounted at
     /// `/opt/moatless`. The PVC is owned by the Deployment: it survives pod
     /// restarts and is deleted when the sandbox is removed. When `false`, the
@@ -80,7 +100,7 @@ pub struct ResourceConfig {
     ///   images, and volumes survive stop/start only on the same node.
     /// - `"emptyDir"` — node-local emptyDir capped by `dockerStorage`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub docker_storage_mode: Option<String>,
+    pub docker_storage_mode: Option<StorageMedium>,
 }
 
 // =============================================================================
@@ -95,10 +115,11 @@ pub struct ServerConfig {
     pub name: String,
     #[serde(default)]
     pub label: Option<String>,
+    /// Absent until the backend allocates one on the next provision.
     #[serde(default)]
-    pub port: u16,
-    #[serde(default)]
-    pub start_commands: Option<Vec<String>>,
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub start_commands: Vec<String>,
     #[serde(default)]
     pub startup_timeout_seconds: Option<u32>,
     #[serde(default)]
@@ -111,10 +132,10 @@ pub struct ServerConfig {
     #[serde(default)]
     pub docker_image: Option<String>,
     /// Per-server environment variables.
-    #[serde(default)]
-    pub env_vars: Option<HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env_vars: BTreeMap<String, String>,
     /// Per-server resource requests/limits. Falls back to the repo-wide
-    /// `resources` when unset. Only `requests`/`limits` apply; storage/cache
+    /// `resources` when unset. Only `requests`/`limits` apply; the storage
     /// fields are repo-wide and ignored here.
     #[serde(default)]
     pub resources: Option<ResourceConfig>,

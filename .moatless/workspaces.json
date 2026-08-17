@@ -14,15 +14,12 @@
       "envVars": {
         "CARGO_BUILD_JOBS": "2",
         "CARGO_PROFILE_DEV_DEBUG": "0",
-        "CARGO_PROFILE_TEST_DEBUG": "0",
-        "CARGO_TARGET_DIR": "/opt/moatless/build-cache/target"
+        "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
         "requests": { "cpu": "2", "memory": "4Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
-        "storage": "20Gi",
-        "buildCacheMode": "node",
-        "buildCacheScope": "task"
+        "storage": "20Gi"
       },
       "servers": []
     },
@@ -39,15 +36,12 @@
       "envVars": {
         "CARGO_BUILD_JOBS": "2",
         "CARGO_PROFILE_DEV_DEBUG": "0",
-        "CARGO_PROFILE_TEST_DEBUG": "0",
-        "CARGO_TARGET_DIR": "/opt/moatless/build-cache/target"
+        "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
         "requests": { "cpu": "2", "memory": "4Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
-        "storage": "20Gi",
-        "buildCacheMode": "node",
-        "buildCacheScope": "task"
+        "storage": "20Gi"
       },
       "servers": [
         {
@@ -86,15 +80,12 @@
       "envVars": {
         "CARGO_BUILD_JOBS": "2",
         "CARGO_PROFILE_DEV_DEBUG": "0",
-        "CARGO_PROFILE_TEST_DEBUG": "0",
-        "CARGO_TARGET_DIR": "/opt/moatless/build-cache/target"
+        "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
         "requests": { "cpu": "2", "memory": "4Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
         "storage": "20Gi",
-        "buildCacheMode": "node",
-        "buildCacheScope": "task",
         "dockerStorageMode": "node",
         "dockerStorage": "30Gi"
       },

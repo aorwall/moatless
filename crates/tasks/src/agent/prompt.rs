@@ -9,8 +9,9 @@ use std::sync::Arc;
 use moatless_backend_core::scope::ScopeContext;
 use tracing::warn;
 
+use moatless_backend_core::run_config::ServerConfig;
 use moatless_core::config::Config;
-use moatless_workspaces::repository::models::ServerConfig;
+
 use crate::task::models::Task;
 use crate::task::relations::TaskRelationDao;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
@@ -278,25 +279,26 @@ fn build_server_section(
     for server in servers {
         lines.push(String::new());
         let label = server.label.as_deref().unwrap_or(&server.name);
-        lines.push(format!("## {label} (port {port})", port = server.port));
 
-        lines.push(format!(
-            "- **Local URL**: http://localhost:{} (use this to curl/verify the server — no auth needed)",
-            server.port
-        ));
-
-        if let Some(domain) = proxy_domain {
-            let url = format!(
-                "{proxy_protocol}://{task_id}--{port}.{domain}",
-                port = server.port
-            );
+        // A server whose port the workspace never declared has none allocated
+        // yet, so it has no URL to give the agent.
+        if let Some(port) = server.port {
+            lines.push(format!("## {label} (port {port})"));
             lines.push(format!(
-                "- **External URL**: {url} (share with the user to open in their browser — they are already authenticated)"
+                "- **Local URL**: http://localhost:{port} (use this to curl/verify the server — no auth needed)"
             ));
+            if let Some(domain) = proxy_domain {
+                let url = format!("{proxy_protocol}://{task_id}--{port}.{domain}");
+                lines.push(format!(
+                    "- **External URL**: {url} (share with the user to open in their browser — they are already authenticated)"
+                ));
+            }
+        } else {
+            lines.push(format!("## {label} (port assigned at startup)"));
         }
 
-        if let Some(ref cmds) = server.start_commands {
-            let joined = cmds.join(" && ");
+        if !server.start_commands.is_empty() {
+            let joined = server.start_commands.join(" && ");
             lines.push(format!(
                 "- **Configured start command**: `{joined}` (runs automatically, configured in the repository)"
             ));
@@ -325,6 +327,8 @@ fn build_parent_task_section(parent_task_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use moatless_backend_core::run_config::Port;
+
     use super::*;
 
     fn base_inputs(task_id: &str) -> PromptInputs<'_> {
@@ -397,7 +401,7 @@ mod tests {
         let server = ServerConfig {
             name: "preview".to_string(),
             label: Some("Preview".to_string()),
-            port: 3000,
+            port: Port::new(3000),
             auto_reload: true,
             ..Default::default()
         };

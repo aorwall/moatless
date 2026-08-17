@@ -5,39 +5,13 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { ResourceConfigLimits } from './resourceConfigLimits';
-import type { ResourceConfigRequests } from './resourceConfigRequests';
+import type { ResourceQuantities } from './resourceQuantities';
+import type { StorageMedium } from './storageMedium';
 
 /**
  * Per-repository K8s resource requests/limits configuration.
  */
 export interface ResourceConfig {
-  /**
-   * Per-repository size cap for the transient `build-cache` emptyDir mounted
-at `/opt/moatless/build-cache` (e.g. "40Gi"). Use with workspace env vars
-such as `CARGO_TARGET_DIR=/opt/moatless/build-cache/target` for large
-build artifacts that should not fill the workspace volume. Exceeding the
-cap gets the pod **evicted** by the kubelet. When unset, the global
-`K8S_SANDBOX_BUILD_CACHE_SIZE` default applies.
-   * @nullable
-   */
-  buildCache?: string | null;
-  /**
-   * Storage backend for the `build-cache` volume mounted at
-`/opt/moatless/build-cache`:
-- `"emptyDir"` (default) — node-local emptyDir capped by `buildCache`.
-- `"node"` — node-local hostPath under `K8S_SANDBOX_CACHE_HOST_ROOT`.
-  Kubernetes does not enforce `buildCache` as a size cap for this mode.
-   * @nullable
-   */
-  buildCacheMode?: string | null;
-  /**
-   * Scope for `buildCacheMode: "node"`:
-- `"task"` (default) — per-task hostPath, cleaned up with the task.
-- `"node"` — shared by all sandboxes scheduled on the same node.
-   * @nullable
-   */
-  buildCacheScope?: string | null;
   /**
    * Per-repository size cap for the `dind` sidecar's `/var/lib/docker`
 emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`
@@ -47,16 +21,8 @@ the global `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
    * @nullable
    */
   dockerStorage?: string | null;
-  /**
-   * Storage backend for the `dind` sidecar's `/var/lib/docker`:
-- `"node"` (default) — best-effort node-local hostPath. Docker layers,
-  images, and volumes survive stop/start only on the same node.
-- `"emptyDir"` — node-local emptyDir capped by `dockerStorage`.
-   * @nullable
-   */
-  dockerStorageMode?: string | null;
-  /** @nullable */
-  limits?: ResourceConfigLimits;
+  dockerStorageMode?: null | StorageMedium;
+  limits?: ResourceQuantities;
   /**
    * Whether this repo's sandbox gets a per-task PVC mounted at
 `/opt/moatless`. The PVC is owned by the Deployment: it survives pod
@@ -68,8 +34,7 @@ The global `K8S_SANDBOX_STORAGE_ENABLED` kill switch still wins over both.
    * @nullable
    */
   pvcEnabled?: boolean | null;
-  /** @nullable */
-  requests?: ResourceConfigRequests;
+  requests?: ResourceQuantities;
   /**
    * Whether this repo's sandbox snapshots its workspace to S3 — the copy that
 outlives the Deployment. Pushed before a stop or remove, and pulled back

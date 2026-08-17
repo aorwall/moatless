@@ -76,7 +76,7 @@ git tag v0.1.21 && git push origin v0.1.21                      # triggers relea
 
 ## Pragmatic coding
 - No new trait/interface with a single implementation (a test mock counts only if a test uses it).
-- When the code you are changing sits in the wrong module, move it there as its own commit, then change it.
+- When the code you are changing sits in the wrong module, move it there as part of the same change, and say so in the PR body so a reviewer reads the rename separately from the edits that follow it.
 - Define a verifiable success criterion — a failing test or a reproducible check — before starting.
 
 ## Commits
@@ -87,6 +87,8 @@ Conventional commits — `type(optional-scope): subject`, header ≤100 characte
 **Two checks, because they cover different commits.** `.husky/commit-msg` lints each local commit. `.github/workflows/pr-title.yml` lints the **pull request title**, which is the message that reaches `main`: this repo squash-merges, and GitHub composes the squash commit from the title server-side, where no git hook runs. That workflow triggers on `edited` as well as `opened`, so a retitle re-runs it — a title check that ran only at open time would attest to a title that no longer ships.
 
 **The title check is advisory.** It is not in `main`'s required-status-check list, so a red title check does not block a merge; a reviewer has to notice it. Making it required is a repository setting.
+
+**One commit per pull request.** This repo squash-merges, so a branch's internal commits never reach `main` — GitHub composes the squash commit from the PR title. Splitting work across local commits buys nothing a reviewer sees and costs the time spent keeping each one green. Land a PR as a single commit and use the PR body to sequence anything a reader needs in order.
 
 Pre-push runs `bun check:pre-push`, which is Biome and type-check only — no
 tests. A push proves nothing about test state; run the verification commands

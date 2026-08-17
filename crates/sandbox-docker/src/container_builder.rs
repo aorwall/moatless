@@ -16,14 +16,13 @@ use super::naming::{
     generate_claude_config_host_path, generate_container_name, generate_data_host_path,
     generate_sandbox_host_path, generate_server_container_name,
 };
+use moatless_backend_core::run_config::{Memory, Port, ServerConfig};
 use moatless_core::config::Config;
 use moatless_sandbox_control::lifecycle::runtime::{
-    RuntimeOperationContext, OPERATION_GENERATION_LABEL,
+    OPERATION_GENERATION_LABEL, RuntimeOperationContext,
 };
 use moatless_sandbox_control::models::{ProvisionPlan, WORKSPACE_REPOS_ENV};
-use moatless_sandbox_control::resource_parse::{parse_cpu_to_millicores, parse_memory_to_bytes};
 use moatless_sandbox_control::server_runner::build_server_start_script;
-use moatless_workspaces::repository::models::ServerConfig;
 
 pub(crate) const CREATED_BY_LABEL: &str = "created-by";
 pub(crate) const CREATED_BY_VALUE: &str = "moatless";
@@ -238,23 +237,18 @@ pub fn build_container_config(
     }
 }
 
-/// Map the plan's `resources.limits` (memory/cpu K8s quantities) to Docker
-/// cgroup limits: memory in bytes and CPU in nanocpus. Missing or unparsable
-/// quantities yield `None` (unconstrained), matching prior behaviour.
+/// Map the plan's `resources.limits` to Docker cgroup limits: memory in bytes
+/// and CPU in nanocpus. An unset limit yields `None` (unconstrained).
 fn sandbox_resource_limits(plan: &ProvisionPlan) -> (Option<i64>, Option<i64>) {
-    let limits = plan
-        .repo_config
-        .resources
-        .as_ref()
-        .and_then(|r| r.limits.as_ref());
+    let limits = plan.repo_config.resources.as_ref().map(|r| &r.limits);
     let memory = limits
-        .and_then(|l| l.get("memory"))
-        .map(|q| parse_memory_to_bytes(q))
+        .and_then(|l| l.memory.as_ref())
+        .map(Memory::bytes)
         .filter(|b| *b > 0)
         .map(|b| b as i64);
     let nano_cpus = limits
-        .and_then(|l| l.get("cpu"))
-        .map(|q| parse_cpu_to_millicores(q).saturating_mul(1_000_000))
+        .and_then(|l| l.cpu.as_ref())
+        .map(|cpu| cpu.millicores().saturating_mul(1_000_000))
         .filter(|n| *n > 0)
         .map(|n| n as i64);
     (memory, nano_cpus)
@@ -299,12 +293,12 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
         let server_entries: Vec<serde_json::Value> = servers
             .iter()
             .map(|s| {
-                let mut entry = serde_json::json!({"name": s.name, "port": s.port});
-                if let Some(ref cmds) = s.start_commands {
-                    entry["startCommands"] = serde_json::json!(cmds);
+                let mut entry = serde_json::json!({"name": s.name, "port": s.port.map(Port::get)});
+                if !s.start_commands.is_empty() {
+                    entry["startCommands"] = serde_json::json!(s.start_commands);
                 }
-                if let Some(ref env) = s.env_vars {
-                    entry["envVars"] = serde_json::json!(env);
+                if !s.env_vars.is_empty() {
+                    entry["envVars"] = serde_json::json!(s.env_vars);
                 }
                 if let Some(ref img) = s.docker_image {
                     entry["dockerImage"] = serde_json::json!(img);
@@ -329,12 +323,12 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
 /// entrypoint. If a custom `docker_image` is set, we trust it has its own
 /// usable CMD.
 ///
-/// Returns a human-readable message on failure.
-pub(super) fn validate_server_config(server: &ServerConfig) -> Result<(), String> {
-    let has_start_commands = server
-        .start_commands
-        .as_ref()
-        .is_some_and(|c| !c.is_empty());
+/// A server also needs a port: the container publishes one, so a server that
+/// reached the provider without an allocated port cannot be launched.
+///
+/// Returns the validated port, or a human-readable message on failure.
+pub(super) fn validate_server_config(server: &ServerConfig) -> Result<u16, String> {
+    let has_start_commands = !server.start_commands.is_empty();
     let has_per_server_image = server.docker_image.is_some();
 
     if !has_start_commands && !has_per_server_image {
@@ -346,7 +340,12 @@ pub(super) fn validate_server_config(server: &ServerConfig) -> Result<(), String
         ));
     }
 
-    Ok(())
+    server.port.map(Port::get).ok_or_else(|| {
+        format!(
+            "Server '{}' has no allocated port; declare one in the repo config.",
+            server.name
+        )
+    })
 }
 
 /// Build a `bollard::container::Config` for a server sidecar container.
@@ -358,6 +357,7 @@ pub fn build_server_container_config(
     config: &Config,
     task_id: &str,
     server: &ServerConfig,
+    port: u16,
     sandbox_image: &str,
 ) -> ContainerConfig {
     let container_name = generate_server_container_name(task_id, &server.name);
@@ -373,7 +373,7 @@ pub fn build_server_container_config(
 
     // ── Environment variables ─────────────────────────────────────
     let mut env = vec![
-        format!("PORT={}", server.port),
+        format!("PORT={port}"),
         "WORKSPACE_DIR=/opt/moatless/workspace".to_string(),
         "WORKSPACE_PATH=/opt/moatless/workspace".to_string(),
         "DATA_DIR=/opt/moatless/data".to_string(),
@@ -382,10 +382,8 @@ pub fn build_server_container_config(
     // WORKSPACE_PATH with sandbox-derived paths; these defaults only apply
     // before init.
 
-    if let Some(ref extra) = server.env_vars {
-        for (k, v) in extra {
-            env.push(format!("{k}={v}"));
-        }
+    for (k, v) in &server.env_vars {
+        env.push(format!("{k}={v}"));
     }
 
     // ── Command ──────────────────────────────────────────────────
@@ -398,14 +396,13 @@ pub fn build_server_container_config(
     // docker-entrypoint-sandbox.sh ignores its args and execs the sandbox
     // binary (which crash-loops without BACKEND_GRPC_URL). K8s `command:`
     // overrides the entrypoint — mirror that here with `entrypoint`.
-    let entrypoint = match &server.start_commands {
-        Some(cmds) if !cmds.is_empty() => Some(vec![
+    let entrypoint = (!server.start_commands.is_empty()).then(|| {
+        vec![
             "bash".to_string(),
             "-c".to_string(),
-            build_server_start_script(&server.name, cmds),
-        ]),
-        _ => None,
-    };
+            build_server_start_script(&server.name, &server.start_commands),
+        ]
+    });
 
     // ── Labels ─────────────────────────────────────────────────────
     let mut labels = HashMap::new();
@@ -419,7 +416,7 @@ pub fn build_server_container_config(
     );
 
     // ── Exposed ports ─────────────────────────────────────────────
-    let port_key = format!("{}/tcp", server.port);
+    let port_key = format!("{port}/tcp");
     let exposed_ports: Vec<String> = vec![port_key.clone()];
 
     // ── Port bindings (dynamic host port mapping) ─────────────────
@@ -508,9 +505,7 @@ mod tests {
                 ephemeral_storage: None,
                 run_as_non_root: false,
                 shared_data_size: "2Gi".into(),
-                build_cache_size: "1536Mi".into(),
                 persist_toolchain: false,
-                cargo_target_on_build_cache: false,
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,
@@ -764,25 +759,25 @@ mod tests {
 
         plan.repos.clear();
         let cc = build_container_config(&config, "task-1", &plan, None);
-        assert!(cc
-            .env
-            .unwrap()
-            .iter()
-            .all(|e| !e.starts_with(&format!("{WORKSPACE_REPOS_ENV}="))));
+        assert!(
+            cc.env
+                .unwrap()
+                .iter()
+                .all(|e| !e.starts_with(&format!("{WORKSPACE_REPOS_ENV}=")))
+        );
     }
 
     #[test]
     fn container_config_applies_resource_limits_from_repo_config() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources =
-            Some(moatless_workspaces::repository::models::ResourceConfig {
-                limits: Some(HashMap::from([
-                    ("memory".to_string(), "8Gi".to_string()),
-                    ("cpu".to_string(), "4".to_string()),
-                ])),
-                ..Default::default()
-            });
+        plan.repo_config.resources = Some(moatless_backend_core::run_config::ResourceConfig {
+            limits: moatless_backend_core::run_config::ResourceQuantities {
+                cpu: Some("4".parse().expect("cpu")),
+                memory: Some("8Gi".parse().expect("memory")),
+            },
+            ..Default::default()
+        });
         let cc = build_container_config(&config, "task-1", &plan, None);
         let hc = cc.host_config.unwrap();
         assert_eq!(hc.memory, Some(8 * 1024 * 1024 * 1024));
@@ -873,10 +868,9 @@ mod tests {
         ServerConfig {
             name: "preview".into(),
             label: Some("Preview".into()),
-            port: 3000,
-            start_commands: Some(vec!["bun run dev".into()]),
+            port: Port::new(3000),
+            start_commands: vec!["bun run dev".into()],
             docker_image: None,
-            env_vars: None,
             ..Default::default()
         }
     }
@@ -887,7 +881,8 @@ mod tests {
     fn server_config_uses_sandbox_image_fallback() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc =
+            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
         assert_eq!(cc.image.unwrap(), TEST_SANDBOX_IMAGE);
     }
 
@@ -896,7 +891,8 @@ mod tests {
         let config = test_config();
         let mut server = test_server_config();
         server.docker_image = Some("custom-server:v1".into());
-        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc =
+            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
         assert_eq!(cc.image.unwrap(), "custom-server:v1");
     }
 
@@ -905,7 +901,8 @@ mod tests {
         let config = test_config();
         let mut server = test_server_config();
         server.docker_image = Some(String::new());
-        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc =
+            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
         assert_eq!(cc.image.unwrap(), TEST_SANDBOX_IMAGE);
     }
 
@@ -914,7 +911,8 @@ mod tests {
         let config = test_config();
         let mut server = test_server_config();
         server.docker_image = Some("custom-server:v1".into());
-        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc =
+            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
         assert_eq!(cc.image.unwrap(), "custom-server:v1");
     }
 
@@ -922,7 +920,8 @@ mod tests {
     fn server_config_has_correct_labels() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc =
+            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
         let labels = cc.labels.unwrap();
         assert_eq!(labels.get(SERVICE_LABEL).unwrap(), SERVER_SERVICE);
         assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
@@ -933,7 +932,8 @@ mod tests {
     fn server_config_has_workspace_ready_wait() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc =
+            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
         // Start commands must land in `entrypoint` (not `cmd`): Docker Cmd
         // only feeds args to the image ENTRYPOINT, which ignores them.
         assert!(cc.cmd.is_none());
@@ -948,11 +948,13 @@ mod tests {
     fn server_config_sources_shared_server_env_file() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc =
+            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
         let env = cc.env.unwrap();
-        assert!(!env
-            .iter()
-            .any(|e| e.starts_with("MOATLESS_SERVER_ENV_FILE=")));
+        assert!(
+            !env.iter()
+                .any(|e| e.starts_with("MOATLESS_SERVER_ENV_FILE="))
+        );
         assert!(!env.iter().any(|e| e.starts_with("BASH_ENV=")));
 
         let entrypoint = cc.entrypoint.unwrap();
@@ -964,7 +966,8 @@ mod tests {
     fn server_config_exposes_server_port() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc =
+            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
         let ports = cc.exposed_ports.unwrap();
         assert!(ports.iter().any(|p| p == "3000/tcp"));
     }
@@ -973,7 +976,8 @@ mod tests {
     fn server_config_has_bind_mounts() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc =
+            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
         let host_config = cc.host_config.unwrap();
         let mounts = host_config.mounts.unwrap();
         assert_eq!(mounts.len(), 2);
@@ -985,15 +989,18 @@ mod tests {
     fn server_config_env_vars() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc =
+            build_server_container_config(&config, "task-1", &server, 3000, TEST_SANDBOX_IMAGE);
         let env = cc.env.unwrap();
         assert!(env.iter().any(|e| e == "PORT=3000"));
-        assert!(env
-            .iter()
-            .any(|e| e == "WORKSPACE_DIR=/opt/moatless/workspace"));
-        assert!(env
-            .iter()
-            .any(|e| e == "WORKSPACE_PATH=/opt/moatless/workspace"));
+        assert!(
+            env.iter()
+                .any(|e| e == "WORKSPACE_DIR=/opt/moatless/workspace")
+        );
+        assert!(
+            env.iter()
+                .any(|e| e == "WORKSPACE_PATH=/opt/moatless/workspace")
+        );
         assert!(env.iter().any(|e| e == "DATA_DIR=/opt/moatless/data"));
     }
 
@@ -1006,9 +1013,11 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert!(!mounts
-            .iter()
-            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+        assert!(
+            !mounts
+                .iter()
+                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
+        );
     }
 
     #[test]
@@ -1037,9 +1046,11 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 4);
-        assert!(mounts
-            .iter()
-            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+        assert!(
+            mounts
+                .iter()
+                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
+        );
     }
 
     #[test]
@@ -1051,9 +1062,11 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert!(!mounts
-            .iter()
-            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+        assert!(
+            !mounts
+                .iter()
+                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
+        );
     }
 
     #[test]
@@ -1082,23 +1095,25 @@ mod tests {
     #[test]
     fn validate_rejects_no_image_no_start_commands() {
         let mut server = test_server_config();
-        server.start_commands = None;
+        server.start_commands = Vec::new();
         let err = validate_server_config(&server).unwrap_err();
         assert!(err.contains("preview"));
         assert!(err.contains("startCommands"));
     }
 
     #[test]
-    fn validate_rejects_no_image_empty_start_commands() {
+    fn validate_rejects_a_server_without_a_port() {
         let mut server = test_server_config();
-        server.start_commands = Some(vec![]);
-        assert!(validate_server_config(&server).is_err());
+        server.port = None;
+        let err = validate_server_config(&server).unwrap_err();
+        assert!(err.contains("preview"));
+        assert!(err.contains("port"));
     }
 
     #[test]
     fn validate_allows_custom_image_without_start_commands() {
         let mut server = test_server_config();
-        server.start_commands = None;
+        server.start_commands = Vec::new();
         server.docker_image = Some("my-server:v1".into());
         assert!(validate_server_config(&server).is_ok());
     }

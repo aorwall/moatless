@@ -23,6 +23,7 @@ use super::naming::{
     generate_container_name, generate_server_container_name, generate_task_host_path,
 };
 use super::status_resolver::DockerStatusResolver;
+use moatless_backend_core::run_config::ServerConfig;
 use moatless_backend_core::sandbox as core_sandbox;
 use moatless_core::config::Config;
 use moatless_sandbox_control::client::SandboxClient;
@@ -40,7 +41,6 @@ use moatless_sandbox_control::lifecycle::{
 use moatless_sandbox_control::models::*;
 use moatless_sandbox_control::schemas::*;
 use moatless_sandbox_control::status_reader::SandboxStatusReader;
-use moatless_workspaces::repository::models::ServerConfig;
 
 /// Docker adapter for lifecycle mutation, observation, and connection.
 pub struct DockerSandboxAdapter {
@@ -322,20 +322,23 @@ impl DockerSandboxAdapter {
                 .filter(|s| !s.is_empty())
                 .unwrap_or(&self.config.docker.image);
             for server in servers {
-                if let Err(message) = container_builder::validate_server_config(server) {
-                    error!(
-                        task_id = %task_id,
-                        server = %server.name,
-                        "Invalid server config: {message}"
-                    );
-                    diagnostics.server_failures.push(ServerFailure {
-                        server: server.name.clone(),
-                        message,
-                    });
-                    continue;
-                }
+                let port = match container_builder::validate_server_config(server) {
+                    Ok(port) => port,
+                    Err(message) => {
+                        error!(
+                            task_id = %task_id,
+                            server = %server.name,
+                            "Invalid server config: {message}"
+                        );
+                        diagnostics.server_failures.push(ServerFailure {
+                            server: server.name.clone(),
+                            message,
+                        });
+                        continue;
+                    }
+                };
                 if let Err(e) = self
-                    .create_and_start_server_container(task_id, server, sandbox_image)
+                    .create_and_start_server_container(task_id, server, port, sandbox_image)
                     .await
                 {
                     let msg = format!("Failed to create server container: {e}");
@@ -829,6 +832,7 @@ impl DockerSandboxAdapter {
         &self,
         task_id: &str,
         server: &ServerConfig,
+        port: u16,
         sandbox_image: &str,
     ) -> Result<(), SandboxError> {
         let server_container_name = generate_server_container_name(task_id, &server.name);
@@ -858,6 +862,7 @@ impl DockerSandboxAdapter {
             &self.config,
             task_id,
             server,
+            port,
             sandbox_image,
         );
 

@@ -20,19 +20,19 @@ export interface ServerConfig {
    */
   dockerImage?: string | null;
   enableInspector?: boolean;
-  /**
-   * Per-server environment variables.
-   * @nullable
-   */
+  /** Per-server environment variables. */
   envVars?: ServerConfigEnvVars;
   /** @nullable */
   label?: string | null;
   name: string;
-  /** @minimum 0 */
-  port?: number;
+  /**
+   * Absent until the backend allocates one on the next provision.
+   * @minimum 0
+   * @nullable
+   */
+  port?: number | null;
   resources?: null | ResourceConfig;
-  /** @nullable */
-  startCommands?: string[] | null;
+  startCommands?: string[];
   /**
    * @minimum 0
    * @nullable

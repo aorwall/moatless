@@ -32,7 +32,6 @@ pub mod metrics;
 pub mod models;
 pub mod notify;
 pub mod preflight;
-pub mod resource_parse;
 pub mod routes;
 pub mod schemas;
 pub mod secrets;

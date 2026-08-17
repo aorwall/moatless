@@ -7,82 +7,6 @@ use serde::{Deserialize, Serialize};
 
 use moatless_backend_core::scope::Scope;
 
-/// Workspace resource and storage configuration consumed by Sandbox runtimes.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ResourceConfig {
-    pub requests: Option<HashMap<String, String>>,
-    pub limits: Option<HashMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub build_cache: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub build_cache_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub build_cache_scope: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pvc_enabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_enabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub docker_storage: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub docker_storage_mode: Option<String>,
-}
-
-pub const BUILD_CACHE_MODES: [&str; 2] = ["emptyDir", "node"];
-pub const BUILD_CACHE_SCOPES: [&str; 2] = ["task", "node"];
-pub const DOCKER_STORAGE_MODES: [&str; 2] = ["emptyDir", "node"];
-
-#[must_use]
-pub fn is_valid_docker_storage_mode(mode: &str) -> bool {
-    matches!(
-        mode.trim().to_ascii_lowercase().as_str(),
-        "emptydir" | "node"
-    )
-}
-
-#[must_use]
-pub fn is_valid_build_cache_mode(mode: &str) -> bool {
-    matches!(
-        mode.trim().to_ascii_lowercase().as_str(),
-        "emptydir" | "node"
-    )
-}
-
-#[must_use]
-pub fn is_valid_build_cache_scope(scope: &str) -> bool {
-    matches!(scope.trim().to_ascii_lowercase().as_str(), "task" | "node")
-}
-
-/// Per-server run configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerConfig {
-    pub name: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    #[serde(default)]
-    pub port: u16,
-    #[serde(default)]
-    pub start_commands: Option<Vec<String>>,
-    #[serde(default)]
-    pub startup_timeout_seconds: Option<u32>,
-    #[serde(default)]
-    pub auto_reload: bool,
-    #[serde(default)]
-    pub enable_inspector: bool,
-    #[serde(default)]
-    pub default: bool,
-    #[serde(default)]
-    pub docker_image: Option<String>,
-    #[serde(default)]
-    pub env_vars: Option<HashMap<String, String>>,
-    #[serde(default)]
-    pub resources: Option<ResourceConfig>,
-}
-
 /// Named command run on demand inside a Sandbox.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -250,15 +174,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn minimal_server_config_uses_domain_defaults() {
-        let config: ServerConfig = serde_json::from_str(r#"{"name":"files","port":4000}"#).unwrap();
-        assert_eq!(config.name, "files");
-        assert_eq!(config.port, 4000);
-        assert!(!config.default);
-        assert!(config.resources.is_none());
-    }
-
-    #[test]
     fn credential_provider_maps_persisted_and_environment_values() {
         let mut environment_keys = Vec::new();
         for provider in WorkspaceCredentialProvider::ALL {
@@ -272,23 +187,5 @@ mod tests {
             environment_keys.len(),
             WorkspaceCredentialProvider::ALL.len()
         );
-    }
-
-    #[test]
-    fn storage_and_cache_modes_validate_in_the_workspace_domain() {
-        assert!(is_valid_docker_storage_mode("node"));
-        assert!(is_valid_docker_storage_mode("emptyDir"));
-        assert!(is_valid_docker_storage_mode("  EMPTYDIR "));
-        assert!(!is_valid_docker_storage_mode("s3"));
-
-        assert!(is_valid_build_cache_mode("node"));
-        assert!(is_valid_build_cache_mode("emptyDir"));
-        assert!(is_valid_build_cache_mode("  EMPTYDIR "));
-        assert!(!is_valid_build_cache_mode("s3"));
-
-        assert!(is_valid_build_cache_scope("task"));
-        assert!(is_valid_build_cache_scope("node"));
-        assert!(is_valid_build_cache_scope("  NODE "));
-        assert!(!is_valid_build_cache_scope("shared"));
     }
 }

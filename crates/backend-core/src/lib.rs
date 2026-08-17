@@ -16,6 +16,7 @@ pub mod access_control;
 #[cfg(feature = "database")]
 pub mod change_feed;
 pub mod models;
+pub mod run_config;
 pub mod sandbox;
 pub mod scope;
 pub mod ui_rpc;

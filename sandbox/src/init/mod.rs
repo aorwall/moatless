@@ -7,7 +7,7 @@
 //! this phase. On completion, `InitPhase::Ready` is set and health returns 200.
 //!
 //! **Phase 2 (workspace setup)**: Runs after health is ready. Copies
-//! prebuilt deps, sets up build cache, runs setup commands.
+//! prebuilt deps and runs setup commands.
 //! These are non-fatal — failures are logged but don't affect health.
 
 mod claude_code_settings;

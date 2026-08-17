@@ -12,11 +12,11 @@ use tracing::{debug, warn};
 
 use super::client::K8sClient;
 use super::pod_status::{extract_all_container_statuses, extract_container_observed_statuses};
+use moatless_backend_core::run_config::{Cpu, Memory};
+use moatless_backend_core::sandbox::{SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};
 use moatless_sandbox_control::access::LogOptions;
 use moatless_sandbox_control::models::{ContainerObservedStatus, ContainerState, PodPhase};
-use moatless_sandbox_control::resource_parse::{parse_cpu_to_millicores, parse_memory_to_bytes};
 use moatless_sandbox_control::schemas::RuntimeEvent;
-use moatless_backend_core::sandbox::{SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};
 
 /// Errors from log streaming, distinguishing "not ready yet" from other failures.
 #[derive(Debug)]
@@ -153,8 +153,10 @@ pub async fn stream_container_logs_k8s(
     task_id: &str,
     container_name: &str,
     options: LogOptions,
-) -> Result<BoxStream<'static, Result<String, moatless_sandbox_control::error::SandboxError>>, LogStreamError>
-{
+) -> Result<
+    BoxStream<'static, Result<String, moatless_sandbox_control::error::SandboxError>>,
+    LogStreamError,
+> {
     let LogOptions {
         previous,
         follow,
@@ -371,8 +373,11 @@ pub async fn fetch_container_resource_usage(
         .containers
         .into_iter()
         .map(|c| {
-            let cpu = parse_cpu_to_millicores(&c.usage.cpu);
-            let mem = parse_memory_to_bytes(&c.usage.memory);
+            // Live metrics, not config: a quantity the metrics API spells in a
+            // form this parser does not know reads as zero rather than dropping
+            // the whole sample.
+            let cpu = c.usage.cpu.parse::<Cpu>().map_or(0, |q| q.millicores());
+            let mem = c.usage.memory.parse::<Memory>().map_or(0, |q| q.bytes());
             (
                 c.name.clone(),
                 ContainerResourceUsage {
@@ -457,8 +462,8 @@ async fn fetch_namespace_resource_usage(
                 .containers
                 .into_iter()
                 .map(|c| {
-                    let cpu = parse_cpu_to_millicores(&c.usage.cpu);
-                    let mem = parse_memory_to_bytes(&c.usage.memory);
+                    let cpu = c.usage.cpu.parse::<Cpu>().map_or(0, |q| q.millicores());
+                    let mem = c.usage.memory.parse::<Memory>().map_or(0, |q| q.bytes());
                     (
                         c.name.clone(),
                         ContainerResourceUsage {

@@ -10,12 +10,12 @@ use moatless_backend_core::scope::ScopeContext;
 
 use crate::auto_provision::{build_provision_request, get_server_configs_for_task};
 use crate::models::ProvisionRequest;
+use moatless_backend_core::run_config::ServerConfig;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::users::UserDao;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_workspaces::plugin::dao::PluginDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::repository::models::ServerConfig;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 use super::error::RuntimeError;

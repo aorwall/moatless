@@ -1,6 +1,6 @@
 //! Node-local archive location tracking and strict deletion.
 //!
-//! Node-backed Docker and build-cache data outlive sandbox pods. A deterministic
+//! Node-backed Docker data outlives sandbox pods. A deterministic
 //! task ConfigMap records every node that has hosted such data and the newest
 //! lifecycle generation seen there. Starts prefer the newest recorded node that
 //! still exists, and schedule anywhere once those nodes are gone — everything
@@ -24,8 +24,10 @@ use tracing::info;
 use super::client::K8sClient;
 use super::naming::sanitize_k8s_name;
 use moatless_core::config::Config;
-use moatless_sandbox_control::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
 use moatless_sandbox_control::lifecycle::RuntimeError;
+use moatless_sandbox_control::lifecycle::runtime::{
+    OPERATION_GENERATION_LABEL, generation_from_label,
+};
 
 const CLEANUP_MOUNT_PATH: &str = "/host-cache";
 const CLEANUP_TIMEOUT: Duration = Duration::from_mins(5);
@@ -136,14 +138,7 @@ fn deployment_has_volume(deployment: &Deployment, predicate: fn(&Volume) -> bool
 /// Task-scoped node-local trees owed a cleanup pod on hard deletion. The
 /// workspace is not among them: it is a PVC or an emptyDir, never a hostPath.
 fn volume_holds_task_node_data(volume: &Volume) -> bool {
-    let Some(host_path) = volume.host_path.as_ref() else {
-        return false;
-    };
-    match volume.name.as_str() {
-        "docker-storage" => true,
-        "build-cache" => host_path.path.contains("/build-cache/tasks/"),
-        _ => false,
-    }
+    volume.host_path.is_some() && volume.name == "docker-storage"
 }
 
 /// Merge one observation without allowing an older watcher event to lower the
@@ -219,7 +214,10 @@ pub(crate) async fn record_observed_pod(
         .labels
         .as_ref()
         .and_then(|labels| generation_from_label(labels.get(OPERATION_GENERATION_LABEL)))
-        .map_or(0, moatless_sandbox_control::lifecycle::OperationGeneration::value);
+        .map_or(
+            0,
+            moatless_sandbox_control::lifecycle::OperationGeneration::value,
+        );
     record_node(k8s, task_id, node_name, generation).await
 }
 
@@ -436,7 +434,8 @@ fn build_cleanup_pod(
                 image_pull_policy: Some(image_pull_policy.to_string()),
                 command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
                 args: Some(vec![
-                    "rm -rf -- \"/host-cache/workspaces/$TASK_ID\" \"/host-cache/docker/$TASK_ID\" \"/host-cache/build-cache/tasks/$TASK_ID\"".to_string(),
+                    "rm -rf -- \"/host-cache/workspaces/$TASK_ID\" \"/host-cache/docker/$TASK_ID\""
+                        .to_string(),
                 ]),
                 env: Some(vec![k8s_openapi::api::core::v1::EnvVar {
                     name: "TASK_ID".to_string(),
@@ -652,45 +651,32 @@ mod tests {
         assert_eq!(security.run_as_user, Some(0));
         assert_eq!(security.privileged, Some(false));
         assert_eq!(security.allow_privilege_escalation, Some(false));
-        assert!(security
-            .capabilities
-            .as_ref()
-            .and_then(|capabilities| capabilities.drop.as_ref())
-            .is_some_and(|drop| drop == &["ALL".to_string()]));
-        assert!(security
-            .capabilities
-            .as_ref()
-            .and_then(|capabilities| capabilities.add.as_ref())
-            .is_some_and(|add| add == &["DAC_OVERRIDE".to_string()]));
-        assert!(!pod
-            .metadata
-            .labels
-            .as_ref()
-            .is_some_and(|labels| labels.contains_key("moatless.io/task-id")));
-        assert!(container
-            .args
-            .as_ref()
-            .is_some_and(|args| args[0].contains("/host-cache/build-cache/tasks/$TASK_ID")));
-    }
-
-    #[test]
-    fn task_scoped_build_cache_uses_node_archives_but_shared_cache_does_not() {
-        assert!(volume_holds_task_node_data(&Volume {
-            name: "build-cache".to_string(),
-            host_path: Some(HostPathVolumeSource {
-                path: "/mnt/cache/build-cache/tasks/task-1".to_string(),
-                type_: Some("DirectoryOrCreate".to_string()),
-            }),
-            ..Default::default()
-        }));
-        assert!(!volume_holds_task_node_data(&Volume {
-            name: "build-cache".to_string(),
-            host_path: Some(HostPathVolumeSource {
-                path: "/mnt/cache/build-cache/shared".to_string(),
-                type_: Some("DirectoryOrCreate".to_string()),
-            }),
-            ..Default::default()
-        }));
+        assert!(
+            security
+                .capabilities
+                .as_ref()
+                .and_then(|capabilities| capabilities.drop.as_ref())
+                .is_some_and(|drop| drop == &["ALL".to_string()])
+        );
+        assert!(
+            security
+                .capabilities
+                .as_ref()
+                .and_then(|capabilities| capabilities.add.as_ref())
+                .is_some_and(|add| add == &["DAC_OVERRIDE".to_string()])
+        );
+        assert!(
+            !pod.metadata
+                .labels
+                .as_ref()
+                .is_some_and(|labels| labels.contains_key("moatless.io/task-id"))
+        );
+        assert!(
+            container
+                .args
+                .as_ref()
+                .is_some_and(|args| args[0].contains("/host-cache/docker/$TASK_ID"))
+        );
     }
 
     fn host_path_volume(name: &str, path: &str) -> Volume {
@@ -718,16 +704,6 @@ mod tests {
             }),
             ..Default::default()
         }
-    }
-
-    #[test]
-    fn task_scoped_build_cache_is_tracked() {
-        let deployment = deployment_with_volumes(vec![host_path_volume(
-            "build-cache",
-            "/mnt/cache/build-cache/tasks/task-1",
-        )]);
-
-        assert!(deployment_uses_node_archives(&deployment));
     }
 
     #[test]

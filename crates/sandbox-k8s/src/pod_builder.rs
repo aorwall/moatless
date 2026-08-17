@@ -16,13 +16,18 @@ use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info, warn};
 
 use super::naming::generate_pod_name;
+use moatless_backend_core::run_config::{
+    Cpu, Memory, Port, ResourceConfig, ResourceQuantities, StorageMedium,
+};
 use moatless_core::config::Config;
 use moatless_sandbox_control::error::SandboxError;
 use moatless_sandbox_control::jwt::{self, MintedSandboxTokens};
 use moatless_sandbox_control::lifecycle::runtime::{
     OPERATION_GENERATION_LABEL, RuntimeOperationContext,
 };
-use moatless_sandbox_control::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV};
+use moatless_sandbox_control::models::{
+    ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV, allocated_port,
+};
 use moatless_sandbox_control::server_runner::build_server_start_script;
 
 /// Auth tokens delivered to a sandbox pod.
@@ -150,9 +155,7 @@ pub fn build_pod(
     // volume shared across the sandbox and server containers, with `/tmp` served
     // from its `tmp` subPath so `/tmp` never charges against the pod's memory
     // budget.
-    let build_cache_backend = resolve_build_cache_backend(plan);
     let mut volumes = vec![
-        build_cache_volume(config, task_id, plan, build_cache_backend),
         Volume {
             name: "shared-data".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
@@ -212,9 +215,6 @@ pub fn build_pod(
     // The whole block is gated on a non-empty list, so default sandboxes stay
     // hardened (no privileged init container, no hostPath).
     let mut init_containers: Vec<Container> = Vec::new();
-    if build_cache_backend.is_node() {
-        init_containers.push(build_node_build_cache_setup_container(config, plan));
-    }
     if !config.sandbox.cache_volumes.is_empty() {
         volumes.push(Volume {
             name: "pkg-cache".to_string(),
@@ -242,7 +242,7 @@ pub fn build_pod(
     let sandbox_container = build_sandbox_container(config, task_id, plan, tokens, pvc_name)?;
 
     // ── Server containers ───────────────────────────────────────────
-    let server_containers = build_server_containers(config, plan)?;
+    let server_containers = build_server_containers(config, task_id, plan)?;
 
     // ── Docker-in-Docker sidecar (opt-in via repo config `dockerAccess`) ──
     //
@@ -261,13 +261,13 @@ pub fn build_pod(
             ..Default::default()
         };
         match resolve_dind_storage_backend(plan) {
-            DockerStorageBackend::Node => {
+            StorageMedium::Node => {
                 volume.host_path = Some(HostPathVolumeSource {
                     path: node_docker_host_path(config, task_id),
                     type_: Some("DirectoryOrCreate".to_string()),
                 });
             }
-            DockerStorageBackend::EmptyDir => {
+            StorageMedium::EmptyDir => {
                 volume.empty_dir = Some(EmptyDirVolumeSource {
                     size_limit: Some(Quantity(resolve_dind_storage_size(config, plan))),
                     ..Default::default()
@@ -382,97 +382,8 @@ fn resolve_sandbox_size(config: &Config, plan: &ProvisionPlan) -> String {
     plan.repo_config
         .resources
         .as_ref()
-        .and_then(|r| r.storage.as_deref())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map_or_else(|| config.sandbox.storage_size.clone(), ToString::to_string)
-}
-
-/// Resolve the transient `build-cache` emptyDir size: a per-repo
-/// `resources.buildCache` override wins over `K8S_SANDBOX_BUILD_CACHE_SIZE`.
-fn resolve_build_cache_size(config: &Config, plan: &ProvisionPlan) -> String {
-    plan.repo_config
-        .resources
-        .as_ref()
-        .and_then(|r| r.build_cache.as_deref())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map_or_else(
-            || config.sandbox.build_cache_size.clone(),
-            ToString::to_string,
-        )
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BuildCacheBackend {
-    EmptyDir,
-    NodeTask,
-    NodeShared,
-}
-
-impl BuildCacheBackend {
-    fn is_node(self) -> bool {
-        matches!(self, Self::NodeTask | Self::NodeShared)
-    }
-}
-
-fn resolve_build_cache_backend(plan: &ProvisionPlan) -> BuildCacheBackend {
-    let mode = plan
-        .repo_config
-        .resources
-        .as_ref()
-        .and_then(|r| r.build_cache_mode.as_deref())
-        .map(str::trim)
-        .map(str::to_ascii_lowercase);
-    match mode.as_deref() {
-        Some("node") => {
-            let scope = plan
-                .repo_config
-                .resources
-                .as_ref()
-                .and_then(|r| r.build_cache_scope.as_deref())
-                .map(str::trim)
-                .map(str::to_ascii_lowercase);
-            match scope.as_deref() {
-                Some("node") => BuildCacheBackend::NodeShared,
-                _ => BuildCacheBackend::NodeTask,
-            }
-        }
-        _ => BuildCacheBackend::EmptyDir,
-    }
-}
-
-fn build_cache_volume(
-    config: &Config,
-    task_id: &str,
-    plan: &ProvisionPlan,
-    backend: BuildCacheBackend,
-) -> Volume {
-    let mut volume = Volume {
-        name: "build-cache".to_string(),
-        ..Default::default()
-    };
-    match backend {
-        BuildCacheBackend::EmptyDir => {
-            volume.empty_dir = Some(EmptyDirVolumeSource {
-                size_limit: Some(Quantity(resolve_build_cache_size(config, plan))),
-                ..Default::default()
-            });
-        }
-        BuildCacheBackend::NodeTask => {
-            volume.host_path = Some(HostPathVolumeSource {
-                path: node_task_build_cache_host_path(config, task_id),
-                type_: Some("DirectoryOrCreate".to_string()),
-            });
-        }
-        BuildCacheBackend::NodeShared => {
-            volume.host_path = Some(HostPathVolumeSource {
-                path: node_shared_build_cache_host_path(config),
-                type_: Some("DirectoryOrCreate".to_string()),
-            });
-        }
-    }
-    volume
+        .and_then(|r| r.storage.as_ref())
+        .map_or_else(|| config.sandbox.storage_size.clone(), Memory::to_string)
 }
 
 /// Express a retained-node placement so the scheduler still runs.
@@ -480,9 +391,9 @@ fn build_cache_volume(
 /// `spec.nodeName` binds the pod directly and skips scheduling, so a node that
 /// cannot fit the pod rejects it at admission (`OutOfmemory`) and the
 /// ReplicaSet respawns it without end. Affinity leaves an unschedulable pod
-/// `Pending` instead. Everything that pins is a cache — a build cache or dind's
-/// data root — so the preference is soft: prefer the recorded node, settle for
-/// any other and pay a cold rebuild.
+/// `Pending` instead. The only thing that pins is a cache — dind's data root —
+/// so the preference is soft: prefer the recorded node, settle for any other
+/// and pay a cold rebuild.
 pub(crate) fn retained_node_affinity(node_name: &str) -> Affinity {
     let term = NodeSelectorTerm {
         match_fields: Some(vec![NodeSelectorRequirement {
@@ -515,71 +426,19 @@ pub(crate) fn pin_pod_to_node(pod: &mut Pod, node_name: &str) -> Result<(), Sand
     Ok(())
 }
 
-fn node_task_build_cache_host_path(config: &Config, task_id: &str) -> String {
-    let root = config.sandbox.cache_host_root.trim_end_matches('/');
-    format!("{root}/build-cache/tasks/{task_id}")
-}
-
-fn node_shared_build_cache_host_path(config: &Config) -> String {
-    let root = config.sandbox.cache_host_root.trim_end_matches('/');
-    format!("{root}/build-cache/shared")
-}
-
 fn node_docker_host_path(config: &Config, task_id: &str) -> String {
     let root = config.sandbox.cache_host_root.trim_end_matches('/');
     format!("{root}/docker/{task_id}")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DockerStorageBackend {
-    EmptyDir,
-    Node,
-}
-
-fn resolve_dind_storage_backend(plan: &ProvisionPlan) -> DockerStorageBackend {
+/// Where the dind sidecar's `/var/lib/docker` lives. Unset means
+/// [`StorageMedium::Node`].
+fn resolve_dind_storage_backend(plan: &ProvisionPlan) -> StorageMedium {
     plan.repo_config
         .resources
         .as_ref()
-        .and_then(|r| r.docker_storage_mode.as_deref())
-        .map(str::trim)
-        .map(str::to_ascii_lowercase)
-        .and_then(|mode| match mode.as_str() {
-            "emptydir" => Some(DockerStorageBackend::EmptyDir),
-            "node" => Some(DockerStorageBackend::Node),
-            _ => None,
-        })
-        .unwrap_or(DockerStorageBackend::Node)
-}
-
-fn build_node_build_cache_setup_container(config: &Config, plan: &ProvisionPlan) -> Container {
-    Container {
-        name: "build-cache-setup".to_string(),
-        image: Some(resolve_sandbox_image(config, plan)),
-        image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
-        command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
-        args: Some(vec![
-            "mkdir -p /build-cache && chown 1000:1000 /build-cache && chmod 0775 /build-cache"
-                .to_string(),
-        ]),
-        security_context: Some(root_init_security_context()),
-        resources: Some(ResourceRequirements {
-            requests: Some(BTreeMap::from([
-                ("cpu".to_string(), Quantity("25m".to_string())),
-                ("memory".to_string(), Quantity("32Mi".to_string())),
-            ])),
-            limits: Some(BTreeMap::from([
-                ("cpu".to_string(), Quantity("100m".to_string())),
-                ("memory".to_string(), Quantity("128Mi".to_string())),
-            ])),
-            ..Default::default()
-        }),
-        volume_mounts: Some(vec![VolumeMount {
-            name: "build-cache".to_string(),
-            mount_path: "/build-cache".to_string(),
-            ..Default::default()
-        }]),
-        ..Default::default()
-    }
+        .and_then(|r| r.docker_storage_mode)
+        .unwrap_or(StorageMedium::Node)
 }
 
 /// Resolve the `docker-storage` emptyDir cap for the dind sidecar: a per-repo
@@ -590,12 +449,10 @@ fn resolve_dind_storage_size(config: &Config, plan: &ProvisionPlan) -> String {
     plan.repo_config
         .resources
         .as_ref()
-        .and_then(|r| r.docker_storage.as_deref())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+        .and_then(|r| r.docker_storage.as_ref())
         .map_or_else(
             || config.sandbox.docker_dind_storage_size.clone(),
-            ToString::to_string,
+            Memory::to_string,
         )
 }
 
@@ -780,47 +637,53 @@ fn build_dind_container(config: &Config) -> Container {
     }
 }
 
-/// Overlay a per-repo resource override onto the configured defaults, key by key.
+/// Overlay a per-repo resource override onto the configured defaults, field by
+/// field.
 ///
-/// An override replaces only the `cpu`/`memory` entries it names; every other
-/// key keeps its default. `ResourceConfig` also carries the storage fields
-/// (`storage`, `buildCache`, `pvcEnabled`, ...), so a repo that configures only
-/// storage — or only memory — still gets a fully bounded container instead of a
-/// BestEffort one.
+/// An override replaces only the `cpu`/`memory` values it names; the other keeps
+/// its default. `ResourceConfig` also carries the storage fields (`storage`,
+/// `pvcEnabled`, ...), so a repo that configures only storage — or only memory —
+/// still gets a fully bounded container instead of a BestEffort one.
 fn merge_resources(
-    override_cfg: Option<&moatless_workspaces::repository::models::ResourceConfig>,
+    override_cfg: Option<&ResourceConfig>,
     default_cpu_request: &str,
     default_memory_request: &str,
     default_cpu_limit: &str,
     default_memory_limit: &str,
 ) -> ResourceRequirements {
-    let mut requests = BTreeMap::from([
-        ("cpu".to_string(), Quantity(default_cpu_request.to_string())),
-        (
-            "memory".to_string(),
-            Quantity(default_memory_request.to_string()),
-        ),
-    ]);
-    let mut limits = BTreeMap::from([
-        ("cpu".to_string(), Quantity(default_cpu_limit.to_string())),
-        (
-            "memory".to_string(),
-            Quantity(default_memory_limit.to_string()),
-        ),
-    ]);
-
-    if let Some(cfg) = override_cfg {
-        if let Some(r) = cfg.requests.as_ref() {
-            requests.extend(r.iter().map(|(k, v)| (k.clone(), Quantity(v.clone()))));
-        }
-        if let Some(l) = cfg.limits.as_ref() {
-            limits.extend(l.iter().map(|(k, v)| (k.clone(), Quantity(v.clone()))));
-        }
-    }
+    let quantities = |over: Option<&ResourceQuantities>,
+                      default_cpu: &str,
+                      default_memory: &str|
+     -> BTreeMap<String, Quantity> {
+        BTreeMap::from([
+            (
+                "cpu".to_string(),
+                Quantity(
+                    over.and_then(|q| q.cpu.as_ref())
+                        .map_or_else(|| default_cpu.to_string(), Cpu::to_string),
+                ),
+            ),
+            (
+                "memory".to_string(),
+                Quantity(
+                    over.and_then(|q| q.memory.as_ref())
+                        .map_or_else(|| default_memory.to_string(), Memory::to_string),
+                ),
+            ),
+        ])
+    };
 
     ResourceRequirements {
-        limits: Some(limits),
-        requests: Some(requests),
+        limits: Some(quantities(
+            override_cfg.map(|c| &c.limits),
+            default_cpu_limit,
+            default_memory_limit,
+        )),
+        requests: Some(quantities(
+            override_cfg.map(|c| &c.requests),
+            default_cpu_request,
+            default_memory_request,
+        )),
         ..Default::default()
     }
 }
@@ -873,13 +736,8 @@ fn validate_compute_mode(
     if pvc_name.is_some() {
         return Err("EKS Fargate does not support persistent workspace volume claims".to_string());
     }
-    if resolve_build_cache_backend(plan).is_node()
-        || !config.sandbox.cache_volumes.is_empty()
-        || config.sandbox.node_archive_enabled
-    {
-        return Err(
-            "EKS Fargate does not support node-backed build or package cache volumes".to_string(),
-        );
+    if !config.sandbox.cache_volumes.is_empty() || config.sandbox.node_archive_enabled {
+        return Err("EKS Fargate does not support node-backed package cache volumes".to_string());
     }
     Ok(())
 }
@@ -1034,17 +892,6 @@ fn build_sandbox_container(
         }
     }
 
-    // Incremental Rust compiles avoid the workspace volume when the target dir
-    // rides the `build-cache` volume. With the default emptyDir backend, its
-    // size limit must fit the repo's target dir or the kubelet evicts the pod;
-    // with the node hostPath backend, capacity is the node filesystem instead.
-    if config.sandbox.cargo_target_on_build_cache {
-        env.push(env_var(
-            "CARGO_TARGET_DIR",
-            "/opt/moatless/build-cache/target",
-        ));
-    }
-
     // Package-manager cache env — point each tool at its mounted cache dir
     // (e.g. MAVEN_OPTS=-Dmaven.repo.local=/maven-cache, BUN_INSTALL_CACHE_DIR).
     for cache in &config.sandbox.cache_volumes {
@@ -1105,11 +952,6 @@ fn build_sandbox_container(
     // separate directory — so `/tmp` shares the workspace headroom and never charges
     // against container memory.
     let mut volume_mounts = vec![
-        VolumeMount {
-            name: "build-cache".to_string(),
-            mount_path: "/opt/moatless/build-cache".to_string(),
-            ..Default::default()
-        },
         VolumeMount {
             name: "shared-data".to_string(),
             mount_path: "/opt/moatless/data".to_string(),
@@ -1229,6 +1071,7 @@ fn build_sandbox_container(
 #[allow(clippy::unnecessary_wraps)] // Result for consistency with build_sandbox_container
 fn build_server_containers(
     config: &Config,
+    task_id: &str,
     plan: &ProvisionPlan,
 ) -> Result<Vec<Container>, String> {
     let servers = match &plan.repo_config.servers {
@@ -1239,8 +1082,10 @@ fn build_server_containers(
     let mut containers = Vec::new();
 
     for server in servers {
+        let Some(port) = allocated_port(server, task_id) else {
+            continue;
+        };
         let container_name = format!("{}-server", server.name);
-        let port = server.port;
 
         // Image: per-server override → repo-level override → global fallback.
         // Treat empty strings as unset so cleared-but-non-null DB values fall through.
@@ -1267,10 +1112,8 @@ fn build_server_containers(
         ];
 
         // Per-server env vars from config
-        if let Some(ref extra) = server.env_vars {
-            for (k, v) in extra {
-                env.push(env_var(k, v));
-            }
+        for (k, v) in &server.env_vars {
+            env.push(env_var(k.as_str(), v));
         }
 
         // Command: always set command to override the image ENTRYPOINT.
@@ -1279,26 +1122,25 @@ fn build_server_containers(
         // The script waits for the workspace-ready sentinel, sources the shared
         // env files, and supervises the child so a live config override can
         // restart it without rebuilding the pod — see `server_runner`.
-        let (command, args) = match &server.start_commands {
-            Some(cmds) if !cmds.is_empty() => (
+        let (command, args) = if server.start_commands.is_empty() {
+            (None, None)
+        } else {
+            (
                 Some(vec!["bash".to_string(), "-c".to_string()]),
-                Some(vec![build_server_start_script(&server.name, cmds)]),
-            ),
-            _ => (None, None),
+                Some(vec![build_server_start_script(
+                    &server.name,
+                    &server.start_commands,
+                )]),
+            )
         };
 
-        // Volume mounts — server containers share workspace-data + shared-data +
-        // build-cache with the sandbox container. `workspace-data` (PVC or
-        // emptyDir) is always present, so the server sees the same `/opt/moatless`.
+        // Volume mounts — server containers share workspace-data + shared-data
+        // with the sandbox container. `workspace-data` (PVC or emptyDir) is
+        // always present, so the server sees the same `/opt/moatless`.
         let volume_mounts = vec![
             VolumeMount {
                 name: "shared-data".to_string(),
                 mount_path: "/opt/moatless/data".to_string(),
-                ..Default::default()
-            },
-            VolumeMount {
-                name: "build-cache".to_string(),
-                mount_path: "/opt/moatless/build-cache".to_string(),
                 ..Default::default()
             },
             VolumeMount {
@@ -1424,14 +1266,14 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
             .map(|s| {
                 let mut entry = serde_json::json!({
                     "name": s.name,
-                    "port": s.port,
+                    "port": s.port.map(Port::get),
                     "autoReload": s.auto_reload,
                 });
                 if let Some(ref label) = s.label {
                     entry["label"] = serde_json::json!(label);
                 }
-                if let Some(ref cmds) = s.start_commands {
-                    entry["startCommands"] = serde_json::json!(cmds);
+                if !s.start_commands.is_empty() {
+                    entry["startCommands"] = serde_json::json!(s.start_commands);
                 }
                 entry
             })
@@ -1489,7 +1331,7 @@ fn app_security_context(config: &Config) -> SecurityContext {
 ///
 /// Runs the pod's containers as the non-root `moatless` user (UID/GID 1000) with
 /// the RuntimeDefault seccomp profile, and sets `fsGroup: 1000` so mounted
-/// volumes (workspace PVC/emptyDir, shared-data, build-cache) are group-writable
+/// volumes (workspace PVC/emptyDir, shared-data) are group-writable
 /// by that user. The privileged `dind` sidecar and `nvme-setup` init container
 /// override this back to root at the container level (see
 /// [`privileged_security_context`]).
@@ -1534,14 +1376,6 @@ fn privileged_security_context() -> SecurityContext {
     }
 }
 
-fn root_init_security_context() -> SecurityContext {
-    SecurityContext {
-        run_as_user: Some(0),
-        run_as_non_root: Some(false),
-        ..Default::default()
-    }
-}
-
 /// Create an EnvVar.
 fn env_var(name: &str, value: &str) -> EnvVar {
     EnvVar {
@@ -1578,11 +1412,13 @@ fn chrono_now_iso() -> String {
 }
 
 /// Build servers name→port map from plan.
-pub fn build_servers_map(plan: &ProvisionPlan) -> HashMap<String, u16> {
+pub fn build_servers_map(plan: &ProvisionPlan, task_id: &str) -> HashMap<String, u16> {
     let mut servers = HashMap::new();
     if let Some(ref server_configs) = plan.repo_config.servers {
         for s in server_configs {
-            servers.insert(s.name.clone(), s.port);
+            if let Some(port) = allocated_port(s, task_id) {
+                servers.insert(s.name.clone(), port);
+            }
         }
     }
     servers
@@ -1636,8 +1472,20 @@ pub fn admitted_server_ports(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moatless_backend_core::run_config::ServerConfig;
     use moatless_sandbox_control::models::RepoConfig;
-    use moatless_workspaces::repository::models::ServerConfig;
+
+    /// Build a `ResourceQuantities` from optional quantity spellings.
+    fn quantities(cpu: Option<&str>, memory: Option<&str>) -> ResourceQuantities {
+        ResourceQuantities {
+            cpu: cpu.map(|q| q.parse().expect("cpu quantity")),
+            memory: memory.map(|q| q.parse().expect("memory quantity")),
+        }
+    }
+
+    fn memory(quantity: &str) -> Memory {
+        quantity.parse().expect("memory quantity")
+    }
 
     #[test]
     fn admitted_server_ports_drops_reserved_infra_ports() {
@@ -1715,9 +1563,7 @@ mod tests {
                 ephemeral_storage: None,
                 run_as_non_root: false,
                 shared_data_size: "2Gi".into(),
-                build_cache_size: "1536Mi".into(),
                 persist_toolchain: false,
-                cargo_target_on_build_cache: false,
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,
@@ -1877,8 +1723,8 @@ mod tests {
                 docker_image: None,
                 servers: Some(vec![ServerConfig {
                     name: "web".into(),
-                    port: 3000,
-                    start_commands: Some(vec!["bun run dev".into()]),
+                    port: Port::new(3000),
+                    start_commands: vec!["bun run dev".into()],
                     ..Default::default()
                 }]),
                 system_prompt: None,
@@ -1910,7 +1756,7 @@ mod tests {
         let config = test_config();
         let plan = test_plan();
 
-        let containers = build_server_containers(&config, &plan).unwrap();
+        let containers = build_server_containers(&config, "task-1", &plan).unwrap();
         let web = containers
             .iter()
             .find(|container| container.name == "web-server")
@@ -1941,7 +1787,7 @@ mod tests {
         let mut plan = test_plan();
         plan.repo_config.docker_image = Some(String::new());
 
-        let containers = build_server_containers(&config, &plan).unwrap();
+        let containers = build_server_containers(&config, "task-1", &plan).unwrap();
         let web = containers
             .iter()
             .find(|container| container.name == "web-server")
@@ -1957,7 +1803,7 @@ mod tests {
             servers[0].docker_image = Some(String::new());
         }
 
-        let containers = build_server_containers(&config, &plan).unwrap();
+        let containers = build_server_containers(&config, "task-1", &plan).unwrap();
         let web = containers
             .iter()
             .find(|container| container.name == "web-server")
@@ -2030,19 +1876,13 @@ mod tests {
 
     #[test]
     fn sandbox_container_honors_per_repo_resource_override() {
-        use moatless_workspaces::repository::models::ResourceConfig;
+        use moatless_backend_core::run_config::ResourceConfig;
 
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
-            requests: Some(HashMap::from([
-                ("cpu".to_string(), "500m".to_string()),
-                ("memory".to_string(), "4Gi".to_string()),
-            ])),
-            limits: Some(HashMap::from([
-                ("cpu".to_string(), "6".to_string()),
-                ("memory".to_string(), "16Gi".to_string()),
-            ])),
+            requests: quantities(Some("500m"), Some("4Gi")),
+            limits: quantities(Some("6"), Some("16Gi")),
             ..Default::default()
         });
 
@@ -2055,14 +1895,14 @@ mod tests {
 
     #[test]
     fn sandbox_container_keeps_defaults_for_keys_the_override_omits() {
-        use moatless_workspaces::repository::models::ResourceConfig;
+        use moatless_backend_core::run_config::ResourceConfig;
 
         // A memory-only override must not drop the configured CPU request/limit.
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
-            requests: Some(HashMap::from([("memory".to_string(), "4Gi".to_string())])),
-            limits: Some(HashMap::from([("memory".to_string(), "16Gi".to_string())])),
+            requests: quantities(None, Some("4Gi")),
+            limits: quantities(None, Some("16Gi")),
             ..Default::default()
         });
 
@@ -2072,7 +1912,7 @@ mod tests {
 
     #[test]
     fn sandbox_container_stays_bounded_with_a_storage_only_override() {
-        use moatless_workspaces::repository::models::ResourceConfig;
+        use moatless_backend_core::run_config::ResourceConfig;
 
         // `ResourceConfig` doubles as the storage config. A repo that sets only
         // storage fields must keep the global CPU/memory bounds — an empty
@@ -2081,9 +1921,8 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
-            storage: Some("20Gi".to_string()),
+            storage: Some(memory("20Gi")),
             pvc_enabled: Some(false),
-            build_cache: Some("40Gi".to_string()),
             ..Default::default()
         });
 
@@ -2140,14 +1979,14 @@ mod tests {
 
     #[test]
     fn pvc_switch_off_mounts_capped_workspace_empty_dir() {
-        use moatless_workspaces::repository::models::ResourceConfig;
+        use moatless_backend_core::run_config::ResourceConfig;
 
         // No PVC → workspace-data is a node-local emptyDir sized from the repo's
         // resources.storage, mounted at /opt/moatless everywhere.
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
-            storage: Some("7Gi".into()),
+            storage: Some(memory("7Gi")),
             pvc_enabled: Some(false),
             s3_enabled: Some(false),
             ..Default::default()
@@ -2199,7 +2038,7 @@ mod tests {
         );
 
         // Server containers share the same workspace volume.
-        let servers = build_server_containers(&config, &plan).unwrap();
+        let servers = build_server_containers(&config, "task-1", &plan).unwrap();
         let web = servers
             .iter()
             .find(|c| c.name == "web-server")
@@ -2218,7 +2057,7 @@ mod tests {
     /// hostPath: the removed `node` workspace tier has no replacement.
     #[test]
     fn storage_switches_pick_volume_and_sync_env() {
-        use moatless_workspaces::repository::models::ResourceConfig;
+        use moatless_backend_core::run_config::ResourceConfig;
 
         let config = test_config();
         for (pvc, s3) in [(true, true), (true, false), (false, true), (false, false)] {
@@ -2282,7 +2121,7 @@ mod tests {
     /// backwards for the pod that needs both most.
     #[test]
     fn a_pvc_plan_without_a_pvc_is_not_treated_as_durable() {
-        use moatless_workspaces::repository::models::ResourceConfig;
+        use moatless_backend_core::run_config::ResourceConfig;
 
         let config = test_config();
         let mut plan = test_plan();
@@ -2441,7 +2280,7 @@ mod tests {
 
         // Caches are scoped to the agent container — server containers must not
         // mount the shared package cache.
-        let servers = build_server_containers(&config, &plan).unwrap();
+        let servers = build_server_containers(&config, "task-1", &plan).unwrap();
         for s in &servers {
             assert!(
                 s.volume_mounts
@@ -2569,12 +2408,11 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(true);
-        plan.repo_config.resources =
-            Some(moatless_workspaces::repository::models::ResourceConfig {
-                docker_storage: Some("50Gi".into()),
-                docker_storage_mode: Some("emptyDir".into()),
-                ..Default::default()
-            });
+        plan.repo_config.resources = Some(moatless_backend_core::run_config::ResourceConfig {
+            docker_storage: Some(memory("50Gi")),
+            docker_storage_mode: Some(StorageMedium::EmptyDir),
+            ..Default::default()
+        });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         let ds_limit = pod
@@ -2592,11 +2430,10 @@ mod tests {
         assert_eq!(ds_limit.as_deref(), Some("50Gi"));
 
         // EmptyDir mode with no override → global default from config.
-        plan.repo_config.resources =
-            Some(moatless_workspaces::repository::models::ResourceConfig {
-                docker_storage_mode: Some("emptyDir".into()),
-                ..Default::default()
-            });
+        plan.repo_config.resources = Some(moatless_backend_core::run_config::ResourceConfig {
+            docker_storage_mode: Some(StorageMedium::EmptyDir),
+            ..Default::default()
+        });
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         let ds_limit = pod
             .spec
@@ -2623,11 +2460,10 @@ mod tests {
         config.sandbox.cache_host_root = "/mnt/cache".into();
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(true);
-        plan.repo_config.resources =
-            Some(moatless_workspaces::repository::models::ResourceConfig {
-                docker_storage: Some("50Gi".into()),
-                ..Default::default()
-            });
+        plan.repo_config.resources = Some(moatless_backend_core::run_config::ResourceConfig {
+            docker_storage: Some(memory("50Gi")),
+            ..Default::default()
+        });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         let docker_storage = pod
@@ -3156,7 +2992,7 @@ mod tests {
 
     #[test]
     fn fargate_rejects_repo_storage_override() {
-        use moatless_workspaces::repository::models::ResourceConfig;
+        use moatless_backend_core::run_config::ResourceConfig;
 
         let config = fargate_config();
         let mut plan = test_plan();
@@ -3180,13 +3016,13 @@ mod tests {
 
     #[test]
     fn fargate_rejects_per_repo_burstable_resources() {
-        use moatless_workspaces::repository::models::ResourceConfig;
+        use moatless_backend_core::run_config::ResourceConfig;
 
         let config = fargate_config();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
-            requests: Some(HashMap::from([("cpu".to_string(), "1".to_string())])),
-            limits: Some(HashMap::from([("cpu".to_string(), "4".to_string())])),
+            requests: quantities(Some("1"), None),
+            limits: quantities(Some("4"), None),
             ..Default::default()
         });
 
@@ -3373,28 +3209,12 @@ mod tests {
         );
     }
 
-    /// The toolchain-persistence and cargo-target flags are off by default —
-    /// no cargo subPath mounts, no CARGO_TARGET_DIR — and the build-cache
-    /// emptyDir is sized from config.
+    /// The toolchain-persistence flag is off by default — no cargo subPath
+    /// mounts.
     #[test]
     fn toolchain_persistence_flags_default_off() {
         let config = test_config();
         let plan = test_plan();
-
-        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
-        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
-        let build_cache = volumes
-            .iter()
-            .find(|v| v.name == "build-cache")
-            .expect("build-cache volume present");
-        assert_eq!(
-            build_cache
-                .empty_dir
-                .as_ref()
-                .and_then(|e| e.size_limit.as_ref())
-                .map(|q| q.0.as_str()),
-            Some("1536Mi")
-        );
 
         let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         let mounts = container.volume_mounts.as_ref().unwrap();
@@ -3404,148 +3224,15 @@ mod tests {
                 .any(|m| m.mount_path.starts_with("/opt/cargo")),
             "no cargo mounts without the persist flag"
         );
-        let env = container.env.as_ref().unwrap();
-        assert!(
-            !env.iter().any(|e| e.name == "CARGO_TARGET_DIR"),
-            "no CARGO_TARGET_DIR without the build-cache flag"
-        );
     }
 
-    #[test]
-    fn build_cache_size_can_be_overridden_per_repo() {
-        let config = test_config();
-        let mut plan = test_plan();
-        plan.repo_config.resources =
-            Some(moatless_workspaces::repository::models::ResourceConfig {
-                build_cache: Some("40Gi".into()),
-                ..Default::default()
-            });
-
-        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
-        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
-        let build_cache = volumes
-            .iter()
-            .find(|v| v.name == "build-cache")
-            .expect("build-cache volume present");
-        assert_eq!(
-            build_cache
-                .empty_dir
-                .as_ref()
-                .and_then(|e| e.size_limit.as_ref())
-                .map(|q| q.0.as_str()),
-            Some("40Gi")
-        );
-    }
-
-    #[test]
-    fn build_cache_can_use_task_scoped_node_host_path() {
-        let config = test_config();
-        let mut plan = test_plan();
-        plan.repo_config.resources =
-            Some(moatless_workspaces::repository::models::ResourceConfig {
-                build_cache: Some("40Gi".into()),
-                build_cache_mode: Some("node".into()),
-                build_cache_scope: Some("task".into()),
-                ..Default::default()
-            });
-
-        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
-        let spec = pod.spec.as_ref().unwrap();
-        let build_cache = spec
-            .volumes
-            .as_ref()
-            .unwrap()
-            .iter()
-            .find(|v| v.name == "build-cache")
-            .expect("build-cache volume present");
-        assert_eq!(
-            build_cache
-                .host_path
-                .as_ref()
-                .map(|host_path| host_path.path.as_str()),
-            Some("/mnt/cache/build-cache/tasks/task-1")
-        );
-        assert!(
-            build_cache.empty_dir.is_none(),
-            "node build-cache must not keep the emptyDir size cap"
-        );
-
-        let setup = spec
-            .init_containers
-            .as_ref()
-            .unwrap()
-            .iter()
-            .find(|container| container.name == "build-cache-setup")
-            .expect("build-cache setup init container present");
-        assert!(setup.volume_mounts.as_ref().is_some_and(|mounts| {
-            mounts
-                .iter()
-                .any(|mount| mount.name == "build-cache" && mount.mount_path == "/build-cache")
-        }));
-    }
-
-    #[test]
-    fn build_cache_can_use_shared_node_host_path() {
-        let config = test_config();
-        let mut plan = test_plan();
-        plan.repo_config.resources =
-            Some(moatless_workspaces::repository::models::ResourceConfig {
-                build_cache_mode: Some("node".into()),
-                build_cache_scope: Some("node".into()),
-                ..Default::default()
-            });
-
-        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
-        let spec = pod.spec.as_ref().unwrap();
-        let build_cache = spec
-            .volumes
-            .as_ref()
-            .unwrap()
-            .iter()
-            .find(|v| v.name == "build-cache")
-            .expect("build-cache volume present");
-        assert_eq!(
-            build_cache
-                .host_path
-                .as_ref()
-                .map(|host_path| host_path.path.as_str()),
-            Some("/mnt/cache/build-cache/shared")
-        );
-        assert!(
-            spec.init_containers
-                .as_ref()
-                .unwrap()
-                .iter()
-                .any(|container| container.name == "build-cache-setup")
-        );
-    }
-
-    /// With the flags on: cargo registry/git ride `workspace-data` subPaths
-    /// (never all of /opt/cargo — that would shadow the baked toolchain),
-    /// CARGO_TARGET_DIR points at build-cache, and the build-cache size limit
-    /// follows config.
+    /// With the flag on: cargo registry/git ride `workspace-data` subPaths —
+    /// never all of /opt/cargo, which would shadow the baked toolchain.
     #[test]
     fn toolchain_persistence_flags_enabled() {
         let mut config = test_config();
         config.sandbox.persist_toolchain = true;
-        config.sandbox.cargo_target_on_build_cache = true;
-        config.sandbox.build_cache_size = "12Gi".into();
         let plan = test_plan();
-
-        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
-        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
-        let build_cache = volumes
-            .iter()
-            .find(|v| v.name == "build-cache")
-            .expect("build-cache volume present");
-        assert_eq!(
-            build_cache
-                .empty_dir
-                .as_ref()
-                .and_then(|e| e.size_limit.as_ref())
-                .map(|q| q.0.as_str()),
-            Some("12Gi")
-        );
 
         let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
         let mounts = container.volume_mounts.as_ref().unwrap();
@@ -3563,16 +3250,6 @@ mod tests {
         assert!(
             !mounts.iter().any(|m| m.mount_path == "/opt/cargo"),
             "must never shadow the baked toolchain at /opt/cargo"
-        );
-
-        let env = container.env.as_ref().unwrap();
-        let target = env
-            .iter()
-            .find(|e| e.name == "CARGO_TARGET_DIR")
-            .expect("CARGO_TARGET_DIR set");
-        assert_eq!(
-            target.value.as_deref(),
-            Some("/opt/moatless/build-cache/target")
         );
     }
 

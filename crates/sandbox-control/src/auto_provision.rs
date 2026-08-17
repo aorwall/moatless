@@ -7,8 +7,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
+use moatless_backend_core::run_config::{Port, ResourceConfig, ServerConfig};
 use moatless_backend_core::scope::ScopeContext;
 
 use crate::error::SandboxError;
@@ -25,7 +26,6 @@ use moatless_workspaces::plugin::activation;
 use moatless_workspaces::plugin::dao::PluginDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::repository::models::RepositoryProvider;
-use moatless_workspaces::repository::models::{ResourceConfig, ServerConfig};
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 use moatless_workspaces::workspace::models::Workspace;
 
@@ -43,7 +43,7 @@ pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
     let resources: Option<ResourceConfig> = ws
         .resources
         .as_ref()
-        .and_then(|v| serde_json::from_value(v.clone()).ok());
+        .and_then(|v| decode_run_config(v.clone(), &ws.id, "resources"));
     let code_execution = build_code_execution_from_workspace(ws);
 
     RepoConfig {
@@ -66,13 +66,38 @@ pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
     }
 }
 
+/// Decode one JSONB run-config column, logging what was dropped.
+///
+/// A column that fails to decode reads as unset, so one bad value cannot block
+/// a start. The log is what makes that recoverable: the sandbox comes up on the
+/// deployment defaults instead of the workspace's own configuration, and
+/// without the log nothing says why.
+fn decode_run_config<T: serde::de::DeserializeOwned>(
+    value: serde_json::Value,
+    workspace_id: &str,
+    column: &str,
+) -> Option<T> {
+    match serde_json::from_value(value) {
+        Ok(decoded) => Some(decoded),
+        Err(e) => {
+            error!(
+                workspace_id,
+                column,
+                error = %e,
+                "Failed to decode a workspace run-config column; provisioning without it"
+            );
+            None
+        }
+    }
+}
+
 /// Build the server list from a workspace's `servers` JSONB column, ensuring a
 /// default is elected and every server has a port assigned.
 pub fn build_server_configs_from_workspace(ws: &Workspace) -> Vec<ServerConfig> {
     let mut servers: Vec<ServerConfig> = ws
         .servers
         .as_ref()
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .and_then(|v| decode_run_config(v.clone(), &ws.id, "servers"))
         .unwrap_or_default();
 
     // Ensure at least one default among any present servers, then assign ports.
@@ -115,32 +140,24 @@ fn build_code_execution_from_workspace(ws: &Workspace) -> Option<serde_json::Val
     Some(serde_json::Value::Object(config))
 }
 
-/// Assign sequential ports starting at 3000 to servers that have port 0.
+/// Assign sequential ports starting at 3000 to servers that declared none.
 fn assign_missing_ports(servers: &mut [ServerConfig]) {
-    let used_ports: HashSet<u16> = servers
+    let mut used: HashSet<u16> = servers
         .iter()
-        .filter(|s| s.port != 0)
-        .map(|s| s.port)
+        .filter_map(|s| s.port.map(Port::get))
         .collect();
 
     let mut next_port: u16 = 3000;
-    let allocate = |next: &mut u16, used: &HashSet<u16>| -> u16 {
-        while used.contains(next) {
-            *next += 1;
-        }
-        let port = *next;
-        *next += 1;
-        port
-    };
-
-    // Need to track newly-allocated ports too
-    let mut all_used = used_ports;
     for server in servers.iter_mut() {
-        if server.port == 0 {
-            let port = allocate(&mut next_port, &all_used);
-            all_used.insert(port);
-            server.port = port;
+        if server.port.is_some() {
+            continue;
         }
+        while used.contains(&next_port) {
+            next_port += 1;
+        }
+        used.insert(next_port);
+        server.port = Port::new(next_port);
+        next_port += 1;
     }
 }
 

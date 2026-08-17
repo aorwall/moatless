@@ -43,14 +43,13 @@ symptom→cause→fix lookup table and all knobs are in
   `K8S_RESOURCE_LIMIT_MEMORY` in `backend/src/config.rs` + Helm `values.yaml`.
 
 ## Evicted (volume overflow — the most common self-inflicted restart)
-- An emptyDir (`build-cache`, `shared-data`, workspace when Ephemeral/S3) exceeds
+- An emptyDir (`shared-data`, workspace when Ephemeral/S3) exceeds
   its `sizeLimit` → kubelet evicts the pod.
 - Confirm: `kubectl get pod <pod> -n $NS -o jsonpath='{.status.reason}{" "}{.status.message}'`
   → `Evicted` / "Usage of EmptyDir volume ... exceeds the limit". Same fact shows
   up as a `runtimeEvents` entry in `moat tasks diagnose`.
 - Fix: clean the offending dir, or raise the size knob
-  (`K8S_SANDBOX_BUILD_CACHE_SIZE`, `K8S_SANDBOX_SHARED_DATA_SIZE`,
-  `K8S_SANDBOX_STORAGE_SIZE`). Knob table in [failure-modes.md](failure-modes.md).
+  (`K8S_SANDBOX_SHARED_DATA_SIZE`, `K8S_SANDBOX_STORAGE_SIZE`). Knob table in [failure-modes.md](failure-modes.md).
 
 ## Preview / server container failing
 Switch to the [preview-servers](../../preview-servers/SKILL.md) skill — it owns

@@ -17,13 +17,13 @@ use super::pod_status::{
 };
 use super::service;
 use moatless_backend_core::models::{SandboxDesiredState, TaskStatus};
+use moatless_backend_core::run_config::ServerConfig;
 use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_core::config::Config;
 use moatless_sandbox_control::live_status::{AgentStatus, LiveStatus, derive_live_status};
 use moatless_sandbox_control::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use moatless_sandbox_control::models::*;
 use moatless_sandbox_control::schemas::*;
-use moatless_workspaces::repository::models::ServerConfig;
 
 /// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
 /// live background processes.
@@ -84,7 +84,8 @@ impl StatusResolver {
 
             let servers: Vec<ServerEntry> = server_configs
                 .iter()
-                .map(|config| {
+                .filter_map(|config| {
+                    let port = allocated_port(config, task_id)?;
                     let container = container_statuses.iter().find(|cs| {
                         let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
                         name == config.name
@@ -95,11 +96,11 @@ impl StatusResolver {
                     let status = container.map_or(ServerStatus::Starting, |cs| {
                         cs.to_server_status_with_timeout(timeout)
                     });
-                    let url = self.build_proxy_url(sandbox_id, config.port);
-                    ServerEntry {
+                    let url = self.build_proxy_url(sandbox_id, port);
+                    Some(ServerEntry {
                         name: config.name.clone(),
                         label: config.label.clone().unwrap_or_else(|| config.name.clone()),
-                        port: config.port,
+                        port,
                         status,
                         url,
                         error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
@@ -107,7 +108,7 @@ impl StatusResolver {
                             .and_then(moatless_sandbox_control::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
-                    }
+                    })
                 })
                 .collect();
 
@@ -156,7 +157,8 @@ impl StatusResolver {
 
             server_configs
                 .iter()
-                .map(|config| {
+                .filter_map(|config| {
+                    let port = allocated_port(config, task_id)?;
                     let container = container_statuses.iter().find(|cs| {
                         let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
                         name == config.name
@@ -167,11 +169,11 @@ impl StatusResolver {
                     let status = container.map_or(ServerStatus::Starting, |cs| {
                         cs.to_server_status_with_timeout(timeout)
                     });
-                    let url = self.build_proxy_url(sandbox_id, config.port);
-                    ServerEntry {
+                    let url = self.build_proxy_url(sandbox_id, port);
+                    Some(ServerEntry {
                         name: config.name.clone(),
                         label: config.label.clone().unwrap_or_else(|| config.name.clone()),
-                        port: config.port,
+                        port,
                         status,
                         url,
                         error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
@@ -179,7 +181,7 @@ impl StatusResolver {
                             .and_then(moatless_sandbox_control::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
-                    }
+                    })
                 })
                 .collect()
         } else {
@@ -189,19 +191,20 @@ impl StatusResolver {
             // spinning against an ingress with no backend.
             server_configs
                 .iter()
-                .map(|config| {
-                    let url = self.build_proxy_url(sandbox_id, config.port);
-                    ServerEntry {
+                .filter_map(|config| {
+                    let port = allocated_port(config, task_id)?;
+                    let url = self.build_proxy_url(sandbox_id, port);
+                    Some(ServerEntry {
                         name: config.name.clone(),
                         label: config.label.clone().unwrap_or_else(|| config.name.clone()),
-                        port: config.port,
+                        port,
                         status: ServerStatus::Stopped,
                         url,
                         error: None,
                         detail: None,
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
-                    }
+                    })
                 })
                 .collect()
         };

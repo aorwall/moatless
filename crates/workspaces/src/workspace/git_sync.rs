@@ -32,11 +32,12 @@ use crate::repository::config_reader::fetch_provider_file;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::error::{RepositoryError, is_remote_url_conflict};
 use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
-use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
-use crate::repository::models::{ScriptConfig, ServerConfig};
+use crate::repository::models::ScriptConfig;
+use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::workspace::dao::{WorkspaceDao, WorkspacePatch, ensure_shadow_workspace};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
+use moatless_backend_core::run_config::{ResourceConfig, ServerConfig};
 use moatless_backend_core::scope::ScopeContext;
 use moatless_core::db::DbPool;
 use moatless_identity::auth::actor::Actor;
@@ -943,6 +944,8 @@ fn repo_name_from_url(url: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use moatless_backend_core::run_config::{Memory, Port};
+
     use super::*;
 
     #[test]
@@ -1041,7 +1044,7 @@ mod tests {
             }),
             servers: Some(vec![ServerConfig {
                 name: "dev".to_string(),
-                port: 3000,
+                port: Port::new(3000),
                 default: true,
                 ..Default::default()
             }]),
@@ -1133,7 +1136,7 @@ mod tests {
         let resources = config.resources.as_ref().expect("resources present");
         assert_eq!(resources.pvc_enabled, Some(false));
         assert_eq!(resources.s3_enabled, Some(true));
-        assert_eq!(resources.storage.as_deref(), Some("8Gi"));
+        assert_eq!(resources.storage.as_ref().map(Memory::as_str), Some("8Gi"));
 
         let run = run_config_from_moatless_config(&config).unwrap();
         let value = run.resources.expect("resources value present");
@@ -1157,7 +1160,7 @@ mod tests {
         let resources = config.resources.as_ref().expect("resources present");
         assert_eq!(resources.pvc_enabled, None);
         assert_eq!(resources.s3_enabled, None);
-        assert_eq!(resources.storage.as_deref(), Some("8Gi"));
+        assert_eq!(resources.storage.as_ref().map(Memory::as_str), Some("8Gi"));
     }
 
     #[test]

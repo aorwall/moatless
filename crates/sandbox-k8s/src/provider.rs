@@ -262,7 +262,7 @@ impl K8sSandboxAdapter {
         // collides with a reserved sandbox infrastructure port so it is never
         // exposed via the Service, an IngressRoute, or the preview NetworkPolicy.
         let server_ports: BTreeMap<String, u16> = pod_builder::admitted_server_ports(
-            pod_builder::build_servers_map(plan).into_iter().collect(),
+            pod_builder::build_servers_map(plan, task_id).into_iter().collect(),
             &self.config,
             task_id,
         );
@@ -1155,7 +1155,9 @@ impl K8sSandboxAdapter {
         warn!(task_id = %task_id, "Sandbox Service missing for existing Deployment, recreating");
 
         let server_ports: BTreeMap<String, u16> = pod_builder::admitted_server_ports(
-            pod_builder::build_servers_map(plan).into_iter().collect(),
+            pod_builder::build_servers_map(plan, task_id)
+                .into_iter()
+                .collect(),
             &self.config,
             task_id,
         );
@@ -1277,7 +1279,8 @@ impl K8sSandboxAdapter {
             .repo_config
             .resources
             .as_ref()
-            .and_then(|r| r.storage.as_deref());
+            .and_then(|r| r.storage.as_ref())
+            .map(moatless_backend_core::run_config::Memory::as_str);
 
         pvc::create_task_pvc(&self.k8s, &self.config, task_id, storage_override)
             .await

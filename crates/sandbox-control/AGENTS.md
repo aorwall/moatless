@@ -2,8 +2,8 @@
 
 The provider-agnostic sandbox band: durable lifecycle intent and orchestration,
 the gRPC ingress service, event dedup, HTTP routes/handlers, JWT, secrets,
-preflight, status reads, and the resource-quantity parsers. The Kubernetes and
-Docker runtimes (`moatless-sandbox-k8s`, `moatless-sandbox-docker`, band 7)
+preflight, and status reads. The Kubernetes and Docker runtimes
+(`moatless-sandbox-k8s`, `moatless-sandbox-docker`, band 7)
 depend downward on this crate and implement its ports; this crate names neither
 provider SDK (`kube`/`bollard`) — its error type boxes any provider error behind
 `Box<dyn Error + Send + Sync>` so nothing here carries an SDK type.
@@ -27,8 +27,8 @@ provider SDK (`kube`/`bollard`) — its error type boxes any provider error behi
   need. `access.rs` holds only the `LogOptions` request struct shared by both.
 - File handlers get a ready `SandboxClient` through `SandboxConnector`, then call
   file/search methods directly.
-- The unified task reaper lives in `moatless-tasks`
-  (`crates/tasks/src/task/reaper.rs`); task-scoped stop/remove still routes
+- The unified task reaper lives in `moatless-backend`
+  (`crates/backend/src/reaper.rs`); task-scoped stop/remove still routes
   through `Lifecycle` here.
 
 ## Load-Bearing Rules

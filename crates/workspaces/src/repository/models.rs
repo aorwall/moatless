@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 
 use moatless_backend_core::scope::Scope;
 
-pub use crate::workspace::models::{ResourceConfig, ScriptConfig, ServerConfig};
+pub use crate::workspace::models::ScriptConfig;
 
 macro_rules! repository_enum {
     ($name:ident { $($variant:ident => $value:literal),+ $(,)? }) => {

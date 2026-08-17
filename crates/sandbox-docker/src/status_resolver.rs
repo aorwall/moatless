@@ -9,13 +9,13 @@ use tracing::{debug, warn};
 use super::client::DockerClient;
 use super::naming::{generate_container_name, generate_server_container_name};
 use moatless_backend_core::models::{SandboxDesiredState, TaskStatus};
+use moatless_backend_core::run_config::ServerConfig;
 use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_core::config::Config;
 use moatless_sandbox_control::live_status::{AgentStatus, LiveStatus, derive_live_status};
 use moatless_sandbox_control::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use moatless_sandbox_control::models::*;
 use moatless_sandbox_control::schemas::*;
-use moatless_workspaces::repository::models::ServerConfig;
 
 /// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
 /// live background processes.
@@ -153,16 +153,18 @@ impl DockerStatusResolver {
         // left behind is not a failure of that server.
         let servers = server_configs
             .iter()
-            .map(|config| ServerEntry {
-                name: config.name.clone(),
-                label: config.label.clone().unwrap_or_else(|| config.name.clone()),
-                port: config.port,
-                status: ServerStatus::Stopped,
-                url: None,
-                error: None,
-                detail: None,
-                default: config.default,
-                capabilities: server_capabilities_from_config(config),
+            .filter_map(|config| {
+                Some(ServerEntry {
+                    name: config.name.clone(),
+                    label: config.label.clone().unwrap_or_else(|| config.name.clone()),
+                    port: allocated_port(config, task_id)?,
+                    status: ServerStatus::Stopped,
+                    url: None,
+                    error: None,
+                    detail: None,
+                    default: config.default,
+                    capabilities: server_capabilities_from_config(config),
+                })
             })
             .collect();
 
@@ -329,18 +331,21 @@ impl DockerStatusResolver {
         let mut entries = Vec::with_capacity(server_configs.len());
 
         for sc in server_configs {
+            let Some(port) = allocated_port(sc, task_id) else {
+                continue;
+            };
             let container_name = generate_server_container_name(task_id, &sc.name);
             let timeout = sc
                 .startup_timeout_seconds
                 .unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
             let (status, url, error) = self
-                .inspect_server_container(&container_name, sc.port, timeout)
+                .inspect_server_container(&container_name, port, timeout)
                 .await;
 
             entries.push(ServerEntry {
                 name: sc.name.clone(),
                 label: sc.label.clone().unwrap_or_else(|| sc.name.clone()),
-                port: sc.port,
+                port,
                 status,
                 url,
                 error,

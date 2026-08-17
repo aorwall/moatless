@@ -2,13 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use tracing::warn;
 use utoipa::ToSchema;
 
 pub use moatless_api_schemas::sandbox::{
     RepoCheckout, WORKSPACE_REPOS_ENV, derive_mount_name, sanitize_mount_name,
 };
 
-use moatless_workspaces::repository::models::ServerConfig;
+use moatless_backend_core::run_config::{Port, ServerConfig};
 
 /// Waiting reasons that map a *server* container to `"failed"` status. Read by
 /// `ContainerObservedStatus::to_server_status()` below — pure string data, so it
@@ -82,7 +83,7 @@ pub struct RepoConfig {
     // --- K8s resource configuration (opt-in per-repo) ---
     /// Per-repo K8s resource requests/limits override for server containers.
     #[schema(value_type = moatless_api_schemas::workspace::ResourceConfig)]
-    pub resources: Option<moatless_workspaces::repository::models::ResourceConfig>,
+    pub resources: Option<moatless_backend_core::run_config::ResourceConfig>,
     // --- Plugins (resolved from the task owner's activation records) ---
     /// The plugins this task's owner has turned on, each with the skills they
     /// picked. The sandbox clones each one and removes the skills not named.
@@ -214,23 +215,6 @@ pub struct ServerSnapshot {
     pub status: ServerStatus,
     pub error: Option<String>,
     pub pid: Option<u32>,
-}
-
-impl ServerSnapshot {
-    /// Build a snapshot from a `ServerConfig` with a given status (e.g. `ServerStatus::Stopped`).
-    pub fn from_config(config: &ServerConfig, status: ServerStatus) -> Self {
-        Self {
-            name: config.name.clone(),
-            label: config.label.clone().unwrap_or_else(|| config.name.clone()),
-            port: config.port,
-            builtin: false,
-            default: config.default,
-            enable_inspector: config.enable_inspector,
-            status,
-            error: None,
-            pid: None,
-        }
-    }
 }
 
 /// Resource metrics from sandbox GET /status
@@ -448,6 +432,23 @@ pub fn server_capabilities_from_config(config: &ServerConfig) -> ServerCapabilit
     }
 }
 
+/// The port a runtime can act on for this server, or `None` with a log.
+///
+/// Every server in a provision plan has been through `assign_missing_ports`, so
+/// a server without a port here means the plan was assembled some other way. A
+/// runtime can neither start nor observe such a server, so it is skipped rather
+/// than given an invented port.
+pub fn allocated_port(server: &ServerConfig, task_id: &str) -> Option<u16> {
+    if server.port.is_none() {
+        warn!(
+            task_id,
+            server = %server.name,
+            "Skipping a server with no allocated port"
+        );
+    }
+    server.port.map(Port::get)
+}
+
 /// Derive capabilities from a `ServerSnapshot` (cached path).
 pub fn server_capabilities_from_snapshot(snapshot: &ServerSnapshot) -> ServerCapabilities {
     ServerCapabilities {
@@ -659,29 +660,6 @@ mod tests {
         for (phase, expected) in cases {
             assert_eq!(phase.sandbox_status(), expected, "{phase:?}");
         }
-    }
-
-    // =========================================================================
-    // ServerSnapshot::from_config
-    // =========================================================================
-
-    #[test]
-    fn snapshot_from_config_copies_fields() {
-        let config = ServerConfig {
-            name: "preview".to_string(),
-            label: Some("Preview".to_string()),
-            port: 3000,
-            default: true,
-            enable_inspector: true,
-            ..Default::default()
-        };
-        let snap = ServerSnapshot::from_config(&config, ServerStatus::Stopped);
-        assert_eq!(snap.name, "preview");
-        assert_eq!(snap.label, "Preview");
-        assert_eq!(snap.port, 3000);
-        assert!(snap.default);
-        assert!(snap.enable_inspector);
-        assert_eq!(snap.status, ServerStatus::Stopped);
     }
 
     // =========================================================================

@@ -254,9 +254,9 @@ pub async fn create_workspace(
         system_prompt: req.system_prompt,
         setup_commands: to_json(req.setup_commands),
         env_vars: to_json(req.env_vars),
-        servers: to_json(req.servers.map(server_configs_from_wire)),
+        servers: to_json(req.servers.map(server_configs_from_wire).transpose()?),
         scripts: to_json(req.scripts.map(script_configs_from_wire)),
-        resources: to_json(req.resources.map(resource_config_from_wire)),
+        resources: to_json(req.resources.map(resource_config_from_wire).transpose()?),
         network_profile: req.network_profile,
         source: "manual".to_string(),
         source_repository_id: None,
@@ -412,13 +412,15 @@ pub async fn update_workspace(
         env_vars: req.env_vars.map(|v| to_json(Some(v))),
         servers: req
             .servers
-            .map(|configs| to_json(Some(server_configs_from_wire(configs)))),
+            .map(|configs| server_configs_from_wire(configs).map(|c| to_json(Some(c))))
+            .transpose()?,
         scripts: req
             .scripts
             .map(|configs| to_json(Some(script_configs_from_wire(configs)))),
         resources: req
             .resources
-            .map(|config| to_json(Some(resource_config_from_wire(config)))),
+            .map(|config| resource_config_from_wire(config).map(|c| to_json(Some(c))))
+            .transpose()?,
         network_profile: req.network_profile.map(Some),
         run_as_user_id,
         kind: None,
@@ -527,13 +529,15 @@ pub async fn override_workspace(
         env_vars: req.env_vars.map(|v| to_json(Some(v))),
         servers: req
             .servers
-            .map(|configs| to_json(Some(server_configs_from_wire(configs)))),
+            .map(|configs| server_configs_from_wire(configs).map(|c| to_json(Some(c))))
+            .transpose()?,
         scripts: req
             .scripts
             .map(|configs| to_json(Some(script_configs_from_wire(configs)))),
         resources: req
             .resources
-            .map(|config| to_json(Some(resource_config_from_wire(config)))),
+            .map(|config| resource_config_from_wire(config).map(|c| to_json(Some(c))))
+            .transpose()?,
         network_profile: req.network_profile.map(Some),
         run_as_user_id,
         // Mark as manually managed; provenance columns stay unchanged.

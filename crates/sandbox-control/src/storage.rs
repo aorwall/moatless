@@ -51,9 +51,7 @@ impl StorageBackend {
     pub fn from_plan(plan: &ProvisionPlan, default_pvc: bool, default_s3: bool) -> Self {
         let resources = plan.repo_config.resources.as_ref();
         Self {
-            pvc: resources
-                .and_then(|r| r.pvc_enabled)
-                .unwrap_or(default_pvc),
+            pvc: resources.and_then(|r| r.pvc_enabled).unwrap_or(default_pvc),
             s3: resources.and_then(|r| r.s3_enabled).unwrap_or(default_s3),
         }
     }
@@ -103,7 +101,7 @@ pub fn sandbox_key(prefix: &str, task_id: &str) -> String {
 mod tests {
     use super::*;
     use crate::models::RepoConfig;
-    use moatless_workspaces::repository::models::ResourceConfig;
+    use moatless_backend_core::run_config::ResourceConfig;
 
     /// Build a minimal plan whose repo sets each switch independently, so
     /// per-field default resolution can be exercised in isolation.
@@ -146,7 +144,10 @@ mod tests {
     fn defaults_apply_when_repo_unset() {
         assert_eq!(
             StorageBackend::from_plan(&plan_with(None, None), true, true),
-            StorageBackend { pvc: true, s3: true }
+            StorageBackend {
+                pvc: true,
+                s3: true
+            }
         );
         assert_eq!(
             StorageBackend::from_plan(&plan_with(None, None), false, false),
@@ -172,7 +173,10 @@ mod tests {
 
     #[test]
     fn capabilities_follow_the_two_switches() {
-        let both = StorageBackend { pvc: true, s3: true };
+        let both = StorageBackend {
+            pvc: true,
+            s3: true,
+        };
         assert!(both.uses_pvc() && both.syncs_sandbox() && both.restore_if_empty());
 
         let pvc_only = StorageBackend {
@@ -204,7 +208,11 @@ mod tests {
     #[test]
     fn metric_labels_are_distinct_per_combination() {
         assert_eq!(
-            StorageBackend { pvc: true, s3: true }.as_metric_label(),
+            StorageBackend {
+                pvc: true,
+                s3: true
+            }
+            .as_metric_label(),
             "pvc+s3"
         );
         assert_eq!(
