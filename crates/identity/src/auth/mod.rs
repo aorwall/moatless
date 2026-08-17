@@ -91,6 +91,7 @@ impl Authentication {
             api_keys: ports.api_keys.clone(),
             users: ports.users.clone(),
             sessions: ports.sessions.clone(),
+            token_verifier: ports.token_verifier.clone(),
             cache: cache.clone(),
             config: config.clone(),
         };

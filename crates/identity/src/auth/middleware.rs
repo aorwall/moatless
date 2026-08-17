@@ -24,6 +24,7 @@ use super::jwt;
 use super::session;
 use super::sessions::SessionDao;
 use super::users::UserDao;
+use crate::extractors::UserTokenVerifier;
 use moatless_core::config::Config;
 use moatless_core::error::ErrorBody;
 
@@ -40,6 +41,7 @@ pub struct AuthMiddlewareState {
     pub api_keys: Arc<dyn ApiKeyDao>,
     pub users: Arc<dyn UserDao>,
     pub sessions: Arc<dyn SessionDao>,
+    pub token_verifier: Arc<dyn UserTokenVerifier>,
     pub cache: AuthCache,
     pub config: Arc<Config>,
 }
@@ -139,6 +141,9 @@ fn insert_auth_extensions(req: &mut Request<Body>, identity: AuthIdentity, metho
         AuthMethod::SessionCookie => UiRpcAuthMethod::SessionCookie,
         AuthMethod::ApiKey => UiRpcAuthMethod::ApiKey,
         AuthMethod::WebSocketTicket => UiRpcAuthMethod::WebSocketTicket,
+        // A held bearer credential like the API key — never attached ambiently,
+        // so the UI-RPC origin defence treats it the same way.
+        AuthMethod::UserToken => UiRpcAuthMethod::ApiKey,
     });
     req.extensions_mut().insert(identity);
     req.extensions_mut().insert(method);
@@ -246,6 +251,51 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                 Err(e) => {
                     warn!(error = %e, path = %path, "Auth middleware: API key validation error");
                     return unauthorized_response();
+                }
+            }
+        }
+    }
+
+    // Try the sandbox-issued X-User-Token JWT. A deliberately-held bearer
+    // credential, so — like the API key above and unlike the session cookie
+    // below — it is CSRF-exempt: it is never attached ambiently by a browser.
+    // Tried ahead of the cookie so a sandbox request carrying both authenticates
+    // as the agent without hitting the cookie's CSRF gate. A present-but-invalid
+    // token (or no verifier configured) falls through to the remaining methods
+    // rather than failing the request, so it never narrows what already worked.
+    if let Some(token) = req
+        .headers()
+        .get("x-user-token")
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Ok(verified) = state.token_verifier.verify_user_token(token) {
+            match verified.user_id.parse::<Uuid>() {
+                Ok(user_id) => match state.users.get_user(&user_id).await {
+                    Ok(Some(user)) => {
+                        debug!(user_id = %user_id, path = %path, "Auth middleware: user token valid");
+                        tracing::Span::current().record("user_id", user_id.to_string().as_str());
+                        insert_auth_extensions(
+                            &mut req,
+                            AuthIdentity {
+                                user_id,
+                                login: user.login,
+                                role: user.role,
+                                provider: "user-token".to_string(),
+                                group_id: None,
+                            },
+                            AuthMethod::UserToken,
+                        );
+                        return next.run(req).await;
+                    }
+                    Ok(None) => {
+                        warn!(user_id = %user_id, path = %path, "Auth middleware: user token names an unknown user");
+                    }
+                    Err(e) => {
+                        warn!(error = %e, path = %path, "Auth middleware: user lookup failed for user token");
+                    }
+                },
+                Err(_) => {
+                    warn!(path = %path, "Auth middleware: user token user_id is not a uuid");
                 }
             }
         }

@@ -31,4 +31,9 @@ pub enum AuthMethod {
     /// A short-lived ticket in the query string, accepted only on the WebSocket
     /// upgrade. See [`crate::auth::jwt::generate_ws_ticket_jwt`].
     WebSocketTicket,
+    /// A sandbox-issued `X-User-Token` JWT, carried by the agent's CLI from
+    /// inside a sandbox pod. A deliberately-held bearer credential, so like an
+    /// API key it is exempt from CSRF; it also marks the request as agent
+    /// context for `source`-tagging downstream.
+    UserToken,
 }

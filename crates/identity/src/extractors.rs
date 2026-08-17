@@ -18,7 +18,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
 
-use crate::auth::identity::AuthIdentity;
+use crate::auth::identity::{AuthIdentity, AuthMethod};
 use crate::auth::models::UserRole;
 use moatless_backend_core::scope::ScopeContext;
 
@@ -117,6 +117,13 @@ where
 
         // Path 1: AuthIdentity from middleware (production — auth provider configured)
         if let Some(identity) = parts.extensions.get::<AuthIdentity>() {
+            // The middleware authenticates a sandbox X-User-Token to an identity
+            // just like any other credential; the method it stamped alongside is
+            // what marks the request as agent context.
+            let is_agent_context = matches!(
+                parts.extensions.get::<AuthMethod>(),
+                Some(AuthMethod::UserToken)
+            );
             return Ok(AuthUser {
                 user_id: identity.user_id,
                 login: identity.login.clone(),
@@ -124,7 +131,7 @@ where
                 provider: Some(identity.provider.clone()),
                 group_id: identity.group_id.clone(),
                 task_id,
-                is_agent_context: false,
+                is_agent_context,
             });
         }
 
@@ -277,6 +284,43 @@ mod tests {
         assert_eq!(user.provider.as_deref(), Some("user-token"));
         assert_eq!(user.task_id.as_deref(), Some("task-42"));
         assert!(user.is_agent_context);
+    }
+
+    fn parts_with_identity(method: AuthMethod) -> Parts {
+        let mut parts = Request::builder().body(()).unwrap().into_parts().0;
+        parts.extensions.insert(AuthIdentity {
+            user_id: Uuid::nil(),
+            login: "alice".to_string(),
+            role: UserRole::User,
+            provider: "user-token".to_string(),
+            group_id: None,
+        });
+        parts.extensions.insert(method);
+        parts
+    }
+
+    #[tokio::test]
+    async fn middleware_user_token_identity_is_agent_context() {
+        // The middleware authenticated a sandbox X-User-Token: identity present,
+        // method stamped as UserToken. The extractor must carry the agent mark.
+        let st = state(StubOutcome::NotConfigured);
+        let mut parts = parts_with_identity(AuthMethod::UserToken);
+
+        let user = AuthUser::from_request_parts(&mut parts, &st)
+            .await
+            .expect("identity authenticates");
+        assert!(user.is_agent_context);
+    }
+
+    #[tokio::test]
+    async fn middleware_cookie_identity_is_not_agent_context() {
+        let st = state(StubOutcome::NotConfigured);
+        let mut parts = parts_with_identity(AuthMethod::SessionCookie);
+
+        let user = AuthUser::from_request_parts(&mut parts, &st)
+            .await
+            .expect("identity authenticates");
+        assert!(!user.is_agent_context);
     }
 
     #[tokio::test]
