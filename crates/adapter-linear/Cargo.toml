@@ -21,11 +21,10 @@ moatless-adapter-model = { path = "../adapter-model" }
 moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
 moatless-core = { path = "../core" }
+moatless-events = { path = "../events" }
 moatless-identity = { path = "../identity" }
 moatless-loops = { path = "../loops" }
-moatless-sandbox-control = { path = "../sandbox-control" }
 moatless-tasks = { path = "../tasks" }
-moatless-events = { path = "../events" }
 
 [lints]
 workspace = true

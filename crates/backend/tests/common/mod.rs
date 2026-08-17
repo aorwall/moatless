@@ -30,6 +30,7 @@ use moatless_core::config::{
     SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
     TelegramConfig,
 };
+use moatless_core::events::test_support::RecordingPublisher;
 use moatless_core::scope::ScopeContext;
 use moatless_core::shared_models::AgentType;
 
@@ -445,6 +446,23 @@ pub fn test_app_state_with_linear(pool: PgPool, config: Config) -> AppState {
     test_app_state_with_adapters(pool, config)
 }
 
+/// [`test_app_state_with_linear`] whose event stream is a recorder.
+///
+/// The returned publisher is the same `Arc` the state holds, so a test reads
+/// back the actor and payload of every task event the workflow published.
+#[allow(
+    dead_code,
+    reason = "this module is compiled into every test binary; each one uses a subset of it"
+)]
+pub fn test_app_state_with_recorded_events(
+    pool: PgPool,
+    config: Config,
+) -> (AppState, Arc<RecordingPublisher>) {
+    let recorder = Arc::new(RecordingPublisher::new());
+    let state = build_app_state(pool, config, true, Some(recorder.clone()));
+    (state, recorder)
+}
+
 /// [`test_app_state_with_adapters`] with the config chosen by the caller.
 ///
 /// The Adapter-side seams that decide which host an outbound call reaches live
@@ -460,6 +478,15 @@ pub fn test_app_state_with_config(
     pool: PgPool,
     config: Config,
     install_adapters: bool,
+) -> AppState {
+    build_app_state(pool, config, install_adapters, None)
+}
+
+fn build_app_state(
+    pool: PgPool,
+    config: Config,
+    install_adapters: bool,
+    events: Option<Arc<RecordingPublisher>>,
 ) -> AppState {
     let ports = compose(pool.clone(), &config);
     let adapter_installations = install_adapters.then(|| {
@@ -489,13 +516,15 @@ pub fn test_app_state_with_config(
             workspace_archive: None,
         },
     );
+    let events: Option<Arc<dyn moatless_core::events::EventPublisher>> =
+        events.map(|r| r as Arc<dyn moatless_core::events::EventPublisher>);
     AppState::new(
         &ports,
         config,
         lifecycle,
         connector,
         Arc::new(MockNotify),
-        None, // events
+        events,
         None, // s3
         adapter_installations,
     )
@@ -688,8 +717,7 @@ pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState
             worker_state.task_relations.clone(),
             worker_state.message_send.clone(),
             worker_state.sandbox_waker.clone(),
-            worker_state.sandbox.clone(),
-            worker_state.events.clone(),
+            worker_state.task_closer.clone(),
             worker_state.linear_active_turns.clone(),
             worker_state.routing.clone(),
         ),

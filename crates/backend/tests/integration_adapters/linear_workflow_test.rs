@@ -39,6 +39,8 @@
 
 use crate::common;
 
+use std::sync::Arc;
+
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -48,7 +50,9 @@ use sha2::Sha256;
 use sqlx::PgPool;
 use sqlx::Row;
 
+use moatless_core::events::test_support::RecordingPublisher;
 use moatless_core::scope::Scope;
+use moatless_events::TaskSubType;
 use moatless_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_backend::adapters::test_support::ProviderStub;
@@ -58,7 +62,8 @@ use moatless_backend::task::dao as task_dao;
 
 use common::{
     USER_1, drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
-    seed_linear_app, seed_team, test_app_state_with_linear, test_config,
+    seed_linear_app, seed_team, test_app_state_with_linear, test_app_state_with_recorded_events,
+    test_config,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -158,6 +163,19 @@ async fn deliver(state: &AppState, envelope: &serde_json::Value) -> StatusCode {
 /// Run the real worker until every admitted record is terminal.
 async fn drain(pool: &PgPool, stub: &ProviderStub) {
     drain_linear_adapter_delivery(pool, replica(pool, stub)).await;
+}
+
+/// [`drain`] against a worker replica whose event stream is a recorder.
+///
+/// The worker builds its own replica, so a test that asserts on a published
+/// event has to hold the publisher *that* replica carries, not the one the
+/// ingress side used.
+async fn drain_recording(pool: &PgPool, stub: &ProviderStub) -> Arc<RecordingPublisher> {
+    let mut config = test_config();
+    config.linear = linear_config(Some(SECRET), Some(stub.base_url()));
+    let (worker_state, recorder) = test_app_state_with_recorded_events(pool.clone(), config);
+    drain_linear_adapter_delivery(pool, worker_state).await;
+    recorder
 }
 
 // =========================================================================
@@ -1119,6 +1137,47 @@ async fn a_terminal_transition_closes_the_task_and_posts_one_response(pool: PgPo
         "one close response into the bound session, and nothing else"
     );
     assert_eq!(task_status(&pool, TASK).await, "closed");
+}
+
+/// The `Closed` event a terminal transition publishes carries the Linear close
+/// reason and the issue that caused it.
+///
+/// The payload is the contract with everything downstream of the event stream —
+/// the UI renders `reason` as the event's message text — so it is asserted
+/// field by field, not merely counted.
+#[sqlx::test]
+async fn a_terminal_transition_publishes_an_enriched_closed_event(pool: PgPool) {
+    let stub = linear_stub().await;
+    let state = replica(&pool, &stub);
+    seed_connection(&pool, &stub).await;
+    seed_workspace_token(&pool).await;
+    seed_local_repository(&pool).await;
+    seed_rule_then_session(
+        &state,
+        &pool,
+        Some(serde_json::json!({"close_task_on_close": true, "terminal_states": ["completed"]})),
+    )
+    .await;
+
+    deliver(&state, &issue_updated("s0", "s9", "Done", "completed")).await;
+    let events = drain_recording(&pool, &stub).await;
+
+    let closed: Vec<_> = events
+        .task_publishes()
+        .into_iter()
+        .filter(|p| p.sub_type == TaskSubType::Closed)
+        .collect();
+    assert_eq!(closed.len(), 1, "one Closed event: {closed:?}");
+    assert_eq!(closed[0].task_id, TASK);
+    assert_eq!(closed[0].actor.as_deref(), Some("claude-code"));
+    assert_eq!(
+        closed[0].payload,
+        serde_json::json!({
+            "reason": "linear_state_terminal",
+            "issue_identifier": "ENG-7",
+            "state_name": "Done",
+        })
+    );
 }
 
 /// The same transition without `close_task_on_close` leaves the task open.

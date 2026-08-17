@@ -46,6 +46,19 @@ pub struct RawPublish {
     pub payload_recoverable: bool,
 }
 
+/// One `publish_task_event` call, captured in full.
+///
+/// [`RecordedEvent::Task`] keeps only the subtype, which is all a "did it fire"
+/// assertion needs. A caller that shapes the event — the provider close paths
+/// carry their own actor and `reason` payload — asserts on this instead.
+#[derive(Debug, Clone)]
+pub struct TaskPublish {
+    pub task_id: String,
+    pub sub_type: TaskSubType,
+    pub actor: Option<String>,
+    pub payload: Value,
+}
+
 /// [`EventPublisher`] double that records what it was asked to publish, so
 /// tests can assert the events a code path emitted without Redis.
 ///
@@ -57,6 +70,7 @@ pub struct RawPublish {
 pub struct RecordingPublisher {
     calls: Arc<Mutex<Vec<RecordedEvent>>>,
     raw: Arc<Mutex<Vec<RawPublish>>>,
+    tasks: Arc<Mutex<Vec<TaskPublish>>>,
     order_log: Option<Arc<Mutex<Vec<&'static str>>>>,
     fail_next: Arc<Mutex<usize>>,
 }
@@ -87,6 +101,11 @@ impl RecordingPublisher {
     /// Raw publishes, in order.
     pub fn raw_publishes(&self) -> Vec<RawPublish> {
         self.raw.lock().expect("recorder poisoned").clone()
+    }
+
+    /// `publish_task_event` calls, in order, with actor and payload.
+    pub fn task_publishes(&self) -> Vec<TaskPublish> {
+        self.tasks.lock().expect("recorder poisoned").clone()
     }
 
     pub fn events(&self) -> Vec<RecordedEvent> {
@@ -136,8 +155,23 @@ impl EventPublisher for RecordingPublisher {
     async fn publish_server_event(&self, _: &str, sub_type: ServerSubType, _: &ServerEventPayload) {
         self.push(RecordedEvent::Server(sub_type));
     }
-    async fn publish_task_event(&self, _: &str, sub_type: TaskSubType, _: Option<&str>, _: Value) {
+    async fn publish_task_event(
+        &self,
+        task_id: &str,
+        sub_type: TaskSubType,
+        actor: Option<&str>,
+        payload: Value,
+    ) {
         self.push(RecordedEvent::Task(sub_type));
+        self.tasks
+            .lock()
+            .expect("recorder poisoned")
+            .push(TaskPublish {
+                task_id: task_id.to_string(),
+                sub_type,
+                actor: actor.map(str::to_string),
+                payload,
+            });
     }
     async fn publish_agent_event(
         &self,

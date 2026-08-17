@@ -73,7 +73,6 @@ use tracing::{debug, info, warn};
 
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
-use moatless_core::events::EventPublisher;
 
 use moatless_loops::adapters::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::{
@@ -84,9 +83,9 @@ use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::AdapterConnection;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_loops::loops::dao::LoopDao;
-use moatless_sandbox_control::lifecycle::Lifecycle;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::closer::TaskCloser;
 use moatless_tasks::task::creation::TaskCreationService;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::relations::TaskRelationDao;
@@ -135,8 +134,7 @@ pub struct LinearInboundRouter {
     task_relations: Arc<dyn TaskRelationDao>,
     message_send: Arc<MessageSendService>,
     sandbox_waker: Arc<dyn SandboxWaker>,
-    sandbox: Arc<Lifecycle>,
-    events: Option<Arc<dyn EventPublisher>>,
+    task_closer: Arc<TaskCloser>,
     linear_active_turns: Arc<ActiveLinearTurns>,
     routing: Arc<RoutingService>,
 }
@@ -144,9 +142,9 @@ pub struct LinearInboundRouter {
 impl LinearInboundRouter {
     #[expect(
         clippy::too_many_arguments,
-        reason = "the fourteen ports the five linear delivery handlers read, \
+        reason = "the thirteen ports the five linear delivery handlers read, \
                   wired in from the composition root; the rejected alternatives \
-                  are threading fourteen params through five delivery closures, \
+                  are threading thirteen params through five delivery closures, \
                   and extending the shared RoutingService with one provider's \
                   ports"
     )]
@@ -161,8 +159,7 @@ impl LinearInboundRouter {
         task_relations: Arc<dyn TaskRelationDao>,
         message_send: Arc<MessageSendService>,
         sandbox_waker: Arc<dyn SandboxWaker>,
-        sandbox: Arc<Lifecycle>,
-        events: Option<Arc<dyn EventPublisher>>,
+        task_closer: Arc<TaskCloser>,
         linear_active_turns: Arc<ActiveLinearTurns>,
         routing: Arc<RoutingService>,
     ) -> Self {
@@ -177,8 +174,7 @@ impl LinearInboundRouter {
             task_relations,
             message_send,
             sandbox_waker,
-            sandbox,
-            events,
+            task_closer,
             linear_active_turns,
             routing,
         }
@@ -603,8 +599,7 @@ impl LinearInboundRouter {
             self.task_bindings.as_ref(),
             self.tasks.as_ref(),
             &self.config,
-            &self.sandbox,
-            self.events.as_deref(),
+            &self.task_closer,
             self.sandbox_waker.as_ref(),
             &self.linear_active_turns,
             &self.task_creation,
@@ -675,8 +670,7 @@ impl LinearInboundRouter {
             self.task_bindings.as_ref(),
             self.tasks.as_ref(),
             &self.config,
-            &self.sandbox,
-            self.events.as_deref(),
+            &self.task_closer,
             &self.loops,
             &api,
             &connection,

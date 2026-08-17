@@ -22,15 +22,14 @@ use tracing::{debug, info, warn};
 
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
-use moatless_core::events::EventPublisher;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::{
     ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch,
 };
-use moatless_sandbox_control::lifecycle::Lifecycle;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::closer::TaskCloser;
 use moatless_tasks::task::creation::TaskCreationService;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::models::Visibility;
@@ -67,8 +66,7 @@ pub(super) async fn handle_issue_update(
     task_bindings: &dyn TaskBindingDao,
     tasks: &dyn TaskDao,
     config: &Config,
-    sandbox: &Lifecycle,
-    events: Option<&dyn EventPublisher>,
+    task_closer: &TaskCloser,
     sandbox_waker: &dyn SandboxWaker,
     linear_active_turns: &ActiveLinearTurns,
     task_creation: &TaskCreationService,
@@ -122,8 +120,7 @@ pub(super) async fn handle_issue_update(
             task_bindings,
             tasks,
             config,
-            sandbox,
-            events,
+            task_closer,
             api,
             rule,
             issue,

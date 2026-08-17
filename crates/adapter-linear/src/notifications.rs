@@ -17,13 +17,12 @@ use tracing::debug;
 
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
-use moatless_core::events::EventPublisher;
 
 use moatless_loops::adapters::error::AdapterError;
 use moatless_loops::adapters::models::AdapterConnection;
 use moatless_loops::loops::dao::LoopDao;
-use moatless_sandbox_control::lifecycle::Lifecycle;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::closer::TaskCloser;
 use moatless_tasks::task::dao::TaskDao;
 
 use super::agent_api::LinearAgentApi;
@@ -41,7 +40,7 @@ use super::webhook_payloads::AppUserNotificationData;
 #[expect(
     clippy::too_many_arguments,
     reason = "this forward-only path threads the union its two callees need — the \
-              loops port `resolve_rules_for_team` reads and the six close ports \
+              loops port `resolve_rules_for_team` reads and the five close ports \
               `close_active_bindings_for_issue` reads — inverted out of the \
               single AppState it used to carry"
 )]
@@ -50,8 +49,7 @@ pub(super) async fn handle_issue_status_notification(
     task_bindings: &dyn TaskBindingDao,
     tasks: &dyn TaskDao,
     config: &Config,
-    sandbox: &Lifecycle,
-    events: Option<&dyn EventPublisher>,
+    task_closer: &TaskCloser,
     loops: &LoopDao,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
@@ -92,8 +90,7 @@ pub(super) async fn handle_issue_status_notification(
             task_bindings,
             tasks,
             config,
-            sandbox,
-            events,
+            task_closer,
             api,
             rule,
             issue,
