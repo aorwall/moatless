@@ -312,14 +312,14 @@ mod tests {
             resume: true,
             sent_at: None,
             created_at: None,
-            external_event_id: None,
-            external_adapter: None,
             external_subject_key: None,
-            external_source_name: None,
             external_author: None,
             source_task_id: None,
             start_fresh: false,
             sent_by: None,
+            external_event_id: None,
+            external_adapter: None,
+            external_source_name: None,
         }
     }
 
@@ -338,9 +338,6 @@ mod tests {
             payload: serde_json::json!({ "input": input }),
             detail: None,
             is_error: false,
-            external_event_id: None,
-            external_adapter: None,
-            external_source_name: None,
             created_at: DateTime::from_timestamp(1_000, 0).expect("valid ts"),
         }
     }

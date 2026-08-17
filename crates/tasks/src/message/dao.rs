@@ -20,7 +20,7 @@ use chrono::{DateTime, Utc};
 use super::models::{MessageType, TaskMessage, TaskMessageContext};
 use crate::task::dao as task_dao;
 use crate::task_activities;
-use crate::task_activities::dao::{self as activities, Activity};
+use crate::task_activities::dao::Activity;
 use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
 use moatless_core::db::DbPool;
 
@@ -1232,13 +1232,11 @@ impl MessageDao for PgMessageDao {
         .fetch_one(&self.0)
         .await?;
 
-        // An id claimed by a call rather than by a Message: an outbound comment
-        // whose turn said nothing and therefore wrote no Message row.
-        if row.0 || activities::claims_any_external(&self.0, task_id, external_ids).await? {
+        if row.0 {
             return Ok(true);
         }
-        // An id claimed by a `moat` command, which has no tool-use id to hang
-        // the activity tag on.
+        // An event the Task caused through a command rather than through a
+        // Message it wrote.
         crate::task::outbound_events::has_any(&self.0, task_id, external_ids).await
     }
 
@@ -1251,7 +1249,7 @@ impl MessageDao for PgMessageDao {
         .fetch_all(&self.0)
         .await?;
 
-        ids.extend(activities::external_claims(&self.0, task_id).await?);
+        ids.extend(crate::task::outbound_events::ids_for_task(&self.0, task_id).await?);
         Ok(ids)
     }
 
@@ -1275,9 +1273,6 @@ impl MessageDao for PgMessageDao {
         .await?;
 
         if let Some(task_id) = by_message {
-            return Ok(Some(task_id));
-        }
-        if let Some(task_id) = activities::task_claiming_external(&self.0, external_ids).await? {
             return Ok(Some(task_id));
         }
         crate::task::outbound_events::task_for_any(&self.0, external_ids).await

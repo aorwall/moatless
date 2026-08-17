@@ -28,9 +28,6 @@ pub struct Activity {
     /// comes back, and on every activity that is not a tool call.
     pub detail: Option<String>,
     pub is_error: bool,
-    pub external_event_id: Option<String>,
-    pub external_adapter: Option<String>,
-    pub external_source_name: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -90,9 +87,6 @@ impl sqlx::FromRow<'_, PgRow> for Activity {
             payload: row.try_get("payload")?,
             detail: row.try_get("detail")?,
             is_error: row.try_get("is_error")?,
-            external_event_id: row.try_get("external_event_id")?,
-            external_adapter: row.try_get("external_adapter")?,
-            external_source_name: row.try_get("external_source_name")?,
             created_at: row.try_get("created_at")?,
         })
     }
@@ -124,8 +118,7 @@ macro_rules! read_activities {
     ($predicate:literal) => {
         concat!(
             "SELECT activity_id, task_id, position, ordinal, message_uuid, parent_uuid, ",
-            "kind, status, tool_use_id, summary, payload, detail, is_error, ",
-            "external_event_id, external_adapter, external_source_name, created_at ",
+            "kind, status, tool_use_id, summary, payload, detail, is_error, created_at ",
             "FROM task_activities WHERE ",
             known_kinds!(),
             " AND ",
@@ -439,56 +432,6 @@ pub async fn find_tool_call(
         .bind(tool_use_id)
         .fetch_optional(pool)
         .await
-}
-
-/// Whether any of this Task's calls already claims one of these ids.
-///
-/// `task_activities.external_event_id` is read-only: this reader and the two
-/// below are what keep a claim already in the table suppressing its echo. New
-/// claims go to `message::outbound_claims`, which is keyed on the id rather
-/// than on the call, because the `moat` command that records one runs in a
-/// sandbox shell and has no tool-use id.
-pub async fn claims_any_external(
-    pool: &DbPool,
-    task_id: &str,
-    external_ids: &[String],
-) -> Result<bool, sqlx::Error> {
-    let found: Option<i32> = sqlx::query_scalar(
-        r#"SELECT 1 FROM task_activities
-            WHERE task_id = $1 AND external_event_id = ANY($2)
-            LIMIT 1"#,
-    )
-    .bind(task_id)
-    .bind(external_ids)
-    .fetch_optional(pool)
-    .await?;
-    Ok(found.is_some())
-}
-
-/// Every external id this Task's calls claim.
-pub async fn external_claims(pool: &DbPool, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"SELECT external_event_id FROM task_activities
-            WHERE task_id = $1 AND external_event_id IS NOT NULL"#,
-    )
-    .bind(task_id)
-    .fetch_all(pool)
-    .await
-}
-
-/// Which Task, if any, claims one of these ids.
-pub async fn task_claiming_external(
-    pool: &DbPool,
-    external_ids: &[String],
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"SELECT task_id FROM task_activities
-            WHERE external_event_id = ANY($1)
-            LIMIT 1"#,
-    )
-    .bind(external_ids)
-    .fetch_optional(pool)
-    .await
 }
 
 /// How many tool calls a Task made and how many came back failed.

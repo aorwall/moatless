@@ -80,6 +80,14 @@ pub async fn has_any(
     Ok(row.0)
 }
 
+/// Every external event id `task_id` caused.
+pub async fn ids_for_task(pool: &DbPool, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(r#"SELECT external_event_id FROM task_outbound_events WHERE task_id = $1"#)
+        .bind(task_id)
+        .fetch_all(pool)
+        .await
+}
+
 /// The Task that produced any of `external_event_ids`, if one did.
 pub async fn task_for_any(
     pool: &DbPool,

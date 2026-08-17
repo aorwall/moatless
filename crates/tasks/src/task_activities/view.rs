@@ -64,16 +64,4 @@ impl<'a> ActivityView<'a> {
     pub fn is_settled(&self) -> bool {
         self.activity.is_settled()
     }
-
-    pub fn external_adapter(&self) -> Option<&str> {
-        self.activity.external_adapter.as_deref()
-    }
-
-    pub fn external_event_id(&self) -> Option<&str> {
-        self.activity.external_event_id.as_deref()
-    }
-
-    pub fn external_source_name(&self) -> Option<&str> {
-        self.activity.external_source_name.as_deref()
-    }
 }

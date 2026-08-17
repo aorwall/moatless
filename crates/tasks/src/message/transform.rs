@@ -297,26 +297,6 @@ fn has_unanswered_question(activities: &[&Activity]) -> bool {
     })
 }
 
-/// The source chip for a turn whose claim was recorded on the call that made it.
-///
-/// A shell command that posts a comment claims what it created on its own
-/// activity rather than on a Message, because the turn it ran on may have said
-/// nothing and written no Message row. Rendering reads it back from there.
-fn claimed_external_source(activities: &[&Activity]) -> Option<UiMessageExternalSource> {
-    activities.iter().find_map(|activity| {
-        let activity = ActivityView::new(activity);
-        let adapter_kind = activity.external_adapter()?.to_string();
-        let external_id = activity.external_event_id().map(str::to_string);
-        let external_label = external_id.as_deref().map(format_external_label);
-        Some(UiMessageExternalSource {
-            adapter_kind,
-            source_name: activity.external_source_name().map(str::to_string),
-            external_id,
-            external_label,
-        })
-    })
-}
-
 fn transform_tool_only_turn(uuid: &str, activities: &[&Activity], is_last: bool) -> UiMessage {
     let timestamp = activities.first().map_or_else(String::new, |activity| {
         activity
@@ -345,7 +325,7 @@ fn transform_tool_only_turn(uuid: &str, activities: &[&Activity], is_last: bool)
         usage: None,
         result: None,
         sdk_metadata: None,
-        external_source: claimed_external_source(activities),
+        external_source: None,
         parent_uuid: activities
             .first()
             .and_then(|activity| activity.parent_uuid.clone()),
@@ -484,10 +464,7 @@ fn transform_assistant(msg: &TaskMessage, activities: &[&Activity], is_last: boo
                 external_id,
                 external_label,
             }
-        })
-        // An inbound Message carries its source on the row; an outbound one the
-        // agent posted by running a command carries it on that call.
-        .or_else(|| claimed_external_source(activities));
+        });
 
     UiMessage {
         uuid: msg.uuid.clone(),
@@ -857,14 +834,14 @@ mod tests {
             resume: true,
             sent_at: None,
             created_at: None,
-            external_event_id: None,
-            external_adapter: None,
             external_subject_key: None,
-            external_source_name: None,
             external_author: None,
             source_task_id: None,
             start_fresh: false,
             sent_by: None,
+            external_event_id: None,
+            external_adapter: None,
+            external_source_name: None,
         }
     }
 
@@ -1239,9 +1216,6 @@ mod tests {
             }),
             detail: Some("ok".into()),
             is_error: false,
-            external_event_id: None,
-            external_adapter: None,
-            external_source_name: None,
             // 2025-01-01T00:00:00Z + `position`, so an activity's own key sorts
             // against the `make_msg` timestamps rather than ahead of all of them.
             created_at: chrono::DateTime::from_timestamp(1_735_689_600 + position, 0)

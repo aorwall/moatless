@@ -2643,16 +2643,16 @@ mod tests {
             // in an assertion failure.
             timestamp: format!("2026-07-01T10:{id:02}:00.000Z"),
             created_at: Some(at(i64::from(id) * 100)),
-            external_adapter: None,
-            external_source_name: None,
             external_subject_key: None,
-            external_event_id: None,
             external_author: None,
             source_task_id: None,
             binding_url: None,
             binding_label: None,
             sent_by_name: None,
             file_contexts: None,
+            external_event_id: None,
+            external_adapter: None,
+            external_source_name: None,
         }
     }
 
@@ -2680,9 +2680,6 @@ mod tests {
             payload: json!({ "summary": summary }),
             detail: None,
             is_error: false,
-            external_event_id: None,
-            external_adapter: None,
-            external_source_name: None,
             created_at: at(100 + position),
         }
     }

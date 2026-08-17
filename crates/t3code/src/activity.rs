@@ -502,9 +502,6 @@ mod tests {
             payload,
             detail: None,
             is_error: false,
-            external_event_id: None,
-            external_adapter: None,
-            external_source_name: None,
             created_at: Utc::now(),
         }
     }

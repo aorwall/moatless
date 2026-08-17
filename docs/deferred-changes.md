@@ -74,7 +74,7 @@ in the change that found them.
 | Control-scoped writes discard the bool that denies them | `workspace/handlers.rs` — `create_workspace`, `update_workspace`, `override_workspace`, `add_workspace_repo`, `remove_workspace_repo`, `set_workspace_primary_repo` (nine call sites) | Needs a design decision plus a new test; see below |
 | The docker preview-server readiness timeout never fires | `sandbox/docker/status_resolver.rs::inspect_server_container` | Tracked by the `test.fixme` on SERVER-02 in `tests/api/specs/sandbox-errors.spec.ts` |
 | The GitHub preflight never runs on a restart | `crates/sandbox-control/src/auto_provision.rs::build_provision_request` runs only `preflight::preflight_validate_task_control`; `RealPreflight`'s repo-access probe reaches only creation and task start | When `SandboxRuntime::ensure_running` no longer builds a plan on the reuse path; see below |
-| A GitHub write from the shell leaves no source chip on the call | `crates/adapter-github-pr/src/api_routes.rs::record_external_event` writes `task_outbound_events`; nothing writes `task_activities.external_event_id` | When a tool-use id reaches the sandbox shell; see below |
+| A `moat push` commit claim is process-local | `crates/adapter-github-pr/src/api_routes.rs::claim_change`, the `GithubClaimSubject::Commit` arm — `RecentlySent::note_commit` only | When a `pull_request.synchronize` is observed reaching a replica that did not serve the claim; see below |
 
 **Workspace control-filter writes.** `WorkspaceDao`'s `update`, `add_repo`,
 `remove_repo` and `set_primary` all return `bool`, and the trait documents it:
@@ -134,18 +134,16 @@ Widen it when `ensure_running` can tell "reuse a live sandbox" from "create or
 start one" without building the plan first; the probe then belongs on the
 second branch only.
 
-**The source chip on a GitHub write from the shell.** The chat renders a source
-chip on a tool call from `task_activities.external_event_id`, recorded *on the
-call that made the change*. That column is keyed on `tool_use_id`, and a sandbox
-shell has no tool-use id: `TASK_ID` and the user token reach it, nothing that
-names the call it is running inside. So `moat gh api` records the event in
-`task_outbound_events`, which is keyed on the id alone. Suppression and
-provenance both still work — `has_any_external_event_id` and
-`find_task_id_by_any_external_event_id` consult both — but nothing writes the
-activity column any more, so the call the agent ran shows no chip. Restoring it
-needs a tool-use identifier exposed to the sandbox shell; until one exists there
-is nothing to key on, and inventing a second identity for the same call would be
-worse than the missing chip.
+**The push claim across replicas.** A `pull_request.synchronize` names only the
+new head commit, and the claim is matched against it by prefix in
+`RecentlySent` — process-local, 120-second TTL. `outbound_claims` cannot hold it
+as it stands: it looks up by equality on an id, and a commit claim is a prefix
+match. The exposure is narrow, because the claim now carries the *full* sha (the
+CLI resolves it with `git rev-parse` before pushing) and the notification arrives
+within seconds of the push. Give it a durable home when a synchronize is actually
+observed reaching a replica that did not serve the claim — an equality index on
+the full sha would do it, and the prefix match only exists for the abbreviated
+shas the old transcript scan had to work from.
 
 ## Test and CI structure
 
