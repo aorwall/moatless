@@ -3843,7 +3843,6 @@ dependencies = [
  "moatless-core",
  "moatless-events",
  "moatless-sandbox-control",
- "moatless-tasks",
  "moatless-workspaces",
  "serde_json",
  "tempfile",
