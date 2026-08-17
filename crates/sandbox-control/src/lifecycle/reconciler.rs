@@ -150,9 +150,106 @@ impl MemberRegistryError {
     }
 }
 
+/// How long an identical member-registration failure stays suppressed before it
+/// is re-logged at `warn!`. The reconciler re-attempts every member on every
+/// tick (~30s); without this, one permanently-failing member floods the log
+/// with an identical line every tick forever.
+const MEMBER_REG_RELOG_INTERVAL: Duration = Duration::from_mins(10);
+
+/// Dedup key for a running member: `(sandbox_id, task_id)`.
+type MemberKey = (String, String);
+
+/// Per-member failure dedup state, so a persistently-failing registration warns
+/// on change and periodically rather than every tick.
+struct MemberFailure {
+    last_error: String,
+    last_warned_at: DateTime<Utc>,
+    /// Identical failures hidden since the last `warn!`, surfaced in the next
+    /// one so the suppression is visible rather than silent.
+    suppressed_since_warn: u32,
+}
+
+/// Whether a member-registration failure should be logged at `warn!` (with the
+/// count of failures hidden since the last warn) or suppressed to `debug!`.
+#[derive(Debug, PartialEq, Eq)]
+enum MemberFailureLog {
+    Warn { suppressed: u32 },
+    Suppress,
+}
+
+/// True once `relog_after` has elapsed since `last_warned_at`. An unrepresentable
+/// interval (absurd config) re-logs rather than suppressing forever.
+fn member_relog_due(
+    last_warned_at: DateTime<Utc>,
+    now: DateTime<Utc>,
+    relog_after: Duration,
+) -> bool {
+    match chrono::Duration::from_std(relog_after) {
+        Ok(threshold) => now.signed_duration_since(last_warned_at) >= threshold,
+        Err(_) => true,
+    }
+}
+
+/// Record a member-registration failure and decide whether to warn. Warns on the
+/// first failure for a member, when the error text changes, or once
+/// `relog_after` has elapsed since the last warn; otherwise suppresses.
+fn note_member_failure(
+    failures: &mut HashMap<MemberKey, MemberFailure>,
+    key: MemberKey,
+    error: &str,
+    now: DateTime<Utc>,
+    relog_after: Duration,
+) -> MemberFailureLog {
+    match failures.get_mut(&key) {
+        Some(prev)
+            if prev.last_error == error
+                && !member_relog_due(prev.last_warned_at, now, relog_after) =>
+        {
+            prev.suppressed_since_warn = prev.suppressed_since_warn.saturating_add(1);
+            MemberFailureLog::Suppress
+        }
+        Some(prev) => {
+            let suppressed = prev.suppressed_since_warn;
+            prev.last_error = error.to_string();
+            prev.last_warned_at = now;
+            prev.suppressed_since_warn = 0;
+            MemberFailureLog::Warn { suppressed }
+        }
+        None => {
+            failures.insert(
+                key,
+                MemberFailure {
+                    last_error: error.to_string(),
+                    last_warned_at: now,
+                    suppressed_since_warn: 0,
+                },
+            );
+            MemberFailureLog::Warn { suppressed: 0 }
+        }
+    }
+}
+
+/// Flatten an error and its `source()` chain into one line. `MemberRegistryError`
+/// carries the underlying `tonic::Status` (via `classify_grpc_error`) only as a
+/// `#[source]`, which `Display` omits — so the gRPC code/message that actually
+/// explains the failure would otherwise never reach the log.
+fn format_error_chain(err: &dyn std::error::Error) -> String {
+    let mut out = err.to_string();
+    let mut source = err.source();
+    while let Some(inner) = source {
+        out.push_str(": ");
+        out.push_str(&inner.to_string());
+        source = inner.source();
+    }
+    out
+}
+
 async fn ensure_running_members_registered(
     store: &dyn LifecycleDao,
     member_registry: &dyn MemberRegistryPort,
+    failures: &Mutex<HashMap<MemberKey, MemberFailure>>,
+    now: DateTime<Utc>,
+    relog_after: Duration,
 ) {
     let members = match store.running_sandbox_members().await {
         Ok(members) => members,
@@ -162,17 +259,62 @@ async fn ensure_running_members_registered(
         }
     };
 
-    for member in members {
-        if let Err(e) = member_registry.ensure_registered(&member).await {
-            warn!(
-                task_id = %member.task_id,
-                sandbox_id = %member.sandbox_id,
-                checkout_mode = member.checkout_mode.as_str(),
-                error = %e,
-                "reconciler: failed to register sandbox member"
-            );
+    let mut seen: HashSet<MemberKey> = HashSet::with_capacity(members.len());
+    for member in &members {
+        let key = (member.sandbox_id.clone(), member.task_id.clone());
+        seen.insert(key.clone());
+        match member_registry.ensure_registered(member).await {
+            Ok(()) => {
+                // Clearing on success both stops future suppression and lets a
+                // recovery after prior failures be noted once.
+                if failures
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&key)
+                    .is_some()
+                {
+                    info!(
+                        task_id = %member.task_id,
+                        sandbox_id = %member.sandbox_id,
+                        "reconciler: sandbox member registered after prior failures"
+                    );
+                }
+            }
+            Err(e) => {
+                let detail = format_error_chain(&e);
+                let decision = {
+                    let mut guard = failures
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    note_member_failure(&mut guard, key, &detail, now, relog_after)
+                };
+                match decision {
+                    MemberFailureLog::Warn { suppressed } => warn!(
+                        task_id = %member.task_id,
+                        sandbox_id = %member.sandbox_id,
+                        checkout_mode = member.checkout_mode.as_str(),
+                        error = %detail,
+                        suppressed_repeats = suppressed,
+                        "reconciler: failed to register sandbox member"
+                    ),
+                    MemberFailureLog::Suppress => debug!(
+                        task_id = %member.task_id,
+                        sandbox_id = %member.sandbox_id,
+                        error = %detail,
+                        "reconciler: failed to register sandbox member (repeat suppressed)"
+                    ),
+                }
+            }
         }
     }
+
+    // Drop dedup state for members no longer present (task removed or sandbox
+    // stopped) so a later reappearance warns afresh instead of inheriting a
+    // stale suppression window.
+    failures
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .retain(|k, _| seen.contains(k));
 }
 
 /// Reconciler tuning.
@@ -237,6 +379,8 @@ pub struct Reconciler {
     member_registry: Arc<dyn MemberRegistryPort>,
     clock: Arc<dyn WallClock>,
     retries: Mutex<HashMap<String, TaskRetry>>,
+    /// Per-member registration-failure dedup, keyed by `(sandbox_id, task_id)`.
+    member_reg_failures: Mutex<HashMap<MemberKey, MemberFailure>>,
     config: ReconcilerConfig,
 }
 
@@ -260,6 +404,7 @@ impl Reconciler {
             member_registry: deps.member_registry,
             clock: deps.clock,
             retries: Mutex::new(HashMap::new()),
+            member_reg_failures: Mutex::new(HashMap::new()),
             config,
         }
     }
@@ -279,7 +424,14 @@ impl Reconciler {
         };
 
         let pending_map = self.pending_messages().await;
-        ensure_running_members_registered(self.store.as_ref(), self.member_registry.as_ref()).await;
+        ensure_running_members_registered(
+            self.store.as_ref(),
+            self.member_registry.as_ref(),
+            &self.member_reg_failures,
+            now,
+            MEMBER_REG_RELOG_INTERVAL,
+        )
+        .await;
 
         let mut candidates: HashSet<String> = match self.store.reconcile_candidates().await {
             Ok(c) => c.into_iter().collect(),
@@ -739,12 +891,40 @@ mod tests {
         }
     }
 
+    /// Fails every registration with a fixed `MemberRegistryError` carrying a
+    /// `source`, exercising the failure/dedup path and the source-chain log.
+    struct FailingRegistry {
+        context: String,
+        source: String,
+    }
+
+    #[async_trait]
+    impl MemberRegistryPort for FailingRegistry {
+        async fn ensure_registered(
+            &self,
+            _member: &SandboxMember,
+        ) -> Result<(), MemberRegistryError> {
+            Err(MemberRegistryError::with_source(
+                self.context.clone(),
+                std::io::Error::other(self.source.clone()),
+            ))
+        }
+    }
+
     fn member(task_id: &str, sandbox_id: &str) -> SandboxMember {
         SandboxMember {
             task_id: task_id.to_string(),
             sandbox_id: sandbox_id.to_string(),
             checkout_mode: CheckoutMode::Shared,
         }
+    }
+
+    fn empty_failures() -> Mutex<HashMap<MemberKey, MemberFailure>> {
+        Mutex::new(HashMap::new())
+    }
+
+    fn t0() -> DateTime<Utc> {
+        DateTime::from_timestamp(1_700_000_000, 0).unwrap()
     }
 
     #[tokio::test]
@@ -755,7 +935,14 @@ mod tests {
         };
         let registry = RecordingRegistry::default();
 
-        ensure_running_members_registered(&store, &registry).await;
+        ensure_running_members_registered(
+            &store,
+            &registry,
+            &empty_failures(),
+            t0(),
+            MEMBER_REG_RELOG_INTERVAL,
+        )
+        .await;
 
         assert_eq!(*registry.calls.lock().unwrap(), members);
     }
@@ -767,9 +954,171 @@ mod tests {
         };
         let registry = RecordingRegistry::default();
 
-        ensure_running_members_registered(&store, &registry).await;
+        ensure_running_members_registered(
+            &store,
+            &registry,
+            &empty_failures(),
+            t0(),
+            MEMBER_REG_RELOG_INTERVAL,
+        )
+        .await;
 
         assert!(registry.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn first_failure_warns_then_identical_repeat_suppresses_within_window() {
+        let mut failures = HashMap::new();
+        let key = ("sandbox-1".to_string(), "task-1".to_string());
+
+        let first = note_member_failure(
+            &mut failures,
+            key.clone(),
+            "JoinTask failed: unavailable",
+            t0(),
+            MEMBER_REG_RELOG_INTERVAL,
+        );
+        assert_eq!(first, MemberFailureLog::Warn { suppressed: 0 });
+
+        let repeat = note_member_failure(
+            &mut failures,
+            key.clone(),
+            "JoinTask failed: unavailable",
+            t0() + chrono::Duration::seconds(30),
+            MEMBER_REG_RELOG_INTERVAL,
+        );
+        assert_eq!(repeat, MemberFailureLog::Suppress);
+        assert_eq!(failures.get(&key).unwrap().suppressed_since_warn, 1);
+    }
+
+    #[test]
+    fn changed_error_warns_immediately_and_reports_suppressed_count() {
+        let mut failures = HashMap::new();
+        let key = ("sandbox-1".to_string(), "task-1".to_string());
+
+        note_member_failure(&mut failures, key.clone(), "err-a", t0(), MEMBER_REG_RELOG_INTERVAL);
+        // Two identical repeats are hidden.
+        note_member_failure(
+            &mut failures,
+            key.clone(),
+            "err-a",
+            t0() + chrono::Duration::seconds(30),
+            MEMBER_REG_RELOG_INTERVAL,
+        );
+        note_member_failure(
+            &mut failures,
+            key.clone(),
+            "err-a",
+            t0() + chrono::Duration::seconds(60),
+            MEMBER_REG_RELOG_INTERVAL,
+        );
+
+        let changed = note_member_failure(
+            &mut failures,
+            key.clone(),
+            "err-b",
+            t0() + chrono::Duration::seconds(90),
+            MEMBER_REG_RELOG_INTERVAL,
+        );
+        assert_eq!(changed, MemberFailureLog::Warn { suppressed: 2 });
+        assert_eq!(failures.get(&key).unwrap().last_error, "err-b");
+        assert_eq!(failures.get(&key).unwrap().suppressed_since_warn, 0);
+    }
+
+    #[test]
+    fn identical_failure_rewarns_after_relog_interval() {
+        let mut failures = HashMap::new();
+        let key = ("sandbox-1".to_string(), "task-1".to_string());
+
+        note_member_failure(&mut failures, key.clone(), "err", t0(), MEMBER_REG_RELOG_INTERVAL);
+        let after = note_member_failure(
+            &mut failures,
+            key.clone(),
+            "err",
+            t0() + chrono::Duration::from_std(MEMBER_REG_RELOG_INTERVAL).unwrap(),
+            MEMBER_REG_RELOG_INTERVAL,
+        );
+        assert!(matches!(after, MemberFailureLog::Warn { .. }));
+    }
+
+    #[tokio::test]
+    async fn repeated_registration_failure_accumulates_suppressed_count() {
+        let members = vec![member("task-1", "sandbox-1")];
+        let store = MemberStore {
+            members: Ok(members),
+        };
+        let registry = FailingRegistry {
+            context: "JoinTask failed".to_string(),
+            source: "status: FailedPrecondition, message: clone failed".to_string(),
+        };
+        let failures = empty_failures();
+
+        ensure_running_members_registered(&store, &registry, &failures, t0(), MEMBER_REG_RELOG_INTERVAL)
+            .await;
+        ensure_running_members_registered(
+            &store,
+            &registry,
+            &failures,
+            t0() + chrono::Duration::seconds(30),
+            MEMBER_REG_RELOG_INTERVAL,
+        )
+        .await;
+
+        let key = ("sandbox-1".to_string(), "task-1".to_string());
+        let guard = failures.lock().unwrap();
+        let entry = guard.get(&key).expect("failure recorded");
+        assert_eq!(entry.suppressed_since_warn, 1);
+        // The source chain is captured, not just the bare context.
+        assert!(entry.last_error.contains("clone failed"), "chain: {}", entry.last_error);
+    }
+
+    #[tokio::test]
+    async fn success_clears_failure_state_and_absent_members_are_pruned() {
+        // Seed a stale failure for a member that will not appear this tick, plus
+        // a member that registers successfully.
+        let failures = empty_failures();
+        failures.lock().unwrap().insert(
+            ("gone-sandbox".to_string(), "gone-task".to_string()),
+            MemberFailure {
+                last_error: "stale".to_string(),
+                last_warned_at: t0(),
+                suppressed_since_warn: 3,
+            },
+        );
+        failures.lock().unwrap().insert(
+            ("sandbox-1".to_string(), "task-1".to_string()),
+            MemberFailure {
+                last_error: "was failing".to_string(),
+                last_warned_at: t0(),
+                suppressed_since_warn: 1,
+            },
+        );
+
+        let store = MemberStore {
+            members: Ok(vec![member("task-1", "sandbox-1")]),
+        };
+        let registry = RecordingRegistry::default();
+
+        ensure_running_members_registered(
+            &store,
+            &registry,
+            &failures,
+            t0() + chrono::Duration::seconds(30),
+            MEMBER_REG_RELOG_INTERVAL,
+        )
+        .await;
+
+        // Successful member cleared, absent member pruned → map empty.
+        assert!(failures.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn format_error_chain_includes_source() {
+        let err = MemberRegistryError::with_source(
+            "JoinTask failed",
+            std::io::Error::other("status: Unimplemented"),
+        );
+        assert_eq!(format_error_chain(&err), "JoinTask failed: status: Unimplemented");
     }
 }
 
