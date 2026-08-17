@@ -33,6 +33,7 @@ pub mod file_storage;
 pub mod loops;
 pub mod message;
 pub mod plugin;
+pub mod reaper;
 pub mod repository;
 pub mod repository_sync;
 pub mod sandbox;

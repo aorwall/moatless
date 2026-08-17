@@ -1,9 +1,8 @@
 //! Background Codex token refresher.
 //!
 //! Leader-elected sweep that periodically pre-refreshes Codex tokens before
-//! they hit the 8-day refresh-token TTL. Mirrors the shape of
-//! [`crate::task::reaper::TaskReaper::spawn`] so a single replica owns the
-//! sweep at any time.
+//! they hit the 8-day refresh-token TTL. Mirrors the shape of the backend's
+//! task reaper so a single replica owns the sweep at any time.
 //!
 //! The actual refresh decision and HTTP call live in
 //! [`crate::credential_sync::CredentialSync::ensure_fresh_codex`]; this module

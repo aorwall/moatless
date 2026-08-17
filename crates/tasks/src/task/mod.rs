@@ -10,7 +10,6 @@ pub mod handlers;
 pub mod loop_reader;
 pub mod models;
 pub mod presenter;
-pub mod reaper;
 pub mod relations;
 pub mod routes;
 pub mod sandbox_lifecycle;

@@ -24,12 +24,12 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use super::dao::{TaskDao, TaskPatch};
-use super::models::{ArchiveRetention, SandboxDesiredState, SandboxStopReason, TaskStatus};
-use super::sandbox_lifecycle::SandboxLifecycle;
 use crate::agent_event::AgentEvent;
 use crate::message::dao::MessageDao;
 use crate::task::binding_dao::TaskBindingDao;
+use crate::task::dao::{TaskDao, TaskPatch};
+use crate::task::models::{ArchiveRetention, SandboxDesiredState, SandboxStopReason, TaskStatus};
+use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
@@ -790,6 +790,89 @@ impl AgentStatusPort for ConnectorAgentStatus {
     }
 }
 
+/// The k8s-backed [`SandboxResources`]: owns a client to talk to the cluster and
+/// a `TaskDao` to test whether a labeled resource's task still exists.
+pub struct K8sSandboxResources {
+    k8s: moatless_sandbox_k8s::client::K8sClient,
+    tasks: Arc<dyn TaskDao>,
+}
+
+impl K8sSandboxResources {
+    pub fn new(k8s: moatless_sandbox_k8s::client::K8sClient, tasks: Arc<dyn TaskDao>) -> Self {
+        Self { k8s, tasks }
+    }
+}
+
+#[async_trait]
+impl SandboxResources for K8sSandboxResources {
+    async fn list_running_sandbox_ids(
+        &self,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(moatless_sandbox_k8s::sandbox_resources::list_running_sandbox_ids(&self.k8s).await?)
+    }
+
+    async fn gc_orphaned_resources(&self) {
+        let task_ids =
+            moatless_sandbox_k8s::sandbox_resources::collect_labeled_task_ids(&self.k8s).await;
+        if task_ids.is_empty() {
+            return;
+        }
+
+        // reason: orphan GC checks task existence across all owners; system ctx required.
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
+        let mut gc_count = 0u32;
+        for task_id in task_ids {
+            let task_exists = match self.tasks.find_by_id(&task_id, &sys_ctx).await {
+                Ok(Some(_)) => true,
+                Ok(None) => false,
+                Err(e) => {
+                    // A transient DB error must not be mistaken for a deleted task —
+                    // skip this task-id this cycle rather than risk deleting live
+                    // resources.
+                    warn!(task_id = %task_id, error = %e, "orphan-gc: task lookup failed, skipping");
+                    continue;
+                }
+            };
+
+            if decide_orphan(task_exists) == OrphanDecision::Delete {
+                info!(
+                    task_id = %task_id,
+                    "orphan-gc: deleting taskless sandbox resources"
+                );
+                moatless_sandbox_k8s::sandbox_resources::delete_orphaned_task_resources(
+                    &self.k8s, &task_id,
+                )
+                .await;
+                gc_count += 1;
+            }
+        }
+
+        if gc_count > 0 {
+            info!(gc_count, "orphan-gc pass complete");
+        }
+    }
+}
+
+/// Outcome of evaluating a labeled sandbox resource for orphan GC.
+#[derive(Debug, PartialEq, Eq)]
+enum OrphanDecision {
+    /// The resource's Task row is gone, so lifecycle cannot express removal.
+    Delete,
+    /// An existing Task's desired-state convergence belongs to lifecycle.
+    Keep,
+}
+
+/// Pure decision function: decide whether a task's leftover sandbox resources
+/// are orphans safe to GC.
+fn decide_orphan(task_exists: bool) -> OrphanDecision {
+    if task_exists {
+        OrphanDecision::Keep
+    } else {
+        OrphanDecision::Delete
+    }
+}
+
 /// Whether live background processes may still defer an idle stop. The busy
 /// extension is capped at `max_hours` past the activity floor so a leaked
 /// daemon can't pin a sandbox forever; `max_hours == 0` disables the
@@ -1142,10 +1225,10 @@ impl TaskReaper {
 mod tests {
     use super::*;
 
-    use super::super::dao::MockTaskDao;
-    use super::super::sandbox_lifecycle::SandboxOpError;
     use crate::message::dao::MockMessageDao;
     use crate::task::binding_dao::{LoopRecentTaskRow, TaskBindingInfo};
+    use crate::task::dao::MockTaskDao;
+    use crate::task::sandbox_lifecycle::SandboxOpError;
     use crate::task_event::dao::MockTaskEventDao;
     use crate::task_turn::dao::MockTaskTurnDao;
     use moatless_adapter_model::models::TaskBinding;
@@ -1742,5 +1825,20 @@ mod tests {
             decide_reap(60, floor_none, now),
             ReapDecision::Skip("no activity timestamp")
         );
+    }
+
+    #[test]
+    fn orphan_deleted_task_is_gc_immediately() {
+        assert_eq!(decide_orphan(false), OrphanDecision::Delete);
+    }
+
+    #[test]
+    fn orphan_open_task_is_never_gc() {
+        assert_eq!(decide_orphan(true), OrphanDecision::Keep);
+    }
+
+    #[test]
+    fn existing_closed_task_is_left_to_lifecycle() {
+        assert_eq!(decide_orphan(true), OrphanDecision::Keep);
     }
 }

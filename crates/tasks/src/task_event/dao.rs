@@ -22,7 +22,7 @@ pub struct InsertTaskEvent {
 }
 
 /// DAO trait for task event persistence.
-#[cfg_attr(test, mockall::automock)]
+#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub trait TaskEventDao: Send + Sync {
     /// Insert a single event.

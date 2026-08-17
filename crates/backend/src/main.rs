@@ -25,7 +25,7 @@ use moatless_backend::startup;
 use moatless_backend::state::AppState;
 use moatless_backend::supervisor::{Criticality, Supervisor};
 use moatless_backend::{
-    access_settings, adapters, feedback, file_storage, loops, message, plugin, repository,
+    access_settings, adapters, feedback, file_storage, loops, message, plugin, reaper, repository,
     repository_sync, secret, skill, t3code, tag, task, task_connections, task_event, task_listing,
     team, workspace,
 };
@@ -425,8 +425,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         // The reaper's consumer-owned agent-status port. Handed to
         // `spawn_task_reaper` at construction rather than carried on `AppState`.
-        let agent_status: Arc<dyn crate::task::reaper::AgentStatusPort> = Arc::new(
-            crate::task::reaper::ConnectorAgentStatus::new(sandbox_connector.clone()),
+        let agent_status: Arc<dyn crate::reaper::AgentStatusPort> = Arc::new(
+            crate::reaper::ConnectorAgentStatus::new(sandbox_connector.clone()),
         );
         let app_state = AppState::new(
             &ports,
@@ -1006,7 +1006,7 @@ fn spawn_sandbox_reconciler(
 /// enabled. `None` when the reaper is switched off.
 fn spawn_task_reaper(
     app_state: &AppState,
-    agent_status: Arc<dyn crate::task::reaper::AgentStatusPort>,
+    agent_status: Arc<dyn crate::reaper::AgentStatusPort>,
     k8s: sandbox::k8s::client::K8sClient,
     cancel: CancellationToken,
 ) -> Option<tokio::task::JoinHandle<()>> {
@@ -1014,8 +1014,7 @@ fn spawn_task_reaper(
         info!("Task reaper disabled");
         return None;
     }
-    let agent_error_sink: Arc<dyn crate::task::reaper::AgentErrorSink> =
-        Arc::new(app_state.clone());
+    let agent_error_sink: Arc<dyn crate::reaper::AgentErrorSink> = Arc::new(app_state.clone());
     // Build the reaper's leader guard at the composition root; the reaper depends
     // only on the `LeaderGuard` port, not on K8s. Lease duration is 2x the check
     // interval so the lease doesn't expire between cycles.
@@ -1028,10 +1027,10 @@ fn spawn_task_reaper(
     )
     .with_lease_duration(lease_duration_secs);
     let leader: Arc<dyn LeaderGuard> = Arc::new(K8sLeaderGuard(election));
-    let sandbox_resources: Arc<dyn crate::task::reaper::SandboxResources> = Arc::new(
-        sandbox::k8s::sandbox_resources::K8sSandboxResources::new(k8s, app_state.tasks.clone()),
+    let sandbox_resources: Arc<dyn crate::reaper::SandboxResources> = Arc::new(
+        reaper::K8sSandboxResources::new(k8s, app_state.tasks.clone()),
     );
-    let handle = task::reaper::TaskReaper::new(
+    let handle = reaper::TaskReaper::new(
         agent_status,
         leader,
         app_state.messages.clone(),
