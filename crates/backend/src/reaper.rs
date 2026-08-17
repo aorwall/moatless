@@ -17,7 +17,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use moatless_events::{TaskSubType, TaskTurnSubType};
 use tokio::task::JoinHandle;
@@ -26,6 +25,7 @@ use tracing::{debug, info, warn};
 
 use crate::agent_event::AgentEvent;
 use crate::message::dao::MessageDao;
+use crate::state::AppState;
 use crate::task::binding_dao::TaskBindingDao;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::models::{ArchiveRetention, SandboxDesiredState, SandboxStopReason, TaskStatus};
@@ -33,6 +33,7 @@ use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
+use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_backend_core::scope::ScopeContext;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
@@ -68,12 +69,11 @@ enum ReaperError {
 }
 
 /// The unified task reaper's ports — one background job reads all of them, so
-/// the struct is the explicit manifest of what a reap cycle touches. The
-/// orphaned-turn error path delivers a synthetic `agent.error` through the
-/// [`AgentErrorSink`] port rather than reaching into the server-band error
-/// machinery, so the reaper names no server type.
+/// the struct is the explicit manifest of what a reap cycle touches. `state` is
+/// held for one thing only: delivering the synthetic `agent.error` that closes
+/// an orphaned turn through the same handler a real one takes.
 pub struct TaskReaper {
-    agent_status: Arc<dyn AgentStatusPort>,
+    connector: Arc<dyn SandboxConnector>,
     leader: Arc<dyn LeaderGuard>,
     messages: Arc<dyn MessageDao>,
     tasks: Arc<dyn TaskDao>,
@@ -83,19 +83,19 @@ pub struct TaskReaper {
     task_bindings: Arc<dyn TaskBindingDao>,
     events: Option<Arc<dyn EventPublisher>>,
     config: Arc<Config>,
-    agent_error_sink: Arc<dyn AgentErrorSink>,
-    sandbox_resources: Arc<dyn SandboxResources>,
+    state: AppState,
+    k8s: moatless_sandbox_k8s::client::K8sClient,
 }
 
 impl TaskReaper {
     /// Assemble the reaper at the composition root from its ports — each wired
-    /// from the router-held `AppState` there, so this module names none.
+    /// from the router-held `AppState` there.
     #[expect(
         clippy::too_many_arguments,
         reason = "the reaper's ports are its explicit per-cycle manifest; the composition root wires each one"
     )]
     pub fn new(
-        agent_status: Arc<dyn AgentStatusPort>,
+        connector: Arc<dyn SandboxConnector>,
         leader: Arc<dyn LeaderGuard>,
         messages: Arc<dyn MessageDao>,
         tasks: Arc<dyn TaskDao>,
@@ -105,11 +105,11 @@ impl TaskReaper {
         task_bindings: Arc<dyn TaskBindingDao>,
         events: Option<Arc<dyn EventPublisher>>,
         config: Arc<Config>,
-        agent_error_sink: Arc<dyn AgentErrorSink>,
-        sandbox_resources: Arc<dyn SandboxResources>,
+        state: AppState,
+        k8s: moatless_sandbox_k8s::client::K8sClient,
     ) -> Self {
         Self {
-            agent_status,
+            connector,
             leader,
             messages,
             tasks,
@@ -119,8 +119,52 @@ impl TaskReaper {
             task_bindings,
             events,
             config,
-            agent_error_sink,
-            sandbox_resources,
+            state,
+            k8s,
+        }
+    }
+
+    /// Orphan-GC pass: LIST labeled sandbox resources, then delete only the ones
+    /// whose Task row no longer exists. Fully best-effort.
+    async fn gc_orphaned_resources(&self) {
+        let task_ids =
+            moatless_sandbox_k8s::sandbox_resources::collect_labeled_task_ids(&self.k8s).await;
+        if task_ids.is_empty() {
+            return;
+        }
+
+        // reason: orphan GC checks task existence across all owners; system ctx required.
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
+        let mut gc_count = 0u32;
+        for task_id in task_ids {
+            let task_exists = match self.tasks.find_by_id(&task_id, &sys_ctx).await {
+                Ok(Some(_)) => true,
+                Ok(None) => false,
+                Err(e) => {
+                    // A transient DB error must not be mistaken for a deleted task —
+                    // skip this task-id this cycle rather than risk deleting live
+                    // resources.
+                    warn!(task_id = %task_id, error = %e, "orphan-gc: task lookup failed, skipping");
+                    continue;
+                }
+            };
+
+            if decide_orphan(task_exists) == OrphanDecision::Delete {
+                info!(
+                    task_id = %task_id,
+                    "orphan-gc: deleting taskless sandbox resources"
+                );
+                moatless_sandbox_k8s::sandbox_resources::delete_orphaned_task_resources(
+                    &self.k8s, &task_id,
+                )
+                .await;
+                gc_count += 1;
+            }
+        }
+
+        if gc_count > 0 {
+            info!(gc_count, "orphan-gc pass complete");
         }
     }
 
@@ -187,14 +231,13 @@ impl TaskReaper {
     /// Run one reap cycle: close inactive Open tasks, stop idle sandboxes, then
     /// reclaim the storage of the ones that have been stopped long enough.
     async fn run_reap_cycle(&self, defaults: ReapCycleDefaults) -> Result<(), ReaperError> {
-        // The running Sandbox set for this cycle, via the k8s-native port. A
-        // failed LIST aborts the cycle (`?`) rather than letting an empty set be
-        // read as "nothing is running" and reaping live turns under it.
-        let sandbox_ids = self
-            .sandbox_resources
-            .list_running_sandbox_ids()
-            .await
-            .map_err(ReaperError::SandboxQuery)?;
+        // The running Sandbox set for this cycle. A failed LIST aborts the cycle
+        // (`?`) rather than letting an empty set be read as "nothing is running"
+        // and reaping live turns under it.
+        let sandbox_ids =
+            moatless_sandbox_k8s::sandbox_resources::list_running_sandbox_ids(&self.k8s)
+                .await
+                .map_err(|e| ReaperError::SandboxQuery(Box::new(e)))?;
 
         // Tasks whose latest turn is stuck `active` past the floor.
         let cutoff = Utc::now() - chrono::Duration::seconds(RECONCILE_STUCK_TURN_THRESHOLD_SECS);
@@ -215,7 +258,7 @@ impl TaskReaper {
         // Orphan-GC deletes only taskless resources. Desired Removed convergence
         // for existing Tasks belongs to the Sandbox reconciler.
         if defaults.orphan_gc_enabled {
-            self.sandbox_resources.gc_orphaned_resources().await;
+            self.gc_orphaned_resources().await;
         }
 
         let Some(snapshot) = self.load_reaper_snapshot(&sandbox_ids, defaults).await? else {
@@ -560,7 +603,7 @@ impl TaskReaper {
     ) -> bool {
         // Defense in depth: the activity floor can go stale, so ask the agent
         // itself before pulling the plug. An unreadable status falls through.
-        if let Some(status) = agent_status_snapshot(self.agent_status.as_ref(), task_id).await {
+        if let Some(status) = agent_status_snapshot(self.connector.as_ref(), task_id).await {
             if agent_holds_the_sandbox(&status.status) {
                 info!(
                     task_id = %task_id,
@@ -667,7 +710,7 @@ impl TaskReaper {
                 // Sandbox is up — only orphaned if the agent has gone terminal.
                 // Unknown status ⇒ conservative skip (treat as possibly live).
                 matches!(
-                    agent_is_terminal(self.agent_status.as_ref(), &turn.task_id).await,
+                    agent_is_terminal(self.connector.as_ref(), &turn.task_id).await,
                     Some(true)
                 )
             } else {
@@ -698,8 +741,8 @@ impl TaskReaper {
 /// Returns `Some(true)` if the sandbox agent is `idle`/`stopped`, `Some(false)`
 /// if it's still `running`, and `None` when the status can't be read (no client,
 /// gRPC error) — the caller treats `None` conservatively as "possibly live".
-async fn agent_is_terminal(agent_status: &dyn AgentStatusPort, task_id: &str) -> Option<bool> {
-    agent_status_snapshot(agent_status, task_id)
+async fn agent_is_terminal(connector: &dyn SandboxConnector, task_id: &str) -> Option<bool> {
+    agent_status_snapshot(connector, task_id)
         .await
         .map(|resp| agent_turn_is_over(&resp.status))
 }
@@ -716,140 +759,21 @@ fn agent_turn_is_over(status: &str) -> bool {
 /// Live agent status straight from the sandbox, `None` when unreachable
 /// (no client, gRPC error).
 async fn agent_status_snapshot(
-    agent_status: &dyn AgentStatusPort,
+    connector: &dyn SandboxConnector,
     task_id: &str,
 ) -> Option<sandbox_proto::GetAgentStatusResponse> {
-    agent_status.agent_status(task_id).await
-}
-
-/// The reaper's read of a Sandbox's live agent status — the one interior read it
-/// needs, declared consumer-side so the provider handle stays off `AppState`.
-#[async_trait]
-pub trait AgentStatusPort: Send + Sync {
-    async fn agent_status(&self, task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse>;
-}
-
-/// The reaper's delivery of the synthetic `agent.error` it raises when it closes
-/// an orphaned turn, declared consumer-side so the server-band error machinery
-/// (`AppState` and the agent handlers it reaches) stays off the reaper.
-#[async_trait]
-pub trait AgentErrorSink: Send + Sync {
-    async fn deliver_agent_error(&self, event: &AgentEvent);
-}
-
-/// The k8s resources backing sandboxes, as the reaper needs to touch them —
-/// declared consumer-side so the whole Kubernetes body lives in
-/// `sandbox::k8s::sandbox_resources` (beside the client) and the reaper names no
-/// k8s type. Two operations the same cycle needs on the same client:
-///
-/// - [`list_running_sandbox_ids`](Self::list_running_sandbox_ids): the
-///   authoritative running-Sandbox set (managed Deployments with
-///   `desired_replicas > 0`). Fallible and propagated — a failed LIST aborts the
-///   cycle rather than letting an empty set look like "nothing is running" and
-///   reaping live turns.
-/// - [`gc_orphaned_resources`](Self::gc_orphaned_resources): delete labeled
-///   sandbox resources whose Task row is gone. Best-effort: failures are logged
-///   inside the implementation, never surfaced.
-#[async_trait]
-pub trait SandboxResources: Send + Sync {
-    async fn list_running_sandbox_ids(
-        &self,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>>;
-
-    async fn gc_orphaned_resources(&self);
-}
-
-/// Satisfies [`AgentStatusPort`] through the task-addressed connector.
-pub struct ConnectorAgentStatus {
-    connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>,
-}
-
-impl ConnectorAgentStatus {
-    pub fn new(connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>) -> Self {
-        Self { connector }
-    }
-}
-
-#[async_trait]
-impl AgentStatusPort for ConnectorAgentStatus {
-    async fn agent_status(&self, task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse> {
-        let client = match self.connector.sandbox_client(task_id).await {
-            Ok(c) => c,
-            Err(e) => {
-                debug!(task_id, error = %e, "reconcile: no sandbox client for status check");
-                return None;
-            }
-        };
-        match client.get_agent_status_for_task(Some(task_id)).await {
-            Ok(resp) => Some(resp),
-            Err(e) => {
-                debug!(task_id, error = %e, "reconcile: get_agent_status failed");
-                None
-            }
+    let client = match connector.sandbox_client(task_id).await {
+        Ok(c) => c,
+        Err(e) => {
+            debug!(task_id, error = %e, "reconcile: no sandbox client for status check");
+            return None;
         }
-    }
-}
-
-/// The k8s-backed [`SandboxResources`]: owns a client to talk to the cluster and
-/// a `TaskDao` to test whether a labeled resource's task still exists.
-pub struct K8sSandboxResources {
-    k8s: moatless_sandbox_k8s::client::K8sClient,
-    tasks: Arc<dyn TaskDao>,
-}
-
-impl K8sSandboxResources {
-    pub fn new(k8s: moatless_sandbox_k8s::client::K8sClient, tasks: Arc<dyn TaskDao>) -> Self {
-        Self { k8s, tasks }
-    }
-}
-
-#[async_trait]
-impl SandboxResources for K8sSandboxResources {
-    async fn list_running_sandbox_ids(
-        &self,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(moatless_sandbox_k8s::sandbox_resources::list_running_sandbox_ids(&self.k8s).await?)
-    }
-
-    async fn gc_orphaned_resources(&self) {
-        let task_ids =
-            moatless_sandbox_k8s::sandbox_resources::collect_labeled_task_ids(&self.k8s).await;
-        if task_ids.is_empty() {
-            return;
-        }
-
-        // reason: orphan GC checks task existence across all owners; system ctx required.
-        #[allow(clippy::disallowed_methods)]
-        let sys_ctx = ScopeContext::system();
-        let mut gc_count = 0u32;
-        for task_id in task_ids {
-            let task_exists = match self.tasks.find_by_id(&task_id, &sys_ctx).await {
-                Ok(Some(_)) => true,
-                Ok(None) => false,
-                Err(e) => {
-                    // A transient DB error must not be mistaken for a deleted task —
-                    // skip this task-id this cycle rather than risk deleting live
-                    // resources.
-                    warn!(task_id = %task_id, error = %e, "orphan-gc: task lookup failed, skipping");
-                    continue;
-                }
-            };
-
-            if decide_orphan(task_exists) == OrphanDecision::Delete {
-                info!(
-                    task_id = %task_id,
-                    "orphan-gc: deleting taskless sandbox resources"
-                );
-                moatless_sandbox_k8s::sandbox_resources::delete_orphaned_task_resources(
-                    &self.k8s, &task_id,
-                )
-                .await;
-                gc_count += 1;
-            }
-        }
-
-        if gc_count > 0 {
-            info!(gc_count, "orphan-gc pass complete");
+    };
+    match client.get_agent_status_for_task(Some(task_id)).await {
+        Ok(resp) => Some(resp),
+        Err(e) => {
+            debug!(task_id, error = %e, "reconcile: get_agent_status failed");
+            None
         }
     }
 }
@@ -920,7 +844,7 @@ impl TaskReaper {
             }
         }
 
-        close_orphaned_turn_as_error(self.agent_error_sink.as_ref(), turn).await;
+        close_orphaned_turn_as_error(&self.state, turn).await;
     }
 
     /// Close a stuck turn whose agent had already delivered its final reply — its
@@ -1001,21 +925,33 @@ impl TaskReaper {
 /// hasn't yet round-tripped into `task_events`) upsert the same message row
 /// instead of stacking duplicates.
 ///
-/// Free so the reconcile delivery is testable through the [`AgentErrorSink`]
-/// port without constructing a full reaper.
-async fn close_orphaned_turn_as_error(sink: &dyn AgentErrorSink, turn: &UnclosedTurn) {
+/// Free so the reconcile delivery is testable without constructing a full
+/// reaper.
+async fn close_orphaned_turn_as_error(state: &AppState, turn: &UnclosedTurn) {
+    let event = reconcile_error_event(turn);
+    crate::event_handler::agent_handlers::handle_agent_error(state, &event).await;
+    metrics::counter!("task_turns_reconciled_total").increment(1);
+    info!(
+        task_id = %turn.task_id,
+        turn_number = ?turn.turn_number,
+        "Reconciled orphaned active turn"
+    );
+}
+
+/// The synthetic `agent.error` that closes an orphaned turn.
+///
+/// The event id is deterministic per `(task, turn)` so repeated reconcile cycles
+/// upsert the same message row instead of stacking duplicates.
+fn reconcile_error_event(turn: &UnclosedTurn) -> AgentEvent {
     let turn_label = turn
         .turn_number
         .map_or_else(|| "unknown".to_string(), |n| n.to_string());
-    let event_id = format!("reconcile-{}-{}", turn.task_id, turn_label);
-    let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-
-    let event = AgentEvent {
-        event_id,
+    AgentEvent {
+        event_id: format!("reconcile-{}-{}", turn.task_id, turn_label),
         event_type: EventType::Agent,
         sub_type: "error".to_string(),
         task_id: turn.task_id.clone(),
-        timestamp,
+        timestamp: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         is_error: true,
         agent_type: turn.agent_type.clone(),
         turn_number: turn.turn_number,
@@ -1023,15 +959,7 @@ async fn close_orphaned_turn_as_error(sink: &dyn AgentErrorSink, turn: &Unclosed
             "error": "The agent stopped without reporting a result. The backend closed this turn so you can continue.",
             "reason": "reconciled_orphaned_turn",
         }),
-    };
-
-    sink.deliver_agent_error(&event).await;
-    metrics::counter!("task_turns_reconciled_total").increment(1);
-    info!(
-        task_id = %turn.task_id,
-        turn_number = ?turn.turn_number,
-        "Reconciled orphaned active turn"
-    );
+    }
 }
 
 /// Outcome of evaluating a sandbox for the idle-stop branch.
@@ -1225,315 +1153,18 @@ impl TaskReaper {
 mod tests {
     use super::*;
 
-    use crate::message::dao::MockMessageDao;
-    use crate::task::binding_dao::{LoopRecentTaskRow, TaskBindingInfo};
-    use crate::task::dao::MockTaskDao;
-    use crate::task::sandbox_lifecycle::SandboxOpError;
-    use crate::task_event::dao::MockTaskEventDao;
-    use crate::task_turn::dao::MockTaskTurnDao;
-    use moatless_adapter_model::models::TaskBinding;
-
-    struct RecordingAgentStatus {
-        calls: std::sync::Mutex<Vec<String>>,
-        response: sandbox_proto::GetAgentStatusResponse,
-    }
-
-    #[async_trait]
-    impl AgentStatusPort for RecordingAgentStatus {
-        async fn agent_status(
-            &self,
-            task_id: &str,
-        ) -> Option<sandbox_proto::GetAgentStatusResponse> {
-            self.calls.lock().unwrap().push(task_id.to_string());
-            Some(self.response.clone())
-        }
-    }
-
-    #[derive(Default)]
-    struct RecordingAgentErrorSink {
-        events: std::sync::Mutex<Vec<AgentEvent>>,
-    }
-
-    #[async_trait]
-    impl AgentErrorSink for RecordingAgentErrorSink {
-        async fn deliver_agent_error(&self, event: &AgentEvent) {
-            self.events.lock().unwrap().push(AgentEvent {
-                event_id: event.event_id.clone(),
-                event_type: event.event_type,
-                sub_type: event.sub_type.clone(),
-                task_id: event.task_id.clone(),
-                timestamp: event.timestamp.clone(),
-                is_error: event.is_error,
-                agent_type: event.agent_type.clone(),
-                turn_number: event.turn_number,
-                payload: event.payload.clone(),
-            });
-        }
-    }
-
-    /// Every reaper port the orphaned-turn *error* path does not touch. Building a
-    /// real `TaskReaper` means supplying all twelve collaborators; on this path
-    /// only `messages` (the completed-reply guard) and `agent_error_sink` (the
-    /// delivery under test) participate, so the rest `unimplemented!()` — a call
-    /// that should never happen fails the test loudly instead of passing silently.
-    struct InertPorts;
-
-    #[async_trait]
-    impl LeaderGuard for InertPorts {
-        async fn try_acquire_or_renew(
-            &self,
-        ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-            unimplemented!("reaper error path does not elect a leader")
-        }
-    }
-
-    #[async_trait]
-    impl AgentStatusPort for InertPorts {
-        async fn agent_status(
-            &self,
-            _task_id: &str,
-        ) -> Option<sandbox_proto::GetAgentStatusResponse> {
-            unimplemented!("reaper error path does not read agent status")
-        }
-    }
-
-    #[async_trait]
-    impl SandboxLifecycle for InertPorts {
-        async fn start(&self, _task_id: &str) -> Result<(), SandboxOpError> {
-            unimplemented!("reaper error path does not drive sandbox lifecycle")
-        }
-        async fn stop(
-            &self,
-            _task_id: &str,
-            _reason: SandboxStopReason,
-        ) -> Result<(), SandboxOpError> {
-            unimplemented!("reaper error path does not drive sandbox lifecycle")
-        }
-        async fn remove(
-            &self,
-            _task_id: &str,
-            _retention: ArchiveRetention,
-        ) -> Result<(), SandboxOpError> {
-            unimplemented!("reaper error path does not drive sandbox lifecycle")
-        }
-        async fn archive_storage(&self, _task_id: &str) -> Result<(), SandboxOpError> {
-            unimplemented!("reaper error path does not drive sandbox lifecycle")
-        }
-        async fn stopped_with_storage(
-            &self,
-            _task_ids: &[String],
-        ) -> Result<HashMap<String, DateTime<Utc>>, SandboxOpError> {
-            unimplemented!("reaper error path does not read sandbox storage")
-        }
-        async fn desired_state(
-            &self,
-            _task_id: &str,
-        ) -> Result<SandboxDesiredState, SandboxOpError> {
-            unimplemented!("reaper error path does not drive sandbox lifecycle")
-        }
-    }
-
-    #[async_trait]
-    impl SandboxResources for InertPorts {
-        async fn list_running_sandbox_ids(
-            &self,
-        ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-            unimplemented!("reaper error path does not list sandbox resources")
-        }
-        async fn gc_orphaned_resources(&self) {
-            unimplemented!("reaper error path does not gc sandbox resources")
-        }
-    }
-
-    #[async_trait]
-    impl TaskBindingDao for InertPorts {
-        async fn find_by_id(&self, _id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
-            unimplemented!("reaper error path does not read bindings")
-        }
-        async fn find_by_subject(
-            &self,
-            _adapter_kind: &str,
-            _subject_kind: &str,
-            _subject_key: &str,
-        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-            unimplemented!("reaper error path does not read bindings")
-        }
-        async fn find_all_by_subject_excluding_task(
-            &self,
-            _adapter_kind: &str,
-            _subject_kind: &str,
-            _subject_key: &str,
-            _exclude_task_id: &str,
-        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-            unimplemented!("reaper error path does not read bindings")
-        }
-        async fn find_by_task_id(&self, _task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error> {
-            unimplemented!("reaper error path does not read bindings")
-        }
-        async fn find_by_task_id_and_subject(
-            &self,
-            _task_id: &str,
-            _adapter_kind: &str,
-            _subject_kind: &str,
-            _subject_key: &str,
-        ) -> Result<Option<TaskBinding>, sqlx::Error> {
-            unimplemented!("reaper error path does not read bindings")
-        }
-        async fn find_provider_event_created_for_subject(
-            &self,
-            _adapter_kind: &str,
-            _subject_kind: &str,
-            _subject_key: &str,
-        ) -> Result<Option<TaskBinding>, sqlx::Error> {
-            unimplemented!("reaper error path does not read bindings")
-        }
-        async fn find_active_by_destination_field(
-            &self,
-            _adapter_kind: &str,
-            _subject_kind: &str,
-            _field_name: &str,
-            _field_value: &str,
-        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-            unimplemented!("reaper error path does not read bindings")
-        }
-        async fn upsert(&self, _row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
-            unimplemented!("reaper error path does not write bindings")
-        }
-        async fn delete(&self, _id: &str) -> Result<u64, sqlx::Error> {
-            unimplemented!("reaper error path does not write bindings")
-        }
-        async fn deactivate_by_task(&self, _task_id: &str) -> Result<u64, sqlx::Error> {
-            unimplemented!("reaper error path does not write bindings")
-        }
-        async fn touch_last_event(&self, _id: &str) -> Result<(), sqlx::Error> {
-            unimplemented!("reaper error path does not write bindings")
-        }
-        async fn touch_cursor(
-            &self,
-            _id: &str,
-            _last_external_event_id: &str,
-        ) -> Result<(), sqlx::Error> {
-            unimplemented!("reaper error path does not write bindings")
-        }
-        async fn update_external_status(
-            &self,
-            _id: &str,
-            _status: Option<&str>,
-            _state_kind: Option<&str>,
-            _raw: &serde_json::Value,
-        ) -> Result<(), sqlx::Error> {
-            unimplemented!("reaper error path does not write bindings")
-        }
-        async fn update_review_decision(
-            &self,
-            _id: &str,
-            _review_decision: Option<&str>,
-        ) -> Result<(), sqlx::Error> {
-            unimplemented!("reaper error path does not write bindings")
-        }
-        async fn update_mergeable_state(
-            &self,
-            _id: &str,
-            _mergeable_state: Option<&str>,
-        ) -> Result<(), sqlx::Error> {
-            unimplemented!("reaper error path does not write bindings")
-        }
-        async fn find_by_task_ids(
-            &self,
-            _task_ids: &[String],
-        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-            unimplemented!("reaper error path does not read bindings")
-        }
-        async fn find_recent_for_loop(
-            &self,
-            _loop_id: &str,
-            _limit: i64,
-        ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
-            unimplemented!("reaper error path does not read bindings")
-        }
-        async fn get_bindings_for_tasks(
-            &self,
-            _task_ids: &[String],
-        ) -> Result<Vec<TaskBindingInfo>, sqlx::Error> {
-            unimplemented!("reaper error path does not read bindings")
-        }
-    }
-
-    /// The reaper's *invocation* of the error sink, driven through
-    /// `close_orphaned_turn` — the seam the free-function test above cannot reach.
-    /// With the completed-reply guard answering "no final reply landed"
-    /// (`Ok(false)`), the one correct outcome is a single synthetic `agent.error`
-    /// delivered to the sink. Deleting the `close_orphaned_turn_as_error` call this
-    /// drives leaves every other reaper test green while orphaned turns silently
-    /// stop closing; this test is what turns that deletion red.
-    #[tokio::test]
-    async fn close_orphaned_turn_delivers_the_error_to_the_sink_when_no_reply_landed() {
-        let mut messages = MockMessageDao::new();
-        messages
-            .expect_last_message_is_completed_reply()
-            .returning(|_task_id, _turn_number| Ok(false));
-
-        let sink = Arc::new(RecordingAgentErrorSink::default());
-        let inert = Arc::new(InertPorts);
-
-        let reaper = TaskReaper::new(
-            inert.clone(),
-            inert.clone(),
-            Arc::new(messages),
-            Arc::new(MockTaskDao::new()),
-            Arc::new(MockTaskTurnDao::new()),
-            Arc::new(MockTaskEventDao::new()),
-            inert.clone(),
-            inert.clone(),
-            None,
-            Arc::new(Config::test_minimal()),
-            sink.clone(),
-            inert.clone(),
-        );
-
-        let turn = UnclosedTurn {
-            task_id: "task-7".to_string(),
-            turn_number: Some(2),
-            agent_type: Some("claude".to_string()),
-        };
-
-        reaper.close_orphaned_turn(&turn).await;
-
-        let events = sink.events.lock().unwrap();
-        assert_eq!(
-            events.len(),
-            1,
-            "close_orphaned_turn must deliver exactly one synthetic agent.error \
-             through the sink when no final reply landed"
-        );
-        assert_eq!(events[0].event_id, "reconcile-task-7-2");
-        assert_eq!(events[0].sub_type, "error");
-        assert!(events[0].is_error);
-        assert_eq!(events[0].task_id, "task-7");
-        assert_eq!(events[0].turn_number, Some(2));
-    }
-
-    /// Holds two things about [`close_orphaned_turn_as_error`]: the reconcile
-    /// event's shape, and that the sink is fired exactly once. It calls the free
-    /// helper directly and so does NOT cover the reaper's *invocation* of it from
-    /// `close_orphaned_turn`; that seam — where deleting the call leaves this test
-    /// green while orphaned turns silently stop closing — is covered by
-    /// `close_orphaned_turn_delivers_the_error_to_the_sink_when_no_reply_landed`,
-    /// which drives the same delivery through a real `TaskReaper`.
-    #[tokio::test]
-    async fn close_orphaned_turn_as_error_delivers_reconcile_event_to_sink() {
-        let sink = RecordingAgentErrorSink::default();
+    /// The reconcile event's shape. The id must be deterministic per
+    /// `(task, turn)` so a cycle that repeats while the terminal event is still
+    /// missing upserts one message row instead of stacking duplicates.
+    #[test]
+    fn reconcile_error_event_is_deterministic_per_task_and_turn() {
         let turn = UnclosedTurn {
             task_id: "task-9".to_string(),
             turn_number: Some(4),
             agent_type: Some("claude".to_string()),
         };
 
-        close_orphaned_turn_as_error(&sink, &turn).await;
-
-        let events = sink.events.lock().unwrap();
-        assert_eq!(events.len(), 1, "the sink must be fired exactly once");
-        let event = &events[0];
+        let event = reconcile_error_event(&turn);
         assert_eq!(event.event_id, "reconcile-task-9-4");
         assert_eq!(event.event_type, EventType::Agent);
         assert_eq!(event.sub_type, "error");
@@ -1545,24 +1176,23 @@ mod tests {
             event.payload.get("reason").and_then(|v| v.as_str()),
             Some("reconciled_orphaned_turn")
         );
+
+        assert_eq!(reconcile_error_event(&turn).event_id, event.event_id);
     }
 
-    #[tokio::test]
-    async fn idle_eligibility_reads_agent_status_through_its_port() {
-        let port = RecordingAgentStatus {
-            calls: std::sync::Mutex::new(Vec::new()),
-            response: sandbox_proto::GetAgentStatusResponse {
-                status: "idle".to_string(),
-                ..Default::default()
-            },
+    /// A turn with no number still gets a stable id rather than colliding with
+    /// another numberless turn on the same task.
+    #[test]
+    fn reconcile_error_event_labels_a_numberless_turn() {
+        let turn = UnclosedTurn {
+            task_id: "task-3".to_string(),
+            turn_number: None,
+            agent_type: None,
         };
-
-        let status = agent_status_snapshot(&port, "task-1")
-            .await
-            .expect("recording port returns status");
-
-        assert_eq!(status.status, "idle");
-        assert_eq!(*port.calls.lock().unwrap(), vec!["task-1"]);
+        assert_eq!(
+            reconcile_error_event(&turn).event_id,
+            "reconcile-task-3-unknown"
+        );
     }
 
     /// A parked run is doing no work, so it does not hold its sandbox open past

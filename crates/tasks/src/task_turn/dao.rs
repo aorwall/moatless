@@ -120,7 +120,7 @@ async fn record_turn_change(
 }
 
 /// Repository for authoritative task-turn state.
-#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait TaskTurnDao: Send + Sync {
     /// Transactionally apply a state-bearing event at the gRPC ingress: persist

@@ -5,7 +5,7 @@
 //! generated item lands in this module, so this is the only scope that can
 //! carry the suppression.
 #![cfg_attr(
-    any(test, feature = "test-support"),
+    test,
     expect(
         clippy::ref_option_ref,
         reason = "mockall turns each `Option<&T>` argument into a `&Option<&T>` matcher"
@@ -173,7 +173,7 @@ pub struct InterruptedTurn {
 }
 
 /// DAO trait for message persistence.
-#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait MessageDao: Send + Sync {
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error>;

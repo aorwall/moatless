@@ -3882,7 +3882,6 @@ dependencies = [
  "moatless-events",
  "moatless-s3",
  "moatless-sandbox-control",
- "moatless-tasks",
  "moatless-workspaces",
  "serde",
  "serde_json",

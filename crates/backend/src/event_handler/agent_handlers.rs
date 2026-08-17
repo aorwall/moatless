@@ -1,11 +1,9 @@
 //! Agent event handlers — process agent.completed, agent.stopped, agent.error events.
 
-use async_trait::async_trait;
 use moatless_backend_core::scope::ScopeContext;
 use moatless_events::{TaskSubType, TaskTurnSubType};
 
 use crate::message::models::{MessageRole, MessageType, TaskMessage, TaskMessageContext};
-use crate::reaper::AgentErrorSink;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
 use crate::task::models::TaskStatus;
@@ -13,15 +11,6 @@ use crate::task_activities::mapping::{BlockContext, ConversationWrite, map_conte
 
 use super::models::SdkResultMessage;
 use crate::agent_event::AgentEvent;
-
-/// Delivers the reaper's synthetic `agent.error` (see [`AgentErrorSink`])
-/// through the same server-band error machinery a real `agent.error` takes.
-#[async_trait]
-impl AgentErrorSink for AppState {
-    async fn deliver_agent_error(&self, event: &AgentEvent) {
-        handle_agent_error(self, event).await;
-    }
-}
 
 /// Handle `agent.completed` event.
 ///
