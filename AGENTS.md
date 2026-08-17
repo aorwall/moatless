@@ -43,9 +43,7 @@ the same reason.
 In a sandbox the workspace volume is capped and overflowing it **evicts the
 pod** — the run dies and only committed work survives. `/opt/moatless` holds the
 checkout and `target/`, so check `df -h /opt/moatless` before the first full
-build and between commits, and run `task rust:gc` when it tightens. Commit each
-logical change as it goes green rather than batching, so an eviction costs one
-commit.
+build and between commits, and run `task rust:gc` when it tightens.
 
 Why the set is shaped this way, what each invocation costs, how the db-tests
 tier and the three integration targets work, and how to point rust-analyzer at
