@@ -722,6 +722,28 @@ ids appear in delivered review-comment messages (`Comment id: …`) and in
 moat gh pr reply 42 123456789 --body "Good catch — fixed in abc1234."
 ```
 
+### `moat gh api …`
+
+Passthrough to `gh api`, with one addition: a POST that creates a review
+comment, a review, or an issue comment has its response read and the id it
+names recorded for `$TASK_ID`, so the webhook echoing it back is recognised as
+the task's own work. The endpoint surface of `gh api` is too wide to type, and
+those three shapes carry no `Moatless task:` footer, so nothing else could
+recognise them.
+
+Recognised (recorded):
+
+```bash
+moat gh api repos/{owner}/{repo}/pulls/{n}/comments -f body=… -f path=… -F line=…
+moat gh api repos/{owner}/{repo}/pulls/{n}/reviews --method POST --field event=APPROVE
+moat gh api repos/{owner}/{repo}/issues/{n}/comments -f body=…
+```
+
+Everything else — reads, GraphQL, other endpoints — runs unchanged and records
+nothing.
+
+- **API**: `POST /api/v1/github/external-events`
+
 ### Passthrough
 
 ```bash

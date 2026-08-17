@@ -23,6 +23,8 @@ import type {
   GithubCommentResponse,
   GithubCreatePrRequest,
   GithubCreatePrResponse,
+  GithubExternalEventRequest,
+  GithubExternalEventResponse,
   GithubReplyRequest
 } from '.././model';
 
@@ -38,7 +40,105 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 
-export type postCommentResponse200 = {
+/**
+ * `moat gh api` reaches GitHub directly, because the endpoint surface of `gh
+api` is too wide to type, so the side effect the typed routes perform inline
+has to be requested separately. The command that made the change is the one
+that calls this, with the response in hand.
+ * @summary Record a GitHub event the caller produced outside the typed routes above.
+ */
+export type recordExternalEventResponse200 = {
+  data: GithubExternalEventResponse
+  status: 200
+}
+
+export type recordExternalEventResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type recordExternalEventResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type recordExternalEventResponseSuccess = (recordExternalEventResponse200) & {
+  headers: Headers;
+};
+export type recordExternalEventResponseError = (recordExternalEventResponse400 | recordExternalEventResponse404) & {
+  headers: Headers;
+};
+
+export type recordExternalEventResponse = (recordExternalEventResponseSuccess | recordExternalEventResponseError)
+
+export const getRecordExternalEventUrl = () => {
+
+
+  
+
+  return `/api/v1/github/external-events`
+}
+
+export const recordExternalEvent = async (githubExternalEventRequest: GithubExternalEventRequest, options?: RequestInit): Promise<recordExternalEventResponse> => {
+  
+  return customInstance<recordExternalEventResponse>(getRecordExternalEventUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      githubExternalEventRequest,)
+  }
+);}
+
+
+
+
+export const getRecordExternalEventMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordExternalEvent>>, TError,{data: GithubExternalEventRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof recordExternalEvent>>, TError,{data: GithubExternalEventRequest}, TContext> => {
+
+const mutationKey = ['recordExternalEvent'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recordExternalEvent>>, {data: GithubExternalEventRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  recordExternalEvent(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecordExternalEventMutationResult = NonNullable<Awaited<ReturnType<typeof recordExternalEvent>>>
+    export type RecordExternalEventMutationBody = GithubExternalEventRequest
+    export type RecordExternalEventMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Record a GitHub event the caller produced outside the typed routes above.
+ */
+export const useRecordExternalEvent = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordExternalEvent>>, TError,{data: GithubExternalEventRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof recordExternalEvent>>,
+        TError,
+        {data: GithubExternalEventRequest},
+        TContext
+      > => {
+      return useMutation(getRecordExternalEventMutationOptions(options), queryClient);
+    }
+    export type postCommentResponse200 = {
   data: GithubCommentResponse
   status: 200
 }

@@ -34,9 +34,10 @@ pub struct PromptInputs<'a> {
 }
 
 /// Steers the agent toward `moat gh` (the backend-proxied GitHub wrapper) and
-/// away from the (broken) hosted GitHub MCP tools. `moat gh` proxies the
-/// mutations that need backend side effects and passes everything else
-/// through to the authenticated `gh` CLI.
+/// away from the (broken) hosted GitHub MCP tools. `moat gh`
+/// proxies the mutations that need backend side effects, records what a raw
+/// `gh api` POST creates, and passes everything else through to the
+/// authenticated `gh` CLI.
 const GITHUB_CLI_HINT: &str = "\
 # GitHub Access
 
@@ -53,7 +54,8 @@ replies route back here automatically):
 `-R owner/repo` and `--head` are inferred from the current git repository when
 omitted. Every other gh subcommand (`pr view`, `api`, `run watch`, …) passes
 through to the local authenticated `gh` CLI unchanged, so `moat gh <anything>`
-is always safe to use.";
+is always safe to use — and a `moat gh api` POST that creates a review comment,
+a review or an issue comment is recorded for this task on your behalf.";
 
 /// CLI reference appended at the end of the system prompt.
 const SANDBOX_TOOLS_PROMPT: &str = "\

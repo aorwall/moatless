@@ -2713,6 +2713,58 @@
         }
       }
     },
+    "/api/v1/github/external-events": {
+      "post": {
+        "tags": [
+          "github"
+        ],
+        "summary": "Record a GitHub event the caller produced outside the typed routes above.",
+        "description": "`moat gh api` reaches GitHub directly, because the endpoint surface of `gh\napi` is too wide to type, so the side effect the typed routes perform inline\nhas to be requested separately. The command that made the change is the one\nthat calls this, with the response in hand.",
+        "operationId": "record_external_event",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubExternalEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "External event recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubExternalEventResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/github/repos/{owner}/{repo}/issues/{number}/comments": {
       "post": {
         "tags": [
@@ -11698,6 +11750,114 @@
             "type": "string"
           }
         }
+      },
+      "GithubExternalEventRequest": {
+        "type": "object",
+        "description": "`POST /api/v1/github/external-events` — record an event this Task made.",
+        "required": [
+          "taskId",
+          "subject"
+        ],
+        "properties": {
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`owner/repo` the event happened in."
+          },
+          "subject": {
+            "$ref": "#/components/schemas/GithubExternalEventSubject"
+          },
+          "taskId": {
+            "type": "string",
+            "description": "Task the event belongs to."
+          }
+        }
+      },
+      "GithubExternalEventResponse": {
+        "type": "object",
+        "description": "Response for a recorded external event.",
+        "required": [
+          "recorded"
+        ],
+        "properties": {
+          "recorded": {
+            "type": "boolean",
+            "description": "Whether the durable row landed. `false` means only this replica's\nin-memory note holds the event, so another replica may deliver the echo."
+          }
+        }
+      },
+      "GithubExternalEventSubject": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "`POST repos/{owner}/{repo}/pulls/{n}/comments` — an inline review comment.",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "reviewComment"
+                ]
+              },
+              "value": {
+                "type": "integer",
+                "format": "int64",
+                "description": "`POST repos/{owner}/{repo}/pulls/{n}/comments` — an inline review comment.",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "`POST repos/{owner}/{repo}/pulls/{n}/reviews` — a review submission.",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "review"
+                ]
+              },
+              "value": {
+                "type": "integer",
+                "format": "int64",
+                "description": "`POST repos/{owner}/{repo}/pulls/{n}/reviews` — a review submission.",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "`POST repos/{owner}/{repo}/issues/{n}/comments` — a conversation comment\non a pull request or an issue.",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "issueComment"
+                ]
+              },
+              "value": {
+                "type": "integer",
+                "format": "int64",
+                "description": "`POST repos/{owner}/{repo}/issues/{n}/comments` — a conversation comment\non a pull request or an issue.",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "What a `moat` command created on GitHub outside the typed API.\n\nNamed by *what was created*, not by an external event id: the id format is\nthe Adapter's vocabulary and the caller does not have to know it. Each shape\ncarries the numeric id GitHub returned for the object it made."
       },
       "GithubReplyRequest": {
         "type": "object",

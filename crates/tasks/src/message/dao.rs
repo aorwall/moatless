@@ -354,6 +354,19 @@ pub trait MessageDao: Send + Sync {
         source_name: Option<&'a str>,
     ) -> Result<bool, sqlx::Error>;
 
+    /// Record an external event this Task produced.
+    ///
+    /// The entry for a caller with no `tool_use_id` to hang the record on — a
+    /// `moat` command in a sandbox shell. See
+    /// [`outbound_events`](crate::task::outbound_events).
+    async fn record_external_event<'a>(
+        &self,
+        task_id: &'a str,
+        external_event_id: &'a str,
+        provider: &'a str,
+        source_name: Option<&'a str>,
+    ) -> Result<(), sqlx::Error>;
+
     async fn has_external_event_id(
         &self,
         task_id: &str,
@@ -1205,6 +1218,23 @@ impl MessageDao for PgMessageDao {
         .await
     }
 
+    async fn record_external_event<'a>(
+        &self,
+        task_id: &'a str,
+        external_event_id: &'a str,
+        provider: &'a str,
+        source_name: Option<&'a str>,
+    ) -> Result<(), sqlx::Error> {
+        crate::task::outbound_events::record(
+            &self.0,
+            task_id,
+            external_event_id,
+            provider,
+            source_name,
+        )
+        .await
+    }
+
     async fn has_external_event_id(
         &self,
         task_id: &str,
@@ -1235,10 +1265,12 @@ impl MessageDao for PgMessageDao {
 
         // An id claimed by a call rather than by a Message: an outbound comment
         // whose turn said nothing and therefore wrote no Message row.
-        if row.0 {
+        if row.0 || activities::claims_any_external(&self.0, task_id, external_ids).await? {
             return Ok(true);
         }
-        activities::claims_any_external(&self.0, task_id, external_ids).await
+        // An id claimed by a `moat` command, which has no tool-use id to hang
+        // the activity tag on.
+        crate::task::outbound_events::has_any(&self.0, task_id, external_ids).await
     }
 
     async fn get_external_event_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
@@ -1273,10 +1305,13 @@ impl MessageDao for PgMessageDao {
         .fetch_optional(&self.0)
         .await?;
 
-        match by_message {
-            Some(task_id) => Ok(Some(task_id)),
-            None => activities::task_claiming_external(&self.0, external_ids).await,
+        if let Some(task_id) = by_message {
+            return Ok(Some(task_id));
         }
+        if let Some(task_id) = activities::task_claiming_external(&self.0, external_ids).await? {
+            return Ok(Some(task_id));
+        }
+        crate::task::outbound_events::task_for_any(&self.0, external_ids).await
     }
 
     async fn get_paginated(

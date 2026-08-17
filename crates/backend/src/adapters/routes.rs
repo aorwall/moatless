@@ -39,6 +39,7 @@ use crate::state::AppState;
         github_pr::api_routes::post_comment,
         github_pr::api_routes::reply_to_review_comment,
         github_pr::api_routes::bind_pr,
+        github_pr::api_routes::record_external_event,
         linear::handlers::linear_webhook,
         linear::api_routes::get_issue,
         linear::api_routes::create_issue,
@@ -78,6 +79,7 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(github_pr::api_routes::post_comment))
         .routes(routes!(github_pr::api_routes::reply_to_review_comment))
         .routes(routes!(github_pr::api_routes::bind_pr))
+        .routes(routes!(github_pr::api_routes::record_external_event))
         .routes(routes!(linear::handlers::linear_webhook))
         .routes(routes!(linear::api_routes::get_issue))
         .routes(routes!(linear::api_routes::create_issue))

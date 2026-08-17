@@ -21,7 +21,9 @@ use axum::Json;
 use axum::extract::{Path, State};
 use moatless_api_schemas::github::{
     GithubBindPrRequest, GithubBindPrResponse, GithubCommentRequest, GithubCommentResponse,
-    GithubCreatePrRequest, GithubCreatePrResponse, GithubReplyRequest,
+    GithubCreatePrRequest, GithubExternalEventRequest, GithubExternalEventResponse,
+    GithubExternalEventSubject,
+    GithubCreatePrResponse, GithubReplyRequest,
 };
 use serde_json::{Value, json};
 use tracing::{info, warn};
@@ -34,6 +36,7 @@ use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_identity::auth::actor::Actor;
 use moatless_identity::extractors::AuthUser;
 use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_tasks::message::dao::MessageDao;
 use moatless_tasks::task::dao::TaskDao;
 
 use super::adapter::GithubPrAdapter;
@@ -46,6 +49,10 @@ use super::shell_reconcile::compose_footer;
 /// The typed API resolves credentials, the frontend-URL footer, and the binding
 /// Connector through this one provider handle rather than an `AppState`, mirroring
 /// [`super::handlers::github_webhook`].
+/// Provider label recorded on an external event, and the `external_adapter` an inbound
+/// event is matched under.
+const ADAPTER_LABEL: &str = "github_pr";
+
 fn require_provider(
     provider: Option<Arc<GithubPrAdapter>>,
 ) -> Result<Arc<GithubPrAdapter>, AdapterError> {
@@ -72,6 +79,7 @@ pub async fn create_pr(
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
     State(tasks): State<Arc<dyn TaskDao>>,
     State(recently_sent): State<Arc<RecentlySent>>,
+    State(messages): State<Arc<dyn MessageDao>>,
     auth: AuthUser,
     Path((owner, repo)): Path<(String, String)>,
     Json(req): Json<GithubCreatePrRequest>,
@@ -128,7 +136,15 @@ pub async fn create_pr(
             &auth.user_id.to_string(),
         )
         .await;
-        recently_sent.note(task_id, &external_id::pr_opened(created.number));
+        note_external_event(
+            recently_sent.as_ref(),
+            messages.as_ref(),
+            task_id,
+            &external_id::pr_opened(created.number),
+            &owner,
+            &repo,
+        )
+        .await;
         bid
     } else {
         None
@@ -216,6 +232,7 @@ pub async fn post_comment(
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
     State(tasks): State<Arc<dyn TaskDao>>,
     State(recently_sent): State<Arc<RecentlySent>>,
+    State(messages): State<Arc<dyn MessageDao>>,
     auth: AuthUser,
     Path((owner, repo, number)): Path<(String, String, u64)>,
     Json(req): Json<GithubCommentRequest>,
@@ -240,7 +257,15 @@ pub async fn post_comment(
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
         // Note the echo dedup BEFORE the (slower) binding upsert so the
         // inbound webhook can't race past it.
-        recently_sent.note(task_id, &external_id::issue_comment(comment_id));
+        note_external_event(
+            recently_sent.as_ref(),
+            messages.as_ref(),
+            task_id,
+            &external_id::issue_comment(comment_id),
+            &owner,
+            &repo,
+        )
+        .await;
         bind_task_to_pr(
             &adapter,
             &owner,
@@ -288,6 +313,7 @@ pub async fn reply_to_review_comment(
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
     State(tasks): State<Arc<dyn TaskDao>>,
     State(recently_sent): State<Arc<RecentlySent>>,
+    State(messages): State<Arc<dyn MessageDao>>,
     auth: AuthUser,
     Path((owner, repo, number, comment_id)): Path<(String, String, u64, u64)>,
     Json(req): Json<GithubReplyRequest>,
@@ -314,7 +340,15 @@ pub async fn reply_to_review_comment(
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
         // Note the echo dedup BEFORE the (slower) binding upsert so the
         // inbound webhook can't race past it.
-        recently_sent.note(task_id, &external_id::review_comment(new_id));
+        note_external_event(
+            recently_sent.as_ref(),
+            messages.as_ref(),
+            task_id,
+            &external_id::review_comment(new_id),
+            &owner,
+            &repo,
+        )
+        .await;
         bind_task_to_pr(
             &adapter,
             &owner,
@@ -387,9 +421,104 @@ pub async fn bind_pr(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/github/external-events",
+    tag = "github",
+    request_body = GithubExternalEventRequest,
+    responses(
+        (status = 200, description = "External event recorded", body = GithubExternalEventResponse),
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
+    )
+)]
+/// Record a GitHub event the caller produced outside the typed routes above.
+///
+/// `moat gh api` reaches GitHub directly, because the endpoint surface of `gh
+/// api` is too wide to type, so the side effect the typed routes perform inline
+/// has to be requested separately. The command that made the change is the one
+/// that calls this, with the response in hand.
+pub async fn record_external_event(
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(recently_sent): State<Arc<RecentlySent>>,
+    State(messages): State<Arc<dyn MessageDao>>,
+    auth: AuthUser,
+    Json(req): Json<GithubExternalEventRequest>,
+) -> Result<Json<GithubExternalEventResponse>, AdapterError> {
+    let ctx = auth.scope_context();
+    ensure_task_access_with(tasks.as_ref(), &ctx, &req.task_id).await?;
+
+    let external_id = match &req.subject {
+        GithubExternalEventSubject::ReviewComment(id) => external_id::review_comment(*id),
+        GithubExternalEventSubject::Review(id) => external_id::review(*id),
+        GithubExternalEventSubject::IssueComment(id) => external_id::issue_comment(*id),
+    };
+    recently_sent.note(&req.task_id, &external_id);
+    let recorded = record_durable_event(
+        messages.as_ref(),
+        &req.task_id,
+        &external_id,
+        req.source_name.as_deref(),
+    )
+    .await;
+
+    info!(
+        task_id = %req.task_id,
+        subject = ?req.subject,
+        recorded,
+        "Recorded a GitHub event the task made directly"
+    );
+    Ok(Json(GithubExternalEventResponse { recorded }))
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Record `external_id` as `task_id`'s own work, in memory and durably.
+///
+/// The in-memory note closes the race where the webhook lands before anything
+/// has committed; the durable row is what still answers after a restart, and on
+/// the replica that did not serve this request.
+async fn note_external_event(
+    recently_sent: &RecentlySent,
+    messages: &dyn MessageDao,
+    task_id: &str,
+    external_id: &str,
+    owner: &str,
+    repo: &str,
+) {
+    recently_sent.note(task_id, external_id);
+    record_durable_event(
+        messages,
+        task_id,
+        external_id,
+        Some(&format!("{owner}/{repo}")),
+    )
+    .await;
+}
+
+/// The durable half, and whether it landed.
+///
+/// Best effort: a failure costs one echoed event on a replica that did not
+/// serve this request, and the in-memory note has already landed here.
+async fn record_durable_event(
+    messages: &dyn MessageDao,
+    task_id: &str,
+    external_id: &str,
+    source_name: Option<&str>,
+) -> bool {
+    match messages
+        .record_external_event(task_id, external_id, ADAPTER_LABEL, source_name)
+        .await
+    {
+        Ok(()) => true,
+        Err(e) => {
+            warn!(task_id, external_id, error = %e, "Failed to record a GitHub event the task made");
+            false
+        }
+    }
+}
 
 /// Resolve a GitHub API client from `user_id`'s own GitHub credential, minted
 /// against `owner/repo_name`.

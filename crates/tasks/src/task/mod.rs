@@ -6,6 +6,7 @@ pub mod closer;
 pub mod creation;
 pub mod dao;
 pub mod error;
+pub mod outbound_events;
 pub mod handlers;
 pub mod loop_reader;
 pub mod models;

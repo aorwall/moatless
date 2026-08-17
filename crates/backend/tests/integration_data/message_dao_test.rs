@@ -571,6 +571,77 @@ async fn find_task_id_by_any_external_event_id_matches_globally(pool: PgPool) {
     assert_eq!(found.as_deref(), Some("task-1"));
 }
 
+/// A claim recorded by the id alone answers both readers.
+///
+/// This is the shape a `moat` command in a sandbox has: it knows the task and
+/// the id, and has no `tool_use_id` to hang an activity tag on. Without it the
+/// dedup gate would deliver the task its own comment back.
+#[sqlx::test]
+async fn an_outbound_event_by_id_alone_suppresses_the_echo_and_names_its_task(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let repo = PgMessageDao(pool.clone());
+
+    repo.record_external_event("task-1", "github:rc:987", "github_pr", Some("foo/bar"))
+        .await
+        .unwrap();
+
+    // Layer 2 of self-echo suppression: this task already made this comment.
+    assert!(
+        repo.has_any_external_event_id("task-1", &["github:rc:987".to_string()])
+            .await
+            .unwrap()
+    );
+    // Provenance routing: the event belongs to the task that claimed it.
+    assert_eq!(
+        repo.find_task_id_by_any_external_event_id(&["github:rc:987".to_string()])
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("task-1")
+    );
+
+    // A different task's dedup gate is unaffected — suppression is per task.
+    let task2 = make_task_row("task-2", "user-2");
+    moatless_backend::task::dao::insert_task(&pool, &task2)
+        .await
+        .unwrap();
+    assert!(
+        !repo
+            .has_any_external_event_id("task-2", &["github:rc:987".to_string()])
+            .await
+            .unwrap()
+    );
+}
+
+/// Re-claiming an id already held changes nothing.
+///
+/// The claim path is at-least-once — a retried CLI call, a redelivered
+/// request — and an id names one event, so the first claimant keeps it.
+#[sqlx::test]
+async fn re_recording_an_id_leaves_the_first_row_standing(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let task2 = make_task_row("task-2", "user-2");
+    moatless_backend::task::dao::insert_task(&pool, &task2)
+        .await
+        .unwrap();
+    let repo = PgMessageDao(pool.clone());
+
+    repo.record_external_event("task-1", "github:ic:555", "github_pr", None)
+        .await
+        .unwrap();
+    repo.record_external_event("task-2", "github:ic:555", "github_pr", None)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        repo.find_task_id_by_any_external_event_id(&["github:ic:555".to_string()])
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("task-1")
+    );
+}
+
 #[sqlx::test]
 async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;

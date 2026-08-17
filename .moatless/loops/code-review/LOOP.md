@@ -53,7 +53,7 @@ author, branches, description, and often the diff) arrives as the task message.
 3. **Read the guideline docs for the domains this PR touches** — the relevant
    `.agents/skills/**/SKILL.md` (and its `resources/` / `references/`) per the table
    below. Load only what the diff needs.
-4. **Check CI** — `gh pr checks <number>` (see CI Verification). Do **not** build or
+4. **Check CI** — `moat gh pr checks <number>` (see CI Verification). Do **not** build or
    test locally.
 5. **Check plan alignment and archival** — if the PR implements a tracked plan
    or part of one, read the relevant `.plans/<slug>.md` or
@@ -65,18 +65,22 @@ author, branches, description, and often the diff) arrives as the task message.
    left active at the top level as a review issue unless the PR clearly leaves
    follow-up work that still needs the active path.
 6. **Review** the checked-out code against the guidelines and general quality.
-7. **Post inline comments** for line-specific issues via `gh api` (optional but
+7. **Post inline comments** for line-specific issues via `moat gh api` (optional but
    recommended).
 8. **Resolve** review threads whose issue has left the diff (see Lifecycle Actions).
 9. **Submit `APPROVE`** when no outstanding issues remain (see Approving).
 10. **Send the summary review** via `moat gh pr comment` — **mandatory, exactly once**.
 
-> Use `moat gh pr comment` (not raw `gh pr comment`) for the summary — it routes
-> through the backend, binds the task, and is deduped against the webhook echo. Write
-> the markdown to a file first, then post it:
+> Always write `moat gh …`, never bare `gh …`. `moat gh` proxies the summary comment
+> through the backend (binding the task and deduping the webhook echo), and records what
+> a `moat gh api` POST creates — so the review comments and the approval you post do not
+> come back to you as somebody else's edits. Everything it does not proxy it passes
+> through to the same `gh` binary, so `moat gh` is never the wrong thing to type.
+>
+> Write the summary markdown to a file first, then post it:
 > `moat gh pr comment <number> --body "$(cat /tmp/review.md)"`.
-> `"$(cat …)"` is not re-expanded, so backticks and quotes stay literal. Inline
-> comments still go through `gh api`.
+> `"$(cat …)"` is not re-expanded, so backticks and quotes stay literal.
+
 
 ## File Classification → guideline → what to check
 
@@ -140,9 +144,9 @@ bun, or Docker, and CI already builds and tests every commit. Read the PR's chec
 status instead:
 
 ```bash
-gh pr checks <number>                                  # pass/fail per required check
-gh run list --commit <HEAD_SHA> --limit 20             # if a check failed, find the run
-gh run view <RUN_ID> --log-failed                       # pull the failed-step logs
+moat gh pr checks <number>                              # pass/fail per required check
+moat gh run list --commit <HEAD_SHA> --limit 20         # if a check failed, find the run
+moat gh run view <RUN_ID> --log-failed                  # pull the failed-step logs
 ```
 
 CI enforces the repo's mandatory workflow: `bun run type:check`, `bun run biome:check`
@@ -163,7 +167,7 @@ is no longer in the latest diff. If unsure, leave it open for a human.
 
 ```bash
 # List open threads
-gh api graphql -f query='
+moat gh api graphql -f query='
   query($owner:String!,$repo:String!,$number:Int!){
     repository(owner:$owner,name:$repo){
       pullRequest(number:$number){
@@ -171,7 +175,7 @@ gh api graphql -f query='
       }}}' -F owner=OWNER -F repo=REPO -F number=NUMBER
 
 # Resolve a thread
-gh api graphql -f query='
+moat gh api graphql -f query='
   mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } }' \
   -F threadId=THREAD_ID
 ```
@@ -182,7 +186,7 @@ blocks on your findings. Branch protection still requires a human to merge — a
 just signals readiness.
 
 ```bash
-gh api repos/OWNER/REPO/pulls/NUMBER/reviews \
+moat gh api repos/OWNER/REPO/pulls/NUMBER/reviews \
   --method POST --field event='APPROVE' --field body='Approved by Moatless'
 ```
 
@@ -269,9 +273,9 @@ intentional, ask rather than assert.
 ## Execution
 
 1. **Gather** — parse the PR, checkout the branch, read `AGENTS.md`, load the guideline
-   docs for the touched domains, read `gh pr checks`.
+   docs for the touched domains, read `moat gh pr checks`.
 2. **Analyze** — classify files, review against the guidelines and general quality,
    decide which threads to resolve and whether to approve.
-3. **Act** — post inline comments via `gh api`; resolve addressed threads.
+3. **Act** — post inline comments via `moat gh api`; resolve addressed threads.
 4. **Report** — submit `APPROVE` if clean, then send the summary via
    `moat gh pr comment <number> --body "$(cat /tmp/review.md)"`.

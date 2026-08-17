@@ -1302,6 +1302,17 @@ impl ApiClient {
         )
         .await
     }
+
+    /// POST /api/v1/github/external-events
+    ///
+    /// Record a GitHub event the caller produced outside the typed routes
+    /// above — a raw `gh api` POST, or a `git push`.
+    pub async fn github_record_external_event(
+        &self,
+        req: &moatless_api_schemas::github::GithubExternalEventRequest,
+    ) -> Result<moatless_api_schemas::github::GithubExternalEventResponse, ApiError> {
+        self.post("/api/v1/github/external-events", req).await
+    }
 }
 
 /// Build the `?connectionId=...` query string fragment (or empty).

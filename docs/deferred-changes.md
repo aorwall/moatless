@@ -74,6 +74,7 @@ in the change that found them.
 | Control-scoped writes discard the bool that denies them | `workspace/handlers.rs` — `create_workspace`, `update_workspace`, `override_workspace`, `add_workspace_repo`, `remove_workspace_repo`, `set_workspace_primary_repo` (nine call sites) | Needs a design decision plus a new test; see below |
 | The docker preview-server readiness timeout never fires | `sandbox/docker/status_resolver.rs::inspect_server_container` | Tracked by the `test.fixme` on SERVER-02 in `tests/api/specs/sandbox-errors.spec.ts` |
 | The GitHub preflight never runs on a restart | `crates/sandbox-control/src/auto_provision.rs::build_provision_request` runs only `preflight::preflight_validate_task_control`; `RealPreflight`'s repo-access probe reaches only creation and task start | When `SandboxRuntime::ensure_running` no longer builds a plan on the reuse path; see below |
+| A shell GitHub write leaves no source chip on the call | `crates/adapter-github-pr/src/api_routes.rs::record_external_event` writes `task_outbound_events`, not `messages::claim_activity_external_source` | When a tool-use id reaches the sandbox shell; see below |
 
 **Workspace control-filter writes.** `WorkspaceDao`'s `update`, `add_repo`,
 `remove_repo` and `set_primary` all return `bool`, and the trait documents it:
@@ -132,6 +133,17 @@ wake outright. The control check is one indexed read and carries none of that.
 Widen it when `ensure_running` can tell "reuse a live sandbox" from "create or
 start one" without building the plan first; the probe then belongs on the
 second branch only.
+
+**The source chip on a shell GitHub write.** `claim_activity_external_source`
+records the claim *on the tool call that made the change*, which is also what the
+chat reads to render the source chip on that call. It is keyed on `tool_use_id`,
+and a sandbox shell has no tool-use id: `TASK_ID` and the user token reach it,
+nothing that names the call it is running inside. So `moat gh api` records the
+event in `task_outbound_events`, which is keyed on the id alone. Suppression and
+provenance both still work — those readers consult the table — but the call the
+agent ran shows no chip. Restoring it needs a tool-use identifier exposed to the
+sandbox shell; until one exists there is nothing to key on, and inventing a second
+identity for the same call would be worse than the missing chip.
 
 ## Test and CI structure
 

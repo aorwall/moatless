@@ -12,6 +12,14 @@
 //!   sandbox's fresh GitHub token when one is available, then binds stack PRs
 //!   to the task after `stack link` / `stack submit`.
 //!
+//! `moat gh api …` is different: the endpoint surface of `gh api` is far too
+//! wide to type, so it stays a passthrough — but a POST that creates a review
+//! comment, a review, or an issue comment has its response captured and the id
+//! it names recorded through `/api/v1/github/external-events`. Those three
+//! shapes carry no `Moatless task:` footer and go through no proxy, so without
+//! the record the webhook echoing them back reaches the task as somebody
+//! else's edit.
+//!
 //! Everything else — and any of these with flags the typed parser doesn't
 //! understand (`--fill`, `--body-file`, …) — passes through verbatim to the
 //! local `gh` binary so an agent is never stuck. Typed-path API failures are
@@ -20,7 +28,9 @@
 
 use clap::Parser;
 use moatless_api_schemas::github::{
-    GithubBindPrRequest, GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest,
+    GithubBindPrRequest, GithubCommentRequest, GithubExternalEventRequest,
+    GithubExternalEventSubject,
+    GithubCreatePrRequest, GithubReplyRequest,
 };
 use std::collections::HashSet;
 use std::io::Write;
@@ -140,6 +150,7 @@ pub async fn run(
             run_pr_reply(client, cfg, a, json).await
         }
         Some(TypedInvocation::Stack(a)) => run_stack(client, cfg, a, json).await,
+        None if args.first().is_some_and(|a| a == "api") => run_api(client, cfg, &args).await,
         None => passthrough(&args),
     }
 }
@@ -656,6 +667,232 @@ fn git_stdout(args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+// ===========================================================================
+// `moat gh api` — passthrough that records what it created
+// ===========================================================================
+
+/// What a raw `gh api` POST creates, and where.
+///
+/// These three endpoints are the posting shapes that carry no footer and go
+/// through neither the typed proxy nor a `gh` subcommand, so nothing else in
+/// the system can recognise them as the task's own work.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ApiCreation {
+    owner: String,
+    repo: String,
+    kind: ApiCreated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApiCreated {
+    /// `POST repos/{owner}/{repo}/pulls/{n}/comments` — a new inline review
+    /// comment, the shape the reviewer loop's prompt asks agents to use.
+    ReviewComment,
+    /// `POST repos/{owner}/{repo}/pulls/{n}/reviews` — a review submission.
+    Review,
+    /// `POST repos/{owner}/{repo}/issues/{n}/comments` — a conversation comment
+    /// on a PR or an issue.
+    IssueComment,
+}
+
+impl ApiCreated {
+    /// The fragment GitHub puts before the object's id in its `html_url`.
+    fn html_anchor(self) -> &'static str {
+        match self {
+            Self::ReviewComment => "#discussion_r",
+            Self::Review => "#pullrequestreview-",
+            Self::IssueComment => "#issuecomment-",
+        }
+    }
+
+    fn event_subject(self, id: u64) -> GithubExternalEventSubject {
+        match self {
+            Self::ReviewComment => GithubExternalEventSubject::ReviewComment(id),
+            Self::Review => GithubExternalEventSubject::Review(id),
+            Self::IssueComment => GithubExternalEventSubject::IssueComment(id),
+        }
+    }
+}
+
+/// Run `gh api …`, and record what a recognised POST created.
+///
+/// A call this does not recognise as one of the three creating POSTs runs as a
+/// plain passthrough with inherited stdio, so an unrecognised shape costs
+/// nothing — not even the buffering.
+///
+/// For a recognised one, stdout is captured so the created id can be read out
+/// of the response and then written through unchanged. That is the whole reason
+/// the record belongs here rather than in a later transcript scan: the response
+/// is already in hand, synchronously, before the webhook it will produce can
+/// arrive.
+async fn run_api(
+    client: &MoatClient,
+    cfg: &Config,
+    args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(created) = parse_api_creation(&args[1..]) else {
+        return passthrough(args);
+    };
+    let Some(task_id) = cfg.task_id().map(str::to_string) else {
+        return passthrough(args);
+    };
+
+    let token = github_token_for_gh();
+    let output = gh_command(args, token.as_deref())
+        .stderr(std::process::Stdio::inherit())
+        .output()
+        .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
+
+    // Write the response through before anything else: the agent's next step
+    // reads it, and a recording failure must not swallow it.
+    std::io::stdout().write_all(&output.stdout)?;
+    std::io::stdout().flush()?;
+
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout);
+        match parse_created_id(&text, created.kind) {
+            Some(id) => {
+                let req = GithubExternalEventRequest {
+                    task_id,
+                    subject: created.kind.event_subject(id),
+                    source_name: Some(format!("{}/{}", created.owner, created.repo)),
+                };
+                if let Err(e) = client.api().github_record_external_event(&req).await {
+                    // Nothing is suppressed as a result: the event is delivered
+                    // and the task reads back its own comment, which costs one
+                    // wasted turn.
+                    eprintln!("moat: could not record what this call created: {e}");
+                }
+            }
+            None => eprintln!("moat: gh api response named no id — nothing recorded"),
+        }
+    }
+
+    std::process::exit(output.status.code().unwrap_or(1));
+}
+
+/// Detect a `gh api` argument list that creates a review comment, a review or
+/// an issue comment, and name what it creates.
+///
+/// The target is the endpoint path, which can sit anywhere among the flags, so
+/// it is recognised by its own shape rather than by position. The call must be
+/// a POST: `gh api` defaults to GET, and a read of the same endpoint must never
+/// record somebody else's comment.
+fn parse_api_creation(args: &[String]) -> Option<ApiCreation> {
+    if !api_posts(args) {
+        return None;
+    }
+    args.iter().find_map(|arg| parse_api_endpoint(arg))
+}
+
+/// Whether a `gh api` argument list issues a POST.
+///
+/// `gh api` sends GET unless the call carries a body (`-f` / `-F` /
+/// `--input`), and an explicit `--method` / `-X` overrides either way.
+fn api_posts(args: &[String]) -> bool {
+    let mut explicit: Option<String> = None;
+    let mut has_body = false;
+
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        let arg = arg.as_str();
+        if arg == "--method" || arg == "-X" {
+            explicit = iter.next().map(|v| v.to_ascii_uppercase());
+        } else if let Some(value) = arg
+            .strip_prefix("--method=")
+            .or_else(|| arg.strip_prefix("-X"))
+            .filter(|v| !v.is_empty())
+        {
+            explicit = Some(value.to_ascii_uppercase());
+        } else if matches!(arg, "-f" | "-F" | "--field" | "--raw-field" | "--input") {
+            has_body = true;
+            iter.next();
+        } else if (arg.starts_with("-f") || arg.starts_with("-F"))
+            || arg.starts_with("--field=")
+            || arg.starts_with("--raw-field=")
+            || arg.starts_with("--input=")
+        {
+            has_body = true;
+        }
+    }
+
+    explicit.map_or(has_body, |method| method == "POST")
+}
+
+/// Decompose a `gh api` endpoint argument into the repository it targets and
+/// the kind of event a POST to it creates.
+///
+/// Accepts the bare (`repos/o/r/…`), rooted (`/repos/o/r/…`) and absolute
+/// (`https://api.github.com/repos/o/r/…`) spellings, and ignores a query
+/// string. Any other endpoint — a read, an unrelated resource, or a deeper
+/// path such as `…/comments/{id}/replies` — returns `None`.
+fn parse_api_endpoint(arg: &str) -> Option<ApiCreation> {
+    let path = arg
+        .strip_prefix("https://api.github.com/")
+        .or_else(|| arg.strip_prefix("http://api.github.com/"))
+        .unwrap_or(arg);
+    let path = path.split(['?', '#']).next()?;
+    let path = path.trim_matches('/');
+
+    let mut parts = path.split('/');
+    if parts.next()? != "repos" {
+        return None;
+    }
+    let owner = parts.next()?;
+    let repo = parts.next()?;
+    let subject = parts.next()?;
+    let number = parts.next()?;
+    let leaf = parts.next()?;
+    if parts.next().is_some() || owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    if number.parse::<u64>().is_err() {
+        return None;
+    }
+
+    let kind = match (subject, leaf) {
+        ("pulls", "comments") => ApiCreated::ReviewComment,
+        ("pulls", "reviews") => ApiCreated::Review,
+        ("issues", "comments") => ApiCreated::IssueComment,
+        _ => return None,
+    };
+
+    Some(ApiCreation {
+        owner: owner.to_string(),
+        repo: repo.to_string(),
+        kind,
+    })
+}
+
+/// The id GitHub gave the object the call created.
+///
+/// Read out of the response two ways: the `id` field of a JSON object body, and
+/// failing that the anchor in the object's `html_url` — `#discussion_r…`,
+/// `#pullrequestreview-…` or `#issuecomment-…` — which survives output the JSON
+/// parse cannot take. Both read the id *back out of the response*: an id
+/// reconstructed from the request would be a guess, and a wrong record silently
+/// suppresses somebody else's event.
+fn parse_created_id(text: &str, kind: ApiCreated) -> Option<u64> {
+    if let Ok(serde_json::Value::Object(body)) = serde_json::from_str::<serde_json::Value>(text.trim())
+    {
+        if let Some(id) = body.get("id").and_then(serde_json::Value::as_u64) {
+            return Some(id);
+        }
+    }
+    last_id_after(text, kind.html_anchor())
+}
+
+/// The digits following the last occurrence of `anchor` in `text`.
+fn last_id_after(text: &str, anchor: &str) -> Option<u64> {
+    let idx = text.rfind(anchor)?;
+    let rest = &text[idx + anchor.len()..];
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    rest[..end].parse().ok()
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -880,5 +1117,189 @@ mod tests {
             Some(("o".into(), "r".into()))
         );
         assert_eq!(parse_github_remote("https://gitlab.com/o/r.git"), None);
+    }
+
+    // =======================================================================
+    // `gh api` recognition
+    // =======================================================================
+
+    /// The shape a `gh api …` argument list creates, if any. `line` is written
+    /// the way an agent types it, starting at `api`.
+    fn api_kind(line: &str) -> Option<ApiCreated> {
+        let args: Vec<String> = line.split_whitespace().map(ToString::to_string).collect();
+        assert_eq!(
+            args.first().map(String::as_str),
+            Some("api"),
+            "not a gh api call"
+        );
+        parse_api_creation(&args[1..]).map(|c| c.kind)
+    }
+
+    #[test]
+    fn api_creating_an_inline_review_comment_is_recognised() {
+        // The shape the reviewer loop's prompt tells agents to use.
+        let args = argv(&[
+            "--method",
+            "POST",
+            "repos/soaplabs/soap-config/pulls/42/comments",
+            "-f",
+            "body=needs a guard",
+            "-f",
+            "commit_id=abc123",
+            "-F",
+            "line=12",
+        ]);
+        assert_eq!(
+            parse_api_creation(&args),
+            Some(ApiCreation {
+                owner: "soaplabs".into(),
+                repo: "soap-config".into(),
+                kind: ApiCreated::ReviewComment,
+            })
+        );
+        // Rooted path, a header, and the endpoint after the flags.
+        assert_eq!(
+            api_kind(
+                "api -H Accept:application/vnd.github+json -X POST \
+                 /repos/o/r/pulls/7/comments --input /tmp/c.json"
+            ),
+            Some(ApiCreated::ReviewComment)
+        );
+        // Implicit POST from `-f`, endpoint last.
+        assert_eq!(
+            api_kind("api -f body=hi repos/o/r/pulls/7/comments"),
+            Some(ApiCreated::ReviewComment)
+        );
+    }
+
+    #[test]
+    fn api_submitting_a_review_is_recognised() {
+        assert_eq!(
+            api_kind("api repos/o/r/pulls/42/reviews -f event=COMMENT -f body=LGTM"),
+            Some(ApiCreated::Review)
+        );
+        assert_eq!(
+            api_kind(
+                "api --method=POST https://api.github.com/repos/o/r/pulls/42/reviews \
+                 --input /tmp/r.json"
+            ),
+            Some(ApiCreated::Review)
+        );
+        // The approve step of the code-review loop.
+        assert_eq!(
+            api_kind("api repos/OWNER/REPO/pulls/42/reviews --method POST --field event=APPROVE"),
+            Some(ApiCreated::Review)
+        );
+    }
+
+    #[test]
+    fn api_creating_an_issue_comment_is_recognised() {
+        assert_eq!(
+            api_kind("api -X POST repos/o/r/issues/42/comments -f body=hi"),
+            Some(ApiCreated::IssueComment)
+        );
+    }
+
+    #[test]
+    fn api_reads_record_nothing() {
+        // No body flags — `gh api` defaults to GET.
+        assert!(api_kind("api repos/o/r/pulls/42/comments").is_none());
+        assert!(api_kind("api repos/o/r/issues/42/comments --paginate").is_none());
+        // Explicit read, even with a body flag present.
+        assert!(api_kind("api --method GET repos/o/r/pulls/42/reviews -f per_page=100").is_none());
+        assert!(api_kind("api -X GET repos/o/r/issues/42/comments").is_none());
+    }
+
+    #[test]
+    fn api_writes_to_unrelated_resources_claim_nothing() {
+        assert!(api_kind("api -X POST repos/o/r/issues/42/labels -f labels[]=bug").is_none());
+        assert!(api_kind("api --method POST repos/o/r/pulls/42/merge").is_none());
+        assert!(api_kind("api -X POST repos/o/r/issues -f title=bug").is_none());
+        assert!(api_kind("api -X POST graphql -f query={}").is_none());
+        // A non-numeric PR number is not an endpoint we recognise.
+        assert!(api_kind("api -X POST repos/o/r/pulls/comments -f body=x").is_none());
+        // Threaded replies go through the typed proxy; the deeper path must not
+        // be mistaken for a new inline comment.
+        assert!(
+            api_kind("api -X POST repos/o/r/pulls/42/comments/123/replies -f body=x").is_none()
+        );
+        // An edit reuses an existing id and produces no new event.
+        assert!(api_kind("api -X PATCH repos/o/r/issues/42/comments -f body=x").is_none());
+    }
+
+    // =======================================================================
+    // Created-id read-back
+    // =======================================================================
+
+    #[test]
+    fn created_id_read_from_json_response() {
+        let body = r#"{
+          "url": "https://api.github.com/repos/o/r/pulls/comments/987",
+          "id": 987,
+          "pull_request_review_id": 555,
+          "html_url": "https://github.com/o/r/pull/42#discussion_r987"
+        }"#;
+        assert_eq!(parse_created_id(body, ApiCreated::ReviewComment), Some(987));
+    }
+
+    #[test]
+    fn created_id_falls_back_to_the_html_url_anchor() {
+        // Output the JSON parser cannot take — a preceding line from the same
+        // command, or a truncated body.
+        let review_comment = "posting…\n{\"id\": 987, \"html_url\": \
+                              \"https://github.com/o/r/pull/42#discussion_r987\"";
+        assert_eq!(
+            parse_created_id(review_comment, ApiCreated::ReviewComment),
+            Some(987)
+        );
+
+        let review = "…\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\",";
+        assert_eq!(parse_created_id(review, ApiCreated::Review), Some(555));
+
+        let issue_comment = "…\"html_url\":\"https://github.com/o/r/issues/42#issuecomment-111\",";
+        assert_eq!(
+            parse_created_id(issue_comment, ApiCreated::IssueComment),
+            Some(111)
+        );
+    }
+
+    #[test]
+    fn created_id_absent_from_unusable_output() {
+        // A list response is not an object, and carries no anchor for the shape
+        // we asked about.
+        assert!(parse_created_id("[{\"id\": 1}]", ApiCreated::Review).is_none());
+        assert!(parse_created_id("", ApiCreated::IssueComment).is_none());
+        assert!(parse_created_id("gh: Not Found (HTTP 404)", ApiCreated::ReviewComment).is_none());
+        // The anchor must match the shape — a review submission's response does
+        // not name a review comment.
+        assert!(
+            parse_created_id(
+                "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
+                ApiCreated::ReviewComment
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn the_claimed_id_comes_from_the_response_not_the_request() {
+        // The endpoint names PR 42; the claim names comment 987, which only the
+        // response can supply.
+        let created = parse_api_creation(&argv(&[
+            "-X",
+            "POST",
+            "repos/o/r/pulls/42/comments",
+            "-f",
+            "body=x",
+            "-F",
+            "line=1",
+        ]))
+        .unwrap();
+        let id =
+            parse_created_id(r#"{"id": 987, "pull_request_review_id": 555}"#, created.kind).unwrap();
+        assert!(matches!(
+            created.kind.event_subject(id),
+            GithubExternalEventSubject::ReviewComment(987)
+        ));
     }
 }

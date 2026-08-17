@@ -110,3 +110,44 @@ pub struct GithubBindPrResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding_id: Option<String>,
 }
+
+/// What a `moat` command created on GitHub outside the typed API.
+///
+/// Named by *what was created*, not by an external event id: the id format is
+/// the Adapter's vocabulary and the caller does not have to know it. Each shape
+/// carries the numeric id GitHub returned for the object it made.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+pub enum GithubExternalEventSubject {
+    /// `POST repos/{owner}/{repo}/pulls/{n}/comments` — an inline review comment.
+    ReviewComment(u64),
+    /// `POST repos/{owner}/{repo}/pulls/{n}/reviews` — a review submission.
+    Review(u64),
+    /// `POST repos/{owner}/{repo}/issues/{n}/comments` — a conversation comment
+    /// on a pull request or an issue.
+    IssueComment(u64),
+}
+
+/// `POST /api/v1/github/external-events` — record an event this Task made.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct GithubExternalEventRequest {
+    /// Task the event belongs to.
+    pub task_id: String,
+    pub subject: GithubExternalEventSubject,
+    /// `owner/repo` the event happened in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_name: Option<String>,
+}
+
+/// Response for a recorded external event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct GithubExternalEventResponse {
+    /// Whether the durable row landed. `false` means only this replica's
+    /// in-memory note holds the event, so another replica may deliver the echo.
+    pub recorded: bool,
+}
