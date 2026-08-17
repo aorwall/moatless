@@ -20,13 +20,13 @@ use moatless_adapter_model::models::{
     AdapterConnection, Audience, InboundMessage, RoutingMode, SubscriptionMatch, TaskBinding,
     binding_context, subscription_context,
 };
+use moatless_backend_core::models::TaskStatus;
 use moatless_backend_core::scope::ScopeContext;
 use moatless_tasks::message::dao::MessageDao;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_tasks::task::creation::{TaskCreationError, TaskCreationService};
 use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::sandbox_waker::{SandboxWaker, wake_for_message};
 
 pub use moatless_adapter_model::models::{

@@ -7,7 +7,7 @@
 //! desired Running (the convergence event). Everything else that matches
 //! desired state is an echo of something lifecycle already announced.
 
-use moatless_tasks::task::models::SandboxDesiredState;
+use moatless_backend_core::models::SandboxDesiredState;
 
 use super::types::{CorrelationMarker, OperationGeneration};
 
@@ -193,8 +193,8 @@ fn is_superseded(observed: Option<OperationGeneration>, marker: OperationGenerat
 mod tests {
     use super::ObservedTransition as T;
     use super::*;
-    use moatless_tasks::task::models::SandboxDesiredState as D;
     use chrono::{TimeZone, Utc};
+    use moatless_backend_core::models::SandboxDesiredState as D;
 
     use crate::lifecycle::types::OperationKind;
 

@@ -11,12 +11,12 @@
 
 use chrono::{DateTime, Utc};
 
-use moatless_tasks::task::models::SandboxDesiredState;
+use moatless_backend_core::models::SandboxDesiredState;
 
-use super::convergence::{reconcile_action, ReconcileAction, SandboxObservedStatus};
+use super::convergence::{ReconcileAction, SandboxObservedStatus, reconcile_action};
 use super::orchestrator::TaskIntent;
 use super::types::OperationKind;
-use super::wake::{message_supersedes_intent, WakeIntent};
+use super::wake::{WakeIntent, message_supersedes_intent};
 
 /// One Task's reconcile inputs: persisted intent, observed runtime status, and
 /// the newest unacknowledged user message (the pending-message query's output,
@@ -104,7 +104,7 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    use moatless_tasks::task::models::{SandboxStopReason, TaskStatus};
+    use moatless_backend_core::models::{SandboxStopReason, TaskStatus};
 
     use super::super::types::{ArchiveRetention, CorrelationMarker, OperationGeneration};
 

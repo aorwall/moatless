@@ -29,9 +29,8 @@ use tracing::Instrument;
 use moatless_backend_core::sandbox as core_sandbox;
 
 use crate::error::SandboxError;
-use moatless_tasks::task::models::{
-    CheckoutMode, SandboxDesiredState, SandboxStopReason, TaskStatus,
-};
+use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use moatless_tasks::task::models::CheckoutMode;
 use moatless_tasks::task::sandbox_lifecycle::{SandboxLifecycle, SandboxOpError};
 
 use super::error::LifecycleError;

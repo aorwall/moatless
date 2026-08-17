@@ -19,7 +19,7 @@ use moatless_api_schemas::task_connections::{
     Connection, GetTaskConnectionsQuery, ListTaskConnectionsQuery, TaskConnectionRow,
     TaskConnectionsResponse,
 };
-use moatless_tasks::task::models::TaskStatus;
+use moatless_backend_core::models::TaskStatus;
 use moatless_tasks::task::schemas::{adapter_kind_to_wire, task_status_to_wire};
 
 use moatless_adapter_model::models::{ExternalStatus, TaskBinding};

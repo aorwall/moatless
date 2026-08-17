@@ -9,7 +9,7 @@
 //! is the one input that lets an all-absent Removed target still demand a
 //! retry, because the archive-deletion obligation has no observable trace.
 
-use moatless_tasks::task::models::SandboxDesiredState;
+use moatless_backend_core::models::SandboxDesiredState;
 
 pub use moatless_events::SandboxStatus;
 
@@ -153,7 +153,7 @@ pub fn reconcile_action(
 mod tests {
     use super::SandboxObservedStatus as O;
     use super::*;
-    use moatless_tasks::task::models::SandboxDesiredState as D;
+    use moatless_backend_core::models::SandboxDesiredState as D;
 
     const ALL_OBSERVED: [O; 6] = [
         O::Ready,

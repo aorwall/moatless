@@ -934,8 +934,8 @@ impl SandboxStatusReader for K8sSandboxAdapter {
     async fn sandbox_status(
         &self,
         task_id: &str,
-        task_status: moatless_tasks::task::models::TaskStatus,
-        desired_state: moatless_tasks::task::models::SandboxDesiredState,
+        task_status: moatless_backend_core::models::TaskStatus,
+        desired_state: moatless_backend_core::models::SandboxDesiredState,
     ) -> Result<SandboxStatusFullResponse, SandboxError> {
         let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         let server_configs = if let Some(plan) = &self.plan {
@@ -960,8 +960,8 @@ impl SandboxStatusReader for K8sSandboxAdapter {
     async fn live_status(
         &self,
         task_id: &str,
-        task_status: moatless_tasks::task::models::TaskStatus,
-        desired_state: moatless_tasks::task::models::SandboxDesiredState,
+        task_status: moatless_backend_core::models::TaskStatus,
+        desired_state: moatless_backend_core::models::SandboxDesiredState,
     ) -> Result<moatless_sandbox_control::live_status::LiveStatus, SandboxError> {
         let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         Ok(self

@@ -7,12 +7,16 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use moatless_backend_core::models::{SandboxDesiredState, TaskStatus};
 use moatless_sandbox_control::lifecycle::convergence::SandboxObservedStatus;
 use moatless_sandbox_control::lifecycle::observe::confirm;
-use moatless_sandbox_control::lifecycle::reconciler::{FleetObserver, ObserveError, RuntimeObservation};
-use moatless_sandbox_control::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
+use moatless_sandbox_control::lifecycle::reconciler::{
+    FleetObserver, ObserveError, RuntimeObservation,
+};
+use moatless_sandbox_control::lifecycle::runtime::{
+    OPERATION_GENERATION_LABEL, generation_from_label,
+};
 use moatless_sandbox_control::status_reader::SandboxStatusReader;
-use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
 
 use super::client::DockerClient;
 use super::container_builder::{SANDBOX_SERVICE, SERVICE_LABEL};
@@ -95,9 +99,9 @@ impl FleetObserver for DockerFleetObserver {
             .await
         {
             Ok(container) => container.config.and_then(|config| {
-                config
-                    .labels
-                    .and_then(|labels| generation_from_label(labels.get(OPERATION_GENERATION_LABEL)))
+                config.labels.and_then(|labels| {
+                    generation_from_label(labels.get(OPERATION_GENERATION_LABEL))
+                })
             }),
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..

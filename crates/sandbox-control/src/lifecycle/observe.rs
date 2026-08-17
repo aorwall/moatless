@@ -9,8 +9,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::status_reader::SandboxStatusReader;
+use moatless_backend_core::models::{SandboxDesiredState, TaskStatus};
 use moatless_backend_core::sandbox::{SandboxConnector, classify_grpc_error};
-use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
 
 use super::convergence::SandboxObservedStatus;
 use super::orchestrator::SandboxMember;

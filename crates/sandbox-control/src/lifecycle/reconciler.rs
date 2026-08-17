@@ -22,8 +22,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tracing::{debug, info, warn};
 
+use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use moatless_tasks::message::dao::MessageDao;
-use moatless_tasks::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 
 use super::attempt::AttemptBudget;
 use super::convergence::{ReconcileAction, SandboxObservedStatus};
@@ -1377,7 +1377,7 @@ mod db_tests {
             .persist_intent(
                 "t1",
                 &IntentWrite {
-                    desired_state: moatless_tasks::task::models::SandboxDesiredState::Removed,
+                    desired_state: moatless_backend_core::models::SandboxDesiredState::Removed,
                     stop_reason: Some(SandboxStopReason::Cleanup),
                     retention: Some(ArchiveRetention::DeleteArchives),
                     marker: CorrelationMarker::new(

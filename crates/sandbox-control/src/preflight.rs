@@ -390,7 +390,7 @@ mod tests {
             last_message_at: String::new(),
             agent_type: moatless_core::shared_models::AgentType("claude-code".to_string()),
             repository_id: "r".to_string(),
-            status: moatless_tasks::task::models::TaskStatus::Open,
+            status: moatless_backend_core::models::TaskStatus::Open,
             total_cost_usd: 0.0,
             site_url: None,
             template_id: None,

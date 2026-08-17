@@ -69,7 +69,7 @@ impl SandboxWaker for SandboxWakeService {
         #[allow(clippy::disallowed_methods)]
         let sys = ScopeContext::system();
         match self.tasks.find_by_id(task_id, &sys).await {
-            Ok(Some(task)) if task.status == moatless_tasks::task::models::TaskStatus::Closed => {
+            Ok(Some(task)) if task.status == moatless_backend_core::models::TaskStatus::Closed => {
                 tracing::debug!(
                     task_id,
                     "Task is closed — skipping sandbox provision/notify"

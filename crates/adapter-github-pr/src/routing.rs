@@ -5,6 +5,8 @@ use std::fmt::Write as _;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
+use moatless_backend_core::models::TaskStatus;
+use moatless_backend_core::scope::ScopeContext;
 use moatless_loops::adapters::AdapterInboundPresentation;
 use moatless_loops::adapters::AdapterKind;
 use moatless_loops::adapters::error::AdapterError;
@@ -16,8 +18,7 @@ use moatless_loops::bindings::metrics::{inbound_reason, record_inbound};
 use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_tasks::task::closer::CloseEvent;
 use moatless_tasks::task::creation::TaskCreationError;
-use moatless_tasks::task::models::{TaskStatus, Visibility};
-use moatless_backend_core::scope::ScopeContext;
+use moatless_tasks::task::models::Visibility;
 
 use super::router::GithubPrInboundRouter;
 use super::subject::GithubPrSubject;
@@ -129,8 +130,7 @@ impl GithubPrInboundRouter {
             None => match msg.external_event_id.as_deref() {
                 Some(ext_id) => {
                     let candidates = self.routing.external_id_aliases(ADAPTER_LABEL, ext_id);
-                    self
-                        .messages
+                    self.messages
                         .find_task_id_by_any_external_event_id(&candidates)
                         .await?
                 }
@@ -409,7 +409,9 @@ impl GithubPrInboundRouter {
             // the status flip below — otherwise it would silently vanish.
             // `resume = false` only persists the message; it never provisions or
             // wakes the agent on a sandbox we're about to tear down.
-            let close_msg = self.build_close_inbound_message(owner, repo, rule, info).await;
+            let close_msg = self
+                .build_close_inbound_message(owner, repo, rule, info)
+                .await;
             if let Err(e) = self.append_to_binding(rule, &binding, &close_msg).await {
                 warn!(
                     task_id = %task_id,
@@ -602,8 +604,7 @@ impl GithubPrInboundRouter {
         binding: &TaskBinding,
         msg: &InboundMessage,
     ) -> Result<(), AdapterError> {
-        self
-            .message_send
+        self.message_send
             .send_message_flow(
                 &binding.task_id,
                 &msg.text,
@@ -677,9 +678,9 @@ fn task_that_pushed(
 
 #[cfg(test)]
 mod tests {
-    use moatless_loops::adapters::models::AdapterConnection;
     use chrono::Utc;
     use moatless_backend_core::scope::Scope;
+    use moatless_loops::adapters::models::AdapterConnection;
 
     use super::delivery_only_rule;
 
@@ -715,10 +716,10 @@ mod tests {
 
     mod push_claim {
         use super::super::task_that_pushed;
-        use moatless_loops::adapters::models::{CONNECTED_THREAD_BINDING_ORIGIN, TaskBinding};
         use crate::external_id;
-        use moatless_loops::bindings::recently_sent::RecentlySent;
         use chrono::Utc;
+        use moatless_loops::adapters::models::{CONNECTED_THREAD_BINDING_ORIGIN, TaskBinding};
+        use moatless_loops::bindings::recently_sent::RecentlySent;
 
         const FULL_SHA: &str = "7fc0612a1b2c3d4e5f60718293a4b5c6d7e8f901";
 

@@ -11,10 +11,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
+use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use moatless_core::db::DbPool;
-use moatless_tasks::task::models::{
-    SandboxDesiredState, SandboxStopReason, TaskStatus, sandbox_intent_epoch,
-};
+use moatless_tasks::task::models::sandbox_intent_epoch;
 
 use super::events::LifecycleEvent;
 use super::orchestrator::{IntentWrite, LifecycleDao, SandboxMember, StoreError, TaskIntent};

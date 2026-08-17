@@ -13,7 +13,7 @@
 
 use moatless_events::{SandboxEventPayload, SandboxStatus};
 
-use moatless_tasks::task::models::SandboxStopReason;
+use moatless_backend_core::models::SandboxStopReason;
 
 use super::outcome::LifecycleOutcome;
 use super::types::{ObservedStatus, OperationGeneration, OperationKind};
@@ -664,10 +664,12 @@ mod tests {
         assert!(payload.message.contains("Timed out after 90s"));
         // The conversation transcript reads `error`; absent it renders
         // "Unknown agent error".
-        assert!(payload
-            .error
-            .as_deref()
-            .is_some_and(|e| e.contains("Timed out after 90s")));
+        assert!(
+            payload
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("Timed out after 90s"))
+        );
         // The UI label vocabulary reads `lifecycle_event`.
         assert_eq!(
             payload.lifecycle_event.as_deref(),
@@ -687,10 +689,12 @@ mod tests {
         // Same sub_type as Error so existing error consumers surface it.
         assert_eq!(exhausted.sub_type(), "error");
         assert!(exhausted.is_error());
-        assert!(exhausted
-            .payload()
-            .message
-            .starts_with("Gave up recovering"));
+        assert!(
+            exhausted
+                .payload()
+                .message
+                .starts_with("Gave up recovering")
+        );
     }
 
     // ---- Full remove lifecycle: acceptance + completion coexist ----

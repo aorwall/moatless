@@ -3,11 +3,11 @@
 //! Extracted from routes.rs for consistency with other modules
 //! (task/, message/, agent/, etc.).
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use futures::stream::{Stream, StreamExt};
 use serde::Deserialize;
 use tracing::{error, info, warn};
@@ -18,10 +18,11 @@ use super::lifecycle::{ArchiveRetention, Lifecycle};
 use super::models::*;
 use super::routes::SandboxApiState;
 use super::schemas::*;
+use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason};
 use moatless_backend_core::scope::ScopeContext;
 use moatless_identity::extractors::OptionalScope;
 use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::models::{SandboxDesiredState, SandboxStopReason, Task};
+use moatless_tasks::task::models::Task;
 
 /// Provision a new sandbox for a task.
 ///
@@ -886,7 +887,7 @@ mod authz_tests {
             last_message_at: String::new(),
             agent_type: moatless_core::shared_models::AgentType("claude-code".to_string()),
             repository_id: "repo-1".to_string(),
-            status: moatless_tasks::task::models::TaskStatus::Open,
+            status: moatless_backend_core::models::TaskStatus::Open,
             total_cost_usd: 0.0,
             site_url: None,
             template_id: None,
@@ -947,9 +948,11 @@ mod authz_tests {
     async fn read_allows_when_scoped_lookup_returns_task() {
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"))));
         let scope = Some(ctx("owner", false));
-        assert!(authorize_task_read_inner(Some(&tasks), &scope, "task-1")
-            .await
-            .is_ok());
+        assert!(
+            authorize_task_read_inner(Some(&tasks), &scope, "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -976,9 +979,11 @@ mod authz_tests {
     async fn control_owner_of_user_task_allowed() {
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"))));
         let scope = Some(ctx("owner", false));
-        assert!(authorize_task_control_inner(Some(&tasks), &scope, "task-1")
-            .await
-            .is_ok());
+        assert!(
+            authorize_task_control_inner(Some(&tasks), &scope, "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -1009,9 +1014,11 @@ mod authz_tests {
         // A platform admin controls any task regardless of scope/owner.
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("other-user"))));
         let scope = Some(ctx("root", true));
-        assert!(authorize_task_control_inner(Some(&tasks), &scope, "task-1")
-            .await
-            .is_ok());
+        assert!(
+            authorize_task_control_inner(Some(&tasks), &scope, "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]

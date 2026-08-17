@@ -14,7 +14,7 @@ use moatless_backend_core::scope::ScopeContext;
 
 use crate::error::SandboxError;
 use crate::models::{
-    derive_mount_name, sanitize_mount_name, ProvisionRequest, RepoCheckout, RepoConfig,
+    ProvisionRequest, RepoCheckout, RepoConfig, derive_mount_name, sanitize_mount_name,
 };
 use crate::preflight::preflight_validate_task_control;
 use moatless_api_schemas::plugin::PluginDelivery;
@@ -243,7 +243,7 @@ pub async fn build_provision_request(
     // Gate: never provision a pod for a Closed task. A webhook racing a close is
     // rejected here because the Closed status is authoritative. Only `Closed` is
     // gated: `Error` stays resumable to match `start_task`.
-    if task.status == moatless_tasks::task::models::TaskStatus::Closed {
+    if task.status == moatless_backend_core::models::TaskStatus::Closed {
         return Err(SandboxError::BadRequest(format!(
             "Task '{task_id}' is closed; refusing to provision a sandbox"
         )));

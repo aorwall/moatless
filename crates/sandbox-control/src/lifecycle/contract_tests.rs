@@ -13,11 +13,11 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::sync::Notify;
 
-use moatless_tasks::task::models::SandboxStopReason;
+use moatless_backend_core::models::SandboxStopReason;
 
 use super::dao::PgLifecycleDao;
 use super::events::{EventFact, LifecycleEvent};
@@ -258,12 +258,13 @@ async fn start_persists_running_and_publishes_initializing(
     let (state, reason, _kind) = desired(&h.pool, "t1").await;
     assert_eq!(state, "running");
     assert_eq!(reason, None);
-    assert!(h
-        .sink
-        .facts
-        .lock()
-        .unwrap()
-        .contains(&EventFact::Initializing));
+    assert!(
+        h.sink
+            .facts
+            .lock()
+            .unwrap()
+            .contains(&EventFact::Initializing)
+    );
     // The allocated generation reached the runtime context.
     assert_eq!(*h.runtime.last_generation.lock().unwrap(), Some(1));
     // A start that ends Starting leaves its marker for the watcher's convergence.

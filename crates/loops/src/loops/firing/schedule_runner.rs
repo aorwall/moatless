@@ -12,13 +12,13 @@ use crate::adapters::models::{Audience, InboundMessage, LoopContext, LoopSpawnCo
 use crate::adapters::{AdapterInboundPresentation, AdapterKind, Adapters};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::metrics::record_schedule_firing;
+use moatless_backend_core::models::TaskStatus;
 use moatless_backend_core::scope::ScopeContext;
 use moatless_core::leader::LeaderGuard;
 use moatless_core::shared_models::AgentMode;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::creation::TaskCreationService;
 use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::sandbox_waker::SandboxWaker;
 
 /// Durable schedule-firing runner: claims due schedules and fires each as an

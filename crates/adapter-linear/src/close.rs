@@ -17,16 +17,18 @@ use std::fmt::Write as _;
 
 use tracing::{debug, info, warn};
 
-use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
-use moatless_sandbox_control::lifecycle::{ArchiveRetention, Lifecycle};
-use moatless_tasks::task::binding_dao::TaskBindingDao;
-use moatless_tasks::task::dao::{TaskDao, TaskPatch};
-use moatless_tasks::task::models::TaskStatus;
+use moatless_backend_core::models::TaskStatus;
 use moatless_backend_core::scope::ScopeContext;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{
+    ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding,
+};
+use moatless_sandbox_control::lifecycle::{ArchiveRetention, Lifecycle};
+use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::dao::{TaskDao, TaskPatch};
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::webhook_payloads::IssuePayload;

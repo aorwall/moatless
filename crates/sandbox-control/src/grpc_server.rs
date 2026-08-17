@@ -53,7 +53,7 @@ use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::relations::TaskRelationDao;
 use moatless_tasks::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use moatless_tasks::task_turn::dao::{TaskTurnDao, TurnStateEvent};
-use moatless_tasks::task_turn::models::{classify_turn_transition, TurnStatus};
+use moatless_tasks::task_turn::models::{TurnStatus, classify_turn_transition};
 use moatless_workspaces::credentials::WriteSource;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
@@ -906,7 +906,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // gated, mirroring `send.rs`.
         if matches!(
             task.as_ref().map(|t| t.status),
-            Some(moatless_tasks::task::models::TaskStatus::Closed)
+            Some(moatless_backend_core::models::TaskStatus::Closed)
         ) {
             debug!(task_id = %req.task_id, "get_pending_messages: task is Closed, returning no messages");
             return Ok(Response::new(GetPendingMessagesResponse {
@@ -1762,7 +1762,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
         if matches!(
             task.as_ref().map(|t| t.status),
-            Some(moatless_tasks::task::models::TaskStatus::Closed)
+            Some(moatless_backend_core::models::TaskStatus::Closed)
         ) {
             debug!(task_id = %req.task_id, "recover_interrupted_run: task is Closed, skipping recovery");
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
@@ -1792,8 +1792,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
         if matches!(
             sandbox_desired_state,
-            Some(moatless_tasks::task::models::SandboxDesiredState::Stopped)
-                | Some(moatless_tasks::task::models::SandboxDesiredState::Removed)
+            Some(moatless_backend_core::models::SandboxDesiredState::Stopped)
+                | Some(moatless_backend_core::models::SandboxDesiredState::Removed)
         ) {
             debug!(
                 task_id = %req.task_id,
@@ -2060,7 +2060,7 @@ mod tests {
             last_message_at: String::new(),
             agent_type: moatless_core::shared_models::AgentType("claude-code".to_string()),
             repository_id: "repo-1".to_string(),
-            status: moatless_tasks::task::models::TaskStatus::Open,
+            status: moatless_backend_core::models::TaskStatus::Open,
             total_cost_usd: 0.0,
             site_url: None,
             template_id: None,
@@ -2173,11 +2173,12 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
             users_regular(),
         );
-        assert!(svc
-            .authorizer
-            .resolve_control(&claims_for("owner"), "task-1")
-            .await
-            .is_ok());
+        assert!(
+            svc.authorizer
+                .resolve_control(&claims_for("owner"), "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -2232,11 +2233,13 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::Global, None))),
             users_admin(),
         );
-        assert!(allowed
-            .authorizer
-            .resolve_control(&claims_for("admin"), "task-1")
-            .await
-            .is_ok());
+        assert!(
+            allowed
+                .authorizer
+                .resolve_control(&claims_for("admin"), "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -2246,11 +2249,12 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::User, Some("other-user")))),
             users_admin(),
         );
-        assert!(svc
-            .authorizer
-            .resolve_control(&claims_for("admin"), "task-1")
-            .await
-            .is_ok());
+        assert!(
+            svc.authorizer
+                .resolve_control(&claims_for("admin"), "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]

@@ -12,12 +12,12 @@ use super::models::{
 use moatless_api_schemas::enums::SandboxDesiredState;
 
 pub fn sandbox_desired_state_to_wire(
-    value: moatless_tasks::task::models::SandboxDesiredState,
+    value: moatless_backend_core::models::SandboxDesiredState,
 ) -> SandboxDesiredState {
     match value {
-        moatless_tasks::task::models::SandboxDesiredState::Running => SandboxDesiredState::Running,
-        moatless_tasks::task::models::SandboxDesiredState::Stopped => SandboxDesiredState::Stopped,
-        moatless_tasks::task::models::SandboxDesiredState::Removed => SandboxDesiredState::Removed,
+        moatless_backend_core::models::SandboxDesiredState::Running => SandboxDesiredState::Running,
+        moatless_backend_core::models::SandboxDesiredState::Stopped => SandboxDesiredState::Stopped,
+        moatless_backend_core::models::SandboxDesiredState::Removed => SandboxDesiredState::Removed,
     }
 }
 

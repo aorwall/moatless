@@ -9,7 +9,7 @@
 
 use chrono::{DateTime, Utc};
 
-use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
+use moatless_backend_core::models::{SandboxDesiredState, TaskStatus};
 
 use super::types::ArchiveRetention;
 

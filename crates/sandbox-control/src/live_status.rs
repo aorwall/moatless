@@ -3,7 +3,7 @@
 //! Callers provide the durable Task intent plus raw Sandbox and Agent signals;
 //! [`derive_live_status`] owns every rule that turns them into display status.
 
-use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
+use moatless_backend_core::models::{SandboxDesiredState, TaskStatus};
 
 pub use moatless_events::{AgentStatus, LiveStatus, SandboxStatus};
 

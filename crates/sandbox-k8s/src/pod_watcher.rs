@@ -39,17 +39,21 @@ use super::pod_observation_policy::{
 };
 use super::pod_status::{extract_container_observed_statuses, is_sandbox_container_ready};
 use super::provider::{StorageFallback, StorageFallbackOutcome};
+use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason};
+use moatless_core::events::EventPublisher;
 use moatless_sandbox_control::lifecycle::Lifecycle;
 use moatless_sandbox_control::lifecycle::OperationGeneration;
 use moatless_sandbox_control::lifecycle::classify::ObservedTransition;
-use moatless_sandbox_control::lifecycle::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
-use moatless_sandbox_control::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
+use moatless_sandbox_control::lifecycle::runtime::{
+    OPERATION_GENERATION_LABEL, generation_from_label,
+};
+use moatless_sandbox_control::lifecycle::watcher::{
+    classify_observation, publish_sandbox_observation,
+};
 use moatless_sandbox_control::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use moatless_tasks::task::dao::{TaskDao, TaskPatch};
-use moatless_tasks::task::models::{SandboxDesiredState, SandboxStopReason};
 use moatless_tasks::task_event::dao::TaskEventDao;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
-use moatless_core::events::EventPublisher;
 
 /// Dependencies the watcher needs to remediate a crash-looping sandbox. The
 /// lifecycle owns plan construction and intent, so the watcher only carries the
@@ -1868,8 +1872,8 @@ async fn sweep_pending_pods(
 
         let emit_scheduling_blocked = should_emit_scheduling_blocked(state, age_secs);
         let emit_startup_slow = should_emit_startup_slow(state, age_secs);
-        let fallback_candidate = deps.storage_fallback.is_some()
-            && should_attempt_storage_fallback(state, age_secs);
+        let fallback_candidate =
+            deps.storage_fallback.is_some() && should_attempt_storage_fallback(state, age_secs);
 
         // Read the pod's newest Warning event at most once per sweep, shared by
         // the two threshold events and the attach-failure fallback below.
@@ -1978,7 +1982,9 @@ async fn maybe_run_storage_fallback(
         pod_name = %state.pod_name,
         "Pod stuck Pending on a volume-attach failure — attempting emptyDir + S3 fallback"
     );
-    let outcome = fallback.rebuild_without_pvc(&state.task_id, generation).await;
+    let outcome = fallback
+        .rebuild_without_pvc(&state.task_id, generation)
+        .await;
     state.storage_fallback_requested = true;
 
     if outcome == StorageFallbackOutcome::Rebuilt {

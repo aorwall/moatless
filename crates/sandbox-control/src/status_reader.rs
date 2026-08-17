@@ -19,7 +19,7 @@ use super::access::LogOptions;
 use super::error::SandboxError;
 use super::live_status::LiveStatus;
 use super::schemas::SandboxStatusFullResponse;
-use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
+use moatless_backend_core::models::{SandboxDesiredState, TaskStatus};
 
 /// Live runtime observation used by the sandbox status and diagnostics routes.
 #[async_trait]
