@@ -97,13 +97,16 @@ pub(super) async fn bindings_in_scope(
     .map_err(AdapterError::from)
 }
 
-/// Every active Binding of either subject kind listening to `issue_id`, one per
-/// task, scoped to `connection`.
+/// Every active Binding of either subject kind listening to `issue_id`, scoped
+/// to `connection`, session Bindings first.
 ///
-/// Session Bindings are queried first and win the de-duplication, because a
-/// task holding both kinds on one issue should be reached through the one that
-/// has a Linear panel to heartbeat into.
-pub(super) async fn comment_recipients(
+/// Not de-duplicated per task. Which of a task's Bindings hears a given comment
+/// depends on the comment — an issue Binding hears every comment on the issue, a
+/// session Binding only its own thread (see `comments::recipients_for_comment`)
+/// — and the panel heartbeat wants the session Binding specifically. The
+/// session-first order lets the recipient step keep the session Binding whenever
+/// a task's session is the one that matched.
+pub(super) async fn active_comment_bindings(
     task_bindings: &dyn TaskBindingDao,
     connection: &AdapterConnection,
     issue_id: &str,
@@ -117,13 +120,11 @@ pub(super) async fn comment_recipients(
         );
     }
 
-    let mut seen_tasks = std::collections::HashSet::new();
+    // Skip bindings whose task has closed — a closed task is terminal and must
+    // not be resurrected by a new comment.
     Ok(rows
         .into_iter()
-        // Skip bindings whose task has closed — a closed task is terminal and
-        // must not be resurrected by a new comment.
         .filter(|b| b.connection_id == connection.id && b.active)
-        .filter(|b| seen_tasks.insert(b.task_id.clone()))
         .collect())
 }
 
@@ -178,6 +179,12 @@ pub(super) fn session_destination_config(
         "identifier": issue_identifier,
         "team_id": team_id,
         "issue_url": issue_url,
+        // The comment that spawned the session (mention). `None` for
+        // assignment-initiated sessions. A session task is thread-scoped: it
+        // hears a follow-up comment only when the comment replies to a comment
+        // it authored or to this originating comment — see
+        // `comments::recipients_for_comment`.
+        "origin_comment_id": session.comment.as_ref().map(|c| c.id.as_str()),
     })
 }
 

@@ -812,13 +812,12 @@ async fn a_prompt_to_a_deactivated_binding_reaches_nothing(pool: PgPool) {
 // Comment.create
 // =========================================================================
 
-/// An issue-level comment reaches every task bound to the issue, and heartbeats
-/// only into the ones that have a Linear session.
+/// An issue-level comment reaches the task that owns the ticket, not a session
+/// spawned into it: a session is thread-scoped and hears only its own thread.
 ///
-/// The asymmetry is the budget row: an issue binding has no session panel to
-/// keep alive, so it costs no call.
+/// The issue binding has no session panel, so no heartbeat is emitted either.
 #[sqlx::test]
-async fn a_comment_heartbeats_only_session_bindings_and_reaches_both(pool: PgPool) {
+async fn an_issue_level_comment_reaches_the_issue_binding_not_the_session(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
     seed_connection(&pool, &stub).await;
@@ -841,20 +840,67 @@ async fn a_comment_heartbeats_only_session_bindings_and_reaches_both(pool: PgPoo
     deliver(&state, &comment_created("comment-1", None, "please look")).await;
     drain(&pool, &stub).await;
 
-    assert_eq!(
-        stub.graphql_operations(),
-        vec!["agentActivityCreate"],
-        "one heartbeat for the session binding, none for the issue binding"
+    assert!(
+        stub.graphql_operations().is_empty(),
+        "the only recipient is the panel-less issue binding, so no heartbeat: {:?}",
+        stub.graphql_operations()
     );
     assert_eq!(
         forwarded_task_ids(&pool).await,
-        vec![TASK.to_string(), "task-linear-2".to_string()],
-        "an issue-level comment is for everyone bound to the issue"
+        vec!["task-linear-2".to_string()],
+        "a top-level issue comment is for the task that owns the ticket, not the session"
     );
     assert_eq!(
         forwarded_ids(&pool).await.first().map(String::as_str),
         Some("linear:comment:comment-1"),
         "the comment's persisted identity is its Linear comment id"
+    );
+}
+
+/// A reply to the comment a session was created from reaches that session and
+/// heartbeats its panel — the thread-scoped path a follow-up on the mention
+/// takes.
+#[sqlx::test]
+async fn a_reply_to_a_sessions_origin_comment_reaches_and_heartbeats_it(pool: PgPool) {
+    let stub = linear_stub().await;
+    let state = replica(&pool, &stub);
+    seed_connection(&pool, &stub).await;
+    seed_workspace_token(&pool).await;
+    seed_local_repository(&pool).await;
+    seed_rule(&state, None).await;
+    seed_binding(
+        &state,
+        &pool,
+        "tb-session-1",
+        TASK,
+        "linear_agent_session",
+        SESSION,
+        serde_json::json!({
+            "session_id": SESSION,
+            "issue_id": ISSUE,
+            "origin_comment_id": "root-comment",
+        }),
+        Some(RULE),
+        moatless_backend::adapters::models::ADAPTER_EVENT_BINDING_ORIGIN,
+    )
+    .await;
+
+    deliver(
+        &state,
+        &comment_created("comment-r", Some("root-comment"), "follow-up"),
+    )
+    .await;
+    drain(&pool, &stub).await;
+
+    assert_eq!(
+        stub.graphql_operations(),
+        vec!["agentActivityCreate"],
+        "the session's panel is heartbeated"
+    );
+    assert_eq!(
+        forwarded_task_ids(&pool).await,
+        vec![TASK.to_string()],
+        "a reply to the origin comment reaches the session it spawned"
     );
 }
 

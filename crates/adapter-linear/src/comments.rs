@@ -1,24 +1,28 @@
 //! Comment routing: who on our side hears a comment written on a Linear issue.
 //!
-//! Two jobs, deliberately kept apart. Linear decides what *kind* of comment it
-//! is — only Linear knows a `parentId` makes one a threaded reply — and that
-//! classification is [`comment_audience`]. Turning an audience into recipients
-//! is [`resolve_recipients`], which is shared with the GitHub PR Adapter and
-//! knows nothing about Linear.
+//! Recipients follow the binding's shape ([`recipients_for_comment`]):
+//! - A `linear_issue` binding is the task that filed or owns the ticket; it
+//!   hears every comment on the issue.
+//! - A `linear_agent_session` binding is a task a mention or assignment spawned
+//!   into the ticket; it is thread-scoped. It hears a comment only when the
+//!   comment replies to a comment it authored or to the comment the session was
+//!   created from. It never hears an issue-level comment or another session's
+//!   thread — so two sessions on one issue cannot ferry their own `response`
+//!   comments back and forth forever.
 //!
 //! The delivery a comment produces is the same one a person typing in the app
 //! produces, so the two must not be told apart downstream: a comment the agent
-//! itself posted arrives back through this path, and the only thing that stops
-//! it becoming a message the agent answers is the external id matching what
-//! `send_reply_for_binding` recorded.
+//! itself posted arrives back through this path, and the thing that stops it
+//! becoming a message the agent answers is the footer naming the authoring task
+//! (dropped here) plus the external id matching what `send_reply_for_binding`
+//! recorded.
 
 use tracing::{debug, info, warn};
 
 use moatless_core::config::Config;
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{AdapterConnection, Audience};
-use moatless_loops::bindings::recipients::{EventProvenance, resolve_recipients};
+use moatless_loops::adapters::models::{AdapterConnection, Audience, TaskBinding};
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_loops::loops::dao::LoopDao;
 use moatless_tasks::message::send::MessageSendService;
@@ -86,14 +90,13 @@ pub(super) async fn handle_comment_created(
     let parent_author_task_id = routing
         .parent_author_task_id(ADAPTER_LABEL, &audience)
         .await?;
-    let bindings = super::subject::comment_recipients(task_bindings, connection, issue_id).await?;
-    let recipients = resolve_recipients(
-        &audience,
+    let bindings =
+        super::subject::active_comment_bindings(task_bindings, connection, issue_id).await?;
+    let recipients = recipients_for_comment(
         &bindings,
-        EventProvenance {
-            author_task_id: author_task_id.as_deref(),
-            parent_author_task_id: parent_author_task_id.as_deref(),
-        },
+        comment.parent_id.as_deref(),
+        author_task_id.as_deref(),
+        parent_author_task_id.as_deref(),
     );
 
     if recipients.is_empty() {
@@ -185,18 +188,62 @@ pub(super) async fn handle_comment_created(
     Ok(())
 }
 
+/// The bound tasks a `Comment.create` is delivered to, scoped by binding shape.
+///
+/// A `linear_issue` binding — the task that filed or owns the ticket — hears
+/// every comment on the issue. A `linear_agent_session` binding — a task a
+/// mention or assignment spawned into the ticket — is thread-scoped: it hears a
+/// comment only when the comment replies to a comment the task authored
+/// (`parent_author_task_id`) or to the comment the session was created from
+/// (`origin_comment_id`, recorded on the binding at provisioning). It never
+/// hears an issue-level comment or another session's thread, which is what keeps
+/// two sessions on one issue from ferrying their own `response` comments to each
+/// other forever.
+///
+/// A task never receives back a comment it authored: `author_task_id` is
+/// recovered from the footer and excluded first. At most one Binding per task is
+/// returned; `bindings` arrives session-first, so a task whose session matched
+/// is reached through it (and its panel heartbeats), while a task reached only
+/// through its issue Binding keeps that one.
+fn recipients_for_comment<'b>(
+    bindings: &'b [TaskBinding],
+    comment_parent_id: Option<&str>,
+    author_task_id: Option<&str>,
+    parent_author_task_id: Option<&str>,
+) -> Vec<&'b TaskBinding> {
+    let mut seen_tasks = std::collections::HashSet::new();
+    bindings
+        .iter()
+        .filter(|binding| author_task_id != Some(binding.task_id.as_str()))
+        .filter(|binding| {
+            if binding.subject_kind == crate::SUBJECT_KIND_ISSUE {
+                return true;
+            }
+            if binding.subject_kind == crate::subject::SUBJECT_KIND_SESSION {
+                let replies_to_own_comment =
+                    parent_author_task_id == Some(binding.task_id.as_str());
+                let origin_comment_id = binding
+                    .destination_config
+                    .get("origin_comment_id")
+                    .and_then(serde_json::Value::as_str);
+                let replies_to_origin_comment =
+                    comment_parent_id.is_some() && comment_parent_id == origin_comment_id;
+                return replies_to_own_comment || replies_to_origin_comment;
+            }
+            false
+        })
+        .filter(|binding| seen_tasks.insert(binding.task_id.clone()))
+        .collect()
+}
+
 /// Who a `Comment.create` is for.
 ///
-/// Linear makes exactly one distinction: a comment that carries a `parentId` is
-/// a reply inside a thread, and belongs to whoever wrote the comment it replies
-/// to — plus the task that produced the issue, which must hear the discussion on
-/// its own work. Everything else is an ordinary issue-level comment for every
-/// task bound to the issue.
-///
-/// A reply inside a thread no task wrote, on an issue no task produced, names
-/// nobody at all; the resolver falls back to every bound task there, so the
-/// common Linear shape — two humans threading under a loop-spawned task — keeps
-/// reaching that task.
+/// Linear makes exactly one distinction that this classifies: a comment that
+/// carries a `parentId` is a reply inside a thread, and belongs to whoever wrote
+/// the comment it replies to. The resulting [`Audience::ParentAuthor`] is what
+/// [`RoutingService::parent_author_task_id`] resolves the reply's parent author
+/// from; the binding-shape scoping that turns that into recipients lives in
+/// [`recipients_for_comment`].
 fn comment_audience(comment: &CommentPayloadData) -> Audience {
     match comment.parent_id.as_deref() {
         Some(parent_id) => Audience::ParentAuthor {
@@ -291,9 +338,20 @@ mod tests {
         )
     }
 
-    /// A task a Linear agent session spawned from the issue.
+    /// A task a Linear agent session spawned from the issue, with no recorded
+    /// originating comment (an assignment-initiated session).
     fn session_responder(task_id: &str) -> TaskBinding {
         linear_binding(task_id, SUBJECT_KIND, ADAPTER_EVENT_BINDING_ORIGIN)
+    }
+
+    /// A session task spawned from a mention on `origin_comment_id`.
+    fn session_responder_from(task_id: &str, origin_comment_id: &str) -> TaskBinding {
+        let mut binding = session_responder(task_id);
+        binding.destination_config = serde_json::json!({
+            "issue_id": "issue-1",
+            "origin_comment_id": origin_comment_id,
+        });
+        binding
     }
 
     fn delivered_to(
@@ -302,13 +360,11 @@ mod tests {
         author_task_id: Option<&str>,
         parent_author_task_id: Option<&str>,
     ) -> Vec<String> {
-        resolve_recipients(
-            &comment_audience(comment),
+        recipients_for_comment(
             bindings,
-            EventProvenance {
-                author_task_id,
-                parent_author_task_id,
-            },
+            comment.parent_id.as_deref(),
+            author_task_id,
+            parent_author_task_id,
         )
         .into_iter()
         .map(|binding| binding.task_id.clone())
@@ -316,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn a_reply_to_a_responders_comment_reaches_it_and_the_issues_producer() {
+    fn a_reply_to_a_sessions_comment_reaches_it_and_the_issues_creator() {
         let bindings = vec![
             issue_producer("t_prod"),
             session_responder("t_resp"),
@@ -330,44 +386,35 @@ mod tests {
                 Some("t_resp"),
             ),
             vec!["t_prod", "t_resp"],
-            "the producer must hear a discussion on its own issue, \
-             and no responder hears a thread it did not start"
+            "the ticket creator hears every comment, and a session hears a reply \
+             to a comment it authored — but no sibling session hears a thread it \
+             did not start"
         );
     }
 
     #[test]
-    fn a_reply_on_an_issue_with_no_producer_reaches_the_parents_author_alone() {
-        let bindings = vec![session_responder("t_resp"), session_responder("t_other")];
+    fn a_reply_to_a_sessions_origin_comment_reaches_that_session() {
+        let bindings = vec![
+            session_responder_from("t_resp", "comment-parent"),
+            session_responder_from("t_other", "some-other-comment"),
+        ];
         assert_eq!(
             delivered_to(
                 &comment_with_parent(Some("comment-parent")),
                 &bindings,
                 None,
-                Some("t_resp"),
+                // The origin comment was written by the human who mentioned the
+                // agent, so no task authored the parent.
+                None,
             ),
             vec!["t_resp"],
-            "most Linear issues have no producer, and those route exactly as before"
+            "a reply to the comment a session was created from reaches that \
+             session, and only it"
         );
     }
 
     #[test]
-    fn a_reply_inside_a_thread_no_task_wrote_still_reaches_a_producerless_issue() {
-        let bindings = vec![session_responder("t_resp"), session_responder("t_other")];
-        assert_eq!(
-            delivered_to(
-                &comment_with_parent(Some("comment-parent")),
-                &bindings,
-                None,
-                None,
-            ),
-            vec!["t_resp", "t_other"],
-            "two humans threading under a loop-spawned task name nobody, \
-             and the resolver's fallback keeps the task hearing it"
-        );
-    }
-
-    #[test]
-    fn an_issue_level_comment_still_reaches_every_bound_task() {
+    fn an_issue_level_comment_reaches_only_the_ticket_creator() {
         let bindings = vec![
             issue_producer("t_prod"),
             session_responder("t_resp"),
@@ -375,7 +422,59 @@ mod tests {
         ];
         assert_eq!(
             delivered_to(&comment_with_parent(None), &bindings, None, None),
-            vec!["t_prod", "t_resp", "t_other"]
+            vec!["t_prod"],
+            "a top-level issue comment is for the task that owns the ticket; a \
+             session hears only its own thread"
+        );
+    }
+
+    #[test]
+    fn an_issue_level_comment_with_no_creator_reaches_nobody() {
+        let bindings = vec![session_responder("t_resp"), session_responder("t_other")];
+        assert_eq!(
+            delivered_to(&comment_with_parent(None), &bindings, None, None),
+            Vec::<String>::new(),
+            "a session does not hear a comment outside its own thread, so an \
+             issue with only sessions and no creator hears an issue-level \
+             comment nowhere"
+        );
+    }
+
+    #[test]
+    fn a_reply_in_a_thread_a_session_did_not_start_reaches_nobody() {
+        let bindings = vec![session_responder("t_resp"), session_responder("t_other")];
+        assert_eq!(
+            delivered_to(
+                &comment_with_parent(Some("comment-parent")),
+                &bindings,
+                None,
+                None,
+            ),
+            Vec::<String>::new(),
+            "a reply to a comment no session authored and that no session was \
+             created from reaches no session"
+        );
+    }
+
+    #[test]
+    fn two_sessions_on_one_issue_do_not_hear_each_others_responses() {
+        // The production loop: two agent-session peers on one issue. Each posts
+        // its answer as a `response`, which Linear mirrors back as a top-level
+        // issue comment authored by that peer. Neither peer hears the other's,
+        // so the ping-pong cannot start.
+        let bindings = vec![
+            session_responder_from("t_a", "comment-a"),
+            session_responder_from("t_b", "comment-b"),
+        ];
+        assert_eq!(
+            delivered_to(&comment_with_parent(None), &bindings, Some("t_a"), None),
+            Vec::<String>::new(),
+            "peer t_b does not hear t_a's issue-level response"
+        );
+        assert_eq!(
+            delivered_to(&comment_with_parent(None), &bindings, Some("t_b"), None),
+            Vec::<String>::new(),
+            "and t_a does not hear t_b's"
         );
     }
 
@@ -385,7 +484,8 @@ mod tests {
         assert_eq!(
             delivered_to(&comment_with_parent(None), &bindings, Some("t_resp"), None),
             vec!["t_prod"],
-            "the footer names the authoring task; only that task is dropped"
+            "the footer names the authoring task; only that task is dropped, and \
+             the ticket creator still hears the comment"
         );
         assert_eq!(
             delivered_to(
@@ -395,7 +495,7 @@ mod tests {
                 Some("t_resp"),
             ),
             vec!["t_resp"],
-            "a producer replying inside a responder's thread does not hear itself"
+            "a creator replying inside a session's thread does not hear itself"
         );
     }
 }
