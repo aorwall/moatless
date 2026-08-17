@@ -12,6 +12,7 @@ mod agent_handlers_hooks_test;
 mod agent_handlers_per_block_test;
 mod closed_terminal_test;
 mod device_pairing_test;
+mod event_subscriptions_test;
 mod ui_rpc_command_test;
 mod ui_rpc_preview_tabs_redis_test;
 mod ui_rpc_shell_test;

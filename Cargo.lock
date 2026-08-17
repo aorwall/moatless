@@ -3365,6 +3365,7 @@ dependencies = [
  "moatless-api-schemas",
  "moatless-backend-core",
  "moatless-core",
+ "moatless-events",
  "moatless-identity",
  "moatless-loops",
  "moatless-tasks",

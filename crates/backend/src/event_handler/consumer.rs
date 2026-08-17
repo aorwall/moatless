@@ -3,12 +3,16 @@
 //! Subscribes to `task-events:*` streams using a separate consumer group
 //! from the SSE consumer. Processes `agent.*` and `task.metadata.updated` events.
 
+use std::sync::Arc;
+
 use redis::Value;
 use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use moatless_events::{AgentSubType, EventType, SandboxStatus, TaskSubType, TaskTurnSubType};
+
+use moatless_loops::adapters::events::TaskEventSubscribers;
 
 use crate::state::AppState;
 use crate::task_event::dao::InsertTaskEvent;
@@ -25,6 +29,9 @@ pub struct EventHandlerConsumer {
     conn: ConnectionManager,
     consumer_id: String,
     state: AppState,
+    /// The Adapters that react to a task's own events. Built at the composition
+    /// root; this module never names a provider.
+    subscribers: Arc<TaskEventSubscribers>,
     cancel: CancellationToken,
     /// When set, the next cycle first drains this consumer's Pending Entries
     /// List (delivered-but-not-ACKed entries) before reading new entries.
@@ -47,12 +54,14 @@ impl EventHandlerConsumer {
         conn: ConnectionManager,
         consumer_id: String,
         state: AppState,
+        subscribers: Arc<TaskEventSubscribers>,
         cancel: CancellationToken,
     ) -> Self {
         Self {
             conn,
             consumer_id,
             state,
+            subscribers,
             cancel,
             recover_pending: true,
         }
@@ -381,12 +390,23 @@ impl EventHandlerConsumer {
         }
     }
 
-    /// Dispatch a parsed event to the appropriate handler.
+    /// Dispatch a parsed event: the generic handling this band owns, then the
+    /// Adapters that subscribed to it.
+    ///
+    /// Subscribers run *after* the generic handler, so a reaction that depends
+    /// on what the handler persisted — the GitHub shell claim keys on the
+    /// message row the handler wrote — sees it.
     #[tracing::instrument(
         skip_all,
         fields(task_id = %event.task_id, event_type = %event.event_type, sub_type = %event.sub_type)
     )]
     async fn dispatch_event(&self, event: &AgentEvent) {
+        self.handle_event(event).await;
+        self.subscribers.dispatch(event).await;
+    }
+
+    /// The generic handling every event gets, whatever Adapters are installed.
+    async fn handle_event(&self, event: &AgentEvent) {
         match event.event_key() {
             EventKey::Agent(AgentSubType::Completed) => {
                 // handle_agent_completed publishes task_turn.completed; external
@@ -398,48 +418,6 @@ impl EventHandlerConsumer {
             }
             EventKey::Agent(AgentSubType::Message) => {
                 agent_handlers::handle_agent_message(&self.state, event).await;
-                // Forward content blocks to Linear:
-                // - assistant role → persistent `thought` text + ephemeral
-                //   pending `action` per tool_use.
-                // - user role → non-ephemeral completed `action` per
-                //   tool_result, looked up against the persisted tool_use row
-                //   to recover the original tool name and input summary.
-                let role = event
-                    .payload
-                    .get("message")
-                    .and_then(|m| m.get("role"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("assistant");
-                if role == "assistant" {
-                    if let Some(message) = event.payload.get("message").cloned() {
-                        if self.state.linear_active_turns.is_open(&event.task_id) {
-                            tokio::spawn(
-                                crate::adapters::providers::linear::activity::notify_linear_message_activities(
-                                    self.state.db.clone(),
-                                    self.state.adapter_connections.clone(),
-                                    self.state.config.clone(),
-                                    event.task_id.clone(),
-                                    message,
-                                ),
-                            );
-                        }
-                    }
-                } else if role == "user" {
-                    if let Some(message) = event.payload.get("message").cloned() {
-                        if self.state.linear_active_turns.is_open(&event.task_id) {
-                            tokio::spawn(
-                                crate::adapters::providers::linear::activity::notify_linear_tool_results(
-                                    self.state.db.clone(),
-                                    self.state.adapter_connections.clone(),
-                                    self.state.config.clone(),
-                                    self.state.messages.clone(),
-                                    event.task_id.clone(),
-                                    message,
-                                ),
-                            );
-                        }
-                    }
-                }
             }
             EventKey::Agent(AgentSubType::SessionInit) => {
                 agent_handlers::handle_agent_session_init(&self.state, event).await;
@@ -456,31 +434,6 @@ impl EventHandlerConsumer {
                 // handle_agent_error publishes task_turn.error; external
                 // notification is handled by the agent via `moat reply`.
                 agent_handlers::handle_agent_error(&(&self.state).into(), event).await;
-                // Also emit a persistent `error` activity on any active
-                // Linear session so the failure is visible mid-flight.
-                let body = event
-                    .payload
-                    .get("error")
-                    .and_then(serde_json::Value::as_str)
-                    .or_else(|| {
-                        event
-                            .payload
-                            .get("message")
-                            .and_then(serde_json::Value::as_str)
-                    })
-                    .unwrap_or("Agent error")
-                    .to_string();
-                if self.state.linear_active_turns.is_open(&event.task_id) {
-                    tokio::spawn(crate::adapters::providers::linear::activity::notify_linear_status(
-                        self.state.db.clone(),
-                        self.state.adapter_connections.clone(),
-                        self.state.config.clone(),
-                        event.task_id.clone(),
-                        crate::adapters::providers::linear::activity::ActivityKind::Error,
-                        body,
-                        false,
-                    ));
-                }
             }
             EventKey::TaskTurn(TaskTurnSubType::Error) => {
                 // External notification is handled by the agent via `moat reply`.
@@ -501,33 +454,12 @@ impl EventHandlerConsumer {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;
             }
             // Sandbox error — pod watcher detected a fatal crash; transcript-only
-            // for the agent (auto-error reply), and a Linear `error` activity
-            // for any active Linear binding.
+            // for the agent (auto-error reply).
             EventKey::Sandbox(SandboxStatus::Error) => {
-                let body = event
-                    .payload
-                    .get("message")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("Sandbox error")
-                    .to_string();
-                if self.state.linear_active_turns.is_open(&event.task_id) {
-                    tokio::spawn(crate::adapters::providers::linear::activity::notify_linear_status(
-                        self.state.db.clone(),
-                        self.state.adapter_connections.clone(),
-                        self.state.config.clone(),
-                        event.task_id.clone(),
-                        crate::adapters::providers::linear::activity::ActivityKind::Error,
-                        body,
-                        false,
-                    ));
-                }
                 agent_handlers::handle_sandbox_activity(&self.state, event, "error", true).await;
                 agent_handlers::handle_sandbox_fatal(&(&self.state).into(), event).await;
             }
-            // Sandbox lifecycle transitions — surface as ephemeral `action`
-            // activities so each new status replaces the previous one in
-            // Linear's UI (no UUIDs leak, no historical pile-up). The full
-            // history still lives in Moatless and in the linked task URL.
+            // Sandbox lifecycle transitions — recorded as their own activity.
             EventKey::Sandbox(
                 status @ (SandboxStatus::Initializing
                 | SandboxStatus::Ready
@@ -540,37 +472,10 @@ impl EventHandlerConsumer {
                     false,
                 )
                 .await;
-                if self.state.linear_active_turns.is_open(&event.task_id) {
-                    tokio::spawn(crate::adapters::providers::linear::activity::notify_linear_action(
-                        self.state.db.clone(),
-                        self.state.adapter_connections.clone(),
-                        self.state.config.clone(),
-                        event.task_id.clone(),
-                        "Sandbox".to_string(),
-                        status.as_str().to_string(),
-                        None,
-                        true,
-                    ));
-                }
             }
-            // Agent process started inside the sandbox — same ephemeral
-            // status-marker treatment. Re-opens the Linear turn gate so a
-            // manual `moat send` against a Linear-bound task re-surfaces
-            // events in Linear (covers the second/third turn after the
-            // agent restarts mid-session).
-            EventKey::Agent(AgentSubType::Started) => {
-                self.state.linear_active_turns.open(&event.task_id);
-                tokio::spawn(crate::adapters::providers::linear::activity::notify_linear_action(
-                    self.state.db.clone(),
-                    self.state.adapter_connections.clone(),
-                    self.state.config.clone(),
-                    event.task_id.clone(),
-                    "Agent".to_string(),
-                    AgentSubType::Started.as_str().to_string(),
-                    None,
-                    true,
-                ));
-            }
+            // Agent process started inside the sandbox. Nothing generic to do —
+            // the Adapters that surface a live status subscribe to it.
+            EventKey::Agent(AgentSubType::Started) => {}
             // Known SSE-only event types — forwarded to frontend but not processed here
             EventKey::Sandbox(_)
             | EventKey::Server(_)

@@ -10,7 +10,6 @@ use crate::adapter_installations::AdapterInstallations;
 use crate::adapters::Adapters;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
-use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::self_echo::SelfEchoFilter;
 use crate::agent_harness_access::{AgentHarnessAccess, ProviderCodexDeviceLogin};
 use crate::app_administration::{AppAdministration, ProviderGitHubAppProver};
@@ -134,9 +133,6 @@ pub struct AppState {
     /// just sent outbound — closes the race where the inbound webhook lands
     /// before `set_external_event_id` commits. See [`RecentlySent`].
     pub recently_sent: Arc<RecentlySent>,
-    /// Per-task gate that suppresses stray Linear activity emission after a
-    /// turn has terminated. See [`ActiveLinearTurns`].
-    pub linear_active_turns: Arc<ActiveLinearTurns>,
     /// Maps `tool_use_id` → bucketed tool-type label, populated when an
     /// assistant `tool_use` block is observed so the later (separate)
     /// `tool_result` event can be labelled by tool type for the
@@ -560,7 +556,6 @@ impl AppState {
             agent_harness_access,
             app_administration,
             recently_sent,
-            linear_active_turns: Arc::new(ActiveLinearTurns::new()),
             tool_call_names: Arc::new(
                 moka::future::Cache::builder()
                     .max_capacity(50_000)
@@ -888,7 +883,6 @@ impl From<&AppState> for crate::event_handler::agent_handlers::AgentErrorPorts {
             task_relations: state.task_relations.clone(),
             message_send: state.message_send.clone(),
             sandbox_waker: state.sandbox_waker.clone(),
-            linear_active_turns: state.linear_active_turns.clone(),
             events: state.events.clone(),
         }
     }

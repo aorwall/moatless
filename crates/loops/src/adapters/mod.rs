@@ -9,6 +9,7 @@
 pub mod common;
 pub mod delivery;
 pub mod error;
+pub mod events;
 pub mod inbound_delivery;
 pub mod ingress;
 pub mod metrics;

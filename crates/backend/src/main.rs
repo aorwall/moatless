@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use moatless_backend::adapter_installations::AdapterInstallations;
+use moatless_backend::adapters::events::TaskEventSubscribers;
 use moatless_backend::agent;
 use moatless_backend::auth;
 use moatless_backend::compose::{Ports, compose};
@@ -562,7 +563,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Background workers
-        if let Some(handle) = spawn_event_handler(&config, &app_state, cancel.clone()).await {
+        // The Adapters that mirror a task's own events back to their provider.
+        // Built here for the same reason as the delivery handlers: the
+        // reactions read process ports, and no Adapter retains the aggregate.
+        let event_subscribers = Arc::new(adapter_installations.event_subscribers(&app_state));
+        if let Some(handle) =
+            spawn_event_handler(&config, &app_state, event_subscribers, cancel.clone()).await
+        {
             supervisor.supervise(
                 "event-handler-consumer",
                 // Readiness: agent lifecycle events stop being processed, so
@@ -928,6 +935,7 @@ async fn request_trace_middleware(
 async fn spawn_event_handler(
     config: &Config,
     app_state: &AppState,
+    subscribers: Arc<TaskEventSubscribers>,
     cancel: CancellationToken,
 ) -> Option<tokio::task::JoinHandle<()>> {
     if !config.redis.event_handler_enabled {
@@ -957,7 +965,12 @@ async fn spawn_event_handler(
     };
 
     let state = app_state.clone();
-    let handle = tokio::spawn(event_handler::spawn_event_handler(conn, state, cancel));
+    let handle = tokio::spawn(event_handler::spawn_event_handler(
+        conn,
+        state,
+        subscribers,
+        cancel,
+    ));
     info!("Event handler consumer spawned");
     Some(handle)
 }

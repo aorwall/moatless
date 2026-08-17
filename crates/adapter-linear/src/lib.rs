@@ -36,6 +36,7 @@ mod close;
 mod comments;
 mod config;
 pub mod delivery;
+pub mod event_subscriber;
 mod external_id;
 pub mod handlers;
 pub mod ingress;

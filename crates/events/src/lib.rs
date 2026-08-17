@@ -70,7 +70,7 @@ impl TryFrom<&str> for EventType {
 /// Sandbox status — valid status values for sandbox lifecycle events.
 ///
 /// These match the frontend `SandboxStatus` values.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SandboxStatus {
@@ -254,7 +254,7 @@ pub struct LiveStatus {
 /// Server sub-types — server container lifecycle.
 ///
 /// `Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ServerSubType {
@@ -298,7 +298,7 @@ impl TryFrom<&str> for ServerSubType {
 }
 
 /// Agent sub-types.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AgentSubType {
@@ -388,7 +388,7 @@ impl TryFrom<&str> for AgentSubType {
 }
 
 /// Task sub-types.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TaskSubType {
@@ -433,7 +433,7 @@ impl TryFrom<&str> for TaskSubType {
 }
 
 /// TaskTurn sub-types.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TaskTurnSubType {

@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use crate::adapters::delivery::AdapterDeliveryHandlers;
 use crate::adapters::providers::github_pr::adapter::GithubPrAdapter;
+use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::providers::linear::adapter::LinearAdapter;
 use crate::adapters::providers::slack::adapter::SlackAdapter;
 use crate::adapters::providers::telegram::adapter::TelegramAdapter;
@@ -18,6 +19,7 @@ use crate::adapters::{AdapterDestinationBuilder, Adapters};
 use crate::compose::Ports;
 use crate::state::AppState;
 use moatless_core::config::Config;
+use moatless_loops::adapters::events::TaskEventSubscribers;
 
 /// The external Adapters installed in one backend process.
 ///
@@ -71,8 +73,21 @@ impl AdapterInstallations {
         WebhookInstallation::register_delivery(&mut handlers, state);
         TelegramInstallation::register_delivery(&mut handlers, state);
         self.github_pr.register_delivery(&mut handlers, state);
-        LinearInstallation::register_delivery(&mut handlers, state);
+        self.linear.register_delivery(&mut handlers, state);
         handlers
+    }
+
+    /// Build the set of Adapters that react to a task's own event stream.
+    ///
+    /// Assembled after `AppState` for the same reason as
+    /// [`delivery_handlers`](Self::delivery_handlers) — the reactions read
+    /// process ports the aggregate owns. An Adapter that reacts to no event
+    /// registers nothing and the event handler is unchanged by it.
+    pub fn event_subscribers(&self, state: &AppState) -> TaskEventSubscribers {
+        let mut subscribers = TaskEventSubscribers::new();
+        self.github_pr.subscribe_events(&mut subscribers, state);
+        self.linear.subscribe_events(&mut subscribers, state);
+        subscribers
     }
 
     /// Concrete Slack Adapter for Slack-specific HTTP handlers.
@@ -199,10 +214,28 @@ impl GithubPrInstallation {
         );
         crate::adapters::providers::github_pr::delivery::register(handlers, router);
     }
+
+    fn subscribe_events(&self, subscribers: &mut TaskEventSubscribers, state: &AppState) {
+        crate::adapters::providers::github_pr::event_subscriber::subscribe(
+            subscribers,
+            Arc::new(
+                crate::adapters::providers::github_pr::event_subscriber::GithubPrEventSubscriber::new(
+                    self.adapter.clone(),
+                    state.recently_sent.clone(),
+                    state.messages.clone(),
+                    state.tasks.clone(),
+                    state.repositories.clone(),
+                ),
+            ),
+        );
+    }
 }
 
 struct LinearInstallation {
     adapter: Arc<LinearAdapter>,
+    /// Shared by the inbound router (which opens a turn) and the event
+    /// subscriber (which reads and closes it).
+    active_turns: Arc<ActiveLinearTurns>,
 }
 
 impl LinearInstallation {
@@ -218,10 +251,13 @@ impl LinearInstallation {
         );
         adapter.clone().register_into(adapters);
         tracing::info!("Linear Adapter installed");
-        Self { adapter }
+        Self {
+            adapter,
+            active_turns: Arc::new(ActiveLinearTurns::new()),
+        }
     }
 
-    fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
+    fn register_delivery(&self, handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
         let router = Arc::new(
             crate::adapters::providers::linear::delivery::LinearInboundRouter::new(
                 state.adapter_connections.clone(),
@@ -235,11 +271,27 @@ impl LinearInstallation {
                 state.message_send.clone(),
                 state.sandbox_waker.clone(),
                 state.task_closer.clone(),
-                state.linear_active_turns.clone(),
+                self.active_turns.clone(),
                 state.routing.clone(),
             ),
         );
         crate::adapters::providers::linear::delivery::register(handlers, router);
+    }
+
+    fn subscribe_events(&self, subscribers: &mut TaskEventSubscribers, state: &AppState) {
+        crate::adapters::providers::linear::event_subscriber::subscribe(
+            subscribers,
+            Arc::new(
+                crate::adapters::providers::linear::event_subscriber::LinearEventSubscriber::new(
+                    state.db.clone(),
+                    state.adapter_connections.clone(),
+                    state.config.clone(),
+                    state.messages.clone(),
+                    state.tasks.clone(),
+                    self.active_turns.clone(),
+                ),
+            ),
+        );
     }
 }
 

@@ -718,7 +718,12 @@ pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState
             worker_state.message_send.clone(),
             worker_state.sandbox_waker.clone(),
             worker_state.task_closer.clone(),
-            worker_state.linear_active_turns.clone(),
+            // The gate is process-local and only the event-handler consumer
+            // reads it; no consumer runs here, so this replica gets its own.
+            Arc::new(
+                moatless_backend::adapters::providers::linear::active_turns::ActiveLinearTurns::new(
+                ),
+            ),
             worker_state.routing.clone(),
         ),
     );

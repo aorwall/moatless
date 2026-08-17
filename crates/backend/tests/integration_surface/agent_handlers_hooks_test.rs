@@ -6,8 +6,13 @@
     clippy::print_stderr
 )]
 //! Integration tests for `event_handler::agent_handlers::handle_agent_message`
-//! → `message::hooks::extract_shell_reconcile_targets` and the server-band
-//! dispatch to `adapters::providers::github_pr::shell_reconcile::reconcile_shell_command`.
+//! → `message::hooks::extract_shell_reconcile_targets` and the GitHub PR
+//! Adapter's own reaction to that message
+//! (`adapters::providers::github_pr::shell_reconcile::reconcile_shell_command`).
+//!
+//! Driven through both halves the event handler runs, in the same order: the
+//! generic handler persists the message, then the subscribed Adapters react to
+//! it. The claim keys on the row the handler wrote, so the order is the test.
 //!
 //! Covers:
 //! - `gh pr create` tool result auto-connects a `task_bindings` row and
@@ -21,15 +26,17 @@ use chrono::Utc;
 use moatless_backend::adapters::dao::PgAdapterConnectionDao;
 use moatless_backend::adapters::models::{AdapterConnection, RoutingMode, SubscriptionMatch};
 use moatless_backend::bindings::dao::PgTaskBindingDao;
+use moatless_backend::adapters::events::TaskEventSubscribers;
 use moatless_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_backend::agent_event::AgentEvent;
+use moatless_backend::state::AppState;
 use moatless_backend::loops::dao::LoopDao;
 use moatless_backend::repository::dao as repository_dao;
 use moatless_core::scope::{Scope, ScopeContext};
 use moatless_backend::task::dao as task_dao;
 use sqlx::PgPool;
 
-use common::{make_repository_row, make_task_row, test_app_state};
+use common::{make_repository_row, make_task_row, test_app_state_with_adapters, test_config};
 
 async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_id: &str) {
     let now = Utc::now();
@@ -122,12 +129,24 @@ fn agent_message_event(
 }
 
 /// Seed a repo + task and return an `AppState` wired to the pool.
-async fn seed(pool: &PgPool, task_id: &str) -> moatless_backend::state::AppState {
+async fn seed(pool: &PgPool, task_id: &str) -> (AppState, TaskEventSubscribers) {
     let repo = make_repository_row("repo-1", "user-1");
     repository_dao::insert(pool, &repo).await.unwrap();
     let task = make_task_row(task_id, "user-1");
     task_dao::insert_task(pool, &task).await.unwrap();
-    test_app_state(pool.clone())
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
+    let subscribers = state
+        .adapter_installations
+        .clone()
+        .expect("adapters are installed")
+        .event_subscribers(&state);
+    (state, subscribers)
+}
+
+/// Deliver one `agent.message` the way the event-handler consumer does.
+async fn deliver(state: &AppState, subscribers: &TaskEventSubscribers, event: &AgentEvent) {
+    handle_agent_message(state, event).await;
+    subscribers.dispatch(event).await;
 }
 
 #[sqlx::test]
@@ -136,7 +155,7 @@ async fn seed(pool: &PgPool, task_id: &str) -> moatless_backend::state::AppState
             scope collapse (seed lacked the personal-team row)"]
 async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
     let task_id = "task-pr-create";
-    let state = seed(&pool, task_id).await;
+    let (state, subscribers) = seed(&pool, task_id).await;
 
     // The org-webhook connection + subscription loop must exist before the agent's
     // gh-pr-create hook can attach a task binding.
@@ -159,7 +178,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
             }
         ]),
     );
-    handle_agent_message(&state, &assistant_event).await;
+    deliver(&state, &subscribers, &assistant_event).await;
 
     // 2. Persist the matching tool_result with the PR URL in stdout.
     let result_event = agent_message_event(
@@ -176,7 +195,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
             }
         ]),
     );
-    handle_agent_message(&state, &result_event).await;
+    deliver(&state, &subscribers, &result_event).await;
 
     // 3. Verify a task_bindings row was created for this task pointing at
     //    the seeded org connection and repo trigger.
@@ -226,7 +245,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
 #[sqlx::test]
 async fn gh_pr_comment_tags_tool_result_with_external_id(pool: PgPool) {
     let task_id = "task-pr-comment";
-    let state = seed(&pool, task_id).await;
+    let (state, subscribers) = seed(&pool, task_id).await;
 
     let assistant_event = agent_message_event(
         "evt-c1",
@@ -244,7 +263,7 @@ async fn gh_pr_comment_tags_tool_result_with_external_id(pool: PgPool) {
             }
         ]),
     );
-    handle_agent_message(&state, &assistant_event).await;
+    deliver(&state, &subscribers, &assistant_event).await;
 
     let result_uuid = "tr-uuid-c1";
     let result_event = agent_message_event(
@@ -261,7 +280,7 @@ async fn gh_pr_comment_tags_tool_result_with_external_id(pool: PgPool) {
             }
         ]),
     );
-    handle_agent_message(&state, &result_event).await;
+    deliver(&state, &subscribers, &result_event).await;
 
     // The dedup gate must recognise the comment as this Task's own, so the
     // webhook echo of it is not delivered back as a new Message.

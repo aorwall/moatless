@@ -12,7 +12,7 @@ pub mod providers;
 pub mod routes;
 
 pub use moatless_loops::adapters::{
-    common, delivery, error, inbound_delivery, ingress, metrics, self_echo, signature,
+    common, delivery, error, events, inbound_delivery, ingress, metrics, self_echo, signature,
     subject_events, Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,
     AdapterDirectDestination, AdapterDirectMessage, AdapterInboundPresentation, AdapterKind,
     AdapterMessageReply, AdapterOutboundContent, AdapterPostBindingFollowup, AdapterReactions,

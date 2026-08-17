@@ -12,7 +12,9 @@ use moatless_events::{
 use serde::Deserialize;
 
 /// Typed event dispatch key — replaces string-concat `format!("{}.{}", type, sub)`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Hash` so a subscriber registry can key on it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EventKey {
     Agent(AgentSubType),
     Task(TaskSubType),

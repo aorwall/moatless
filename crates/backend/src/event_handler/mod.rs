@@ -9,9 +9,13 @@ pub mod metrics;
 pub mod models;
 pub mod skeleton;
 
+use std::sync::Arc;
+
 use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
+
+use moatless_loops::adapters::events::TaskEventSubscribers;
 
 use crate::state::AppState;
 
@@ -21,6 +25,7 @@ use crate::state::AppState;
 pub async fn spawn_event_handler(
     conn: ConnectionManager,
     state: AppState,
+    subscribers: Arc<TaskEventSubscribers>,
     cancel: CancellationToken,
 ) {
     let consumer_id = format!(
@@ -30,6 +35,7 @@ pub async fn spawn_event_handler(
 
     info!(consumer_id = %consumer_id, "Spawning event handler consumer");
 
-    let consumer = consumer::EventHandlerConsumer::new(conn, consumer_id, state, cancel);
+    let consumer =
+        consumer::EventHandlerConsumer::new(conn, consumer_id, state, subscribers, cancel);
     consumer.run().await;
 }

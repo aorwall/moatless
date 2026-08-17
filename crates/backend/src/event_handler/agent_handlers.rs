@@ -6,7 +6,6 @@ use moatless_backend_core::scope::ScopeContext;
 use moatless_core::events::EventPublisher;
 use moatless_events::{TaskSubType, TaskTurnSubType};
 
-use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::message::models::{MessageRole, MessageType, TaskMessage, TaskMessageContext};
 use crate::message::send::MessageSendService;
 use crate::state::AppState;
@@ -205,16 +204,6 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         }
     };
 
-    // Finalize any active Linear agent session bound to this task by posting a
-    // terminal `response` activity with the last assistant message body. The
-    // error path is handled by `handle_agent_error`, which already emits an
-    // `error` activity, so this branch is success-only.
-    notify_linear_response_for_completion(state, &event.task_id).await;
-
-    // Close the Linear turn gate as the last step so post-turn stragglers
-    // (Sandbox(Stopped), late tool_results) don't pile up in Linear.
-    state.linear_active_turns.close(&event.task_id);
-
     // Emit events. Error completions short-circuit through `handle_agent_error`
     // above, so this path is success-only.
     if let Some(ref events) = state.events {
@@ -241,69 +230,6 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
                 .await;
         }
     }
-}
-
-/// Resolve the last assistant message for `task_id` and emit it as a Linear
-/// `response` activity. Fire-and-forget — any failure is logged and swallowed
-/// so the event-handler hot path stays unblocked.
-async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) {
-    let msg = match state.messages.get_last_assistant_message(task_id).await {
-        Ok(Some(m)) => m,
-        Ok(None) => {
-            tracing::warn!(
-                task_id,
-                "agent.completed: no assistant message found; skipping Linear response activity"
-            );
-            return;
-        }
-        Err(e) => {
-            tracing::warn!(
-                task_id,
-                error = %e,
-                "agent.completed: failed to fetch last assistant message; skipping Linear response activity"
-            );
-            return;
-        }
-    };
-
-    let mut body = msg.message_text.clone().unwrap_or_default();
-    if body.trim().is_empty() {
-        tracing::warn!(
-            task_id,
-            message_uuid = %msg.uuid,
-            "agent.completed: last assistant message has no text content; skipping Linear response activity"
-        );
-        return;
-    }
-
-    // Append the `Moatless task:` footer so the inbound `Comment.create` echo
-    // filter (`handle_comment_created`) can recover the authoring task id and
-    // drop this comment when Linear webhooks it back. Without the footer the
-    // response activity re-enters the task as a fresh inbound comment, the agent
-    // answers, `agent.completed` fires again, and the task loops forever. This
-    // mirrors the footer that `send_reply_for_binding` appends on the explicit
-    // reply path (`build_comment_body`).
-    if let Some(footer) = crate::bindings::footer::task_comment_footer(
-        state.tasks.as_ref(),
-        &state.config.auth.frontend_url,
-        task_id,
-    )
-    .await
-    {
-        body.push_str(&footer);
-    }
-
-    tokio::spawn(
-        crate::adapters::providers::linear::activity::notify_linear_status(
-            state.db.clone(),
-            state.adapter_connections.clone(),
-            state.config.clone(),
-            task_id.to_string(),
-            crate::adapters::providers::linear::activity::ActivityKind::Response,
-            body,
-            false,
-        ),
-    );
 }
 
 /// Handle `agent.session_init` event — Claude Code session started.
@@ -405,9 +331,6 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
             .await;
     }
 
-    // Close the Linear turn gate — user-initiated stops don't emit a final
-    // activity, so this just prevents post-stop stragglers from leaking.
-    state.linear_active_turns.close(&event.task_id);
 }
 
 /// The ports an errored run is closed over.
@@ -421,7 +344,6 @@ pub struct AgentErrorPorts {
     pub task_relations: Arc<dyn TaskRelationDao>,
     pub message_send: Arc<MessageSendService>,
     pub sandbox_waker: Arc<dyn SandboxWaker>,
-    pub linear_active_turns: Arc<ActiveLinearTurns>,
     pub events: Option<Arc<dyn EventPublisher>>,
 }
 
@@ -498,11 +420,6 @@ pub async fn handle_agent_error(ports: &AgentErrorPorts, event: &AgentEvent) {
     if child_not_closed {
         notify_parent_task_of_child_error(ports, event, error_msg).await;
     }
-
-    // Close the Linear turn gate after the consumer's adjacent
-    // notify_linear_status(Error) spawn has been issued. Also covers
-    // `handle_sandbox_fatal` transitively.
-    ports.linear_active_turns.close(&event.task_id);
 }
 
 /// Tell the parent task that this child errored. A child that completes
@@ -994,39 +911,6 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
             // delete: a record that survives is content the conversation never
             // got, and the relay keeps re-publishing it until this line runs.
             release_ingress_record(state, &event.task_id, &event.event_id).await;
-            // The message-domain parse stays in the tasks band
-            // (`extract_shell_reconcile_targets`); dispatching each target to the
-            // GitHub adapter is the server band's job, so this `tasks -> adapter`
-            // step happens here rather than inside the hook. Fire-and-forget.
-            let reconcile_targets = crate::message::hooks::extract_shell_reconcile_targets(
-                &state.messages,
-                &event.task_id,
-                message_type,
-                &content,
-            )
-            .await;
-            // The claim path (recently_sent + messages) runs for every shell
-            // mutation; only the adapter-dependent arms of `gh pr create` (bind,
-            // footer) short-circuit when the GitHub PR adapter is not composed,
-            // so it is passed as an Option rather than gating the whole loop.
-            let github_pr = state
-                .adapter_installations
-                .as_ref()
-                .map(|installations| installations.github_pr());
-            for target in reconcile_targets {
-                crate::adapters::providers::github_pr::shell_reconcile::reconcile_shell_command(
-                    github_pr.as_ref(),
-                    &state.recently_sent,
-                    state.messages.as_ref(),
-                    state.tasks.as_ref(),
-                    state.repositories.as_ref(),
-                    &event.task_id,
-                    &target.tool_use_id,
-                    &target.cmd,
-                    &target.result_text,
-                )
-                .await;
-            }
             // Server-owned assembly (server-owned assembly and skeleton-message model). A subagent row (carrying a
             // `parent_uuid` = the spawning `Agent` tool-use id) rides a
             // lightweight `subagentProgress` event and never streams transcript
