@@ -332,7 +332,6 @@ impl TaskCreationService {
             workspace_id: Some(workspace_id.clone()),
             sandbox_id: req.sandbox_id.clone(),
             checkout_mode: persisted_checkout_mode,
-            disabled_servers: None,
             skills: req.skills.clone(),
         };
 

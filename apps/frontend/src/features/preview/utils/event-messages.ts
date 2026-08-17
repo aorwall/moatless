@@ -96,7 +96,6 @@ const DESCRIPTORS: Record<string, Descriptor> = {
   container_restarted: { label: 'Restarted', tone: 'recovering' },
   auto_stopped: { label: 'Auto-stopped', tone: 'neutral' },
   fatal: { label: 'Fatal', tone: 'error' },
-  server_auto_disabled: { label: 'Server disabled', tone: 'error' },
   idle_reaped: { label: 'Stopped (idle)', tone: 'neutral' },
   scheduling_blocked: { label: 'Scheduling blocked', tone: 'recovering', icon: Clock },
   startup_slow: { label: 'Slow startup', tone: 'recovering', icon: Clock },

@@ -291,10 +291,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── Build router ────────────────────────────────────────────────────
 
     // Sandbox route state keeps only authorization DAOs. The pod watcher
-    // separately needs workspace and task-event DAOs.
+    // separately needs the task-event DAO.
     let sandbox_tasks = ports.as_ref().map(|p| p.tasks.clone());
     let sandbox_teams = ports.as_ref().map(|p| p.teams.clone());
-    let sandbox_workspaces = ports.as_ref().map(|p| p.workspaces.clone());
     let sandbox_task_events = ports.as_ref().map(|p| p.task_events.clone());
 
     // Build the shared durable Sandbox lifecycle handle once (requires the DB).
@@ -356,10 +355,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Spawn the K8s pod lifecycle watcher now that the DB repos exist. It needs
-    // task + repo access (plus credentials) to auto-disable crash-looping server
-    // containers and redeploy without them. Only runs in K8s mode (reaper_k8s is
-    // None under Docker) and when an event publisher (Redis) is available.
+    // Spawn the K8s pod lifecycle watcher now that the DB repos exist. Only runs
+    // in K8s mode (reaper_k8s is None under Docker) and when an event publisher
+    // (Redis) is available.
     match (reaper_k8s.as_ref(), event_publisher.as_ref()) {
         (Some(k8s), Some(publisher)) => {
             supervisor.supervise(
@@ -373,8 +371,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     config.sandbox.max_crash_restart_count,
                     config.sandbox.node_archive_enabled,
                     lifecycle.clone(),
-                    sandbox_tasks.clone(),
-                    sandbox_workspaces.clone(),
                     sandbox_task_events.clone(),
                     storage_fallback.clone(),
                 ),

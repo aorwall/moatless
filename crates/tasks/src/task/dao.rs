@@ -327,13 +327,13 @@ impl TaskDao for PgTaskDao {
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, owner_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
-                inactive_ttl_days, loop_id, disabled_servers, model,
+                inactive_ttl_days, loop_id, model,
                 workspace_id, sandbox_id, checkout_mode, skills
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                $21, NOW(), $22, $23, $24, $25, $26,
-                $27, $28, $29, $30, $31
+                $21, NOW(), $22, $23, $24, $25,
+                $26, $27, $28, $29, $30
             )"#,
         )
         .bind(&row.task_id)
@@ -361,7 +361,6 @@ impl TaskDao for PgTaskDao {
         .bind(row.ttl_minutes)
         .bind(row.inactive_ttl_days)
         .bind(&row.loop_id)
-        .bind(&row.disabled_servers)
         .bind(&row.model)
         .bind(&workspace_id)
         .bind(&row.sandbox_id)
@@ -483,7 +482,6 @@ impl TaskDao for PgTaskDao {
             ttl_minutes: Option<i32>,
             inactive_ttl_days: Option<i32>,
             loop_id: Option<String>,
-            disabled_servers: Option<serde_json::Value>,
             skills: Option<Vec<String>>,
         }
 
@@ -531,7 +529,6 @@ impl TaskDao for PgTaskDao {
                     ttl_minutes: self.ttl_minutes?,
                     inactive_ttl_days: self.inactive_ttl_days?,
                     loop_id: self.loop_id,
-                    disabled_servers: self.disabled_servers,
                     // NOT NULL in `tasks`, so only the total-only row can be
                     // NULL here — and that row is rejected before this point.
                     skills: self.skills.unwrap_or_default(),
@@ -564,7 +561,7 @@ impl TaskDao for PgTaskDao {
                     t.model, t.created_by, t.visibility, t.scope, t.owner_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
                     t.headless, t.ttl_minutes,
-                    t.inactive_ttl_days, t.loop_id, t.disabled_servers, t.skills
+                    t.inactive_ttl_days, t.loop_id, t.skills
                 FROM tasks t
                 WHERE {}
                   AND ($3::text IS NULL OR t.status = $3)
@@ -736,11 +733,6 @@ impl TaskDao for PgTaskDao {
         }
         if let Some(inactive_ttl_days) = patch.inactive_ttl_days {
             run_field!("inactive_ttl_days = $2", inactive_ttl_days);
-        }
-        if let Some(ref disabled_servers) = patch.disabled_servers {
-            // Full replace — the column always holds the complete disabled set.
-            let json = serde_json::json!(disabled_servers);
-            run_field!("disabled_servers = $2", json);
         }
         // Last, after every `tasks` statement above — `record_change`'s "call
         // this last". Gated twice: on `rows_affected`, because a patch the
@@ -1255,8 +1247,6 @@ pub struct TaskPatch {
     pub append_system_prompt: Option<Option<String>>,
     pub ttl_minutes: Option<i32>,
     pub inactive_ttl_days: Option<i32>,
-    /// Full-replace the per-task auto-disabled server list.
-    pub disabled_servers: Option<Vec<String>>,
 }
 
 impl TaskPatch {

@@ -666,7 +666,6 @@ pub fn lifecycle_descriptor(lifecycle_event: &str) -> Option<(&'static str, Seve
         "container_terminated" => ("Terminated", Error),
         "pod_failed" => ("Pod failed", Error),
         "fatal" => ("Fatal", Error),
-        "server_auto_disabled" => ("Server disabled", Error),
         "runtime_infrastructure" => ("Infrastructure error", Error),
         "runtime_rejected" => ("Rejected", Error),
         "runtime_not_absent" => ("Cleanup stalled", Error),

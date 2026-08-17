@@ -266,7 +266,6 @@ mod tests {
             workspace_id: None,
             sandbox_id: None,
             checkout_mode: None,
-            disabled_servers: None,
             skills: Vec::new(),
         }
     }

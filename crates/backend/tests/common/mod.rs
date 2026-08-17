@@ -578,7 +578,6 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         workspace_id: None,
         sandbox_id: None,
         checkout_mode: None,
-        disabled_servers: None,
         skills: Vec::new(),
     }
 }
