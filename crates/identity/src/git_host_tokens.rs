@@ -64,9 +64,9 @@ pub enum GitHostTokenError {
 /// A git host whose credential is a single stored value, readable without
 /// naming a repository.
 ///
-/// GitHub is absent by construction: an installation row mints per repository,
-/// so there is no repository-independent GitHub token and
-/// [`GitHostTokens::token`] is the only way to one.
+/// GitHub is absent by construction: an installation token is minted through
+/// the App, resolved from the repo's owner, so there is no stored GitHub token
+/// and [`GitHostTokens::token`] is the only way to one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlainGitHost {
     Gitlab,
@@ -160,10 +160,11 @@ impl GitHostTokens {
     /// hand to name.
     ///
     /// For reporting connection state, not for calling GitHub — there is no
-    /// token to return, because an installation row mints per repository. Such
-    /// a row is reported usable on the strength of the App handle alone; every
-    /// path that actually reaches GitHub names a repository and goes through
-    /// [`Self::token`], where the mint either succeeds or says why not.
+    /// token to return, because minting needs an owner to resolve the
+    /// installation, which only a repository names. Such a row is reported
+    /// usable on the strength of the App handle alone; every path that actually
+    /// reaches GitHub names a repository and goes through [`Self::token`], where
+    /// the mint either succeeds or says why not.
     pub async fn github_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError> {
         let Some(row) = self
             .provider_tokens
@@ -220,9 +221,10 @@ impl GitHostTokens {
         resolved.map_err(|source| classify(actor, repo, source))
     }
 
-    /// An App-installation row mints restricted to the one repository being
-    /// worked on. The installation is resolved *from* the owner, so it cannot
-    /// mismatch the owner and no stored `installation_id` is needed.
+    /// An App-installation row mints an installation-wide token: it can reach
+    /// every repository the installation covers, not just the one being worked
+    /// on. The installation is resolved *from* the owner, so it cannot mismatch
+    /// the owner and no stored `installation_id` is needed.
     async fn mint_installation_token(
         &self,
         row: &ProviderToken,
@@ -230,8 +232,7 @@ impl GitHostTokens {
     ) -> Result<String, AuthError> {
         let app = self.installation_app(row).await?;
         let installation = app.resolve_installation_id(repo.owner()).await?;
-        app.get_repository_installation_token(installation, repo.owner(), repo.name())
-            .await
+        app.get_installation_token(installation).await
     }
 
     /// The App an installation row mints through.
@@ -487,10 +488,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_installation_row_never_mints_owner_wide() {
+    async fn an_installation_row_resolves_through_the_app_registry() {
         // The App key is unregistered, so resolution stops at the registry.
         // Reaching that point proves the branch went through the App lookup
-        // rather than through an owner-wide mint, which needs no repository.
+        // before any mint — installation-wide or otherwise.
         let mut row = github_row(
             AUTH_METHOD_APP_INSTALLATION,
             crate::auth::provider_tokens::APP_INSTALLATION_TOKEN_PLACEHOLDER,
