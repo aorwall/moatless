@@ -1,3 +1,6 @@
+// Allow unwrap/expect in test code — production code still enforces the deny.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 //! Moatless Sandbox — runtime service for sandbox pods.
 //!
 //! Provides gRPC API for agent execution, status, and file search.
@@ -71,13 +74,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    // Load configuration
-    let config = Config::from_env();
+    // Read the log level directly rather than through `Config::from_env()`:
+    // that call panics if `BACKEND_GRPC_URL` is unset, and a one-shot mode
+    // carries no such thing (see below), so it must not be built yet.
+    let log_level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
 
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.log_level)),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&log_level)),
         )
         .json()
         // Lift event fields (incl. `message`) to the JSON root so Loki's
@@ -90,16 +95,21 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .with_span_list(false)
         .init();
 
-    // The one-shot modes run to completion and exit; nothing below is built.
-    // Checked here, after logging and before the backend client, because a
-    // one-shot has no backend to reach: it is scheduled onto a volume whose
-    // sandbox is already gone, holding a presigned URL and nothing else.
+    // The one-shot modes run to completion and exit; nothing below is built,
+    // including `Config::from_env()`. Checked here, after logging and before
+    // the config load, because a one-shot has no backend to reach: it is
+    // scheduled onto a volume whose sandbox is already gone, holding a
+    // presigned URL and nothing else — so it must not require
+    // `BACKEND_GRPC_URL`, which the full `Config` treats as mandatory.
     if let Some(mode) = std::env::var("SANDBOX_ONESHOT")
         .ok()
         .filter(|m| !m.is_empty())
     {
-        return run_oneshot(&mode, &config).await;
+        return run_oneshot(&mode).await;
     }
+
+    // Load configuration
+    let config = Config::from_env();
 
     info!(
         task_id = %config.task_id,
@@ -421,27 +431,27 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// the S3 archive current before reclaiming a stopped task's volume, so it runs
 /// this against the volume with a presigned `PUT` in `WORKSPACE_SYNC_PUT_URL`.
 /// Nothing else about a sandbox is started — no gRPC server, no agent, no
-/// credentials, no backend client — because none of it exists to talk to.
+/// credentials, no backend client — because none of it exists to talk to. That
+/// includes the full `Config`: it requires `BACKEND_GRPC_URL`, which the rescue
+/// pod never sets, so this reads only the two env vars it needs directly.
 ///
 /// The exit status is the whole protocol: the caller deletes the volume when
 /// this process succeeds and keeps it when it does not, so every failure must
 /// be an error return and never a warning.
-async fn run_oneshot(mode: &str, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_oneshot(mode: &str) -> Result<(), Box<dyn std::error::Error>> {
     match mode {
         "sync" => {
+            let task_id =
+                std::env::var("TASK_ID").map_err(|_| "SANDBOX_ONESHOT=sync requires TASK_ID")?;
+            let workspace_dir =
+                std::env::var("WORKSPACE_DIR").unwrap_or_else(|_| "/workspace".to_string());
             let put_url = std::env::var("WORKSPACE_SYNC_PUT_URL")
                 .map_err(|_| "SANDBOX_ONESHOT=sync requires WORKSPACE_SYNC_PUT_URL")?;
-            info!(
-                task_id = %config.task_id,
-                workspace_dir = %config.workspace_dir,
-                "Rescuing workspace to S3"
-            );
-            let bytes = moatless_sandbox::init::workspace_sync::rescue_upload(
-                &config.workspace_dir,
-                &put_url,
-            )
-            .await?;
-            info!(task_id = %config.task_id, bytes, "Workspace rescued");
+            info!(task_id = %task_id, workspace_dir = %workspace_dir, "Rescuing workspace to S3");
+            let bytes =
+                moatless_sandbox::init::workspace_sync::rescue_upload(&workspace_dir, &put_url)
+                    .await?;
+            info!(task_id = %task_id, bytes, "Workspace rescued");
             Ok(())
         }
         other => Err(format!("unknown SANDBOX_ONESHOT mode: {other}").into()),
@@ -476,5 +486,37 @@ async fn livez(State(state): State<SandboxState>) -> impl IntoResponse {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE
+    }
+}
+
+#[cfg(test)]
+mod oneshot_tests {
+    use super::*;
+
+    /// The rescue pod never sets `BACKEND_GRPC_URL` (`rescue_pod.rs` carries no
+    /// backend client), so `run_oneshot` must fail on something specific to the
+    /// sync itself, not on a missing backend URL it never needed.
+    #[tokio::test]
+    async fn oneshot_sync_does_not_require_backend_grpc_url() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let missing_workspace = tmp.path().join("workspace");
+
+        std::env::remove_var("BACKEND_GRPC_URL");
+        std::env::set_var("TASK_ID", "oneshot-test-task");
+        std::env::set_var("WORKSPACE_DIR", missing_workspace.to_str().unwrap());
+        std::env::set_var("WORKSPACE_SYNC_PUT_URL", "http://127.0.0.1:1/put");
+
+        let error = run_oneshot("sync")
+            .await
+            .expect_err("an unarchivable workspace is still an error");
+
+        assert!(
+            !error.to_string().contains("BACKEND_GRPC_URL"),
+            "run_oneshot must not require BACKEND_GRPC_URL: {error}"
+        );
+
+        std::env::remove_var("TASK_ID");
+        std::env::remove_var("WORKSPACE_DIR");
+        std::env::remove_var("WORKSPACE_SYNC_PUT_URL");
     }
 }

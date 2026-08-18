@@ -109,12 +109,7 @@ async fn await_rescue(pods: &Api<Pod>, task_id: &str, name: &str) -> Result<(), 
                 return Ok(());
             }
             Some("Failed") => {
-                let detail = current
-                    .status
-                    .as_ref()
-                    .and_then(|status| status.message.as_deref())
-                    .unwrap_or("unknown failure")
-                    .to_string();
+                let detail = failure_detail(&current);
                 return Err(RuntimeError::Infrastructure(format!(
                     "workspace rescue pod {name} failed: {detail}"
                 )));
@@ -128,6 +123,39 @@ async fn await_rescue(pods: &Api<Pod>, task_id: &str, name: &str) -> Result<(), 
             )));
         }
         tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+/// Describe why a rescue pod's container exited non-zero.
+///
+/// The pod-level `status.message` Kubernetes sets only for pod-admission
+/// failures, never for a container that ran and exited — that detail lives on
+/// `containerStatuses[].state.terminated` instead, whose `message` field the
+/// kubelet fills from the container's own stdout/stderr tail because the
+/// container carries `terminationMessagePolicy: FallbackToLogsOnError`.
+fn failure_detail(pod: &Pod) -> String {
+    if let Some(message) = pod
+        .status
+        .as_ref()
+        .and_then(|status| status.message.as_deref())
+        .filter(|m| !m.is_empty())
+    {
+        return message.to_string();
+    }
+    let terminated = pod
+        .status
+        .as_ref()
+        .and_then(|status| status.container_statuses.as_ref())
+        .and_then(|statuses| statuses.iter().find(|cs| cs.name == "rescue"))
+        .and_then(|cs| cs.state.as_ref())
+        .and_then(|state| state.terminated.as_ref());
+    let Some(terminated) = terminated else {
+        return "unknown failure".to_string();
+    };
+    let reason = terminated.reason.as_deref().unwrap_or("Error");
+    match terminated.message.as_deref().filter(|m| !m.is_empty()) {
+        Some(message) => format!("{reason} (exit {}): {message}", terminated.exit_code),
+        None => format!("{reason} (exit {})", terminated.exit_code),
     }
 }
 
@@ -209,6 +237,11 @@ pub(crate) fn build_rescue_pod(
                 // The image entrypoint launches a full sandbox; the binary's
                 // one-shot mode is reached by invoking it directly.
                 command: Some(vec!["/usr/local/bin/sandbox".to_string()]),
+                // The pod is deleted immediately after `await_rescue` observes
+                // a terminal phase, so the container's own stdout/stderr is the
+                // only place a failure detail survives unless it rides along on
+                // the status object itself.
+                termination_message_policy: Some("FallbackToLogsOnError".to_string()),
                 env: Some(vec![
                     EnvVar {
                         name: "SANDBOX_ONESHOT".to_string(),
@@ -362,5 +395,78 @@ mod tests {
         let name = rescue_pod_name(&"t".repeat(120));
         assert!(name.len() <= 63, "name was {} chars", name.len());
         assert!(name.starts_with("moatless-rescue-"));
+    }
+
+    #[test]
+    fn rescue_pod_falls_back_to_logs_on_error() {
+        let pod = build_rescue_pod(&test_config(), "task-1", "pvc", "https://s3/put");
+        let container = pod
+            .spec
+            .expect("spec")
+            .containers
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_eq!(
+            container.termination_message_policy.as_deref(),
+            Some("FallbackToLogsOnError")
+        );
+    }
+
+    fn pod_with_terminated_rescue_container(
+        terminated: k8s_openapi::api::core::v1::ContainerStateTerminated,
+    ) -> Pod {
+        use k8s_openapi::api::core::v1::{ContainerState, ContainerStatus, PodStatus};
+
+        Pod {
+            status: Some(PodStatus {
+                phase: Some("Failed".to_string()),
+                container_statuses: Some(vec![ContainerStatus {
+                    name: "rescue".to_string(),
+                    state: Some(ContainerState {
+                        terminated: Some(terminated),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn failure_detail_reads_the_container_terminated_state() {
+        use k8s_openapi::api::core::v1::ContainerStateTerminated;
+
+        let pod = pod_with_terminated_rescue_container(ContainerStateTerminated {
+            exit_code: 101,
+            reason: Some("Error".to_string()),
+            message: None,
+            ..Default::default()
+        });
+        assert_eq!(failure_detail(&pod), "Error (exit 101)");
+    }
+
+    #[test]
+    fn failure_detail_includes_the_termination_message_when_present() {
+        use k8s_openapi::api::core::v1::ContainerStateTerminated;
+
+        let pod = pod_with_terminated_rescue_container(ContainerStateTerminated {
+            exit_code: 101,
+            reason: Some("Error".to_string()),
+            message: Some("BACKEND_GRPC_URL is required: NotPresent".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(
+            failure_detail(&pod),
+            "Error (exit 101): BACKEND_GRPC_URL is required: NotPresent"
+        );
+    }
+
+    #[test]
+    fn failure_detail_falls_back_when_no_container_status_is_observed() {
+        let pod = Pod::default();
+        assert_eq!(failure_detail(&pod), "unknown failure");
     }
 }
