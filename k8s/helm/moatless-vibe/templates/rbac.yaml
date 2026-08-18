@@ -14,9 +14,11 @@ rules:
   {{- toYaml .Values.rbac.rules | nindent 2 }}
   # Per-sandbox preview NetworkPolicies admit Traefik to a workspace's declared
   # preview ports; created and torn down with the workspace (k8s/networkpolicy.rs).
+  # `update` widens a policy that already exists, which is how a script's port is
+  # admitted after the sandbox started (admit_preview_port's guarded replace).
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "create", "update", "delete"]
   {{- if .Values.kubernetes.nodeArchive.enabled }}
   - apiGroups: [""]
     resources: ["configmaps"]

@@ -1162,7 +1162,9 @@ rbac:
       verbs: ["create", "delete", "get", "list", "patch", "update"]
     - apiGroups: [""]
       resources: ["services"]
-      verbs: ["create", "delete", "get", "list"]
+      # `patch` publishes a script's port onto the task's existing Service
+      # (k8s edge.rs). Without it `scripts.run` fails the whole run.
+      verbs: ["create", "delete", "get", "list", "patch"]
     - apiGroups: ["apps"]
       resources: ["deployments", "deployments/scale"]
       verbs: ["get", "list", "create", "update", "patch", "delete"]
