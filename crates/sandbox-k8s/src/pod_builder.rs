@@ -932,7 +932,7 @@ fn build_sandbox_container(
     // are deliberately conservative: 6 consecutive failures at 10s spacing (~60s)
     // before a restart, because a false-positive restart kills an in-flight agent
     // turn, which is worse than a rare hang. Gated off by default; the startup
-    // probe on `/health` remains the readiness/startup gate regardless.
+    // probe on `/health` remains the startup gate regardless.
     let liveness_probe = config.sandbox.liveness_enabled.then(|| Probe {
         http_get: Some(HTTPGetAction {
             path: Some("/livez".to_string()),
@@ -944,6 +944,24 @@ fn build_sandbox_container(
         failure_threshold: Some(6),
         ..Default::default()
     });
+
+    // Readiness probe — TCP connect on the gRPC control port. The backend
+    // reaches this container only over gRPC (via the K8s Service), so pod
+    // readiness must track the gRPC listener, not the HTTP `/health` startup
+    // gate: `/health` on :8001 can answer before the gRPC socket on :50052 is
+    // bound (or after it dies while HTTP still serves), and without this probe
+    // the pod stays in the Service's endpoints through that window, so real
+    // gRPC calls hit a dead socket and surface as connect timeouts / 503s.
+    let readiness_probe = Probe {
+        tcp_socket: Some(TCPSocketAction {
+            port: IntOrString::Int(config.sandbox.grpc_port as i32),
+            ..Default::default()
+        }),
+        period_seconds: Some(5),
+        timeout_seconds: Some(3),
+        failure_threshold: Some(3),
+        ..Default::default()
+    };
 
     // Volume mounts
     //
@@ -1055,6 +1073,7 @@ fn build_sandbox_container(
         ]),
         env: Some(env),
         startup_probe: Some(startup_probe),
+        readiness_probe: Some(readiness_probe),
         liveness_probe,
         volume_mounts: Some(volume_mounts),
         resources: Some(resources),
@@ -1944,7 +1963,32 @@ mod tests {
         );
         assert!(
             container.startup_probe.is_some(),
-            "startup probe must remain the readiness gate regardless of the flag"
+            "startup probe must remain the startup gate regardless of the flag"
+        );
+    }
+
+    #[test]
+    fn readiness_probe_tcp_checks_grpc_port() {
+        // The backend reaches the sandbox only over gRPC, so pod readiness must
+        // track the gRPC listener — not the HTTP `/health` startup gate. Without
+        // this the pod stays in the Service endpoints while :50052 is unbound and
+        // gRPC calls surface as connect timeouts / 503s.
+        let config = test_config();
+        let plan = test_plan();
+
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
+        let probe = container
+            .readiness_probe
+            .as_ref()
+            .expect("readiness probe present on the sandbox container");
+        let tcp = probe
+            .tcp_socket
+            .as_ref()
+            .expect("readiness probe is a TCP-socket check");
+        assert_eq!(
+            tcp.port,
+            IntOrString::Int(config.sandbox.grpc_port as i32),
+            "readiness probe must target the gRPC control port, not the HTTP port"
         );
     }
 
