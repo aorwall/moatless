@@ -281,7 +281,10 @@ mod tests {
             task_context.task_id.clone(),
             task_context,
         )])));
-        let terminals = crate::terminal::TerminalManager::new(config.workspace_dir.clone());
+        let terminals = crate::terminal::TerminalManager::with_repo_dir(
+            config.workspace_dir.clone(),
+            config.repo_dir.clone(),
+        );
 
         SandboxState {
             config,

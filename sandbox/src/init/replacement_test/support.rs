@@ -51,7 +51,10 @@ fn build_state(
         CredentialFailureDetector::default(),
         Arc::new(RwLock::new(None)),
     ));
-    let terminals = crate::terminal::TerminalManager::new(config.workspace_dir.clone());
+    let terminals = crate::terminal::TerminalManager::with_repo_dir(
+        config.workspace_dir.clone(),
+        config.repo_dir.clone(),
+    );
     SandboxState {
         config,
         events,

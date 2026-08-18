@@ -252,7 +252,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         credential_dispatcher,
         codex_watcher_handle,
         supervisor_health: supervisor.health(),
-        terminals: moatless_sandbox::terminal::TerminalManager::new(config.workspace_dir.clone()),
+        terminals: moatless_sandbox::terminal::TerminalManager::with_repo_dir(
+            config.workspace_dir.clone(),
+            config.repo_dir.clone(),
+        ),
         workspace_sync,
     };
 

@@ -73,7 +73,14 @@ impl From<TerminalError> for tonic::Status {
 #[derive(Clone)]
 pub struct TerminalManager {
     inner: Arc<Mutex<Inner>>,
+    /// The containment boundary: a resolved cwd outside this is refused, which
+    /// is what keeps a sibling repo reachable but the rest of the container not.
     workspace_dir: Arc<PathBuf>,
+    /// Where a nominal task path lands — the primary repo's checkout. The same
+    /// directory git status/diff, the file API, setup commands and the dev
+    /// servers all target, so a terminal opens where the code is rather than one
+    /// level above it, at a workspace root holding no package manifest.
+    repo_dir: Arc<PathBuf>,
 }
 
 struct Inner {
@@ -124,12 +131,27 @@ pub struct AttachedTerminal {
 }
 
 impl TerminalManager {
+    /// A manager whose nominal paths land at the workspace root.
+    ///
+    /// For a sandbox with no repo to clone, where `repo_dir` falls back to the
+    /// workspace dir anyway; [`Self::with_repo_dir`] is what a cloned sandbox
+    /// uses.
     pub fn new(workspace_dir: impl Into<PathBuf>) -> Self {
+        let workspace_dir = workspace_dir.into();
+        Self::with_repo_dir(workspace_dir.clone(), workspace_dir)
+    }
+
+    /// A manager that lands nominal task paths in the primary repo's checkout.
+    pub fn with_repo_dir(
+        workspace_dir: impl Into<PathBuf>,
+        repo_dir: impl Into<PathBuf>,
+    ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 sessions: HashMap::new(),
             })),
             workspace_dir: Arc::new(workspace_dir.into()),
+            repo_dir: Arc::new(repo_dir.into()),
         }
     }
 
@@ -417,8 +439,13 @@ impl TerminalManager {
     }
 
     fn resolve_cwd(&self, requested: &str) -> TerminalResult<PathBuf> {
+        // A nominal task path names "this conversation's checkout", not a real
+        // directory — it is the opaque root T3 was handed and hands back. It
+        // lands in the primary repo, which is what a script like `bun run dev`
+        // needs: the workspace root is a level above the manifest and every
+        // other repo-scoped operation already targets the checkout.
         let path = if requested.starts_with("/moatless/tasks/") {
-            self.workspace_dir.as_ref().clone()
+            self.repo_dir.as_ref().clone()
         } else {
             let requested_path = Path::new(requested);
             if requested_path.is_absolute() {
@@ -948,8 +975,26 @@ mod tests {
     }
 
     #[test]
-    fn nominal_t3_cwd_resolves_to_workspace() {
+    fn nominal_t3_cwd_resolves_to_the_primary_repo() {
         let tmp = tempfile::tempdir().expect("temp dir");
+        let repo = tmp.path().join("soap-frontend");
+        std::fs::create_dir(&repo).expect("repo dir");
+        let manager = TerminalManager::with_repo_dir(tmp.path(), &repo);
+        // Not the workspace root a level above: a script the workspace declares
+        // runs against the checkout's manifest, like every other repo-scoped op.
+        assert_eq!(
+            manager
+                .resolve_cwd("/moatless/tasks/t-1")
+                .expect("nominal cwd resolves"),
+            repo.canonicalize().expect("canonical repo")
+        );
+    }
+
+    #[test]
+    fn nominal_t3_cwd_falls_back_to_the_workspace_without_a_repo() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        // A blank workspace clones nothing, so `repo_dir` *is* the workspace dir
+        // and the nominal path has nowhere else to land.
         let manager = TerminalManager::new(tmp.path());
         assert_eq!(
             manager
