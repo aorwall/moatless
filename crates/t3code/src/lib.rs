@@ -701,17 +701,22 @@ pub async fn shell_snapshot(
 /// Assemble one conversation as the thread view carries it.
 ///
 /// `Ok(None)` is every way a conversation can be absent for this viewer —
-/// deleted, closed, unfollowed, no longer readable, or grouped under a workspace
-/// that is not listable — collapsed into one answer, because they are one answer
-/// to the client and distinguishing them would disclose which.
+/// deleted, no longer readable, at a status neither listing claims, or grouped
+/// under a workspace that is not listable — collapsed into one answer, because
+/// they are one answer to the client and distinguishing them would disclose
+/// which.
 ///
-/// The conversation row is resolved through the **same narrowed listing query
-/// the shell uses**, so the two cannot drift: a conversation the sidebar shows
-/// opens, and one it does not is not reachable by typing its id into the
-/// address bar. Following is part of that rule, deliberately — a sidebar is
-/// about involvement, and this is the view its rows open into. So is being open:
-/// a closed Task is read in Moatless's own UI, and offering it here would be a
-/// conversation T3 can display and never send to.
+/// The conversation row is resolved by **access**
+/// ([`ConversationDao::readable_by_id`]), not by Follow: a URL is about who may
+/// read a Task, so someone handed a link to one they may read opens it instead
+/// of being told it does not exist. The sidebar stays narrowed to Follows, and
+/// the two are allowed to differ here — a conversation opened this way is not on
+/// the reader's sidebar until they write to it, which is what acquires the
+/// Follow (`message::service`).
+///
+/// Reading is the whole of that widening. Commands still resolve through the
+/// followed listing ([`commands::require_writable`]), so this opens a
+/// conversation without granting anything else about it.
 ///
 /// # Read order
 ///
@@ -729,10 +734,7 @@ pub async fn thread_snapshot(
     task_id: &str,
 ) -> Result<Option<ThreadSnapshot>, sqlx::Error> {
     let head = conversations.conversation_head(task_id).await?;
-    let rows = conversations
-        .list_followed_by_ids(viewer, &[task_id.to_string()])
-        .await?;
-    let Some(conversation) = rows.into_iter().next() else {
+    let Some(conversation) = conversations.readable_by_id(viewer, task_id).await? else {
         return Ok(None);
     };
     let referenced: Vec<String> = conversation.workspace_id.clone().into_iter().collect();
@@ -867,11 +869,7 @@ pub async fn thread_subscription(
         // nothing checks nothing. So the visibility rule is applied here as
         // well, or subscribing to a conversation this viewer may not see would
         // succeed for as long as it stayed still.
-        if conversations
-            .list_followed_by_ids(viewer, &[task_id.to_string()])
-            .await?
-            .is_empty()
-        {
+        if conversations.readable_by_id(viewer, task_id).await?.is_none() {
             return Ok(None);
         }
         let mut feed = ThreadFeed::resuming_from(task_id.to_string(), cursor);
@@ -3896,6 +3894,9 @@ mod tests {
         conversations
             .expect_list_followed_by_ids()
             .returning(|_, _| Ok(Vec::new()));
+        conversations
+            .expect_readable_by_id()
+            .returning(|_, _| Ok(None));
         conversations.expect_listing_head().returning(|| {
             Ok(UiRpcListingHead {
                 identity: stub_identity(),

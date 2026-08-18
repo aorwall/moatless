@@ -395,21 +395,19 @@ impl ThreadFeed {
             .conversation_changes(&self.task_id, self.cursor, THREAD_POLL_CHANGES)
             .await?;
 
-        // The conversation itself, through the same narrowed listing the
-        // snapshot resolved it with — which is where this poll's access check
-        // lives, and why a conversation that left this viewer's reach needs no
-        // rule repeated here.
+        // The conversation itself, through the same read the snapshot resolved
+        // it with — which is where this poll's access check lives, and why a
+        // conversation that left this viewer's reach needs no rule repeated
+        // here. By access rather than by Follow, or an open subscription would
+        // end on its first poll for every reader who opened a conversation they
+        // do not follow.
         //
-        // Read on every poll, including the silent ones. Closing, deleting or
-        // unfollowing a Task records no *conversation* change — nothing about
-        // its Messages moved — so a check that ran only when something was
-        // recorded would never run at all on the conversation most likely to
-        // have ended, and its subscription would sit open on a thread that is
-        // gone.
-        let rows = conversations
-            .list_followed_by_ids(viewer, std::slice::from_ref(&self.task_id))
-            .await?;
-        let Some(conversation) = rows.into_iter().next() else {
+        // Read on every poll, including the silent ones. Closing or deleting a
+        // Task records no *conversation* change — nothing about its Messages
+        // moved — so a check that ran only when something was recorded would
+        // never run at all on the conversation most likely to have ended, and
+        // its subscription would sit open on a thread that is gone.
+        let Some(conversation) = conversations.readable_by_id(viewer, &self.task_id).await? else {
             debug!(
                 task_id = %self.task_id,
                 user_id = %viewer.user_id,
@@ -659,8 +657,8 @@ mod tests {
         let mut dao = MockConversationDao::new();
         dao.expect_conversation_changes()
             .returning(move |_, _, _| Ok(changes.clone()));
-        dao.expect_list_followed_by_ids()
-            .returning(|_, _| Ok(vec![a_conversation()]));
+        dao.expect_readable_by_id()
+            .returning(|_, _| Ok(Some(a_conversation())));
         dao.expect_changed_messages().returning(|_, _, _| {
             Ok(Transcript {
                 messages: vec![a_message(11, "msg-a")],
@@ -731,8 +729,7 @@ mod tests {
         let mut dao = MockConversationDao::new();
         dao.expect_conversation_changes()
             .returning(|_, _, _| Ok(vec![change(9, Some("msg-a"))]));
-        dao.expect_list_followed_by_ids()
-            .returning(|_, _| Ok(Vec::new()));
+        dao.expect_readable_by_id().returning(|_, _| Ok(None));
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
         assert!(
             feed.poll(&dao, &viewer(), "http://localhost:3000")
@@ -749,8 +746,8 @@ mod tests {
         let mut dao = MockConversationDao::new();
         dao.expect_conversation_changes()
             .returning(|_, _, _| Ok(Vec::new()));
-        dao.expect_list_followed_by_ids()
-            .returning(|_, _| Ok(vec![a_conversation()]));
+        dao.expect_readable_by_id()
+            .returning(|_, _| Ok(Some(a_conversation())));
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
         assert_eq!(
             feed.poll(&dao, &viewer(), "http://localhost:3000")
@@ -771,8 +768,7 @@ mod tests {
         let mut dao = MockConversationDao::new();
         dao.expect_conversation_changes()
             .returning(|_, _, _| Ok(Vec::new()));
-        dao.expect_list_followed_by_ids()
-            .returning(|_, _| Ok(Vec::new()));
+        dao.expect_readable_by_id().returning(|_, _| Ok(None));
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
         assert!(
             feed.poll(&dao, &viewer(), "http://localhost:3000")
@@ -793,8 +789,8 @@ mod tests {
         let mut dao = MockConversationDao::new();
         dao.expect_conversation_changes()
             .returning(|_, _, _| Ok(vec![change(9, Some("msg-a"))]));
-        dao.expect_list_followed_by_ids()
-            .returning(|_, _| Ok(vec![a_conversation()]));
+        dao.expect_readable_by_id()
+            .returning(|_, _| Ok(Some(a_conversation())));
         // The read that comes after the cursor would have moved.
         dao.expect_changed_messages()
             .returning(|_, _, _| Err(sqlx::Error::PoolTimedOut));

@@ -293,6 +293,24 @@ pub trait ConversationDao: Send + Sync {
         task_ids: &[String],
     ) -> Result<Vec<Conversation>, sqlx::Error>;
 
+    /// One conversation this viewer may **read**, whether or not they follow it.
+    ///
+    /// This is what a link resolves through. The listings above are about
+    /// involvement and stay narrowed to Follows; a URL is about access, so a
+    /// person handed one for a Task they may read opens it rather than being
+    /// told it does not exist. Following is how it reaches their sidebar, and
+    /// writing is what acquires the Follow — so a conversation opened this way
+    /// joins the sidebar at the moment the reader takes part, and not before.
+    ///
+    /// The read rule and the status rule are unchanged, and absence still means
+    /// the one thing it always meant: gone, unreadable, or at a status neither
+    /// listing claims.
+    async fn readable_by_id(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<Option<Conversation>, sqlx::Error>;
+
     /// Whether this viewer may *mutate* the named Task — the `control_filter`
     /// rule: owner or admin, and never a follower or a public reader. The
     /// listing above is a read and widens to what a person follows; a write
@@ -511,6 +529,23 @@ const TRANSCRIPT_ORIGIN_JOINS: &str = r#"LEFT JOIN LATERAL (
 /// from a re-read the same way one the viewer no longer follows does.
 const LISTED_STATUSES: &[TaskStatus] = &[TaskStatus::Open, TaskStatus::Closed];
 
+/// How wide a conversation read reaches.
+///
+/// The listings are [`Reach::Followed`]: a sidebar is about involvement, so it
+/// shows what this viewer follows and nothing else. Opening one conversation by
+/// id is [`Reach::Readable`] — a link to a Task a person may read resolves
+/// whether or not it is on their sidebar, and writing to it is what puts it
+/// there (`message::service` auto-follows the sender).
+///
+/// The read rule is the same in both: `Readable` widens past the follow join
+/// only, never past access. Follower state (`settled_*`, `snoozed_*`) is absent
+/// for a viewer who does not follow, which is what the outer join expresses.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    Followed,
+    Readable,
+}
+
 /// A search term as a `LIKE` operand rather than a `LIKE` pattern.
 ///
 /// `%` and `_` are ordinary characters to the person typing them — someone
@@ -562,6 +597,7 @@ impl PgConversationDao {
     async fn list(
         &self,
         viewer: &ScopeContext,
+        reach: Reach,
         statuses: &[TaskStatus],
         task_ids: Option<&[String]>,
     ) -> Result<Vec<Conversation>, sqlx::Error> {
@@ -601,13 +637,28 @@ impl PgConversationDao {
         let narrowed = task_ids
             .map(|_| format!("\n                 AND t.task_id = ANY(${})", plan_tool + 1))
             .unwrap_or_default();
+        // The follow rule is the join, so widening past it is the join kind and
+        // nothing else: `${follower}` moves into the `ON` clause, leaving the
+        // status rule, the read rule and the narrowing exactly as they are, at
+        // the same parameter positions.
+        let follows = match reach {
+            Reach::Followed => format!(
+                "FROM task_follows tf
+                   JOIN tasks t ON t.task_id = tf.task_id
+                   WHERE tf.user_id = ${follower}
+                     AND"
+            ),
+            Reach::Readable => format!(
+                "FROM tasks t
+                   LEFT JOIN task_follows tf
+                     ON tf.task_id = t.task_id AND tf.user_id = ${follower}
+                   WHERE"
+            ),
+        };
         let sql = format!(
             r#"WITH listed AS MATERIALIZED (
                    SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at
-                   FROM task_follows tf
-                   JOIN tasks t ON t.task_id = tf.task_id
-                   WHERE tf.user_id = ${follower}
-                     AND t.status IN ({statuses})
+                   {follows} t.status IN ({statuses})
                      AND {}{narrowed}
                )
                SELECT
@@ -881,14 +932,16 @@ impl T3TaskDao for PgConversationDao {
 #[async_trait]
 impl ConversationDao for PgConversationDao {
     async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error> {
-        self.list(viewer, &[TaskStatus::Open], None).await
+        self.list(viewer, Reach::Followed, &[TaskStatus::Open], None)
+            .await
     }
 
     async fn list_followed_closed(
         &self,
         viewer: &ScopeContext,
     ) -> Result<Vec<Conversation>, sqlx::Error> {
-        self.list(viewer, &[TaskStatus::Closed], None).await
+        self.list(viewer, Reach::Followed, &[TaskStatus::Closed], None)
+            .await
     }
 
     async fn list_followed_by_ids(
@@ -899,7 +952,25 @@ impl ConversationDao for PgConversationDao {
         if task_ids.is_empty() {
             return Ok(Vec::new());
         }
-        self.list(viewer, LISTED_STATUSES, Some(task_ids)).await
+        self.list(viewer, Reach::Followed, LISTED_STATUSES, Some(task_ids))
+            .await
+    }
+
+    async fn readable_by_id(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<Option<Conversation>, sqlx::Error> {
+        Ok(self
+            .list(
+                viewer,
+                Reach::Readable,
+                LISTED_STATUSES,
+                Some(&[task_id.to_string()]),
+            )
+            .await?
+            .into_iter()
+            .next())
     }
 
     async fn controls_conversation(

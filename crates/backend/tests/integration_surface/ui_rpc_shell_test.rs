@@ -57,8 +57,8 @@ use moatless_t3code::listing::{
 };
 use moatless_t3code::preview_tabs::InMemoryPreviewTabDao;
 use moatless_t3code::{
-    AgentModelDefaults, ShellFeed, UiRpcDependencies, archived_shell_snapshot, files,
-    router_from_env, shell_snapshot, shell_subscription,
+    AgentModelDefaults, Deployment, ShellFeed, UiRpcDependencies, archived_shell_snapshot, files,
+    router_from_env, shell_snapshot, shell_subscription, thread_snapshot,
 };
 use moatless_t3code::{
     SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
@@ -1472,6 +1472,72 @@ async fn a_closed_conversation_moves_to_the_archived_listing(pool: PgPool) {
     );
 }
 
+/// Opening a conversation by id is filtered by **access**, and the sidebar by
+/// Follow, so a link to a Task this viewer may read resolves whether or not it
+/// is on their sidebar. A person handed a URL for work they are allowed to see
+/// opens it; being told it does not exist is the thing this rules out.
+///
+/// The two halves of that are asserted together, because the widening is only
+/// correct while the second one holds: the conversation opens, and the sidebar
+/// stays exactly as narrow as it was.
+#[sqlx::test]
+async fn a_readable_conversation_opens_by_id_without_being_followed(pool: PgPool) {
+    seed_live_project(&pool).await;
+    seed_public_task(&pool, "t-theirs", "user-2", Some("ws-live")).await;
+
+    let viewer = viewer("user-1");
+    let snapshot = thread_snapshot(
+        &PgConversationDao::new(pool.clone()),
+        &PgConversationDao::new(pool.clone()),
+        &Deployment {
+            model_defaults: &defaults(),
+            frontend_url: "http://localhost:3000",
+        },
+        &viewer,
+        "t-theirs",
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        snapshot.is_some(),
+        "a public conversation this viewer may read opens from its id"
+    );
+    assert_eq!(
+        thread_ids(&pool, &viewer).await,
+        Vec::<String>::new(),
+        "and opening it does not put it on their sidebar; writing to it is what would"
+    );
+}
+
+/// Access is the whole of the widening. A Task this viewer may not read answers
+/// exactly as it did when the follow rule was the one refusing it — one answer
+/// for every way a conversation can be absent, so which one it was stays
+/// undisclosed.
+#[sqlx::test]
+async fn an_unreadable_conversation_still_does_not_open_by_id(pool: PgPool) {
+    seed_live_project(&pool).await;
+    seed_task(&pool, "t-private", "user-2", Some("ws-live")).await;
+
+    let snapshot = thread_snapshot(
+        &PgConversationDao::new(pool.clone()),
+        &PgConversationDao::new(pool.clone()),
+        &Deployment {
+            model_defaults: &defaults(),
+            frontend_url: "http://localhost:3000",
+        },
+        &viewer("user-1"),
+        "t-private",
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        snapshot.is_none(),
+        "a private conversation belonging to somebody else stays absent"
+    );
+}
+
 /// The archive is filtered by the same follow rule as the sidebar. A
 /// conversation somebody else closed is not in this viewer's archive unless
 /// they were involved in it.
@@ -2369,6 +2435,17 @@ impl ConversationDao for RefusesTheRowRead {
         // The shape of the failure this survives: the database is there and the
         // connection is not.
         Err(sqlx::Error::PoolTimedOut)
+    }
+
+    // Not the read this double refuses: the shell feed re-reads its rows
+    // through the followed listing above, and this resolves one conversation
+    // for the thread paths.
+    async fn readable_by_id(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<Option<Conversation>, sqlx::Error> {
+        self.0.readable_by_id(viewer, task_id).await
     }
 
     async fn search_conversations(
