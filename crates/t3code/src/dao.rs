@@ -638,7 +638,7 @@ impl PgConversationDao {
                    t.snoozed_until,
                    t.snoozed_at
                FROM listed t
-               LEFT JOIN sandboxes s ON s.task_id = t.task_id
+               LEFT JOIN sandboxes s ON s.sandbox_id = t.sandbox_id
                LEFT JOIN LATERAL (
                    SELECT tt.turn_number, tt.status, tt.started_at, tt.ended_at
                    FROM task_turns tt

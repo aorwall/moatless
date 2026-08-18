@@ -456,11 +456,16 @@ async fn task_status(pool: &PgPool, task_id: &str) -> String {
 /// The durable Sandbox intent for a task. `None` means no Sandbox was ever
 /// requested — what a task nobody woke looks like.
 async fn sandbox_desired_state(pool: &PgPool, task_id: &str) -> Option<String> {
-    sqlx::query_scalar::<_, String>("SELECT desired_state FROM sandboxes WHERE task_id = $1")
-        .bind(task_id)
-        .fetch_optional(pool)
-        .await
-        .expect("read sandbox intent")
+    sqlx::query_scalar::<_, String>(
+        r#"SELECT s.desired_state
+           FROM tasks t
+           JOIN sandboxes s ON s.sandbox_id = COALESCE(t.sandbox_id, t.task_id)
+           WHERE t.task_id = $1"#,
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+    .expect("read sandbox intent")
 }
 
 /// Every external id the Linear adapter has written onto a forwarded message,

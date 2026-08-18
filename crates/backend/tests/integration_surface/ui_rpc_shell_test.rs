@@ -460,17 +460,40 @@ async fn seed_turn(pool: &PgPool, task_id: &str, turn_number: i32, status: &str)
     .unwrap();
 }
 
+/// Seed the Sandbox an ordinary Task runs in, named after the Task, and bind
+/// the Task to it.
 async fn seed_sandbox(pool: &PgPool, task_id: &str, desired_state: &str, started: bool) {
-    sqlx::query(
-        r#"INSERT INTO sandboxes (task_id, desired_state, started_at)
-           VALUES ($1, $2, CASE WHEN $3 THEN NOW() ELSE NULL END)"#,
+    let workspace_id: String = sqlx::query_scalar(
+        "SELECT COALESCE(workspace_id, 'ws_' || repository_id) FROM tasks WHERE task_id = $1",
     )
     .bind(task_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    // `sandboxes.workspace_id` is an FK, and these fixtures name Workspaces that
+    // `seed_workspaces` does not create. An already-seeded id conflicts, which
+    // is the no-op this wants.
+    let workspace = make_workspace_row(&workspace_id, "user-1");
+    let _ = PgWorkspaceDao(pool.clone()).insert_workspace(&workspace).await;
+
+    sqlx::query(
+        r#"INSERT INTO sandboxes (sandbox_id, workspace_id, desired_state, started_at)
+           VALUES ($1, $2, $3, CASE WHEN $4 THEN NOW() ELSE NULL END)"#,
+    )
+    .bind(task_id)
+    .bind(&workspace_id)
     .bind(desired_state)
     .bind(started)
     .execute(pool)
     .await
     .unwrap();
+
+    sqlx::query("UPDATE tasks SET sandbox_id = $1 WHERE task_id = $1")
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 /// A message from a person, which is what the activity timestamp counts.

@@ -165,11 +165,16 @@ async fn follow_state(
 /// The Sandbox intent the lifecycle persisted, or `None` while no operation has
 /// ever asked for one.
 async fn sandbox_intent(pool: &PgPool, task_id: &str) -> Option<(String, Option<String>)> {
-    sqlx::query_as("SELECT desired_state, stop_reason FROM sandboxes WHERE task_id = $1")
-        .bind(task_id)
-        .fetch_optional(pool)
-        .await
-        .unwrap()
+    sqlx::query_as(
+        r#"SELECT s.desired_state, s.stop_reason
+           FROM tasks t
+           JOIN sandboxes s ON s.sandbox_id = COALESCE(t.sandbox_id, t.task_id)
+           WHERE t.task_id = $1"#,
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+    .unwrap()
 }
 
 async fn listing_change_count(pool: &PgPool, task_id: &str) -> i64 {
@@ -224,11 +229,16 @@ async fn message_uuids(pool: &PgPool, task_id: &str) -> Vec<String> {
 /// Whether the lifecycle was asked for a Sandbox. The record is the request,
 /// not the outcome — the test runtime refuses to start anything.
 async fn sandbox_requested(pool: &PgPool, task_id: &str) -> bool {
-    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sandboxes WHERE task_id = $1")
-        .bind(task_id)
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar::<_, i64>(
+        r#"SELECT COUNT(*)
+           FROM tasks t
+           JOIN sandboxes s ON s.sandbox_id = COALESCE(t.sandbox_id, t.task_id)
+           WHERE t.task_id = $1"#,
+    )
+    .bind(task_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
         > 0
 }
 
