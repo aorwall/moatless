@@ -1,8 +1,9 @@
 //! Configuration from environment variables.
 //!
 //! Auth mode resolution (first match wins):
-//! 1. **Sandbox**: `USER_AUTH_TOKEN` set (inside a sandbox pod) — exchanges
-//!    the token for a session cookie.
+//! 1. **Sandbox**: a sandbox user token is present — either the refreshed copy
+//!    the sandbox persists on disk (preferred) or the `USER_AUTH_TOKEN` env baked
+//!    into the pod at creation. Exchanges the token for a session cookie.
 //! 2. **Standalone with env API key**: `MOATLESS_API_KEY` set — used directly
 //!    as `Authorization: Bearer <key>`. Intended for non-interactive contexts
 //!    (CI, cron, scripts) where the credentials file isn't available.
@@ -104,15 +105,55 @@ impl Config {
     }
 }
 
+/// Where the sandbox persists the long-lived user auth token. The credential
+/// refresher rewrites this file every ~15 min, so it stays current for the life
+/// of the task; the `USER_AUTH_TOKEN` env is fixed at pod creation and goes
+/// stale. Mirrors the sandbox's `RUNTIME_DIR` constant (`/run/moatless`).
+const PERSISTED_USER_TOKEN_PATH: &str = "/run/moatless/.user_auth_token";
+
 /// The sandbox token, when one is actually present.
+///
+/// Prefers the token the sandbox keeps fresh on disk over the fixed copy baked
+/// into the pod env at creation: a task running longer than the token's TTL
+/// would otherwise keep presenting an expired `X-User-Token` and fall back to a
+/// session cookie, and never recover.
 ///
 /// An env var set to the empty string is not a credential — it is how a caller
 /// says "make this request without one", which the E2E suite relies on to
-/// assert that a route rejects anonymous callers.
+/// assert that a route rejects anonymous callers; that override wins over any
+/// on-disk token.
 pub fn sandbox_token() -> Option<String> {
-    std::env::var("USER_AUTH_TOKEN")
-        .ok()
-        .filter(|token| !token.trim().is_empty())
+    if matches!(std::env::var("USER_AUTH_TOKEN"), Ok(token) if token.trim().is_empty()) {
+        return None;
+    }
+
+    persisted_sandbox_token().or_else(|| {
+        std::env::var("USER_AUTH_TOKEN")
+            .ok()
+            .filter(|token| !token.trim().is_empty())
+    })
+}
+
+/// Read the refreshed user token the sandbox persisted to disk, if any.
+/// Honors a `RUNTIME_DIR` override for tests; defaults to the sandbox path.
+fn persisted_sandbox_token() -> Option<String> {
+    read_persisted_token(std::env::var("RUNTIME_DIR").ok().as_deref())
+}
+
+/// Load and trim the persisted token under `runtime_dir` (or the default path).
+/// Returns `None` when the file is absent, unreadable, or blank.
+fn read_persisted_token(runtime_dir: Option<&str>) -> Option<String> {
+    let path = match runtime_dir {
+        Some(dir) => format!("{}/.user_auth_token", dir.trim_end_matches('/')),
+        None => PERSISTED_USER_TOKEN_PATH.to_string(),
+    };
+    let token = std::fs::read_to_string(path).ok()?;
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token)
+    }
 }
 
 /// Extract host (with port if non-standard) from a URL.
@@ -126,4 +167,32 @@ pub fn host_from_url(url: &str) -> String {
         .next()
         .unwrap_or(without_scheme)
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_persisted_token;
+
+    #[test]
+    fn persisted_token_is_read_and_trimmed() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".user_auth_token"), "  fresh-token\n").unwrap();
+        assert_eq!(
+            read_persisted_token(Some(dir.path().to_str().unwrap())),
+            Some("fresh-token".to_string())
+        );
+    }
+
+    #[test]
+    fn blank_persisted_token_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".user_auth_token"), "   \n").unwrap();
+        assert_eq!(read_persisted_token(Some(dir.path().to_str().unwrap())), None);
+    }
+
+    #[test]
+    fn missing_persisted_token_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(read_persisted_token(Some(dir.path().to_str().unwrap())), None);
+    }
 }

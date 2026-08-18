@@ -100,6 +100,12 @@ impl SessionDao for PgSessionDao {
         Ok(())
     }
 
+    // Validates an already-issued opaque session token. Deliberately does NOT
+    // filter `NOT u.is_bot`: the interactive login paths (OAuth, password) block
+    // bots at login, so the only sessions a bot ever holds are the ones the
+    // token/api-key exchange endpoints issued on purpose for its sandbox CLI.
+    // Filtering bots here rejected exactly those sessions, wedging a bot-owned
+    // task's `moat` in a permanent 401 once its `X-User-Token` JWT expired.
     async fn find_active_by_token_hash(
         &self,
         token_hash: &[u8],
@@ -117,7 +123,6 @@ impl SessionDao for PgSessionDao {
               AND s.idle_expires_at > $2
               AND s.absolute_expires_at > $2
               AND u.status = 'active'
-              AND NOT u.is_bot
             "#,
         )
         .bind(token_hash)

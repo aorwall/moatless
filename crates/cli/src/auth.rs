@@ -42,6 +42,16 @@ pub async fn ensure_session_sandbox(
     login_sandbox(client, config).await
 }
 
+/// Drop the cached sandbox session so the next invocation re-exchanges the
+/// (refreshed) user token. Called when a request is rejected as unauthorized:
+/// the on-disk session may be stale — expired or rotated — and replaying it
+/// would keep the CLI wedged in a 401 loop. A no-op outside sandbox mode.
+pub fn invalidate_session(config: &Config) {
+    if matches!(config.auth_mode, AuthMode::Sandbox { .. }) {
+        let _ = std::fs::remove_file(&config.session_file);
+    }
+}
+
 fn load_session(path: &str) -> Option<String> {
     let path = Path::new(path);
     if !path.exists() {

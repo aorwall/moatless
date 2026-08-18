@@ -285,26 +285,60 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
         auth::ensure_auth(&mut moat, &cfg).await?;
     }
 
-    match cli.command {
-        SandboxCommands::Shared(cmd) => run_shared(*cmd, &moat, &cfg, cli.opts.json).await?,
+    let result = dispatch_sandbox(cli.command, &moat, &cfg, cli.opts.json).await;
+
+    // A cached sandbox session can be stale (expired or rotated). On rejection,
+    // drop it so the next `moat` invocation re-exchanges the refreshed user
+    // token instead of replaying the dead session into another 401.
+    if needs_auth && is_unauthorized(&result) {
+        auth::invalidate_session(&cfg);
+    }
+
+    result
+}
+
+/// Whether a command result failed because the request was rejected as
+/// unauthorized. Commands surface a 401 either as a `ClientError` (raw helpers)
+/// or an `ApiError` (the typed client), so check both boxed error types.
+fn is_unauthorized(result: &Result<(), Box<dyn std::error::Error>>) -> bool {
+    let Some(err) = result.as_ref().err() else {
+        return false;
+    };
+    matches!(
+        err.downcast_ref::<moatless_cli::client::ClientError>(),
+        Some(moatless_cli::client::ClientError::Unauthorized)
+    ) || matches!(
+        err.downcast_ref::<moatless_api_client::ApiError>(),
+        Some(moatless_api_client::ApiError::Unauthorized)
+    )
+}
+
+async fn dispatch_sandbox(
+    command: SandboxCommands,
+    moat: &MoatClient,
+    cfg: &Config,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        SandboxCommands::Shared(cmd) => run_shared(*cmd, moat, cfg, json).await?,
         SandboxCommands::SetName { name } => {
-            let task_id = require_task_id(&cfg)?;
+            let task_id = require_task_id(cfg)?;
             let req = UpdateTaskMetadataRequest {
                 name: Some(name.clone()),
                 description: None,
             };
             let task = moat.api().update_task_metadata(&task_id, &req).await?;
-            if cli.opts.json {
+            if json {
                 output::print_json_typed(&task);
             } else {
                 println!("Task name set to: {name}");
             }
         }
         SandboxCommands::SetTags { tags } => {
-            let task_id = require_task_id(&cfg)?;
+            let task_id = require_task_id(cfg)?;
             let req = SetTagsRequest { tags: tags.clone() };
             moat.api().set_task_tags(&task_id, &req).await?;
-            if cli.opts.json {
+            if json {
                 output::print_json_typed(&tags);
             } else {
                 println!("Tags set: {}", tags.join(", "));
@@ -315,19 +349,19 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
             message,
             tool_use_id,
         } => {
-            let task_id = require_task_id(&cfg)?;
+            let task_id = require_task_id(cfg)?;
             if tool_use_id.is_some() && message.is_none() {
                 return Err("--tool-use-id requires --message".into());
             }
             commands::feedback::run(
-                &moat,
+                moat,
                 commands::feedback::FeedbackArgs {
                     task_id,
                     comment,
                     message_uuid: message,
                     tool_use_id,
                 },
-                cli.opts.json,
+                json,
             )
             .await?;
         }
