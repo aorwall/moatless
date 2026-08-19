@@ -26,7 +26,7 @@ use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_tasks::task::creation::{TaskCreationError, TaskCreationService};
 use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::sandbox_waker::{SandboxWaker, wake_for_message};
+use moatless_backend_core::sandbox::{SandboxWaker, wake_for_message};
 
 pub use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT, CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD};
 

@@ -9,7 +9,7 @@ use serde::Deserialize;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use crate::task::dao::TaskDao;
-use crate::task::sandbox_waker::SandboxWaker;
+use moatless_backend_core::sandbox::SandboxWaker;
 use moatless_core::file_storage::dao::FileDao;
 use moatless_identity::extractors::AuthUser;
 

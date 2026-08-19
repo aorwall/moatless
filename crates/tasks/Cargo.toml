@@ -74,3 +74,6 @@ moatless-core = { path = "../core", features = ["test-support"] }
 # built in isolation (`-p moatless-tasks`); a `--workspace` build otherwise masks
 # it through the backend's own workspaces dev-dependency.
 moatless-workspaces = { path = "../workspaces", features = ["test-support"] }
+# `MockPreflightPort` / `MockSandboxJoiner` (task::creation tests) live with the
+# ports themselves in backend-core, off its `test-support` gate.
+moatless-backend-core = { path = "../backend-core", features = ["test-support"] }

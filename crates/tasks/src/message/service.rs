@@ -12,7 +12,7 @@
 //! person call this instead.
 
 use crate::task::dao::TaskDao;
-use crate::task::sandbox_waker::SandboxWaker;
+use moatless_backend_core::sandbox::SandboxWaker;
 use crate::task::schemas::MessageContextInput;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentMode;
@@ -141,7 +141,7 @@ pub async fn send_user_message(
     };
 
     if let Some(error_msg) =
-        crate::task::sandbox_waker::wake_for_message(sandbox_waker, task_id).await
+        moatless_backend_core::sandbox::wake_for_message(sandbox_waker, task_id).await
     {
         message_send.persist_error_result(task_id, &error_msg).await;
     }

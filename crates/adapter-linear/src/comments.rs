@@ -28,7 +28,7 @@ use moatless_loops::bindings::runtime::RoutingService;
 use moatless_loops::loops::dao::LoopDao;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
-use moatless_tasks::task::sandbox_waker::SandboxWaker;
+use moatless_backend_core::sandbox::SandboxWaker;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::webhook_payloads::CommentPayloadData;

@@ -26,9 +26,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use async_trait::async_trait;
-
-use moatless_backend_core::sandbox::{SandboxError, SandboxStarter};
+use moatless_backend_core::sandbox::{PreflightPort, SandboxError, SandboxJoiner, SandboxStarter};
 use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use moatless_types::task::TaskSubType;
@@ -36,7 +34,7 @@ use moatless_types::task::TaskSubType;
 use crate::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
-use moatless_types::task::{CheckoutMode, Visibility};
+use moatless_types::task::Visibility;
 use crate::task::models::{Task, TaskStatus};
 use crate::task::relations::{CreatedByParent, TaskRelationDao, record_created_by, record_related_to};
 use moatless_types::task::RelatedTask;
@@ -45,38 +43,6 @@ use moatless_core::events::EventPublisher;
 use moatless_types::agent::{AgentMode, AgentType};
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::repository::models::Repository;
-
-/// Preflight seam: GitHub-token validation before a sandbox is provisioned.
-/// Wired once in state assembly (`RealPreflight`, in `sandbox::preflight`) so
-/// every creation path gets the same check for free; mocked in unit tests.
-#[cfg_attr(test, mockall::automock)]
-#[async_trait]
-pub trait PreflightPort: Send + Sync {
-    async fn validate(&self, task: &Task, repo: &Repository) -> Result<(), PreflightRejection>;
-}
-
-/// Registers a task as a member of an already-running sandbox process.
-#[cfg_attr(test, mockall::automock)]
-#[async_trait]
-pub trait SandboxJoiner: Send + Sync {
-    async fn join_task(
-        &self,
-        task_id: &str,
-        checkout_mode: CheckoutMode,
-    ) -> Result<(), SandboxError>;
-}
-
-/// Band-clean preflight failure returned by [`PreflightPort`]. The
-/// sandbox-control implementation pre-computes both strings from its rich
-/// `PreflightError` so the tasks band names no preflight-credential type:
-/// `user_message` drives the 403 body + `sandbox.error` event, `detail` is the
-/// underlying failure's `Display` for the log + event detail field.
-#[derive(Debug, thiserror::Error)]
-#[error("{detail}")]
-pub struct PreflightRejection {
-    pub user_message: String,
-    pub detail: String,
-}
 
 /// Normalised task-creation input. Every call path (HTTP handler, loops,
 /// adapters) translates its domain input into this; the service never inspects
@@ -371,6 +337,11 @@ impl TaskCreationService {
         // label the workspace the task runs in.
         let workspace_id = self.tasks.insert_task(&row).await?;
         row.workspace_id = Some(workspace_id);
+        // `insert_task` writes the Sandbox row for a request that named none,
+        // under the task's own id. Carry it back for the same reason as the
+        // workspace: the create response and the `task.created` event are built
+        // from this row.
+        row.sandbox_id.get_or_insert_with(|| task_id.clone());
         tracing::info!(
             task_id = %task_id,
             created_by = ?row.created_by,
@@ -444,7 +415,7 @@ impl TaskCreationService {
         // Note this is not the same as "no first message": the bindings runtime
         // and the schedule runner create with `first_message: None` and deliver
         // it themselves, and they do need a sandbox.
-        let provision = if row.sandbox_id.is_some() {
+        let provision = if join_checkout_mode.is_some() {
             ProvisionOutcome::Started
         } else if req.provision {
             match self.starter.start(&task_id).await {
@@ -537,10 +508,14 @@ mod tests {
     use crate::tag::dao::MockTagDao;
     use crate::task::dao::MockTaskDao;
     use crate::task::relations::MockTaskRelationDao;
-    use moatless_backend_core::sandbox::SandboxError;
+    use async_trait::async_trait;
+    use moatless_backend_core::sandbox::{
+        MockPreflightPort, MockSandboxJoiner, PreflightRejection, SandboxError,
+    };
     use moatless_core::events::test_support::RecordingPublisher;
     use moatless_workspaces::repository::dao::MockRepositoryDao;
     use moatless_types::repository::RepositoryKind;
+    use moatless_types::task::CheckoutMode;
     use moatless_workspaces::repository::models::Repository;
 
     mockall::mock! {
@@ -548,18 +523,6 @@ mod tests {
         #[async_trait]
         impl SandboxStarter for Starter {
             async fn start(&self, task_id: &str) -> Result<(), SandboxError>;
-        }
-    }
-
-    mockall::mock! {
-        Joiner {}
-        #[async_trait]
-        impl SandboxJoiner for Joiner {
-            async fn join_task(
-                &self,
-                task_id: &str,
-                checkout_mode: CheckoutMode,
-            ) -> Result<(), SandboxError>;
         }
     }
 
@@ -633,7 +596,7 @@ mod tests {
     fn service(
         tasks: MockTaskDao,
         starter: MockStarter,
-        joiner: MockJoiner,
+        joiner: MockSandboxJoiner,
         preflight: Arc<dyn PreflightPort>,
         publisher: Arc<RecordingPublisher>,
     ) -> TaskCreationService {
@@ -655,8 +618,8 @@ mod tests {
         )
     }
 
-    fn joiner_never() -> MockJoiner {
-        let mut joiner = MockJoiner::new();
+    fn joiner_never() -> MockSandboxJoiner {
+        let mut joiner = MockSandboxJoiner::new();
         joiner.expect_join_task().never();
         joiner
     }
@@ -1046,7 +1009,7 @@ mod tests {
 
         let mut starter = MockStarter::new();
         starter.expect_start().never();
-        let mut joiner = MockJoiner::new();
+        let mut joiner = MockSandboxJoiner::new();
         let join_order = Arc::clone(&order);
         joiner
             .expect_join_task()
@@ -1116,7 +1079,7 @@ mod tests {
 
         let mut starter = MockStarter::new();
         starter.expect_start().never();
-        let mut joiner = MockJoiner::new();
+        let mut joiner = MockSandboxJoiner::new();
         let join_order = Arc::clone(&order);
         joiner.expect_join_task().times(1).returning(move |_, _| {
             join_order.lock().expect("order lock").push("join");

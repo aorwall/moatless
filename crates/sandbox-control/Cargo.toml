@@ -34,7 +34,6 @@ moatless-backend-core = { path = "../backend-core", features = ["database", "ope
 moatless-core = { path = "../core", features = ["openapi"] }
 moatless-identity = { path = "../identity" }
 moatless-s3 = { path = "../s3" }
-moatless-tasks = { path = "../tasks" }
 moatless-types = { path = "../types", features = ["openapi"] }
 moatless-workspaces = { path = "../workspaces" }
 # Shared gRPC wire vocabulary (proto types) — a floor crate, legal downward.
@@ -48,7 +47,6 @@ sandbox-proto = { path = "../sandbox-proto" }
 db-tests = [
     "moatless-core/test-support",
     "moatless-identity/test-support",
-    "moatless-tasks/test-support",
 ]
 
 [lints]
@@ -62,5 +60,4 @@ http-body-util = "0.1"
 # them through the backend's own dev-dependencies.
 moatless-core = { path = "../core", features = ["test-support"] }
 moatless-identity = { path = "../identity", features = ["test-support"] }
-moatless-tasks = { path = "../tasks", features = ["test-support"] }
 moatless-workspaces = { path = "../workspaces", features = ["test-support"] }

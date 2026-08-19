@@ -12,12 +12,15 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use moatless_backend_core::db_enum::{decode_optional, decode_required};
-use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+use moatless_types::access_control::Scope;
+use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason, sandbox_intent_epoch};
 use moatless_core::db::DbPool;
-use moatless_tasks::task::models::sandbox_intent_epoch;
 
 use super::events::LifecycleEvent;
-use super::orchestrator::{IntentWrite, LifecycleDao, SandboxMember, StoreError, TaskIntent};
+use super::orchestrator::{
+    IntentWrite, LifecycleDao, ReconcileCandidate, SandboxMember, SandboxShape, StoreError,
+    TaskIntent,
+};
 use super::types::{
     ArchiveRetention, CorrelationMarker, IntentEffect, OperationGeneration, OperationKind,
 };
@@ -80,9 +83,13 @@ fn marker_from_columns(
 impl LifecycleDao for PgLifecycleDao {
     async fn load(&self, task_id: &str) -> Result<Option<TaskIntent>, StoreError> {
         // Left join: a Task with no Sandbox row is not TaskNotFound — it reads as
-        // converged Stopped (never requested) with an epoch intent timestamp.
+        // converged Stopped (never requested) with an epoch intent timestamp and
+        // an ownerless access-control pair, which only an admin can reach.
         let row: Option<(
             String,
+            String,
+            Option<String>,
+            Option<String>,
             String,
             String,
             Option<String>,
@@ -95,6 +102,9 @@ impl LifecycleDao for PgLifecycleDao {
         )> = sqlx::query_as(
             r#"SELECT
                 t.status,
+                t.visibility,
+                s.scope,
+                s.owner_user_id,
                 COALESCE(t.sandbox_id, t.task_id) AS sandbox_id,
                 COALESCE(t.workspace_id, 'ws_' || t.repository_id) AS workspace_id,
                 s.desired_state,
@@ -116,6 +126,9 @@ impl LifecycleDao for PgLifecycleDao {
         row.map(
             |(
                 status,
+                visibility,
+                scope,
+                owner_user_id,
                 sandbox_id,
                 workspace_id,
                 desired_state,
@@ -128,6 +141,11 @@ impl LifecycleDao for PgLifecycleDao {
             )| {
                 Ok::<_, sqlx::Error>(TaskIntent {
                 status: decode_required("status", status)?,
+                visibility: decode_required("visibility", visibility)?,
+                // No Sandbox row leaves the pair ownerless, which reads as
+                // reachable by an admin and nobody else.
+                scope: decode_optional("scope", scope)?.unwrap_or(Scope::User),
+                owner_user_id,
                 sandbox_id,
                 workspace_id,
                 desired_state: decode_optional("desired_state", desired_state)?
@@ -144,15 +162,19 @@ impl LifecycleDao for PgLifecycleDao {
         .map_err(|e| StoreError::with_source("load lifecycle intent", e))
     }
 
-    async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
+    async fn reconcile_candidates(&self) -> Result<Vec<ReconcileCandidate>, StoreError> {
         // Desired-Running participants (fleet observation may find them down)
-        // ∪ incomplete-marker Sandboxes (a crashed operation). Backed by
-        // `sandboxes_desired_running_idx` and `sandboxes_incomplete_operation_idx`.
-        sqlx::query_scalar(
-            r#"SELECT DISTINCT ON (s.sandbox_id) t.task_id
+        // ∪ incomplete-marker Sandboxes (a crashed operation) ∪ Sandboxes with
+        // queued work. The last arm is what wakes a Sandbox whose pod is down:
+        // the fact is on the row, so no pod has to be reachable to find it.
+        // Backed by `sandboxes_desired_running_idx`,
+        // `sandboxes_incomplete_operation_idx`, and `sandboxes_pending_work_idx`.
+        sqlx::query_as(
+            r#"SELECT DISTINCT ON (s.sandbox_id) t.task_id, s.pending_work_at
                FROM sandboxes s
                JOIN tasks t ON t.sandbox_id = s.sandbox_id
                WHERE (s.desired_state = 'running' AND t.status IN ('open', 'error'))
+                  OR (s.pending_work_at IS NOT NULL AND t.status IN ('open', 'error'))
                   OR s.operation_generation IS NOT NULL
                ORDER BY s.sandbox_id, t.created_at_db NULLS LAST, t.task_id"#,
         )
@@ -201,37 +223,32 @@ impl LifecycleDao for PgLifecycleDao {
         .map_err(|e| StoreError::with_source("load active sandbox peers", e))
     }
 
+    async fn sandbox_shape(&self, sandbox_id: &str) -> Result<Option<SandboxShape>, StoreError> {
+        sqlx::query_as(
+            r#"SELECT workspace_id, scope, owner_user_id, run_as_user_id,
+                      branch, headless, agent_type, use_tmux
+               FROM sandboxes
+               WHERE sandbox_id = $1"#,
+        )
+        .bind(sandbox_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StoreError::with_source("load sandbox shape", e))
+    }
+
     async fn allocate_generation(
         &self,
         sandbox_id: &str,
     ) -> Result<OperationGeneration, StoreError> {
-        // Allocation is also the Sandbox row's lazy birth: the first operation
-        // on an ordinary Task inserts a row whose sandbox_id equals task_id.
-        // Later operations increment. Serialized per Sandbox by the lifecycle
-        // lock, so no concurrent allocation races.
+        // Task creation writes the Sandbox row, so allocation only increments.
+        // Serialized per Sandbox by the lifecycle lock, so no concurrent
+        // allocation races.
         let seq: Option<i64> = sqlx::query_scalar(
-            r#"WITH member AS (
-                   SELECT task_id, COALESCE(workspace_id, 'ws_' || repository_id) AS workspace_id
-                   FROM tasks
-                   WHERE COALESCE(sandbox_id, task_id) = $1
-                   ORDER BY (task_id = $1) DESC, created_at_db NULLS LAST, task_id
-                   LIMIT 1
-               ),
-               upsert AS (
-                   INSERT INTO sandboxes (sandbox_id, workspace_id, operation_seq)
-                   SELECT $1, workspace_id, 1 FROM member
-                   ON CONFLICT (sandbox_id) DO UPDATE
-                       SET operation_seq = sandboxes.operation_seq + 1,
-                           updated_at = NOW()
-                   RETURNING operation_seq
-               ),
-               bind_initial_member AS (
-                   UPDATE tasks
-                   SET sandbox_id = $1
-                   WHERE task_id = (SELECT task_id FROM member)
-                     AND sandbox_id IS NULL
-               )
-               SELECT operation_seq FROM upsert"#,
+            r#"UPDATE sandboxes
+                  SET operation_seq = operation_seq + 1,
+                      updated_at = NOW()
+                WHERE sandbox_id = $1
+            RETURNING operation_seq"#,
         )
         .bind(sandbox_id)
         .fetch_optional(&self.pool)
@@ -240,7 +257,7 @@ impl LifecycleDao for PgLifecycleDao {
 
         seq.map(OperationGeneration).ok_or_else(|| {
             StoreError::new(format!(
-                "sandbox {sandbox_id} has no member task allocating generation"
+                "sandbox {sandbox_id} has no row allocating generation"
             ))
         })
     }
@@ -251,11 +268,10 @@ impl LifecycleDao for PgLifecycleDao {
         write: &IntentWrite,
     ) -> Result<IntentEffect, StoreError> {
         let task_id = sandbox_id;
-        // Single atomic statement, an upsert so the Sandbox row is born through
-        // lifecycle and nowhere else. `prev` captures the pre-image under a row
-        // lock so `changed` reflects the desired-state / stop-reason / retention
-        // delta — the intent-change axis — while the marker is always
-        // overwritten. A first write (empty `prev`) is `Changed` by definition.
+        // Single atomic statement against the row task creation wrote. `prev`
+        // captures the pre-image under a row lock so `changed` reflects the
+        // desired-state / stop-reason / retention delta — the intent-change
+        // axis — while the marker is always overwritten.
         //
         // Now in a transaction, because the listing record below has to commit
         // with it: a sidebar shows the session's status, and a status that moved
@@ -272,31 +288,14 @@ impl LifecycleDao for PgLifecycleDao {
                    WHERE sandbox_id = $1
                    FOR UPDATE
                ),
-               member AS (
-                   SELECT COALESCE(workspace_id, 'ws_' || repository_id) AS workspace_id
-                   FROM tasks
-                   WHERE COALESCE(sandbox_id, task_id) = $1
-                   ORDER BY (task_id = $1) DESC, created_at_db NULLS LAST, task_id
-                   LIMIT 1
-               ),
-               upsert AS (
-                   INSERT INTO sandboxes AS s (
-                       sandbox_id, workspace_id, desired_state, stop_reason, archive_retention,
-                       operation_kind, operation_generation, operation_started_at,
-                       started_at, desired_state_updated_at, updated_at,
-                       storage_reclaimed_at
-                   ) VALUES (
-                       $1, (SELECT workspace_id FROM member), $2, $3, $4, $5, $6, $7,
-                       CASE WHEN $8 THEN NOW() ELSE NULL END, NOW(), NOW(),
-                       NULL
-                   )
-                   ON CONFLICT (sandbox_id) DO UPDATE SET
-                       desired_state = EXCLUDED.desired_state,
-                       stop_reason = EXCLUDED.stop_reason,
-                       archive_retention = EXCLUDED.archive_retention,
-                       operation_kind = EXCLUDED.operation_kind,
-                       operation_generation = EXCLUDED.operation_generation,
-                       operation_started_at = EXCLUDED.operation_started_at,
+               write AS (
+                   UPDATE sandboxes s SET
+                       desired_state = $2,
+                       stop_reason = $3,
+                       archive_retention = $4,
+                       operation_kind = $5,
+                       operation_generation = $6,
+                       operation_started_at = $7,
                        started_at = CASE WHEN $8 THEN NOW() ELSE s.started_at END,
                        desired_state_updated_at = NOW(),
                        updated_at = NOW(),
@@ -304,12 +303,14 @@ impl LifecycleDao for PgLifecycleDao {
                        -- is stale the moment intent moves toward Running.
                        storage_reclaimed_at =
                            CASE WHEN $8 THEN NULL ELSE s.storage_reclaimed_at END
+                   WHERE s.sandbox_id = $1
                    RETURNING 1
                )
                SELECT
                    (SELECT desired_state FROM prev) IS DISTINCT FROM $2
                    OR (SELECT stop_reason FROM prev) IS DISTINCT FROM $3
-                   OR (SELECT archive_retention FROM prev) IS DISTINCT FROM $4"#,
+                   OR (SELECT archive_retention FROM prev) IS DISTINCT FROM $4
+               FROM write"#,
         )
         .bind(task_id)
         .bind(write.desired_state.as_str())
@@ -350,7 +351,7 @@ impl LifecycleDao for PgLifecycleDao {
             Some(true) => Ok(IntentEffect::Changed),
             Some(false) => Ok(IntentEffect::Unchanged),
             None => Err(StoreError::new(format!(
-                "sandbox {sandbox_id} has no member task persisting intent"
+                "sandbox {sandbox_id} has no row persisting intent"
             ))),
         }
     }
@@ -692,7 +693,13 @@ mod db_tests {
             .await
             .unwrap();
 
-        let mut got = store.reconcile_candidates().await.unwrap();
+        let mut got: Vec<String> = store
+            .reconcile_candidates()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|c| c.task_id)
+            .collect();
         got.sort();
         assert_eq!(got, vec!["run-error", "run-open", "stopped-open"]);
     }
@@ -761,14 +768,14 @@ mod db_tests {
     }
 
     #[sqlx::test]
-    async fn first_operation_creates_the_sandbox_row(pool: PgPool) {
-        // The atomic intent write is the row's lazy birth: a Task with no
-        // Sandbox row gains one on its first lifecycle operation.
+    async fn lifecycle_writes_intent_onto_the_row_task_creation_made(pool: PgPool) {
+        // Task creation writes the row; the first lifecycle operation states
+        // intent on it rather than creating a second one.
         seed_bare_task(&pool, "t1", "open").await;
         assert_eq!(
             sandbox_row_count(&pool, "t1").await,
-            0,
-            "no row before any operation"
+            1,
+            "task creation wrote the row"
         );
 
         let store = PgLifecycleDao::new(pool.clone());
@@ -787,19 +794,87 @@ mod db_tests {
         assert_eq!(
             effect,
             IntentEffect::Changed,
-            "first write is a change from absence"
+            "stopped -> running is a change"
         );
-        assert_eq!(
-            sandbox_row_count(&pool, "t1").await,
-            1,
-            "the upsert created the row"
+        assert_eq!(sandbox_row_count(&pool, "t1").await, 1, "still one row");
+    }
+
+    #[sqlx::test]
+    async fn a_sandbox_with_no_row_refuses_allocation_and_intent(pool: PgPool) {
+        // No row means no Sandbox. Lifecycle names it rather than creating one
+        // whose shape it would have to guess.
+        seed_bare_task(&pool, "t1", "open").await;
+        sqlx::query("UPDATE tasks SET sandbox_id = NULL WHERE task_id = 't1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM sandboxes WHERE sandbox_id = 't1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let store = PgLifecycleDao::new(pool.clone());
+
+        let allocate = store.allocate_generation("t1").await.unwrap_err();
+        assert!(
+            allocate.context.contains("t1"),
+            "error names the sandbox: {allocate}"
+        );
+
+        let persist = store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: marker(OperationKind::Start, 1),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            persist.context.contains("t1"),
+            "error names the sandbox: {persist}"
         );
     }
 
     #[sqlx::test]
-    async fn no_row_task_loads_as_converged_stopped_and_is_no_candidate(pool: PgPool) {
-        // Absence is meaningful: no row means never-requested = converged Stopped
-        // with an epoch intent timestamp (so any Message supersedes it), and the
+    async fn load_reads_access_control_off_the_sandbox_and_visibility_off_the_task(pool: PgPool) {
+        // One read answers who may reach the Sandbox. The pair is the Sandbox's
+        // own; `visibility` is the Task's, because a public Task grants read.
+        seed_bare_task(&pool, "t1", "open").await;
+        sqlx::query(
+            "UPDATE sandboxes SET scope = 'global', owner_user_id = NULL WHERE sandbox_id = 't1'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE tasks SET visibility = 'public' WHERE task_id = 't1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let store = PgLifecycleDao::new(pool.clone());
+
+        let intent = store.load("t1").await.unwrap().expect("task exists");
+        assert_eq!(intent.scope, Scope::Global);
+        assert_eq!(intent.owner_user_id, None);
+        assert_eq!(intent.visibility, moatless_types::task::Visibility::Public);
+
+        // With the Sandbox row gone the pair is ownerless, which reaches nobody
+        // but an admin.
+        sqlx::query("DELETE FROM sandboxes WHERE sandbox_id = 't1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let intent = store.load("t1").await.unwrap().expect("task exists");
+        assert_eq!(intent.scope, Scope::User);
+        assert_eq!(intent.owner_user_id, None);
+    }
+
+    #[sqlx::test]
+    async fn a_never_operated_sandbox_is_converged_stopped_and_no_candidate(pool: PgPool) {
+        // The row task creation writes reads as never-requested: converged
+        // Stopped at the intent epoch (so any Message supersedes it), and the
         // Task is not a reconciler candidate.
         seed_bare_task(&pool, "t1", "open").await;
         let store = PgLifecycleDao::new(pool.clone());
@@ -816,12 +891,12 @@ mod db_tests {
 
         assert!(
             store.reconcile_candidates().await.unwrap().is_empty(),
-            "a no-row Task is converged, not a candidate",
+            "a never-operated Sandbox is converged, not a candidate",
         );
     }
 
     #[sqlx::test]
-    async fn generation_allocation_births_a_no_intent_row_at_epoch(pool: PgPool) {
+    async fn generation_allocation_leaves_intent_at_epoch(pool: PgPool) {
         seed_bare_task(&pool, "t1", "open").await;
         let store = PgLifecycleDao::new(pool.clone());
 

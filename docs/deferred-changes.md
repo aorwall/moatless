@@ -34,7 +34,7 @@ reader outside that program can see them.
 |---|---|---|
 | `AgentErrorSink` has one production implementation | `task/reaper.rs::AgentErrorSink`, implemented for `AppState` in `event_handler/agent_handlers.rs` | Step 10d — see below |
 | The reaper's invocation of the sink is untested | `task/reaper.rs::close_orphaned_turn` calls `close_orphaned_turn_as_error`; only the helper is covered | Step 10d, when `TaskReaper` becomes constructible from fakes |
-| `SandboxWakeService`'s closed-task guard is untested | `sandbox/notify.rs::SandboxWakeService::wake` — the "a closed task does not wake" branch; only the seam (`sandbox_waker::wake_for_message`) is covered, not the wake behaviour | When the rich `Lifecycle::start` is behind a trait and `SandboxWakeService` is constructible from fakes — a start port (`SandboxStarter`, declared in `moatless-backend-core`) already exists in the floor, so this is reconciliation, not new inversion |
+| `SandboxWakeService`'s closed-task guard is untested | `crates/sandbox-control/src/notify.rs::SandboxWakeService::wake` — the "a closed task does not wake" branch; only the seam (`moatless_backend_core::sandbox::wake_for_message`) is covered, not the wake behaviour | When the rich `Lifecycle` is behind a trait and `SandboxWakeService` is constructible from fakes — the guard now reads `Lifecycle::intent` and the start calls `Lifecycle::start`, so one trait covers both |
 | `TaskReaper`'s two above-band concrete fields | `task/reaper.rs::TaskReaper::new` — `k8s: K8sClient`, `sandbox: Arc<Lifecycle>` | Step 10d — a precondition of the crate compiling, not a cleanup |
 | Credential broadcast fan-out reaches `tasks` | `credentials::CredentialService::store` auto-invokes `broadcast_to_scope` | Step 10c, and it must land with the fan-out test that does not exist |
 | `sync_config`'s body spans two bands | `repository/handlers.rs::sync_repo_config` runs a loop sync and a workspace sync | Step 10g, as a server-band composition |
@@ -55,14 +55,15 @@ because it exists.
 
 **`SandboxWaker` is a different case and is settled, so it carries no row.** It is
 also a consumer-owned port with one production implementation, but it is not held
-up by a test fake: it is the `tasks`/`sandbox-control` crate boundary itself. Its
-body needs `Lifecycle` and `NotifyPort` (sandbox-control, band 6) while every
-caller sits at band 5 or above, so no placement of the code makes the reference
-point downward — the trait is the only thing that does. Collapsing it back into a
-function restores a `5 → 6` edge and, at the loops-band call site, restores
-`loops`' dependency on `sandbox-control` outright. The reasoning, its
-discriminator against `SetupRequirementCheck`, and the assertions that pin it are
-in `.plans/backend-ports-and-crates.md` under Step 5.
+up by a test fake: it is a crate boundary. Its body needs `Lifecycle` and
+`NotifyPort` (sandbox-control, band 6) while every caller sits at band 5 or above,
+so no placement of the code makes the reference point downward — the trait is the
+only thing that does. Collapsing it back into a function restores a `5 → 6` edge
+and, at the loops-band call site, restores `loops`' dependency on
+`sandbox-control` outright. It is declared in `moatless-backend-core` beside the
+other sandbox ports, which is what lets `tasks` and `sandbox-control` be siblings.
+The reasoning, its discriminator against `SetupRequirementCheck`, and the
+assertions that pin it are in `.plans/backend-ports-and-crates.md` under Step 5.
 
 ## Layering — types coupled to a transport crate
 
@@ -115,8 +116,9 @@ in the change that found them.
 |---|---|---|
 | Control-scoped writes discard the bool that denies them | `workspace/handlers.rs` — `create_workspace`, `update_workspace`, `override_workspace`, `add_workspace_repo`, `remove_workspace_repo`, `set_workspace_primary_repo` (nine call sites) | Needs a design decision plus a new test; see below |
 | The docker preview-server readiness timeout never fires | `sandbox/docker/status_resolver.rs::inspect_server_container` | Tracked by the `test.fixme` on SERVER-02 in `tests/api/specs/sandbox-errors.spec.ts` |
-| The GitHub preflight never runs on a restart | `crates/sandbox-control/src/auto_provision.rs::build_provision_request` runs only `preflight::preflight_validate_task_control`; `RealPreflight`'s repo-access probe reaches only creation and task start | When `SandboxRuntime::ensure_running` no longer builds a plan on the reuse path; see below |
+| The GitHub preflight never runs on a restart | `crates/sandbox-control/src/auto_provision.rs::build_provision_request` runs only `preflight::preflight_validate_sandbox_control`; `RealPreflight`'s repo-access probe reaches only creation and task start | When `SandboxRuntime::ensure_running` no longer builds a plan on the reuse path; see below |
 | A `moat push` commit claim is process-local | `crates/adapter-github-pr/src/api_routes.rs::claim_change`, the `GithubClaimSubject::Commit` arm — `RecentlySent::note_commit` only | When a `pull_request.synchronize` is observed reaching a replica that did not serve the claim; see below |
+| Every member of a shared Sandbox runs the first member's agent harness | `sandbox/src/state.rs::register_task_context` — its three-field config clone leaves `agent_type` and `use_tmux` inherited from the pod, while `spawn_agent` is already called per member and `TaskContext` already holds its own `AgentHandle` | When a shared warm Sandbox needs two harnesses at once; see below |
 
 **Workspace control-filter writes.** `WorkspaceDao`'s `update`, `add_repo`,
 `remove_repo` and `set_primary` all return `bool`, and the trait documents it:
@@ -186,6 +188,29 @@ within seconds of the push. Give it a durable home when a synchronize is actuall
 observed reaching a replica that did not serve the claim — an equality index on
 the full sha would do it, and the prefix match only exists for the abbreviated
 shas the old transcript scan had to work from.
+
+**Per-member agent harness.** The pod already builds one harness per joined
+Task: `register_task_context` calls `spawn_agent` for each member and the
+resulting `TaskContext` holds its own `AgentHandle`, and the image carries both
+CLIs. What it does not do is vary the harness. The function clones the pod
+config and overrides three fields — `task_id`, `workspace_dir`, `repo_dir` —
+so `Config::agent_type` and `Config::use_tmux` stay whatever the pod was
+provisioned with, which is the first member's selection. A second member that
+asked for a different agent silently runs the first one's.
+
+This has no effect while a Sandbox has one member, which is every Sandbox that
+does not use `tasks.sandbox_id`. It becomes wrong the first time two members of
+a shared warm Sandbox want different harnesses.
+
+The shape of the fix is known and small: a field on `JoinTaskRequest`
+(`crates/sandbox-proto/proto/sandbox/v1/sandbox.proto`, which today carries only
+`task_id` and `checkout_mode`), two lines in `register_task_context` to override
+the cloned config, and the value threaded from the joining Task through
+`SandboxJoiner::join_task`. It is deliberately not part of the Task-controls-
+Sandbox change, because it moves in the opposite direction: that change made the
+harness pod shape (`sandboxes.agent_type`, `sandboxes.use_tmux`), and this one
+makes it per member again. Do it as its own change, with the pod-level columns
+kept as the default a member inherits when it asks for nothing.
 
 ## Test and CI structure
 

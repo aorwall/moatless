@@ -33,7 +33,7 @@ use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_tasks::task::creation::TaskCreationService;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::relations::TaskRelationDao;
-use moatless_tasks::task::sandbox_waker::SandboxWaker;
+use moatless_backend_core::sandbox::SandboxWaker;
 
 use super::active_turns::ActiveLinearTurns;
 use super::agent_api::{ActivityKind, LinearAgentApi};

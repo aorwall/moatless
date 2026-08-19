@@ -30,7 +30,7 @@ use crate::task::binding_dao::TaskBindingDao;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use moatless_types::sandbox::ArchiveRetention;
-use crate::task::sandbox_lifecycle::SandboxLifecycle;
+use moatless_backend_core::sandbox::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};

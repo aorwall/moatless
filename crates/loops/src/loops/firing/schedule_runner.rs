@@ -21,7 +21,7 @@ use moatless_types::agent::AgentMode;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::creation::TaskCreationService;
 use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::sandbox_waker::SandboxWaker;
+use moatless_backend_core::sandbox::SandboxWaker;
 
 /// Durable schedule-firing runner: claims due schedules and fires each as an
 /// inbound message, holding the ports it needs rather than the whole `AppState`.

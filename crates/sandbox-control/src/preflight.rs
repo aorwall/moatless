@@ -35,14 +35,14 @@ use crate::secrets::{
     resolve_task_actor, resolve_task_github_token, resolve_workspace_credentials,
 };
 use moatless_types::repository::RepositoryProvider as GitHostProvider;
-use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
 use moatless_types::user::UserRole;
 use moatless_identity::auth::users::UserDao;
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
-use moatless_tasks::credential_sync::CredentialSync;
-use moatless_tasks::task::creation::{PreflightPort, PreflightRejection};
-use moatless_tasks::task::models::Task;
+use crate::lifecycle::orchestrator::SandboxShape;
+use moatless_backend_core::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
+use moatless_types::task::Task;
 use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 use moatless_workspaces::repository::models::Repository;
 use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
@@ -62,7 +62,7 @@ pub struct PreflightCredentials {
     /// Read for the Workspace's run-as identity, which outranks the task's own
     /// owner — see `secrets::resolve_task_actor`.
     pub workspaces: Arc<dyn WorkspaceDao>,
-    pub credential_sync: Arc<CredentialSync>,
+    pub credential_sync: Arc<dyn CodexCredentials>,
     /// Provider credentials pinned to the task's Workspace. Read here as well
     /// as at runtime so preflight validates the token the sandbox will actually
     /// be handed, not the one it would have had without the override.
@@ -187,9 +187,8 @@ impl PreflightPort for RealPreflight {
 
 /// Verify the sandbox's own identity can control the task before provisioning.
 ///
-/// The pod authenticates back as `task.created_by`
-/// (`auto_provision::build_provision_request`), and every sandbox gRPC call —
-/// `GetCredentials` first among them — is gated on
+/// The pod authenticates back as the task's owner, and every sandbox gRPC call
+/// — `GetCredentials` first among them — is gated on
 /// [`ScopeContext::can_control`]. A task that fails this check yields a pod
 /// that is refused its credentials, never completes init, fails its startup
 /// probe, and crash-loops. Evaluating the identical predicate here turns that
@@ -199,19 +198,42 @@ pub async fn preflight_validate_task_control(
     task: &Task,
 ) -> Result<(), PreflightError> {
     let user_id = task.created_by.as_deref().unwrap_or("system");
+    validate_control(users, &task.task_id, user_id, &task.scoped_resource()).await
+}
+
+/// The same check against the Sandbox, which is where provisioning reads it.
+///
+/// The pod authenticates back as `sandboxes.owner_user_id`
+/// (`auto_provision::build_provision_request`), so that is the identity checked
+/// here — not `run_as_user_id`, which is what the pod acts as outward.
+pub async fn preflight_validate_sandbox_control(
+    users: &dyn UserDao,
+    sandbox_id: &str,
+    shape: &SandboxShape,
+) -> Result<(), PreflightError> {
+    let user_id = shape.owner_user_id.as_deref().unwrap_or("system");
+    let resource = ScopedResource::borrowed(shape.scope, shape.owner_user_id.as_deref());
+    validate_control(users, sandbox_id, user_id, &resource).await
+}
+
+async fn validate_control(
+    users: &dyn UserDao,
+    task_id: &str,
+    user_id: &str,
+    resource: &ScopedResource,
+) -> Result<(), PreflightError> {
     let ctx = ScopeContext {
         user_id: user_id.to_string(),
         is_admin: is_platform_admin(users, user_id).await,
     };
-    let resource = task.scoped_resource();
-    if ctx.can_control(&resource) {
+    if ctx.can_control(resource) {
         return Ok(());
     }
     Err(PreflightError::NoTaskControl {
-        task_id: task.task_id.clone(),
+        task_id: task_id.to_string(),
         user_id: user_id.to_string(),
         scope: resource.scope,
-        owner: resource.owner_user_id,
+        owner: resource.owner_user_id.clone(),
     })
 }
 

@@ -479,6 +479,7 @@ pub fn spawn_grpc_server(
             secrets: p.secrets.clone(),
             credential_sync,
             repositories: p.repositories.clone(),
+            sandboxes: p.lifecycle_store.clone(),
             workspaces: p.workspaces.clone(),
             workspace_credentials: p.workspace_credentials.clone(),
             git_host_tokens: p.git_host_tokens.clone(),

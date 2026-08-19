@@ -140,17 +140,6 @@ pub struct SubagentAggregate {
 /// One Task carrying unacknowledged user messages, the desired-state
 /// reconciler's message-wake input.
 ///
-/// A pending user message is `agent_session_id IS NULL AND message_type = 'user'`
-/// — the `task_messages_pending_user_idx` predicate. `newest_created_at` is the
-/// DB-owned timestamp of the most recent pending row; the reconciler compares it
-/// against the Sandbox row's `desired_state_updated_at` to decide whether a wake
-/// supersedes a later stop/remove.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct PendingUserMessages {
-    pub task_id: String,
-    pub newest_created_at: DateTime<Utc>,
-}
-
 /// A user-turn that was acknowledged by the sandbox but never reached a
 /// terminal `agent.completed/error/stopped` event — i.e. the sandbox
 /// crashed/restarted mid-run. Used by the recovery RPC to drive a
@@ -234,13 +223,6 @@ pub trait MessageDao: Send + Sync {
     async fn find_by_uuid(&self, uuid: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
 
     async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error>;
-
-    /// Every Task with at least one unacknowledged user message, one row per
-    /// Task — the cross-Task scan the reconciler needs (never one Task at a
-    /// time), backed by the `task_messages_pending_user_idx` partial index.
-    async fn tasks_with_pending_user_messages(
-        &self,
-    ) -> Result<Vec<PendingUserMessages>, sqlx::Error>;
 
     async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
     /// Most recent `assistant` row for the task — the agent's final reply when
@@ -455,6 +437,38 @@ pub trait MessageDao: Send + Sync {
 /// PostgreSQL implementation of [`MessageDao`].
 pub struct PgMessageDao(pub DbPool);
 
+/// Drop the Sandbox's wake signal once nothing is waiting on it.
+///
+/// Runs in the claiming transaction, after the claim, so it sees the rows that
+/// claim just took. The condition is exact on purpose: clearing while a peer
+/// member still has an unclaimed user message would drop that work, and never
+/// clearing would wake the Sandbox forever.
+async fn clear_settled_pending_work(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    task_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"UPDATE sandboxes s
+              SET pending_work_at = NULL, updated_at = NOW()
+             FROM tasks t
+            WHERE t.task_id = $1
+              AND s.sandbox_id = t.sandbox_id
+              AND s.pending_work_at IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                    FROM task_messages m
+                    JOIN tasks peer ON peer.task_id = m.task_id
+                   WHERE peer.sandbox_id = s.sandbox_id
+                     AND m.agent_session_id IS NULL
+                     AND m.message_type = 'user'
+              )"#,
+    )
+    .bind(task_id)
+    .execute(&mut **tx)
+    .await
+    .map(|_| ())
+}
+
 #[async_trait]
 impl MessageDao for PgMessageDao {
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error> {
@@ -585,6 +599,28 @@ impl MessageDao for PgMessageDao {
         .await?;
 
         let message_id = row.0;
+
+        // Queue the Sandbox's wake signal. The reconciler must see that work is
+        // waiting while the pod is down, so the fact lives on the `sandboxes`
+        // row rather than in the pod. Written in the Message's own transaction,
+        // so a committed Message always carries its signal.
+        //
+        // Ahead of the change-feed writes below because this statement takes the
+        // `sandboxes` row, per the lock order in
+        // `moatless_backend_core::change_feed`.
+        if msg.message_type == MessageType::User && msg.agent_session_id.is_none() {
+            sqlx::query(
+                r#"UPDATE sandboxes s
+                      SET pending_work_at = GREATEST(s.pending_work_at, NOW()),
+                          updated_at = NOW()
+                     FROM tasks t
+                    WHERE t.task_id = $1
+                      AND s.sandbox_id = t.sandbox_id"#,
+            )
+            .bind(&msg.task_id)
+            .execute(&mut *tx)
+            .await?;
+        }
 
         // Child rows are re-derived from the assembled content, so replace them
         // rather than append. Replacement is scoped to the child set the caller
@@ -839,19 +875,6 @@ impl MessageDao for PgMessageDao {
         .await
     }
 
-    async fn tasks_with_pending_user_messages(
-        &self,
-    ) -> Result<Vec<PendingUserMessages>, sqlx::Error> {
-        sqlx::query_as::<_, PendingUserMessages>(
-            r#"SELECT task_id, MAX(created_at) AS newest_created_at
-               FROM task_messages
-               WHERE agent_session_id IS NULL AND message_type = 'user'
-               GROUP BY task_id"#,
-        )
-        .fetch_all(&self.0)
-        .await
-    }
-
     async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
         sqlx::query_as::<_, TaskMessage>(
             r#"SELECT * FROM task_messages
@@ -983,6 +1006,7 @@ impl MessageDao for PgMessageDao {
         task_id: &str,
         session_id: &str,
     ) -> Result<u64, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
         let result = sqlx::query(
             r#"UPDATE task_messages
                SET session_id = $2, agent_session_id = $2, sent_at = NOW()
@@ -992,8 +1016,10 @@ impl MessageDao for PgMessageDao {
         )
         .bind(task_id)
         .bind(session_id)
-        .execute(&self.0)
+        .execute(&mut *tx)
         .await?;
+        clear_settled_pending_work(&mut tx, task_id).await?;
+        tx.commit().await?;
 
         Ok(result.rows_affected())
     }
@@ -1005,6 +1031,7 @@ impl MessageDao for PgMessageDao {
         session_id: &str,
         turn_number: i32,
     ) -> Result<u64, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
         let result = sqlx::query(
             r#"UPDATE task_messages
                SET sent_at = NOW(), session_id = $3, agent_session_id = $3,
@@ -1017,8 +1044,10 @@ impl MessageDao for PgMessageDao {
         .bind(uuids)
         .bind(session_id)
         .bind(turn_number)
-        .execute(&self.0)
+        .execute(&mut *tx)
         .await?;
+        clear_settled_pending_work(&mut tx, task_id).await?;
+        tx.commit().await?;
 
         Ok(result.rows_affected())
     }
@@ -1625,15 +1654,6 @@ pub async fn get_pending_user(
     PgMessageDao(pool.clone()).get_pending_user(task_id).await
 }
 
-/// Tasks with unacknowledged user messages (convenience wrapper).
-pub async fn tasks_with_pending_user_messages(
-    pool: &DbPool,
-) -> Result<Vec<PendingUserMessages>, sqlx::Error> {
-    PgMessageDao(pool.clone())
-        .tasks_with_pending_user_messages()
-        .await
-}
-
 /// Set session_id for all pending messages (convenience wrapper).
 pub async fn set_session_id_for_task(
     pool: &DbPool,
@@ -1701,67 +1721,151 @@ pub async fn acknowledge_messages(
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
     use super::*;
+    use crate::task::test_support::seed_bare_task;
     use sqlx::PgPool;
 
-    /// Insert one `task_messages` row with explicit pending state and timestamp.
-    async fn seed_message(
-        pool: &PgPool,
-        task_id: &str,
-        uuid: &str,
-        message_type: &str,
-        agent_session_id: Option<&str>,
-        created_at: DateTime<Utc>,
-    ) {
-        sqlx::query(
-            r#"INSERT INTO task_messages
-                   (task_id, uuid, message_type, user_type, timestamp, message_role,
-                    agent_session_id, created_at)
-               VALUES ($1, $2, $3, 'human', $4, 'user', $5, $6)"#,
-        )
-        .bind(task_id)
-        .bind(uuid)
-        .bind(message_type)
-        .bind(created_at.to_rfc3339())
-        .bind(agent_session_id)
-        .bind(created_at)
-        .execute(pool)
-        .await
-        .expect("seed message");
+    async fn append_user_message(pool: &PgPool, task_id: &str, uuid: &str) {
+        PgMessageDao(pool.clone())
+            .append(
+                &TaskMessage::new_user_message(
+                    task_id.to_string(),
+                    uuid.to_string(),
+                    "hello".to_string(),
+                    Utc::now().to_rfc3339(),
+                ),
+                &[],
+                &crate::task_activities::mapping::ConversationWrite::default(),
+            )
+            .await
+            .expect("append message");
     }
 
-    fn at(secs: i64) -> DateTime<Utc> {
-        DateTime::from_timestamp(secs, 0).expect("valid ts")
+    async fn pending_work_at(pool: &PgPool, sandbox_id: &str) -> Option<DateTime<Utc>> {
+        sqlx::query_scalar("SELECT pending_work_at FROM sandboxes WHERE sandbox_id = $1")
+            .bind(sandbox_id)
+            .fetch_one(pool)
+            .await
+            .expect("read pending_work_at")
     }
 
+    /// The wake signal is a fact on the Sandbox row, so the reconciler can see
+    /// that work is waiting while the pod is down. A stopped Sandbox is exactly
+    /// that case, and the one the signal exists for.
     #[sqlx::test]
-    async fn pending_scan_returns_one_row_per_task_with_newest_pending(pool: PgPool) {
-        // Task A: two pending user messages — newest wins.
-        seed_message(&pool, "a", "a1", "user", None, at(1_000)).await;
-        seed_message(&pool, "a", "a2", "user", None, at(2_000)).await;
-        // Task A also has an acknowledged user message and an assistant message —
-        // neither is pending, so neither moves the newest-pending timestamp.
-        seed_message(&pool, "a", "a3", "user", Some("sess-1"), at(3_000)).await;
-        seed_message(&pool, "a", "a4", "assistant", None, at(4_000)).await;
-        // Task B: one pending user message.
-        seed_message(&pool, "b", "b1", "user", None, at(500)).await;
-        // Task C: only an acknowledged message — never appears.
-        seed_message(&pool, "c", "c1", "user", Some("sess-2"), at(9_000)).await;
+    async fn a_user_message_queues_work_on_a_stopped_sandbox(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        sqlx::query("UPDATE sandboxes SET desired_state = 'stopped' WHERE sandbox_id = 't1'")
+            .execute(&pool)
+            .await
+            .unwrap();
 
-        let mut rows = tasks_with_pending_user_messages(&pool).await.unwrap();
-        rows.sort_by(|l, r| l.task_id.cmp(&r.task_id));
+        append_user_message(&pool, "t1", "m1").await;
+
+        assert!(
+            pending_work_at(&pool, "t1").await.is_some(),
+            "a message written to a stopped Sandbox still queues its wake"
+        );
+    }
+
+    /// An agent Message is not work waiting on the pod.
+    #[sqlx::test]
+    async fn an_assistant_message_queues_nothing(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        let mut msg = TaskMessage::new_user_message(
+            "t1".to_string(),
+            "m1".to_string(),
+            "hi".to_string(),
+            Utc::now().to_rfc3339(),
+        );
+        msg.message_type = MessageType::Assistant;
+        PgMessageDao(pool.clone())
+            .append(
+                &msg,
+                &[],
+                &crate::task_activities::mapping::ConversationWrite::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(pending_work_at(&pool, "t1").await, None);
+    }
+
+    /// Claiming the last unacknowledged Message settles the Sandbox.
+    #[sqlx::test]
+    async fn claiming_every_message_clears_the_signal(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        append_user_message(&pool, "t1", "m1").await;
+        assert!(pending_work_at(&pool, "t1").await.is_some());
+
+        PgMessageDao(pool.clone())
+            .set_session_id_for_task("t1", "sess-1")
+            .await
+            .unwrap();
 
         assert_eq!(
-            rows.len(),
-            2,
-            "only tasks with a pending user message appear"
+            pending_work_at(&pool, "t1").await,
+            None,
+            "nothing is waiting any more"
         );
-        assert_eq!(rows[0].task_id, "a");
-        assert_eq!(
-            rows[0].newest_created_at,
-            at(2_000),
-            "newest pending, not the acked one"
+    }
+
+    /// An early clear drops work: acknowledging one Message must leave the
+    /// signal up while another is still unacknowledged.
+    #[sqlx::test]
+    async fn acknowledging_one_of_two_keeps_the_signal(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        append_user_message(&pool, "t1", "m1").await;
+        append_user_message(&pool, "t1", "m2").await;
+
+        PgMessageDao(pool.clone())
+            .acknowledge_messages("t1", &["m1".to_string()], "sess-1", 1)
+            .await
+            .unwrap();
+
+        assert!(
+            pending_work_at(&pool, "t1").await.is_some(),
+            "m2 is still waiting"
         );
-        assert_eq!(rows[1].task_id, "b");
-        assert_eq!(rows[1].newest_created_at, at(500));
+
+        PgMessageDao(pool.clone())
+            .acknowledge_messages("t1", &["m2".to_string()], "sess-1", 1)
+            .await
+            .unwrap();
+
+        assert_eq!(pending_work_at(&pool, "t1").await, None);
+    }
+
+    /// The signal belongs to the Sandbox, not the Task: a peer member's
+    /// unacknowledged Message keeps it up.
+    #[sqlx::test]
+    async fn a_peer_members_message_keeps_the_signal(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        seed_bare_task(&pool, "t2", "open").await;
+        // t2 joins t1's Sandbox; its own row goes with the fixture's default.
+        sqlx::query("UPDATE tasks SET sandbox_id = 't1' WHERE task_id = 't2'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        append_user_message(&pool, "t1", "m1").await;
+        append_user_message(&pool, "t2", "m2").await;
+        assert!(pending_work_at(&pool, "t1").await.is_some());
+
+        PgMessageDao(pool.clone())
+            .set_session_id_for_task("t1", "sess-1")
+            .await
+            .unwrap();
+
+        assert!(
+            pending_work_at(&pool, "t1").await.is_some(),
+            "t2's message is still waiting on the shared Sandbox"
+        );
+
+        PgMessageDao(pool.clone())
+            .set_session_id_for_task("t2", "sess-1")
+            .await
+            .unwrap();
+
+        assert_eq!(pending_work_at(&pool, "t1").await, None);
     }
 }

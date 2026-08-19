@@ -14,8 +14,10 @@ use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens, PlainGitHost};
 use moatless_identity::secret::models::is_reserved_key;
 use moatless_identity::secret::service::SecretService;
-use moatless_tasks::credential_sync::CredentialSync;
-use moatless_tasks::task::dao::TaskDao;
+
+use crate::auto_provision::resolve_primary_repository_id;
+use crate::lifecycle::orchestrator::LifecycleDao;
+use moatless_backend_core::sandbox::CodexCredentials;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::repository::models::Repository;
 use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
@@ -45,7 +47,7 @@ pub struct TaskCredentialInputs<'a> {
     /// Codex credential orchestrator used to refresh codex tokens just-in-time
     /// before handing the blob to the sandbox. When `None`, the codex branch
     /// falls back to a raw provider_tokens read.
-    pub credential_sync: Option<&'a Arc<CredentialSync>>,
+    pub credential_sync: Option<&'a Arc<dyn CodexCredentials>>,
     /// Provider credentials pinned to the task's Workspace, already decrypted
     /// and keyed by environment variable — resolve them with
     /// [`resolve_workspace_credentials`]. Highest precedence: every other
@@ -196,28 +198,44 @@ pub struct TaskCredentialTargets {
     pub workspace_id: Option<String>,
 }
 
-/// Resolve the repository and workspace attached to a task, in one task read.
+/// Resolve the repository and workspace a task's sandbox draws credentials
+/// against.
+///
+/// The workspace comes off the task's Sandbox row, and the repository is that
+/// workspace's primary placement — the same repository the pod's primary
+/// checkout was built from.
 pub async fn resolve_task_credential_targets(
-    tasks: Option<&Arc<dyn TaskDao>>,
+    sandboxes: Option<&Arc<dyn LifecycleDao>>,
     repositories: Option<&Arc<dyn RepositoryDao>>,
+    workspaces: Option<&Arc<dyn WorkspaceDao>>,
     task_id: &str,
 ) -> TaskCredentialTargets {
-    let (Some(tasks), Some(repositories)) = (tasks, repositories) else {
+    let (Some(sandboxes), Some(repositories), Some(workspaces)) =
+        (sandboxes, repositories, workspaces)
+    else {
         return TaskCredentialTargets::default();
+    };
+    let Ok(Some(intent)) = sandboxes.load(task_id).await else {
+        return TaskCredentialTargets::default();
+    };
+    let Some(repository_id) =
+        resolve_primary_repository_id(workspaces.as_ref(), &intent.workspace_id).await
+    else {
+        return TaskCredentialTargets {
+            repository: None,
+            workspace_id: Some(intent.workspace_id),
+        };
     };
     // reason: repository lookup for sandbox provisioning is system-wide
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = moatless_types::access_control::ScopeContext::system();
-    let Some(task) = tasks.find_by_id(task_id, &sys_ctx).await.ok().flatten() else {
-        return TaskCredentialTargets::default();
-    };
     TaskCredentialTargets {
         repository: repositories
-            .find_by_id(&task.repository_id, &sys_ctx)
+            .find_by_id(&repository_id, &sys_ctx)
             .await
             .ok()
             .flatten(),
-        workspace_id: task.workspace_id,
+        workspace_id: Some(intent.workspace_id),
     }
 }
 
@@ -296,7 +314,7 @@ async fn fill_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: Option<&Arc<dyn ProviderTokenDao>>,
     user_id: &str,
-    credential_sync: Option<&Arc<CredentialSync>>,
+    credential_sync: Option<&Arc<dyn CodexCredentials>>,
     current_task_id: Option<&str>,
 ) {
     let Some(provider_tokens) = provider_tokens else {
@@ -390,14 +408,14 @@ fn insert_token(
 
 /// Resolve `CODEX_AUTH_JSON` for this task.
 ///
-/// Delegates to [`CredentialSync::ensure_fresh_codex_for`] which owns
+/// Delegates to [`CodexCredentials::ensure_fresh_codex_for`] which owns
 /// the `user > global` precedence walk; this function is a thin
 /// fallback shim for callers without the orchestrator wired (tests /
 /// no-DB) — there we walk the same chain via raw DAO reads with no refresh.
 async fn fill_codex(
     credentials: &mut HashMap<String, String>,
     provider_tokens: &Arc<dyn ProviderTokenDao>,
-    credential_sync: Option<&Arc<CredentialSync>>,
+    credential_sync: Option<&Arc<dyn CodexCredentials>>,
     user_id: &str,
     current_task_id: Option<&str>,
 ) {
@@ -407,13 +425,12 @@ async fn fill_codex(
 
     if let Some(svc) = credential_sync {
         match svc.ensure_fresh_codex_for(user_id, current_task_id).await {
-            Ok(blob) => {
+            Ok(Some(blob)) => {
                 credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
             }
-            Err(moatless_workspaces::credentials::CredentialError::NotFound(_)) => {
-                // No codex row at any scope — leave the slot empty and let
-                // the scoped-secret fallback try the env-var blob.
-            }
+            // No codex row at any scope — leave the slot empty and let the
+            // scoped-secret fallback try the env-var blob.
+            Ok(None) => {}
             Err(e) => {
                 warn!(error = %e, user_id, "ensure_fresh_codex_for failed");
             }

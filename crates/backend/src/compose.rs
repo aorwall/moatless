@@ -271,6 +271,12 @@ impl Ports {
     /// runtime adapters. One instance is shared by `AppState`, the sandbox API,
     /// and the pod watcher so Sandbox intent writes and per-Task locks stay
     /// single-sourced. `lock_pool` must be the dedicated lock-only pool.
+    /// The durable Sandbox store, for the plan knowledge and gRPC handlers that
+    /// read a Sandbox row directly.
+    pub fn lifecycle_store(&self) -> Arc<dyn LifecycleDao> {
+        self.lifecycle_store.clone()
+    }
+
     pub fn build_lifecycle(
         &self,
         lock_pool: DbPool,
@@ -313,7 +319,6 @@ impl Ports {
             (*lifecycle).clone(),
             ReconcilerDeps {
                 store: self.lifecycle_store.clone(),
-                messages: self.messages.clone(),
                 observer,
                 notify,
                 member_registry,

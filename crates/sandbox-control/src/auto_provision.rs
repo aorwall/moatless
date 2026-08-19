@@ -16,12 +16,11 @@ use moatless_types::access_control::ScopeContext;
 
 use crate::error::SandboxError;
 use crate::models::{ProvisionRequest, RepoCheckout, RepoConfig, derive_mount_name, sanitize_mount_name};
-use crate::preflight::preflight_validate_task_control;
+use crate::lifecycle::orchestrator::LifecycleDao;
+use crate::preflight::preflight_validate_sandbox_control;
 use moatless_api_schemas::plugin::PluginDelivery;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::users::UserDao;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::models::Task;
 use moatless_workspaces::plugin::activation;
 use moatless_workspaces::plugin::dao::PluginDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
@@ -132,26 +131,30 @@ fn assign_missing_ports(servers: &mut [ServerConfig]) {
 /// Provider-agnostic: works for both K8s and Docker sandboxes.
 ///
 /// Steps:
-/// 1. Read the sandbox row and its first member task to get the workspace/repository reference + branch
-/// 2. Resolve the primary repository (via the workspace when present) and read
-///    its row to get repo config
-/// 3. Check the sandbox's initial member identity can control the task
+/// 1. Read the Sandbox row for the pod's shape: its workspace, branch, harness,
+///    headless flag, and the two identities it carries
+/// 2. Resolve the workspace's primary repository and read its row for repo config
+/// 3. Check the identity the pod authenticates as can control the Sandbox
 /// 4. Assemble the ProvisionRequest. Runtime credentials are fetched later
 ///    over gRPC by the sandbox.
 ///
 /// Every path to a pod builds its plan here — a first start, a wake, a restart,
 /// a reconciler retry, the scale-up of a reaped sandbox — so step 3 is what
-/// keeps a task whose pod would be refused its credentials from being
+/// keeps a sandbox whose pod would be refused its credentials from being
 /// re-provisioned indefinitely. It rejects as [`SandboxError::Forbidden`],
 /// which lifecycle classifies as permanent, so the failure is published once
 /// instead of retried.
+///
+/// The Closed guard is not here: it is per-Task, and a Sandbox has members
+/// rather than a status. `Lifecycle::guard_toward_running` applies it to the
+/// Task actually driving the operation.
 ///
 /// Only the control half of the preflight runs here. The GitHub probe stays on
 /// creation and task-start: this function also runs on every message wake of an
 /// already-running sandbox, and a network call on that path would put message
 /// delivery behind GitHub's availability.
 pub async fn build_provision_request(
-    tasks: &dyn TaskDao,
+    sandboxes: &dyn LifecycleDao,
     repos: &dyn RepositoryDao,
     _provider_tokens: &dyn ProviderTokenDao,
     plugins: &dyn PluginDao,
@@ -159,42 +162,31 @@ pub async fn build_provision_request(
     users: &dyn UserDao,
     sandbox_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
-    // 1. Read the sandbox's first member task from DB.
-    // reason: lifecycle plan construction acts on behalf of the system, not a user
-    #[allow(clippy::disallowed_methods)]
-    let sys = ScopeContext::system();
-    let task = tasks
-        .find_by_id(sandbox_id, &sys)
+    // 1. Read the Sandbox row — the whole pod shape, no member task involved.
+    let shape = sandboxes
+        .sandbox_shape(sandbox_id)
         .await
-        .map_err(|source| SandboxError::Database {
-            context: "reading the task row for provisioning",
-            source,
-        })?
+        .map_err(|e| SandboxError::Internal(format!("reading sandbox '{sandbox_id}': {e}")))?
         .ok_or_else(|| {
-            SandboxError::Internal(format!(
-                "Initial member task for sandbox '{sandbox_id}' not found in database"
+            SandboxError::Internal(format!("Sandbox '{sandbox_id}' not found in database"))
+        })?;
+
+    // Resolve which repository this sandbox provisions: its workspace's primary.
+    let repository_id = resolve_primary_repository_id(workspaces, &shape.workspace_id)
+        .await
+        .ok_or_else(|| {
+            SandboxError::BadRequest(format!(
+                "Workspace '{}' has no primary repository; \
+                 refusing to provision sandbox '{sandbox_id}'",
+                shape.workspace_id
             ))
         })?;
-    let task_id = task.task_id.clone();
-
-    // Gate: never provision a pod for a Closed task. A webhook racing a close is
-    // rejected here because the Closed status is authoritative. Only `Closed` is
-    // gated: `Error` stays resumable to match `start_task`.
-    if task.status == moatless_types::task::TaskStatus::Closed {
-        return Err(SandboxError::BadRequest(format!(
-            "Task '{task_id}' is closed; refusing to provision a sandbox"
-        )));
-    }
-
-    // Resolve which repository this task provisions. Workspace-backed tasks use
-    // the workspace's primary repo; repository-backed tasks use `repository_id`.
-    let repository_id = resolve_primary_repository_id(workspaces, &task).await;
 
     info!(
-        task_id = %task_id,
+        sandbox_id = %sandbox_id,
         repository_id = %repository_id,
-        workspace_id = ?task.workspace_id,
-        "Auto-provision: task found in DB"
+        workspace_id = %shape.workspace_id,
+        "Auto-provision: sandbox found in DB"
     );
 
     // 2. Read repository from DB. A missing row is a permanent misconfiguration
@@ -218,11 +210,11 @@ pub async fn build_provision_request(
         })?;
 
     // 3. Control check, before anything is built or scheduled.
-    if let Err(e) = preflight_validate_task_control(users, &task).await {
+    if let Err(e) = preflight_validate_sandbox_control(users, sandbox_id, &shape).await {
         warn!(
-            task_id = %task_id,
+            sandbox_id = %sandbox_id,
             error = %e,
-            "Auto-provision: the sandbox's user cannot control this task; refusing to provision"
+            "Auto-provision: the sandbox's user cannot control it; refusing to provision"
         );
         return Err(SandboxError::Forbidden(e.user_message()));
     }
@@ -230,26 +222,29 @@ pub async fn build_provision_request(
     let git_provider = repo.provider.unwrap_or(RepositoryProvider::Github);
 
     let git_clone_url = repo.remote_url.clone().unwrap_or_default();
-    let git_branch = task.branch.clone().or(repo.default_branch.clone());
-    let user_id = task.created_by.as_deref().unwrap_or("system").to_string();
+    let git_branch = shape.branch.clone().or(repo.default_branch.clone());
+    // The identity the pod authenticates back to the backend as — the one the
+    // gRPC control gate checks, which is why it is the Sandbox's owner and not
+    // the account it acts as outward.
+    let user_id = shape
+        .owner_user_id
+        .clone()
+        .unwrap_or_else(|| "system".to_string());
 
-    // Run-config source: the task's workspace. The repo row is still read above
-    // for the primary checkout's URL/branch/provider, which also feed the
+    // Run-config source: the sandbox's workspace. The repo row is still read
+    // above for the primary checkout's URL/branch/provider, which also feed the
     // `GIT_CLONE_URL` env.
-    let workspace = match task.workspace_id.as_deref() {
-        Some(ws_id) => workspaces
-            .find_by_id(ws_id, &repo_sys)
-            .await
-            .map_err(|source| SandboxError::Database {
-                context: "reading the workspace row for provisioning",
-                source,
-            })?,
-        None => None,
-    };
+    let workspace = workspaces
+        .find_by_id(&shape.workspace_id, &repo_sys)
+        .await
+        .map_err(|source| SandboxError::Database {
+            context: "reading the workspace row for provisioning",
+            source,
+        })?;
 
     // Every repository the workspace places in the sandbox. The primary is
     // always first and always present.
-    let placements = resolve_placements(repos, workspaces, &task_id, task.workspace_id.as_deref())
+    let placements = resolve_placements(repos, workspaces, sandbox_id, &shape.workspace_id)
         .await
         .unwrap_or_default();
     let repo_checkouts = build_repo_checkouts(
@@ -261,7 +256,7 @@ pub async fn build_provision_request(
     );
     if repo_checkouts.len() > 1 {
         info!(
-            task_id = %task_id,
+            sandbox_id = %sandbox_id,
             count = repo_checkouts.len(),
             mounts = ?repo_checkouts.iter().map(|r| r.mount_name.as_str()).collect::<Vec<_>>(),
             "Auto-provision: multi-repo workspace"
@@ -275,43 +270,40 @@ pub async fn build_provision_request(
         )
     } else {
         warn!(
-            task_id = %task_id,
-            workspace_id = ?task.workspace_id,
-            "Auto-provision: task has no workspace; provisioning with git-connection only"
+            sandbox_id = %sandbox_id,
+            workspace_id = %shape.workspace_id,
+            "Auto-provision: sandbox workspace is missing; provisioning with git-connection only"
         );
         (minimal_repo_config(&repo.name), None)
     };
 
-    // Select the tmux Claude transport per the catalog when the task's agent
-    // requests it. Each task is its own pod, so the pod-level flag is exactly
-    // the right granularity.
-    if moatless_tasks::agent::catalog::use_tmux_for(task.agent_type.0.as_str()) {
+    // The Agent harness is fixed for the Sandbox lifetime: pass it at
+    // construction so the sandbox resolves it once. Inserted after the workspace
+    // env so the authoritative Sandbox selection overrides any stray
+    // workspace-level `AGENT_TYPE`.
+    if shape.use_tmux {
         env_vars
             .get_or_insert_with(std::collections::HashMap::new)
             .insert("SANDBOX_USE_TMUX".to_string(), "true".to_string());
     }
+    if let Some(agent_type) = shape.agent_type.clone() {
+        env_vars
+            .get_or_insert_with(std::collections::HashMap::new)
+            .insert("AGENT_TYPE".to_string(), agent_type);
+    }
 
-    // The Task's selected Agent harness is fixed for the Sandbox lifetime:
-    // pass it at construction so the sandbox resolves its harness once. Inserted
-    // after the workspace env so the authoritative Task selection overrides any stray
-    // workspace-level `AGENT_TYPE`.
-    env_vars
-        .get_or_insert_with(std::collections::HashMap::new)
-        .insert("AGENT_TYPE".to_string(), task.agent_type.0.clone());
-
-    // Resolve the plugins this task's owner has turned on. A task with no
-    // identifiable owner gets the global defaults and nothing personal — both
-    // columns are polymorphic text, so a sentinel like `system` or a `bot:`
-    // value is nobody rather than an error.
-    let owner = task
-        .owner_user_id
+    // Resolve the plugins the identity this pod acts as has turned on. A sandbox
+    // with no identifiable run-as identity gets the global defaults and nothing
+    // personal — the column is polymorphic text, so a sentinel like `system` or
+    // a `bot:` value is nobody rather than an error.
+    let run_as = shape
+        .run_as_user_id
         .as_deref()
-        .or(task.created_by.as_deref())
         .and_then(|id| uuid::Uuid::parse_str(id).ok());
-    match resolve_plugin_deliveries(plugins, owner).await {
+    match resolve_plugin_deliveries(plugins, run_as).await {
         Ok(deliveries) if !deliveries.is_empty() => {
             info!(
-                task_id = %task_id,
+                sandbox_id = %sandbox_id,
                 count = deliveries.len(),
                 "Auto-provision: resolved plugins"
             );
@@ -323,17 +315,17 @@ pub async fn build_provision_request(
             // does not start at all only in theory; in practice the agent still
             // works, so this stays non-fatal as it always has.
             warn!(
-                task_id = %task_id,
+                sandbox_id = %sandbox_id,
                 error = %e,
                 "Auto-provision: failed to resolve plugins (non-fatal)"
             );
         }
     }
 
-    // A headless task has no browser on it: no preview servers to run, and no
+    // A headless sandbox has no browser on it: no preview servers to run, and no
     // one watching for a prompt, so the sandbox also drops the tools that park
     // a turn on a person's answer.
-    if task.headless {
+    if shape.headless {
         repo_config.servers = None;
         repo_config.preview_config = None;
         env_vars
@@ -378,24 +370,22 @@ struct ResolvedPlacement {
 /// Read the task workspace's repository placements and pair each with its
 /// repository row.
 ///
-/// Returns `None` when the task has no workspace or the placements can't be
-/// read — provisioning then falls back to the primary-only checkout list.
-/// Individual placements whose
+/// Returns `None` when the placements can't be read — provisioning then falls
+/// back to the primary-only checkout list. Individual placements whose
 /// repository row is missing or has no remote URL are dropped with a warning
 /// rather than failing the whole provision: the workspace still has a usable
 /// primary, and a dangling placement is a config problem, not a runtime one.
 async fn resolve_placements(
     repos: &dyn RepositoryDao,
     workspaces: &dyn WorkspaceDao,
-    task_id: &str,
-    workspace_id: Option<&str>,
+    sandbox_id: &str,
+    workspace_id: &str,
 ) -> Option<Vec<ResolvedPlacement>> {
-    let workspace_id = workspace_id?;
     let placements = match workspaces.find_repos(workspace_id).await {
         Ok(placements) => placements,
         Err(e) => {
             warn!(
-                task_id = %task_id,
+                sandbox_id = %sandbox_id,
                 workspace_id,
                 error = %e,
                 "Auto-provision: failed to read workspace repo placements; \
@@ -414,7 +404,7 @@ async fn resolve_placements(
             Ok(Some(repo)) => repo,
             Ok(None) => {
                 warn!(
-                    task_id = %task_id,
+                    sandbox_id = %sandbox_id,
                     workspace_id,
                     repository_id = %placement.repository_id,
                     "Auto-provision: workspace placement references a missing repository; skipping"
@@ -423,7 +413,7 @@ async fn resolve_placements(
             }
             Err(e) => {
                 warn!(
-                    task_id = %task_id,
+                    sandbox_id = %sandbox_id,
                     workspace_id,
                     repository_id = %placement.repository_id,
                     error = %e,
@@ -435,7 +425,7 @@ async fn resolve_placements(
         let clone_url = repo.remote_url.clone().unwrap_or_default();
         if clone_url.is_empty() {
             warn!(
-                task_id = %task_id,
+                sandbox_id = %sandbox_id,
                 repository_id = %placement.repository_id,
                 "Auto-provision: workspace placement has no remote URL; skipping"
             );
@@ -545,34 +535,32 @@ fn unique_mount_name(requested: String, used: &HashSet<String>) -> String {
         .unwrap_or(requested)
 }
 
-/// Resolve the repository a task provisions against: the workspace's primary
-/// repo when `task.workspace_id` is set, else `task.repository_id`.
+/// Resolve the repository a Sandbox provisions against: its workspace's primary
+/// placement.
 ///
-/// Falls back to `repository_id` when the workspace is empty or the lookup
-/// fails, so provisioning is never blocked by workspace-resolution issues.
-async fn resolve_primary_repository_id(workspaces: &dyn WorkspaceDao, task: &Task) -> String {
-    let Some(workspace_id) = task.workspace_id.as_deref() else {
-        return task.repository_id.clone();
-    };
+/// `sandboxes.workspace_id` is NOT NULL and carries a foreign key, so the
+/// workspace always resolves; a workspace with no primary placement is a
+/// configuration the caller reports by name.
+pub(crate) async fn resolve_primary_repository_id(
+    workspaces: &dyn WorkspaceDao,
+    workspace_id: &str,
+) -> Option<String> {
     match workspaces.find_primary_repo(workspace_id).await {
-        Ok(Some(placement)) => placement.repository_id,
+        Ok(Some(placement)) => Some(placement.repository_id),
         Ok(None) => {
             warn!(
-                task_id = %task.task_id,
                 workspace_id,
-                "Auto-provision: workspace has no repos; falling back to task.repository_id"
+                "Auto-provision: workspace has no primary repository"
             );
-            task.repository_id.clone()
+            None
         }
         Err(e) => {
             warn!(
-                task_id = %task.task_id,
                 workspace_id,
                 error = %e,
-                "Auto-provision: failed to resolve workspace primary repo; \
-                 falling back to task.repository_id"
+                "Auto-provision: failed to resolve workspace primary repo"
             );
-            task.repository_id.clone()
+            None
         }
     }
 }
@@ -613,53 +601,36 @@ fn minimal_repo_config(name: &str) -> RepoConfig {
     }
 }
 
-/// Get server configs for a task from its workspace, returning an empty vec on
-/// any failure.
-///
-/// Convenience wrapper that handles the Option<Arc<dyn Repo>> pattern
-/// used throughout handlers.
-pub async fn get_server_configs_for_task(
-    tasks: &dyn TaskDao,
+/// Get a workspace's server configs, returning an empty vec on any failure.
+pub async fn get_server_configs_for_workspace(
     workspaces: &dyn WorkspaceDao,
-    task_id: &str,
+    workspace_id: &str,
 ) -> Vec<ServerConfig> {
-    match resolve_server_configs(tasks, workspaces, task_id).await {
+    match resolve_server_configs(workspaces, workspace_id).await {
         Ok(configs) => configs,
         Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to get server configs");
+            warn!(workspace_id, error = %e, "Failed to get server configs");
             vec![]
         }
     }
 }
 
-/// Resolve a task's server configs from its workspace's `servers` JSONB.
+/// Resolve server configs from a workspace's `servers` JSONB.
 ///
-/// Resolves task_id → task → workspace → `build_server_configs_from_workspace`.
-/// Returns `Err` on DB failures or missing rows so callers can log.
+/// Returns `Err` on DB failures so callers can log. A workspace that no longer
+/// exists reads as no servers rather than a failure to report on every status
+/// pass — the same answer as a workspace that declares none.
 async fn resolve_server_configs(
-    tasks: &dyn TaskDao,
     workspaces: &dyn WorkspaceDao,
-    task_id: &str,
+    workspace_id: &str,
 ) -> Result<Vec<ServerConfig>, String> {
-    // reason: server config resolution reads across all task owners
+    // reason: server config resolution reads across all workspace owners
     #[allow(clippy::disallowed_methods)]
     let sys = ScopeContext::system();
-    let task = tasks
-        .find_by_id(task_id, &sys)
-        .await
-        .map_err(|e| format!("Failed to fetch task {task_id}: {e}"))?
-        .ok_or_else(|| format!("Task {task_id} not found"))?;
-    let Some(ws_id) = task.workspace_id.as_deref() else {
-        return Ok(vec![]);
-    };
-    // `tasks.workspace_id` carries no foreign key, so a task outlives the
-    // workspace it names and a deleted one reads as absent. That is the same
-    // answer as a task with no workspace at all — no servers — not a failure to
-    // report on every status pass.
     let Some(ws) = workspaces
-        .find_by_id(ws_id, &sys)
+        .find_by_id(workspace_id, &sys)
         .await
-        .map_err(|e| format!("Failed to fetch workspace {ws_id}: {e}"))?
+        .map_err(|e| format!("Failed to fetch workspace {workspace_id}: {e}"))?
     else {
         return Ok(vec![]);
     };

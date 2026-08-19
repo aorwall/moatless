@@ -4,9 +4,9 @@
 //!
 //! These endpoints run behind the app-level `auth_middleware` (session cookie
 //! or API key), which injects an `AuthIdentity` extension. Each handler then
-//! authorizes the caller against the target task via the `OptionalScope`
+//! authorizes the caller against the target Sandbox via the `OptionalScope`
 //! extractor and the `authorize_task_read`/`authorize_task_control` helpers, so
-//! a caller can only read or operate a sandbox for a task they may access.
+//! a caller can only read or operate a sandbox they may access.
 
 use axum::response::IntoResponse;
 use axum::Json;
@@ -19,8 +19,6 @@ use moatless_backend_core::sandbox::SandboxConnector;
 use super::file_handlers;
 use super::handlers;
 use super::lifecycle::Lifecycle;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_identity::team::dao::TeamDao;
 
 /// State shared across sandbox API handlers.
 #[derive(Clone)]
@@ -32,11 +30,6 @@ pub struct SandboxApiState {
     /// drive transitions through it. `None` only in the no-database mode, where
     /// those handlers return a clean "unavailable" error.
     pub lifecycle: Option<Arc<Lifecycle>>,
-    /// Optional task repository for per-task authorization in handlers.
-    pub tasks: Option<Arc<dyn TaskDao>>,
-    /// Optional team repository — enables team-role resolution for the
-    /// task-control authorization checks.
-    pub teams: Option<Arc<dyn TeamDao>>,
 }
 
 #[derive(OpenApi)]

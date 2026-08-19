@@ -1,5 +1,10 @@
-pub use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
-pub use moatless_types::task::TaskStatus;
+use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+
+pub use moatless_types::repository::Repository;
+pub use moatless_types::sandbox::{ArchiveRetention, SandboxDesiredState, SandboxStopReason};
+pub use moatless_types::task::{CheckoutMode, Task, TaskStatus};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use serde::Serialize;
@@ -134,6 +139,59 @@ pub trait SandboxIntentReader: Send + Sync {
 #[async_trait]
 pub trait SandboxStarter: Send + Sync {
     async fn start(&self, task_id: &str) -> Result<(), SandboxError>;
+}
+
+/// Preflight seam: credential validation before a sandbox is provisioned.
+/// Wired once in state assembly (`RealPreflight`, in `sandbox::preflight`) so
+/// every creation path gets the same check for free; mocked in unit tests.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait PreflightPort: Send + Sync {
+    async fn validate(&self, task: &Task, repo: &Repository) -> Result<(), PreflightRejection>;
+}
+
+/// Band-clean preflight failure returned by [`PreflightPort`]. The
+/// sandbox-control implementation pre-computes both strings from its rich
+/// `PreflightError` so the tasks band names no preflight-credential type:
+/// `user_message` drives the 403 body + `sandbox.error` event, `detail` is the
+/// underlying failure's `Display` for the log + event detail field.
+#[derive(Debug, thiserror::Error)]
+#[error("{detail}")]
+pub struct PreflightRejection {
+    pub user_message: String,
+    pub detail: String,
+}
+
+/// Registers a task as a member of an already-running sandbox process.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait SandboxJoiner: Send + Sync {
+    async fn join_task(
+        &self,
+        task_id: &str,
+        checkout_mode: CheckoutMode,
+    ) -> Result<(), SandboxError>;
+}
+
+/// Ensure a task's sandbox is running and notify it of new work.
+///
+/// A closed task is a no-op. On failure the wake returns a human-readable
+/// string so the caller can decide whether to surface it to the user.
+#[async_trait]
+pub trait SandboxWaker: Send + Sync {
+    async fn wake(&self, task_id: &str) -> Result<(), String>;
+}
+
+/// Wake `task_id`'s sandbox, returning the failure text (if any) for the caller
+/// to persist or surface.
+///
+/// The one seam a message-send path uses, so its wake-failure handling is
+/// reachable in a test through a [`SandboxWaker`] fake. It proves the seam — the
+/// task id reaches the port unaltered and a failure is surfaced rather than
+/// swallowed — not the wake behaviour itself, which lives in the sandbox-control
+/// implementation and is recorded as still-unproven in `docs/deferred-changes.md`.
+pub async fn wake_for_message(waker: &dyn SandboxWaker, task_id: &str) -> Option<String> {
+    waker.wake(task_id).await.err()
 }
 
 #[async_trait]
@@ -305,5 +363,159 @@ mod tests {
     fn provider_kinds_name_their_runtime() {
         assert_eq!(ProviderKind::Kubernetes.to_string(), "Kubernetes");
         assert_eq!(ProviderKind::Docker.to_string(), "Docker");
+    }
+}
+
+
+/// A lifecycle operation failure, band-clean and reduced to what the task API
+/// surfaces. The sandbox-band implementation pre-classifies each variant from
+/// the rich `LifecycleError` so the tasks band names no `sandbox` error type.
+#[derive(Debug, thiserror::Error)]
+pub enum SandboxOpError {
+    /// The Task has no row — maps to a 404.
+    #[error("task not found: {0}")]
+    NotFound(String),
+    /// The operation was rejected for the Task's current state (the `Closed`
+    /// guard) — a client state error, maps to a 400.
+    #[error("{0}")]
+    NotAllowed(String),
+    /// Another operation holds the per-Task lock — maps to a 409.
+    #[error("{0}")]
+    InProgress(String),
+    /// Any other lifecycle failure — maps to a 500 with the rendered chain.
+    #[error("{0}")]
+    Internal(String),
+}
+
+/// The durable sandbox-lifecycle contract the tasks band drives.
+///
+/// The task closer, reaper, HTTP handlers, and service drive a Task's sandbox —
+/// start it, stop it, remove it, read its desired state — but they are a band
+/// below the `Lifecycle` orchestrator that owns those transitions. This port
+/// inverts that edge: the consumers hold `Arc<dyn SandboxLifecycle>` and name no
+/// `sandbox` type, and `Lifecycle` implements it at the composition root.
+///
+/// It is deliberately **not** [`SandboxStarter`]/[`SandboxStopper`]
+/// /[`SandboxIntentReader`]: those flatten a lifecycle failure through
+/// [`SandboxError`], which has no `Conflict` variant, so lock contention
+/// (`OperationInProgress`) that the task API answers **409** would arrive as an
+/// internal **500**. The tasks band needs that 409, so this contract's error
+/// preserves the three client-visible outcomes. The
+/// `LifecycleError -> SandboxOpError` mapping lives in the sandbox-band
+/// implementation; `moatless_tasks::task::error::TaskError` maps
+/// `SandboxOpError` the rest of the way (404 / 400 / 409 / 500).
+///
+/// Sized to the tasks-band cross-boundary surface: the concrete `Lifecycle` also
+/// serves `restart`/`redeploy`/`expected_sandbox_image`, but those have no
+/// tasks-band caller (only the sandbox HTTP handlers, on the legal side of the
+/// boundary), so they stay off the port.
+#[async_trait]
+pub trait SandboxLifecycle: Send + Sync {
+    /// Provision and start the Task's sandbox.
+    async fn start(&self, task_id: &str) -> Result<(), SandboxOpError>;
+
+    /// Stop the Task's sandbox, recording why.
+    async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxOpError>;
+
+    /// Remove the Task's sandbox, applying the archive-retention policy. The
+    /// caller deletes the Task row only on success.
+    async fn remove(
+        &self,
+        task_id: &str,
+        retention: ArchiveRetention,
+    ) -> Result<(), SandboxOpError>;
+
+    /// Reclaim the storage of a Task whose sandbox has been stopped long
+    /// enough, leaving the durable archive as the only copy. The Task stays
+    /// Open and its sandbox stays `Stopped` — a later start restores from the
+    /// archive — so this is a cost transition, not a state one, and the reaper
+    /// is its only caller.
+    ///
+    /// Idempotent: a Task whose storage is already reclaimed is not an error.
+    async fn archive_storage(&self, task_id: &str) -> Result<(), SandboxOpError>;
+
+    /// Which of `task_ids` have a stopped sandbox that still owns storage, and
+    /// when each stopped. The candidate set for [`Self::archive_storage`]: the
+    /// caller applies its own per-Task clock on top, because the threshold is a
+    /// Task property and the storage is a sandbox one.
+    async fn stopped_with_storage(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, SandboxOpError>;
+
+    /// The persisted desired state for the Task's sandbox (absence reads as
+    /// converged `Stopped`).
+    async fn desired_state(&self, task_id: &str) -> Result<SandboxDesiredState, SandboxOpError>;
+}
+
+/// Just-in-time Codex credential refresh for the identity a sandbox acts as.
+///
+/// The refresh itself needs the tasks band — it yields to a running sandbox's
+/// own refresher rather than racing it for the single-use refresh token, and it
+/// fans a rotated blob out to every open codex sandbox in scope. This port
+/// inverts that edge so the sandbox band, which only needs the resulting
+/// `auth.json`, names no tasks-band type.
+///
+/// `Ok(None)` is "no codex credential at any scope", which is an ordinary
+/// outcome: the caller leaves the slot empty and lets a scoped secret fill it.
+/// `Err` is a failure to report.
+#[async_trait]
+pub trait CodexCredentials: Send + Sync {
+    async fn ensure_fresh_codex_for(
+        &self,
+        user_id: &str,
+        except_task_id: Option<&str>,
+    ) -> Result<Option<String>, String>;
+}
+
+#[cfg(test)]
+mod waker_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Records the ids it is woken with and returns a canned outcome.
+    struct RecordingSandboxWaker {
+        calls: Mutex<Vec<String>>,
+        outcome: Result<(), String>,
+    }
+
+    #[async_trait]
+    impl SandboxWaker for RecordingSandboxWaker {
+        async fn wake(&self, task_id: &str) -> Result<(), String> {
+            self.calls.lock().expect("lock").push(task_id.to_string());
+            self.outcome.clone()
+        }
+    }
+
+    /// The load-bearing assertion: the *task* id — not a message id or a turn id
+    /// threaded nearby on the send path — is what reaches the port. That is the
+    /// bug class this seam exists to catch; the success/None result is secondary.
+    #[tokio::test]
+    async fn wake_for_message_wakes_the_task_it_was_given() {
+        let waker = RecordingSandboxWaker {
+            calls: Mutex::new(Vec::new()),
+            outcome: Ok(()),
+        };
+
+        let surfaced = wake_for_message(&waker, "task-42").await;
+
+        assert_eq!(*waker.calls.lock().expect("lock"), vec!["task-42".to_string()]);
+        assert_eq!(surfaced, None, "a successful wake surfaces no error");
+    }
+
+    /// Thinner — this is `Result::err` plumbing, kept for intent, not the
+    /// assertion doing the work: a wake failure is handed back for the caller to
+    /// persist rather than dropped.
+    #[tokio::test]
+    async fn wake_for_message_surfaces_the_failure_text() {
+        let waker = RecordingSandboxWaker {
+            calls: Mutex::new(Vec::new()),
+            outcome: Err("sandbox unreachable".to_string()),
+        };
+
+        let surfaced = wake_for_message(&waker, "task-7").await;
+
+        assert_eq!(*waker.calls.lock().expect("lock"), vec!["task-7".to_string()]);
+        assert_eq!(surfaced.as_deref(), Some("sandbox unreachable"));
     }
 }

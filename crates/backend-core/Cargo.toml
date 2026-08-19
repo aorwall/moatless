@@ -9,6 +9,9 @@ async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 hex = "0.4"
+# Mock ports for downstream crates' tests. `cfg(test)` does not fire across a
+# crate boundary, so the automock attributes here are feature-gated instead.
+mockall = { version = "0.15", optional = true }
 moatless-types = { path = "../types" }
 rand = "0.10"
 sandbox-proto = { path = "../sandbox-proto" }
@@ -24,11 +27,17 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt"] }
 
 [features]
 default = []
 database = ["sqlx"]
 openapi = ["utoipa", "moatless-types/openapi"]
+# Exposes `mockall` doubles of the sandbox ports to other crates' test builds.
+# `cfg(test)` does not fire across a crate boundary, so the ports carry
+# `#[cfg_attr(feature = "test-support", mockall::automock)]` instead. No shipping
+# build enables it; `dep:mockall` provides the generators.
+test-support = ["dep:mockall"]
 
 [lints]
 workspace = true

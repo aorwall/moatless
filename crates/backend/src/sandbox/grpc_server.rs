@@ -18,6 +18,7 @@ use moatless_types::access_control::ScopeContext;
 
 use crate::sandbox::event_dedup::Admission;
 use crate::sandbox::jwt;
+use crate::sandbox::lifecycle::orchestrator::LifecycleDao;
 use crate::sandbox::secrets::{TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets, resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials};
 use crate::sandbox::storage::sandbox_key;
 use moatless_core::config::Config;
@@ -34,6 +35,7 @@ use moatless_identity::git_host_tokens::GitHostTokens;
 use moatless_identity::secret::service::SecretService;
 use moatless_s3 as file_s3;
 use moatless_tasks::agent::prompt;
+use moatless_backend_core::sandbox::CodexCredentials;
 use moatless_tasks::credential_sync::CredentialSync;
 use moatless_tasks::event_ingress::outbox::IngressOutbox;
 use moatless_tasks::event_ingress::{AdmissionError, AdmissionRequest, EventAdmission};
@@ -105,6 +107,9 @@ pub struct HandlerDbPorts {
     pub credential_sync: Arc<CredentialSync>,
     /// Repository DAO — used to resolve a task's repo owner for credentials.
     pub repositories: Arc<dyn RepositoryDao>,
+    /// Sandbox lifecycle store — read for the Sandbox a task belongs to, whose
+    /// workspace names the credentials the pod is handed.
+    pub sandboxes: Arc<dyn LifecycleDao>,
     /// Workspace DAO — used to load the workspace's `system_prompt` and `servers`
     /// when assembling the agent's append system prompt.
     pub workspaces: Arc<dyn WorkspaceDao>,
@@ -1180,8 +1185,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let handlers = self.handlers.as_ref();
         let targets = resolve_task_credential_targets(
-            handlers.map(|h| &h.tasks),
+            handlers.map(|h| &h.sandboxes),
             handlers.map(|h| &h.repositories),
+            handlers.map(|h| &h.workspaces),
             &req.task_id,
         )
         .await;
@@ -1204,6 +1210,11 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             Status::internal("Failed to resolve workspace credentials")
         })?;
         let workspace_credential_count = workspace_credentials.len();
+        // The credential set the sandbox is handed needs only the Codex refresh
+        // half of the orchestrator, so it takes the port rather than the
+        // concrete service; `store` below still needs the whole thing.
+        let codex_credentials: Option<Arc<dyn CodexCredentials>> = handlers
+            .map(|h| h.credential_sync.clone() as Arc<dyn CodexCredentials>);
         let actor = resolve_task_actor(
             handlers.map(|h| &h.workspaces),
             targets.workspace_id.as_deref(),
@@ -1218,7 +1229,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             git_host_tokens: handlers.map(|h| &h.git_host_tokens),
             repository: targets.repository.as_ref(),
             users: handlers.map(|h| &h.users),
-            credential_sync: handlers.map(|h| &h.credential_sync),
+            credential_sync: codex_credentials.as_ref(),
             workspace_credentials,
         })
         .await;

@@ -318,10 +318,55 @@ impl TaskDao for PgTaskDao {
             }
         };
 
-        // Durable Sandbox lifecycle state lives in `sandboxes`, born lazily
-        // through lifecycle for ordinary tasks. A shared-sandbox task may point
-        // at an already-running row through `tasks.sandbox_id`.
         let mut tx = self.0.begin().await?;
+
+        // Task controls Sandbox. A creation that names no sandbox writes the
+        // Sandbox row here, in the same transaction as the Task, so the control
+        // plane reads a pod's shape and its access control off `sandboxes`
+        // alone. A creation that names one joins an existing Sandbox and writes
+        // no row.
+        //
+        // `run_as_user_id` follows `Actor::run_as`: the Workspace's account
+        // outranks the owner of the work. `storage_reclaimed_at` is stamped
+        // because a Sandbox that has never started owns no volume; the first
+        // intent toward Running clears it.
+        let sandbox_id = row
+            .sandbox_id
+            .clone()
+            .unwrap_or_else(|| row.task_id.clone());
+        if row.sandbox_id.is_none() {
+            let owner = row.owner_user_id.as_deref().or(row.created_by.as_deref());
+            let inserted = sqlx::query(
+                r#"INSERT INTO sandboxes (
+                       sandbox_id, workspace_id, scope, owner_user_id, run_as_user_id,
+                       branch, headless, agent_type, use_tmux, storage_reclaimed_at
+                   )
+                   SELECT $1, w.id, $2, $3, COALESCE(NULLIF(w.run_as_user_id, ''), $3),
+                          $4, $5, $6, $7, NOW()
+                   FROM workspaces w
+                   WHERE w.id = $8"#,
+            )
+            .bind(&sandbox_id)
+            .bind(row.scope.as_str())
+            .bind(owner)
+            .bind(&row.branch)
+            .bind(row.headless)
+            .bind(row.agent_type.as_str())
+            // The catalog is the authority for which harness runs over tmux, and
+            // it lives in this band. The control plane reads the answer.
+            .bind(crate::agent::catalog::use_tmux_for(row.agent_type.as_str()))
+            .bind(&workspace_id)
+            .execute(&mut *tx)
+            .await?;
+            if inserted.rows_affected() == 0 {
+                return Err(sqlx::Error::Protocol(format!(
+                    "workspace {workspace_id} does not exist; \
+                     cannot create sandbox {sandbox_id} for task {}",
+                    row.task_id
+                )));
+            }
+        }
+
         sqlx::query(
             r#"INSERT INTO tasks (
                 task_id, short_id, created_at, last_message_at, agent_type,
@@ -365,7 +410,7 @@ impl TaskDao for PgTaskDao {
         .bind(&row.loop_id)
         .bind(&row.model)
         .bind(&workspace_id)
-        .bind(&row.sandbox_id)
+        .bind(&sandbox_id)
         .bind(row.checkout_mode.map(CheckoutMode::as_str))
         .bind(&row.skills)
         .execute(&mut *tx)
@@ -1388,12 +1433,160 @@ mod tests {
         }
     }
 
-    /// A Task with no `sandboxes` row projects as converged Stopped at the
-    /// no-intent epoch — the lazy-row semantic this task-response projection
+    fn task_row(task_id: &str) -> Task {
+        let now = Utc::now();
+        Task {
+            task_id: task_id.to_string(),
+            short_id: Some(format!("s-{task_id}")),
+            created_at: now,
+            last_message_at: now,
+            agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
+            repository_id: "repo-x".to_string(),
+            status: TaskStatus::Open,
+            total_cost_usd: 0.0,
+            site_url: None,
+            template_id: None,
+            vibe: None,
+            name: None,
+            description: None,
+            site_id: None,
+            site_provider: None,
+            branch: None,
+            model: None,
+            created_by: Some("user-1".to_string()),
+            visibility: Visibility::Private,
+            scope: Scope::User,
+            owner_user_id: Some("user-1".to_string()),
+            updated_at: None,
+            append_system_prompt: None,
+            headless: false,
+            ttl_minutes: 15,
+            inactive_ttl_days: 7,
+            loop_id: None,
+            workspace_id: Some("ws_repo-x".to_string()),
+            sandbox_id: None,
+            checkout_mode: None,
+            skills: Vec::new(),
+        }
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct SandboxShape {
+        workspace_id: String,
+        scope: String,
+        owner_user_id: Option<String>,
+        run_as_user_id: Option<String>,
+        branch: Option<String>,
+        headless: bool,
+    }
+
+    async fn sandbox_shape(pool: &PgPool, sandbox_id: &str) -> Option<SandboxShape> {
+        sqlx::query_as(
+            "SELECT workspace_id, scope, owner_user_id, run_as_user_id, branch, headless
+             FROM sandboxes WHERE sandbox_id = $1",
+        )
+        .bind(sandbox_id)
+        .fetch_optional(pool)
+        .await
+        .expect("read sandbox")
+    }
+
+    /// Task creation writes the Sandbox row, and its shape comes off the Task
+    /// that created it. This is the invariant migration 0142 backfilled for
+    /// Sandboxes that predate it, so the two cannot disagree.
+    #[sqlx::test]
+    async fn insert_task_writes_the_sandbox_row_from_the_task(pool: PgPool) {
+        // Seeds the team and the `ws_repo-x` workspace the row points at.
+        seed_bare_task(&pool, "seed", "open").await;
+
+        let mut row = task_row("t1");
+        row.branch = Some("feature/x".to_string());
+        row.headless = true;
+        PgTaskDao(pool.clone()).insert_task(&row).await.unwrap();
+
+        let shape = sandbox_shape(&pool, "t1").await.expect("sandbox row");
+        assert_eq!(shape.workspace_id, "ws_repo-x");
+        assert_eq!(shape.scope, "user");
+        assert_eq!(shape.owner_user_id.as_deref(), Some("user-1"));
+        assert_eq!(shape.branch.as_deref(), Some("feature/x"));
+        assert!(shape.headless);
+
+        let bound: Option<String> =
+            sqlx::query_scalar("SELECT sandbox_id FROM tasks WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(bound.as_deref(), Some("t1"), "the Task names its Sandbox");
+    }
+
+    /// `run_as_user_id` follows `Actor::run_as`: the Workspace's account
+    /// outranks the owner of the work, and falls back to that owner.
+    #[sqlx::test]
+    async fn the_workspace_run_as_account_outranks_the_task_owner(pool: PgPool) {
+        seed_bare_task(&pool, "seed", "open").await;
+        let dao = PgTaskDao(pool.clone());
+
+        dao.insert_task(&task_row("t1")).await.unwrap();
+        assert_eq!(
+            sandbox_shape(&pool, "t1")
+                .await
+                .expect("sandbox row")
+                .run_as_user_id
+                .as_deref(),
+            Some("user-1"),
+            "no workspace account: the owner of the work"
+        );
+
+        sqlx::query("UPDATE workspaces SET run_as_user_id = 'bot-9' WHERE id = 'ws_repo-x'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        dao.insert_task(&task_row("t2")).await.unwrap();
+        assert_eq!(
+            sandbox_shape(&pool, "t2")
+                .await
+                .expect("sandbox row")
+                .run_as_user_id
+                .as_deref(),
+            Some("bot-9"),
+            "the workspace names the account its tasks act as"
+        );
+    }
+
+    /// Joining an existing Sandbox writes no second row: the joiner adopts the
+    /// shape the initial member gave it.
+    #[sqlx::test]
+    async fn joining_a_sandbox_writes_no_second_row(pool: PgPool) {
+        seed_bare_task(&pool, "seed", "open").await;
+        let dao = PgTaskDao(pool.clone());
+        dao.insert_task(&task_row("t1")).await.unwrap();
+
+        let mut joiner = task_row("t2");
+        joiner.sandbox_id = Some("t1".to_string());
+        joiner.checkout_mode = Some(CheckoutMode::Shared);
+        dao.insert_task(&joiner).await.unwrap();
+
+        assert!(sandbox_shape(&pool, "t2").await.is_none(), "no second row");
+        let bound: Option<String> =
+            sqlx::query_scalar("SELECT sandbox_id FROM tasks WHERE task_id = 't2'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(bound.as_deref(), Some("t1"));
+    }
+
+    /// A Task whose `sandboxes` row is gone projects as converged Stopped at
+    /// the no-intent epoch — the absence semantic this task-response projection
     /// owns. Deleting the projection would silently drop it.
     #[sqlx::test]
     async fn no_sandbox_row_projects_as_converged_stopped(pool: PgPool) {
         seed_bare_task(&pool, "t1", "open").await;
+        // `tasks_sandbox_id_fkey` is ON DELETE SET NULL, so the Task survives
+        // its Sandbox row and still has to project.
+        sqlx::query("DELETE FROM sandboxes WHERE sandbox_id = 't1'")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let views = load_sandbox_intent_views(&pool, &[String::from("t1")])
             .await

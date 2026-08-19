@@ -8,25 +8,25 @@ use std::sync::Arc;
 
 use moatless_types::access_control::ScopeContext;
 
-use crate::auto_provision::{build_provision_request, get_server_configs_for_task};
+use crate::auto_provision::{build_provision_request, get_server_configs_for_workspace};
 use crate::models::ProvisionRequest;
 use moatless_types::workspace::ServerConfig;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::users::UserDao;
-use moatless_tasks::task::dao::TaskDao;
 use moatless_workspaces::plugin::dao::PluginDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 use super::error::RuntimeError;
+use super::orchestrator::{LifecycleDao, TaskIntent};
 use super::runtime::map_sandbox_error;
 
 /// Repositories needed to assemble fresh runtime plans and status config.
-/// `users` resolves the platform-admin flag for the control check every plan is
-/// gated on.
+/// `sandboxes` is the sole source of a pod's shape; `users` resolves the
+/// platform-admin flag for the control check every plan is gated on.
 #[derive(Clone)]
 pub struct ProvisionDeps {
-    tasks: Arc<dyn TaskDao>,
+    sandboxes: Arc<dyn LifecycleDao>,
     repos: Arc<dyn RepositoryDao>,
     provider_tokens: Arc<dyn ProviderTokenDao>,
     plugins: Arc<dyn PluginDao>,
@@ -39,7 +39,7 @@ impl ProvisionDeps {
     /// a `Pg*Dao` is constructed, so this takes the six ports it needs rather
     /// than a pool.
     pub fn new(
-        tasks: Arc<dyn TaskDao>,
+        sandboxes: Arc<dyn LifecycleDao>,
         repos: Arc<dyn RepositoryDao>,
         provider_tokens: Arc<dyn ProviderTokenDao>,
         plugins: Arc<dyn PluginDao>,
@@ -47,7 +47,7 @@ impl ProvisionDeps {
         users: Arc<dyn UserDao>,
     ) -> Self {
         Self {
-            tasks,
+            sandboxes,
             repos,
             provider_tokens,
             plugins,
@@ -58,7 +58,7 @@ impl ProvisionDeps {
 
     pub async fn build_request(&self, sandbox_id: &str) -> Result<ProvisionRequest, RuntimeError> {
         build_provision_request(
-            self.tasks.as_ref(),
+            self.sandboxes.as_ref(),
             self.repos.as_ref(),
             self.provider_tokens.as_ref(),
             self.plugins.as_ref(),
@@ -71,20 +71,14 @@ impl ProvisionDeps {
     }
 
     pub async fn sandbox_id_for_task(&self, task_id: &str) -> Result<String, RuntimeError> {
-        // reason: endpoint resolution is a system read of task membership.
-        #[allow(clippy::disallowed_methods)]
-        let sys = ScopeContext::system();
-        let task = self
-            .tasks
-            .find_by_id(task_id, &sys)
-            .await
-            .map_err(|e| RuntimeError::Infrastructure(format!("read task sandbox id: {e}")))?
-            .ok_or_else(|| RuntimeError::Rejected(format!("task {task_id} not found")))?;
-        Ok(task.sandbox_id.unwrap_or_else(|| task.task_id.clone()))
+        Ok(self.intent(task_id).await?.sandbox_id)
     }
 
     pub async fn server_configs(&self, task_id: &str) -> Vec<ServerConfig> {
-        get_server_configs_for_task(self.tasks.as_ref(), self.workspaces.as_ref(), task_id).await
+        let Ok(intent) = self.intent(task_id).await else {
+            return Vec::new();
+        };
+        get_server_configs_for_workspace(self.workspaces.as_ref(), &intent.workspace_id).await
     }
 
     pub async fn expected_sandbox_image(
@@ -92,28 +86,29 @@ impl ProvisionDeps {
         task_id: &str,
         default_image: &str,
     ) -> Result<String, RuntimeError> {
-        // reason: image-config lookup resolves across all task owners (lifecycle system path)
+        let workspace_id = self.intent(task_id).await?.workspace_id;
+        // reason: image-config lookup resolves across all workspace owners
+        // (lifecycle system path)
         #[allow(clippy::disallowed_methods)]
         let sys = ScopeContext::system();
-        let task = self
-            .tasks
-            .find_by_id(task_id, &sys)
+        let image = self
+            .workspaces
+            .find_by_id(&workspace_id, &sys)
             .await
-            .map_err(|e| RuntimeError::Infrastructure(format!("read task image config: {e}")))?
-            .ok_or_else(|| RuntimeError::Rejected(format!("task {task_id} not found")))?;
-        let image = match task.workspace_id.as_deref() {
-            Some(workspace_id) => self
-                .workspaces
-                .find_by_id(workspace_id, &sys)
-                .await
-                .map_err(|e| {
-                    RuntimeError::Infrastructure(format!("read workspace image config: {e}"))
-                })?
-                .and_then(|workspace| workspace.docker_image)
-                .filter(|image| !image.is_empty()),
-            None => None,
-        };
+            .map_err(|e| RuntimeError::Infrastructure(format!("read workspace image config: {e}")))?
+            .and_then(|workspace| workspace.docker_image)
+            .filter(|image| !image.is_empty());
         Ok(image.unwrap_or_else(|| default_image.to_string()))
+    }
+
+    /// The Task's Sandbox membership. A Task with no row is `Rejected`: the
+    /// caller named something that is not a member of anything.
+    async fn intent(&self, task_id: &str) -> Result<TaskIntent, RuntimeError> {
+        self.sandboxes
+            .load(task_id)
+            .await
+            .map_err(|e| RuntimeError::Infrastructure(format!("read sandbox membership: {e}")))?
+            .ok_or_else(|| RuntimeError::Rejected(format!("task {task_id} not found")))
     }
 }
 
@@ -128,7 +123,7 @@ mod db_tests {
     /// the same way the `db-tests` suite always has.
     fn deps_from_pool(pool: &PgPool) -> ProvisionDeps {
         ProvisionDeps::new(
-            Arc::new(moatless_tasks::task::dao::PgTaskDao(pool.clone())),
+            Arc::new(crate::lifecycle::PgLifecycleDao::new(pool.clone())),
             Arc::new(moatless_workspaces::repository::dao::PgRepositoryDao(
                 pool.clone(),
             )),

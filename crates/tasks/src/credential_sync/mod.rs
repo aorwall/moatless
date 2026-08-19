@@ -31,6 +31,23 @@ use moatless_workspaces::credentials::{
     CredentialError, CredentialService, StoreOutcome, WriteSource, should_broadcast,
 };
 
+/// The sandbox band's view of this orchestrator: one `auth.json`, with "no
+/// credential anywhere" told apart from a failure.
+#[async_trait::async_trait]
+impl moatless_backend_core::sandbox::CodexCredentials for CredentialSync {
+    async fn ensure_fresh_codex_for(
+        &self,
+        user_id: &str,
+        except_task_id: Option<&str>,
+    ) -> Result<Option<String>, String> {
+        match CredentialSync::ensure_fresh_codex_for(self, user_id, except_task_id).await {
+            Ok(blob) => Ok(Some(blob)),
+            Err(CredentialError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+}
+
 /// Tasks-band orchestrator: wraps the pure [`CredentialService`] with the
 /// in-flight guard and the sandbox fan-out.
 pub struct CredentialSync {

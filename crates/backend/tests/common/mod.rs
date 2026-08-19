@@ -499,7 +499,7 @@ fn build_app_state(
     let lifecycle = ports.build_lifecycle(
         pool.clone(),
         ProvisionDeps::new(
-            ports.tasks.clone(),
+            ports.lifecycle_store(),
             ports.repositories.clone(),
             ports.provider_tokens.clone(),
             ports.plugins.clone(),

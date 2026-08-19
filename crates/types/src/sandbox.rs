@@ -12,7 +12,14 @@
 use std::fmt;
 use std::str::FromStr;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+/// The timestamp for a Sandbox that has never received durable lifecycle
+/// intent. Every real Message timestamp sorts after this sentinel.
+pub fn sandbox_intent_epoch() -> DateTime<Utc> {
+    DateTime::<Utc>::from(std::time::UNIX_EPOCH)
+}
 
 /// Which sandbox provider implementation to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

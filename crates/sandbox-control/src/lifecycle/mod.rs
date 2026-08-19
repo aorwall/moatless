@@ -85,7 +85,7 @@ pub(crate) mod test_support;
 // correlation internals — is `pub(crate)`; no caller outside this crate names it.
 
 pub use error::{ErrorClass, LifecycleError, RuntimeError};
-pub use orchestrator::Lifecycle;
+pub use orchestrator::{Lifecycle, TaskIntent};
 pub use outcome::{Diagnostics, LifecycleOutcome};
 pub use runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 pub use types::{

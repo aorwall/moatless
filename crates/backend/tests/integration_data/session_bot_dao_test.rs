@@ -9,9 +9,9 @@
 //! fell back to the session cookie.
 
 use chrono::{Duration, Utc};
-use moatless_backend::auth::models::UserRole;
 use moatless_backend::auth::sessions::{NewAuthSession, PgSessionDao, SessionDao};
 use moatless_backend::auth::users::{PgUserDao, User, UserDao};
+use moatless_types::user::UserRole;
 use sqlx::PgPool;
 use uuid::Uuid;
 

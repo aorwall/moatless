@@ -24,7 +24,6 @@ use tracing::{debug, info, warn};
 
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::TaskStatus;
-use moatless_tasks::message::dao::MessageDao;
 
 use super::attempt::AttemptBudget;
 use super::convergence::{ReconcileAction, SandboxObservedStatus};
@@ -374,7 +373,6 @@ impl TaskRetry {
 pub struct Reconciler {
     lifecycle: Lifecycle,
     store: Arc<dyn LifecycleDao>,
-    messages: Arc<dyn MessageDao>,
     observer: Arc<dyn FleetObserver>,
     notify: Arc<dyn NotifyPort>,
     member_registry: Arc<dyn MemberRegistryPort>,
@@ -387,7 +385,6 @@ pub struct Reconciler {
 
 pub struct ReconcilerDeps {
     pub store: Arc<dyn LifecycleDao>,
-    pub messages: Arc<dyn MessageDao>,
     pub observer: Arc<dyn FleetObserver>,
     pub notify: Arc<dyn NotifyPort>,
     pub member_registry: Arc<dyn MemberRegistryPort>,
@@ -399,7 +396,6 @@ impl Reconciler {
         Self {
             lifecycle,
             store: deps.store,
-            messages: deps.messages,
             observer: deps.observer,
             notify: deps.notify,
             member_registry: deps.member_registry,
@@ -424,7 +420,6 @@ impl Reconciler {
             }
         };
 
-        let pending_map = self.pending_messages().await;
         ensure_running_members_registered(
             self.store.as_ref(),
             self.member_registry.as_ref(),
@@ -434,14 +429,21 @@ impl Reconciler {
         )
         .await;
 
-        let mut candidates: HashSet<String> = match self.store.reconcile_candidates().await {
-            Ok(c) => c.into_iter().collect(),
+        // One DB read yields both the candidate set and each candidate's queued
+        // work, because both are columns on the same `sandboxes` row.
+        let enumerated = match self.store.reconcile_candidates().await {
+            Ok(c) => c,
             Err(e) => {
                 warn!(error = %e, "reconciler: candidate enumeration failed");
-                HashSet::new()
+                Vec::new()
             }
         };
-        candidates.extend(pending_map.keys().cloned());
+        let pending_map: HashMap<String, DateTime<Utc>> = enumerated
+            .iter()
+            .filter_map(|c| c.pending_work_at.map(|at| (c.task_id.clone(), at)))
+            .collect();
+        let mut candidates: HashSet<String> =
+            enumerated.into_iter().map(|c| c.task_id).collect();
         candidates.extend(coarse.keys().cloned());
 
         for task_id in &candidates {
@@ -455,19 +457,6 @@ impl Reconciler {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .retain(|k, _| candidates.contains(k));
-    }
-
-    async fn pending_messages(&self) -> HashMap<String, DateTime<Utc>> {
-        match self.messages.tasks_with_pending_user_messages().await {
-            Ok(rows) => rows
-                .into_iter()
-                .map(|r| (r.task_id, r.newest_created_at))
-                .collect(),
-            Err(e) => {
-                warn!(error = %e, "reconciler: pending-message scan failed");
-                HashMap::new()
-            }
-        }
     }
 
     async fn reconcile_task(
@@ -813,7 +802,9 @@ mod tests {
             panic!("member registration test must not load task intent")
         }
 
-        async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
+        async fn reconcile_candidates(
+        &self,
+    ) -> Result<Vec<crate::lifecycle::orchestrator::ReconcileCandidate>, StoreError> {
             panic!("member registration test must not enumerate reconcile candidates")
         }
 
@@ -822,6 +813,13 @@ mod tests {
                 Ok(members) => Ok(members.clone()),
                 Err(e) => Err(StoreError::new(e.to_string())),
             }
+        }
+
+        async fn sandbox_shape(
+            &self,
+            _sandbox_id: &str,
+        ) -> Result<Option<crate::lifecycle::orchestrator::SandboxShape>, StoreError> {
+            panic!("member registration test must not read a sandbox shape")
         }
 
         async fn has_other_active_members(
@@ -1129,7 +1127,6 @@ mod db_tests {
 
     use sqlx::PgPool;
 
-    use moatless_tasks::message::dao::PgMessageDao;
 
     use super::super::dao::PgLifecycleDao;
     use super::super::events::{EventFact, LifecycleEvent};
@@ -1372,7 +1369,6 @@ mod db_tests {
             lifecycle,
             ReconcilerDeps {
                 store,
-                messages: Arc::new(PgMessageDao(pool)),
                 observer,
                 notify,
                 member_registry,
@@ -1383,6 +1379,10 @@ mod db_tests {
         (reconciler, sink)
     }
 
+    /// A pending user Message, plus the Sandbox wake signal its send path
+    /// writes. The two are one transaction in production
+    /// (`moatless_tasks::message::dao::PgMessageDao::append`); the fixture
+    /// records both so the reconciler sees the shape it reads.
     async fn seed_pending_user_message(pool: &PgPool, task_id: &str, created_at: DateTime<Utc>) {
         sqlx::query(
             r#"INSERT INTO task_messages
@@ -1397,6 +1397,19 @@ mod db_tests {
         .execute(pool)
         .await
         .expect("seed pending message");
+
+        sqlx::query(
+            r#"UPDATE sandboxes s
+                  SET pending_work_at = GREATEST(s.pending_work_at, $2)
+                 FROM tasks t
+                WHERE t.task_id = $1
+                  AND s.sandbox_id = t.sandbox_id"#,
+        )
+        .bind(task_id)
+        .bind(created_at)
+        .execute(pool)
+        .await
+        .expect("queue sandbox wake signal");
     }
 
     fn observer(
@@ -1473,7 +1486,7 @@ mod db_tests {
     }
 
     #[sqlx::test]
-    async fn pending_message_wakes_a_task_without_a_sandbox_row(pool: PgPool) {
+    async fn pending_message_wakes_a_never_operated_sandbox(pool: PgPool) {
         seed_bare_task(&pool, "t1", "open").await;
         seed_pending_user_message(&pool, "t1", Utc::now()).await;
         let runtime = Arc::new(RecordingRuntime::new());

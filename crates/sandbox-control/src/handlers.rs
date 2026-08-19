@@ -14,15 +14,14 @@ use tracing::{error, info, warn};
 
 use super::access::LogOptions;
 use super::error::SandboxError;
-use super::lifecycle::{ArchiveRetention, Lifecycle};
+use super::lifecycle::{ArchiveRetention, Lifecycle, TaskIntent};
 use super::models::*;
 use super::routes::SandboxApiState;
 use super::schemas::*;
-use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+use moatless_types::sandbox::SandboxStopReason;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::task::Visibility;
 use moatless_identity::extractors::OptionalScope;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::models::Task;
 
 /// Provision a new sandbox for a task.
 ///
@@ -79,18 +78,14 @@ pub async fn live_status_handler(
     OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let task = match authorize_task_read(&state, &scope, &task_id).await {
-        Ok(task) => task,
-        Err(e) => return e.into_response(),
-    };
-    let desired_state = match resolve_desired_state(&state, &task_id).await {
-        Ok(d) => d,
+    let intent = match authorize_task_read(&state, &scope, &task_id).await {
+        Ok(intent) => intent,
         Err(e) => return e.into_response(),
     };
 
     match state
         .observer
-        .live_status(&task_id, task.status, desired_state)
+        .live_status(&task_id, intent.status, intent.desired_state)
         .await
     {
         Ok(status) => Json(status).into_response(),
@@ -118,18 +113,15 @@ pub async fn sandbox_status_handler(
     OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let task = match authorize_task_read(&state, &scope, &task_id).await {
-        Ok(task) => task,
+    let intent = match authorize_task_read(&state, &scope, &task_id).await {
+        Ok(intent) => intent,
         Err(e) => return e.into_response(),
     };
-    let desired_state = match resolve_desired_state(&state, &task_id).await {
-        Ok(d) => d,
-        Err(e) => return e.into_response(),
-    };
+    let desired_state = intent.desired_state;
 
     match state
         .observer
-        .sandbox_status(&task_id, task.status, desired_state)
+        .sandbox_status(&task_id, intent.status, desired_state)
         .await
     {
         Ok(mut resp) => {
@@ -315,19 +307,15 @@ pub async fn server_status_handler(
     OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let task = match authorize_task_read(&state, &scope, &task_id).await {
-        Ok(task) => task,
+    let intent = match authorize_task_read(&state, &scope, &task_id).await {
+        Ok(intent) => intent,
         Err(e) => {
             return e.into_response();
         }
     };
-    let desired_state = match resolve_desired_state(&state, &task_id).await {
-        Ok(desired_state) => desired_state,
-        Err(e) => return e.into_response(),
-    };
     let status = match state
         .observer
-        .sandbox_status(&task_id, task.status, desired_state)
+        .sandbox_status(&task_id, intent.status, intent.desired_state)
         .await
     {
         Ok(status) => status,
@@ -513,7 +501,7 @@ pub async fn update_server_config_handler(
     Json(req): Json<UpdateServerConfigRequest>,
 ) -> Result<Json<ServerConfigResponse>, SandboxError> {
     info!(task_id = %task_id, server = %server_name, "PATCH /servers/{server_name}");
-    let task = authorize_task_control(&state, &scope, &task_id).await?;
+    let intent = authorize_task_control(&state, &scope, &task_id).await?;
 
     if req.port.is_some() {
         return Err(SandboxError::Conflict(
@@ -528,7 +516,7 @@ pub async fn update_server_config_handler(
         ));
     }
 
-    require_known_server(&state, &task, &server_name).await?;
+    require_known_server(&state, &intent, &task_id, &server_name).await?;
 
     let client = state.connector.sandbox_client(&task_id).await?;
     let mut entry = read_override(&client, &task_id, &server_name).await?;
@@ -584,8 +572,8 @@ pub async fn restart_server_handler(
     Path((task_id, server_name)): Path<(String, String)>,
 ) -> Result<Json<ServerConfigResponse>, SandboxError> {
     info!(task_id = %task_id, server = %server_name, "POST /servers/{server_name}/restart");
-    let task = authorize_task_control(&state, &scope, &task_id).await?;
-    require_known_server(&state, &task, &server_name).await?;
+    let intent = authorize_task_control(&state, &scope, &task_id).await?;
+    require_known_server(&state, &intent, &task_id, &server_name).await?;
 
     // Re-send the override the sandbox already holds: `apply` is idempotent, and
     // the generation bump is the only part the sidecar reacts to.
@@ -615,8 +603,8 @@ pub async fn reset_server_config_handler(
     Path((task_id, server_name)): Path<(String, String)>,
 ) -> Result<Json<ServerConfigResponse>, SandboxError> {
     info!(task_id = %task_id, server = %server_name, "DELETE /servers/{server_name}/override");
-    let task = authorize_task_control(&state, &scope, &task_id).await?;
-    require_known_server(&state, &task, &server_name).await?;
+    let intent = authorize_task_control(&state, &scope, &task_id).await?;
+    require_known_server(&state, &intent, &task_id, &server_name).await?;
 
     // An empty override is exactly "reset": `apply` removes the control files.
     let client = state.connector.sandbox_client(&task_id).await?;
@@ -700,14 +688,13 @@ fn client_server_override(value: &ServerOverride) -> crate::client::ServerOverri
 /// started yet still counts.
 async fn require_known_server(
     state: &SandboxApiState,
-    task: &Task,
+    intent: &TaskIntent,
+    task_id: &str,
     server_name: &str,
 ) -> Result<(), SandboxError> {
-    let task_id = &task.task_id;
-    let desired_state = resolve_desired_state(state, task_id).await?;
     let status = state
         .observer
-        .sandbox_status(task_id, task.status, desired_state)
+        .sandbox_status(task_id, intent.status, intent.desired_state)
         .await?;
     if status.servers.iter().any(|s| s.name == server_name) {
         return Ok(());
@@ -766,76 +753,71 @@ mod tests {
 // Authorization helpers
 // =============================================================================
 
-/// Resolve the task for `task_id` subject to the caller's scope, returning
-/// `NotFound` when the caller may not read it (so we never leak the existence
-/// of another tenant's task).
+/// Load the Task's Sandbox membership and require *read* access to it.
 ///
-/// `scope` is `None` only in dev mode (no auth provider → middleware disabled);
-/// there we fall back to the system scope, which resolves any task. In
-/// production `find_by_id` bakes the caller's scope into SQL and returns `None`
-/// for tasks they cannot see.
+/// Returns `NotFound` when the caller may not read it, so the existence of
+/// another tenant's Sandbox never leaks. The returned [`TaskIntent`] is the one
+/// read every handler works from: it carries the Task's status and the
+/// Sandbox's desired state alongside the access-control pair.
 pub(super) async fn authorize_task_read(
     state: &SandboxApiState,
     scope: &Option<ScopeContext>,
     task_id: &str,
-) -> Result<Task, SandboxError> {
-    authorize_task_read_inner(state.tasks.as_deref(), scope, task_id).await
+) -> Result<TaskIntent, SandboxError> {
+    let intent = require_lifecycle(state)?.intent(task_id).await?;
+    ensure_can_read(scope, &intent, task_id)?;
+    Ok(intent)
 }
 
 /// Like [`authorize_task_read`], but additionally requires *control* access
 /// (the same policy the task HTTP API and sandbox gRPC server enforce): the
-/// owner/creator of the task or a platform admin. Read-only viewers get
-/// `Forbidden`.
+/// owner of the Sandbox or a platform admin. Read-only viewers get `Forbidden`.
 pub(super) async fn authorize_task_control(
     state: &SandboxApiState,
     scope: &Option<ScopeContext>,
     task_id: &str,
-) -> Result<Task, SandboxError> {
-    authorize_task_control_inner(state.tasks.as_deref(), scope, task_id).await
+) -> Result<TaskIntent, SandboxError> {
+    let intent = authorize_task_read(state, scope, task_id).await?;
+    ensure_can_control(scope, &intent, task_id)?;
+    Ok(intent)
 }
 
-/// Core of [`authorize_task_read`] against explicit dependencies (so it can be
-/// unit-tested without runtime infrastructure).
-async fn authorize_task_read_inner(
-    tasks: Option<&dyn TaskDao>,
+/// Read access to a Sandbox: its own scope/owner pair, or the public visibility
+/// its Task grants — a public Task is collaborative, and its Sandbox view is
+/// part of what it shares.
+///
+/// Refuses as `NotFound` so a caller cannot distinguish "not yours" from "does
+/// not exist". A missing identity means the request never passed
+/// `auth_middleware`, which fails closed as `Forbidden`.
+fn ensure_can_read(
     scope: &Option<ScopeContext>,
+    intent: &TaskIntent,
     task_id: &str,
-) -> Result<Task, SandboxError> {
-    let tasks = tasks.ok_or_else(|| {
-        SandboxError::Internal("Task repository not available for authorization".into())
-    })?;
-    // Fail closed: no identity means the request never passed auth_middleware.
+) -> Result<(), SandboxError> {
     let ctx = scope
-        .clone()
+        .as_ref()
         .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
-    tasks
-        .find_by_id(task_id, &ctx)
-        .await
-        .map_err(|source| SandboxError::Database {
-            context: "looking up the task for authorization",
-            source,
-        })?
-        .ok_or_else(|| SandboxError::NotFound(format!("task {task_id}")))
+    if intent.visibility == Visibility::Public || ctx.can_read(&intent.scoped_resource()) {
+        return Ok(());
+    }
+    Err(SandboxError::NotFound(format!("task {task_id}")))
 }
 
-/// Core of [`authorize_task_control`] against explicit dependencies.
-async fn authorize_task_control_inner(
-    tasks: Option<&dyn TaskDao>,
+/// Control access to a Sandbox. Visibility never grants it.
+fn ensure_can_control(
     scope: &Option<ScopeContext>,
+    intent: &TaskIntent,
     task_id: &str,
-) -> Result<Task, SandboxError> {
-    let task = authorize_task_read_inner(tasks, scope, task_id).await?;
-
-    let Some(ctx) = scope.as_ref() else {
-        return Err(SandboxError::Forbidden("authentication required".into()));
-    };
-
-    if !ctx.can_control(&task.scoped_resource()) {
-        return Err(SandboxError::Forbidden(format!(
-            "no control access to task {task_id}"
-        )));
+) -> Result<(), SandboxError> {
+    let ctx = scope
+        .as_ref()
+        .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
+    if ctx.can_control(&intent.scoped_resource()) {
+        return Ok(());
     }
-    Ok(task)
+    Err(SandboxError::Forbidden(format!(
+        "no control access to task {task_id}"
+    )))
 }
 
 // =============================================================================
@@ -851,25 +833,17 @@ fn require_lifecycle(state: &SandboxApiState) -> Result<&Lifecycle, SandboxError
         .ok_or_else(|| SandboxError::Internal("Sandbox lifecycle unavailable (no database)".into()))
 }
 
-/// The desired Sandbox state for a Task, read from the Sandbox row through the
-/// lifecycle store. Absence of a row reads as `Stopped` (never requested).
-async fn resolve_desired_state(
-    state: &SandboxApiState,
-    task_id: &str,
-) -> Result<SandboxDesiredState, SandboxError> {
-    Ok(require_lifecycle(state)?.desired_state(task_id).await?)
-}
-
 #[cfg(test)]
 mod authz_tests {
-    //! Unit tests for the per-task sandbox authorization gate. The scoped-read
-    //! SQL filter itself is covered by `scope.rs`; these exercise how the
-    //! handlers compose read + control on the task a scoped read returned.
+    //! Unit tests for the per-sandbox authorization gate. The policy itself
+    //! lives in `ScopeContext`; these exercise how the handlers compose read +
+    //! control over one `TaskIntent`, and which refusal each case earns.
     use super::*;
 
+    use crate::lifecycle::types::ArchiveRetention;
     use moatless_types::access_control::Scope;
-
-    use moatless_tasks::task::dao::MockTaskDao;
+    use moatless_types::sandbox::SandboxDesiredState;
+    use moatless_types::task::TaskStatus;
 
     /// Deterministic uuid for a readable test name: distinct names map to
     /// distinct ids, equal names to equal ids.
@@ -877,42 +851,26 @@ mod authz_tests {
         uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes())
     }
 
-    /// A `Task` fixture with the given scope/owner; all other columns are
-    /// inert defaults irrelevant to the access check.
-    fn task_fixture(scope: Scope, owner_user_id: Option<&str>) -> Task {
-        Task {
-            task_id: "task-1".to_string(),
-            short_id: None,
-            created_at: chrono::Utc::now(),
-            last_message_at: chrono::Utc::now(),
-            agent_type: moatless_types::agent::AgentType("claude-code".to_string()),
-            repository_id: "repo-1".to_string(),
-            status: moatless_types::task::TaskStatus::Open,
-            total_cost_usd: 0.0,
-            site_url: None,
-            template_id: None,
-            vibe: None,
-            name: None,
-            description: None,
-            site_id: None,
-            site_provider: None,
-            branch: None,
-            model: None,
-            created_by: owner_user_id.map(|u| uid(u).to_string()),
-            visibility: moatless_types::task::Visibility::Private,
+    /// A `TaskIntent` carrying the given access-control pair; every other field
+    /// is an inert default the access check never reads.
+    fn intent(scope: Scope, owner_user_id: Option<&str>, visibility: Visibility) -> TaskIntent {
+        TaskIntent {
+            status: TaskStatus::Open,
+            visibility,
             scope,
             owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
-            updated_at: None,
-            append_system_prompt: None,
-            headless: false,
-            ttl_minutes: 0,
-            inactive_ttl_days: 0,
-            loop_id: None,
-            workspace_id: None,
-            sandbox_id: None,
-            checkout_mode: None,
-            skills: Vec::new(),
+            sandbox_id: "task-1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            desired_state: SandboxDesiredState::Stopped,
+            stop_reason: None,
+            retention: None::<ArchiveRetention>,
+            marker: None,
+            desired_state_updated_at: chrono::Utc::now(),
         }
+    }
+
+    fn private(owner_user_id: Option<&str>) -> TaskIntent {
+        intent(Scope::User, owner_user_id, Visibility::Private)
     }
 
     fn ctx(user_id: &str, is_admin: bool) -> ScopeContext {
@@ -922,108 +880,95 @@ mod authz_tests {
         }
     }
 
-    /// A task repo whose scoped `find_by_id` always yields `task` (models a task
-    /// the caller can *read*); control is decided downstream by `can_control`.
-    fn tasks_returning(task: Option<Task>) -> MockTaskDao {
-        let mut m = MockTaskDao::new();
-        m.expect_find_by_id()
-            .returning(move |_, _| Ok(task.clone()));
-        m
-    }
-
-    #[tokio::test]
-    async fn read_unreadable_task_is_not_found() {
-        // Scoped read returns None → NotFound, never leaking the task's existence.
-        let tasks = tasks_returning(None);
-        let scope = Some(ctx("intruder", false));
-        let err = authorize_task_read_inner(Some(&tasks), &scope, "task-1")
-            .await
+    #[test]
+    fn read_by_another_tenant_is_not_found() {
+        // NotFound, not Forbidden: the refusal never leaks that the sandbox exists.
+        let err = ensure_can_read(&Some(ctx("intruder", false)), &private(Some("owner")), "task-1")
             .unwrap_err();
         assert!(matches!(err, SandboxError::NotFound(_)));
     }
 
-    #[tokio::test]
-    async fn read_allows_when_scoped_lookup_returns_task() {
-        let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"))));
-        let scope = Some(ctx("owner", false));
-        assert!(
-            authorize_task_read_inner(Some(&tasks), &scope, "task-1")
-                .await
-                .is_ok()
-        );
+    #[test]
+    fn read_by_the_owner_is_allowed() {
+        assert!(ensure_can_read(&Some(ctx("owner", false)), &private(Some("owner")), "task-1").is_ok());
     }
 
-    #[tokio::test]
-    async fn read_without_identity_is_forbidden() {
-        // No identity means the request never authenticated — fail closed
-        // rather than resolving the task under an unscoped system context.
-        let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("someone"))));
+    #[test]
+    fn read_of_a_public_task_is_allowed() {
+        // A public Task is collaborative, and its Sandbox view is part of what
+        // it shares — read only, never control.
+        let public = intent(Scope::User, Some("owner"), Visibility::Public);
+        assert!(ensure_can_read(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
         assert!(matches!(
-            authorize_task_read_inner(Some(&tasks), &None, "task-1").await,
+            ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }
 
-    #[tokio::test]
-    async fn read_without_repo_is_internal_error() {
-        let scope = Some(ctx("u", false));
-        let err = authorize_task_read_inner(None, &scope, "task-1")
-            .await
-            .unwrap_err();
-        assert!(matches!(err, SandboxError::Internal(_)));
+    #[test]
+    fn read_of_a_global_sandbox_is_allowed() {
+        let global = intent(Scope::Global, None, Visibility::Private);
+        assert!(ensure_can_read(&Some(ctx("anyone", false)), &global, "task-1").is_ok());
     }
 
-    #[tokio::test]
-    async fn control_owner_of_user_task_allowed() {
-        let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"))));
-        let scope = Some(ctx("owner", false));
+    #[test]
+    fn read_without_identity_is_forbidden() {
+        // No identity means the request never passed auth_middleware — fail
+        // closed rather than resolving the sandbox under a system context.
+        assert!(matches!(
+            ensure_can_read(&None, &private(Some("someone")), "task-1"),
+            Err(SandboxError::Forbidden(_))
+        ));
+    }
+
+    #[test]
+    fn read_of_an_ownerless_sandbox_is_admin_only() {
+        // No Sandbox row leaves the pair ownerless. An admin still reaches it;
+        // nobody else does.
+        let ownerless = private(None);
+        assert!(matches!(
+            ensure_can_read(&Some(ctx("anyone", false)), &ownerless, "task-1"),
+            Err(SandboxError::NotFound(_))
+        ));
+        assert!(ensure_can_read(&Some(ctx("root", true)), &ownerless, "task-1").is_ok());
+    }
+
+    #[test]
+    fn control_by_the_owner_is_allowed() {
         assert!(
-            authorize_task_control_inner(Some(&tasks), &scope, "task-1")
-                .await
-                .is_ok()
+            ensure_can_control(&Some(ctx("owner", false)), &private(Some("owner")), "task-1").is_ok()
         );
     }
 
-    #[tokio::test]
-    async fn control_non_owner_of_user_task_is_forbidden() {
-        // A user-scoped task belongs only to its owner; a stranger is denied.
-        let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"))));
-        let scope = Some(ctx("stranger", false));
-        let err = authorize_task_control_inner(Some(&tasks), &scope, "task-1")
-            .await
+    #[test]
+    fn control_by_a_read_only_viewer_is_forbidden() {
+        // Read access never implies control: a global sandbox is admin-controlled.
+        let global = intent(Scope::Global, None, Visibility::Private);
+        assert!(ensure_can_read(&Some(ctx("viewer", false)), &global, "task-1").is_ok());
+        assert!(matches!(
+            ensure_can_control(&Some(ctx("viewer", false)), &global, "task-1"),
+            Err(SandboxError::Forbidden(_))
+        ));
+    }
+
+    #[test]
+    fn control_by_a_stranger_is_forbidden() {
+        let err = ensure_can_control(&Some(ctx("stranger", false)), &private(Some("owner")), "task-1")
             .unwrap_err();
         assert!(matches!(err, SandboxError::Forbidden(_)));
     }
 
-    #[tokio::test]
-    async fn control_unreadable_task_is_not_found_not_forbidden() {
-        // Can't even read the task → NotFound (no existence leak) before the
-        // control check runs.
-        let tasks = tasks_returning(None);
-        let scope = Some(ctx("intruder", false));
-        let err = authorize_task_control_inner(Some(&tasks), &scope, "task-1")
-            .await
-            .unwrap_err();
-        assert!(matches!(err, SandboxError::NotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn control_admin_bypasses_scope() {
-        // A platform admin controls any task regardless of scope/owner.
-        let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("other-user"))));
-        let scope = Some(ctx("root", true));
+    #[test]
+    fn control_by_an_admin_bypasses_scope() {
         assert!(
-            authorize_task_control_inner(Some(&tasks), &scope, "task-1")
-                .await
-                .is_ok()
+            ensure_can_control(&Some(ctx("root", true)), &private(Some("other-user")), "task-1").is_ok()
         );
     }
 
-    #[tokio::test]
-    async fn control_without_identity_is_forbidden() {
-        let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("someone"))));
+    #[test]
+    fn control_without_identity_is_forbidden() {
         assert!(matches!(
-            authorize_task_control_inner(Some(&tasks), &None, "task-1").await,
+            ensure_can_control(&None, &private(Some("someone")), "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }

@@ -12,7 +12,7 @@ use crate::state::AppState;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::models::TaskStatus;
 use crate::task::relations::TaskRelationDao;
-use crate::task::sandbox_waker::SandboxWaker;
+use moatless_backend_core::sandbox::SandboxWaker;
 use crate::task_activities::mapping::{BlockContext, ConversationWrite, map_content};
 
 use super::models::SdkResultMessage;

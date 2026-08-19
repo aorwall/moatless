@@ -183,7 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
     let provision_deps = ports.as_ref().map(|p| {
         moatless_backend::sandbox::lifecycle::ProvisionDeps::new(
-            p.tasks.clone(),
+            p.lifecycle_store(),
             p.repositories.clone(),
             p.provider_tokens.clone(),
             p.plugins.clone(),
@@ -293,8 +293,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── Build router ────────────────────────────────────────────────────
 
     // Sandbox route state keeps only authorization DAOs.
-    let sandbox_tasks = ports.as_ref().map(|p| p.tasks.clone());
-    let sandbox_teams = ports.as_ref().map(|p| p.teams.clone());
 
     // Build the shared durable Sandbox lifecycle handle once (requires the DB).
     // The sandbox API, the pod watcher, and AppState all drive transitions
@@ -387,8 +385,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         observer: sandbox_observer.clone(),
         connector: sandbox_connector.clone(),
         lifecycle: lifecycle.clone(),
-        tasks: sandbox_tasks,
-        teams: sandbox_teams,
     };
     let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);
 

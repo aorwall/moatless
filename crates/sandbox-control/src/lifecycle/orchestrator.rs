@@ -29,10 +29,11 @@ use tracing::Instrument;
 use moatless_backend_core::sandbox as core_sandbox;
 
 use crate::error::SandboxError;
+use moatless_types::access_control::{Scope, ScopedResource};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::TaskStatus;
-use moatless_types::task::CheckoutMode;
-use moatless_tasks::task::sandbox_lifecycle::{SandboxLifecycle, SandboxOpError};
+use moatless_types::task::{CheckoutMode, Visibility};
+use moatless_backend_core::sandbox::{SandboxLifecycle, SandboxOpError};
 
 use super::error::LifecycleError;
 use super::events::{self, EventContext, EventFact, FailureDetail, LifecycleEvent};
@@ -44,9 +45,18 @@ use super::types::{
 };
 
 /// Persisted lifecycle intent for one Task's Sandbox membership.
+///
+/// One read serves the three questions every sandbox request asks: who may
+/// reach this Sandbox, what its Task's status permits, and what state it
+/// desires. `scope` and `owner_user_id` are the Sandbox's own access-control
+/// pair; `visibility` is the Task's, because a public Task grants read on the
+/// Sandbox that serves it.
 #[derive(Debug, Clone)]
 pub struct TaskIntent {
     pub status: TaskStatus,
+    pub visibility: Visibility,
+    pub scope: Scope,
+    pub owner_user_id: Option<String>,
     pub sandbox_id: String,
     pub workspace_id: String,
     pub desired_state: SandboxDesiredState,
@@ -56,6 +66,40 @@ pub struct TaskIntent {
     pub retention: Option<ArchiveRetention>,
     pub marker: Option<CorrelationMarker>,
     pub desired_state_updated_at: DateTime<Utc>,
+}
+
+impl TaskIntent {
+    /// The Sandbox as an access-control subject.
+    pub fn scoped_resource(&self) -> ScopedResource {
+        ScopedResource::borrowed(self.scope, self.owner_user_id.as_deref())
+    }
+}
+
+/// What a Sandbox's pod is built from, all of it off the `sandboxes` row.
+///
+/// `owner_user_id` is the identity the pod authenticates back to the backend
+/// as, so it is the one the gRPC control gate checks. `run_as_user_id` is the
+/// identity the pod acts as outward — for git-host credentials and for the
+/// plugins it is delivered.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct SandboxShape {
+    pub workspace_id: String,
+    #[sqlx(try_from = "String")]
+    pub scope: Scope,
+    pub owner_user_id: Option<String>,
+    pub run_as_user_id: Option<String>,
+    pub branch: Option<String>,
+    pub headless: bool,
+    pub agent_type: Option<String>,
+    pub use_tmux: bool,
+}
+
+/// One Sandbox the reconciler should look at, named by the Task that
+/// represents it, plus when work was last queued for it.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct ReconcileCandidate {
+    pub task_id: String,
+    pub pending_work_at: Option<DateTime<Utc>>,
 }
 
 /// One durable member of a running Sandbox.
@@ -126,10 +170,10 @@ pub trait LifecycleDao: Send + Sync {
     async fn load(&self, task_id: &str) -> Result<Option<TaskIntent>, StoreError>;
 
     /// DB-derived reconciler candidates: participating Tasks (Open/Error) that
-    /// desire Running, plus any Task carrying an incomplete operation marker.
-    /// The reconciler unions these with pending-message Tasks, then observes the
-    /// fleet to decide which have actually diverged.
-    async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError>;
+    /// desire Running, any Sandbox carrying an incomplete operation marker, and
+    /// any Sandbox with queued work. The reconciler unions these with the
+    /// observed fleet, then decides which have actually diverged.
+    async fn reconcile_candidates(&self) -> Result<Vec<ReconcileCandidate>, StoreError>;
 
     /// All open/error Task members of Sandboxes that durably desire Running.
     /// Used by the reconciler to rebuild in-pod member contexts after a pod
@@ -146,6 +190,10 @@ pub trait LifecycleDao: Send + Sync {
         sandbox_id: &str,
         task_id: &str,
     ) -> Result<bool, StoreError>;
+
+    /// The Sandbox's pod shape and access-control pair. Absent when the Sandbox
+    /// has no row, which is a Sandbox that was never created.
+    async fn sandbox_shape(&self, sandbox_id: &str) -> Result<Option<SandboxShape>, StoreError>;
 
     /// Allocate the next durable operation generation for the Task.
     async fn allocate_generation(&self, task_id: &str) -> Result<OperationGeneration, StoreError>;
@@ -539,6 +587,13 @@ impl Lifecycle {
         task_id: &str,
     ) -> Result<SandboxDesiredState, LifecycleError> {
         Ok(self.require_intent(task_id).await?.desired_state)
+    }
+
+    /// The Task's Sandbox membership as one durable read: its access-control
+    /// pair, its Task's status and visibility, and its desired state. The HTTP
+    /// handlers authorize, guard, and observe off this single value.
+    pub async fn intent(&self, task_id: &str) -> Result<TaskIntent, LifecycleError> {
+        self.require_intent(task_id).await
     }
 
     /// Await a detached transition. Dropping the caller future drops this join
@@ -1435,11 +1490,17 @@ mod tests {
         async fn load(&self, _task_id: &str) -> Result<Option<TaskIntent>, StoreError> {
             Ok(self.intent.lock().expect("lock").clone())
         }
-        async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
+        async fn reconcile_candidates(&self) -> Result<Vec<ReconcileCandidate>, StoreError> {
             Ok(vec![])
         }
         async fn running_sandbox_members(&self) -> Result<Vec<SandboxMember>, StoreError> {
             Ok(vec![])
+        }
+        async fn sandbox_shape(
+            &self,
+            _sandbox_id: &str,
+        ) -> Result<Option<SandboxShape>, StoreError> {
+            Ok(None)
         }
         async fn has_other_active_members(
             &self,
@@ -1485,6 +1546,9 @@ mod tests {
                 .map_or_else(|| "ws_repo-x".to_string(), |c| c.workspace_id.clone());
             *slot = Some(TaskIntent {
                 status,
+                visibility: Visibility::Private,
+                scope: Scope::User,
+                owner_user_id: Some("user-1".to_string()),
                 sandbox_id,
                 workspace_id,
                 desired_state: write.desired_state,
@@ -1831,6 +1895,9 @@ mod tests {
     ) -> TaskIntent {
         TaskIntent {
             status,
+            visibility: Visibility::Private,
+            scope: Scope::User,
+            owner_user_id: Some("user-1".to_string()),
             sandbox_id: "t".to_string(),
             workspace_id: "ws_repo-x".to_string(),
             desired_state: desired,
@@ -2038,11 +2105,17 @@ mod tests {
             async fn load(&self, _t: &str) -> Result<Option<TaskIntent>, StoreError> {
                 Err(StoreError::new("conn reset"))
             }
-            async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
+            async fn reconcile_candidates(&self) -> Result<Vec<ReconcileCandidate>, StoreError> {
                 Ok(vec![])
             }
             async fn running_sandbox_members(&self) -> Result<Vec<SandboxMember>, StoreError> {
                 Ok(vec![])
+            }
+            async fn sandbox_shape(
+                &self,
+                _sandbox_id: &str,
+            ) -> Result<Option<SandboxShape>, StoreError> {
+                Ok(None)
             }
             async fn has_other_active_members(
                 &self,

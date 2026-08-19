@@ -15,8 +15,9 @@
 
 use sqlx::PgPool;
 
-/// Seed a team and one task with **no Sandbox row** — the lazy-absence shape a
-/// Task has before any lifecycle operation.
+/// Seed a team, one task, and the Sandbox row task creation writes for it —
+/// the shape a Task has before any lifecycle operation: converged Stopped at
+/// the intent epoch, owning no volume.
 pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
     // tasks.team_id is NOT NULL (no FK); seed a row so the fixture matches the
     // production shape.
@@ -38,11 +39,21 @@ pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
     .expect("seed workspace");
 
     sqlx::query(
+        r#"INSERT INTO sandboxes (sandbox_id, workspace_id, scope, owner_user_id,
+               run_as_user_id, storage_reclaimed_at)
+           VALUES ($1, 'ws_repo-x', 'user', 'user-1', 'user-1', NOW())"#,
+    )
+    .bind(task_id)
+    .execute(pool)
+    .await
+    .expect("seed sandbox");
+
+    sqlx::query(
         r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_type, repository_id,
                status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id,
-               workspace_id)
+               workspace_id, sandbox_id)
            VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', $2, 0,
-               'private', 'user', 'team-x', 'user-1', 'user-1', 'ws_repo-x')"#,
+               'private', 'user', 'team-x', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
     )
     .bind(task_id)
     .bind(status)

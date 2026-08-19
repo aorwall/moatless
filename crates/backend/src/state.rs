@@ -41,12 +41,13 @@ use crate::skill::service::SkillService;
 use crate::tag::dao::TagDao;
 use crate::task::binding_dao::TaskBindingDao;
 use crate::task::closer::TaskCloser;
-use crate::task::creation::{PreflightPort, SandboxJoiner, TaskCreationService};
+use crate::task::creation::TaskCreationService;
+use moatless_backend_core::sandbox::{PreflightPort, SandboxJoiner};
 use crate::task::dao::TaskDao;
 use moatless_types::task::CheckoutMode;
 use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelationDao;
-use crate::task::sandbox_lifecycle::SandboxLifecycle;
+use moatless_backend_core::sandbox::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::team::dao::TeamDao;
@@ -93,14 +94,14 @@ pub struct AppState {
     pub sandbox: Arc<Lifecycle>,
     /// Consumer-owned wake port: ensure a task's sandbox is running and notify
     /// it of new work. Declared in the tasks band
-    /// ([`crate::task::sandbox_waker::SandboxWaker`]) and implemented in
+    /// ([`moatless_backend_core::sandbox::SandboxWaker`]) and implemented in
     /// sandbox-control ([`crate::sandbox::notify::SandboxWakeService`]), so the
     /// message-delivery consumer wakes a sandbox through
-    /// [`crate::task::sandbox_waker::wake_for_message`] without naming the sandbox
+    /// [`moatless_backend_core::sandbox::wake_for_message`] without naming the sandbox
     /// layer above it. Built in [`AppState::new`] from the connector-backed notify
     /// port, which `AppState` takes as a constructor parameter but does not hold as
     /// a field — nothing reads the raw notifier off state.
-    pub sandbox_waker: Arc<dyn crate::task::sandbox_waker::SandboxWaker>,
+    pub sandbox_waker: Arc<dyn moatless_backend_core::sandbox::SandboxWaker>,
     /// Optional event publisher for real-time event streaming (trait object).
     pub events: Option<Arc<dyn EventPublisher>>,
     /// Optional S3 handle for file uploads/downloads.
@@ -445,12 +446,11 @@ impl AppState {
             Arc::new(ProviderGitHubAppProver),
         ));
 
-        // The tasks-band wake port, implemented in sandbox-control. Built here
-        // because it needs the task DAO, the lifecycle handle, and the notify
-        // port — the same three the composition root already assembled.
-        let sandbox_waker: Arc<dyn crate::task::sandbox_waker::SandboxWaker> =
+        // The wake port, implemented in sandbox-control. Built here because it
+        // needs the lifecycle handle and the notify port — both of which the
+        // composition root already assembled.
+        let sandbox_waker: Arc<dyn moatless_backend_core::sandbox::SandboxWaker> =
             Arc::new(crate::sandbox::notify::SandboxWakeService::new(
-                tasks.clone(),
                 lifecycle.clone(),
                 sandbox_notify.clone(),
             ));
@@ -870,7 +870,7 @@ impl axum::extract::FromRef<AppState> for Arc<MessageSendService> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn crate::task::sandbox_waker::SandboxWaker> {
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_backend_core::sandbox::SandboxWaker> {
     fn from_ref(state: &AppState) -> Self {
         state.sandbox_waker.clone()
     }

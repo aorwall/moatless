@@ -24,7 +24,7 @@ use super::models::TaskStatus;
 use moatless_types::sandbox::ArchiveRetention;
 use moatless_types::task::TaskRelationType;
 use super::relations::TaskRelationDao;
-use super::sandbox_lifecycle::SandboxLifecycle;
+use moatless_backend_core::sandbox::SandboxLifecycle;
 use crate::task::binding_dao::TaskBindingDao;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;

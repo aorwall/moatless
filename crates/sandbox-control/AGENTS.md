@@ -33,10 +33,20 @@ provider SDK (`kube`/`bollard`) — its error type boxes any provider error behi
 
 ## Load-Bearing Rules
 
-- `Lifecycle` is the sole writer of Sandbox intent. Do not add direct provider
+- `Lifecycle` is the sole writer of Sandbox *intent*. Do not add direct provider
   mutation paths from handlers, adapters, reapers, or watchers.
-- Durable Sandbox state lives in the `sandboxes` table. No row means the Sandbox
-  was never requested, is converged Stopped, and is wakeable.
+- Task controls Sandbox. `moatless-tasks` writes the `sandboxes` row when a task
+  is created; this band reads it and states intent on it. A missing row is an
+  error naming the sandbox, not a row to create.
+- Durable Sandbox state lives in the `sandboxes` table, including the pod's
+  shape (`branch`, `headless`, `run_as_user_id`) and its access-control pair
+  (`scope`, `owner_user_id`). Every control decision — who may read, who may
+  act, what the pod looks like — comes off that row. A Sandbox with intent at
+  the epoch was never requested, is converged Stopped, and is wakeable.
+- HTTP authorization reads the Sandbox, not the Task: `authorize_task_read` /
+  `authorize_task_control` in `handlers.rs` work from one `TaskIntent`. The one
+  Task-level grant they honour is `visibility = 'public'`, which grants read
+  and never control.
 - `delete_task` requires successful `lifecycle.remove` before deleting the task
   row (enforced in `moatless-tasks`).
 - Completion facts commit before publication. The backend's

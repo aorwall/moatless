@@ -13,7 +13,7 @@ use moatless_types::agent::AgentType;
 
 // The task band's vocabulary surface: call sites keep naming these through
 // `task::models`, which is where a reader of this crate looks for them.
-pub use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+pub use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason, sandbox_intent_epoch};
 pub use moatless_types::task::{CheckoutMode, Task, TaskStatus, Visibility};
 
 /// Default idle TTL in minutes for newly inserted tasks when the caller has no
@@ -27,12 +27,6 @@ pub const DEFAULT_TTL_MINUTES: i32 = 15;
 /// `TASK_INACTIVE_TIMEOUT_DAYS` env-var default and the
 /// `tasks.inactive_ttl_days` column default.
 pub const DEFAULT_INACTIVE_TTL_DAYS: i32 = 7;
-
-/// The timestamp for a Sandbox that has never received durable lifecycle
-/// intent. Every real Message timestamp sorts after this sentinel.
-pub fn sandbox_intent_epoch() -> DateTime<Utc> {
-    DateTime::<Utc>::from(std::time::UNIX_EPOCH)
-}
 
 // =============================================================================
 // Task (DB)
@@ -53,9 +47,10 @@ pub struct TaskRow {
     /// provisioning resolves the repository composition via the workspace;
     /// otherwise it falls back to `repository_id`.
     pub workspace_id: Option<String>,
-    /// Sandbox this task belongs to. A task with no row here has never been
-    /// started; the ordinary first start mints a sandbox whose id equals the
-    /// task id.
+    /// Sandbox this task belongs to. Task creation writes it: a task that joins
+    /// no existing sandbox gets one whose id equals its own. Nullable because
+    /// `tasks_sandbox_id_fkey` is ON DELETE SET NULL, so a task survives the
+    /// removal of its sandbox row.
     pub sandbox_id: Option<String>,
     /// Checkout relationship to other members. `None` is read as shared for
     /// rows predating shared-sandbox membership.

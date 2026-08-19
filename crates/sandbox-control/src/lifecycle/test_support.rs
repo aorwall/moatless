@@ -1,40 +1,86 @@
+// This module compiles only for test builds, so the seeder's `.expect()` calls
+// are test scaffolding.
+#![allow(clippy::expect_used)]
+
 //! Shared seeding for the `db-tests` lifecycle modules.
 //!
-//! One helper so the store, lock, and contract tests share a single task-row
-//! shape instead of three drifting copies.
+//! One helper so the store, lock, and contract tests share a single row shape
+//! instead of three drifting copies.
+//!
+//! The rows a Task and its Sandbox are written with in production come from
+//! `moatless_tasks::task::dao::PgTaskDao::insert_task`, and its own db-tests
+//! assert that shape. What this fixture owes those tests is only enough of it
+//! for the lifecycle SQL here to run: a Sandbox row, a Task that names it, and
+//! the workspace the foreign key requires.
 
 use sqlx::PgPool;
 
-// Re-exported at this path so the lifecycle db-tests keep reaching the seeder as
-// `super::super::test_support::seed_bare_task` — the tasks band now owns it.
-pub(crate) use moatless_tasks::task::test_support::seed_bare_task;
+/// Seed one Task and the Sandbox row task creation writes for it — the shape
+/// before any lifecycle operation: converged Stopped at the intent epoch,
+/// owning no volume.
+pub(crate) async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
+    // tasks.team_id is NOT NULL (no FK); seed a row so the fixture matches the
+    // production shape.
+    sqlx::query(
+        "INSERT INTO teams (id, name, slug) VALUES ('team-x', 'Team X', 'team-x')
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .execute(pool)
+    .await
+    .expect("seed team");
 
-/// Seed a team and one task in the default `open` / `running` shape.
+    // `sandboxes_workspace_id_fkey` is ON DELETE RESTRICT, so the workspace
+    // exists before the Sandbox that names it.
+    sqlx::query(
+        "INSERT INTO workspaces (id, name, scope, team_id, owner_user_id, created_by)
+         VALUES ('ws_repo-x', 'Repo X', 'user', 'team-x', 'user-1', 'user-1')
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .execute(pool)
+    .await
+    .expect("seed workspace");
+
+    sqlx::query(
+        r#"INSERT INTO sandboxes (sandbox_id, workspace_id, scope, owner_user_id,
+               run_as_user_id, agent_type, storage_reclaimed_at)
+           VALUES ($1, 'ws_repo-x', 'user', 'user-1', 'user-1', 'claude-code', NOW())"#,
+    )
+    .bind(task_id)
+    .execute(pool)
+    .await
+    .expect("seed sandbox");
+
+    sqlx::query(
+        r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_type, repository_id,
+               status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id,
+               workspace_id, sandbox_id)
+           VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', $2, 0,
+               'private', 'user', 'team-x', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
+    )
+    .bind(task_id)
+    .bind(status)
+    .execute(pool)
+    .await
+    .expect("seed task");
+}
+
+/// Seed a Task in the default `open` / `running` shape.
 pub(crate) async fn seed_task(pool: &PgPool, task_id: &str) {
     seed_task_with(pool, task_id, "open", "running").await;
 }
 
-/// Seed a team, one task, and its Sandbox row with an explicit status and
-/// desired state. Production is born lazily through lifecycle; the fixture
-/// records the row directly to mirror a Task that has already declared intent.
-///
-/// The bare task/team rows come from the tasks band's seeder (`moatless_tasks`
-/// owns those tables); this layers the sandbox-control band's `sandboxes` row.
+/// Seed a Task, its Sandbox row, and an explicit status and desired state — a
+/// Task that has already declared intent.
 pub(crate) async fn seed_task_with(pool: &PgPool, task_id: &str, status: &str, desired: &str) {
     seed_bare_task(pool, task_id, status).await;
     sqlx::query(
-        r#"INSERT INTO sandboxes (sandbox_id, workspace_id, desired_state, desired_state_updated_at)
-           SELECT $1, COALESCE(workspace_id, 'ws_' || repository_id), $2, NOW()
-           FROM tasks WHERE task_id = $1"#,
+        r#"UPDATE sandboxes
+              SET desired_state = $2, desired_state_updated_at = NOW()
+            WHERE sandbox_id = $1"#,
     )
     .bind(task_id)
     .bind(desired)
     .execute(pool)
     .await
-    .expect("seed sandbox");
-    sqlx::query("UPDATE tasks SET sandbox_id = $1 WHERE task_id = $1")
-        .bind(task_id)
-        .execute(pool)
-        .await
-        .expect("bind task to sandbox");
+    .expect("seed sandbox intent");
 }

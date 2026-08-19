@@ -4,11 +4,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use moatless_backend_core::sandbox::SandboxConnector;
-use moatless_types::access_control::ScopeContext;
 
 use crate::lifecycle::{Lifecycle, LifecycleError, NotifyPort, ObservedStatus};
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::sandbox_waker::SandboxWaker;
+use moatless_backend_core::sandbox::SandboxWaker;
 
 /// Ping a Task's sandbox through the connector so background owners never
 /// construct service names or raw gRPC URLs.
@@ -28,25 +26,19 @@ pub async fn notify_task_over_grpc(connector: &dyn SandboxConnector, task_id: &s
     client.notify_messages_for_task(Some(task_id)).await;
 }
 
-/// Sandbox-control implementation of the tasks-band [`SandboxWaker`] port.
+/// Sandbox-control implementation of the [`SandboxWaker`] port.
 ///
-/// Holds the three ports the wake reads — the task DAO (for the closed-task
-/// guard), the lifecycle orchestrator (to start), and the notification port —
-/// so the wake logic names none of them through `AppState`.
+/// Holds the two ports the wake reads — the lifecycle orchestrator (for the
+/// closed-task guard and the start) and the notification port — so the wake
+/// logic names neither through `AppState`.
 pub struct SandboxWakeService {
-    tasks: Arc<dyn TaskDao>,
     sandbox: Arc<Lifecycle>,
     sandbox_notify: Arc<dyn NotifyPort>,
 }
 
 impl SandboxWakeService {
-    pub fn new(
-        tasks: Arc<dyn TaskDao>,
-        sandbox: Arc<Lifecycle>,
-        sandbox_notify: Arc<dyn NotifyPort>,
-    ) -> Self {
+    pub fn new(sandbox: Arc<Lifecycle>, sandbox_notify: Arc<dyn NotifyPort>) -> Self {
         Self {
-            tasks,
             sandbox,
             sandbox_notify,
         }
@@ -65,11 +57,8 @@ impl SandboxWaker for SandboxWakeService {
         // single backstop against resurrection from every caller (adapter inbound
         // comments, scheduled runs, the UI message handler). `Error` tasks stay
         // resumable to match `start_task`'s recovery semantics.
-        // reason: sandbox wake-up guard checks task status across all owners
-        #[allow(clippy::disallowed_methods)]
-        let sys = ScopeContext::system();
-        match self.tasks.find_by_id(task_id, &sys).await {
-            Ok(Some(task)) if task.status == moatless_types::task::TaskStatus::Closed => {
+        match self.sandbox.intent(task_id).await {
+            Ok(intent) if intent.status == moatless_types::task::TaskStatus::Closed => {
                 tracing::debug!(
                     task_id,
                     "Task is closed — skipping sandbox provision/notify"
@@ -79,7 +68,7 @@ impl SandboxWaker for SandboxWakeService {
             Ok(_) => {}
             Err(e) => {
                 // Fail-open: a DB blip must not silently drop a legitimate wake-up.
-                tracing::warn!(task_id, error = %e, "Failed to fetch task status before sandbox provision; proceeding");
+                tracing::warn!(task_id, error = %e, "Failed to read task status before sandbox provision; proceeding");
             }
         }
 

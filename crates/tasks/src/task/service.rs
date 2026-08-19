@@ -30,7 +30,7 @@ use crate::agent::catalog;
 use crate::credential_sync::CredentialSync;
 use crate::message::send::MessageSendService;
 use moatless_types::task::Visibility;
-use crate::task::sandbox_lifecycle::SandboxLifecycle;
+use moatless_backend_core::sandbox::SandboxLifecycle;
 use moatless_backend_core::access_control::ensure_can_use_repository;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_core::config::Config;
