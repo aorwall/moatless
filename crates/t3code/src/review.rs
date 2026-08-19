@@ -21,15 +21,13 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::dao::ConversationDao;
-use super::ports::{
-    BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource,
-};
+use super::ports::{BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource};
 use super::projection;
 use super::workspace::{self, WorkspaceAccessError};
 use crate::data::T3WorkspaceDao;
 use moatless_api_schemas::repository::{BranchEntry, BranchListResponse};
 use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_grpc_error};
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use sandbox_proto::{GetGitDiffPreviewResponse, GetGitStatusResponse, ListGitRefsResponse};
 
 /// How many refs one page carries when the client does not say, matching the

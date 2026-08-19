@@ -22,7 +22,8 @@ use tracing::{debug, info, warn};
 use moatless_core::config::Config;
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{AdapterConnection, Audience, TaskBinding};
+use moatless_loops::adapters::models::{AdapterConnection, TaskBinding};
+use moatless_types::adapter::Audience;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_loops::loops::dao::LoopDao;
 use moatless_tasks::message::send::MessageSendService;
@@ -152,7 +153,7 @@ pub(super) async fn handle_comment_created(
                 &[],
                 &[],
                 true,
-                moatless_tasks::message::send::ExternalOrigin {
+                moatless_types::task::ExternalOrigin {
                     event_id: Some(&external_event_id),
                     adapter: Some(ADAPTER_LABEL),
                     subject_key: Some(&binding.subject_key),
@@ -255,13 +256,12 @@ fn comment_audience(comment: &CommentPayloadData) -> Audience {
 
 #[cfg(test)]
 mod tests {
+    use moatless_types::adapter::AdapterKind;
     use chrono::Utc;
 
     use super::*;
     use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
-    use crate::subject::{
-        ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND,
-    };
+    use crate::subject::SUBJECT_KIND_SESSION as SUBJECT_KIND;
 
     // ---- Comment routing -------------------------------------------------
     //
@@ -306,7 +306,7 @@ mod tests {
         TaskBinding {
             id: format!("ts_{task_id}"),
             task_id: task_id.to_string(),
-            adapter_kind: ADAPTER.to_string(),
+            adapter_kind: AdapterKind::Linear,
             subject_kind: subject_kind.to_string(),
             subject_key: "issue-1".to_string(),
             connection_id: "pc_1".to_string(),

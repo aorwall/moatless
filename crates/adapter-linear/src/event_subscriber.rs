@@ -29,7 +29,8 @@ use std::sync::Arc;
 
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
-use moatless_events::{AgentSubType, SandboxStatus};
+use moatless_types::agent::AgentSubType;
+use moatless_types::sandbox::SandboxStatus;
 use moatless_loops::adapters::dao::AdapterConnectionDao;
 use moatless_loops::adapters::events::{TaskEventSubscriber, TaskEventSubscribers};
 use moatless_tasks::agent_event::{AgentEvent, EventKey};

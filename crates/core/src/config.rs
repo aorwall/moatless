@@ -8,7 +8,11 @@ use std::env;
 use std::fmt;
 use std::str::FromStr;
 
-use serde::Deserialize;
+use moatless_types::adapter::LinearConfig;
+use moatless_types::agent::CodexOAuthConfig;
+use moatless_types::auth::{AuthConfig, AuthProvider, GitHubAppConfig, OidcConfig};
+use moatless_types::sandbox::SandboxProviderType;
+use moatless_types::secret::SecretsConfig;
 
 /// Default Codex model forwarded to sandbox agents when the deployment does not
 /// override `DEFAULT_CODEX_MODEL`.
@@ -28,83 +32,10 @@ pub fn api_base() -> String {
         .unwrap_or_else(|| DEFAULT_API_BASE.to_string())
 }
 
-/// Which sandbox provider implementation to use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SandboxProviderType {
-    Kubernetes,
-    Docker,
-}
-
-impl fmt::Display for SandboxProviderType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Kubernetes => write!(f, "kubernetes"),
-            Self::Docker => write!(f, "docker"),
-        }
-    }
-}
-
-impl FromStr for SandboxProviderType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "kubernetes" | "k8s" => Ok(Self::Kubernetes),
-            "docker" => Ok(Self::Docker),
-            _ => Err(format!("unknown sandbox provider: {s}")),
-        }
-    }
-}
 
 /// Minimum length accepted for an operator-supplied `ADMIN_PASSWORD`.
 pub const MIN_ADMIN_PASSWORD_LEN: usize = 12;
 
-/// Supported auth providers.
-///
-/// `Local` is the default: email/password against the `user_credentials`
-/// table, with a bootstrap admin seeded at startup. OIDC deployments may keep
-/// a separately enabled break-glass administrator credential.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AuthProvider {
-    #[default]
-    Local,
-    GitHubApp,
-    Auth0,
-    Oidc,
-}
-
-impl fmt::Display for AuthProvider {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Local => write!(f, "local"),
-            Self::GitHubApp => write!(f, "github_app"),
-            Self::Auth0 => write!(f, "auth0"),
-            Self::Oidc => write!(f, "oidc"),
-        }
-    }
-}
-
-impl FromStr for AuthProvider {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "local" => Ok(Self::Local),
-            // Legacy spellings of the removed no-auth mode.
-            "" | "disabled" | "none" => {
-                tracing::warn!(
-                    "AUTH_PROVIDER={s:?} is deprecated and now means local email/password \
-                     auth. Set AUTH_PROVIDER=local (or leave it unset) instead."
-                );
-                Ok(Self::Local)
-            }
-            "github_app" | "github-app" => Ok(Self::GitHubApp),
-            "auth0" => Ok(Self::Auth0),
-            "oidc" => Ok(Self::Oidc),
-            _ => Err(format!("unknown auth provider: {s}")),
-        }
-    }
-}
 
 /// Parse an environment variable with a default fallback.
 /// Logs a warning if the env var is set but cannot be parsed.
@@ -601,212 +532,6 @@ pub struct SseConfig {
     pub consumer_id: String,
 }
 
-/// Authentication and session settings.
-///
-/// Implements a custom `Debug` to redact secrets.
-#[derive(Clone)]
-pub struct AuthConfig {
-    /// Active auth provider. Defaults to [`AuthProvider::Local`]
-    /// (email/password against `user_credentials`).
-    pub provider: AuthProvider,
-    /// Required GitHub organization login. When set, only members of this org can log in.
-    pub github_required_org: Option<String>,
-    /// Auth0 domain (e.g., "myapp.us.auth0.com")
-    pub auth0_domain: Option<String>,
-    /// Auth0 client ID
-    pub auth0_client_id: Option<String>,
-    /// Auth0 client secret
-    pub auth0_client_secret: Option<String>,
-    /// Auth0 callback URL
-    pub auth0_callback_url: Option<String>,
-    /// Auth0 audience
-    pub auth0_audience: Option<String>,
-    /// Auth0 JWT claim key for groups (default: "https://moatless.ai/groups")
-    pub auth0_groups_claim: String,
-    /// Standards-based OpenID Connect provider. Auth0 settings above remain a
-    /// compatibility input and are translated into this representation.
-    pub oidc: Option<OidcConfig>,
-    /// Session max age in seconds (default: 604800 = 7 days)
-    pub session_max_age_secs: u64,
-    /// Hard auth-session lifetime regardless of activity.
-    pub session_absolute_age_secs: u64,
-    /// Frontend URL for redirects (default: "http://localhost:3000")
-    pub frontend_url: String,
-    /// Cookie domain (e.g., ".moatless.xyz"). None for localhost.
-    pub cookie_domain: Option<String>,
-    /// Session cookie name (default: "moatless_session")
-    pub session_cookie_name: String,
-    /// Whether the app is running in production mode (affects cookie Secure flag)
-    pub is_production: bool,
-    /// Login of the bootstrap admin seeded at startup under
-    /// [`AuthProvider::Local`] (env: `ADMIN_USERNAME`, default `"admin"`).
-    pub admin_username: String,
-    /// Email address used by the bootstrap and break-glass administrator.
-    pub admin_email: Option<String>,
-    /// Password for the bootstrap admin (env: `ADMIN_PASSWORD`). When unset a
-    /// random one is generated on first boot and logged once at WARN.
-    pub admin_password: Option<String>,
-    /// Register the unadvertised administrator-only password login route.
-    pub break_glass_enabled: bool,
-    /// Auth cache TTL in seconds (default: 30).
-    pub cache_ttl_secs: u64,
-    /// Secret for signing session JWTs (env: SESSION_JWT_SECRET).
-    /// Falls back to `sandbox.task_token_secret` when not set.
-    pub session_jwt_secret: Option<String>,
-    /// Raw `mvk_`-prefixed API key for a test user auto-created on startup.
-    /// When set, upserts a dedicated `test-api-user` and inserts the API key.
-    /// No OAuth login required.
-    pub test_api_key: Option<String>,
-    /// Default team slug. On login, if a user has no teams and a default team exists, they are added to it.
-    pub default_team_slug: Option<String>,
-
-    // --- GitHub App (user authorization flow) ---
-    /// GitHub App client ID (from App settings, different from OAuth App).
-    pub github_app_client_id: Option<String>,
-    /// GitHub App client secret.
-    pub github_app_client_secret: Option<String>,
-    /// GitHub App OAuth callback URL.
-    pub github_app_callback_url: Option<String>,
-
-    // --- GitHub App (installation token flow) ---
-    /// GitHub App numeric ID.
-    pub github_app_id: Option<u64>,
-    /// PEM-encoded private key for signing App JWTs.
-    pub github_app_private_key: Option<String>,
-    /// Default installation ID for server-to-server operations.
-    pub github_app_default_installation_id: Option<u64>,
-
-    /// Additional GitHub Apps registered as bot identities (e.g. `dev-bot`,
-    /// `review-bot`). Loaded from the `GITHUB_APPS_JSON` env var, which is now
-    /// a one-time upgrade path only: the first start after upgrading copies
-    /// each entry into `github_apps` and the variable is ignored from then on
-    /// (see `GitHubAppRegistry::carry_over_env_apps`). It holds a
-    /// JSON array of [`GitHubAppConfig`] entries. A bot user's
-    /// `provider_tokens` row stores the matching `key` in `provider_user_id`,
-    /// so credential resolution picks the right App.
-    pub github_apps: Vec<GitHubAppConfig>,
-}
-
-#[derive(Clone)]
-pub struct OidcConfig {
-    pub provider_id: String,
-    pub name: String,
-    pub issuer: String,
-    pub client_id: String,
-    pub client_secret: String,
-    pub callback_url: String,
-    pub auto_provision: bool,
-    pub auto_link_verified_email: bool,
-    pub allowed_domains: Vec<String>,
-}
-
-impl fmt::Debug for OidcConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OidcConfig")
-            .field("provider_id", &self.provider_id)
-            .field("name", &self.name)
-            .field("issuer", &self.issuer)
-            .field("client_id", &self.client_id)
-            .field("client_secret", &"[REDACTED]")
-            .field("callback_url", &self.callback_url)
-            .field("auto_provision", &self.auto_provision)
-            .field("auto_link_verified_email", &self.auto_link_verified_email)
-            .field("allowed_domains", &self.allowed_domains)
-            .finish()
-    }
-}
-
-/// One GitHub App registration, used by the `GitHubAppRegistry`.
-#[derive(Clone, Deserialize)]
-pub struct GitHubAppConfig {
-    /// Stable key referenced from loop config (e.g. `"dev-bot"`).
-    pub key: String,
-    /// GitHub App numeric ID.
-    pub app_id: u64,
-    /// PEM-encoded private key for signing App JWTs.
-    pub private_key: String,
-    /// Optional OAuth client id (only required if this App also acts as a
-    /// user-auth provider — bot-only Apps can omit it).
-    #[serde(default)]
-    pub client_id: Option<String>,
-    /// Optional OAuth client secret.
-    #[serde(default)]
-    pub client_secret: Option<String>,
-    /// Optional explicit installation id. When omitted the registry resolves
-    /// the installation per repo owner via the GitHub API.
-    #[serde(default)]
-    pub default_installation_id: Option<u64>,
-}
-
-#[allow(clippy::missing_fields_in_debug)]
-impl fmt::Debug for GitHubAppConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GitHubAppConfig")
-            .field("key", &self.key)
-            .field("app_id", &self.app_id)
-            .field("private_key", &"[REDACTED]")
-            .field("client_id", &self.client_id)
-            .field(
-                "client_secret",
-                &self.client_secret.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("default_installation_id", &self.default_installation_id)
-            .finish()
-    }
-}
-
-#[allow(clippy::missing_fields_in_debug)]
-impl fmt::Debug for AuthConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AuthConfig")
-            .field("provider", &self.provider)
-            .field("auth0_domain", &self.auth0_domain)
-            .field("auth0_client_id", &self.auth0_client_id)
-            .field(
-                "auth0_client_secret",
-                &self.auth0_client_secret.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("auth0_callback_url", &self.auth0_callback_url)
-            .field("oidc", &self.oidc)
-            .field("session_max_age_secs", &self.session_max_age_secs)
-            .field("session_absolute_age_secs", &self.session_absolute_age_secs)
-            .field("frontend_url", &self.frontend_url)
-            .field("cookie_domain", &self.cookie_domain)
-            .field("is_production", &self.is_production)
-            .field("admin_username", &self.admin_username)
-            .field("admin_email", &self.admin_email)
-            .field(
-                "admin_password",
-                &self.admin_password.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("break_glass_enabled", &self.break_glass_enabled)
-            .field(
-                "session_jwt_secret",
-                &self.session_jwt_secret.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field(
-                "test_api_key",
-                &self.test_api_key.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("github_app_client_id", &self.github_app_client_id)
-            .field(
-                "github_app_client_secret",
-                &self.github_app_client_secret.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("github_app_callback_url", &self.github_app_callback_url)
-            .field("github_app_id", &self.github_app_id)
-            .field(
-                "github_app_private_key",
-                &self.github_app_private_key.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field(
-                "github_app_default_installation_id",
-                &self.github_app_default_installation_id,
-            )
-            .field("github_apps", &self.github_apps)
-            .finish()
-    }
-}
 
 /// S3 / file storage settings.
 #[derive(Debug, Clone)]
@@ -899,48 +624,6 @@ impl fmt::Debug for GithubPrConfig {
     }
 }
 
-/// Linear adapter settings.
-///
-/// Implements a custom `Debug` to redact secrets.
-#[derive(Clone)]
-pub struct LinearConfig {
-    /// Global webhook secret for verifying Linear webhook signatures.
-    pub webhook_secret: Option<String>,
-    /// OAuth client_id from the Linear OAuth2 app registration.
-    pub oauth_client_id: Option<String>,
-    /// OAuth client_secret from the Linear OAuth2 app registration.
-    pub oauth_client_secret: Option<String>,
-    /// OAuth redirect_uri registered on the Linear OAuth2 app.
-    pub oauth_callback_url: Option<String>,
-    /// API host every Linear client built by this adapter talks to, GraphQL and
-    /// OAuth token exchange alike. `None` means Linear itself.
-    ///
-    /// This is the Adapter's injection seam: `LinearAgentApi` is constructed
-    /// deep inside webhook and worker paths that hold only an `AppState`, so
-    /// pointing the clients somewhere else has to be something an `AppState`
-    /// carries. A test builds its own, which is why it cannot be a
-    /// process-global. Env: `LINEAR_API_BASE_URL`.
-    pub api_base_url: Option<String>,
-}
-
-#[allow(clippy::missing_fields_in_debug)]
-impl fmt::Debug for LinearConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LinearConfig")
-            .field(
-                "webhook_secret",
-                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("oauth_client_id", &self.oauth_client_id)
-            .field(
-                "oauth_client_secret",
-                &self.oauth_client_secret.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("oauth_callback_url", &self.oauth_callback_url)
-            .field("api_base_url", &self.api_base_url)
-            .finish()
-    }
-}
 
 /// Docker-specific sandbox configuration.
 #[derive(Debug, Clone)]
@@ -984,44 +667,6 @@ pub struct SkillConfig {
     pub cache_ttl_secs: u64,
 }
 
-/// Codex (OpenAI) device-code OAuth configuration.
-///
-/// Defaults reuse the Codex CLI's public client_id so the flow works out of
-/// the box. Override via env vars to register a Moatless-owned OAuth client.
-#[derive(Debug, Clone)]
-pub struct CodexOAuthConfig {
-    /// OAuth issuer base URL (default: `https://auth.openai.com`).
-    pub issuer: String,
-    /// OAuth client_id (default: Codex CLI's `app_EMoamEEZ73f0CkXaXp7hrann`).
-    pub client_id: String,
-}
-
-/// Secrets feature bootstrap configuration.
-///
-/// Implements a custom `Debug` to redact encryption material.
-#[derive(Clone)]
-pub struct SecretsConfig {
-    /// Base64 or raw 32-byte key used by the local envelope cipher.
-    ///
-    /// This is a bootstrap value: it stays outside the database and is only
-    /// used until the deployment is moved to an external KMS-backed cipher.
-    pub encryption_key: Option<String>,
-    /// KMS key identifier or alias recorded on encrypted rows.
-    pub kms_key_id: Option<String>,
-}
-
-#[allow(clippy::missing_fields_in_debug)]
-impl fmt::Debug for SecretsConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SecretsConfig")
-            .field(
-                "encryption_key",
-                &self.encryption_key.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("kms_key_id", &self.kms_key_id)
-            .finish()
-    }
-}
 
 /// OTLP trace export settings (`backend/src/startup.rs::init_tracing`).
 ///

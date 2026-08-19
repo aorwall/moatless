@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, OutboundReply, TaskBinding};
+use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
+use moatless_types::adapter::OutboundReply;
 use moatless_api_schemas::bindings::SendTaskReplyResponse;
 use moatless_api_schemas::message::ReplyToMessageResponse;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use crate::adapters::Adapters;
 use crate::adapters::common::{
@@ -354,7 +355,7 @@ fn select_binding_for_reply<'a>(
     if let Some(sk) = subject_key {
         if let Some(binding) = rows
             .iter()
-            .find(|b| candidates.contains(&b.adapter_kind) && b.subject_key == sk)
+            .find(|b| candidates.iter().any(|c| c == b.adapter_kind.as_str()) && b.subject_key == sk)
         {
             return Some(binding);
         }
@@ -362,7 +363,7 @@ fn select_binding_for_reply<'a>(
 
     let provider_rows: Vec<&TaskBinding> = rows
         .iter()
-        .filter(|b| candidates.contains(&b.adapter_kind))
+        .filter(|b| candidates.iter().any(|c| c == b.adapter_kind.as_str()))
         .collect();
 
     let ingress: Vec<&TaskBinding> = provider_rows
@@ -390,7 +391,7 @@ mod tests {
         TaskBinding {
             id: id.to_string(),
             task_id: "task_1".to_string(),
-            adapter_kind: provider.to_string(),
+            adapter_kind: moatless_adapter_model::models::parse_adapter_kind(provider),
             subject_kind: "slack_thread".to_string(),
             subject_key: subject_key.to_string(),
             connection_id: "conn_1".to_string(),

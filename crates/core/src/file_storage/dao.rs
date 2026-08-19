@@ -37,7 +37,7 @@ impl FileDao for PgFileDao {
         .bind(&row.filename)
         .bind(&row.mime_type)
         .bind(row.size)
-        .bind(row.scope)
+        .bind(row.scope.as_str())
         .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(row.uploaded_at)

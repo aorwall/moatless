@@ -1,4 +1,4 @@
-use moatless_events::{SandboxStatus, ServerSubType};
+use moatless_types::sandbox::{SandboxStatus, ServerSubType};
 
 use moatless_sandbox_control::lifecycle::classify::ObservedTransition;
 
@@ -452,7 +452,7 @@ fn detect_server_transitions(
 
 #[cfg(test)]
 mod tests {
-    use moatless_events::SandboxStatus;
+    use moatless_types::sandbox::SandboxStatus;
 
     use super::super::pod_watcher::ServerContainerState;
     use super::*;

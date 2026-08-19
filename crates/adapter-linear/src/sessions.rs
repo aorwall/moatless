@@ -26,9 +26,7 @@ use tracing::{info, warn};
 use moatless_core::config::Config;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{
-    ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding,
-};
+use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_loops::loops::dao::LoopDao;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
@@ -250,7 +248,7 @@ pub(super) async fn handle_session_prompted(
                 &[],
                 &[],
                 true,
-                moatless_tasks::message::send::ExternalOrigin {
+                moatless_types::task::ExternalOrigin {
                     event_id: Some(&external_event_id),
                     adapter: Some(ADAPTER_LABEL),
                     subject_key: Some(&binding.subject_key),
@@ -356,7 +354,7 @@ async fn provision_session_task(
         Ok(bindings) => bindings
             .into_iter()
             .next()
-            .map(|b| moatless_tasks::task::relations::RelatedTask {
+            .map(|b| moatless_types::task::RelatedTask {
                 related_task_id: b.task_id.clone(),
                 context: serde_json::json!({
                     "via": "linear_session_created",
@@ -482,7 +480,7 @@ async fn provision_session_task(
             &[],
             &[],
             false,
-            moatless_tasks::message::send::ExternalOrigin {
+            moatless_types::task::ExternalOrigin {
                 event_id: Some(&external_event_id),
                 adapter: Some(ADAPTER_LABEL),
                 subject_key: Some(&binding.subject_key),

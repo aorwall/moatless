@@ -182,8 +182,8 @@ impl<'a> AgentPromptBuilder<'a> {
                 &self.task_agent_type,
             )
             .or(model);
-            if row.agent_mode.is_some() {
-                agent_mode = row.agent_mode.as_ref().map(|mode| mode.0.clone());
+            if row.agent_mode_raw.is_some() {
+                agent_mode = row.agent_mode_raw.clone();
             }
             effort = row.effort.clone().or(effort);
             for name in &row.skills {
@@ -793,7 +793,7 @@ mod tests {
                 filename: "report.pdf".to_string(),
                 mime_type: "application/pdf".to_string(),
                 size: 1234,
-                scope: moatless_backend_core::scope::Scope::User,
+                scope: moatless_types::access_control::Scope::User,
                 owner_user_id: Some("user-1".to_string()),
                 created_by: Some("user-1".to_string()),
                 uploaded_at: chrono::Utc::now(),
@@ -826,7 +826,7 @@ mod tests {
                 filename: "x.txt".to_string(),
                 mime_type: "text/plain".to_string(),
                 size: 1,
-                scope: moatless_backend_core::scope::Scope::User,
+                scope: moatless_types::access_control::Scope::User,
                 owner_user_id: Some("user-1".to_string()),
                 created_by: Some("user-1".to_string()),
                 uploaded_at: chrono::Utc::now(),

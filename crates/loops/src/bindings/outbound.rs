@@ -4,9 +4,11 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use moatless_adapter_model::models::{OutboundFile, OutboundReply, TaskBinding};
-use moatless_backend_core::scope::ScopeContext;
-use moatless_core::config::{AuthConfig, S3Config};
+use moatless_adapter_model::models::TaskBinding;
+use moatless_types::adapter::{OutboundFile, OutboundReply};
+use moatless_types::access_control::ScopeContext;
+use moatless_core::config::S3Config;
+use moatless_types::auth::AuthConfig;
 
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
@@ -122,7 +124,7 @@ impl OutboundSender {
             None
         };
 
-        let provider = providers.outbound_for_binding_reply_by_name(&binding.adapter_kind)?;
+        let provider = providers.outbound_for_binding_reply_by_name(binding.adapter_kind.as_str())?;
         let adapter_label = provider.provider_key();
 
         let binding_loop_id = binding.loop_id.as_deref().unwrap_or("");

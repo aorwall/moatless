@@ -6,7 +6,7 @@ use super::catalog::{catalog, AgentEntry};
 use super::schemas::{AgentDescriptor, AgentModel};
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::secret::dao::SecretDao;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 /// Materialize the full catalog with `installed` populated per the given scope.
 pub async fn list_agents(

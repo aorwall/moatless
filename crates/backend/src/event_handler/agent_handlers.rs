@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use moatless_core::events::EventPublisher;
-use moatless_events::{TaskSubType, TaskTurnSubType};
+use moatless_types::task::{TaskSubType, TaskTurnSubType};
 
 use crate::message::models::{MessageRole, MessageType, TaskMessage, TaskMessageContext};
 use crate::message::send::MessageSendService;
@@ -458,9 +458,9 @@ async fn notify_parent_task_of_child_error(
             &[],
             &[],
             true,
-            crate::message::send::ExternalOrigin {
+            moatless_types::task::ExternalOrigin {
                 source_task_id: Some(&event.task_id),
-                ..crate::message::send::ExternalOrigin::none()
+                ..moatless_types::task::ExternalOrigin::none()
             },
             false,
             None,
@@ -514,7 +514,7 @@ pub async fn handle_sandbox_activity(
     coarse_status: &str,
     coarse_is_error: bool,
 ) {
-    let payload: moatless_events::SandboxEventPayload =
+    let payload: moatless_types::sandbox::SandboxEventPayload =
         serde_json::from_value(event.payload.clone()).unwrap_or_default();
     let activity = crate::task_activities::mapping::sandbox_activity(
         &event.event_id,
@@ -692,7 +692,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
 
     // 3. Inherit agent_mode from the last user message (same pattern as result messages)
     let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
-        Ok(Some(user_msg)) => user_msg.agent_mode,
+        Ok(Some(user_msg)) => user_msg.agent_mode(),
         _ => None,
     };
 
@@ -816,7 +816,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         agent_session_id: None,
         will_not_resume: None,
         run_metrics: None,
-        agent_mode,
+        agent_mode_raw: agent_mode.map(|m| m.as_str().to_string()),
         model: None,
         // Effort is a choice on a person's turn; an agent-produced row carries
         // none, and nothing reads one off these rows.

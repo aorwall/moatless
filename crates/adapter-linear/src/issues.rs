@@ -24,15 +24,13 @@ use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{
-    ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch,
-};
+use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_tasks::task::closer::TaskCloser;
 use moatless_tasks::task::creation::TaskCreationService;
 use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task::models::Visibility;
+use moatless_types::task::Visibility;
 use moatless_tasks::task::sandbox_waker::SandboxWaker;
 
 use super::active_turns::ActiveLinearTurns;
@@ -389,7 +387,7 @@ async fn provision_issue_task(
             &[],
             &[],
             false,
-            moatless_tasks::message::send::ExternalOrigin {
+            moatless_types::task::ExternalOrigin {
                 event_id: Some(&external_event_id),
                 adapter: Some(ADAPTER_LABEL),
                 subject_key: Some(&binding.subject_key),
@@ -604,7 +602,7 @@ async fn notify_bindings_of_state_change(
                 &[],
                 &[],
                 true,
-                moatless_tasks::message::send::ExternalOrigin {
+                moatless_types::task::ExternalOrigin {
                     event_id: Some(&external_event_id),
                     adapter: Some(ADAPTER_LABEL),
                     subject_key: Some(&binding.subject_key),
@@ -662,7 +660,7 @@ pub(super) async fn insert_event_task(
     // it as `AccessDenied` so callers can post the reason back to Linear — the
     // service's error event alone stays invisible there because no turn gate is
     // open for a task that never got a binding.
-    let config = moatless_adapter_model::models::subscription_context(rule, ADAPTER_LABEL);
+    let config = moatless_adapter_model::models::subscription_context(rule);
     let outcome = moatless_loops::loops::firing::inbound::create_task_from_loop(
         task_creation,
         &config,

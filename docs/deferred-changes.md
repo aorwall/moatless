@@ -64,6 +64,48 @@ function restores a `5 → 6` edge and, at the loops-band call site, restores
 discriminator against `SetupRequirementCheck`, and the assertions that pin it are
 in `.plans/backend-ports-and-crates.md` under Step 5.
 
+## Layering — types coupled to a transport crate
+
+`moatless-types` holds the shared type definitions. Its `lib.rs` states the rule
+that admits a type: pure data, named by three or more crates other than its
+owner, and neither its body nor its impls name a foreign crate. The crate depends
+on `serde`, `serde_json`, `chrono`, `thiserror`, `tracing`, and optionally
+`utoipa`, and on nothing else — no `sqlx`, no `axum`, no `reqwest`, no `redis`.
+That last constraint is what keeps a change to a transport crate from rebuilding
+everything above it.
+
+Each type below clears the fan-in bar and fails the third clause: one variant or
+one body reaches a transport crate, so moving it would put that crate in
+`moatless-types`.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| `SharedAdapterError` names two transports | `crates/adapter-model/src/error.rs::SharedAdapterError` — `Db(#[from] sqlx::Error)` and `Body(#[from] reqwest::Error)` | When the transport-level variants are split off the domain error, so the domain half names no transport |
+| `GitHostRepo` parses URLs with `reqwest` | `crates/identity/src/git_host_repo.rs::GitHostRepo` — `reqwest::Url::parse` in its own body | When URL parsing moves to the caller, or to a parser that is not a HTTP client |
+| `GitHostTokenError` names the store | `crates/identity/src/git_host_tokens.rs::GitHostTokenError` — `Database(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
+| `AdmitError` names the store | `crates/loops/src/adapters/delivery/models.rs::AdmitError` — `Store(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
+| `TaskCreationError` names the store | `crates/tasks/src/task/creation.rs::TaskCreationError` — `Db(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
+| `CredentialError` names the store | `crates/workspaces/src/credentials/error.rs::CredentialError` — `Database(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
+
+A type named by only one or two crates other than its owner is that subsystem's
+vocabulary and stays with the subsystem — `sandbox-control`'s lifecycle types go
+to `sandbox-k8s` and `sandbox-docker` and nowhere else. Row types stay with their
+DAO for the same reason the six above stay put: a `sqlx::FromRow` derive is a
+persistence detail, not a shared definition.
+
+## Domain models still carrying a persistence shape
+
+Each entity below has its domain model separated from its row, except for the
+one field named. The fix is known in every case; what stops it is stated.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A Message's timestamp is text on the wire | `crates/tasks/src/message/models.rs::TaskMessage::timestamp` — a `text` column, `ORDER BY m.timestamp, m.id`, and the map key in `message/transform.rs` | When the frontend is confirmed to accept `to_rfc3339()`'s `+00:00` form in place of the stored `…Z` with milliseconds, and the ordering key is proven stable across the change |
+| A Message's agent mode is read through an accessor | `crates/tasks/src/message/models.rs::TaskMessage::agent_mode_raw` and `TaskMessage::agent_mode` | When `TaskMessage` needs a row twin for another reason — the sqlx derive cannot decode `Option<AgentMode>` (the orphan rule blocks `impl TryFrom<Option<String>> for Option<AgentMode>`), so today the fix costs a fifty-field mapping for one field |
+| A Binding's origin is an open string | `crates/types/src/adapter.rs::TaskBinding::origin`, against `ADAPTER_EVENT_BINDING_ORIGIN` and its two siblings in `crates/adapter-model/src/models.rs` | When the legal set is settled: the three declared constants are not the whole set — `bindings/handlers.rs` writes `"api"` and the Linear delivery tests write `"provider_event"` |
+| A Binding's `subject_kind` and a connection's `connection_kind` are open strings | `crates/types/src/adapter.rs::TaskBinding::subject_kind`, `AdapterConnection::connection_kind` | Same as `origin`: each Adapter declares its own values and no enumeration exists |
+| `User` and `TeamMember` cannot reach `moatless-types` | `crates/identity/src/auth/users.rs::User`, `crates/identity/src/team/models.rs::TeamMember` — both key on `uuid::Uuid` | When `uuid` is admitted to the `moatless-types` dependency list. It is pure data in the same class as `chrono`, so this is a decision about the closed list, not a technical block |
+
 ## Correctness
 
 Two defects found by reading, both real, neither urgent enough to have been fixed

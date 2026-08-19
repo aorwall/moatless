@@ -5,10 +5,10 @@
 //! the migration both go through it, so the two cannot drift into two different
 //! answers for the same block.
 
-use moatless_events::SandboxEventPayload;
+use moatless_types::sandbox::SandboxEventPayload;
 use serde_json::{Map, Value, json};
 
-use moatless_backend_core::models::MessageType;
+use moatless_types::message::MessageType;
 
 /// What the writer already knows about a block before it decides anything.
 #[derive(Debug, Clone, Copy)]

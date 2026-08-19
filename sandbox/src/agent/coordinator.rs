@@ -45,7 +45,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::agent::harness::content::CanonicalContentBlock;
-use moatless_events::{AgentSubType, SandboxStatus, TaskTurnSubType};
+use moatless_types::agent::AgentSubType;
+use moatless_types::sandbox::SandboxStatus;
+use moatless_types::task::TaskTurnSubType;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio_util::sync::CancellationToken;

@@ -6,11 +6,11 @@
 
 use std::sync::Arc;
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use crate::auto_provision::{build_provision_request, get_server_configs_for_task};
 use crate::models::ProvisionRequest;
-use moatless_backend_core::run_config::ServerConfig;
+use moatless_types::workspace::ServerConfig;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::users::UserDao;
 use moatless_tasks::task::dao::TaskDao;

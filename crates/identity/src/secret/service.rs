@@ -10,17 +10,13 @@ use base64::Engine;
 use super::audit::{SecretAuditDao, SecretAuditInput};
 use super::dao::{SecretDao, SecretInsert, SecretReplace};
 use super::error::SecretError;
-use super::models::{
-    EncryptedSecretValue, ResolvedSecret, SecretKind, SecretRecord, is_reserved_key,
-    is_valid_secret_key,
-};
-use super::schemas::{
-    PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, ValidateSecretsRequest,
-    ValidateSecretsResponse, scope_from_wire,
-};
-use moatless_backend_core::access_control::{AccessControlError, resolve_scope_for_create};
-use moatless_backend_core::scope::{Scope, ScopeContext};
-use moatless_core::config::SecretsConfig;
+use moatless_types::secret::SecretKind;
+use super::models::{EncryptedSecretValue, ResolvedSecret, SecretRecord, is_reserved_key, is_valid_secret_key};
+use super::schemas::{PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, ValidateSecretsRequest, ValidateSecretsResponse};
+use moatless_backend_core::access_control::resolve_scope_for_create;
+use moatless_types::access_control::AccessControlError;
+use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::secret::SecretsConfig;
 
 const ENCRYPTION_VERSION: i32 = 1;
 const NONCE_LEN: usize = 12;
@@ -257,7 +253,7 @@ impl SecretService {
         actor_id: &str,
         req: PutSecretRequest,
     ) -> Result<SecretMetadataResponse, SecretError> {
-        let resolved = resolve_scope_for_create(ctx, req.scope.map(scope_from_wire))
+        let resolved = resolve_scope_for_create(ctx, req.scope)
             .map_err(map_access_control_error)?;
         validate_secret_shape(&req.key, req.value.as_ref(), req.external_ref.as_ref())?;
 
@@ -414,7 +410,7 @@ impl SecretService {
         ctx: &ScopeContext,
         req: ValidateSecretsRequest,
     ) -> Result<ValidateSecretsResponse, SecretError> {
-        let resolved = resolve_scope_for_create(ctx, req.scope.map(scope_from_wire))
+        let resolved = resolve_scope_for_create(ctx, req.scope)
             .map_err(map_access_control_error)?;
         // list() with access_filter already limits to rows the caller may read.
         let records = self

@@ -4,9 +4,9 @@
 use tracing::warn;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{
-    AdapterConnection, BindingContext, LoopContext, OutboundReply, SubscriptionMatch, TaskBinding,
-};
+use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::{BindingContext, OutboundReply};
+use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{
     AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
     DestinationPostResult,
@@ -83,24 +83,24 @@ impl AdapterBindingReply for SlackAdapter {
                     .to_string(),
                 source_name: None,
                 repository_id: String::new(),
-                routing_mode: moatless_loops::adapters::models::RoutingMode::BySubject,
+                routing_mode: moatless_types::loops::RoutingMode::BySubject,
                 prompt_template: None,
                 active: true,
                 allow_direct_send: false,
                 adapter_config: None,
                 ongoing_task_id: None,
-                scope: moatless_backend_core::scope::Scope::Global,
+                scope: moatless_types::access_control::Scope::Global,
                 task_name: None,
                 tag_ids: vec![],
                 skills: Vec::new(),
                 run_as_user_id: None,
-                agent_type: "claude-code".to_string(),
+                agent_type: "claude-code".into(),
                 inactive_ttl_days: None,
                 created_by: "system".to_string(),
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
             },
-            |r| moatless_adapter_model::models::subscription_context(r, "slack"),
+            moatless_adapter_model::models::subscription_context,
         );
         let coordinates = subject::thread_coordinates(&thread.destination_config);
         let channel = coordinates.channel.ok_or_else(|| {
@@ -188,14 +188,13 @@ impl AdapterDirectMessage for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use moatless_loops::adapters::models::{
-        BindingContext, LoopContext, OutboundFile, OutboundReply, RoutingMode,
-    };
+    use moatless_types::adapter::{BindingContext, OutboundFile, OutboundReply};
+    use moatless_types::loops::{LoopContext, RoutingMode};
     use moatless_loops::adapters::test_support::ProviderStub;
     use moatless_loops::adapters::{
         AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage,
     };
-    use moatless_backend_core::scope::Scope;
+    use moatless_types::access_control::Scope;
 
     use crate::adapter::SlackAdapter;
     use crate::api::SlackApi;
@@ -258,7 +257,7 @@ mod tests {
         let now = chrono::Utc::now();
         LoopContext {
             id: "tt_1".into(),
-            adapter_kind: "slack".into(),
+            adapter_kind: "slack".to_string(),
             source_id: source_id.into(),
             source_name: None,
             repository_id: "repo-1".into(),

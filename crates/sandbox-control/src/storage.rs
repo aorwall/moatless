@@ -101,7 +101,7 @@ pub fn sandbox_key(prefix: &str, task_id: &str) -> String {
 mod tests {
     use super::*;
     use crate::models::RepoConfig;
-    use moatless_backend_core::run_config::ResourceConfig;
+    use moatless_types::workspace::ResourceConfig;
 
     /// Build a minimal plan whose repo sets each switch independently, so
     /// per-field default resolution can be exercised in isolation.

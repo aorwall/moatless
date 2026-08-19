@@ -16,10 +16,11 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::secret::service::SecretService;
 use crate::setup::{SetupContext, evaluate_setup};
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_backend_core::scope::ScopeContext;
-use moatless_core::config::{AuthProvider, Config};
+use moatless_types::access_control::ScopeContext;
+use moatless_core::config::Config;
+use moatless_types::auth::AuthProvider;
 use moatless_core::db::DbPool;
-use moatless_core::error::ErrorBody;
+use moatless_api_schemas::error::ErrorBody;
 
 use super::api_key;
 use super::api_keys::ApiKeyDao;
@@ -29,7 +30,7 @@ use super::error::AuthError;
 use super::github::registry::GitHubAppRegistry;
 use super::github::service::GitHubAppService;
 use super::identity::AuthIdentity;
-use super::models::UserRole;
+use moatless_types::user::UserRole;
 use super::oauth::provider::OAuthProvider;
 use super::oidc::OidcService;
 use super::provider_token_dao::ProviderTokenDao;
@@ -40,14 +41,7 @@ use super::pairing::DevicePairing;
 use super::password::dao::UserCredentialDao;
 use super::password::hash;
 use super::password::throttle::LoginThrottle;
-use super::schemas::{
-    AdminResetPasswordRequest, AdminUpdateUserRequest, ApiKeyCreateResponse, ApiKeyListItem,
-    AuthMode, AuthModeResponse, ChangePasswordRequest, CliLoginQuery, CreateApiKeyRequest,
-    CreatePairingCodeRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
-    OAuthCallbackQuery, PairingCodeResponse, PasswordLoginRequest, ProviderConnection,
-    SessionResponse, TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem,
-    UserListResponse, format_datetime, format_datetime_opt, user_role_from_wire, user_role_to_wire,
-};
+use super::schemas::{AdminResetPasswordRequest, AdminUpdateUserRequest, ApiKeyCreateResponse, ApiKeyListItem, AuthMode, AuthModeResponse, ChangePasswordRequest, CliLoginQuery, CreateApiKeyRequest, CreatePairingCodeRequest, CreateUserRequest, CreateUserResponse, MessageResponse, OAuthCallbackQuery, PairingCodeResponse, PasswordLoginRequest, ProviderConnection, SessionResponse, TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem, UserListResponse, format_datetime, format_datetime_opt};
 use super::session;
 use super::session::IssuedAuthSession;
 use super::sessions::SessionDao;
@@ -470,7 +464,7 @@ async fn password_login_handler(
                 name: user.name,
                 avatar_url: user.avatar_url,
                 provider: "local".to_string(),
-                role: user_role_to_wire(user.role),
+                role: user.role,
             }),
             expires_at: Some(format_datetime(expires_at)),
             providers: Vec::new(),
@@ -685,7 +679,7 @@ async fn create_local_user(
         )));
     }
 
-    let role = req.role.map_or(UserRole::User, user_role_from_wire);
+    let role = req.role.unwrap_or(UserRole::User);
     // The internal id is a uuid; the `local:<login>` handle is preserved as the
     // provider identity so it resolves back to this uuid.
     let provider_user_id = format!("local:{email}");
@@ -712,7 +706,7 @@ async fn create_local_user(
     .bind(&email)
     .bind(login)
     .bind(&provider_user_id)
-    .bind(role)
+    .bind(role.as_str())
     .bind(now)
     .execute(&mut *tx)
     .await?;
@@ -997,7 +991,7 @@ async fn me_handler(
             name: user.name,
             avatar_url: user.avatar_url,
             provider: identity.provider,
-            role: user_role_to_wire(identity.role),
+            role: identity.role,
         }),
         expires_at: None,
         providers,
@@ -1105,7 +1099,7 @@ async fn check_github_connection(state: &AuthState, user_id: &str) -> Option<Pro
     if state.github_app_service.is_some() {
         match state
             .git_host_tokens
-            .github_is_usable(&crate::auth::actor::Actor::of(user_id))
+            .github_is_usable(&moatless_types::access_control::Actor::of(user_id))
             .await
         {
             Ok(()) => Some(ProviderConnection {
@@ -1174,7 +1168,7 @@ async fn update_me_handler(
             name: user.name,
             avatar_url: user.avatar_url,
             provider: claims.provider,
-            role: user_role_to_wire(role),
+            role,
         }),
         expires_at: Some(format_datetime(claims.expires_at)),
         providers: Vec::new(),
@@ -1763,7 +1757,7 @@ async fn exchange_api_key_handler(
             name: user.name,
             avatar_url: user.avatar_url,
             provider: "api-key".to_string(),
-            role: user_role_to_wire(user.role),
+            role: user.role,
         }),
         expires_at: None,
         providers: Vec::new(),
@@ -1844,7 +1838,7 @@ async fn exchange_token_handler(
             name: user.name,
             avatar_url: user.avatar_url,
             provider: "token".to_string(),
-            role: user_role_to_wire(user.role),
+            role: user.role,
         },
         expires_at: format_datetime(expires_at),
     };
@@ -2113,7 +2107,7 @@ async fn create_user_handler(
     .bind::<Option<String>>(None)
     .bind("github_app")
     .bind(&provider_user_id)
-    .bind(UserRole::User)
+    .bind(UserRole::User.as_str())
     .bind(now)
     .bind(now)
     .bind(true)
@@ -2211,7 +2205,7 @@ async fn list_users_handler(
             name: u.name.clone(),
             avatar_url: u.avatar_url.clone(),
             provider: u.provider.clone(),
-            role: user_role_to_wire(u.role),
+            role: u.role,
             created_at: format_datetime(u.created_at),
             last_login_at: format_datetime(u.last_login_at),
             is_bot: u.is_bot,
@@ -2267,7 +2261,7 @@ async fn update_user_handler(
             &user_id,
             body.name.clone(),
             body.email.clone(),
-            body.role.map(user_role_from_wire),
+            body.role,
         )
         .await?
         .ok_or_else(|| AuthError::NotFound(format!("User '{login}' not found")))?;
@@ -2285,7 +2279,7 @@ async fn update_user_handler(
         name: user.name,
         avatar_url: user.avatar_url,
         provider: user.provider,
-        role: user_role_to_wire(user.role),
+        role: user.role,
     }))
 }
 
@@ -2521,7 +2515,7 @@ async fn linear_callback_handler(
         id: existing
             .as_ref()
             .map_or_else(|| format!("pc_{}", uuid::Uuid::new_v4()), |c| c.id.clone()),
-        adapter_kind: "linear".to_string(),
+        adapter_kind: moatless_types::adapter::AdapterKind::Linear,
         connection_kind: "workspace".to_string(),
         scope_value: identity.organization_id.clone(),
         credential_ref: None,
@@ -2532,7 +2526,7 @@ async fn linear_callback_handler(
             .map_or_else(|| "system".to_string(), |c| c.created_by.clone()),
         scope: existing
             .as_ref()
-            .map_or(moatless_backend_core::scope::Scope::Global, |c| c.scope),
+            .map_or(moatless_types::access_control::Scope::Global, |c| c.scope),
         owner_user_id: existing.as_ref().and_then(|c| c.owner_user_id.clone()),
         created_at: existing.as_ref().map_or(now, |c| c.created_at),
         updated_at: now,
@@ -2540,7 +2534,7 @@ async fn linear_callback_handler(
     // reason: OAuth install callback has no user session; the workspace
     // connection is a global admin-managed row.
     #[allow(clippy::disallowed_methods)]
-    let sys_ctx = moatless_backend_core::scope::ScopeContext::system();
+    let sys_ctx = moatless_types::access_control::ScopeContext::system();
     conn_repo
         .upsert(&connection_row, &sys_ctx)
         .await

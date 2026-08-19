@@ -7,7 +7,7 @@
 //! desired Running (the convergence event). Everything else that matches
 //! desired state is an echo of something lifecycle already announced.
 
-use moatless_backend_core::models::SandboxDesiredState;
+use moatless_types::sandbox::SandboxDesiredState;
 
 use super::types::{CorrelationMarker, OperationGeneration};
 
@@ -194,7 +194,7 @@ mod tests {
     use super::ObservedTransition as T;
     use super::*;
     use chrono::{TimeZone, Utc};
-    use moatless_backend_core::models::SandboxDesiredState as D;
+    use moatless_types::sandbox::SandboxDesiredState as D;
 
     use crate::lifecycle::types::OperationKind;
 

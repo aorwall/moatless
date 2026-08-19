@@ -15,14 +15,11 @@ use axum::extract::{Path, Query, State};
 use futures::stream::{self, StreamExt};
 
 use moatless_api_schemas::task::PaginationResponse;
-use moatless_api_schemas::task_connections::{
-    Connection, GetTaskConnectionsQuery, ListTaskConnectionsQuery, TaskConnectionRow,
-    TaskConnectionsResponse,
-};
-use moatless_backend_core::models::TaskStatus;
-use moatless_tasks::task::schemas::{adapter_kind_to_wire, task_status_to_wire};
+use moatless_api_schemas::task_connections::{Connection, GetTaskConnectionsQuery, ListTaskConnectionsQuery, TaskConnectionRow, TaskConnectionsResponse};
+use moatless_types::task::TaskStatus;
 
-use moatless_adapter_model::models::{ExternalStatus, TaskBinding};
+use moatless_adapter_model::models::TaskBinding;
+use moatless_types::adapter::ExternalStatus;
 
 use crate::adapters::{AdapterBindingStatus, Adapters};
 use crate::auth::users::UserDao;
@@ -49,7 +46,7 @@ const REFRESH_CONCURRENCY: usize = 8;
     params(ListTaskConnectionsQuery),
     responses(
         (status = 200, description = "Tasks with their external connections", body = TaskConnectionsResponse),
-        (status = 403, description = "Admin role required", body = moatless_core::error::ErrorBody)
+        (status = 403, description = "Admin role required", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[expect(
@@ -182,7 +179,7 @@ pub async fn list_task_connections(
                 .iter()
                 .map(|b| {
                     decode_connection(
-                        binding_status_for(adapters.as_ref(), &b.adapter_kind),
+                        binding_status_for(adapters.as_ref(), b.adapter_kind.as_str()),
                         b,
                         &count_by_binding,
                     )
@@ -197,7 +194,7 @@ pub async fn list_task_connections(
                     .clone()
                     .or_else(|| task.short_id.clone())
                     .unwrap_or_else(|| task.task_id.clone()),
-                status: task_status_to_wire(task.status),
+                status: task.status,
                 repository_name: repo_names.get(&task.repository_id).cloned(),
                 owner: task
                     .created_by
@@ -234,7 +231,7 @@ pub async fn list_task_connections(
     ),
     responses(
         (status = 200, description = "The task's external connections", body = Vec<Connection>),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_task_connections(
@@ -291,7 +288,7 @@ pub async fn get_task_connections(
         .iter()
         .map(|b| {
             decode_connection(
-                binding_status_for(adapters.as_ref(), &b.adapter_kind),
+                binding_status_for(adapters.as_ref(), b.adapter_kind.as_str()),
                 b,
                 &count_by_binding,
             )
@@ -329,7 +326,7 @@ async fn refresh_stale_statuses(
         .iter()
         .filter(|b| {
             adapters
-                .binding_status_by_name(&b.adapter_kind)
+                .binding_status_by_name(b.adapter_kind.as_str())
                 .is_some_and(|status| status_service::should_refresh(status, b, cutoff))
         })
         .cloned()
@@ -417,7 +414,7 @@ fn match_counts(
     let mut bindings_by_adapter: HashMap<&str, Vec<&TaskBinding>> = HashMap::new();
     for b in task_bindings {
         bindings_by_adapter
-            .entry(normalize_adapter(&b.adapter_kind))
+            .entry(normalize_adapter(b.adapter_kind.as_str()))
             .or_default()
             .push(b);
     }
@@ -483,9 +480,7 @@ fn decode_connection(
 
     Connection {
         binding_id: b.id.clone(),
-        adapter_kind: adapter_kind_to_wire(crate::adapters::common::parse_adapter_kind(
-            &b.adapter_kind,
-        )),
+        adapter_kind: b.adapter_kind,
         kind: connection_kind(&b.subject_kind),
         label,
         url,
@@ -537,7 +532,7 @@ mod tests {
         TaskBinding {
             id: id.to_string(),
             task_id: "task_1".to_string(),
-            adapter_kind: provider.to_string(),
+            adapter_kind: crate::adapters::common::parse_adapter_kind(provider),
             subject_kind: subject_kind.to_string(),
             subject_key: subject_key.to_string(),
             connection_id: "conn_1".to_string(),

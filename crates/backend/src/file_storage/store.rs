@@ -8,8 +8,9 @@
 //! its creator — is decided once, and both are readable afterwards through
 //! `GET /api/v1/uploads/{file_id}`.
 
-use moatless_backend_core::access_control::{AccessControlError, resolve_scope_for_create};
-use moatless_backend_core::scope::{Scope, ScopeContext};
+use moatless_backend_core::access_control::resolve_scope_for_create;
+use moatless_types::access_control::AccessControlError;
+use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_core::config::S3Config;
 
 use super::dao::FileDao;

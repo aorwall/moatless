@@ -1,11 +1,10 @@
-pub use crate::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+pub use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+pub use moatless_types::task::TaskStatus;
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use serde::Serialize;
 
-pub use moatless_events::{
-    AgentStatus, LiveStatus, SandboxStatus, ServerCapabilities, ServerEntry, ServerStatus,
-};
+pub use moatless_types::sandbox::{AgentStatus, LiveStatus, SandboxStatus, ServerCapabilities, ServerEntry, ServerStatus};
 pub use sandbox_proto::client::{ClientError, SandboxClient, ServerOverride};
 
 /// Which container runtime a sandbox is running on.

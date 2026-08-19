@@ -22,10 +22,10 @@
 use super::dao::ConversationDao;
 use super::projection;
 use chrono::{DateTime, Utc};
-use moatless_backend_core::models::SandboxDesiredState;
+use moatless_types::sandbox::SandboxDesiredState;
 use moatless_backend_core::sandbox::SandboxError;
-use moatless_backend_core::scope::Scope;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::Scope;
+use moatless_types::access_control::ScopeContext;
 use serde_json::Value;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -48,6 +48,7 @@ pub struct WorkspaceView {
     pub source_repository_id: Option<String>,
     pub source_key: Option<String>,
     pub source_config_path: Option<String>,
+    #[sqlx(try_from = "String")]
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_by: Option<String>,
@@ -164,7 +165,7 @@ pub async fn addressed_conversation(
         .into_iter()
         .next()
         .ok_or(WorkspaceAccessError::Unaddressable)?;
-    match conversation.sandbox_desired_state {
+    match conversation.sandbox_desired_state() {
         Some(SandboxDesiredState::Running | SandboxDesiredState::Stopped) => {
             Ok(conversation.task_id)
         }

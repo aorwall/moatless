@@ -31,7 +31,8 @@ use moatless_backend::adapter_apps::dao::{
 };
 use moatless_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_backend::auth::github::service::GitHubAppService;
-use moatless_core::config::{GitHubAppConfig, SecretsConfig};
+use moatless_types::auth::GitHubAppConfig;
+use moatless_types::secret::SecretsConfig;
 use moatless_backend::secret::service::{LocalEnvelopeSecretCipher, SecretCipher};
 use sqlx::PgPool;
 

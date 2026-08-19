@@ -7,7 +7,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use moatless_events::{EventType, MessageSubType};
+use moatless_types::event::EventType;
+use moatless_types::message::MessageSubType;
 use serde_json::json;
 use tracing::{debug, warn};
 

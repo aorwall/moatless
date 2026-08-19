@@ -4,7 +4,8 @@ use moatless_identity::git_host_repo::GitHostRepo;
 use tracing::warn;
 
 use moatless_loops::adapters::AdapterBindingStatus;
-use moatless_loops::adapters::models::{ExternalStatus, TaskBinding};
+use moatless_loops::adapters::models::TaskBinding;
+use moatless_types::adapter::ExternalStatus;
 use std::sync::Arc;
 
 use moatless_tasks::task::binding_dao::TaskBindingDao;
@@ -250,6 +251,7 @@ impl AdapterBindingStatus for GithubPrAdapter {
 
 #[cfg(test)]
 mod tests {
+    use moatless_types::adapter::AdapterKind;
     use std::sync::Arc;
 
     use axum::http::{Method, StatusCode};
@@ -263,7 +265,7 @@ mod tests {
         TaskBinding {
             id: "b1".into(),
             task_id: "t1".into(),
-            adapter_kind: "github".into(),
+            adapter_kind: AdapterKind::Github,
             subject_kind: "github_pr".into(),
             subject_key: "acme/web#7".into(),
             connection_id: "c1".into(),

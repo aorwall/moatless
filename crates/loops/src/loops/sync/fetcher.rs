@@ -15,7 +15,7 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use super::error::LoopError;
-use moatless_api_schemas::enums::RepositoryProvider;
+use moatless_types::repository::RepositoryProvider;
 use moatless_identity::git_host_repo::GitHostRepo;
 
 /// Repo-relative directory that holds committed loops.

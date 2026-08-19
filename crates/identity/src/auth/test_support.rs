@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
 use super::provider_token_dao::ProviderTokenDao;
-use crate::auth::codex_scope::CodexScope;
+use moatless_types::agent::CodexScope;
 
 /// Canned `provider_tokens` rows at each scope. Writes are accepted and
 /// dropped. Reads honour the same `user > global` precedence as

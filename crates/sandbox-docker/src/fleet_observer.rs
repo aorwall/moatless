@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use moatless_backend_core::models::{SandboxDesiredState, TaskStatus};
+use moatless_types::sandbox::SandboxDesiredState;
+use moatless_types::task::TaskStatus;
 use moatless_sandbox_control::lifecycle::convergence::SandboxObservedStatus;
 use moatless_sandbox_control::lifecycle::observe::confirm;
 use moatless_sandbox_control::lifecycle::reconciler::{

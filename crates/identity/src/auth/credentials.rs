@@ -5,10 +5,10 @@
 //! token it covered.
 
 use crate::secret::error::SecretError;
-use crate::secret::models::SecretKind;
+use moatless_types::secret::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::SecretService;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 /// Key of the internal secret holding a GitHub App user's original access
 /// token while a PAT override is active, so removing the override can restore

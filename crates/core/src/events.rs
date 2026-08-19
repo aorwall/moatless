@@ -11,10 +11,10 @@
 //! ```
 
 use async_trait::async_trait;
-use moatless_events::{
-    AgentSubType, EventType, SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
-    StreamEvent, SubType, TaskSubType, TaskTurnSubType,
-};
+use moatless_types::agent::AgentSubType;
+use moatless_types::event::{EventType, StreamEvent, SubType};
+use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType};
+use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -716,7 +716,7 @@ impl EventPublisher for RedisEventPublisher {
 #[cfg(test)]
 mod tests {
     use super::{encode_for_stream, reconnect_backoff_delay, MAX_REDIS_PAYLOAD_BYTES};
-    use moatless_events::{EventType, StreamEvent};
+    use moatless_types::event::{EventType, StreamEvent};
 
     fn event_with_payload_bytes(n: usize) -> StreamEvent {
         StreamEvent {

@@ -3,8 +3,13 @@
 use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
-use super::models::{Workspace, WorkspaceRepo};
-use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
+use std::collections::HashMap;
+
+use super::models::{
+    encode_column, ListedWorkspaceRow, ResourceConfig, ScriptConfig, ServerConfig, Workspace,
+    WorkspaceKind, WorkspaceRepo, WorkspaceRepoRow, WorkspaceRow, WorkspaceSource,
+};
+use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 use moatless_core::db::DbPool;
 
 const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR \
@@ -23,11 +28,21 @@ const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR 
 ///
 /// The flag is evaluated by the same access filter the `WHERE` clause is built
 /// from, in the same statement, so the two cannot drift.
-#[derive(sqlx::FromRow, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct ListedWorkspace {
-    #[sqlx(flatten)]
     pub workspace: Workspace,
     pub readable: bool,
+}
+
+impl TryFrom<ListedWorkspaceRow> for ListedWorkspace {
+    type Error = sqlx::Error;
+
+    fn try_from(row: ListedWorkspaceRow) -> Result<Self, Self::Error> {
+        Ok(Self {
+            workspace: Workspace::try_from(row.workspace)?,
+            readable: row.readable,
+        })
+    }
 }
 
 /// Patch struct for partial workspace updates. Outer `Option` = "field present
@@ -36,7 +51,7 @@ pub struct ListedWorkspace {
 pub struct WorkspacePatch {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
-    pub kind: Option<String>,
+    pub kind: Option<WorkspaceKind>,
     pub scope: Option<Scope>,
     pub owner_user_id: Option<Option<String>>,
     pub run_as_user_id: Option<Option<String>>,
@@ -44,13 +59,13 @@ pub struct WorkspacePatch {
     pub docker_access: Option<Option<bool>>,
     pub sandbox_service_account: Option<Option<String>>,
     pub system_prompt: Option<Option<String>>,
-    pub setup_commands: Option<Option<serde_json::Value>>,
-    pub env_vars: Option<Option<serde_json::Value>>,
-    pub servers: Option<Option<serde_json::Value>>,
-    pub scripts: Option<Option<serde_json::Value>>,
-    pub resources: Option<Option<serde_json::Value>>,
+    pub setup_commands: Option<Option<Vec<String>>>,
+    pub env_vars: Option<Option<HashMap<String, String>>>,
+    pub servers: Option<Option<Vec<ServerConfig>>>,
+    pub scripts: Option<Option<Vec<ScriptConfig>>>,
+    pub resources: Option<Option<ResourceConfig>>,
     pub network_profile: Option<Option<String>>,
-    pub source: Option<String>,
+    pub source: Option<WorkspaceSource>,
     pub source_repository_id: Option<Option<String>>,
     pub source_key: Option<Option<String>>,
     pub source_config_path: Option<Option<String>>,
@@ -193,30 +208,32 @@ impl WorkspaceDao for PgWorkspaceDao {
              AND {}",
             access.sql()
         );
-        sqlx::query_as::<_, Workspace>(AssertSqlSafe(sql))
+        let row: Option<WorkspaceRow> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_optional(&self.0)
-            .await
+            .await?;
+        row.map(Workspace::try_from).transpose()
     }
 
     async fn find_repos(&self, workspace_id: &str) -> Result<Vec<WorkspaceRepo>, sqlx::Error> {
-        sqlx::query_as::<_, WorkspaceRepo>(
+        let rows: Vec<WorkspaceRepoRow> = sqlx::query_as(
             r#"SELECT * FROM workspace_repos
                WHERE workspace_id = $1
                ORDER BY is_primary DESC, position ASC, id ASC"#,
         )
         .bind(workspace_id)
         .fetch_all(&self.0)
-        .await
+        .await?;
+        Ok(rows.into_iter().map(WorkspaceRepo::from).collect())
     }
 
     async fn find_primary_repo(
         &self,
         workspace_id: &str,
     ) -> Result<Option<WorkspaceRepo>, sqlx::Error> {
-        sqlx::query_as::<_, WorkspaceRepo>(
+        let row: Option<WorkspaceRepoRow> = sqlx::query_as(
             r#"SELECT * FROM workspace_repos
                WHERE workspace_id = $1
                ORDER BY is_primary DESC, position ASC, id ASC
@@ -224,7 +241,8 @@ impl WorkspaceDao for PgWorkspaceDao {
         )
         .bind(workspace_id)
         .fetch_optional(&self.0)
-        .await
+        .await?;
+        Ok(row.map(WorkspaceRepo::from))
     }
 
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error> {
@@ -243,22 +261,22 @@ impl WorkspaceDao for PgWorkspaceDao {
         .bind(&row.id)
         .bind(&row.name)
         .bind(&row.description)
-        .bind(&row.kind)
+        .bind(row.kind.as_str())
         .bind(&row.docker_image)
         .bind(row.docker_access)
         .bind(&row.sandbox_service_account)
         .bind(&row.system_prompt)
-        .bind(&row.setup_commands)
-        .bind(&row.env_vars)
-        .bind(&row.servers)
-        .bind(&row.scripts)
-        .bind(&row.resources)
+        .bind(encode_column(row.setup_commands.as_ref(), "setup_commands")?)
+        .bind(encode_column(row.env_vars.as_ref(), "env_vars")?)
+        .bind(encode_column(row.servers.as_ref(), "servers")?)
+        .bind(encode_column(row.scripts.as_ref(), "scripts")?)
+        .bind(encode_column(row.resources.as_ref(), "resources")?)
         .bind(&row.network_profile)
-        .bind(&row.source)
+        .bind(row.source.as_str())
         .bind(&row.source_repository_id)
         .bind(&row.source_key)
         .bind(&row.source_config_path)
-        .bind(row.scope)
+        .bind(row.scope.as_str())
         .bind(&row.owner_user_id)
         .bind(&row.run_as_user_id)
         .bind(&row.created_by)
@@ -277,11 +295,12 @@ impl WorkspaceDao for PgWorkspaceDao {
              ORDER BY name ASC",
             access.sql()
         );
-        sqlx::query_as::<_, Workspace>(AssertSqlSafe(sql))
+        let rows: Vec<WorkspaceRow> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_all(&self.0)
-            .await
+            .await?;
+        rows.into_iter().map(Workspace::try_from).collect()
     }
 
     async fn list_readable_including(
@@ -303,12 +322,13 @@ impl WorkspaceDao for PgWorkspaceDao {
             access.sql(),
             access.sql()
         );
-        sqlx::query_as::<_, ListedWorkspace>(AssertSqlSafe(sql))
+        let rows: Vec<ListedWorkspaceRow> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .bind(also_include)
             .fetch_all(&self.0)
-            .await
+            .await?;
+        rows.into_iter().map(ListedWorkspace::try_from).collect()
     }
 
     async fn find_names_by_ids(
@@ -330,14 +350,15 @@ impl WorkspaceDao for PgWorkspaceDao {
         &self,
         workspace_ids: &[String],
     ) -> Result<Vec<WorkspaceRepo>, sqlx::Error> {
-        sqlx::query_as::<_, WorkspaceRepo>(
+        let rows: Vec<WorkspaceRepoRow> = sqlx::query_as(
             r#"SELECT * FROM workspace_repos
                WHERE workspace_id = ANY($1)
                ORDER BY workspace_id ASC, is_primary DESC, position ASC, id ASC"#,
         )
         .bind(workspace_ids)
         .fetch_all(&self.0)
-        .await
+        .await?;
+        Ok(rows.into_iter().map(WorkspaceRepo::from).collect())
     }
 
     async fn update(
@@ -405,23 +426,37 @@ impl WorkspaceDao for PgWorkspaceDao {
             };
         }
 
+        macro_rules! bind_json {
+            ($field:ident) => {
+                if let Some(ref val) = patch.$field {
+                    q = q.bind(encode_column(val.as_ref(), stringify!($field))?);
+                }
+            };
+        }
+
         bind_opt!(name);
         bind_opt!(description);
-        bind_opt!(kind);
-        bind_opt!(scope);
+        if let Some(kind) = patch.kind {
+            q = q.bind(kind.as_str());
+        }
+        if let Some(scope) = patch.scope {
+            q = q.bind(scope.as_str());
+        }
         bind_opt!(owner_user_id);
         bind_opt!(run_as_user_id);
         bind_opt!(docker_image);
         bind_opt!(docker_access);
         bind_opt!(sandbox_service_account);
         bind_opt!(system_prompt);
-        bind_opt!(setup_commands);
-        bind_opt!(env_vars);
-        bind_opt!(servers);
-        bind_opt!(scripts);
-        bind_opt!(resources);
+        bind_json!(setup_commands);
+        bind_json!(env_vars);
+        bind_json!(servers);
+        bind_json!(scripts);
+        bind_json!(resources);
         bind_opt!(network_profile);
-        bind_opt!(source);
+        if let Some(source) = patch.source {
+            q = q.bind(source.as_str());
+        }
         bind_opt!(source_repository_id);
         bind_opt!(source_key);
         bind_opt!(source_config_path);

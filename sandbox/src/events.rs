@@ -8,7 +8,9 @@
 //! (ordered, retried with backoff). The public API stays fire-and-forget — an
 //! `enqueue` never blocks and never fails the caller.
 
-use moatless_events::{AgentSubType, EventType, TaskSubType, TaskTurnSubType};
+use moatless_types::agent::AgentSubType;
+use moatless_types::event::EventType;
+use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use sandbox_proto::PublishEventRequest;
 use tracing::{debug, warn};
 
@@ -103,7 +105,7 @@ impl GrpcEventPublisher {
     pub async fn publish_sandbox_event(
         &self,
         task_id: &str,
-        sub_type: moatless_events::SandboxStatus,
+        sub_type: moatless_types::sandbox::SandboxStatus,
         payload: serde_json::Value,
     ) {
         self.publish_event(task_id, EventType::Sandbox, sub_type.as_str(), payload)

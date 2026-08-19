@@ -27,7 +27,7 @@ use tracing::warn;
 use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
 use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_grpc_error};
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 /// The most entries one listing carries.
 ///
@@ -474,8 +474,8 @@ mod tests {
             workspace_id: Some("ws".into()),
             name: None,
             branch: None,
-            agent_type: moatless_backend_core::models::AgentType(
-                moatless_backend_core::models::AgentType::CLAUDE_CODE.to_string(),
+            agent_type: moatless_types::agent::AgentType(
+                moatless_types::agent::AgentType::CLAUDE_CODE.to_string(),
             ),
             created_at: "2026-01-01T00:00:00Z".into(),
             created_at_db: None,
@@ -486,9 +486,9 @@ mod tests {
             turn_started_at: None,
             turn_ended_at: None,
             sandbox_desired_state: Some(
-                moatless_backend_core::models::SandboxDesiredState::Running,
+                moatless_types::sandbox::SandboxDesiredState::Running,
             ),
-            sandbox_stop_reason: None,
+            sandbox_stop_reason_raw: None,
             sandbox_started_at: None,
             sandbox_updated_at: None,
             latest_user_message_at: None,

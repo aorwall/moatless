@@ -16,19 +16,9 @@ use crate::enums::Scope;
 
 /// Where a node-local sandbox volume is backed.
 ///
-/// Mirrors `moatless_backend_core::run_config::StorageMedium`. The wire crate
-/// stays free of backend dependencies, so the pair is kept in step by the
-/// round-trip test in `moatless-workspaces`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub enum StorageMedium {
-    /// A Kubernetes `emptyDir`, capped by the paired size quantity.
-    EmptyDir,
-    /// A node-local `hostPath` under `K8S_SANDBOX_CACHE_HOST_ROOT`. Kubernetes
-    /// enforces no size cap; capacity is the node filesystem.
-    Node,
-}
+/// The domain enum itself. A DTO naming it names the same type the provider
+/// reads, so there is no wire spelling to convert to.
+pub use moatless_types::workspace::StorageMedium;
 
 /// A container's CPU and memory for one direction (requests or limits), as
 /// Kubernetes quantity strings (`"250m"`, `"4Gi"`).
@@ -145,34 +135,11 @@ pub struct ServerConfig {
 // ScriptConfig
 // =============================================================================
 
-/// A named command someone runs on demand inside the sandbox, hosted by a
-/// terminal session rather than a supervised container.
-///
-/// Unlike a [`ServerConfig`] a script is not supervised, has no container of
-/// its own and is expected to exit. When it declares a `port`, the port is
-/// published at the task's preview hostname as the script starts.
+/// Named command run on demand inside a Sandbox.
 ///
 /// `name` is the identity — it must survive a git round trip, so no id is
 /// allocated by the backend.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ScriptConfig {
-    pub name: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    /// Written into the terminal verbatim, followed by a carriage return.
-    pub command: String,
-    /// One of `play`, `test`, `lint`, `configure`, `build`, `debug`. Anything
-    /// else is reported to clients as `play`.
-    #[serde(default)]
-    pub icon: Option<String>,
-    /// The port the script serves on, if any.
-    #[serde(default)]
-    pub port: Option<u16>,
-    /// Extra environment for the script's terminal session.
-    #[serde(default)]
-    pub env_vars: Option<HashMap<String, String>>,
-}
+pub use moatless_types::workspace::ScriptConfig;
 
 // =============================================================================
 // WorkspaceRepoInput — a repository placement in create/add requests
@@ -432,63 +399,7 @@ pub struct ResetGitWorkspaceResponse {
 /// variable are here. Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are
 /// refreshed and written back against the connected user's own row, so a
 /// workspace-level copy of either would go stale with nothing to rotate it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum WorkspaceCredentialProvider {
-    Gitlab,
-    Gitness,
-    Openai,
-    Anthropic,
-}
-
-impl WorkspaceCredentialProvider {
-    /// Every provider a workspace credential may name, in the order the CLI
-    /// lists them.
-    pub const ALL: &'static [Self] = &[Self::Gitlab, Self::Gitness, Self::Openai, Self::Anthropic];
-
-    /// Persisted `workspace_credentials.provider` value.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Gitlab => "gitlab",
-            Self::Gitness => "gitness",
-            Self::Openai => "openai",
-            Self::Anthropic => "anthropic",
-        }
-    }
-
-    /// Comma-separated provider names, for error messages and CLI help.
-    pub fn names() -> String {
-        Self::ALL
-            .iter()
-            .map(|p| p.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-}
-
-impl std::fmt::Display for WorkspaceCredentialProvider {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for WorkspaceCredentialProvider {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|p| p.as_str() == value)
-            .ok_or_else(|| {
-                format!(
-                    "Unknown credential provider '{value}'. Must be one of: {}",
-                    Self::names()
-                )
-            })
-    }
-}
+pub use moatless_types::workspace::WorkspaceCredentialProvider;
 
 /// `PUT /api/v1/workspaces/{id}/credentials/{provider}` body.
 #[derive(Debug, Serialize, Deserialize)]

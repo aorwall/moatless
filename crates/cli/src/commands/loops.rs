@@ -292,8 +292,8 @@ pub async fn run_loops(
             let items = client
                 .api()
                 .list_loops(
-                    kind.as_ref().map(LoopKind::as_str),
-                    adapter.as_ref().map(AdapterKind::as_str),
+                    kind.map(LoopKind::as_str),
+                    adapter.map(AdapterKind::as_str),
                 )
                 .await?;
             print_or_json(&items, json);

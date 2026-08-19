@@ -14,7 +14,7 @@
 
 use std::fmt::Write as _;
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
 
 use moatless_tasks::task::dao::TaskDao;

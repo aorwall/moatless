@@ -28,7 +28,7 @@ use super::dao::ConversationDao;
 use super::{AgentModelDefaults, projection};
 use crate::data::T3WorkspaceDao;
 use crate::listing::UiRpcEnvironmentIdentity;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use moatless_backend_core::change_feed::conversation::{ConversationChange, ConversationHead};
 
@@ -500,9 +500,9 @@ mod tests {
     use super::*;
     use crate::dao::{Conversation, MockConversationDao, Transcript, TranscriptMessage};
     use moatless_backend_core::change_feed::conversation::EVENTS_PER_CHANGE;
-    use moatless_backend_core::models::AgentType;
-    use moatless_backend_core::models::SandboxDesiredState;
-    use moatless_backend_core::models::{MessageRole, MessageType};
+    use moatless_types::agent::AgentType;
+    use moatless_types::sandbox::SandboxDesiredState;
+    use moatless_types::message::{MessageRole, MessageType};
 
     fn change(position: i64, uuid: Option<&str>) -> ConversationChange {
         ConversationChange {
@@ -611,8 +611,8 @@ mod tests {
             turn_status: Some("active".into()),
             turn_started_at: None,
             turn_ended_at: None,
-            sandbox_desired_state: Some(SandboxDesiredState::Running),
-            sandbox_stop_reason: None,
+            sandbox_desired_state_raw: Some(SandboxDesiredState::Running.as_str().to_string()),
+            sandbox_stop_reason_raw: None,
             sandbox_started_at: None,
             sandbox_updated_at: None,
             latest_user_message_at: None,

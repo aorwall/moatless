@@ -24,14 +24,14 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use moatless_core::db::DbPool;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::provider_tokens::{
     AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER,
 };
-use moatless_identity::secret::models::SecretKind;
+use moatless_types::secret::SecretKind;
 use moatless_identity::secret::schemas::PutSecretRequest;
 use moatless_identity::secret::service::SecretService;
 
@@ -286,10 +286,8 @@ impl CredentialService {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use moatless_identity::auth::codex_scope::CodexScope;
-    use moatless_identity::auth::models::{
-        GithubTokenPresence, ProviderAccessToken, ProviderToken,
-    };
+    use moatless_types::agent::CodexScope;
+    use moatless_identity::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 

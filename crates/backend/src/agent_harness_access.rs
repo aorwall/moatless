@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::auth::codex_auth_json::{build_codex_metadata, parse_codex_auth_json};
-use crate::auth::codex_scope::CodexScope;
+use moatless_types::agent::CodexScope;
 use crate::auth::error::AuthError;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::users::UserDao;
@@ -13,7 +13,7 @@ use crate::credential_sync::CredentialSync;
 use crate::credentials::codex::oauth::{
     self as codex_oauth, CodexOAuthError, DeviceCodeStart, PollStatus,
 };
-use moatless_core::config::CodexOAuthConfig;
+use moatless_types::agent::CodexOAuthConfig;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentHarnessCredentialStatus {

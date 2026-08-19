@@ -31,7 +31,7 @@ use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use tracing::warn;
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use base64::Engine;
 
@@ -44,7 +44,7 @@ use super::providers;
 use crate::agent::catalog;
 use crate::data::T3WorkspaceDao;
 use crate::scripts::{self, ScriptsWriteError};
-use moatless_backend_core::models::AgentMode;
+use moatless_types::agent::AgentMode;
 use moatless_tasks::task_activities::mapping;
 
 /// What the surface needs in order to answer a command.
@@ -758,7 +758,7 @@ mod tests {
     use moatless_api_schemas::repository::ScriptConfig;
     use crate::listing::{UiRpcEnvironmentIdentity, UiRpcListingHead};
     use async_trait::async_trait;
-    use moatless_backend_core::models::AgentType;
+    use moatless_types::agent::AgentType;
     use std::sync::Mutex;
 
     /// What the sink was asked to do. Every assertion about the command table
@@ -995,8 +995,8 @@ mod tests {
             turn_status: None,
             turn_started_at: None,
             turn_ended_at: None,
-            sandbox_desired_state: None,
-            sandbox_stop_reason: None,
+            sandbox_desired_state_raw: None,
+            sandbox_stop_reason_raw: None,
             sandbox_started_at: None,
             sandbox_updated_at: None,
             latest_user_message_at: None,

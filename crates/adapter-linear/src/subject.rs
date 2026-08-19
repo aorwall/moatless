@@ -16,7 +16,9 @@
 use moatless_core::db::DbPool;
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_loops::adapters::models::{
+    AdapterConnection, SubscriptionMatch, TaskBinding, TaskBindingRow,
+};
 use moatless_loops::loops::dao::LoopDao;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
 
@@ -77,7 +79,7 @@ pub(super) async fn bindings_in_scope(
     // One literal statement, selected by its bound parameters rather than by
     // string assembly: exactly one of `$3`/`$4` is ever non-null, and the enum
     // is what guarantees it.
-    sqlx::query_as::<_, TaskBinding>(
+    let rows = sqlx::query_as::<_, TaskBindingRow>(
         "SELECT id, task_id, adapter_kind, subject_kind, subject_key, connection_id, \
                 loop_id, destination_config, metadata, last_external_event_id, \
                 origin, created_at, last_event_at \
@@ -94,7 +96,8 @@ pub(super) async fn bindings_in_scope(
     .bind(task_id)
     .fetch_all(db)
     .await
-    .map_err(AdapterError::from)
+    .map_err(AdapterError::from)?;
+    Ok(rows.into_iter().map(TaskBinding::from).collect())
 }
 
 /// Every active Binding of either subject kind listening to `issue_id`, scoped

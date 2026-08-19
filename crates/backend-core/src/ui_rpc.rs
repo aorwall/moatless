@@ -6,7 +6,7 @@
 //!
 //! `UserRole` is a transport value — it serializes to `"admin"` or `"user"` in
 //! a ticket claim. It is not the access-control input; that is
-//! [`crate::scope::ScopeContext::is_admin`], which the RPC layer derives from
+//! [`moatless_types::access_control::ScopeContext::is_admin`], which the RPC layer derives from
 //! this role at the point it needs a policy decision.
 
 use uuid::Uuid;

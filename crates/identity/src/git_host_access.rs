@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use moatless_core::git_provider::GitProviderError;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 
@@ -13,7 +13,7 @@ use crate::auth::credentials::{
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::{AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER};
 use crate::secret::error::SecretError;
-use crate::secret::models::SecretKind;
+use moatless_types::secret::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::SecretService;
 

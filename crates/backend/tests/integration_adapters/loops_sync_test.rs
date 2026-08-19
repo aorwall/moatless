@@ -16,8 +16,8 @@ use crate::common;
 use chrono::Utc;
 use sqlx::{PgPool, Row};
 
-use moatless_backend_core::scope::ScopeContext;
-use moatless_backend::adapters::models::RoutingMode;
+use moatless_types::access_control::ScopeContext;
+use moatless_types::loops::RoutingMode;
 use moatless_backend::extractors::AuthUser;
 use moatless_backend::loops::dao::{ManagedLoopUpsert, NewScheduleSource};
 use moatless_backend::loops::sync::parse_loop;
@@ -742,7 +742,7 @@ fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
         prompt: Some("Daily health check.".to_string()),
         tag_ids: Vec::new(),
         skills: Vec::new(),
-        agent_type: "claude-code".to_string(),
+        agent_type: "claude-code".into(),
         inactive_ttl_days: None,
         adapter: None,
         schedule: Some(NewScheduleSource {

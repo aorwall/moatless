@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use moatless_loops::adapters::models::{LoopContext, SourceAccessPolicy};
+use moatless_loops::adapters::models::SourceAccessPolicy;
+use moatless_types::loops::LoopContext;
 
 /// Typed representation of `adapter_config` JSONB for Telegram channels.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -104,17 +105,17 @@ mod tests {
     fn from_config_with_none_adapter_config() {
         let config = LoopContext {
             id: "test".into(),
-            adapter_kind: "telegram".into(),
+            adapter_kind: "telegram".to_string(),
             source_id: "*".into(),
             source_name: None,
             repository_id: "repo1".into(),
-            routing_mode: moatless_loops::adapters::models::RoutingMode::BySubject,
+            routing_mode: moatless_types::loops::RoutingMode::BySubject,
             prompt_template: None,
             active: true,
             allow_direct_send: false,
             adapter_config: None,
             ongoing_task_id: None,
-            scope: moatless_backend_core::scope::Scope::User,
+            scope: moatless_types::access_control::Scope::User,
             task_name: None,
             tag_ids: vec![],
             skills: Vec::new(),

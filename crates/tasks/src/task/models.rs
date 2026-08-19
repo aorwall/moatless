@@ -1,127 +1,20 @@
-//! Task domain types — typed enums and DB row structs.
+//! Persisted shapes for the task band.
+//!
+//! The domain types live in `moatless_types::task`. What is here is how
+//! they are stored: `tasks.created_at` is a text column, `created_at_db` is
+//! a second timestamp the domain does not model, and the enum columns are
+//! text.
 
 use chrono::{DateTime, Utc};
 
-use moatless_backend_core::scope::Scope;
-use moatless_core::shared_models::AgentType;
+use moatless_backend_core::db_enum::decode_optional;
+use moatless_types::access_control::Scope;
+use moatless_types::agent::AgentType;
 
-pub use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
-
-/// How a task's checkout relates to other members of the same Sandbox.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CheckoutMode {
-    /// One checkout for every member — the single-member behavior too.
-    #[default]
-    Shared,
-    Isolated,
-}
-
-impl CheckoutMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Shared => "shared",
-            Self::Isolated => "isolated",
-        }
-    }
-}
-
-impl std::fmt::Display for CheckoutMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for CheckoutMode {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "shared" => Ok(Self::Shared),
-            "isolated" => Ok(Self::Isolated),
-            other => Err(format!("unknown CheckoutMode: {other:?}")),
-        }
-    }
-}
-
-impl sqlx::Type<sqlx::Postgres> for CheckoutMode {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for CheckoutMode {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let value = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Self::try_from(value.as_str()).map_err(Into::into)
-    }
-}
-
-impl sqlx::Encode<'_, sqlx::Postgres> for CheckoutMode {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
-
-/// Task visibility level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Visibility {
-    Public,
-    Private,
-}
-
-impl Visibility {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Public => "public",
-            Self::Private => "private",
-        }
-    }
-}
-
-impl std::fmt::Display for Visibility {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for Visibility {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "public" => Ok(Self::Public),
-            "private" => Ok(Self::Private),
-            other => Err(format!("unknown Visibility: {other:?}")),
-        }
-    }
-}
-
-impl sqlx::Type<sqlx::Postgres> for Visibility {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Visibility {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let value = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Self::try_from(value.as_str()).map_err(Into::into)
-    }
-}
-
-impl sqlx::Encode<'_, sqlx::Postgres> for Visibility {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
+// The task band's vocabulary surface: call sites keep naming these through
+// `task::models`, which is where a reader of this crate looks for them.
+pub use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+pub use moatless_types::task::{CheckoutMode, Task, TaskStatus, Visibility};
 
 /// Default idle TTL in minutes for newly inserted tasks when the caller has no
 /// access to platform config (e.g. integration runtimes). Matches the
@@ -147,11 +40,12 @@ pub fn sandbox_intent_epoch() -> DateTime<Utc> {
 
 /// Full task row from the `tasks` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-pub struct Task {
+pub struct TaskRow {
     pub task_id: String,
     pub short_id: Option<String>,
     pub created_at: String,
     pub last_message_at: String,
+    #[sqlx(try_from = "String")]
     pub agent_type: AgentType,
     pub repository_id: String,
     /// Workspace this task runs against (Phase A: nullable during the additive
@@ -165,7 +59,8 @@ pub struct Task {
     pub sandbox_id: Option<String>,
     /// Checkout relationship to other members. `None` is read as shared for
     /// rows predating shared-sandbox membership.
-    pub checkout_mode: Option<CheckoutMode>,
+    pub checkout_mode_raw: Option<String>,
+    #[sqlx(try_from = "String")]
     pub status: TaskStatus,
     pub total_cost_usd: f64,
     pub site_url: Option<String>,
@@ -180,7 +75,9 @@ pub struct Task {
     /// explicitly names a model and reused for later messages that omit one.
     pub model: Option<String>,
     pub created_by: Option<String>,
+    #[sqlx(try_from = "String")]
     pub visibility: Visibility,
+    #[sqlx(try_from = "String")]
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_at_db: Option<DateTime<Utc>>,
@@ -202,17 +99,57 @@ pub struct Task {
     pub skills: Vec<String>,
 }
 
-impl Task {
-    /// The task as a [`ScopedResource`] for access-control checks
-    /// (`ScopeContext::can_read` / `can_control`). Ownership falls back to
-    /// `created_by` for rows predating the `owner_user_id` column, matching the
-    /// `COALESCE` in the DAO's scope filter.
-    pub fn scoped_resource(&self) -> moatless_backend_core::scope::ScopedResource {
-        moatless_backend_core::scope::ScopedResource::borrowed(
-            self.scope,
-            self.owner_user_id.as_deref().or(self.created_by.as_deref()),
-        )
+/// Parsing a row into the domain Task. A column no variant names, or a
+/// timestamp that is not RFC3339, is a decode error naming the column — the
+/// text columns hold values this application wrote.
+impl TryFrom<TaskRow> for Task {
+    type Error = sqlx::Error;
+
+    fn try_from(row: TaskRow) -> Result<Self, Self::Error> {
+        Ok(Self {
+            created_at: parse_timestamp("created_at", &row.created_at)?,
+            last_message_at: parse_timestamp("last_message_at", &row.last_message_at)?,
+            checkout_mode: decode_optional("checkout_mode", row.checkout_mode_raw)?,
+            task_id: row.task_id,
+            short_id: row.short_id,
+            agent_type: row.agent_type,
+            repository_id: row.repository_id,
+            workspace_id: row.workspace_id,
+            sandbox_id: row.sandbox_id,
+            status: row.status,
+            total_cost_usd: row.total_cost_usd,
+            site_url: row.site_url,
+            template_id: row.template_id,
+            vibe: row.vibe,
+            name: row.name,
+            description: row.description,
+            site_id: row.site_id,
+            site_provider: row.site_provider,
+            branch: row.branch,
+            model: row.model,
+            created_by: row.created_by,
+            visibility: row.visibility,
+            scope: row.scope,
+            owner_user_id: row.owner_user_id,
+            updated_at: row.updated_at,
+            append_system_prompt: row.append_system_prompt,
+            headless: row.headless,
+            ttl_minutes: row.ttl_minutes,
+            inactive_ttl_days: row.inactive_ttl_days,
+            loop_id: row.loop_id,
+            skills: row.skills,
+        })
     }
+}
+
+/// `tasks.created_at` and `last_message_at` are text columns holding RFC3339.
+fn parse_timestamp(column: &'static str, value: &str) -> Result<DateTime<Utc>, sqlx::Error> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|parsed| parsed.with_timezone(&Utc))
+        .map_err(|error| sqlx::Error::ColumnDecode {
+            index: column.to_string(),
+            source: Box::new(error),
+        })
 }
 
 /// The durable Sandbox lifecycle state for one Task, read from the `sandboxes`
@@ -245,61 +182,6 @@ impl SandboxIntentView {
     /// explicit Stopped or Removed request.
     pub fn has_explicit_intent(&self) -> bool {
         self.desired_state_updated_at != sandbox_intent_epoch()
-    }
-}
-
-/// Typed policy for task archive retention.
-/// Runtime resources (Deployment, Service, IngressRoutes, **and the PVC**) are
-/// always removed regardless of this policy; it governs S3 archives and
-/// managed provider-local disk archives (opt-in Kubernetes node hostPaths and
-/// Docker task directories).
-///
-/// The close, reap, and delete sites that choose a policy are tasks-band, so the
-/// enum lives here; the lifecycle store, providers, and reconciler that persist
-/// and apply it reach it on the legal downward `sandbox-control -> tasks` edge
-/// (re-exported from `sandbox::lifecycle` so their existing paths are unchanged).
-///
-/// Persisted alongside `Removed` intent in the same atomic write so a crashed
-/// remove can be retried with the *original* policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArchiveRetention {
-    /// Soft removal: keep archives so the task can be revived (reopen).
-    RetainArchives,
-    /// Permanent deletion: remove all archives too. Never superseded by a
-    /// later message-wake — deletion wins.
-    DeleteArchives,
-}
-
-impl ArchiveRetention {
-    pub fn retains(self) -> bool {
-        matches!(self, Self::RetainArchives)
-    }
-
-    /// The close-time policy from the `SANDBOX_RETAIN_STORAGE_ON_CLOSE` flag:
-    /// retain archives (revivable) when set, delete them otherwise. One helper
-    /// so the close/auto-close/adapter-close sites can't drift.
-    pub fn on_close(retain_archives: bool) -> Self {
-        if retain_archives {
-            Self::RetainArchives
-        } else {
-            Self::DeleteArchives
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::RetainArchives => "retain_archives",
-            Self::DeleteArchives => "delete_archives",
-        }
-    }
-
-    /// Parse the persisted slug back into a policy. `None` for an unknown value.
-    pub fn from_db_str(s: &str) -> Option<Self> {
-        match s {
-            "retain_archives" => Some(Self::RetainArchives),
-            "delete_archives" => Some(Self::DeleteArchives),
-            _ => None,
-        }
     }
 }
 

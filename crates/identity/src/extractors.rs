@@ -19,8 +19,8 @@ use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
 
 use crate::auth::identity::{AuthIdentity, AuthMethod};
-use crate::auth::models::UserRole;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::user::UserRole;
+use moatless_types::access_control::ScopeContext;
 
 /// Verifies a sandbox-issued `X-User-Token` JWT.
 ///

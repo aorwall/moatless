@@ -2,9 +2,9 @@
 
 use chrono::{DateTime, Utc};
 
-use moatless_core::shared_models::AgentMode;
+use moatless_types::agent::AgentMode;
 
-pub use moatless_backend_core::models::{MessageRole, MessageType};
+pub use moatless_types::message::{MessageRole, MessageType};
 
 // A stop used to append a `Result` row saying so, and `stop_is_reported`
 // already narrowed that to error stops with the reason stated in full: the
@@ -36,6 +36,7 @@ pub struct TaskMessage {
     pub id: i32,
     pub task_id: String,
     pub uuid: String,
+    #[sqlx(try_from = "String")]
     pub message_type: MessageType,
     pub user_type: String,
     pub parent_uuid: Option<String>,
@@ -47,6 +48,7 @@ pub struct TaskMessage {
     pub git_branch: Option<String>,
     pub request_id: Option<String>,
     pub timestamp: String,
+    #[sqlx(try_from = "String")]
     pub message_role: MessageRole,
     /// What was said, as text. `None` for a Message with no text — which
     /// after the conversation split is a row that should not exist, and does
@@ -77,7 +79,8 @@ pub struct TaskMessage {
     pub agent_session_id: Option<String>,
     pub will_not_resume: Option<bool>,
     pub run_metrics: Option<serde_json::Value>,
-    pub agent_mode: Option<AgentMode>,
+    /// Persisted column. Read the typed value through [`TaskMessage::agent_mode`].
+    pub agent_mode_raw: Option<String>,
     pub model: Option<String>,
     /// Reasoning effort for the turn, in the agent's own vocabulary. `None`
     /// leaves the agent on its own default.
@@ -111,6 +114,12 @@ pub struct TaskMessage {
 }
 
 impl TaskMessage {
+    /// The agent mode this message was produced under, when the column names one.
+    pub fn agent_mode(&self) -> Option<AgentMode> {
+        self.agent_mode_raw.clone().map(AgentMode::from)
+    }
+
+
     /// Create a new user message with required fields, defaulting all optional fields to `None`.
     pub fn new_user_message(
         task_id: String,
@@ -152,7 +161,7 @@ impl TaskMessage {
             agent_session_id: None,
             will_not_resume: None,
             run_metrics: None,
-            agent_mode: None,
+            agent_mode_raw: None,
             model: None,
             effort: None,
             skills: Vec::new(),

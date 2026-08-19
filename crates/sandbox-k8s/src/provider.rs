@@ -934,8 +934,8 @@ impl SandboxStatusReader for K8sSandboxAdapter {
     async fn sandbox_status(
         &self,
         task_id: &str,
-        task_status: moatless_backend_core::models::TaskStatus,
-        desired_state: moatless_backend_core::models::SandboxDesiredState,
+        task_status: moatless_types::task::TaskStatus,
+        desired_state: moatless_types::sandbox::SandboxDesiredState,
     ) -> Result<SandboxStatusFullResponse, SandboxError> {
         let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         let server_configs = if let Some(plan) = &self.plan {
@@ -960,8 +960,8 @@ impl SandboxStatusReader for K8sSandboxAdapter {
     async fn live_status(
         &self,
         task_id: &str,
-        task_status: moatless_backend_core::models::TaskStatus,
-        desired_state: moatless_backend_core::models::SandboxDesiredState,
+        task_status: moatless_types::task::TaskStatus,
+        desired_state: moatless_types::sandbox::SandboxDesiredState,
     ) -> Result<moatless_sandbox_control::live_status::LiveStatus, SandboxError> {
         let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         Ok(self
@@ -1280,7 +1280,7 @@ impl K8sSandboxAdapter {
             .resources
             .as_ref()
             .and_then(|r| r.storage.as_ref())
-            .map(moatless_backend_core::run_config::Memory::as_str);
+            .map(moatless_types::workspace::Memory::as_str);
 
         pvc::create_task_pvc(&self.k8s, &self.config, task_id, storage_override)
             .await

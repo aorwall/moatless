@@ -15,13 +15,13 @@ pub mod sandbox {
 // Re-export for convenience
 pub use sandbox::v1::*;
 
-// Re-export moatless_events for consumers
-pub use moatless_events;
+// Re-export the domain event types for consumers
+pub use moatless_types::event;
 
 // =============================================================================
-// Conversions: moatless_events::EventType <-> proto EventType
+// Conversions: moatless_types::event::EventType <-> proto EventType
 //
-// These live here because `sandbox.v1.EventType` and `moatless_events::EventType`
+// These live here because `sandbox.v1.EventType` and `moatless_types::event::EventType`
 // are both foreign to every consumer crate, so the orphan rule puts the trait
 // impls in the crate that owns the wire type. Nothing else is hoisted here:
 // adapter DTO conversions stay beside their own domain type.
@@ -30,10 +30,10 @@ pub use moatless_events;
 /// A domain event type the sandbox protocol has no representation for.
 ///
 /// `sandbox.v1.EventType` is deliberately narrower than
-/// `moatless_events::EventType`: `message.*` events are derived by the backend
+/// `moatless_types::event::EventType`: `message.*` events are derived by the backend
 /// while assembling `task_messages` (the agent.message skeleton) and never originate in a sandbox.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UnrepresentableEventType(pub moatless_events::EventType);
+pub struct UnrepresentableEventType(pub moatless_types::event::EventType);
 
 impl std::fmt::Display for UnrepresentableEventType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,20 +52,20 @@ impl std::error::Error for UnrepresentableEventType {}
 /// Partial by construction — the domain enum carries a value the protocol
 /// cannot express, and mapping it onto a neighbouring variant would publish an
 /// event under the wrong type.
-impl TryFrom<moatless_events::EventType> for EventType {
+impl TryFrom<moatless_types::event::EventType> for EventType {
     type Error = UnrepresentableEventType;
 
-    fn try_from(e: moatless_events::EventType) -> Result<Self, Self::Error> {
+    fn try_from(e: moatless_types::event::EventType) -> Result<Self, Self::Error> {
         match e {
-            moatless_events::EventType::Task => Ok(EventType::Task),
-            moatless_events::EventType::TaskTurn => Ok(EventType::TaskTurn),
-            moatless_events::EventType::Sandbox => Ok(EventType::Sandbox),
-            moatless_events::EventType::Agent => Ok(EventType::Agent),
-            moatless_events::EventType::Server => Ok(EventType::Server),
-            moatless_events::EventType::Resources => Ok(EventType::Resources),
+            moatless_types::event::EventType::Task => Ok(EventType::Task),
+            moatless_types::event::EventType::TaskTurn => Ok(EventType::TaskTurn),
+            moatless_types::event::EventType::Sandbox => Ok(EventType::Sandbox),
+            moatless_types::event::EventType::Agent => Ok(EventType::Agent),
+            moatless_types::event::EventType::Server => Ok(EventType::Server),
+            moatless_types::event::EventType::Resources => Ok(EventType::Resources),
             // Derived, UI-only event. Rejected rather than mapped: publishing it
             // as any other type would silently corrupt the event stream.
-            moatless_events::EventType::Message => Err(UnrepresentableEventType(e)),
+            moatless_types::event::EventType::Message => Err(UnrepresentableEventType(e)),
         }
     }
 }
@@ -73,15 +73,15 @@ impl TryFrom<moatless_events::EventType> for EventType {
 /// Every wire variant has exactly one domain counterpart, so widening is
 /// lossless and infallible. Unknown integers are rejected before this point by
 /// prost's generated `TryFrom<i32>`.
-impl From<EventType> for moatless_events::EventType {
+impl From<EventType> for moatless_types::event::EventType {
     fn from(e: EventType) -> Self {
         match e {
-            EventType::Task => moatless_events::EventType::Task,
-            EventType::TaskTurn => moatless_events::EventType::TaskTurn,
-            EventType::Sandbox => moatless_events::EventType::Sandbox,
-            EventType::Agent => moatless_events::EventType::Agent,
-            EventType::Server => moatless_events::EventType::Server,
-            EventType::Resources => moatless_events::EventType::Resources,
+            EventType::Task => moatless_types::event::EventType::Task,
+            EventType::TaskTurn => moatless_types::event::EventType::TaskTurn,
+            EventType::Sandbox => moatless_types::event::EventType::Sandbox,
+            EventType::Agent => moatless_types::event::EventType::Agent,
+            EventType::Server => moatless_types::event::EventType::Server,
+            EventType::Resources => moatless_types::event::EventType::Resources,
         }
     }
 }
@@ -89,12 +89,12 @@ impl From<EventType> for moatless_events::EventType {
 #[cfg(test)]
 mod event_type_conversion_tests {
     use super::*;
-    use moatless_events::EventType as Domain;
+    use moatless_types::event::EventType as Domain;
 
     /// Every domain event type, paired with whether the protocol can carry it.
     ///
     /// The `match` is exhaustive, so adding a variant to
-    /// `moatless_events::EventType` fails to compile until this wire contract is
+    /// `moatless_types::event::EventType` fails to compile until this wire contract is
     /// revisited — it cannot be silently mis-mapped.
     fn is_representable(e: Domain) -> bool {
         match e {

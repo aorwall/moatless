@@ -109,7 +109,9 @@ impl TaskEventSubscribers {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use moatless_events::{AgentSubType, EventType, SandboxStatus};
+    use moatless_types::agent::AgentSubType;
+    use moatless_types::event::EventType;
+    use moatless_types::sandbox::SandboxStatus;
 
     use super::*;
 

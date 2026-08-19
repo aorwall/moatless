@@ -30,7 +30,8 @@ use moatless_backend::{
     repository_sync, secret, skill, t3code, tag, task, task_connections, task_event, task_listing,
     team, workspace,
 };
-use moatless_core::config::{Config, SandboxProviderType};
+use moatless_core::config::Config;
+use moatless_types::sandbox::SandboxProviderType;
 use moatless_core::feature_flags::FeatureFlags;
 use moatless_core::leader::LeaderGuard;
 
@@ -544,7 +545,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // startup seeds this aborts on failure: a local-auth instance with no
         // admin credential is unreachable, and continuing would produce a
         // server nobody can log into.
-        if config.auth.provider == moatless_core::config::AuthProvider::Local
+        if config.auth.provider == moatless_types::auth::AuthProvider::Local
             || config.auth.break_glass_enabled
         {
             auth::password::bootstrap::ensure_local_admin(

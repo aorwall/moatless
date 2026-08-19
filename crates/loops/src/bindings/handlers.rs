@@ -61,7 +61,7 @@ pub async fn create_task_binding(
 ) -> Result<Json<TaskBindingResponse>, AdapterError> {
     let ctx = auth.scope_context();
     let task = ensure_task_access_with(tasks.as_ref(), &ctx, &task_id).await?;
-    let adapter_kind = req.adapter_kind.as_str().to_string();
+    let adapter_kind = req.adapter_kind;
     let connection = load_adapter_connection_for_auth_with(
         adapter_connections.as_ref(),
         &ctx,
@@ -163,8 +163,8 @@ pub async fn send_task_reply(
     request_body = AddMessageReactionRequest,
     responses(
         (status = 200, description = "Reaction added", body = MessageReactionResponse),
-        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn add_message_reaction(
@@ -198,8 +198,8 @@ pub async fn add_message_reaction(
     tag = "task-bindings",
     responses(
         (status = 200, description = "Reaction removed", body = MessageReactionResponse),
-        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn remove_message_reaction(
@@ -233,8 +233,8 @@ pub async fn remove_message_reaction(
     request_body = ReplyToMessageRequest,
     responses(
         (status = 200, description = "Reply sent", body = ReplyToMessageResponse),
-        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn reply_to_message(

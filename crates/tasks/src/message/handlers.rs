@@ -29,8 +29,8 @@ use super::transform;
     request_body = SendMessageRequest,
     responses(
         (status = 200, description = "Message sent", body = SendMessageResponse),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
-        (status = 409, description = "Task is closed", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 409, description = "Task is closed", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn send_message(
@@ -65,7 +65,7 @@ pub async fn send_message(
         service::UserMessage {
             text: req.message,
             model: req.model,
-            agent_mode: req.agent_mode.map(agent_mode_from_wire),
+            agent_mode: req.agent_mode,
             effort: req.effort,
             file_ids: req.file_ids,
             contexts: req.contexts,
@@ -130,7 +130,7 @@ pub struct GetMessagesQuery {
     ),
     responses(
         (status = 200, description = "Page of messages", body = GetMessagesResponse),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_messages(
@@ -288,7 +288,7 @@ fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
     ),
     responses(
         (status = 200, description = "Tool call detail", body = ToolCallDetailResponse),
-        (status = 404, description = "Tool call not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Tool call not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_tool_call_detail(
@@ -335,7 +335,7 @@ pub async fn get_tool_call_detail(
     ),
     responses(
         (status = 200, description = "Subagent transcript", body = SubagentTranscriptResponse),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_subagent_transcript(
@@ -526,7 +526,7 @@ mod strip_heavy_fields_tests {
     ),
     responses(
         (status = 200, description = "Pending messages", body = GetPendingMessagesResponse),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_pending_messages(
@@ -544,10 +544,10 @@ pub async fn get_pending_messages(
         .iter()
         .map(|m| PendingMessageItem {
             uuid: m.uuid.clone(),
-            message_type: message_type_to_wire(m.message_type),
+            message_type: m.message_type,
             timestamp: m.timestamp.clone(),
             message_text: m.message_text.clone(),
-            agent_mode: m.agent_mode.as_ref().map(agent_mode_to_wire),
+            agent_mode: m.agent_mode(),
             model: m.model.clone(),
             resume: m.resume,
             will_not_resume: None,
@@ -557,7 +557,7 @@ pub async fn get_pending_messages(
     if let Some(result) = last_result {
         messages.push(PendingMessageItem {
             uuid: result.uuid.clone(),
-            message_type: message_type_to_wire(result.message_type),
+            message_type: result.message_type,
             timestamp: result.timestamp.clone(),
             message_text: None,
             agent_mode: None,

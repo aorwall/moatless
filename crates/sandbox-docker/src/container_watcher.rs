@@ -131,14 +131,14 @@ async fn handle_docker_event(
             )
             .await;
             if decision.publishes {
-                let payload = moatless_events::SandboxEventPayload {
+                let payload = moatless_types::sandbox::SandboxEventPayload {
                     message: "Running".to_string(),
                     ..Default::default()
                 };
                 publish_sandbox_observation(
                     event_publisher.as_ref(),
                     task_id,
-                    moatless_events::SandboxStatus::Ready,
+                    moatless_types::sandbox::SandboxStatus::Ready,
                     &payload,
                     decision.event_generation,
                 )
@@ -161,7 +161,7 @@ async fn handle_docker_event(
                         event_publisher
                             .publish_sandbox_event(
                                 task_id,
-                                moatless_events::SandboxStatus::Error,
+                                moatless_types::sandbox::SandboxStatus::Error,
                                 &format!("Crash loop detected (restarts: {restart_count})"),
                             )
                             .await;
@@ -184,9 +184,9 @@ async fn handle_docker_event(
             {
                 let (status, message) = match transition {
                     ObservedTransition::Crash | ObservedTransition::NonZeroStop => {
-                        (moatless_events::SandboxStatus::Error, "Container crashed")
+                        (moatless_types::sandbox::SandboxStatus::Error, "Container crashed")
                     }
-                    _ => (moatless_events::SandboxStatus::Stopped, "Stopped"),
+                    _ => (moatless_types::sandbox::SandboxStatus::Stopped, "Stopped"),
                 };
                 event_publisher
                     .publish_sandbox_event(task_id, status, message)
@@ -206,7 +206,7 @@ async fn handle_docker_event(
                 event_publisher
                     .publish_sandbox_event(
                         task_id,
-                        moatless_events::SandboxStatus::Error,
+                        moatless_types::sandbox::SandboxStatus::Error,
                         "OOM killed",
                     )
                     .await;
@@ -225,7 +225,7 @@ async fn handle_docker_event(
                 event_publisher
                     .publish_sandbox_event(
                         task_id,
-                        moatless_events::SandboxStatus::Removed,
+                        moatless_types::sandbox::SandboxStatus::Removed,
                         "Container removed",
                     )
                     .await;

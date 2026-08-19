@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use super::error::TaskError;
 use super::models::Task;
@@ -346,26 +346,26 @@ pub(crate) fn build_task_response(
         title,
         name: row.name.clone(),
         description: row.description.clone(),
-        status: task_status_to_wire(row.status),
-        agent_type: agent_type_to_wire(&row.agent_type),
+        status: row.status,
+        agent_type: row.agent_type.clone(),
         repository_id: row.repository_id.clone(),
         repository_name: names.repository,
         workspace_id: row.workspace_id.clone(),
         workspace_name: names.workspace,
         sandbox_id: row.sandbox_id.clone(),
-        checkout_mode: row.checkout_mode.map(checkout_mode_to_wire),
+        checkout_mode: row.checkout_mode,
         branch: row.branch.clone(),
         model: row.model.clone(),
-        created_at: row.created_at.clone(),
-        last_message_at: row.last_message_at.clone(),
+        created_at: row.created_at.to_rfc3339(),
+        last_message_at: row.last_message_at.to_rfc3339(),
         total_cost_usd: row.total_cost_usd,
         site_url: row.site_url.clone(),
         template_id: row.template_id.clone(),
         vibe: row.vibe,
         created_by: row.created_by.clone(),
         created_by_display_name: names.creator,
-        visibility: visibility_to_wire(row.visibility),
-        scope: scope_to_wire(row.scope),
+        visibility: row.visibility,
+        scope: row.scope,
         owner_user_id: row.owner_user_id.clone(),
         parent_task_id,
         relations,
@@ -375,8 +375,8 @@ pub(crate) fn build_task_response(
         ttl_minutes: row.ttl_minutes,
         inactive_ttl_days: row.inactive_ttl_days,
         sandbox_started_at: sandbox.started_at.map(|t| t.to_rfc3339()),
-        sandbox_desired_state: sandbox_desired_state_to_wire(sandbox.desired_state),
-        sandbox_stop_reason: sandbox.stop_reason.map(sandbox_stop_reason_to_wire),
+        sandbox_desired_state: sandbox.desired_state,
+        sandbox_stop_reason: sandbox.stop_reason,
         sandbox_desired_state_updated_at: sandbox.desired_state_updated_at.to_rfc3339(),
         // Populated per-request by callers that know the requesting user.
         last_read_at: None,
@@ -391,7 +391,7 @@ fn relations_to_dtos(rows: Vec<TaskRelation>) -> Vec<TaskRelationDto> {
             id: r.id,
             from_task_id: r.from_task_id,
             to_task_id: r.to_task_id,
-            relation_type: relation_type_to_wire(r.relation_type),
+            relation_type: r.relation_type,
             context: r.context,
             created_at: r.created_at.to_rfc3339(),
         })

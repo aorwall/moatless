@@ -13,9 +13,16 @@ use std::collections::HashSet;
 use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
-use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
+use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 
-use crate::adapters::models::{LoopSpawnConfig, RoutingMode, Schedule, SubscriptionMatch};
+use crate::adapters::models::{
+    LoopSpawnConfig, LoopSpawnConfigRow, Schedule, SubscriptionMatch, SubscriptionMatchRow,
+};
+use moatless_backend_core::db_enum::decode_required;
+use moatless_adapter_model::models::parse_adapter_kind;
+use moatless_types::adapter::AdapterKind;
+use moatless_types::agent::AgentType;
+use moatless_types::loops::{LoopConfigSource, LoopKind, RoutingMode};
 use moatless_core::db::DbPool;
 
 // =============================================================================
@@ -26,14 +33,14 @@ use moatless_core::db::DbPool;
 pub struct LoopRow {
     pub id: String,
     pub name: String,
-    pub kind: String,
+    pub kind: LoopKind,
     pub active: bool,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub config_source: String,
+    pub config_source: LoopConfigSource,
     pub source_repository_id: Option<String>,
     pub source_key: Option<String>,
     pub source_config_path: Option<String>,
@@ -51,14 +58,14 @@ pub struct LoopConfigRow {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
-    pub agent_type: String,
+    pub agent_type: AgentType,
     pub inactive_ttl_days: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionRow {
     pub loop_id: String,
-    pub adapter_kind: String,
+    pub adapter_kind: AdapterKind,
     pub connection_id: String,
     pub source_matcher: String,
     pub source_name: Option<String>,
@@ -101,6 +108,7 @@ struct JoinedLoopRecordRow {
     name: String,
     kind: String,
     active: bool,
+    #[sqlx(try_from = "String")]
     scope: Scope,
     owner_user_id: Option<String>,
     created_by: String,
@@ -112,6 +120,7 @@ struct JoinedLoopRecordRow {
     source_config_path: Option<String>,
     deleted: bool,
     repository_id: String,
+    #[sqlx(try_from = "String")]
     routing_mode: RoutingMode,
     ongoing_task_id: Option<String>,
     prompt: Option<String>,
@@ -141,17 +150,18 @@ struct JoinedLoopRecordRow {
 
 impl JoinedLoopRecordRow {
     fn into_record(self) -> Result<LoopRecord, sqlx::Error> {
+        let kind: LoopKind = decode_required("kind", self.kind)?;
         let loop_ = LoopRow {
             id: self.id.clone(),
             name: self.name,
-            kind: self.kind.clone(),
+            kind,
             active: self.active,
             scope: self.scope,
             owner_user_id: self.owner_user_id,
             created_by: self.created_by,
             created_at: self.created_at,
             updated_at: self.updated_at,
-            config_source: self.config_source,
+            config_source: decode_required("config_source", self.config_source)?,
             source_repository_id: self.source_repository_id,
             source_key: self.source_key,
             source_config_path: self.source_config_path,
@@ -167,13 +177,15 @@ impl JoinedLoopRecordRow {
             tag_ids: self.tag_ids,
             skills: self.skills,
             run_as_user_id: self.run_as_user_id,
-            agent_type: self.agent_type,
+            agent_type: AgentType(self.agent_type),
             inactive_ttl_days: self.inactive_ttl_days,
         };
-        let source = match self.kind.as_str() {
-            "adapter_event" => LoopSourceRow::AdapterEvent(SubscriptionRow {
+        let source = match kind {
+            LoopKind::AdapterEvent => LoopSourceRow::AdapterEvent(SubscriptionRow {
                 loop_id: self.id,
-                adapter_kind: self.adapter_kind.ok_or(sqlx::Error::RowNotFound)?,
+                adapter_kind: parse_adapter_kind(
+                    self.adapter_kind.ok_or(sqlx::Error::RowNotFound)?.as_str(),
+                ),
                 connection_id: self.connection_id.ok_or(sqlx::Error::RowNotFound)?,
                 source_matcher: self.source_matcher.ok_or(sqlx::Error::RowNotFound)?,
                 source_name: self.source_name,
@@ -183,7 +195,7 @@ impl JoinedLoopRecordRow {
                 close_task_on_close: self.close_task_on_close.unwrap_or(true),
                 notify_on_success: self.notify_on_success.unwrap_or(false),
             }),
-            "schedule" => LoopSourceRow::Schedule(ScheduleRow {
+            LoopKind::Schedule => LoopSourceRow::Schedule(ScheduleRow {
                 loop_id: self.id,
                 cron_expression: self.cron_expression.ok_or(sqlx::Error::RowNotFound)?,
                 timezone: self.timezone.unwrap_or_else(|| "UTC".to_string()),
@@ -193,7 +205,7 @@ impl JoinedLoopRecordRow {
                 locked_by: self.locked_by,
                 locked_until: self.locked_until,
             }),
-            _ => LoopSourceRow::Manual,
+            LoopKind::Manual => LoopSourceRow::Manual,
         };
 
         Ok(LoopRecord {
@@ -465,7 +477,7 @@ impl LoopDao {
         .bind(&new.name)
         .bind(&new.kind)
         .bind(new.active)
-        .bind(new.scope)
+        .bind(new.scope.as_str())
         .bind(&new.owner_user_id)
         .bind(&new.created_by)
         .bind(new.created_at)
@@ -515,7 +527,7 @@ impl LoopDao {
         let result = sqlx::query(AssertSqlSafe(sql))
             .bind(id)
             .bind(&loop_update.name)
-            .bind(loop_update.scope)
+            .bind(loop_update.scope.as_str())
             .bind(&loop_update.owner_user_id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
@@ -542,14 +554,14 @@ impl LoopDao {
             )
             .bind(id)
             .bind(&config.repository_id)
-            .bind(config.routing_mode)
+            .bind(config.routing_mode.as_str())
             .bind(&config.ongoing_task_id)
             .bind(&config.prompt)
             .bind(&config.task_name)
             .bind(&config.tag_ids)
             .bind(&config.skills)
             .bind(&config.run_as_user_id)
-            .bind(&config.agent_type)
+            .bind(config.agent_type.as_str())
             .bind(config.inactive_ttl_days)
             .execute(&mut *tx)
             .await?;
@@ -791,19 +803,20 @@ impl LoopDao {
         &self,
         id: &str,
     ) -> Result<Option<SubscriptionMatch>, sqlx::Error> {
-        sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
+        let row = sqlx::query_as::<_, SubscriptionMatchRow>(AssertSqlSafe(format!(
             "{SUBSCRIPTION_MATCH_SELECT} WHERE t.id = $1"
         )))
         .bind(id)
         .fetch_optional(&self.db)
-        .await
+        .await?;
+        Ok(row.map(SubscriptionMatch::from))
     }
 
     pub async fn find_runnable_subscription_by_id(
         &self,
         id: &str,
     ) -> Result<Option<SubscriptionMatch>, sqlx::Error> {
-        sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
+        let row = sqlx::query_as::<_, SubscriptionMatchRow>(AssertSqlSafe(format!(
             "{SUBSCRIPTION_MATCH_SELECT}
              WHERE t.id = $1
                AND t.active = true
@@ -812,7 +825,8 @@ impl LoopDao {
         )))
         .bind(id)
         .fetch_optional(&self.db)
-        .await
+        .await?;
+        Ok(row.map(SubscriptionMatch::from))
     }
 
     pub async fn find_subscription_by_source_matcher(
@@ -820,13 +834,14 @@ impl LoopDao {
         provider: &str,
         source_matcher: &str,
     ) -> Result<Option<SubscriptionMatch>, sqlx::Error> {
-        sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
+        let row = sqlx::query_as::<_, SubscriptionMatchRow>(AssertSqlSafe(format!(
             "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = $2 AND t.active = true AND t.deleted = false AND r.run_as_user_id IS NOT NULL ORDER BY t.created_at ASC LIMIT 1"
         )))
         .bind(provider)
         .bind(source_matcher)
         .fetch_optional(&self.db)
-        .await
+        .await?;
+        Ok(row.map(SubscriptionMatch::from))
     }
 
     /// Return all subscriptions for a given (adapter, source_matcher) — used by
@@ -836,37 +851,40 @@ impl LoopDao {
         provider: &str,
         source_matcher: &str,
     ) -> Result<Vec<SubscriptionMatch>, sqlx::Error> {
-        sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
+        let rows = sqlx::query_as::<_, SubscriptionMatchRow>(AssertSqlSafe(format!(
             "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = $2 AND t.active = true AND t.deleted = false AND r.run_as_user_id IS NOT NULL ORDER BY t.created_at ASC"
         )))
         .bind(provider)
         .bind(source_matcher)
         .fetch_all(&self.db)
-        .await
+        .await?;
+        Ok(rows.into_iter().map(SubscriptionMatch::from).collect())
     }
 
     pub async fn find_subscription_wildcard(
         &self,
         provider: &str,
     ) -> Result<Option<SubscriptionMatch>, sqlx::Error> {
-        sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
+        let row = sqlx::query_as::<_, SubscriptionMatchRow>(AssertSqlSafe(format!(
             "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = '*' AND t.active = true AND t.deleted = false AND r.run_as_user_id IS NOT NULL LIMIT 1"
         )))
         .bind(provider)
         .fetch_optional(&self.db)
-        .await
+        .await?;
+        Ok(row.map(SubscriptionMatch::from))
     }
 
     pub async fn list_subscriptions_by_provider(
         &self,
         provider: &str,
     ) -> Result<Vec<SubscriptionMatch>, sqlx::Error> {
-        sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
+        let rows = sqlx::query_as::<_, SubscriptionMatchRow>(AssertSqlSafe(format!(
             "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND t.active = true AND t.deleted = false AND r.run_as_user_id IS NOT NULL ORDER BY t.created_at ASC"
         )))
         .bind(provider)
         .fetch_all(&self.db)
-        .await
+        .await?;
+        Ok(rows.into_iter().map(SubscriptionMatch::from).collect())
     }
 
     pub async fn upsert_subscription(
@@ -894,7 +912,7 @@ impl LoopDao {
         .bind(row.source_name.as_deref().unwrap_or(&row.source_matcher))
         .bind("adapter_event")
         .bind(row.active)
-        .bind(row.scope)
+        .bind(row.scope.as_str())
         .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(row.created_at)
@@ -922,14 +940,14 @@ impl LoopDao {
         )
         .bind(&row.id)
         .bind(&row.repository_id)
-        .bind(row.routing_mode)
+        .bind(row.routing_mode.as_str())
         .bind(&row.ongoing_task_id)
         .bind(&row.prompt_template)
         .bind(&row.task_name)
         .bind(&row.tag_ids)
         .bind(&row.skills)
         .bind(&row.run_as_user_id)
-        .bind(&row.agent_type)
+        .bind(row.agent_type.as_str())
         .bind(row.inactive_ttl_days)
         .execute(&mut *tx)
         .await?;
@@ -952,7 +970,7 @@ impl LoopDao {
                    notify_on_success    = EXCLUDED.notify_on_success"#,
         )
         .bind(&row.id)
-        .bind(&row.adapter_kind)
+        .bind(row.adapter_kind.as_str())
         .bind(&row.connection_id)
         .bind(&row.source_matcher)
         .bind(&row.source_name)
@@ -1072,7 +1090,7 @@ impl LoopDao {
                     .bind(&id)
                     .bind(&input.trigger_name)
                     .bind(&input.kind)
-                    .bind(input.scope)
+                    .bind(input.scope.as_str())
                     .bind(&input.owner_user_id)
                     .bind(&input.source_config_path)
                     .bind(now)
@@ -1094,7 +1112,7 @@ impl LoopDao {
                     .bind(&id)
                     .bind(&input.trigger_name)
                     .bind(&input.kind)
-                    .bind(input.scope)
+                    .bind(input.scope.as_str())
                     .bind(&input.owner_user_id)
                     .bind(&input.created_by)
                     .bind(source_repository_id)
@@ -1177,7 +1195,7 @@ impl LoopDao {
         .bind(&id)
         .bind(&input.trigger_name)
         .bind(&input.kind)
-        .bind(input.scope)
+        .bind(input.scope.as_str())
         .bind(&input.owner_user_id)
         .bind(&input.source_config_path)
         .execute(&mut *tx)
@@ -1199,7 +1217,7 @@ impl LoopDao {
         worker_id: &str,
         limit: i64,
     ) -> Result<Vec<Schedule>, sqlx::Error> {
-        let due_jobs = sqlx::query_as::<_, Schedule>(
+        let due_jobs = sqlx::query_as::<_, crate::adapters::models::ScheduleRow>(
             r#"SELECT t.id,
                       t.id AS loop_id,
                       sts.cron_expression,
@@ -1234,7 +1252,7 @@ impl LoopDao {
 
         let mut locked = Vec::new();
         for job in due_jobs {
-            let job_lock = sqlx::query_as::<_, Schedule>(
+            let job_lock = sqlx::query_as::<_, crate::adapters::models::ScheduleRow>(
                 r#"WITH locked_source AS (
                        UPDATE schedules
                        SET locked_by = $2,
@@ -1277,7 +1295,7 @@ impl LoopDao {
             .await?;
 
             if let Some(job_lock) = job_lock {
-                locked.push(job_lock);
+                locked.push(Schedule::from(job_lock));
             }
         }
 
@@ -1312,7 +1330,7 @@ impl LoopDao {
         loop_id: &str,
     ) -> Result<LoopSpawnConfig, sqlx::Error> {
         // System-level query — schedule runner acts across all owners, no scope filter needed.
-        sqlx::query_as::<_, LoopSpawnConfig>(
+        let row = sqlx::query_as::<_, LoopSpawnConfigRow>(
             r#"SELECT t.id,
                       r.repository_id,
                       r.routing_mode,
@@ -1335,7 +1353,8 @@ impl LoopDao {
         )
         .bind(loop_id)
         .fetch_one(&self.db)
-        .await
+        .await?;
+        Ok(LoopSpawnConfig::from(row))
     }
 
     /// Point a Loop's config at an ongoing task and bump the Loop's
@@ -1489,14 +1508,14 @@ async fn insert_config(
     )
     .bind(loop_id)
     .bind(&config.repository_id)
-    .bind(config.routing_mode)
+    .bind(config.routing_mode.as_str())
     .bind(&config.ongoing_task_id)
     .bind(&config.prompt)
     .bind(&config.task_name)
     .bind(&config.tag_ids)
     .bind(&config.skills)
     .bind(&config.run_as_user_id)
-    .bind(&config.agent_type)
+    .bind(config.agent_type.as_str())
     .bind(config.inactive_ttl_days)
     .execute(&mut **tx)
     .await?;

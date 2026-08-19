@@ -7,19 +7,20 @@ use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
 use super::models::{
-    SandboxDesiredState, SandboxIntentView, SandboxStopReason, Task, TaskStatus, Visibility,
+    CheckoutMode, SandboxDesiredState, SandboxIntentView, Task, TaskRow, TaskStatus, Visibility,
     sandbox_intent_epoch,
 };
-use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
+use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
+use moatless_backend_core::db_enum::decode_optional;
 use moatless_core::db::DbPool;
-use moatless_core::shared_models::AgentType;
+use moatless_types::agent::AgentType;
 
 #[derive(sqlx::FromRow)]
 struct SandboxIntentViewRow {
     task_id: String,
     started_at: Option<DateTime<Utc>>,
-    desired_state: Option<SandboxDesiredState>,
-    stop_reason: Option<SandboxStopReason>,
+    desired_state: Option<String>,
+    stop_reason: Option<String>,
     desired_state_updated_at: Option<DateTime<Utc>>,
 }
 
@@ -48,22 +49,22 @@ async fn load_sandbox_intent_views(
     .fetch_all(pool)
     .await?;
 
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .map(|row| {
-            (
+            Ok((
                 row.task_id,
                 SandboxIntentView {
                     started_at: row.started_at,
-                    desired_state: row.desired_state.unwrap_or(SandboxDesiredState::Stopped),
-                    stop_reason: row.stop_reason,
+                    desired_state: decode_optional("desired_state", row.desired_state)?
+                        .unwrap_or(SandboxDesiredState::Stopped),
+                    stop_reason: decode_optional("stop_reason", row.stop_reason)?,
                     desired_state_updated_at: row
                         .desired_state_updated_at
                         .unwrap_or_else(sandbox_intent_epoch),
                 },
-            )
+            ))
         })
-        .collect())
+        .collect()
 }
 
 /// Filter struct for task listing queries.
@@ -289,12 +290,13 @@ impl TaskDao for PgTaskDao {
             "SELECT * FROM tasks WHERE task_id = $1 AND {}",
             access.sql(),
         );
-        sqlx::query_as::<_, Task>(AssertSqlSafe(sql))
+        let row: Option<TaskRow> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_optional(&self.0)
-            .await
+            .await?;
+        row.map(Task::try_from).transpose()
     }
 
     async fn insert_task(&self, row: &Task) -> Result<String, sqlx::Error> {
@@ -338,11 +340,11 @@ impl TaskDao for PgTaskDao {
         )
         .bind(&row.task_id)
         .bind(&row.short_id)
-        .bind(&row.created_at)
-        .bind(&row.last_message_at)
-        .bind(&row.agent_type)
+        .bind(row.created_at.to_rfc3339())
+        .bind(row.last_message_at.to_rfc3339())
+        .bind(row.agent_type.as_str())
         .bind(&row.repository_id)
-        .bind(row.status)
+        .bind(row.status.as_str())
         .bind(row.total_cost_usd)
         .bind(&row.site_url)
         .bind(&row.template_id)
@@ -353,8 +355,8 @@ impl TaskDao for PgTaskDao {
         .bind(&row.site_provider)
         .bind(&row.branch)
         .bind(&row.created_by)
-        .bind(row.visibility)
-        .bind(row.scope)
+        .bind(row.visibility.as_str())
+        .bind(row.scope.as_str())
         .bind(&row.owner_user_id)
         .bind(&row.append_system_prompt)
         .bind(row.headless)
@@ -364,7 +366,7 @@ impl TaskDao for PgTaskDao {
         .bind(&row.model)
         .bind(&workspace_id)
         .bind(&row.sandbox_id)
-        .bind(row.checkout_mode)
+        .bind(row.checkout_mode.map(CheckoutMode::as_str))
         .bind(&row.skills)
         .execute(&mut *tx)
         .await?;
@@ -455,12 +457,12 @@ impl TaskDao for PgTaskDao {
             short_id: Option<String>,
             created_at: Option<String>,
             last_message_at: Option<String>,
-            agent_type: Option<AgentType>,
+            agent_type: Option<String>,
             repository_id: Option<String>,
             workspace_id: Option<String>,
             sandbox_id: Option<String>,
-            checkout_mode: Option<super::models::CheckoutMode>,
-            status: Option<TaskStatus>,
+            checkout_mode: Option<String>,
+            status: Option<String>,
             total_cost_usd: Option<f64>,
             site_url: Option<String>,
             template_id: Option<String>,
@@ -472,10 +474,9 @@ impl TaskDao for PgTaskDao {
             branch: Option<String>,
             model: Option<String>,
             created_by: Option<String>,
-            visibility: Option<Visibility>,
-            scope: Option<Scope>,
+            visibility: Option<String>,
+            scope: Option<String>,
             owner_user_id: Option<String>,
-            created_at_db: Option<DateTime<Utc>>,
             updated_at: Option<DateTime<Utc>>,
             append_system_prompt: Option<String>,
             headless: Option<bool>,
@@ -493,21 +494,30 @@ impl TaskDao for PgTaskDao {
             }
 
             /// `None` only when a column that is `NOT NULL` in `tasks` came back
-            /// NULL. Callers must reject that rather than skip the row: dropping
-            /// a task from the page while still counting it in the total is the
-            /// page/total drift this query exists to prevent.
+            /// NULL, or held a value no variant names. Callers must reject that
+            /// rather than skip the row: dropping a task from the page while
+            /// still counting it in the total is the page/total drift this query
+            /// exists to prevent.
             fn into_task(self) -> Option<Task> {
+                fn timestamp(value: &str) -> Option<DateTime<Utc>> {
+                    DateTime::parse_from_rfc3339(value)
+                        .ok()
+                        .map(|parsed| parsed.with_timezone(&Utc))
+                }
+
                 Some(Task {
                     task_id: self.task_id?,
                     short_id: self.short_id,
-                    created_at: self.created_at?,
-                    last_message_at: self.last_message_at?,
-                    agent_type: self.agent_type?,
+                    created_at: timestamp(&self.created_at?)?,
+                    last_message_at: timestamp(&self.last_message_at?)?,
+                    agent_type: AgentType::from(self.agent_type?),
                     repository_id: self.repository_id?,
                     workspace_id: self.workspace_id,
                     sandbox_id: self.sandbox_id,
-                    checkout_mode: self.checkout_mode,
-                    status: self.status?,
+                    checkout_mode: self
+                        .checkout_mode
+                        .and_then(|v| CheckoutMode::try_from(v).ok()),
+                    status: TaskStatus::try_from(self.status?.as_str()).ok()?,
                     total_cost_usd: self.total_cost_usd?,
                     site_url: self.site_url,
                     template_id: self.template_id,
@@ -519,10 +529,9 @@ impl TaskDao for PgTaskDao {
                     branch: self.branch,
                     model: self.model,
                     created_by: self.created_by,
-                    visibility: self.visibility?,
-                    scope: self.scope?,
+                    visibility: Visibility::try_from(self.visibility?.as_str()).ok()?,
+                    scope: Scope::try_from(self.scope?).ok()?,
                     owner_user_id: self.owner_user_id,
-                    created_at_db: self.created_at_db,
                     updated_at: self.updated_at,
                     append_system_prompt: self.append_system_prompt,
                     headless: self.headless?,
@@ -601,14 +610,14 @@ impl TaskDao for PgTaskDao {
         let rows = sqlx::query_as::<_, TaskPageRow>(AssertSqlSafe(sql))
             .bind(filter.scope.is_admin)
             .bind(&filter.scope.user_id)
-            .bind(filter.status)
+            .bind(filter.status.map(TaskStatus::as_str))
             .bind(&filter.repository_id)
             .bind(&filter.created_by)
             .bind(&filter.tag)
             .bind(&filter.parent_task_id)
             .bind(filter.limit)
             .bind(filter.offset)
-            .bind(filter.exclude_status)
+            .bind(filter.exclude_status.map(TaskStatus::as_str))
             .bind(&filter.followed_by)
             .fetch_all(&self.0)
             .await?;
@@ -679,7 +688,7 @@ impl TaskDao for PgTaskDao {
             run_field!(
                 "status = $2, closed_at = CASE \
                  WHEN $2 = 'closed' THEN COALESCE(closed_at, NOW()) ELSE NULL END",
-                status
+                status.as_str()
             );
         }
         if let Some(ref name) = patch.name {
@@ -717,7 +726,7 @@ impl TaskDao for PgTaskDao {
             run_field!("site_url = $2", site_url);
         }
         if let Some(ref visibility) = patch.visibility {
-            run_field!("visibility = $2", visibility);
+            run_field!("visibility = $2", visibility.as_str());
         }
         if let Some(ref short_id) = patch.short_id {
             run_field!("short_id = $2", short_id);
@@ -769,7 +778,7 @@ impl TaskDao for PgTaskDao {
         let mut tx = self.0.begin().await?;
         let res = sqlx::query(AssertSqlSafe(sql))
             .bind(task_id)
-            .bind(new_status)
+            .bind(new_status.as_str())
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .execute(&mut *tx)

@@ -31,10 +31,11 @@ use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::workspace::UiRpcListedWorkspace;
 use moatless_api_schemas::workspace::ScriptConfig;
 use moatless_backend_core::change_feed::conversation::{ConversationChange, ConversationHead};
-use moatless_backend_core::models::AgentType;
-use moatless_backend_core::models::{MessageRole, MessageType};
-use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
-use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
+use moatless_types::agent::AgentType;
+use moatless_types::message::{MessageRole, MessageType};
+use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+use moatless_types::task::TaskStatus;
+use moatless_types::access_control::{ScopeContext, ScopedEntity};
 use moatless_tasks::task_activities::dao as activities;
 use moatless_tasks::task_activities::dao::Activity;
 use moatless_tasks::task_activities::mapping::{PLAN_TOOL, QUESTION_TOOL};
@@ -49,6 +50,7 @@ pub struct Conversation {
     pub workspace_id: Option<String>,
     pub name: Option<String>,
     pub branch: Option<String>,
+    #[sqlx(try_from = "String")]
     pub agent_type: AgentType,
     /// Creation time as the caller recorded it (RFC 3339 text, `NOT NULL`).
     pub created_at: String,
@@ -68,8 +70,12 @@ pub struct Conversation {
 
     /// Durable Sandbox lifecycle intent. All four are `None` together when no
     /// Sandbox was ever requested — the lazy-absence model of `sandboxes`.
-    pub sandbox_desired_state: Option<SandboxDesiredState>,
-    pub sandbox_stop_reason: Option<SandboxStopReason>,
+    /// Persisted column; read the typed value through
+    /// [`Conversation::sandbox_desired_state`].
+    pub sandbox_desired_state_raw: Option<String>,
+    /// Persisted column; read the typed value through
+    /// [`Conversation::sandbox_stop_reason`].
+    pub sandbox_stop_reason_raw: Option<String>,
     pub sandbox_started_at: Option<DateTime<Utc>>,
     pub sandbox_updated_at: Option<DateTime<Utc>>,
 
@@ -99,6 +105,32 @@ pub struct Conversation {
     pub snoozed_at: Option<DateTime<Utc>>,
 }
 
+impl Conversation {
+    /// Persisted intent for this conversation's Sandbox.
+    pub fn sandbox_desired_state(&self) -> Option<SandboxDesiredState> {
+        let raw = self.sandbox_desired_state_raw.as_deref()?;
+        match SandboxDesiredState::try_from(raw) {
+            Ok(state) => Some(state),
+            Err(error) => {
+                tracing::warn!(task_id = %self.task_id, %error, "unreadable desired_state column");
+                None
+            }
+        }
+    }
+
+    /// Why the Sandbox was moved away from running, when it was.
+    pub fn sandbox_stop_reason(&self) -> Option<SandboxStopReason> {
+        let raw = self.sandbox_stop_reason_raw.as_deref()?;
+        match SandboxStopReason::try_from(raw) {
+            Ok(reason) => Some(reason),
+            Err(error) => {
+                tracing::warn!(task_id = %self.task_id, %error, "unreadable stop_reason column");
+                None
+            }
+        }
+    }
+}
+
 /// One Message of a Task's transcript, with the columns a transcript is
 /// rendered from and nothing else.
 ///
@@ -111,7 +143,9 @@ pub struct TranscriptMessage {
     /// The insertion order this transcript is assembled in.
     pub id: i32,
     pub uuid: String,
+    #[sqlx(try_from = "String")]
     pub message_type: MessageType,
+    #[sqlx(try_from = "String")]
     pub message_role: MessageRole,
     /// What was said, and only that. A user Message holds the person's own
     /// text: the files, contexts and attribution the agent is sent are rebuilt
@@ -675,8 +709,8 @@ impl PgConversationDao {
                    turn.status                AS turn_status,
                    turn.started_at            AS turn_started_at,
                    turn.ended_at              AS turn_ended_at,
-                   s.desired_state            AS sandbox_desired_state,
-                   s.stop_reason              AS sandbox_stop_reason,
+                   s.desired_state            AS sandbox_desired_state_raw,
+                   s.stop_reason              AS sandbox_stop_reason_raw,
                    s.started_at               AS sandbox_started_at,
                    s.desired_state_updated_at AS sandbox_updated_at,
                    person.latest_user_message_at,

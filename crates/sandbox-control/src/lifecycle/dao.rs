@@ -11,7 +11,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use moatless_backend_core::db_enum::{decode_optional, decode_required};
+use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_core::db::DbPool;
 use moatless_tasks::task::models::sandbox_intent_epoch;
 
@@ -81,11 +82,11 @@ impl LifecycleDao for PgLifecycleDao {
         // Left join: a Task with no Sandbox row is not TaskNotFound — it reads as
         // converged Stopped (never requested) with an epoch intent timestamp.
         let row: Option<(
-            TaskStatus,
             String,
             String,
-            Option<SandboxDesiredState>,
-            Option<SandboxStopReason>,
+            String,
+            Option<String>,
+            Option<String>,
             Option<String>,
             Option<String>,
             Option<i64>,
@@ -112,7 +113,7 @@ impl LifecycleDao for PgLifecycleDao {
         .await
         .map_err(|e| StoreError::with_source("load lifecycle intent", e))?;
 
-        Ok(row.map(
+        row.map(
             |(
                 status,
                 sandbox_id,
@@ -124,18 +125,23 @@ impl LifecycleDao for PgLifecycleDao {
                 op_generation,
                 op_started_at,
                 desired_state_updated_at,
-            )| TaskIntent {
-                status,
+            )| {
+                Ok::<_, sqlx::Error>(TaskIntent {
+                status: decode_required("status", status)?,
                 sandbox_id,
                 workspace_id,
-                desired_state: desired_state.unwrap_or(SandboxDesiredState::Stopped),
-                stop_reason,
+                desired_state: decode_optional("desired_state", desired_state)?
+                    .unwrap_or(SandboxDesiredState::Stopped),
+                stop_reason: decode_optional("stop_reason", stop_reason)?,
                 retention: retention.as_deref().and_then(ArchiveRetention::from_db_str),
                 marker: marker_from_columns(op_kind, op_generation, op_started_at),
                 desired_state_updated_at: desired_state_updated_at
                     .unwrap_or_else(sandbox_intent_epoch),
+                })
             },
-        ))
+        )
+        .transpose()
+        .map_err(|e| StoreError::with_source("load lifecycle intent", e))
     }
 
     async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
@@ -306,8 +312,8 @@ impl LifecycleDao for PgLifecycleDao {
                    OR (SELECT archive_retention FROM prev) IS DISTINCT FROM $4"#,
         )
         .bind(task_id)
-        .bind(write.desired_state)
-        .bind(write.stop_reason)
+        .bind(write.desired_state.as_str())
+        .bind(write.stop_reason.map(SandboxStopReason::as_str))
         .bind(write.retention.map(ArchiveRetention::as_str))
         .bind(write.marker.kind.as_str())
         .bind(write.marker.generation.value())
@@ -479,7 +485,7 @@ mod db_tests {
     use super::super::events::EventFact;
     use super::super::test_support::{seed_bare_task, seed_task as seed};
     use super::*;
-    use moatless_events::SandboxStatus;
+    use moatless_types::sandbox::SandboxStatus;
     use sqlx::PgPool;
 
     fn marker(kind: OperationKind, generation: i64) -> CorrelationMarker {

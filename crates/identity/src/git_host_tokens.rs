@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use moatless_api_schemas::enums::RepositoryProvider;
+use moatless_types::repository::RepositoryProvider;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 
-use crate::auth::actor::Actor;
+use moatless_types::access_control::Actor;
 use crate::auth::error::AuthError;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
@@ -23,9 +23,9 @@ use crate::auth::provider_tokens::{
 };
 use crate::auth::token_refresh::ensure_fresh_token;
 use crate::git_host_repo::GitHostRepo;
-use crate::secret::models::SecretKind;
+use moatless_types::secret::SecretKind;
 use crate::secret::service::SecretService;
-use moatless_backend_core::scope::Scope;
+use moatless_types::access_control::Scope;
 
 /// Why an identity has no usable token for a repository.
 ///

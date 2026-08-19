@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 
 use moatless_identity::secret::models::EncryptedSecretValue;
 
-use crate::workspace::models::WorkspaceCredentialProvider;
+use moatless_types::workspace::WorkspaceCredentialProvider;
 
 /// Credential metadata safe to expose through the Workspace Adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]

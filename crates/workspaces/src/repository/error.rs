@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::{error, warn};
 
-use moatless_backend_core::access_control::AccessControlError;
+use moatless_types::access_control::AccessControlError;
 use moatless_core::error::error_response;
 
 pub(crate) const REMOTE_URL_UNIQUE_INDEX: &str = "repositories_active_owner_remote_url_uq";

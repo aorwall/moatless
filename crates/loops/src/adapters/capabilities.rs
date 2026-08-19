@@ -1,63 +1,13 @@
 //! Adapter capability interfaces and shared capability value types.
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{
-    AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, OutboundReply,
-    SubscriptionMatch, TaskBinding,
-};
+use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::{BindingContext, ExternalStatus, InboundMessage, OutboundReply};
+use moatless_types::loops::LoopContext;
 
-use moatless_adapter_model::models::AdapterKind;
+use moatless_types::adapter::AdapterKind;
+use moatless_types::adapter::{BindingDestination, DestinationPostResult};
 
-/// Result of posting to a provider-specific destination by raw ID.
-///
-/// Returned by [`AdapterDirectDestination::post_to_destination`] and used by
-/// callers to build a matching [`TaskBinding`] row when the post is associated
-/// with a task.
-#[derive(Debug, Clone)]
-pub struct DestinationPostResult {
-    /// Provider-specific external message ID (e.g. Slack message `ts`).
-    pub message_external_id: String,
-    /// Provider-specific binding `subject_kind`.
-    pub subject_kind: &'static str,
-    /// Binding `subject_key` matching the format produced during inbound
-    /// routing for this provider.
-    pub subject_key: String,
-    /// Binding `destination_config` JSON used by `send_reply_for_binding`.
-    pub destination_config: serde_json::Value,
-}
-
-/// Provider-owned destination data for a task binding.
-#[derive(Debug, Clone)]
-pub struct BindingDestination {
-    /// Binding `subject_kind` (for example, a provider-defined thread kind).
-    pub subject_kind: &'static str,
-    /// Stable provider-defined lookup key for the bound subject.
-    pub subject_key: String,
-    /// Provider-defined JSON needed to send future replies.
-    pub destination_config: serde_json::Value,
-    /// Optional cursor seeded when the binding is created from an outbound send.
-    pub last_external_event_id: Option<String>,
-}
-
-impl BindingDestination {
-    pub fn new(
-        subject_kind: &'static str,
-        subject_key: String,
-        destination_config: serde_json::Value,
-    ) -> Self {
-        Self {
-            subject_kind,
-            subject_key,
-            destination_config,
-            last_external_event_id: None,
-        }
-    }
-
-    pub fn with_last_external_event_id(mut self, external_id: impl Into<String>) -> Self {
-        self.last_external_event_id = Some(external_id.into());
-        self
-    }
-}
 
 /// Universal adapter identity kept for compatibility with typed provider
 /// registration and legacy name lookups.
@@ -159,7 +109,7 @@ pub trait AdapterBindingReply: AdapterOutboundContent {
             .into());
         };
         let config =
-            moatless_adapter_model::models::subscription_context(rule, self.provider_key());
+            moatless_adapter_model::models::subscription_context(rule);
         let thread = moatless_adapter_model::models::binding_context(binding);
         self.send_reply(&thread, &config, message).await
     }

@@ -37,6 +37,7 @@
 //! `agentSessionUpdate`, the comment id returned by `commentCreate`) actually
 //! run.
 
+use moatless_types::adapter::AdapterKind;
 use crate::common;
 
 use std::sync::Arc;
@@ -51,9 +52,10 @@ use sqlx::PgPool;
 use sqlx::Row;
 
 use moatless_core::events::test_support::RecordingPublisher;
-use moatless_core::scope::Scope;
-use moatless_events::TaskSubType;
-use moatless_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
+use moatless_types::access_control::Scope;
+use moatless_types::task::TaskSubType;
+use moatless_backend::adapters::models::{SubscriptionMatch, TaskBinding};
+use moatless_types::loops::RoutingMode;
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_backend::adapters::test_support::ProviderStub;
 use moatless_backend::repository::dao as repository_dao;
@@ -261,7 +263,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
         .loops
         .upsert_subscription(&SubscriptionMatch {
             id: id.to_string(),
-            adapter_kind: "linear".to_string(),
+            adapter_kind: AdapterKind::Linear,
             connection_id: CONNECTION.to_string(),
             source_matcher: TEAM.to_string(),
             source_name: Some("Engineering".to_string()),
@@ -276,7 +278,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
             // that resolves rules — `run_as_user_id IS NOT NULL` is in the
             // query. Without it the rule exists and matches nothing.
             run_as_user_id: Some(USER_1.to_string()),
-            agent_type: "claude-code".to_string(),
+            agent_type: "claude-code".into(),
             inactive_ttl_days: None,
             allow_direct_send: false,
             // `close_task_on_close` is a scalar column on the Subscription, not
@@ -324,7 +326,7 @@ async fn seed_binding(
         .upsert(&TaskBinding {
             id: binding_id.to_string(),
             task_id: task_id.to_string(),
-            adapter_kind: "linear".to_string(),
+            adapter_kind: AdapterKind::Linear,
             subject_kind: subject_kind.to_string(),
             subject_key: subject_key.to_string(),
             connection_id: CONNECTION.to_string(),
@@ -946,7 +948,7 @@ async fn a_task_bound_twice_to_one_issue_receives_a_comment_once(pool: PgPool) {
         .upsert(&TaskBinding {
             id: "tb-issue-dup".to_string(),
             task_id: TASK.to_string(),
-            adapter_kind: "linear".to_string(),
+            adapter_kind: AdapterKind::Linear,
             subject_kind: "linear_issue".to_string(),
             subject_key: ISSUE.to_string(),
             connection_id: CONNECTION.to_string(),
@@ -1234,7 +1236,7 @@ async fn a_task_with_another_binding_is_not_closed(pool: PgPool) {
         .upsert(&TaskBinding {
             id: "tb-sibling".to_string(),
             task_id: TASK.to_string(),
-            adapter_kind: "linear".to_string(),
+            adapter_kind: AdapterKind::Linear,
             subject_kind: "linear_issue".to_string(),
             subject_key: "issue-other".to_string(),
             connection_id: CONNECTION.to_string(),

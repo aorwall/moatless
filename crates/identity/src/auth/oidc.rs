@@ -23,11 +23,11 @@ use sqlx::FromRow;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use moatless_core::config::OidcConfig;
+use moatless_types::auth::OidcConfig;
 use moatless_core::db::DbPool;
 
 use super::error::AuthError;
-use super::models::UserRole;
+use moatless_types::user::UserRole;
 use super::users::User;
 
 const TRANSACTION_TTL_MINUTES: i64 = 5;
@@ -356,7 +356,7 @@ impl OidcService {
                 .bind(id)
                 .bind(login)
                 .bind(email)
-                .bind(UserRole::User)
+                .bind(UserRole::User.as_str())
                 .fetch_one(&mut *tx)
                 .await?
             }

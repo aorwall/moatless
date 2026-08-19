@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use moatless_events::{SandboxEventPayload, SandboxStatus};
+use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use tracing::warn;
 
 use moatless_core::events::EventPublisher;

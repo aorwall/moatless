@@ -768,20 +768,20 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     #[openapi(
         components(schemas(
             // Event types + sub-types
-            moatless_events::EventType,
-            moatless_events::SandboxStatus,
-            moatless_events::ServerSubType,
-            moatless_events::AgentSubType,
-            moatless_events::TaskSubType,
-            moatless_events::TaskTurnSubType,
+            moatless_types::event::EventType,
+            moatless_types::sandbox::SandboxStatus,
+            moatless_types::sandbox::ServerSubType,
+            moatless_types::agent::AgentSubType,
+            moatless_types::task::TaskSubType,
+            moatless_types::task::TaskTurnSubType,
             // Event payloads
-            moatless_events::ServerEventPayload,
-            moatless_events::SandboxEventPayload,
-            moatless_events::AgentEventPayload,
-            moatless_events::TaskEventPayload,
-            moatless_events::TaskTurnEventPayload,
-            moatless_events::ResourcesEventPayload,
-            moatless_events::StreamEvent,
+            moatless_types::sandbox::ServerEventPayload,
+            moatless_types::sandbox::SandboxEventPayload,
+            moatless_types::agent::AgentEventPayload,
+            moatless_types::task::TaskEventPayload,
+            moatless_types::task::TaskTurnEventPayload,
+            moatless_types::sandbox::ResourcesEventPayload,
+            moatless_types::event::StreamEvent,
             // Claude SDK types
             claude_agent_sdk::types::content::ContentBlock,
             claude_agent_sdk::types::content::ImageSource,

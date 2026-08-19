@@ -10,7 +10,10 @@ use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use moatless_events::{AgentSubType, EventType, SandboxStatus, TaskSubType, TaskTurnSubType};
+use moatless_types::agent::AgentSubType;
+use moatless_types::event::EventType;
+use moatless_types::sandbox::SandboxStatus;
+use moatless_types::task::{TaskSubType, TaskTurnSubType};
 
 use moatless_loops::adapters::events::TaskEventSubscribers;
 

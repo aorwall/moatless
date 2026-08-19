@@ -10,10 +10,9 @@ use tracing::warn;
 use moatless_loops::adapters::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{
-    AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, OutboundReply,
-    SubscriptionMatch, TaskBinding,
-};
+use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::{BindingContext, ExternalStatus, InboundMessage, OutboundReply};
+use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
     AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
@@ -100,7 +99,7 @@ impl LinearAdapter {
     /// builds a `LinearConfig` with `api_base_url` pointed at a loopback stub
     /// and gets an Adapter whose outbound calls never leave the machine,
     /// through the same constructor production calls.
-    pub fn new(config: &moatless_core::config::LinearConfig, db: DbPool) -> Self {
+    pub fn new(config: &moatless_types::adapter::LinearConfig, db: DbPool) -> Self {
         Self {
             global_webhook_secret: config.webhook_secret.clone(),
             credentials: LinearCredentials::from(config),

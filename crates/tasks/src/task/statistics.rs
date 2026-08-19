@@ -2,13 +2,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use moatless_api_schemas::task::{
-    TaskMessageTokenUsage, TaskSkillUsage, TaskStatisticsResponse, TaskTokenTotals,
-    TaskToolCallStats,
-};
+use moatless_api_schemas::task::{TaskMessageTokenUsage, TaskSkillUsage, TaskStatisticsResponse, TaskTokenTotals, TaskToolCallStats};
 
 use super::models::Task;
-use super::schemas::agent_type_to_wire;
 use crate::message::models::{MessageType, TaskMessage};
 use crate::task_activities::dao::Activity;
 use crate::task_activities::mapping::ActivityKind;
@@ -194,7 +190,7 @@ pub fn build_task_statistics(
 
     TaskStatisticsResponse {
         task_id: task.task_id.clone(),
-        agent_type: agent_type_to_wire(&task.agent_type),
+        agent_type: task.agent_type.clone(),
         model: latest_model,
         token_totals: totals_from_turn_metrics(turn_metrics).unwrap_or(token_totals),
         message_token_usage,
@@ -229,16 +225,17 @@ mod tests {
     use serde_json::Value;
 
     use crate::message::models::{MessageRole, MessageType};
-    use crate::task::models::{TaskStatus, Visibility};
+    use moatless_types::task::Visibility;
+    use crate::task::models::TaskStatus;
     use crate::task_activities::mapping::ActivityStatus;
-    use moatless_core::shared_models::AgentType;
+    use moatless_types::agent::AgentType;
 
     fn task() -> Task {
         Task {
             task_id: "task-1".to_string(),
             short_id: None,
-            created_at: "2026-01-01T00:00:00.000Z".to_string(),
-            last_message_at: "2026-01-01T00:00:00.000Z".to_string(),
+            created_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000Z").expect("fixture timestamp").with_timezone(&chrono::Utc),
+            last_message_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000Z").expect("fixture timestamp").with_timezone(&chrono::Utc),
             agent_type: AgentType("codex".to_string()),
             repository_id: "repo-1".to_string(),
             status: TaskStatus::Open,
@@ -254,9 +251,8 @@ mod tests {
             model: None,
             created_by: None,
             visibility: Visibility::Private,
-            scope: moatless_backend_core::scope::Scope::User,
+            scope: moatless_types::access_control::Scope::User,
             owner_user_id: Some("user-1".to_string()),
-            created_at_db: None,
             updated_at: None,
             append_system_prompt: None,
             headless: false,
@@ -305,7 +301,7 @@ mod tests {
             agent_session_id: None,
             will_not_resume: None,
             run_metrics: None,
-            agent_mode: None,
+            agent_mode_raw: None,
             effort: None,
             model: None,
             skills: Vec::new(),

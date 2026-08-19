@@ -10,10 +10,10 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["serde"] }
 utoipa = { version = "5", features = ["axum_extras", "uuid"], optional = true }
-moatless-events = { path = "../events" }
+moatless-types = { path = "../types" }
 
 [lints]
 workspace = true
 
 [features]
-openapi = ["utoipa", "moatless-events/openapi"]
+openapi = ["utoipa", "moatless-types/openapi"]

@@ -5,7 +5,7 @@
 //! database, so these run against the real uuid-typed `users.id`.
 
 use chrono::Utc;
-use moatless_backend::auth::models::UserRole;
+use moatless_types::user::UserRole;
 use moatless_backend::auth::password::dao::{PgUserCredentialDao, UserCredentialDao};
 use moatless_backend::auth::users::{PgUserDao, User, UserDao};
 use moatless_backend::team::dao::{PgTeamDao, TeamDao};

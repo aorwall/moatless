@@ -64,7 +64,7 @@
 
 use std::sync::Arc;
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use tracing::info;
 
@@ -73,7 +73,8 @@ use moatless_loops::adapters::delivery::{
     register_typed_delivery,
 };
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
+use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch};
+use moatless_types::adapter::InboundMessage;
 
 use super::router::GithubPrInboundRouter;
 use super::webhook::PrCloseInfo;
@@ -334,7 +335,7 @@ pub(super) fn log_admission(
 #[cfg(test)]
 mod tests {
     use moatless_loops::adapters::AdapterKind;
-    use moatless_loops::adapters::models::Audience;
+    use moatless_types::adapter::Audience;
 
     use super::*;
 

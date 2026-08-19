@@ -16,7 +16,7 @@ use super::schemas::TagResponse;
     tag = "tags",
     responses(
         (status = 200, description = "List of tags", body = Vec<TagResponse>),
-        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn list_tags(

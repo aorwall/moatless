@@ -12,9 +12,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_api_schemas::repository::BranchListResponse;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
-use moatless_backend_core::models::AgentMode;
+use moatless_types::agent::AgentMode;
 
 /// Why a command was not carried out.
 ///

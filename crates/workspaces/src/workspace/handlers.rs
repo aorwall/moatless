@@ -5,10 +5,9 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use serde::Serialize;
 use tracing::warn;
 
-use moatless_backend_core::scope::{ScopeContext, ScopedResource};
+use moatless_types::access_control::{ScopeContext, ScopedResource};
 
 use crate::repository::dao::RepositoryDao;
 use moatless_backend_core::access_control::resolve_scope_for_create;
@@ -18,20 +17,11 @@ use moatless_identity::extractors::AuthUser;
 use super::dao::{WorkspaceDao, WorkspacePatch};
 use super::error::WorkspaceError;
 use super::git_sync::{GitSyncService, SyncForce};
-use super::models::{Workspace, WorkspaceRepo};
-use super::schemas::{
-    AddRepoRequest, CreateWorkspaceRequest, ResetGitWorkspaceResponse, UpdateWorkspaceRequest,
-    WorkspaceRepoInput, WorkspaceResponse, resource_config_from_wire, script_configs_from_wire,
-    server_configs_from_wire, workspace_response,
-};
-use crate::repository::schemas::scope_from_wire;
+use super::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
+use super::schemas::{AddRepoRequest, CreateWorkspaceRequest, ResetGitWorkspaceResponse, UpdateWorkspaceRequest, WorkspaceRepoInput, WorkspaceResponse, resource_config_from_wire, script_configs_from_wire, server_configs_from_wire, workspace_response};
 
 /// Serialize a typed run-config value into the jsonb column shape, dropping it
 /// on the (practically impossible) serialization failure rather than erroring.
-fn to_json<T: Serialize>(value: Option<T>) -> Option<serde_json::Value> {
-    value.and_then(|v| serde_json::to_value(v).ok())
-}
-
 /// The `(source_repository_id, source_key)` a reset-git re-syncs from.
 ///
 /// Without both, there is no git config to reset to: marking such a workspace
@@ -51,12 +41,12 @@ fn reset_source(ws: &Workspace) -> Result<(&str, &str), WorkspaceError> {
 /// it. The sync service writes through the DAO directly, so it bypasses this
 /// guard by design.
 fn ensure_workspace_mutable(ws: &Workspace) -> Result<(), WorkspaceError> {
-    if ws.deleted == Some(true) {
+    if ws.deleted {
         return Err(WorkspaceError::Conflict(
             "Workspace has been deleted; reset it from Git before editing it".to_string(),
         ));
     }
-    if ws.source == "git" {
+    if ws.source == WorkspaceSource::Git {
         return Err(WorkspaceError::Conflict(
             "Workspace is synced from Git and is read-only; edit .moatless/workspaces.json to change it".to_string(),
         ));
@@ -65,13 +55,12 @@ fn ensure_workspace_mutable(ws: &Workspace) -> Result<(), WorkspaceError> {
 }
 
 /// `blank` / `single` / `multi` from a placement count.
-fn kind_for(count: usize) -> String {
+fn kind_for(count: usize) -> WorkspaceKind {
     match count {
-        0 => "blank",
-        1 => "single",
-        _ => "multi",
+        0 => WorkspaceKind::Blank,
+        1 => WorkspaceKind::Single,
+        _ => WorkspaceKind::Multi,
     }
-    .to_string()
 }
 
 /// Load a workspace (scoped) plus its placements into a response, or NotFound.
@@ -214,8 +203,8 @@ fn ensure_unique_mount_names(placements: &[WorkspaceRepoInput]) -> Result<(), Wo
     request_body = CreateWorkspaceRequest,
     responses(
         (status = 201, description = "Workspace created", body = WorkspaceResponse),
-        (status = 400, description = "Invalid request", body = moatless_core::error::ErrorBody),
-        (status = 403, description = "Forbidden", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn create_workspace(
@@ -240,7 +229,7 @@ pub async fn create_workspace(
     .await?
     .flatten();
 
-    let resolved = resolve_scope_for_create(&auth.scope_context(), req.scope.map(scope_from_wire))?;
+    let resolved = resolve_scope_for_create(&auth.scope_context(), req.scope)?;
 
     let workspace_id = format!("ws_{}", uuid::Uuid::new_v4());
     let row = Workspace {
@@ -252,13 +241,13 @@ pub async fn create_workspace(
         docker_access: req.docker_access,
         sandbox_service_account: req.sandbox_service_account,
         system_prompt: req.system_prompt,
-        setup_commands: to_json(req.setup_commands),
-        env_vars: to_json(req.env_vars),
-        servers: to_json(req.servers.map(server_configs_from_wire).transpose()?),
-        scripts: to_json(req.scripts.map(script_configs_from_wire)),
-        resources: to_json(req.resources.map(resource_config_from_wire).transpose()?),
+        setup_commands: req.setup_commands,
+        env_vars: req.env_vars,
+        servers: req.servers.map(server_configs_from_wire).transpose()?,
+        scripts: req.scripts.map(script_configs_from_wire),
+        resources: req.resources.map(resource_config_from_wire).transpose()?,
         network_profile: req.network_profile,
-        source: "manual".to_string(),
+        source: WorkspaceSource::Manual,
         source_repository_id: None,
         source_key: None,
         source_config_path: None,
@@ -266,7 +255,7 @@ pub async fn create_workspace(
         owner_user_id: resolved.owner_user_id,
         run_as_user_id,
         created_by: Some(auth.user_id.clone().to_string()),
-        deleted: Some(false),
+        deleted: false,
         created_at: None,
         updated_at: None,
     };
@@ -345,7 +334,7 @@ pub async fn list_workspaces(
     params(("workspace_id" = String, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "Workspace", body = WorkspaceResponse),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_workspace(
@@ -365,8 +354,8 @@ pub async fn get_workspace(
     request_body = UpdateWorkspaceRequest,
     responses(
         (status = 200, description = "Workspace updated", body = WorkspaceResponse),
-        (status = 403, description = "Forbidden", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn update_workspace(
@@ -391,7 +380,7 @@ pub async fn update_workspace(
         resolve_run_as_user(&ctx, users.as_ref(), req.run_as_user_id.as_ref()).await?;
 
     // Re-resolve owner_user_id when the scope changes.
-    let (scope, owner_user_id) = match req.scope.map(scope_from_wire) {
+    let (scope, owner_user_id) = match req.scope {
         Some(new_scope) => {
             let resolved = resolve_scope_for_create(&auth.scope_context(), Some(new_scope))?;
             (Some(resolved.scope), Some(resolved.owner_user_id))
@@ -408,18 +397,18 @@ pub async fn update_workspace(
         docker_access: req.docker_access.map(Some),
         sandbox_service_account: req.sandbox_service_account.map(Some),
         system_prompt: req.system_prompt.map(Some),
-        setup_commands: req.setup_commands.map(|v| to_json(Some(v))),
-        env_vars: req.env_vars.map(|v| to_json(Some(v))),
+        setup_commands: req.setup_commands.map(Some),
+        env_vars: req.env_vars.map(Some),
         servers: req
             .servers
-            .map(|configs| server_configs_from_wire(configs).map(|c| to_json(Some(c))))
+            .map(|configs| server_configs_from_wire(configs).map(Some))
             .transpose()?,
         scripts: req
             .scripts
-            .map(|configs| to_json(Some(script_configs_from_wire(configs)))),
+            .map(|configs| Some(script_configs_from_wire(configs))),
         resources: req
             .resources
-            .map(|config| resource_config_from_wire(config).map(|c| to_json(Some(c))))
+            .map(|config| resource_config_from_wire(config).map(Some))
             .transpose()?,
         network_profile: req.network_profile.map(Some),
         run_as_user_id,
@@ -443,8 +432,8 @@ pub async fn update_workspace(
     params(("workspace_id" = String, Path, description = "Workspace id")),
     responses(
         (status = 204, description = "Workspace deleted"),
-        (status = 403, description = "Forbidden", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn delete_workspace(
@@ -480,8 +469,8 @@ pub async fn delete_workspace(
     request_body = UpdateWorkspaceRequest,
     responses(
         (status = 200, description = "Workspace overridden; source set to manual", body = WorkspaceResponse),
-        (status = 403, description = "Forbidden", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 /// Override a git-synced workspace. Sets `source = "manual"` so that git sync
@@ -499,7 +488,7 @@ pub async fn override_workspace(
         .find_by_id(&workspace_id, &ctx)
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
-    if existing.deleted == Some(true) {
+    if existing.deleted {
         return Err(WorkspaceError::Conflict(
             "Workspace has been deleted; reset it from Git before overriding it".to_string(),
         ));
@@ -525,23 +514,23 @@ pub async fn override_workspace(
         docker_access: req.docker_access.map(Some),
         sandbox_service_account: req.sandbox_service_account.map(Some),
         system_prompt: req.system_prompt.map(Some),
-        setup_commands: req.setup_commands.map(|v| to_json(Some(v))),
-        env_vars: req.env_vars.map(|v| to_json(Some(v))),
+        setup_commands: req.setup_commands.map(Some),
+        env_vars: req.env_vars.map(Some),
         servers: req
             .servers
-            .map(|configs| server_configs_from_wire(configs).map(|c| to_json(Some(c))))
+            .map(|configs| server_configs_from_wire(configs).map(Some))
             .transpose()?,
         scripts: req
             .scripts
-            .map(|configs| to_json(Some(script_configs_from_wire(configs)))),
+            .map(|configs| Some(script_configs_from_wire(configs))),
         resources: req
             .resources
-            .map(|config| resource_config_from_wire(config).map(|c| to_json(Some(c))))
+            .map(|config| resource_config_from_wire(config).map(Some))
             .transpose()?,
         network_profile: req.network_profile.map(Some),
         run_as_user_id,
         // Mark as manually managed; provenance columns stay unchanged.
-        source: Some("manual".to_string()),
+        source: Some(WorkspaceSource::Manual),
         kind: None,
         scope: None,
         owner_user_id: None,
@@ -562,9 +551,9 @@ pub async fn override_workspace(
     params(("workspace_id" = String, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "Re-sync attempted; `resynced` reports whether it took effect", body = ResetGitWorkspaceResponse),
-        (status = 400, description = "Workspace was never synced from git", body = moatless_core::error::ErrorBody),
-        (status = 403, description = "Forbidden", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Workspace was never synced from git", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 /// Discard a workspace's local override and take its run-config from git again.
@@ -603,7 +592,7 @@ pub async fn reset_git_workspace(
     let (source_repository_id, source_key) = reset_source(&existing)?;
     // An already-git workspace has nothing to reclaim — for it the re-sync is
     // just a refresh, and success means the sync ran.
-    let was_overridden = existing.source == "manual";
+    let was_overridden = existing.source == WorkspaceSource::Manual;
 
     let repo = repositories
         .find_by_id(source_repository_id, &ctx)
@@ -667,9 +656,9 @@ async fn ensure_writable(
     request_body = AddRepoRequest,
     responses(
         (status = 200, description = "Repo added", body = WorkspaceResponse),
-        (status = 400, description = "Invalid request", body = moatless_core::error::ErrorBody),
-        (status = 403, description = "Forbidden", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn add_workspace_repo(
@@ -746,8 +735,8 @@ pub async fn add_workspace_repo(
     ),
     responses(
         (status = 200, description = "Repo removed", body = WorkspaceResponse),
-        (status = 403, description = "Forbidden", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn remove_workspace_repo(
@@ -789,8 +778,8 @@ pub async fn remove_workspace_repo(
     ),
     responses(
         (status = 200, description = "Primary set", body = WorkspaceResponse),
-        (status = 403, description = "Forbidden", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn set_workspace_primary_repo(
@@ -867,18 +856,18 @@ mod tests {
 
     #[test]
     fn kind_for_derives_label_from_count() {
-        assert_eq!(kind_for(0), "blank");
-        assert_eq!(kind_for(1), "single");
-        assert_eq!(kind_for(2), "multi");
-        assert_eq!(kind_for(9), "multi");
+        assert_eq!(kind_for(0), WorkspaceKind::Blank);
+        assert_eq!(kind_for(1), WorkspaceKind::Single);
+        assert_eq!(kind_for(2), WorkspaceKind::Multi);
+        assert_eq!(kind_for(9), WorkspaceKind::Multi);
     }
 
-    fn workspace_with_source(source: &str) -> Workspace {
+    fn workspace_with_source(source: WorkspaceSource) -> Workspace {
         Workspace {
             id: "ws_1".to_string(),
             name: "w".to_string(),
             description: None,
-            kind: "single".to_string(),
+            kind: WorkspaceKind::Single,
             docker_image: None,
             docker_access: None,
             sandbox_service_account: None,
@@ -889,15 +878,15 @@ mod tests {
             scripts: None,
             resources: None,
             network_profile: None,
-            source: source.to_string(),
+            source,
             source_repository_id: None,
             source_key: None,
             source_config_path: None,
-            scope: moatless_backend_core::scope::Scope::User,
+            scope: moatless_types::access_control::Scope::User,
             owner_user_id: None,
             run_as_user_id: None,
             created_by: None,
-            deleted: Some(false),
+            deleted: false,
             created_at: None,
             updated_at: None,
         }
@@ -905,19 +894,19 @@ mod tests {
 
     #[test]
     fn git_workspace_is_read_only() {
-        let err = ensure_workspace_mutable(&workspace_with_source("git")).unwrap_err();
+        let err = ensure_workspace_mutable(&workspace_with_source(WorkspaceSource::Git)).unwrap_err();
         assert!(matches!(err, WorkspaceError::Conflict(_)));
     }
 
     #[test]
     fn manual_workspace_is_mutable() {
-        assert!(ensure_workspace_mutable(&workspace_with_source("manual")).is_ok());
+        assert!(ensure_workspace_mutable(&workspace_with_source(WorkspaceSource::Manual)).is_ok());
     }
 
     #[test]
     fn deleted_workspace_is_not_mutable() {
-        let mut workspace = workspace_with_source("manual");
-        workspace.deleted = Some(true);
+        let mut workspace = workspace_with_source(WorkspaceSource::Manual);
+        workspace.deleted = true;
 
         let err = ensure_workspace_mutable(&workspace).unwrap_err();
         assert!(matches!(err, WorkspaceError::Conflict(_)));
@@ -926,15 +915,15 @@ mod tests {
     #[test]
     fn reset_source_requires_full_provenance() {
         // A workspace that was never git-synced has nothing to reset to.
-        let err = reset_source(&workspace_with_source("manual")).unwrap_err();
+        let err = reset_source(&workspace_with_source(WorkspaceSource::Manual)).unwrap_err();
         assert!(matches!(err, WorkspaceError::BadRequest(_)));
 
         // A half-stamped row is just as unreachable for the sync.
-        let mut half = workspace_with_source("manual");
+        let mut half = workspace_with_source(WorkspaceSource::Manual);
         half.source_repository_id = Some("repo-1".to_string());
         assert!(reset_source(&half).is_err());
 
-        let mut overridden = workspace_with_source("manual");
+        let mut overridden = workspace_with_source(WorkspaceSource::Manual);
         overridden.source_repository_id = Some("repo-1".to_string());
         overridden.source_key = Some("api".to_string());
         assert_eq!(reset_source(&overridden).unwrap(), ("repo-1", "api"));
@@ -956,12 +945,5 @@ mod tests {
         let placements = vec![input(Some("api")), input(Some("api"))];
         let err = ensure_unique_mount_names(&placements).unwrap_err();
         assert!(matches!(err, WorkspaceError::BadRequest(_)));
-    }
-
-    #[test]
-    fn to_json_roundtrips_and_drops_none() {
-        assert_eq!(to_json::<Vec<String>>(None), None);
-        let v = to_json(Some(vec!["a".to_string(), "b".to_string()])).unwrap();
-        assert_eq!(v, serde_json::json!(["a", "b"]));
     }
 }

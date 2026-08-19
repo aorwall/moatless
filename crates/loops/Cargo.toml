@@ -40,10 +40,10 @@ moatless-adapter-model = { path = "../adapter-model" }
 moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
 moatless-core = { path = "../core", features = ["openapi"] }
-moatless-events = { path = "../events" }
 moatless-identity = { path = "../identity" }
 moatless-s3 = { path = "../s3" }
 moatless-tasks = { path = "../tasks" }
+moatless-types = { path = "../types" }
 moatless-workspaces = { path = "../workspaces" }
 
 [features]

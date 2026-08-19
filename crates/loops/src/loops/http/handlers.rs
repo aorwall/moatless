@@ -6,27 +6,15 @@ use axum::http::StatusCode;
 use chrono::Utc;
 use moatless_api_schemas::bindings::TaskBindingResponse;
 use moatless_api_schemas::enums::TaskStatus;
-use moatless_api_schemas::loops::{
-    ActivateLoopRequest, CreateLoopRequest, Loop, LoopRecentTaskItem, LoopRecentTaskSummary,
-    ResetGitLoopResponse, UpdateLoopRequest, UpdateLoopSource,
-};
+use moatless_api_schemas::loops::{ActivateLoopRequest, CreateLoopRequest, Loop, LoopRecentTaskItem, LoopRecentTaskSummary, ResetGitLoopResponse, UpdateLoopRequest, UpdateLoopSource};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::adapters::common::{
-    LoopFilter, adapter_kind_to_wire, ensure_repository_exists,
-    load_adapter_connection_for_auth_with, load_loop_for_auth_with, loop_kind_from_wire,
-    loop_response, next_fire_at, parse_adapter_kind, resolve_scope_for_adapter_create,
-    routing_mode_from_wire,
-};
+use crate::adapters::common::{LoopFilter, ensure_repository_exists, load_adapter_connection_for_auth_with, load_loop_for_auth_with, loop_response, next_fire_at, parse_adapter_kind, resolve_scope_for_adapter_create};
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::loops::dao::{
-    AdapterSourceUpdate, LoopDao, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource,
-    NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource,
-    UpdateLoopSource as StoreUpdateSource,
-};
-use crate::loops::models::LoopKind as DomainLoopKind;
+use crate::loops::dao::{AdapterSourceUpdate, LoopDao, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource, UpdateLoopSource as StoreUpdateSource};
+use moatless_types::loops::LoopKind as DomainLoopKind;
 use crate::loops::sync::LoopSyncService;
 use moatless_identity::auth::users::UserDao;
 use moatless_identity::extractors::AuthUser;
@@ -96,7 +84,7 @@ fn map_recent_task_item(row: &LoopRecentTaskRow) -> LoopRecentTaskItem {
         ) => Some(TaskBindingResponse {
             id: id.clone(),
             task_id: row.task_id.clone(),
-            adapter_kind: adapter_kind_to_wire(parse_adapter_kind(provider)),
+            adapter_kind: (parse_adapter_kind(provider)),
             connection_id: connection_id.clone(),
             loop_id: row.loop_id.clone(),
             subject_kind: subject_kind.clone(),
@@ -181,7 +169,7 @@ pub async fn create_loop(
         .into());
     }
 
-    let kind = loop_kind_from_wire(req.kind);
+    let kind = req.kind;
     let adapter_source = match (kind, &req.source) {
         (
             DomainLoopKind::AdapterEvent,
@@ -217,7 +205,7 @@ pub async fn create_loop(
             &source.connection_id,
         )
         .await?;
-        if connection.adapter_kind != adapter_kind {
+        if connection.adapter_kind.as_str() != adapter_kind {
             return Err(SharedAdapterError::BadRequest(format!(
                 "Connection {} is for adapter {}, not {}",
                 connection.id, connection.adapter_kind, adapter_kind
@@ -277,7 +265,7 @@ pub async fn create_loop(
             created_at: now,
             config: NewLoopConfig {
                 repository_id: req.config.repository_id.clone(),
-                routing_mode: routing_mode_from_wire(req.config.routing_mode),
+                routing_mode: req.config.routing_mode,
                 ongoing_task_id: req.config.ongoing_task_id.clone(),
                 prompt: req.config.prompt.clone(),
                 task_name: req.config.task_name.clone(),
@@ -320,7 +308,7 @@ pub async fn update_loop(
     require_admin(&auth)?;
     let ctx = auth.scope_context();
     let current = load_loop_for_auth_with(loops.as_ref(), &ctx, &id).await?;
-    if current.loop_.config_source != "manual" || current.loop_.deleted {
+    if current.loop_.config_source != moatless_types::loops::LoopConfigSource::Manual || current.loop_.deleted {
         return Err(SharedAdapterError::Conflict(
             "Git-synced Loops are read-only; override the Loop before editing it".to_string(),
         )
@@ -393,7 +381,7 @@ pub async fn update_loop(
             .unwrap_or_else(|| current.config.repository_id.clone()),
         routing_mode: rule
             .routing_mode
-            .map_or(current.config.routing_mode, routing_mode_from_wire),
+            .unwrap_or(current.config.routing_mode),
         ongoing_task_id: rule
             .ongoing_task_id
             .unwrap_or_else(|| current.config.ongoing_task_id.clone()),
@@ -408,7 +396,7 @@ pub async fn update_loop(
         run_as_user_id: current.config.run_as_user_id.clone(),
         agent_type: rule
             .agent_type
-            .unwrap_or_else(|| current.config.agent_type.clone()),
+            .unwrap_or_else(|| current.config.agent_type.as_str().to_string()),
         inactive_ttl_days: rule
             .inactive_ttl_days
             .unwrap_or(current.config.inactive_ttl_days),
@@ -507,7 +495,7 @@ pub async fn update_loop(
     params(("id" = String, Path, description = "Loop id")),
     responses(
         (status = 200, description = "Loop", body = Loop),
-        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn get_loop(
@@ -549,7 +537,7 @@ pub async fn list_loop_recent_tasks(
     params(("id" = String, Path, description = "Loop id")),
     responses(
         (status = 204, description = "Loop deleted"),
-        (status = 404, description = "Loop not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Loop not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn delete_loop(
@@ -570,7 +558,7 @@ pub async fn delete_loop(
 
 async fn updated_loop(
     loops: &LoopDao,
-    ctx: &moatless_backend_core::scope::ScopeContext,
+    ctx: &moatless_types::access_control::ScopeContext,
     id: &str,
 ) -> Result<Json<Loop>, AdapterError> {
     let record = loops

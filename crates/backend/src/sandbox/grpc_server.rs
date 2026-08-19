@@ -10,35 +10,23 @@ use serde_json::Value;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, info, warn};
 
-use moatless_events::AgentSubType;
+use moatless_types::agent::AgentSubType;
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
-use sandbox_proto::{
-    AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
-    DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
-    GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
-    GetSystemPromptResponse, GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse,
-    InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest, PublishEventResponse,
-    RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
-    ReportWorkspaceSyncResponse, TranscriptChunk, UpdateCredentialRequest,
-    UpdateCredentialResponse, UploadTranscriptResponse,
-};
+use sandbox_proto::{AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest, DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest, GetSystemPromptResponse, GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest, PublishEventResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse, TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadTranscriptResponse};
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use crate::sandbox::event_dedup::Admission;
 use crate::sandbox::jwt;
-use crate::sandbox::secrets::{
-    TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets,
-    resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
-};
+use crate::sandbox::secrets::{TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets, resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials};
 use crate::sandbox::storage::sandbox_key;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::file_storage::dao::FileDao;
-use moatless_core::shared_models::AgentType;
+use moatless_types::agent::AgentType;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::github::service::GitHubAppService;
-use moatless_identity::auth::models::UserRole;
+use moatless_types::user::UserRole;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
 use moatless_identity::auth::users::UserDao;
@@ -722,7 +710,7 @@ fn decode_request(event: &PublishEventRequest) -> Result<(&'static str, Value), 
     // to a variant. The dispatch strings come from the domain enum so they
     // cannot drift from the wire contract.
     let event_type = match sandbox_proto::EventType::try_from(event.event_type) {
-        Ok(proto_event_type) => moatless_events::EventType::from(proto_event_type).as_str(),
+        Ok(proto_event_type) => moatless_types::event::EventType::from(proto_event_type).as_str(),
         Err(e) => {
             warn!(
                 event_type = event.event_type,
@@ -900,7 +888,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // gated, mirroring `send.rs`.
         if matches!(
             task.as_ref().map(|t| t.status),
-            Some(moatless_backend_core::models::TaskStatus::Closed)
+            Some(moatless_types::task::TaskStatus::Closed)
         ) {
             debug!(task_id = %req.task_id, "get_pending_messages: task is Closed, returning no messages");
             return Ok(Response::new(GetPendingMessagesResponse {
@@ -1756,7 +1744,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
         if matches!(
             task.as_ref().map(|t| t.status),
-            Some(moatless_backend_core::models::TaskStatus::Closed)
+            Some(moatless_types::task::TaskStatus::Closed)
         ) {
             debug!(task_id = %req.task_id, "recover_interrupted_run: task is Closed, skipping recovery");
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
@@ -1786,8 +1774,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
         if matches!(
             sandbox_desired_state,
-            Some(moatless_backend_core::models::SandboxDesiredState::Stopped)
-                | Some(moatless_backend_core::models::SandboxDesiredState::Removed)
+            Some(moatless_types::sandbox::SandboxDesiredState::Stopped)
+                | Some(moatless_types::sandbox::SandboxDesiredState::Removed)
         ) {
             debug!(
                 task_id = %req.task_id,
@@ -1926,7 +1914,7 @@ mod tests {
             let decoded = sandbox_proto::EventType::try_from(wire as i32)
                 .expect("known discriminant decodes");
             assert_eq!(
-                moatless_events::EventType::from(decoded).as_str(),
+                moatless_types::event::EventType::from(decoded).as_str(),
                 expected,
                 "dispatch string changed for {wire:?}"
             );
@@ -2028,11 +2016,12 @@ mod tests {
     // these exercise the control-gate composition and the binding check.
     // ---------------------------------------------------------------------
 
-    use moatless_backend_core::scope::Scope;
+    use moatless_types::access_control::Scope;
 
     use moatless_identity::auth::users::{MockUserDao, User, UserDao};
     use moatless_tasks::task::dao::{MockTaskDao, TaskDao};
-    use moatless_tasks::task::models::{Task, Visibility};
+    use moatless_types::task::Visibility;
+    use moatless_tasks::task::models::Task;
 
     fn epoch() -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::from_timestamp(0, 0).expect("epoch is a valid timestamp")
@@ -2050,11 +2039,11 @@ mod tests {
         Task {
             task_id: "task-1".to_string(),
             short_id: None,
-            created_at: String::new(),
-            last_message_at: String::new(),
-            agent_type: moatless_core::shared_models::AgentType("claude-code".to_string()),
+            created_at: chrono::Utc::now(),
+            last_message_at: chrono::Utc::now(),
+            agent_type: moatless_types::agent::AgentType("claude-code".to_string()),
             repository_id: "repo-1".to_string(),
-            status: moatless_backend_core::models::TaskStatus::Open,
+            status: moatless_types::task::TaskStatus::Open,
             total_cost_usd: 0.0,
             site_url: None,
             template_id: None,
@@ -2066,10 +2055,9 @@ mod tests {
             branch: None,
             model: None,
             created_by: owner_user_id.map(|u| uid(u).to_string()),
-            visibility: moatless_tasks::task::models::Visibility::Private,
+            visibility: moatless_types::task::Visibility::Private,
             scope,
             owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
-            created_at_db: None,
             updated_at: None,
             append_system_prompt: None,
             headless: false,

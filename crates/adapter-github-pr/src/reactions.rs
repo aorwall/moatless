@@ -3,7 +3,7 @@
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_loops::adapters::AdapterReactions;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::BindingContext;
+use moatless_types::adapter::BindingContext;
 
 use super::adapter::GithubPrAdapter;
 use super::external_id::{self, CommentTarget};
@@ -158,7 +158,7 @@ mod tests {
     use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
-    use moatless_loops::adapters::models::BindingContext;
+    use moatless_types::adapter::BindingContext;
 
     #[test]
     fn github_content_accepts_canonical_and_aliases() {

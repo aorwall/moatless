@@ -13,7 +13,8 @@ use super::common::{
 };
 use crate::adapters::AdapterKind;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{AdapterConnection, OutboundReply};
+use crate::adapters::models::AdapterConnection;
+use moatless_types::adapter::OutboundReply;
 use crate::bindings::outbound::{resolve_files_with, truncate_text};
 use crate::bindings::runtime::{ORIGIN_CONNECTED_THREAD, upsert_binding_into};
 use crate::extractors::AuthUser;
@@ -87,7 +88,7 @@ pub async fn create_adapter_connection(
 
     let ctx = auth.scope_context();
     let now = Utc::now();
-    let adapter_kind = req.adapter_kind.as_str().to_string();
+    let adapter_kind = req.adapter_kind;
     let resolved = resolve_scope_for_adapter_create(&ctx, req.scope)?;
     let repo = &state.adapter_connections;
     let row = AdapterConnection {
@@ -117,7 +118,7 @@ pub async fn create_adapter_connection(
     params(("id" = String, Path, description = "Adapter connection id")),
     responses(
         (status = 204, description = "Adapter connection deleted"),
-        (status = 404, description = "Connection not found", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Connection not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn delete_adapter_connection(
@@ -144,8 +145,8 @@ pub async fn delete_adapter_connection(
     request_body = AdapterSendRequest,
     responses(
         (status = 200, description = "Adapter send result", body = AdapterSendResponse),
-        (status = 400, description = "Invalid request", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Connection or task not found", body = moatless_core::error::ErrorBody),
+        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Connection or task not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn adapter_send(
@@ -154,7 +155,7 @@ pub async fn adapter_send(
     Json(req): Json<AdapterSendRequest>,
 ) -> Result<Json<AdapterSendResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    let adapter_kind = moatless_loops::adapters::common::adapter_kind_from_wire(req.adapter);
+    let adapter_kind = req.adapter;
 
     if let Some(task_id) = req.task_id.as_deref() {
         ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
@@ -240,8 +241,8 @@ pub async fn adapter_send(
     request_body = SendDmRequest,
     responses(
         (status = 200, description = "DM sent", body = SendDmResponse),
-        (status = 400, description = "Invalid request", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "User or provider mapping not found", body = moatless_core::error::ErrorBody),
+        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "User or provider mapping not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn send_user_dm(

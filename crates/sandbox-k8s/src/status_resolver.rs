@@ -16,8 +16,9 @@ use super::pod_status::{
     check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod,
 };
 use super::service;
-use moatless_backend_core::models::{SandboxDesiredState, TaskStatus};
-use moatless_backend_core::run_config::ServerConfig;
+use moatless_types::sandbox::SandboxDesiredState;
+use moatless_types::task::TaskStatus;
+use moatless_types::workspace::ServerConfig;
 use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_core::config::Config;
 use moatless_sandbox_control::live_status::{AgentStatus, LiveStatus, derive_live_status};

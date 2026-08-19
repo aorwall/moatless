@@ -5,19 +5,18 @@ use std::fmt::Write as _;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use moatless_backend_core::models::TaskStatus;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::task::TaskStatus;
+use moatless_types::access_control::ScopeContext;
 use moatless_loops::adapters::AdapterInboundPresentation;
 use moatless_loops::adapters::AdapterKind;
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{
-    ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, Audience, CONNECTED_THREAD_BINDING_ORIGIN,
-    InboundMessage, RoutingMode, SubscriptionMatch, TaskBinding,
-};
+use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, CONNECTED_THREAD_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::{Audience, InboundMessage};
+use moatless_types::loops::RoutingMode;
 use moatless_loops::bindings::metrics::{inbound_reason, record_inbound};
 use moatless_tasks::task::closer::CloseEvent;
 use moatless_tasks::task::creation::TaskCreationError;
-use moatless_tasks::task::models::Visibility;
+use moatless_types::task::Visibility;
 
 use super::router::GithubPrInboundRouter;
 use super::subject::GithubPrSubject;
@@ -52,7 +51,7 @@ pub(super) fn delivery_only_rule(
     let now = Utc::now();
     SubscriptionMatch {
         id: format!("virtual:{}", connection.id),
-        adapter_kind: super::delivery::ADAPTER.to_string(),
+        adapter_kind: AdapterKind::GithubPr,
         connection_id: connection.id.clone(),
         source_matcher: repo_full_name.to_string(),
         source_name: None,
@@ -64,7 +63,7 @@ pub(super) fn delivery_only_rule(
         tag_ids: Vec::new(),
         skills: Vec::new(),
         run_as_user_id: connection.owner_user_id.clone(),
-        agent_type: String::new(),
+        agent_type: moatless_types::agent::AgentType(String::new()),
         inactive_ttl_days: None,
         allow_direct_send: false,
         adapter_config: None,
@@ -208,7 +207,7 @@ impl GithubPrInboundRouter {
                 let related = originator_binding_summary
                     .as_ref()
                     .map(
-                        |(task_id, binding_id)| moatless_tasks::task::relations::RelatedTask {
+                        |(task_id, binding_id)| moatless_types::task::RelatedTask {
                             related_task_id: task_id.clone(),
                             context: serde_json::json!({
                                 "via": "github_pr_webhook",
@@ -545,7 +544,7 @@ impl GithubPrInboundRouter {
         // `source_matcher` event metadata; `related_to` is recorded by the caller
         // after creation succeeds, and the first message is delivered through the
         // binding.
-        let config = moatless_adapter_model::models::subscription_context(rule, ADAPTER_LABEL);
+        let config = moatless_adapter_model::models::subscription_context(rule);
         // Self-resolve: github_pr's reply instructions are its own constant, so
         // read them off this adapter rather than the registry of all providers,
         // and pass them to the firing entry point as a value.
@@ -600,7 +599,7 @@ impl GithubPrInboundRouter {
                 &msg.file_ids,
                 &[],
                 false,
-                moatless_tasks::message::send::ExternalOrigin {
+                moatless_types::task::ExternalOrigin {
                     event_id: msg.external_event_id.as_deref(),
                     adapter: Some(ADAPTER_LABEL),
                     subject_key: Some(&binding.subject_key),
@@ -640,8 +639,9 @@ impl GithubPrInboundRouter {
 
 #[cfg(test)]
 mod tests {
+    use moatless_types::adapter::AdapterKind;
     use chrono::Utc;
-    use moatless_backend_core::scope::Scope;
+    use moatless_types::access_control::Scope;
     use moatless_loops::adapters::models::AdapterConnection;
 
     use super::delivery_only_rule;
@@ -651,7 +651,7 @@ mod tests {
         let now = Utc::now();
         let connection = AdapterConnection {
             id: "pc_org".to_string(),
-            adapter_kind: "github".to_string(),
+            adapter_kind: AdapterKind::Github,
             connection_kind: "org_webhook".to_string(),
             scope_value: "acme".to_string(),
             credential_ref: None,
@@ -668,7 +668,7 @@ mod tests {
 
         assert!(rule.active);
         assert!(rule.repository_id.is_empty());
-        assert!(rule.agent_type.is_empty());
+        assert!(rule.agent_type.as_str().is_empty());
         assert!(rule.prompt_template.is_none());
         assert_eq!(rule.event_filter, serde_json::json!([]));
         assert_eq!(rule.source_matcher, "acme/widget");

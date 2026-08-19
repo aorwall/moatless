@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-use moatless_backend_core::scope::Scope;
+use moatless_types::access_control::Scope;
 
 // =============================================================================
 // FileMetadata (DB)
@@ -15,6 +15,7 @@ pub struct FileMetadata {
     pub filename: String,
     pub mime_type: String,
     pub size: i64,
+    #[sqlx(try_from = "String")]
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_by: Option<String>,

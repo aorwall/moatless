@@ -188,7 +188,7 @@ graph LR
     %% ── Shared crates ────────────────────────────────
     SDK["claude-agent-sdk"]:::crate
     Proto["sandbox-proto"]:::crate
-    EventsCrate["moatless-events"]:::crate
+    TypesCrate["moatless-types"]:::crate
 
     %% ── Backend ↔ Sandbox gRPC (bidirectional) ───────
     Backend -- "ExecuteAgent, StopAgent,<br/>GetAgentStatus, NotifyMessages,<br/>File ops" --> GrpcServer
@@ -225,7 +225,7 @@ graph LR
     %% ── Shared crate usage ───────────────────────────
     GrpcServer -.-> Proto
     GrpcClient -.-> Proto
-    Events -.-> EventsCrate
+    Events -.-> TypesCrate
     Executor -.-> SDK
     Consumer -.-> Proto
 ```

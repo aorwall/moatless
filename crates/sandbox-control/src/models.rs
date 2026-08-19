@@ -9,7 +9,7 @@ pub use moatless_api_schemas::sandbox::{
     RepoCheckout, WORKSPACE_REPOS_ENV, derive_mount_name, sanitize_mount_name,
 };
 
-use moatless_backend_core::run_config::{Port, ServerConfig};
+use moatless_types::workspace::{Port, ServerConfig};
 
 /// Waiting reasons that map a *server* container to `"failed"` status. Read by
 /// `ContainerObservedStatus::to_server_status()` below — pure string data, so it
@@ -83,7 +83,7 @@ pub struct RepoConfig {
     // --- K8s resource configuration (opt-in per-repo) ---
     /// Per-repo K8s resource requests/limits override for server containers.
     #[schema(value_type = moatless_api_schemas::workspace::ResourceConfig)]
-    pub resources: Option<moatless_backend_core::run_config::ResourceConfig>,
+    pub resources: Option<moatless_types::workspace::ResourceConfig>,
     // --- Plugins (resolved from the task owner's activation records) ---
     /// The plugins this task's owner has turned on, each with the skills they
     /// picked. The sandbox clones each one and removes the skills not named.
@@ -142,7 +142,7 @@ impl ServerOverride {
 }
 
 pub use super::live_status::SandboxStatus;
-pub use moatless_events::ServerStatus;
+pub use moatless_types::sandbox::ServerStatus;
 
 /// Pod phase as returned by K8s API
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,7 +229,7 @@ pub struct ResourceMetrics {
     pub uptime_seconds: f64,
 }
 
-pub use moatless_events::ServerCapabilities;
+pub use moatless_types::sandbox::ServerCapabilities;
 
 // =============================================================================
 // Container status types (K8s API-based server monitoring)

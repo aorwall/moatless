@@ -28,10 +28,9 @@ use serde_json::Value;
 use sqlx::PgPool;
 use tonic::Request;
 
-use moatless_events::{
-    AgentSubType, SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
-    TaskSubType, TaskTurnSubType,
-};
+use moatless_types::agent::AgentSubType;
+use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType};
+use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use moatless_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_backend::event_handler::consumer::persist_event;
 use moatless_backend::agent_event::AgentEvent;

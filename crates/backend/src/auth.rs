@@ -5,7 +5,7 @@
 //! `crate::auth::<submodule>::…` through these explicit re-exports.
 
 pub use moatless_identity::auth::{
-    actor, api_key, api_keys, cache, codex_auth_json, codex_scope, credentials, error, github,
+    api_key, api_keys, cache, codex_auth_json, credentials, error, github,
     identity, jwt, middleware, models, pairing, password, provider_token_dao, provider_tokens,
     routes, sessions, test_user, users, Authentication, AuthenticationPorts,
 };

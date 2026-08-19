@@ -2,7 +2,7 @@
 
 use moatless_loops::adapters::AdapterReactions;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::BindingContext;
+use moatless_types::adapter::BindingContext;
 
 use super::adapter::SlackAdapter;
 use super::subject;
@@ -52,7 +52,7 @@ impl AdapterReactions for SlackAdapter {
 #[cfg(test)]
 mod tests {
     use moatless_loops::adapters::AdapterReactions;
-    use moatless_loops::adapters::models::BindingContext;
+    use moatless_types::adapter::BindingContext;
     use moatless_loops::adapters::test_support::ProviderStub;
 
     use crate::adapter::SlackAdapter;

@@ -1,9 +1,6 @@
-//! Run-configuration vocabulary shared by every sandbox runtime.
-//!
-//! A provision plan carries these types from the control band down to the
-//! Kubernetes and Docker providers. They describe how a sandbox container is
-//! sized and what its preview servers run, so they sit beside the sandbox port
-//! policy rather than in any one runtime or in the workspace store.
+//! Workspace vocabulary: the composition and run configuration a Workspace
+//! carries — its scripts, preview servers, container sizing, and the providers
+//! whose credential can be pinned to it.
 //!
 //! Every string field that is really a value — a CPU quantity, a memory
 //! quantity, a storage medium, an environment-variable name, a port — is parsed
@@ -11,13 +8,205 @@
 //! decode rather than silently becoming a default. Serialization keeps the
 //! original spelling, so persisted JSON round-trips byte for byte.
 
-use std::collections::BTreeMap;
+// reason: test code may unwrap freely; production code keeps the workspace `deny`.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::num::NonZeroU16;
 use std::str::FromStr;
 
+use chrono::{DateTime, Utc};
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
+
+use crate::access_control::Scope;
+
+// =============================================================================
+// Workspace
+// =============================================================================
+
+crate::string_enum!(
+    /// How many repository placements a Workspace composes.
+    ///
+    /// Derived from the `WorkspaceRepo` count, never set by hand.
+    WorkspaceKind {
+        /// No placement yet.
+        Blank => "blank",
+        /// Exactly one placement.
+        Single => "single",
+        /// Two or more placements.
+        Multi => "multi",
+    }
+);
+
+crate::string_enum!(
+    /// Who declared a Workspace.
+    WorkspaceSource {
+        /// Created through the API. Editable from the UI and the write API.
+        Manual => "manual",
+        /// Reconciled from a repository's `.moatless/workspaces.json` or
+        /// `.moatless/config.json`. Read-only until it is overridden.
+        Git => "git",
+    }
+);
+
+/// The composition of one or more repositories plus the run configuration a
+/// Task runs against.
+///
+/// The run-config fields stay `Option` to keep "unset" apart from "empty": a
+/// Workspace that declares no servers is not the same as one that declares an
+/// empty list, and the two reach the frontend as `null` and `[]`.
+#[derive(Debug, Clone)]
+pub struct Workspace {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub kind: WorkspaceKind,
+    // --- Run configuration ---
+    pub docker_image: Option<String>,
+    pub docker_access: Option<bool>,
+    pub sandbox_service_account: Option<String>,
+    pub system_prompt: Option<String>,
+    pub setup_commands: Option<Vec<String>>,
+    pub env_vars: Option<HashMap<String, String>>,
+    pub servers: Option<Vec<ServerConfig>>,
+    /// Named commands run on demand in the sandbox.
+    pub scripts: Option<Vec<ScriptConfig>>,
+    pub resources: Option<ResourceConfig>,
+    /// Selects a static NetworkPolicy through the pod label. Grants nothing on
+    /// its own, and the set of valid names is deployment configuration, so this
+    /// stays an open string.
+    pub network_profile: Option<String>,
+    // --- Provenance ---
+    pub source: WorkspaceSource,
+    /// The repository whose git tree declared this Workspace.
+    pub source_repository_id: Option<String>,
+    /// Stable natural key within the source repository.
+    pub source_key: Option<String>,
+    /// Path to the config file within the source repository that declared this
+    /// Workspace. Retained after an override so the origin stays visible.
+    pub source_config_path: Option<String>,
+    // --- Access control ---
+    pub scope: Scope,
+    pub owner_user_id: Option<String>,
+    /// The identity every Task on this Workspace acts as on a git host. When
+    /// set it outranks the Task's own owner, so a Workspace can act as a
+    /// dedicated machine account instead of as whoever started the Task.
+    pub run_as_user_id: Option<String>,
+    pub created_by: Option<String>,
+    /// Soft-deleted Workspaces are normally hidden. A git-origin tombstone stays
+    /// visible in admin so an operator can restore it from git without the
+    /// automatic sync recreating it behind their back.
+    pub deleted: bool,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+/// A single repository's placement inside a Workspace.
+#[derive(Debug, Clone)]
+pub struct WorkspaceRepo {
+    pub id: String,
+    pub workspace_id: String,
+    pub repository_id: String,
+    /// Overrides `Repository::default_branch` for this placement.
+    pub branch: Option<String>,
+    /// Subdirectory under the workspace directory. `None` defaults to the
+    /// repository name at runtime.
+    pub mount_name: Option<String>,
+    /// The repository used for diffs, PRs, and AGENTS.md. Exactly one
+    /// placement is primary once the Workspace holds any.
+    pub is_primary: bool,
+    /// Ordering within the Workspace.
+    pub position: i32,
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// Named command run on demand inside a Sandbox.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptConfig {
+    pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    pub command: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub env_vars: Option<HashMap<String, String>>,
+}
+
+/// A provider whose credential can be pinned to a Workspace.
+///
+/// Only providers whose sandbox credential is a single static environment
+/// variable are here. Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are
+/// refreshed and written back against the connected user's own row, so a
+/// workspace-level copy of either would go stale with nothing to rotate it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum WorkspaceCredentialProvider {
+    Gitlab,
+    Gitness,
+    Openai,
+    Anthropic,
+}
+
+impl WorkspaceCredentialProvider {
+    pub const ALL: &'static [Self] = &[Self::Gitlab, Self::Gitness, Self::Openai, Self::Anthropic];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Gitlab => "gitlab",
+            Self::Gitness => "gitness",
+            Self::Openai => "openai",
+            Self::Anthropic => "anthropic",
+        }
+    }
+
+    pub fn env_key(self) -> &'static str {
+        match self {
+            Self::Gitlab => "GITLAB_TOKEN",
+            Self::Gitness => "GITNESS_TOKEN",
+            Self::Openai => "OPENAI_API_KEY",
+            Self::Anthropic => "ANTHROPIC_API_KEY",
+        }
+    }
+
+    pub fn names() -> String {
+        Self::ALL
+            .iter()
+            .map(|provider| provider.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+impl std::fmt::Display for WorkspaceCredentialProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for WorkspaceCredentialProvider {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|provider| provider.as_str() == value)
+            .ok_or_else(|| {
+                format!(
+                    "Unknown credential provider '{value}'. Must be one of: {}",
+                    Self::names()
+                )
+            })
+    }
+}
 
 /// A quantity that failed the Kubernetes quantity grammar.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -207,6 +396,7 @@ fn split_suffix<'a>(value: &'a str, suffixes: &[(&str, u64)]) -> (&'a str, Optio
 
 /// Where a node-local sandbox volume is backed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum StorageMedium {
     /// A Kubernetes `emptyDir`, capped by the paired size quantity.
@@ -449,7 +639,7 @@ fn empty_string_as_none<'de, D: Deserializer<'de>>(
 }
 
 #[cfg(test)]
-mod tests {
+mod run_config_tests {
     use super::*;
 
     fn round_trip<T>(json: &str) -> T
@@ -642,5 +832,26 @@ mod tests {
         let server: ServerConfig =
             serde_json::from_str(r#"{"name":"web","dockerImage":""}"#).expect("deserialize");
         assert_eq!(server.docker_image, None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credential_provider_maps_persisted_and_environment_values() {
+        let mut environment_keys = Vec::new();
+        for provider in WorkspaceCredentialProvider::ALL {
+            assert_eq!(provider.as_str().parse(), Ok(*provider));
+            assert!(provider.env_key().ends_with("TOKEN") || provider.env_key().ends_with("KEY"));
+            environment_keys.push(provider.env_key());
+        }
+        environment_keys.sort_unstable();
+        environment_keys.dedup();
+        assert_eq!(
+            environment_keys.len(),
+            WorkspaceCredentialProvider::ALL.len()
+        );
     }
 }

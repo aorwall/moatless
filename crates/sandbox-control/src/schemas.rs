@@ -6,20 +6,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::live_status::{AgentStatus, SandboxStatus};
-use super::models::{
-    ResourceMetrics, ServerCapabilities, ServerOverride, ServerSnapshot, ServerStatus,
-};
+use super::models::{ResourceMetrics, ServerCapabilities, ServerOverride, ServerSnapshot, ServerStatus};
 use moatless_api_schemas::enums::SandboxDesiredState;
-
-pub fn sandbox_desired_state_to_wire(
-    value: moatless_backend_core::models::SandboxDesiredState,
-) -> SandboxDesiredState {
-    match value {
-        moatless_backend_core::models::SandboxDesiredState::Running => SandboxDesiredState::Running,
-        moatless_backend_core::models::SandboxDesiredState::Stopped => SandboxDesiredState::Stopped,
-        moatless_backend_core::models::SandboxDesiredState::Removed => SandboxDesiredState::Removed,
-    }
-}
 
 /// Provision response
 #[derive(Debug, Serialize, ToSchema)]
@@ -684,7 +672,7 @@ mod tests {
 
     #[test]
     fn error_body_serializes() {
-        let body = moatless_core::error::ErrorBody {
+        let body = moatless_api_schemas::error::ErrorBody {
             error: "not found".into(),
         };
         let json = serde_json::to_value(&body).unwrap();

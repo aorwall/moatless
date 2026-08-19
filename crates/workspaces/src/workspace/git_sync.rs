@@ -21,7 +21,7 @@
 //! replacing the local edits with the committed config. A deleted override is a
 //! tombstone and is only restored by resetting that specific workspace.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -32,15 +32,16 @@ use crate::repository::config_reader::fetch_provider_file;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::error::{RepositoryError, is_remote_url_conflict};
 use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
-use crate::repository::models::ScriptConfig;
-use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
+use moatless_types::workspace::ScriptConfig;
+use moatless_types::repository::{RepositoryKind, RepositoryProvider};
+use crate::repository::models::Repository;
 use crate::workspace::dao::{WorkspaceDao, WorkspacePatch, ensure_shadow_workspace};
-use crate::workspace::models::{Workspace, WorkspaceRepo};
+use crate::workspace::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
-use moatless_backend_core::run_config::{ResourceConfig, ServerConfig};
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::workspace::{ResourceConfig, ServerConfig};
+use moatless_types::access_control::ScopeContext;
 use moatless_core::db::DbPool;
-use moatless_identity::auth::actor::Actor;
+use moatless_types::access_control::Actor;
 use moatless_identity::extractors::AuthUser;
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_identity::git_host_tokens::GitHostTokens;
@@ -287,16 +288,7 @@ impl GitSyncService {
                         continue;
                     }
 
-                    let mut run = match run_config_from_entry(entry) {
-                        Ok(run) => run,
-                        Err(e) => {
-                            summary.skipped.push(WorkspaceSyncSkip {
-                                source_key,
-                                reason: format!("serialize run-config: {e}"),
-                            });
-                            continue;
-                        }
-                    };
+                    let mut run = run_config_from_entry(entry);
                     strip_git_declared_identity(&mut run, &repo.id, ".moatless/workspaces.json");
                     let placements = self.resolve_placements(repo, &entry.repos).await?;
 
@@ -322,16 +314,7 @@ impl GitSyncService {
                 if let Some(config) =
                     fetch_moatless_config(remote_url, branch, token_str, provider).await?
                 {
-                    let mut run = match run_config_from_moatless_config(&config) {
-                        Ok(run) => run,
-                        Err(e) => {
-                            summary.skipped.push(WorkspaceSyncSkip {
-                                source_key: CONFIG_JSON_KEY.to_string(),
-                                reason: format!("serialize run-config: {e}"),
-                            });
-                            return Ok(summary);
-                        }
-                    };
+                    let mut run = run_config_from_moatless_config(&config);
                     strip_git_declared_identity(&mut run, &repo.id, ".moatless/config.json");
                     present.insert(CONFIG_JSON_KEY.to_string());
                     let desired = DesiredWorkspace {
@@ -488,11 +471,11 @@ struct RunConfig {
     sandbox_service_account: Option<String>,
     network_profile: Option<String>,
     system_prompt: Option<String>,
-    setup_commands: Option<serde_json::Value>,
-    env_vars: Option<serde_json::Value>,
-    servers: Option<serde_json::Value>,
-    scripts: Option<serde_json::Value>,
-    resources: Option<serde_json::Value>,
+    setup_commands: Option<Vec<String>>,
+    env_vars: Option<HashMap<String, String>>,
+    servers: Option<Vec<ServerConfig>>,
+    scripts: Option<Vec<ScriptConfig>>,
+    resources: Option<ResourceConfig>,
 }
 
 /// A repository placement whose URL has already been resolved to a repo id.
@@ -530,79 +513,43 @@ fn source_key_for(entry: &MoatlessWorkspaceEntry) -> String {
         .map_or_else(|| slugify(&entry.name), str::to_string)
 }
 
-fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> Result<RunConfig, serde_json::Error> {
-    let setup_commands = entry
-        .code_execution
-        .as_ref()
-        .and_then(|c| c.setup_commands.as_ref())
-        .map(serde_json::to_value)
-        .transpose()?;
-    Ok(RunConfig {
+fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> RunConfig {
+    RunConfig {
         docker_image: entry.docker_image.clone(),
         docker_access: entry.docker_access,
         sandbox_service_account: entry.sandbox_service_account.clone(),
         network_profile: entry.network_profile.clone(),
         system_prompt: entry.system_prompt.clone(),
-        setup_commands,
-        env_vars: entry
-            .env_vars
+        setup_commands: entry
+            .code_execution
             .as_ref()
-            .map(serde_json::to_value)
-            .transpose()?,
-        servers: entry
-            .servers
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()?,
-        scripts: entry
-            .scripts
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()?,
-        resources: entry
-            .resources
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()?,
-    })
+            .and_then(|c| c.setup_commands.clone()),
+        env_vars: entry.env_vars.clone(),
+        servers: entry.servers.clone(),
+        scripts: entry.scripts.clone(),
+        resources: entry.resources.clone(),
+    }
 }
 
 /// Build the shadow workspace's run-config from a parsed legacy
 /// `.moatless/config.json`. The file has no `dockerAccess`/`envVars`,
 /// so those are `None`.
-fn run_config_from_moatless_config(
-    config: &MoatlessRepoConfig,
-) -> Result<RunConfig, serde_json::Error> {
-    let setup_commands = config
-        .code_execution
-        .as_ref()
-        .and_then(|c| c.setup_commands.as_ref())
-        .map(serde_json::to_value)
-        .transpose()?;
-    Ok(RunConfig {
+fn run_config_from_moatless_config(config: &MoatlessRepoConfig) -> RunConfig {
+    RunConfig {
         docker_image: config.docker_image.clone(),
         docker_access: None,
         sandbox_service_account: config.sandbox_service_account.clone(),
         network_profile: config.network_profile.clone(),
         system_prompt: config.system_prompt.clone(),
-        setup_commands,
+        setup_commands: config
+            .code_execution
+            .as_ref()
+            .and_then(|c| c.setup_commands.clone()),
         env_vars: None,
-        servers: config
-            .servers
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()?,
-        scripts: config
-            .scripts
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()?,
-        resources: config
-            .resources
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()?,
-    })
+        servers: config.servers.clone(),
+        scripts: config.scripts.clone(),
+        resources: config.resources.clone(),
+    }
 }
 
 /// What to do with an existing `source = 'manual'` row that a git-declared
@@ -691,7 +638,7 @@ impl GitSyncService {
                         id: id.clone(),
                         name: desired.name.clone(),
                         description: desired.description.clone(),
-                        kind: "single".to_string(), // refresh_kind fixes below
+                        kind: WorkspaceKind::Single, // refresh_kind fixes below
                         docker_image: desired.run.docker_image.clone(),
                         docker_access: desired.run.docker_access,
                         sandbox_service_account: desired.run.sandbox_service_account.clone(),
@@ -702,7 +649,7 @@ impl GitSyncService {
                         scripts: desired.run.scripts.clone(),
                         resources: desired.run.resources.clone(),
                         network_profile: desired.run.network_profile.clone(),
-                        source: "git".to_string(),
+                        source: WorkspaceSource::Git,
                         source_repository_id: Some(repo.id.clone()),
                         source_key: Some(desired.source_key.clone()),
                         source_config_path: Some(desired.source_config_path.clone()),
@@ -712,7 +659,7 @@ impl GitSyncService {
                         // would otherwise name the account its Tasks act as.
                         run_as_user_id: None,
                         created_by: repo.created_by.clone(),
-                        deleted: Some(false),
+                        deleted: false,
                         created_at: None,
                         updated_at: None,
                     };
@@ -747,7 +694,7 @@ impl GitSyncService {
             scripts: Some(desired.run.scripts.clone()),
             resources: Some(desired.run.resources.clone()),
             network_profile: Some(desired.run.network_profile.clone()),
-            source: Some("git".to_string()),
+            source: Some(WorkspaceSource::Git),
             source_repository_id: Some(Some(repo.id.clone())),
             source_key: Some(Some(desired.source_key.clone())),
             source_config_path: Some(Some(desired.source_config_path.clone())),
@@ -860,7 +807,7 @@ impl GitSyncService {
             scope: source_repo.scope,
             owner_user_id: source_repo.owner_user_id.clone(),
             created_by: source_repo.created_by.clone(),
-            deleted: Some(false),
+            deleted: false,
             created_at: Some(now),
             updated_at: Some(now),
         };
@@ -892,7 +839,7 @@ impl GitSyncService {
         provider: RepositoryProvider,
         remote_url: &str,
     ) -> Option<String> {
-        let repo = GitHostRepo::parse(provider.into(), remote_url)?;
+        let repo = GitHostRepo::parse(provider, remote_url)?;
         match self
             .git_host_tokens
             .token(&Actor::caller(&auth.scope_context()), &repo)
@@ -944,7 +891,7 @@ fn repo_name_from_url(url: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use moatless_backend_core::run_config::{Memory, Port};
+    use moatless_types::workspace::{Memory, Port};
 
     use super::*;
 
@@ -1055,7 +1002,7 @@ mod tests {
             network_profile: None,
         };
 
-        let run = run_config_from_moatless_config(&config).unwrap();
+        let run = run_config_from_moatless_config(&config);
         assert_eq!(
             run.docker_image,
             Some("myregistry/custom-sandbox:latest".to_string())
@@ -1088,7 +1035,7 @@ mod tests {
             network_profile: Some("moatless-admin".to_string()),
         };
 
-        let mut run = run_config_from_moatless_config(&config).unwrap();
+        let mut run = run_config_from_moatless_config(&config);
         strip_git_declared_identity(&mut run, "repo-1", ".moatless/config.json");
 
         assert!(run.sandbox_service_account.is_none());
@@ -1116,7 +1063,7 @@ mod tests {
             network_profile: None,
         };
 
-        let mut run = run_config_from_moatless_config(&config).unwrap();
+        let mut run = run_config_from_moatless_config(&config);
         strip_git_declared_identity(&mut run, "repo-1", ".moatless/config.json");
 
         assert!(run.sandbox_service_account.is_none());
@@ -1138,8 +1085,9 @@ mod tests {
         assert_eq!(resources.s3_enabled, Some(true));
         assert_eq!(resources.storage.as_ref().map(Memory::as_str), Some("8Gi"));
 
-        let run = run_config_from_moatless_config(&config).unwrap();
-        let value = run.resources.expect("resources value present");
+        let run = run_config_from_moatless_config(&config);
+        let stored = run.resources.expect("resources value present");
+        let value = serde_json::to_value(&stored).expect("serialize");
         assert_eq!(value.get("pvcEnabled"), Some(&serde_json::json!(false)));
         assert_eq!(value.get("s3Enabled"), Some(&serde_json::json!(true)));
         assert_eq!(value.get("storage"), Some(&serde_json::json!("8Gi")));

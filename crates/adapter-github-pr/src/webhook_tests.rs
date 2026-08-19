@@ -1,4 +1,7 @@
-use moatless_loops::adapters::models::{Audience, RoutingMode, SubscriptionMatch};
+use moatless_types::adapter::AdapterKind;
+use moatless_loops::adapters::models::SubscriptionMatch;
+use moatless_types::adapter::Audience;
+use moatless_types::loops::RoutingMode;
 use moatless_core::db::DbPool;
 
 use super::{IgnoredWebhook, NormalizeContext, PrimaryWebhook, normalize, title_is_ignored};
@@ -14,11 +17,11 @@ fn fake_db_pool() -> DbPool {
 
 fn fake_rule() -> SubscriptionMatch {
     use chrono::Utc;
-    use moatless_backend_core::scope::Scope;
+    use moatless_types::access_control::Scope;
 
     SubscriptionMatch {
         id: "ir_test".into(),
-        adapter_kind: "github".into(),
+        adapter_kind: AdapterKind::Github,
         connection_id: "pc_test".into(),
         source_matcher: "soaplabs/repo".into(),
         source_name: None,
@@ -72,7 +75,7 @@ async fn normalize_payload(
 
 fn message(
     primary: Result<PrimaryWebhook, moatless_loops::adapters::error::AdapterError>,
-) -> Box<moatless_loops::adapters::models::InboundMessage> {
+) -> Box<moatless_types::adapter::InboundMessage> {
     match primary.expect("normalization should succeed") {
         PrimaryWebhook::Message(message) => message,
         PrimaryWebhook::CloseTask(_) => panic!("expected message, got close"),

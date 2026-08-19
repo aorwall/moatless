@@ -1,14 +1,13 @@
 //! Inbound message processing — unified message → task flow.
 
-use crate::adapters::models::LoopContext;
-use moatless_core::shared_models::AgentType;
+use moatless_types::loops::LoopContext;
 use moatless_tasks::task::creation::{
     FirstMessage, NewTaskRequest, TaskCreationError, TaskCreationOutcome, TaskCreationService,
 };
-use moatless_tasks::task::models::Visibility;
-use moatless_tasks::task::relations::RelatedTask;
+use moatless_types::task::Visibility;
+use moatless_types::task::RelatedTask;
 
-use crate::adapters::models::InboundMessage;
+use moatless_types::adapter::InboundMessage;
 
 /// Assemble a task's firing-time `append_system_prompt` from the three sources
 /// every Subscription firing path draws on, joined with `"\n\n"` in a fixed
@@ -101,7 +100,7 @@ pub async fn create_task_from_loop(
 
     let req = NewTaskRequest {
         repository_id: config.repository_id.clone(),
-        agent_type: AgentType(config.agent_type.clone()),
+        agent_type: config.agent_type.clone(),
         name: params.name,
         description: Some(params.description),
         branch: None, // Will use repo default
@@ -130,7 +129,7 @@ pub async fn create_task_from_loop(
         first_message: None,
         task_id: None,
         provision: true,
-        event_subtype: moatless_events::TaskSubType::Open,
+        event_subtype: moatless_types::task::TaskSubType::Open,
         repository: None,
     };
 

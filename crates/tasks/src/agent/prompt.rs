@@ -6,10 +6,10 @@
 
 use std::sync::Arc;
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use tracing::warn;
 
-use moatless_backend_core::run_config::ServerConfig;
+use moatless_types::workspace::ServerConfig;
 use moatless_core::config::Config;
 
 use crate::task::models::Task;
@@ -171,16 +171,6 @@ pub async fn build_for_task(
     let servers: Vec<ServerConfig> = workspace
         .as_ref()
         .and_then(|w| w.servers.clone())
-        .map(|value| {
-            serde_json::from_value::<Vec<ServerConfig>>(value).unwrap_or_else(|e| {
-                warn!(
-                    error = %e,
-                    task_id,
-                    "Failed to parse workspace.servers as Vec<ServerConfig>; treating as empty"
-                );
-                Vec::new()
-            })
-        })
         .unwrap_or_default();
 
     let frontend_url = config.map(|c| c.auth.frontend_url.as_str());
@@ -329,7 +319,7 @@ fn build_parent_task_section(parent_task_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use moatless_backend_core::run_config::Port;
+    use moatless_types::workspace::Port;
 
     use super::*;
 

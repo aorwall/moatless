@@ -13,7 +13,7 @@ use axum::response::{IntoResponse, Response};
 use moatless_api_schemas::bindings::MultipleTargetsErrorBody;
 use moatless_api_schemas::bindings::ReplyTargetDescriptor;
 
-use moatless_backend_core::access_control::AccessControlError;
+use moatless_types::access_control::AccessControlError;
 use moatless_core::error::error_response;
 
 pub use moatless_adapter_model::error::{ProviderDecodeError, SharedAdapterError};

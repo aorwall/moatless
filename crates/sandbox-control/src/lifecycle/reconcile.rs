@@ -11,7 +11,7 @@
 
 use chrono::{DateTime, Utc};
 
-use moatless_backend_core::models::SandboxDesiredState;
+use moatless_types::sandbox::SandboxDesiredState;
 
 use super::convergence::{ReconcileAction, SandboxObservedStatus, reconcile_action};
 use super::orchestrator::TaskIntent;
@@ -104,7 +104,8 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    use moatless_backend_core::models::{SandboxStopReason, TaskStatus};
+    use moatless_types::sandbox::SandboxStopReason;
+    use moatless_types::task::TaskStatus;
 
     use super::super::types::{ArchiveRetention, CorrelationMarker, OperationGeneration};
 

@@ -10,9 +10,9 @@
 use tracing::{debug, info, warn};
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{
-    AccessDecision, Audience, InboundMessage, LoopContext, MessageTrigger,
-};
+use moatless_loops::adapters::models::{AccessDecision, MessageTrigger};
+use moatless_types::adapter::{Audience, InboundMessage};
+use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::AdapterKind;
 use moatless_core::db::DbPool;
 

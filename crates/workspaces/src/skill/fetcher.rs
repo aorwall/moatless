@@ -35,7 +35,7 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use super::error::SkillError;
-use moatless_api_schemas::enums::RepositoryProvider;
+use moatless_types::repository::RepositoryProvider;
 use moatless_identity::git_host_repo::GitHostRepo;
 
 /// Raw SKILL.md content plus its enclosing directory name, so callers can

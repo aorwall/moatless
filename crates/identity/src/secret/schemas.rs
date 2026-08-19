@@ -4,22 +4,9 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use super::models::{SecretKind, SecretRecord, SecretSource};
+use moatless_types::secret::{SecretKind, SecretSource};
+use super::models::SecretRecord;
 use moatless_api_schemas::enums::Scope;
-
-pub fn scope_from_wire(scope: Scope) -> moatless_backend_core::scope::Scope {
-    match scope {
-        Scope::Global => moatless_backend_core::scope::Scope::Global,
-        Scope::User => moatless_backend_core::scope::Scope::User,
-    }
-}
-
-pub fn scope_to_wire(scope: moatless_backend_core::scope::Scope) -> Scope {
-    match scope {
-        moatless_backend_core::scope::Scope::Global => Scope::Global,
-        moatless_backend_core::scope::Scope::User => Scope::User,
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -154,7 +141,7 @@ mod tests {
 
     #[test]
     fn metadata_response_serializes_without_value_field() {
-        use super::super::models::SecretSource;
+        use moatless_types::secret::SecretSource;
         let resp = SecretMetadataResponse {
             id: "id".to_string(),
             scope: Scope::User,

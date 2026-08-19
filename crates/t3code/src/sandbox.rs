@@ -9,12 +9,12 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use crate::data::{T3TaskDao, TaskView};
-use moatless_backend_core::models::SandboxStopReason;
+use moatless_types::sandbox::SandboxStopReason;
 use moatless_backend_core::sandbox::{
     ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxStarter,
     SandboxStopper,
 };
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 /// Everything the sandbox lifecycle handlers need.
 #[derive(Clone)]

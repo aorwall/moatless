@@ -9,7 +9,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use super::identity::AuthIdentity;
-use super::models::UserRole;
+use moatless_types::user::UserRole;
 use moatless_core::config::Config;
 
 /// Issuer stamped on session JWTs. Bumped at the internal-uuid cutover so cookies

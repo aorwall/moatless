@@ -4,8 +4,9 @@ use tracing::info;
 
 use super::dao::RepositoryDao;
 use super::handlers::normalize_remote_url;
-use super::models::{Repository, RepositoryKind, RepositoryProvider};
-use moatless_backend_core::scope::Scope;
+use moatless_types::repository::{RepositoryKind, RepositoryProvider};
+use super::models::Repository;
+use moatless_types::access_control::Scope;
 
 /// Insert default template repositories if they don't already exist.
 ///
@@ -48,7 +49,7 @@ async fn seed_moatable(repos: &dyn RepositoryDao) -> Result<(), sqlx::Error> {
         scope: Scope::Global,
         owner_user_id: None,
         created_by: Some("system".to_string()),
-        deleted: Some(false),
+        deleted: false,
         created_at: Some(now),
         updated_at: Some(now),
     };

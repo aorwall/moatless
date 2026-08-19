@@ -10,7 +10,8 @@ use tracing::{debug, info};
 
 use moatless_loops::adapters::AdapterDestinationBuilder;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
+use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
+use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_loops::adapters::models::SubscriptionMatch;
 use moatless_core::db::DbPool;
@@ -120,7 +121,7 @@ pub(super) async fn receive(
         verify_secret(&subscription, secret_header).map_err(IngressError::Ingress)?;
     }
 
-    let config = moatless_adapter_model::models::subscription_context(&subscription, "telegram");
+    let config = moatless_adapter_model::models::subscription_context(&subscription);
     let tg_config = TelegramAdapterConfig::from_config(&config);
     let db = adapter.require_db().map_err(IngressError::Ingress)?;
     let api = adapter
@@ -301,13 +302,14 @@ pub(super) async fn apply_effects(
 
 #[cfg(test)]
 mod tests {
+    use moatless_types::adapter::AdapterKind;
     use super::super::test_support::test_rule;
     use super::*;
 
     fn rule_with(adapter_config: Option<serde_json::Value>) -> SubscriptionMatch {
         SubscriptionMatch {
             adapter_config,
-            ..test_rule("telegram", "111")
+            ..test_rule(AdapterKind::Telegram, "111")
         }
     }
 

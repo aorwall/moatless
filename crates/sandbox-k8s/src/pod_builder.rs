@@ -3,31 +3,19 @@
 //! Generates the full Pod spec in Rust code — no YAML template needed.
 //! Server containers are created dynamically from the repo config.
 
-use k8s_openapi::api::core::v1::{
-    Affinity, Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
-    HostPathVolumeSource, NodeAffinity, NodeSelectorRequirement, NodeSelectorTerm,
-    PersistentVolumeClaimVolumeSource, Pod, PodSecurityContext, PodSpec, PreferredSchedulingTerm,
-    Probe, ResourceRequirements, SeccompProfile, SecurityContext, TCPSocketAction, Toleration,
-    Volume, VolumeMount,
-};
+use k8s_openapi::api::core::v1::{Affinity, Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction, HostPathVolumeSource, NodeAffinity, NodeSelectorRequirement, NodeSelectorTerm, PersistentVolumeClaimVolumeSource, Pod, PodSecurityContext, PodSpec, PreferredSchedulingTerm, Probe, ResourceRequirements, SeccompProfile, SecurityContext, TCPSocketAction, Toleration, Volume, VolumeMount};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info, warn};
 
 use super::naming::generate_pod_name;
-use moatless_backend_core::run_config::{
-    Cpu, Memory, Port, ResourceConfig, ResourceQuantities, StorageMedium,
-};
+use moatless_types::workspace::{Cpu, Memory, Port, ResourceConfig, ResourceQuantities, StorageMedium};
 use moatless_core::config::Config;
 use moatless_sandbox_control::error::SandboxError;
 use moatless_sandbox_control::jwt::{self, MintedSandboxTokens};
-use moatless_sandbox_control::lifecycle::runtime::{
-    OPERATION_GENERATION_LABEL, RuntimeOperationContext,
-};
-use moatless_sandbox_control::models::{
-    ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV, allocated_port,
-};
+use moatless_sandbox_control::lifecycle::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
+use moatless_sandbox_control::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV, allocated_port};
 use moatless_sandbox_control::server_runner::build_server_start_script;
 
 /// Auth tokens delivered to a sandbox pod.
@@ -1491,7 +1479,7 @@ pub fn admitted_server_ports(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_backend_core::run_config::ServerConfig;
+    use moatless_types::workspace::ServerConfig;
     use moatless_sandbox_control::models::RepoConfig;
 
     /// Build a `ResourceQuantities` from optional quantity spellings.
@@ -1558,6 +1546,8 @@ mod tests {
 
     fn test_config() -> Config {
         use moatless_core::config::*;
+        use moatless_types::auth::*;
+        use moatless_types::sandbox::*;
         Config {
             server: moatless_core::config::ServerConfig {
                 port: 8080,
@@ -1661,7 +1651,7 @@ mod tests {
                 consumer_id: "test".into(),
             },
             auth: AuthConfig {
-                provider: moatless_core::config::AuthProvider::Local,
+                provider: moatless_types::auth::AuthProvider::Local,
                 github_required_org: None,
                 auth0_domain: None,
                 auth0_client_id: None,
@@ -1711,7 +1701,7 @@ mod tests {
             github_pr: moatless_core::config::GithubPrConfig {
                 webhook_secret: None,
             },
-            linear: moatless_core::config::LinearConfig {
+            linear: moatless_types::adapter::LinearConfig {
                 webhook_secret: None,
                 oauth_client_id: None,
                 oauth_client_secret: None,
@@ -1719,11 +1709,11 @@ mod tests {
                 api_base_url: None,
             },
             skill: moatless_core::config::SkillConfig { cache_ttl_secs: 60 },
-            secrets: moatless_core::config::SecretsConfig {
+            secrets: moatless_types::secret::SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
             },
-            codex_oauth: moatless_core::config::CodexOAuthConfig {
+            codex_oauth: moatless_types::agent::CodexOAuthConfig {
                 issuer: "https://auth.openai.com".into(),
                 client_id: "test-codex-client".into(),
             },
@@ -1895,7 +1885,7 @@ mod tests {
 
     #[test]
     fn sandbox_container_honors_per_repo_resource_override() {
-        use moatless_backend_core::run_config::ResourceConfig;
+        use moatless_types::workspace::ResourceConfig;
 
         let config = test_config();
         let mut plan = test_plan();
@@ -1914,7 +1904,7 @@ mod tests {
 
     #[test]
     fn sandbox_container_keeps_defaults_for_keys_the_override_omits() {
-        use moatless_backend_core::run_config::ResourceConfig;
+        use moatless_types::workspace::ResourceConfig;
 
         // A memory-only override must not drop the configured CPU request/limit.
         let config = test_config();
@@ -1931,7 +1921,7 @@ mod tests {
 
     #[test]
     fn sandbox_container_stays_bounded_with_a_storage_only_override() {
-        use moatless_backend_core::run_config::ResourceConfig;
+        use moatless_types::workspace::ResourceConfig;
 
         // `ResourceConfig` doubles as the storage config. A repo that sets only
         // storage fields must keep the global CPU/memory bounds — an empty
@@ -2023,7 +2013,7 @@ mod tests {
 
     #[test]
     fn pvc_switch_off_mounts_capped_workspace_empty_dir() {
-        use moatless_backend_core::run_config::ResourceConfig;
+        use moatless_types::workspace::ResourceConfig;
 
         // No PVC → workspace-data is a node-local emptyDir sized from the repo's
         // resources.storage, mounted at /opt/moatless everywhere.
@@ -2101,7 +2091,7 @@ mod tests {
     /// hostPath: the removed `node` workspace tier has no replacement.
     #[test]
     fn storage_switches_pick_volume_and_sync_env() {
-        use moatless_backend_core::run_config::ResourceConfig;
+        use moatless_types::workspace::ResourceConfig;
 
         let config = test_config();
         for (pvc, s3) in [(true, true), (true, false), (false, true), (false, false)] {
@@ -2165,7 +2155,7 @@ mod tests {
     /// backwards for the pod that needs both most.
     #[test]
     fn a_pvc_plan_without_a_pvc_is_not_treated_as_durable() {
-        use moatless_backend_core::run_config::ResourceConfig;
+        use moatless_types::workspace::ResourceConfig;
 
         let config = test_config();
         let mut plan = test_plan();
@@ -2452,7 +2442,7 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(true);
-        plan.repo_config.resources = Some(moatless_backend_core::run_config::ResourceConfig {
+        plan.repo_config.resources = Some(moatless_types::workspace::ResourceConfig {
             docker_storage: Some(memory("50Gi")),
             docker_storage_mode: Some(StorageMedium::EmptyDir),
             ..Default::default()
@@ -2474,7 +2464,7 @@ mod tests {
         assert_eq!(ds_limit.as_deref(), Some("50Gi"));
 
         // EmptyDir mode with no override → global default from config.
-        plan.repo_config.resources = Some(moatless_backend_core::run_config::ResourceConfig {
+        plan.repo_config.resources = Some(moatless_types::workspace::ResourceConfig {
             docker_storage_mode: Some(StorageMedium::EmptyDir),
             ..Default::default()
         });
@@ -2504,7 +2494,7 @@ mod tests {
         config.sandbox.cache_host_root = "/mnt/cache".into();
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(true);
-        plan.repo_config.resources = Some(moatless_backend_core::run_config::ResourceConfig {
+        plan.repo_config.resources = Some(moatless_types::workspace::ResourceConfig {
             docker_storage: Some(memory("50Gi")),
             ..Default::default()
         });
@@ -3036,7 +3026,7 @@ mod tests {
 
     #[test]
     fn fargate_rejects_repo_storage_override() {
-        use moatless_backend_core::run_config::ResourceConfig;
+        use moatless_types::workspace::ResourceConfig;
 
         let config = fargate_config();
         let mut plan = test_plan();
@@ -3060,7 +3050,7 @@ mod tests {
 
     #[test]
     fn fargate_rejects_per_repo_burstable_resources() {
-        use moatless_backend_core::run_config::ResourceConfig;
+        use moatless_types::workspace::ResourceConfig;
 
         let config = fargate_config();
         let mut plan = test_plan();

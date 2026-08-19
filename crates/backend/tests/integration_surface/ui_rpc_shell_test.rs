@@ -45,8 +45,8 @@ use moatless_backend_core::sandbox::{
     ClusterDiagnostics, LiveStatus, LogOptions, SandboxDiagnosticsEntry, SandboxError,
     SandboxPortPublisher, SandboxStatusFullResponse, ServerLogStream,
 };
-use moatless_core::scope::{Scope, ScopeContext};
-use moatless_core::shared_models::AgentType;
+use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::agent::AgentType;
 use moatless_t3code::dao::{
     Conversation, ConversationDao, ConversationMatch, InteractiveCall, PgConversationDao,
     Transcript,
@@ -71,7 +71,7 @@ use tower::ServiceExt;
 
 use common::{
     USER_1, authed_request, body_json, make_message_row, make_repository_row, make_task_row,
-    make_workspace_row, seed_team, test_app_state,
+    make_workspace_row, run_config, seed_team, test_app_state,
 };
 
 /// Map one Message's content the way the write path does: text onto the row,
@@ -683,7 +683,7 @@ async fn seed_workspaces(pool: &PgPool) {
         .unwrap();
 
     let mut deleted = make_workspace_row("ws-deleted", "user-1");
-    deleted.deleted = Some(true);
+    deleted.deleted = true;
     repo.insert_workspace(&deleted).await.unwrap();
 }
 
@@ -784,7 +784,7 @@ async fn an_unreadable_workspace_is_included_only_when_referenced(pool: PgPool) 
 async fn a_referenced_workspace_that_was_deleted_stays_absent(pool: PgPool) {
     let repo = PgWorkspaceDao(pool.clone());
     let mut deleted = make_workspace_row("ws-gone", "user-2");
-    deleted.deleted = Some(true);
+    deleted.deleted = true;
     repo.insert_workspace(&deleted).await.unwrap();
 
     let listed = repo
@@ -842,13 +842,13 @@ async fn the_mounted_route_returns_the_viewers_projects(pool: PgPool) {
 async fn a_projects_scripts_come_from_its_servers(pool: PgPool) {
     let repo = PgWorkspaceDao(pool.clone());
     let mut ws = make_workspace_row("ws-a", "user-1");
-    ws.setup_commands = Some(serde_json::json!(["bun install"]));
-    ws.servers = Some(serde_json::json!([{
+    ws.setup_commands = Some(run_config(serde_json::json!(["bun install"])));
+    ws.servers = Some(run_config(serde_json::json!([{
         "name": "dev",
         "port": 3000,
         "startCommands": ["bun run dev"],
         "default": true
-    }]));
+    }])));
     repo.insert_workspace(&ws).await.unwrap();
 
     let scripts = project(&pool, &viewer("user-1"), "ws-a").await["scripts"]
@@ -876,11 +876,11 @@ async fn a_projects_scripts_come_from_its_servers(pool: PgPool) {
 async fn the_repositorys_own_server_config_projects_to_decodable_scripts(pool: PgPool) {
     let mut ws = make_workspace_row("ws-vibe", "user-1");
     ws.name = "Moatless".into();
-    ws.setup_commands = Some(serde_json::json!([
+    ws.setup_commands = Some(run_config(serde_json::json!([
         "curl -fsSL https://bun.sh/install | bash",
         "bun install"
-    ]));
-    ws.servers = Some(serde_json::json!([
+    ])));
+    ws.servers = Some(run_config(serde_json::json!([
         {
             "name": "dev",
             "port": 3000,
@@ -896,7 +896,7 @@ async fn the_repositorys_own_server_config_projects_to_decodable_scripts(pool: P
             "startCommands": ["bash scripts/shadow/up.sh"],
             "startupTimeoutSeconds": 600
         }
-    ]));
+    ])));
     PgWorkspaceDao(pool.clone())
         .insert_workspace(&ws)
         .await
@@ -1261,11 +1261,11 @@ async fn a_project_the_viewer_may_not_read_discloses_no_server_commands(pool: Pg
     };
 
     let mut mine = make_workspace_row("ws-own", "user-1");
-    mine.servers = Some(servers("bun run dev"));
+    mine.servers = Some(run_config(servers("bun run dev")));
     repo.insert_workspace(&mine).await.unwrap();
 
     let mut theirs = make_workspace_row("ws-theirs", "user-2");
-    theirs.servers = Some(servers("bun run secret-thing --token /etc/theirs"));
+    theirs.servers = Some(run_config(servers("bun run secret-thing --token /etc/theirs")));
     repo.insert_workspace(&theirs).await.unwrap();
 
     // The one thing that pulls their private workspace into this viewer's
@@ -1562,7 +1562,7 @@ async fn an_unfollowed_closed_conversation_is_absent_from_the_archive(pool: PgPo
 #[sqlx::test]
 async fn a_conversation_whose_project_was_deleted_is_left_out(pool: PgPool) {
     let mut deleted = make_workspace_row("ws-gone", "user-1");
-    deleted.deleted = Some(true);
+    deleted.deleted = true;
     PgWorkspaceDao(pool.clone())
         .insert_workspace(&deleted)
         .await
@@ -4506,7 +4506,7 @@ async fn creating_and_deleting_a_project_waits_for_the_next_snapshot(pool: PgPoo
 async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: PgPool) {
     let repo = PgWorkspaceDao(pool.clone());
     let mut declared = make_workspace_row("ws-git", "user-1");
-    declared.source = "git".to_string();
+    declared.source = moatless_types::workspace::WorkspaceSource::Git;
     declared.source_repository_id = Some("repo-1".to_string());
     declared.source_key = Some("api".to_string());
     repo.insert_workspace(&declared).await.unwrap();
@@ -4548,7 +4548,7 @@ async fn deleting_a_repository_does_not_advance_the_task_listing(pool: PgPool) {
     let workspaces = PgWorkspaceDao(pool.clone());
     for key in ["api", "web"] {
         let mut declared = make_workspace_row(&format!("ws-{key}"), USER_1);
-        declared.source = "git".to_string();
+        declared.source = moatless_types::workspace::WorkspaceSource::Git;
         declared.source_repository_id = Some("repo-gone".to_string());
         declared.source_key = Some(key.to_string());
         workspaces.insert_workspace(&declared).await.unwrap();
@@ -4656,11 +4656,11 @@ async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
             .update(
                 "ws-other",
                 &WorkspacePatch {
-                    servers: Some(Some(json!([{
+                    servers: Some(Some(run_config(json!([{
                         "name": "dev",
                         "port": 3000,
                         "startCommands": ["bun run secret-thing"]
-                    }]))),
+                    }])))),
                     ..WorkspacePatch::default()
                 },
                 &viewer("user-2"),

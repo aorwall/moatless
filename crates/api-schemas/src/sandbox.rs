@@ -101,9 +101,7 @@ pub fn sanitize_mount_name(name: &str) -> Option<String> {
 // Sandbox model types (shared between schemas and backend)
 // =============================================================================
 
-pub use moatless_events::{
-    AgentStatus, LiveStatus, SandboxStatus, ServerCapabilities, ServerEntry, ServerStatus,
-};
+pub use moatless_types::sandbox::{AgentStatus, LiveStatus, SandboxStatus, ServerCapabilities, ServerEntry, ServerStatus};
 
 /// Server snapshot from sandbox GET /status
 #[derive(Debug, Clone, Serialize, Deserialize)]

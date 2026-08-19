@@ -8,7 +8,7 @@ use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::models::UserRole;
+use moatless_types::user::UserRole;
 
 /// Minimal payload cached for verify responses.
 /// Contains only what `verify_handler` needs — no tokens are cached.

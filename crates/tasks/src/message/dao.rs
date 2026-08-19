@@ -22,6 +22,7 @@ use crate::task::dao as task_dao;
 use crate::task_activities;
 use crate::task_activities::dao::Activity;
 use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
+use moatless_backend_core::db_enum::decode_required;
 use moatless_core::db::DbPool;
 
 /// The tool calls that hand a conversation back to a person. A sidebar shows
@@ -535,7 +536,7 @@ impl MessageDao for PgMessageDao {
         )
         .bind(&msg.task_id)
         .bind(&msg.uuid)
-        .bind(msg.message_type)
+        .bind(msg.message_type.as_str())
         .bind(&msg.user_type)
         .bind(&msg.parent_uuid)
         .bind(msg.is_sidechain)
@@ -546,7 +547,7 @@ impl MessageDao for PgMessageDao {
         .bind(&msg.git_branch)
         .bind(&msg.request_id)
         .bind(&msg.timestamp)
-        .bind(msg.message_role)
+        .bind(msg.message_role.as_str())
         .bind(&msg.message_text)
         .bind(&msg.assistant_message_id)
         .bind(&msg.assistant_message_type)
@@ -563,7 +564,7 @@ impl MessageDao for PgMessageDao {
         .bind(&msg.agent_session_id)
         .bind(msg.will_not_resume)
         .bind(&msg.run_metrics)
-        .bind(&msg.agent_mode)
+        .bind(msg.agent_mode_raw.as_deref())
         .bind(&msg.model)
         .bind(msg.resume)
         .bind(&msg.external_event_id)
@@ -1026,7 +1027,7 @@ impl MessageDao for PgMessageDao {
         &self,
         task_id: &str,
     ) -> Result<Option<super::models::MessageType>, sqlx::Error> {
-        let row: Option<(super::models::MessageType,)> = sqlx::query_as(
+        let row: Option<(String,)> = sqlx::query_as(
             r#"SELECT message_type FROM task_messages
                WHERE task_id = $1
                ORDER BY timestamp DESC, id DESC
@@ -1035,7 +1036,7 @@ impl MessageDao for PgMessageDao {
         .bind(task_id)
         .fetch_optional(&self.0)
         .await?;
-        Ok(row.map(|r| r.0))
+        row.map(|r| decode_required("message_type", r.0)).transpose()
     }
 
     async fn last_message_is_completed_reply(
@@ -1047,7 +1048,7 @@ impl MessageDao for PgMessageDao {
         // closed as completed on the strength of a later turn's final reply
         // when it already has substantive assistant/system/result state of its
         // own (for example, a mid-tool interruption).
-        let row: Option<(super::models::MessageType, Option<String>)> = sqlx::query_as(
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
             r#"SELECT message_type, assistant_stop_reason FROM task_messages
                WHERE task_id = $1
                  AND ($2::int IS NULL OR turn_number = $2)
@@ -1062,6 +1063,12 @@ impl MessageDao for PgMessageDao {
         // A final assistant reply ends with stop_reason `end_turn`; a turn cut
         // off mid-tool ends with `tool_use` (or no assistant row at all), which
         // stays a genuine orphan.
+        let row = row
+            .map(|(kind, reason)| {
+                decode_required::<super::models::MessageType>("message_type", kind)
+                    .map(|kind| (kind, reason))
+            })
+            .transpose()?;
         if matches!(
             row,
             Some((super::models::MessageType::Assistant, Some(reason))) if reason == "end_turn"
@@ -1499,7 +1506,7 @@ impl MessageDao for PgMessageDao {
             Option<String>,
             i32,
             Option<String>,
-            Option<moatless_core::shared_models::AgentMode>,
+            Option<String>,
             Option<String>,
         )> = sqlx::query_as(
             r#"SELECT m.id, m.agent_session_id, m.turn_number,
@@ -1551,7 +1558,7 @@ impl MessageDao for PgMessageDao {
         let agent_mode = rows
             .iter()
             .rev()
-            .find_map(|(_, _, _, _, mode, _)| mode.as_ref().map(|m| m.0.clone()));
+            .find_map(|(_, _, _, _, mode, _)| mode.clone());
         let effort = rows
             .iter()
             .rev()

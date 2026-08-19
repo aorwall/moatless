@@ -9,7 +9,7 @@
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use moatless_events::SandboxStatus;
+use moatless_types::sandbox::SandboxStatus;
 
 /// The five caller-facing lifecycle operations.
 ///
@@ -152,7 +152,7 @@ impl fmt::Display for ObservedStatus {
 /// intra-band, while the lifecycle store, providers, and reconciler reach it on
 /// the legal downward edge. Re-exported here so `super::types::ArchiveRetention`
 /// and the `lifecycle` module's re-export keep resolving unchanged.
-pub use moatless_tasks::task::models::ArchiveRetention;
+pub use moatless_types::sandbox::ArchiveRetention;
 
 /// Monotonic, comparable operation identity.
 ///

@@ -110,8 +110,8 @@ nanoid = "0.5"
 # CLI parsing (secrets subcommand on the backend binary)
 clap = { version = "4", features = ["derive"] }
 
-# Typed event system (shared with sandbox)
-moatless-events = { path = "../events", features = ["openapi"] }
+# Shared type definitions
+moatless-types = { path = "../types", features = ["openapi"] }
 
 # Shared API schemas (DTOs shared with CLI)
 moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }

@@ -54,10 +54,7 @@ pub mod workspace;
 
 pub use feed::{ShellFeed, ThreadFeed};
 use moatless_backend_core::sandbox::SandboxError;
-pub use moatless_backend_core::sandbox::{
-    ClusterDiagnostics, SandboxConnector, SandboxIntentReader, SandboxObserver,
-    SandboxPortPublisher, SandboxStarter, SandboxStopper,
-};
+pub use moatless_backend_core::sandbox::{ClusterDiagnostics, SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxPortPublisher, SandboxStarter, SandboxStopper};
 pub use moatless_backend_core::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 pub use moatless_identity::auth::pairing::DevicePairing;
 
@@ -94,7 +91,7 @@ use crate::scripts::{ScriptsError, ScriptsState};
 use crate::servers::{ServersError, ServersState};
 use crate::workspace::WorkspaceAccessError;
 use moatless_backend_core::change_feed::conversation::{ConversationHead, Resume, resume};
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 /// The largest WebSocket message this socket reads or writes.
 ///
@@ -1495,9 +1492,7 @@ fn remote_span_context(
     span_id: Option<&str>,
     sampled: Option<bool>,
 ) -> Option<opentelemetry::Context> {
-    use opentelemetry::trace::{
-        SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState,
-    };
+    use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState};
 
     // `from_hex` parses any valid hex string regardless of length (it does not
     // zero-pad), so a short client value like "deadbeef" would otherwise parse
@@ -3491,13 +3486,8 @@ mod tests {
     use crate::listing::UiRpcListingHead;
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
-    use moatless_backend_core::sandbox::{
-        LiveStatus, LogOptions, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError,
-        SandboxPortPublisher, SandboxStatus, SandboxStatusFullResponse, ServerLogStream,
-    };
-    use moatless_identity::auth::pairing::{
-        PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key,
-    };
+    use moatless_backend_core::sandbox::{LiveStatus, LogOptions, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher, SandboxStatus, SandboxStatusFullResponse, ServerLogStream};
+    use moatless_identity::auth::pairing::{PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key};
     use uuid::Uuid;
 
     /// The stub's database. Every read in these tests reports it, so nothing
@@ -3560,7 +3550,7 @@ mod tests {
         async fn desired_state(
             &self,
             task_id: &str,
-        ) -> Result<moatless_backend_core::models::SandboxDesiredState, SandboxError> {
+        ) -> Result<moatless_types::sandbox::SandboxDesiredState, SandboxError> {
             Err(unreachable(task_id))
         }
     }
@@ -3592,7 +3582,7 @@ mod tests {
         async fn stop(
             &self,
             task_id: &str,
-            _reason: moatless_backend_core::models::SandboxStopReason,
+            _reason: moatless_types::sandbox::SandboxStopReason,
         ) -> Result<(), moatless_backend_core::sandbox::SandboxError> {
             Err(unreachable(task_id))
         }
@@ -3615,8 +3605,8 @@ mod tests {
         async fn sandbox_status(
             &self,
             task_id: &str,
-            _task_status: moatless_backend_core::models::TaskStatus,
-            _desired_state: moatless_backend_core::models::SandboxDesiredState,
+            _task_status: moatless_types::task::TaskStatus,
+            _desired_state: moatless_types::sandbox::SandboxDesiredState,
         ) -> Result<SandboxStatusFullResponse, SandboxError> {
             Err(unreachable(task_id))
         }
@@ -3624,8 +3614,8 @@ mod tests {
         async fn live_status(
             &self,
             task_id: &str,
-            _task_status: moatless_backend_core::models::TaskStatus,
-            _desired_state: moatless_backend_core::models::SandboxDesiredState,
+            _task_status: moatless_types::task::TaskStatus,
+            _desired_state: moatless_types::sandbox::SandboxDesiredState,
         ) -> Result<LiveStatus, SandboxError> {
             Err(unreachable(task_id))
         }

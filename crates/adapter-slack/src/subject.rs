@@ -4,7 +4,7 @@
 //! `thread:` string, a reaction target — is read here and nowhere else.
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::BindingContext;
+use moatless_types::adapter::BindingContext;
 use moatless_loops::adapters::{AdapterDestinationBuilder, BindingDestination};
 
 use super::adapter::SlackAdapter;
@@ -250,7 +250,7 @@ impl AdapterDestinationBuilder for SlackAdapter {
 #[cfg(test)]
 mod tests {
     use moatless_loops::adapters::AdapterDestinationBuilder;
-    use moatless_loops::adapters::models::BindingContext;
+    use moatless_types::adapter::BindingContext;
 
     use crate::adapter::SlackAdapter;
     use super::{direct_destination, parse_destination, reaction_target};

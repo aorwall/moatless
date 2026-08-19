@@ -23,7 +23,7 @@ use crate::data::{T3TaskDao, TaskView};
 use moatless_backend_core::sandbox::{
     LogOptions, SandboxError, SandboxIntentReader, SandboxObserver, ServerEntry,
 };
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 /// How often a subscribed status stream asks the runtime what changed.
 ///

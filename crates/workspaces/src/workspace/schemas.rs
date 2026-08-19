@@ -5,57 +5,13 @@
 
 pub use moatless_api_schemas::workspace::*;
 
-use crate::repository::schemas::scope_to_wire;
 
-use moatless_backend_core::run_config::{
-    Cpu, EnvKey, EnvVars, Memory, Port, ResourceConfig as DomainResourceConfig,
-    ResourceQuantities as DomainResourceQuantities, ServerConfig as DomainServerConfig,
-    StorageMedium as DomainStorageMedium,
-};
-use tracing::error;
+use moatless_types::workspace::{Cpu, EnvKey, EnvVars, Memory, Port, ResourceConfig as DomainResourceConfig, ResourceQuantities as DomainResourceQuantities, ServerConfig as DomainServerConfig};
 
 use super::error::WorkspaceError;
 
-use super::models::{
-    ScriptConfig as DomainScriptConfig, Workspace,
-    WorkspaceCredentialProvider as DomainCredentialProvider, WorkspaceRepo,
-};
-
-pub fn credential_provider_from_wire(
-    provider: WorkspaceCredentialProvider,
-) -> DomainCredentialProvider {
-    match provider {
-        WorkspaceCredentialProvider::Gitlab => DomainCredentialProvider::Gitlab,
-        WorkspaceCredentialProvider::Gitness => DomainCredentialProvider::Gitness,
-        WorkspaceCredentialProvider::Openai => DomainCredentialProvider::Openai,
-        WorkspaceCredentialProvider::Anthropic => DomainCredentialProvider::Anthropic,
-    }
-}
-
-pub fn credential_provider_to_wire(
-    provider: DomainCredentialProvider,
-) -> WorkspaceCredentialProvider {
-    match provider {
-        DomainCredentialProvider::Gitlab => WorkspaceCredentialProvider::Gitlab,
-        DomainCredentialProvider::Gitness => WorkspaceCredentialProvider::Gitness,
-        DomainCredentialProvider::Openai => WorkspaceCredentialProvider::Openai,
-        DomainCredentialProvider::Anthropic => WorkspaceCredentialProvider::Anthropic,
-    }
-}
-
-pub fn storage_medium_from_wire(medium: StorageMedium) -> DomainStorageMedium {
-    match medium {
-        StorageMedium::EmptyDir => DomainStorageMedium::EmptyDir,
-        StorageMedium::Node => DomainStorageMedium::Node,
-    }
-}
-
-pub fn storage_medium_to_wire(medium: DomainStorageMedium) -> StorageMedium {
-    match medium {
-        DomainStorageMedium::EmptyDir => StorageMedium::EmptyDir,
-        DomainStorageMedium::Node => StorageMedium::Node,
-    }
-}
+use moatless_types::workspace::ScriptConfig as DomainScriptConfig;
+use super::models::{Workspace, WorkspaceRepo, WorkspaceSource};
 
 /// Parse one wire quantity, naming the field in the rejection message.
 fn parse_quantity<T: std::str::FromStr>(
@@ -104,7 +60,7 @@ pub fn resource_config_from_wire(
         pvc_enabled: config.pvc_enabled,
         s3_enabled: config.s3_enabled,
         docker_storage: parse_quantity::<Memory>(config.docker_storage, "dockerStorage")?,
-        docker_storage_mode: config.docker_storage_mode.map(storage_medium_from_wire),
+        docker_storage_mode: config.docker_storage_mode,
     })
 }
 
@@ -116,7 +72,7 @@ pub fn resource_config_to_wire(config: DomainResourceConfig) -> ResourceConfig {
         pvc_enabled: config.pvc_enabled,
         s3_enabled: config.s3_enabled,
         docker_storage: config.docker_storage.map(|q| q.as_str().to_string()),
-        docker_storage_mode: config.docker_storage_mode.map(storage_medium_to_wire),
+        docker_storage_mode: config.docker_storage_mode,
     }
 }
 
@@ -179,32 +135,6 @@ pub fn server_config_to_wire(config: DomainServerConfig) -> ServerConfig {
     }
 }
 
-impl From<ScriptConfig> for DomainScriptConfig {
-    fn from(config: ScriptConfig) -> Self {
-        Self {
-            name: config.name,
-            label: config.label,
-            command: config.command,
-            icon: config.icon,
-            port: config.port,
-            env_vars: config.env_vars,
-        }
-    }
-}
-
-impl From<DomainScriptConfig> for ScriptConfig {
-    fn from(config: DomainScriptConfig) -> Self {
-        Self {
-            name: config.name,
-            label: config.label,
-            command: config.command,
-            icon: config.icon,
-            port: config.port,
-            env_vars: config.env_vars,
-        }
-    }
-}
-
 pub(super) fn server_configs_from_wire(
     configs: Vec<ServerConfig>,
 ) -> Result<Vec<DomainServerConfig>, WorkspaceError> {
@@ -212,45 +142,19 @@ pub(super) fn server_configs_from_wire(
 }
 
 pub(super) fn script_configs_from_wire(configs: Vec<ScriptConfig>) -> Vec<DomainScriptConfig> {
-    configs.into_iter().map(Into::into).collect()
+    configs
 }
 
-impl From<WorkspaceRepo> for WorkspaceRepoResponse {
-    fn from(r: WorkspaceRepo) -> Self {
-        Self {
-            id: r.id,
-            workspace_id: r.workspace_id,
-            repository_id: r.repository_id,
-            branch: r.branch,
-            mount_name: r.mount_name,
-            is_primary: r.is_primary,
-            position: r.position,
-            created_at: r.created_at.map(|t| t.to_rfc3339()),
-        }
-    }
-}
-
-/// Decode one JSONB run-config column, logging what was dropped.
-///
-/// A column that fails to decode reads as unset rather than failing the whole
-/// response, so one bad value cannot make a workspace unreadable. The log is
-/// what makes that recoverable: without it the field silently disappears.
-fn decode_column<T: serde::de::DeserializeOwned>(
-    value: serde_json::Value,
-    workspace_id: &str,
-    column: &str,
-) -> Option<T> {
-    match serde_json::from_value(value) {
-        Ok(decoded) => Some(decoded),
-        Err(e) => {
-            error!(
-                workspace_id,
-                column,
-                error = %e,
-                "Failed to decode a workspace run-config column; reporting it as unset"
-            );
-            None
-        }
+pub fn workspace_repo_response(r: WorkspaceRepo) -> WorkspaceRepoResponse {
+    WorkspaceRepoResponse {
+        id: r.id,
+        workspace_id: r.workspace_id,
+        repository_id: r.repository_id,
+        branch: r.branch,
+        mount_name: r.mount_name,
+        is_primary: r.is_primary,
+        position: r.position,
+        created_at: r.created_at.map(|t| t.to_rfc3339()),
     }
 }
 
@@ -258,50 +162,36 @@ fn decode_column<T: serde::de::DeserializeOwned>(
 /// (A free function rather than `From<(..)>` — the orphan rule forbids
 /// implementing a foreign trait for a foreign type keyed on a tuple.)
 pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceResponse {
-    let workspace_id = w.id.clone();
     WorkspaceResponse {
         id: w.id,
         name: w.name,
         description: w.description,
-        kind: w.kind,
+        kind: w.kind.to_string(),
         docker_image: w.docker_image,
         docker_access: w.docker_access,
         sandbox_service_account: w.sandbox_service_account,
         system_prompt: w.system_prompt,
-        setup_commands: w
-            .setup_commands
-            .and_then(|v| serde_json::from_value(v).ok()),
-        env_vars: w.env_vars.and_then(|v| serde_json::from_value(v).ok()),
+        setup_commands: w.setup_commands,
+        env_vars: w.env_vars,
         servers: w
             .servers
-            .and_then(|value| decode_column(value, &workspace_id, "servers"))
-            .map(|configs: Vec<DomainServerConfig>| {
-                configs.into_iter().map(server_config_to_wire).collect()
-            }),
-        scripts: w
-            .scripts
-            .and_then(|value| decode_column(value, &workspace_id, "scripts"))
-            .map(|configs: Vec<DomainScriptConfig>| configs.into_iter().map(Into::into).collect()),
-        resources: w
-            .resources
-            .and_then(|value| {
-                decode_column::<DomainResourceConfig>(value, &workspace_id, "resources")
-            })
-            .map(resource_config_to_wire),
+            .map(|configs| configs.into_iter().map(server_config_to_wire).collect()),
+        scripts: w.scripts,
+        resources: w.resources.map(resource_config_to_wire),
         network_profile: w.network_profile,
-        synced_from_git: w.source == "git",
+        synced_from_git: w.source == WorkspaceSource::Git,
         source_config_path: w.source_config_path,
-        source: w.source,
+        source: w.source.to_string(),
         source_repository_id: w.source_repository_id,
         source_key: w.source_key,
-        scope: scope_to_wire(w.scope),
+        scope: w.scope,
         owner_user_id: w.owner_user_id,
         run_as_user_id: w.run_as_user_id,
         created_by: w.created_by,
-        deleted: w.deleted.unwrap_or(false),
+        deleted: w.deleted,
         created_at: w.created_at.map(|t| t.to_rfc3339()),
         updated_at: w.updated_at.map(|t| t.to_rfc3339()),
-        repos: repos.into_iter().map(Into::into).collect(),
+        repos: repos.into_iter().map(workspace_repo_response).collect(),
     }
 }
 
@@ -311,17 +201,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn every_credential_provider_maps_both_ways_with_identical_json() {
-        for domain in DomainCredentialProvider::ALL {
-            let wire = credential_provider_to_wire(*domain);
-            assert_eq!(credential_provider_from_wire(wire), *domain);
-            assert_eq!(
-                serde_json::to_value(domain).expect("serialize"),
-                serde_json::to_value(wire).expect("serialize")
-            );
-        }
-    }
 
     fn quantity<T: std::str::FromStr>(value: &str) -> T
     where
@@ -348,7 +227,7 @@ mod tests {
             pvc_enabled: Some(true),
             s3_enabled: Some(false),
             docker_storage: Some(quantity("50Gi")),
-            docker_storage_mode: Some(DomainStorageMedium::EmptyDir),
+            docker_storage_mode: Some(StorageMedium::EmptyDir),
         };
         let wire_resources = resource_config_to_wire(resources.clone());
         assert_eq!(
@@ -412,24 +291,10 @@ mod tests {
             port: Some(4321),
             env_vars: Some(HashMap::from([("RESET".to_string(), "1".to_string())])),
         };
-        let wire_script: ScriptConfig = script.clone().into();
         assert_eq!(
-            serde_json::to_value(&script).expect("serialize"),
-            serde_json::to_value(&wire_script).expect("serialize")
+            serde_json::to_value(&script).expect("serialize")["envVars"]["RESET"],
+            "1"
         );
-        assert_eq!(DomainScriptConfig::from(wire_script), script);
-    }
-
-    #[test]
-    fn every_storage_medium_maps_both_ways_with_identical_json() {
-        for domain in DomainStorageMedium::ALL {
-            let wire = storage_medium_to_wire(*domain);
-            assert_eq!(storage_medium_from_wire(wire), *domain);
-            assert_eq!(
-                serde_json::to_value(domain).expect("serialize"),
-                serde_json::to_value(wire).expect("serialize")
-            );
-        }
     }
 
     #[test]

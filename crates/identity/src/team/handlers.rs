@@ -44,7 +44,7 @@ pub async fn list_teams(
     request_body = CreateTeamRequest,
     responses(
         (status = 201, description = "Team created", body = TeamResponse),
-        (status = 409, description = "Slug already taken", body = moatless_core::error::ErrorBody)
+        (status = 409, description = "Slug already taken", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn create_team(
@@ -89,7 +89,7 @@ pub async fn create_team(
     params(("team_id" = String, Path, description = "Team identifier")),
     responses(
         (status = 200, description = "Team details", body = TeamResponse),
-        (status = 404, description = "Team not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Team not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_team(
@@ -122,7 +122,7 @@ pub async fn get_team(
     request_body = UpdateTeamRequest,
     responses(
         (status = 200, description = "Team updated", body = TeamResponse),
-        (status = 404, description = "Team not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Team not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn update_team(
@@ -157,7 +157,7 @@ pub async fn update_team(
     params(("team_id" = String, Path, description = "Team identifier")),
     responses(
         (status = 204, description = "Team deleted"),
-        (status = 404, description = "Team not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Team not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn delete_team(
@@ -205,7 +205,7 @@ pub async fn list_members(
     request_body = AddTeamMemberRequest,
     responses(
         (status = 204, description = "Member added"),
-        (status = 404, description = "Team not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Team not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn add_member(
@@ -240,7 +240,7 @@ pub async fn add_member(
     ),
     responses(
         (status = 204, description = "Member removed"),
-        (status = 404, description = "Team not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Team not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn remove_member(

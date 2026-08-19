@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use tracing::{info, warn};
 
-use moatless_backend_core::scope::{ScopeContext, ScopedResource};
+use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_identity::secret::audit::{SecretAuditDao, SecretAuditInput};
 use moatless_identity::secret::service::SecretCipher;
 
@@ -15,7 +15,7 @@ use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::error::WorkspaceError;
 use crate::workspace::models::Workspace;
 
-use super::super::models::WorkspaceCredentialProvider;
+use moatless_types::workspace::WorkspaceCredentialProvider;
 
 /// `secret_audit_events.scope_type` for a workspace credential. The audit table
 /// is shared with `secrets` so credential material has one trail; the scope
@@ -323,8 +323,8 @@ mod tests {
 
     use async_trait::async_trait;
     use chrono::Utc;
-    use moatless_backend_core::scope::Scope;
-    use moatless_core::config::SecretsConfig;
+    use moatless_types::access_control::Scope;
+    use moatless_types::secret::SecretsConfig;
     use moatless_identity::secret::service::LocalEnvelopeSecretCipher;
     use std::sync::Mutex;
 
@@ -424,7 +424,7 @@ mod tests {
             id: "ws_1".to_string(),
             name: "ws".to_string(),
             description: None,
-            kind: "single".to_string(),
+            kind: moatless_types::workspace::WorkspaceKind::Single,
             docker_image: None,
             docker_access: None,
             sandbox_service_account: None,
@@ -435,7 +435,7 @@ mod tests {
             scripts: None,
             resources: None,
             network_profile: None,
-            source: "manual".to_string(),
+            source: moatless_types::workspace::WorkspaceSource::Manual,
             source_repository_id: None,
             source_key: None,
             source_config_path: None,
@@ -443,7 +443,7 @@ mod tests {
             run_as_user_id: None,
             owner_user_id: Some(owner.to_string()),
             created_by: Some(owner.to_string()),
-            deleted: Some(false),
+            deleted: false,
             created_at: None,
             updated_at: None,
         }

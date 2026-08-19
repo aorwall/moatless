@@ -9,12 +9,13 @@ use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::mapping::{ActivityStatus, ConversationWrite, ToolOutcome};
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use moatless_core::file_storage::dao::FileDao;
-use moatless_core::shared_models::AgentMode;
+use moatless_types::agent::AgentMode;
 
 use super::contexts::message_context_input_to_row;
 use super::error::MessageError;
+use moatless_types::task::ExternalOrigin;
 
 /// The message domain's one question of the adapter registry, named here so the
 /// send flows no longer reach `Adapters` directly: self-echo deduplication.
@@ -79,36 +80,6 @@ impl MessageSendService {
                 );
                 false
             }
-        }
-    }
-}
-
-/// The provenance that says a Message reached this Task from outside it,
-/// carried as one value rather than as six positional arguments. An internal
-/// send — a person in the composer, task creation — passes
-/// [`ExternalOrigin::none`].
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ExternalOrigin<'a> {
-    pub event_id: Option<&'a str>,
-    pub adapter: Option<&'a str>,
-    pub subject_key: Option<&'a str>,
-    pub source_name: Option<&'a str>,
-    /// The handle the external system knows the writer by, recorded verbatim
-    /// and never resolved to a Moatless identity.
-    pub author: Option<&'a str>,
-    pub source_task_id: Option<&'a str>,
-}
-
-impl ExternalOrigin<'_> {
-    /// The origin of a Message that came from inside Moatless.
-    pub const fn none() -> Self {
-        Self {
-            event_id: None,
-            adapter: None,
-            subject_key: None,
-            source_name: None,
-            author: None,
-            source_task_id: None,
         }
     }
 }
@@ -306,7 +277,7 @@ impl MessageSendService {
             agent_session_id: None, // Not yet acknowledged
             will_not_resume: None,
             run_metrics: None,
-            agent_mode: agent_mode.cloned(),
+            agent_mode_raw: agent_mode.map(|m| m.as_str().to_string()),
             model: model.map(std::string::ToString::to_string),
             effort: effort.map(std::string::ToString::to_string),
             skills: skills.to_vec(),
@@ -445,7 +416,7 @@ impl MessageSendService {
             agent_session_id: None,
             will_not_resume: Some(false),
             run_metrics: None,
-            agent_mode: None,
+            agent_mode_raw: None,
             model: None,
             effort: None,
             skills: Vec::new(),
@@ -624,7 +595,7 @@ impl MessageSendService {
             agent_session_id: None,
             will_not_resume: None,
             run_metrics: None,
-            agent_mode: None,
+            agent_mode_raw: None,
             model: None,
             effort: None,
             skills: Vec::new(),

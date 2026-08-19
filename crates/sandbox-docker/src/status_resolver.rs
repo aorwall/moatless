@@ -8,8 +8,9 @@ use tracing::{debug, warn};
 
 use super::client::DockerClient;
 use super::naming::{generate_container_name, generate_server_container_name};
-use moatless_backend_core::models::{SandboxDesiredState, TaskStatus};
-use moatless_backend_core::run_config::ServerConfig;
+use moatless_types::sandbox::SandboxDesiredState;
+use moatless_types::task::TaskStatus;
+use moatless_types::workspace::ServerConfig;
 use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_core::config::Config;
 use moatless_sandbox_control::live_status::{AgentStatus, LiveStatus, derive_live_status};

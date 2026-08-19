@@ -2,9 +2,9 @@
 
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{
-    AdapterConnection, BindingContext, LoopContext, OutboundReply, SubscriptionMatch, TaskBinding,
-};
+use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::{BindingContext, OutboundReply};
+use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{AdapterBindingReply, AdapterMessageReply};
 
 use super::adapter::GithubPrAdapter;
@@ -114,6 +114,7 @@ impl AdapterMessageReply for GithubPrAdapter {
 
 #[cfg(test)]
 mod tests {
+    use moatless_types::adapter::AdapterKind;
     use std::sync::Arc;
 
     use axum::http::{Method, StatusCode};
@@ -121,7 +122,8 @@ mod tests {
     use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
-    use moatless_loops::adapters::models::{AdapterConnection, OutboundReply, TaskBinding};
+    use moatless_loops::adapters::models::{AdapterConnection, TaskBinding};
+    use moatless_types::adapter::OutboundReply;
     use moatless_loops::adapters::{AdapterBindingReply, AdapterMessageReply};
 
     #[tokio::test]
@@ -207,7 +209,7 @@ mod tests {
         TaskBinding {
             id: "tb_test".into(),
             task_id: "task_test".into(),
-            adapter_kind: "github_pr".into(),
+            adapter_kind: AdapterKind::GithubPr,
             subject_kind: "github_pr".into(),
             subject_key: "soaplabs/repo#42".into(),
             connection_id: "pc_test".into(),
@@ -238,14 +240,14 @@ mod tests {
         let now = chrono::Utc::now();
         AdapterConnection {
             id: "pc_test".to_string(),
-            adapter_kind: "github".to_string(),
+            adapter_kind: AdapterKind::Github,
             connection_kind: "org".to_string(),
             scope_value: "soaplabs".to_string(),
             credential_ref: None,
             webhook_secret: None,
             transport_config: serde_json::json!({}),
             created_by: "owner-user".to_string(),
-            scope: moatless_backend_core::scope::Scope::User,
+            scope: moatless_types::access_control::Scope::User,
             owner_user_id: Some("owner-user".to_string()),
             created_at: now,
             updated_at: now,

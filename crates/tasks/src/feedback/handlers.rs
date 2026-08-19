@@ -11,11 +11,9 @@ use moatless_identity::extractors::AuthUser;
 
 use super::dao::FeedbackDao;
 use super::error::{FeedbackError, UnknownFeedbackDiscriminant};
-use super::models::{Feedback, FeedbackSource, FeedbackSurface};
-use super::schemas::{
-    CreateFeedbackRequest, FeedbackResponse, ListFeedbackResponse, feedback_source_to_wire,
-    feedback_surface_from_wire, feedback_surface_to_wire,
-};
+use moatless_types::feedback::{FeedbackSource, FeedbackSurface};
+use super::models::Feedback;
+use super::schemas::{CreateFeedbackRequest, FeedbackResponse, ListFeedbackResponse};
 
 /// Create a new feedback row scoped to a task (and optionally a message
 /// or tool call within that task).
@@ -26,8 +24,8 @@ use super::schemas::{
     request_body = CreateFeedbackRequest,
     responses(
         (status = 200, description = "Feedback created", body = FeedbackResponse),
-        (status = 400, description = "Invalid request", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn create_feedback(
@@ -44,7 +42,7 @@ pub async fn create_feedback(
     }
 
     // Validate scope is consistent with surface.
-    let surface = feedback_surface_from_wire(req.surface);
+    let surface = req.surface;
     match (
         surface,
         req.message_uuid.is_some(),
@@ -122,7 +120,7 @@ pub async fn create_feedback(
     ),
     responses(
         (status = 200, description = "Feedback list", body = ListFeedbackResponse),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn list_task_feedback(
@@ -165,8 +163,8 @@ fn to_response(row: &Feedback) -> Result<FeedbackResponse, FeedbackError> {
         task_id: row.task_id.clone(),
         message_uuid: row.message_uuid.clone(),
         tool_use_id: row.tool_use_id.clone(),
-        source: feedback_source_to_wire(source),
-        surface: feedback_surface_to_wire(surface),
+        source,
+        surface,
         comment: row.comment.clone(),
         metadata: row.metadata.clone(),
         created_by: row.created_by.clone(),

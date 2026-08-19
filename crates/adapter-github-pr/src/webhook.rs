@@ -10,7 +10,8 @@ use tracing::{debug, info, warn};
 
 use moatless_loops::adapters::AdapterKind;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{Audience, InboundMessage, SubscriptionMatch};
+use moatless_loops::adapters::models::SubscriptionMatch;
+use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_core::db::DbPool;
 
 use super::config::GithubPrRuleConfig;

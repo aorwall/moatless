@@ -22,7 +22,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tracing::{debug, info, warn};
 
-use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+use moatless_types::task::TaskStatus;
 use moatless_tasks::message::dao::MessageDao;
 
 use super::attempt::AttemptBudget;
@@ -796,7 +797,7 @@ impl Reconciler {
 mod tests {
     use super::*;
 
-    use moatless_tasks::task::models::CheckoutMode;
+    use moatless_types::task::CheckoutMode;
 
     use super::super::events::LifecycleEvent;
     use super::super::orchestrator::{IntentWrite, StoreError, TaskIntent};
@@ -1683,12 +1684,12 @@ mod db_tests {
                 SandboxMember {
                     task_id: "t1".to_string(),
                     sandbox_id: "t1".to_string(),
-                    checkout_mode: moatless_tasks::task::models::CheckoutMode::Shared,
+                    checkout_mode: moatless_types::task::CheckoutMode::Shared,
                 },
                 SandboxMember {
                     task_id: "t2".to_string(),
                     sandbox_id: "t1".to_string(),
-                    checkout_mode: moatless_tasks::task::models::CheckoutMode::Shared,
+                    checkout_mode: moatless_types::task::CheckoutMode::Shared,
                 },
             ],
             "reconciler rebuilds in-pod members from DB membership after restart"
@@ -1726,7 +1727,7 @@ mod db_tests {
             .persist_intent(
                 "t1",
                 &IntentWrite {
-                    desired_state: moatless_backend_core::models::SandboxDesiredState::Removed,
+                    desired_state: moatless_types::sandbox::SandboxDesiredState::Removed,
                     stop_reason: Some(SandboxStopReason::Cleanup),
                     retention: Some(ArchiveRetention::DeleteArchives),
                     marker: CorrelationMarker::new(

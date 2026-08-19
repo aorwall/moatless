@@ -10,7 +10,7 @@ use axum_extra::extract::Multipart;
 use std::sync::Arc;
 
 use moatless_identity::extractors::AuthUser;
-use moatless_backend_core::scope::ScopedResource;
+use moatless_types::access_control::ScopedResource;
 use moatless_core::config::S3Config;
 
 use super::dao::FileDao;
@@ -27,8 +27,8 @@ use super::store;
     request_body(content_type = "multipart/form-data", content = super::schemas::UploadFileBody),
     responses(
         (status = 200, description = "File uploaded successfully", body = UploadResponse),
-        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
-        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn upload_file(
@@ -102,7 +102,7 @@ pub async fn upload_file(
     ),
     responses(
         (status = 200, description = "File content", content_type = "application/octet-stream"),
-        (status = 404, description = "File not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "File not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn download_file(

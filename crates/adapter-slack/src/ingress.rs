@@ -9,9 +9,11 @@ use tracing::{debug, warn};
 use moatless_loops::adapters::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
+use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
+use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
-use moatless_loops::adapters::models::{InboundMessage, LoopContext};
+use moatless_types::adapter::InboundMessage;
+use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{Adapter, BindingDestination};
 use moatless_loops::loops::dao::LoopDao;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
@@ -187,7 +189,7 @@ async fn resolve(
     };
 
     Ok(Routing::Verifiable(Verifiable::Routed(Box::new(Routed {
-        config: moatless_adapter_model::models::subscription_context(&subscription, "slack"),
+        config: moatless_adapter_model::models::subscription_context(&subscription),
         source_id: source_id.to_string(),
         connection_id: connection.id,
         app_key: moatless_identity::adapter_apps::app_key_from_transport_config(&connection.transport_config)
@@ -388,12 +390,13 @@ pub(super) async fn receive(
 mod characterization {
     use axum::http::HeaderMap;
     use hmac::{Hmac, KeyInit, Mac};
-    use moatless_backend_core::scope::Scope;
+    use moatless_types::access_control::Scope;
     use sha2::Sha256;
 
     use moatless_loops::adapters::AdapterKind;
     use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-    use moatless_loops::adapters::models::{Audience, InboundMessage, LoopContext, RoutingMode};
+    use moatless_types::adapter::{Audience, InboundMessage};
+    use moatless_types::loops::{LoopContext, RoutingMode};
     use moatless_loops::adapters::test_support::ProviderStub;
     use moatless_core::db::DbPool;
 
@@ -491,7 +494,7 @@ mod characterization {
         let now = chrono::Utc::now();
         LoopContext {
             id: "tt_slack".into(),
-            adapter_kind: "slack".into(),
+            adapter_kind: "slack".to_string(),
             source_id: "C1".into(),
             source_name: None,
             repository_id: "repo-1".into(),
@@ -976,7 +979,7 @@ mod characterization {
 #[cfg(test)]
 mod tests {
     use moatless_loops::adapters::AdapterKind;
-    use moatless_loops::adapters::models::{Audience, InboundMessage};
+    use moatless_types::adapter::{Audience, InboundMessage};
 
     use super::admission_event_id;
 
@@ -1052,7 +1055,7 @@ mod characterization_db {
     use sqlx::PgPool;
 
     use moatless_loops::adapters::AdapterKind;
-    use moatless_loops::adapters::models::Audience;
+    use moatless_types::adapter::Audience;
 
     use super::IngressError;
     use super::characterization::{
@@ -1060,7 +1063,7 @@ mod characterization_db {
         slack_stub, trigger,
     };
 
-    fn message(result: Result<Parsed, IngressError>) -> moatless_loops::adapters::models::InboundMessage {
+    fn message(result: Result<Parsed, IngressError>) -> moatless_types::adapter::InboundMessage {
         match result {
             Ok(Parsed::Message(message)) => *message,
             Ok(Parsed::Ignore(reason)) => panic!("expected Message, got {reason}"),

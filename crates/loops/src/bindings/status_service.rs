@@ -15,7 +15,8 @@ use moka::future::Cache;
 
 use crate::adapters::{AdapterBindingStatus, Adapters};
 use moatless_tasks::task::binding_dao::TaskBindingDao;
-use moatless_adapter_model::models::{ExternalStatus, TaskBinding};
+use moatless_adapter_model::models::TaskBinding;
+use moatless_types::adapter::ExternalStatus;
 
 /// Whether a binding's live external status is worth fetching again.
 ///
@@ -92,7 +93,7 @@ pub async fn get_or_fetch(
     binding: &TaskBinding,
     created_by: &str,
 ) -> Option<ExternalStatus> {
-    let status = adapters?.binding_status_by_name(&binding.adapter_kind)?;
+    let status = adapters?.binding_status_by_name(binding.adapter_kind.as_str())?;
     let key = status.binding_status_key(binding)?;
     if let Some(cached) = cache().get(&key).await {
         return Some(cached);
@@ -165,7 +166,7 @@ mod tests {
         TaskBinding {
             id: "b1".into(),
             task_id: "t1".into(),
-            adapter_kind: "stub".into(),
+            adapter_kind: moatless_adapter_model::models::AdapterKind::Webhook,
             subject_kind: "stub_subject".into(),
             subject_key: "acme/web#7".into(),
             connection_id: "c1".into(),

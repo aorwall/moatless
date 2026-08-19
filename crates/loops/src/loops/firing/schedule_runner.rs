@@ -8,14 +8,16 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::adapters::common::next_fire_at;
-use crate::adapters::models::{Audience, InboundMessage, LoopContext, LoopSpawnConfig, Schedule};
+use crate::adapters::models::{LoopSpawnConfig, Schedule};
+use moatless_types::adapter::{Audience, InboundMessage};
+use moatless_types::loops::LoopContext;
 use crate::adapters::{AdapterInboundPresentation, AdapterKind, Adapters};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::metrics::record_schedule_firing;
-use moatless_backend_core::models::TaskStatus;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::task::TaskStatus;
+use moatless_types::access_control::ScopeContext;
 use moatless_core::leader::LeaderGuard;
-use moatless_core::shared_models::AgentMode;
+use moatless_types::agent::AgentMode;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::creation::TaskCreationService;
 use moatless_tasks::task::dao::TaskDao;
@@ -168,7 +170,7 @@ impl ScheduleRunner {
         };
 
         let mut is_new_task = false;
-        let task_id = if route.routing_mode == crate::adapters::models::RoutingMode::Ongoing {
+        let task_id = if route.routing_mode == moatless_types::loops::RoutingMode::Ongoing {
             if let Some(task_id) = route.ongoing_task_id.as_deref() {
                 #[allow(clippy::disallowed_methods)]
                 // reason: schedule runner is a background system with no caller identity
@@ -189,7 +191,7 @@ impl ScheduleRunner {
             self.create_scheduled_task(&config, &msg).await?
         };
 
-        if is_new_task && route.routing_mode == crate::adapters::models::RoutingMode::Ongoing {
+        if is_new_task && route.routing_mode == moatless_types::loops::RoutingMode::Ongoing {
             self.loops.set_ongoing_task(&route.id, &task_id).await?;
         }
 
@@ -203,11 +205,11 @@ impl ScheduleRunner {
                 &[],
                 &[],
                 true,
-                moatless_tasks::message::send::ExternalOrigin {
+                moatless_types::task::ExternalOrigin {
                     event_id: msg.external_event_id.as_deref(),
                     adapter: Some("scheduled"),
                     source_name: Some(&schedule.id),
-                    ..moatless_tasks::message::send::ExternalOrigin::none()
+                    ..moatless_types::task::ExternalOrigin::none()
                 },
                 false,
                 None,

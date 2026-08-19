@@ -10,10 +10,7 @@ use crate::extractors::AuthUser;
 use crate::secret::service::SecretService;
 
 use super::error::SecretError;
-use super::schemas::{
-    ListSecretsQuery, PatchSecretRequest, PutSecretRequest, SecretMetadataResponse,
-    SecretMutationResponse, ValidateSecretsRequest, ValidateSecretsResponse, scope_from_wire,
-};
+use super::schemas::{ListSecretsQuery, PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, SecretMutationResponse, ValidateSecretsRequest, ValidateSecretsResponse};
 
 #[utoipa::path(
     get,
@@ -22,7 +19,7 @@ use super::schemas::{
     params(ListSecretsQuery),
     responses(
         (status = 200, description = "List secret metadata", body = Vec<SecretMetadataResponse>),
-        (status = 403, description = "Forbidden", body = moatless_core::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn list_secrets(
@@ -31,7 +28,7 @@ pub async fn list_secrets(
     Query(query): Query<ListSecretsQuery>,
 ) -> Result<Json<Vec<SecretMetadataResponse>>, SecretError> {
     let rows = secrets
-        .list_metadata(&auth.scope_context(), query.scope.map(scope_from_wire))
+        .list_metadata(&auth.scope_context(), query.scope)
         .await?;
     Ok(Json(rows))
 }
@@ -43,7 +40,7 @@ pub async fn list_secrets(
     params(("id" = String, Path, description = "Secret ID")),
     responses(
         (status = 200, description = "Secret metadata", body = SecretMetadataResponse),
-        (status = 404, description = "Secret not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Secret not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_secret(
@@ -62,7 +59,7 @@ pub async fn get_secret(
     request_body = PutSecretRequest,
     responses(
         (status = 200, description = "Secret created or replaced", body = SecretMutationResponse),
-        (status = 400, description = "Invalid secret", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Invalid secret", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn put_secret(
@@ -84,7 +81,7 @@ pub async fn put_secret(
     request_body = PatchSecretRequest,
     responses(
         (status = 200, description = "Secret updated", body = SecretMutationResponse),
-        (status = 404, description = "Secret not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Secret not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn patch_secret(
@@ -106,7 +103,7 @@ pub async fn patch_secret(
     params(("id" = String, Path, description = "Secret ID")),
     responses(
         (status = 204, description = "Secret deleted"),
-        (status = 404, description = "Secret not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Secret not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn delete_secret(

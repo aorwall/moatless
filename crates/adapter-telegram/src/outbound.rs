@@ -3,10 +3,9 @@
 use std::fmt::Write;
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{
-    AdapterConnection, BindingContext, LoopContext, OutboundReply, RoutingMode, SubscriptionMatch,
-    TaskBinding,
-};
+use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::{BindingContext, OutboundReply};
+use moatless_types::loops::{LoopContext, RoutingMode};
 use moatless_loops::adapters::{
     AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
     DestinationPostResult,
@@ -80,18 +79,18 @@ impl AdapterBindingReply for TelegramAdapter {
                 allow_direct_send: false,
                 adapter_config: None,
                 ongoing_task_id: None,
-                scope: moatless_backend_core::scope::Scope::Global,
+                scope: moatless_types::access_control::Scope::Global,
                 task_name: None,
                 tag_ids: vec![],
                 skills: Vec::new(),
                 run_as_user_id: None,
-                agent_type: "claude-code".to_string(),
+                agent_type: "claude-code".into(),
                 inactive_ttl_days: None,
                 created_by: "system".to_string(),
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
             },
-            |r| moatless_adapter_model::models::subscription_context(r, "telegram"),
+            moatless_adapter_model::models::subscription_context,
         );
         let destination = TelegramDestination::from_thread_context(&thread.destination_config)?;
         api.send_message(
@@ -172,6 +171,7 @@ impl AdapterDirectMessage for TelegramAdapter {
 
 #[cfg(test)]
 mod tests {
+    use moatless_types::adapter::AdapterKind;
     use axum::http::StatusCode;
 
     use moatless_loops::adapters::test_support::stub_provider;
@@ -194,7 +194,7 @@ mod tests {
         TaskBinding {
             id: "tb_test".into(),
             task_id: "task_test".into(),
-            adapter_kind: "telegram".into(),
+            adapter_kind: AdapterKind::Telegram,
             subject_kind: SUBJECT_KIND.into(),
             subject_key: "999:thread:42".into(),
             connection_id: "pc_test".into(),
@@ -220,14 +220,14 @@ mod tests {
         let now = chrono::Utc::now();
         AdapterConnection {
             id: "pc_test".into(),
-            adapter_kind: "telegram".into(),
+            adapter_kind: AdapterKind::Telegram,
             connection_kind: "env".into(),
             scope_value: "default".into(),
             credential_ref: None,
             webhook_secret: None,
             transport_config: serde_json::json!({}),
             created_by: "system".into(),
-            scope: moatless_backend_core::scope::Scope::Global,
+            scope: moatless_types::access_control::Scope::Global,
             owner_user_id: None,
             created_at: now,
             updated_at: now,

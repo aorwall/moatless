@@ -5,7 +5,7 @@ use sqlx::AssertSqlSafe;
 
 use super::models::SecretRecord;
 use moatless_core::db::DbPool;
-use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
+use moatless_types::access_control::{ScopeContext, ScopedEntity};
 
 pub struct SecretInsert<'a> {
     pub id: &'a str,

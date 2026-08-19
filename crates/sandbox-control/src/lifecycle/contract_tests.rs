@@ -17,7 +17,7 @@ use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::sync::Notify;
 
-use moatless_backend_core::models::SandboxStopReason;
+use moatless_types::sandbox::SandboxStopReason;
 
 use super::dao::PgLifecycleDao;
 use super::events::{EventFact, LifecycleEvent};

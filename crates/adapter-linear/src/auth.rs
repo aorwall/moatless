@@ -22,8 +22,9 @@
 use moatless_loops::adapters::dao::AdapterConnectionDao;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::{AdapterConnection, TaskBinding};
-use moatless_backend_core::scope::ScopeContext;
-use moatless_core::config::{Config, LinearConfig};
+use moatless_types::access_control::ScopeContext;
+use moatless_core::config::Config;
+use moatless_types::adapter::LinearConfig;
 use moatless_core::db::DbPool;
 
 use super::adapter::LinearAdapter;

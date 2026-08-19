@@ -4,69 +4,14 @@
 //! typed `relation_type` and an optional JSON `context` describing why/how
 //! the link was created.
 
+pub use moatless_types::task::TaskRelationType;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 use tracing::warn;
 
 use moatless_core::db::DbPool;
-
-/// Type of a directional link between two Tasks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskRelationType {
-    CreatedBy,
-    RelatedTo,
-}
-
-impl TaskRelationType {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::CreatedBy => "created_by",
-            Self::RelatedTo => "related_to",
-        }
-    }
-}
-
-impl std::fmt::Display for TaskRelationType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for TaskRelationType {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "created_by" => Ok(Self::CreatedBy),
-            "related_to" => Ok(Self::RelatedTo),
-            other => Err(format!("unknown TaskRelationType: {other:?}")),
-        }
-    }
-}
-
-impl sqlx::Type<sqlx::Postgres> for TaskRelationType {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TaskRelationType {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let value = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Self::try_from(value.as_str()).map_err(Into::into)
-    }
-}
-
-impl sqlx::Encode<'_, sqlx::Postgres> for TaskRelationType {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
+use moatless_types::task::RelatedTask;
 
 /// Directive carried from a task-creation site to record a `created_by`
 /// relation immediately after the child task is inserted.
@@ -78,22 +23,13 @@ pub struct CreatedByParent {
     pub context: serde_json::Value,
 }
 
-/// Directive carried from a task-creation site to record a `related_to`
-/// relation immediately after the new task is inserted. Use this when a
-/// webhook spawned the new task and we discovered a peer task that shares the
-/// same external artifact (binding subject_key) — the peer is not a parent.
-#[derive(Debug, Clone)]
-pub struct RelatedTask {
-    pub related_task_id: String,
-    pub context: serde_json::Value,
-}
-
 /// A row from the `task_relations` table.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TaskRelation {
     pub id: String,
     pub from_task_id: String,
     pub to_task_id: String,
+    #[sqlx(try_from = "String")]
     pub relation_type: TaskRelationType,
     pub context: serde_json::Value,
     pub created_at: DateTime<Utc>,
@@ -167,7 +103,7 @@ impl TaskRelationDao for PgTaskRelationDao {
         .bind(&row.id)
         .bind(&row.from_task_id)
         .bind(&row.to_task_id)
-        .bind(row.relation_type)
+        .bind(row.relation_type.as_str())
         .bind(&row.context)
         .bind(row.created_at)
         .execute(&self.0)

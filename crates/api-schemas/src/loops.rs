@@ -12,43 +12,9 @@ use crate::enums::{AdapterKind, RoutingMode, Scope, TaskStatus};
 use crate::repository::RepositoryResponse;
 use crate::workspace::WorkspaceSyncSummary;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum LoopKind {
-    AdapterEvent,
-    Schedule,
-    Manual,
-}
+pub use moatless_types::loops::LoopKind;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum LoopConfigSource {
-    Git,
-    Manual,
-}
-
-impl LoopConfigSource {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Git => "git",
-            Self::Manual => "manual",
-        }
-    }
-}
-
-impl TryFrom<&str> for LoopConfigSource {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "git" => Ok(Self::Git),
-            "manual" => Ok(Self::Manual),
-            other => Err(format!("unknown LoopConfigSource: {other:?}")),
-        }
-    }
-}
+pub use moatless_types::loops::LoopConfigSource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -57,29 +23,6 @@ pub enum LoopExecutionState {
     AwaitingApproval,
     Active,
     Paused,
-}
-
-impl LoopKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::AdapterEvent => "adapter_event",
-            Self::Schedule => "schedule",
-            Self::Manual => "manual",
-        }
-    }
-}
-
-impl TryFrom<&str> for LoopKind {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "adapter_event" => Ok(Self::AdapterEvent),
-            "schedule" => Ok(Self::Schedule),
-            "manual" => Ok(Self::Manual),
-            other => Err(format!("unknown LoopKind: {other:?}")),
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

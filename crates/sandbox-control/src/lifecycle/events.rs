@@ -11,9 +11,9 @@
 //! (`ON CONFLICT (event_id) DO NOTHING`), so at-least-once retries of one
 //! generation persist exactly once.
 
-use moatless_events::{SandboxEventPayload, SandboxStatus};
+use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 
-use moatless_backend_core::models::SandboxStopReason;
+use moatless_types::sandbox::SandboxStopReason;
 
 use super::outcome::LifecycleOutcome;
 use super::types::{ObservedStatus, OperationGeneration, OperationKind};

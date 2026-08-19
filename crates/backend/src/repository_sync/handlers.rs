@@ -34,8 +34,8 @@ use crate::workspace::git_sync::{GitSyncService, SyncForce};
     ),
     responses(
         (status = 200, description = "Config + loops synced", body = SyncConfigResponse),
-        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn sync_config(
@@ -62,7 +62,7 @@ pub async fn sync_config(
         sync_repo_config(&loop_sync, &git_sync, &repo, &auth, &SyncForce::All).await?;
 
     Ok(Json(SyncConfigResponse {
-        repository: updated.into(),
+        repository: moatless_workspaces::repository::schemas::repository_response(updated),
         loops,
         workspaces,
     }))

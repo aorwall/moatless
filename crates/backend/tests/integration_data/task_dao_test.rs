@@ -10,7 +10,7 @@
 use crate::common;
 
 use chrono::{DateTime, Duration, Utc};
-use moatless_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use moatless_backend::task::dao::{
     self as task_dao, PgTaskDao, TaskDao, TaskFilter, TaskPatch,
 };

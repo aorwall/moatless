@@ -2,7 +2,7 @@
 
 use uuid::Uuid;
 
-use super::models::UserRole;
+use moatless_types::user::UserRole;
 
 /// The authenticated user identity, set by the auth middleware on every
 /// successfully-validated request.  Downstream extractors read this from

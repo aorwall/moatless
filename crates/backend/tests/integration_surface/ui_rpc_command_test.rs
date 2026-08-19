@@ -29,8 +29,8 @@ use moatless_t3code::ports::{
 use moatless_t3code::{thread_snapshot, AgentModelDefaults, Deployment};
 use moatless_backend::agent::catalog;
 use moatless_backend::repository::dao as repository_dao;
-use moatless_core::scope::ScopeContext;
-use moatless_core::shared_models::{AgentMode, AgentType};
+use moatless_types::access_control::ScopeContext;
+use moatless_types::agent::{AgentMode, AgentType};
 use moatless_backend::t3code::backend::AppStateCommands;
 use moatless_backend::task::dao::{PgTaskDao, TaskDao};
 use moatless_backend::task::models::{TaskStatus, Visibility};

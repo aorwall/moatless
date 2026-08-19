@@ -26,7 +26,7 @@ use super::sessions::SessionDao;
 use super::users::UserDao;
 use crate::extractors::UserTokenVerifier;
 use moatless_core::config::Config;
-use moatless_core::error::ErrorBody;
+use moatless_api_schemas::error::ErrorBody;
 
 /// The one route that accepts a ticket in its query string.
 const WEBSOCKET_PATH: &str = "/ws";

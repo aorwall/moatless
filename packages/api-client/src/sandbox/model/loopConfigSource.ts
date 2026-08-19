@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Authority from which the current Loop configuration was loaded.
+ */
 export type LoopConfigSource = typeof LoopConfigSource[keyof typeof LoopConfigSource];
 
 

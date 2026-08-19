@@ -2,7 +2,6 @@
 members = [
     "crates/backend",
     "sandbox",
-    "crates/events",
     "crates/claude-agent-sdk",
     "crates/sandbox-proto",
     "crates/cli",
@@ -25,6 +24,7 @@ members = [
     "crates/adapter-linear",
     "crates/adapter-github-pr",
     "crates/t3code",
+    "crates/types",
     # "crates/codex-sdk",  # Excluded: built separately via its own workspace (codex dep graph)
 ]
 resolver = "2"

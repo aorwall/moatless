@@ -10,9 +10,7 @@ use sqlx::Row;
 use moatless_core::db::DbPool;
 
 use super::metrics::record_admission;
-use super::models::{
-    AdapterDelivery, AdapterDeliveryPolicy, AdapterDeliveryRequest, Admission, AdmitError,
-};
+use super::models::{AdapterDelivery, AdapterDeliveryPolicy, AdapterDeliveryRequest, Admission, AdmitError};
 
 /// Unfinished and finished record counts, for the worker's backlog gauges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

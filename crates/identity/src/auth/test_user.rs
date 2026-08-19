@@ -9,7 +9,7 @@ use tracing::{info, warn};
 
 use super::api_key::hash_key;
 use super::api_keys::{ApiKey, ApiKeyDao};
-use super::models::UserRole;
+use moatless_types::user::UserRole;
 use super::users::{User, UserDao};
 
 const TEST_USER_ID: &str = "test-api-user";

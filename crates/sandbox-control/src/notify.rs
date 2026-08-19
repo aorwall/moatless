@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use moatless_backend_core::sandbox::SandboxConnector;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use crate::lifecycle::{Lifecycle, LifecycleError, NotifyPort, ObservedStatus};
 use moatless_tasks::task::dao::TaskDao;
@@ -69,7 +69,7 @@ impl SandboxWaker for SandboxWakeService {
         #[allow(clippy::disallowed_methods)]
         let sys = ScopeContext::system();
         match self.tasks.find_by_id(task_id, &sys).await {
-            Ok(Some(task)) if task.status == moatless_backend_core::models::TaskStatus::Closed => {
+            Ok(Some(task)) if task.status == moatless_types::task::TaskStatus::Closed => {
                 tracing::debug!(
                     task_id,
                     "Task is closed — skipping sandbox provision/notify"

@@ -12518,6 +12518,7 @@
       },
       "LoopConfigSource": {
         "type": "string",
+        "description": "Authority from which the current Loop configuration was loaded.",
         "enum": [
           "git",
           "manual"
@@ -12533,6 +12534,7 @@
       },
       "LoopKind": {
         "type": "string",
+        "description": "Kind of firing source owned by a Loop.",
         "enum": [
           "adapter_event",
           "schedule",
@@ -15311,7 +15313,7 @@
       },
       "StorageMedium": {
         "type": "string",
-        "description": "Where a node-local sandbox volume is backed.\n\nMirrors `moatless_backend_core::run_config::StorageMedium`. The wire crate\nstays free of backend dependencies, so the pair is kept in step by the\nround-trip test in `moatless-workspaces`.",
+        "description": "Where a node-local sandbox volume is backed.",
         "enum": [
           "emptyDir",
           "node"

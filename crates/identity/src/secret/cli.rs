@@ -14,10 +14,10 @@ use clap::{Args, Subcommand, ValueEnum};
 use super::audit::PgSecretAuditDao;
 use super::cli_migrate::{MigrateOptions, run_migrate_repo_env_vars};
 use super::dao::PgSecretDao;
-use super::schemas::{PutSecretRequest, scope_from_wire};
+use super::schemas::PutSecretRequest;
 use super::service::{LocalEnvelopeSecretCipher, SecretService};
 use moatless_api_schemas::enums::Scope;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
 use moatless_core::db;
 
@@ -63,7 +63,7 @@ pub enum CliKind {
     SshKey,
 }
 
-impl From<CliKind> for super::models::SecretKind {
+impl From<CliKind> for moatless_types::secret::SecretKind {
     fn from(value: CliKind) -> Self {
         match value {
             CliKind::Env => Self::Env,
@@ -181,7 +181,7 @@ async fn list(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let scope: Scope = args.scope.into();
     let rows = service
-        .list_metadata(ctx, Some(scope_from_wire(scope)))
+        .list_metadata(ctx, Some(scope))
         .await?;
     if rows.is_empty() {
         println!("(no secrets)");
@@ -231,7 +231,7 @@ async fn delete(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let scope: Scope = args.scope.into();
     let rows = service
-        .list_metadata(ctx, Some(scope_from_wire(scope)))
+        .list_metadata(ctx, Some(scope))
         .await?;
     let match_id = rows
         .iter()

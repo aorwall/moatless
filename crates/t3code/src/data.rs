@@ -1,12 +1,13 @@
 use async_trait::async_trait;
 use moatless_api_schemas::workspace::ScriptConfig;
-use moatless_backend_core::models::TaskStatus;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::task::TaskStatus;
+use moatless_types::access_control::ScopeContext;
 
 use crate::workspace::UiRpcListedWorkspace;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TaskView {
+    #[sqlx(try_from = "String")]
     pub status: TaskStatus,
 }
 

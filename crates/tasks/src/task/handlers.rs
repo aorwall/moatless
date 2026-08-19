@@ -6,20 +6,23 @@ use std::sync::{Arc, Mutex};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 
-use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
+use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
+use moatless_types::task::TaskSubType;
 
 use super::creation::{PreflightPort, TaskCreationService};
 use super::dao::{TaskDao, TaskFilter, TaskPatch};
 use super::models::Task;
-use super::relations::{TaskRelationDao, TaskRelationType};
+use moatless_types::task::TaskRelationType;
+use super::relations::TaskRelationDao;
 use crate::credential_sync::CredentialSync;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use crate::tag::dao::TagDao;
-use crate::task::models::{ArchiveRetention, SandboxIntentView, TaskStatus};
+use crate::task::models::{SandboxIntentView, TaskStatus};
+use moatless_types::sandbox::ArchiveRetention;
 use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_backend_core::scope::{ScopeContext, ScopedResource};
+use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_identity::extractors::AuthUser;
@@ -44,9 +47,9 @@ use super::service;
     request_body = CreateTaskRequest,
     responses(
         (status = 200, description = "Task created", body = CreateTaskResponse),
-        (status = 400, description = "Invalid request or unusable Codex credential", body = moatless_core::error::ErrorBody),
-        (status = 403, description = "GitHub not connected, or no access to the repository", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Invalid request or unusable Codex credential", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "GitHub not connected, or no access to the repository", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[expect(
@@ -132,7 +135,7 @@ pub async fn create_task(
     };
     Ok(Json(CreateTaskResponse {
         task_id: outcome.task.task_id.clone(),
-        status: task_status_to_wire(outcome.task.status),
+        status: outcome.task.status,
         task: task_response,
     }))
 }
@@ -162,7 +165,7 @@ pub async fn list_tasks(
         scope: auth.scope_context(),
         limit,
         offset,
-        status: query.status.map(task_status_from_wire),
+        status: query.status,
         exclude_status: None,
         repository_id: query.repository_id.clone(),
         created_by: query.created_by.clone(),
@@ -281,8 +284,8 @@ pub async fn list_tasks(
                 .filter(|c| c.task_id == row.task_id)
                 .map(|c| TaskBindingSummary {
                     loop_id: c.loop_id.clone(),
-                    adapter_kind: adapter_kind_to_wire(
-                        moatless_adapter_model::models::parse_adapter_kind(&c.adapter_kind),
+                    adapter_kind: moatless_adapter_model::models::parse_adapter_kind(
+                        &c.adapter_kind,
                     ),
                     source_id: c.source_id.clone(),
                     source_name: c.source_name.clone(),
@@ -342,7 +345,7 @@ pub async fn list_tasks(
     ),
     responses(
         (status = 200, description = "Task details", body = TaskResponse),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_task(
@@ -372,7 +375,7 @@ pub async fn get_task(
     ),
     responses(
         (status = 200, description = "Task conversation statistics", body = TaskStatisticsResponse),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_task_statistics(
@@ -411,7 +414,7 @@ pub async fn get_task_statistics(
     request_body = UpdateTaskMetadataRequest,
     responses(
         (status = 200, description = "Task updated", body = TaskResponse),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn update_task_metadata(
@@ -496,7 +499,7 @@ pub(crate) async fn deactivate_task_bindings(bindings: &dyn TaskBindingDao, task
     ),
     responses(
         (status = 204, description = "Task deleted"),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn delete_task(
@@ -558,7 +561,7 @@ pub async fn delete_task(
     ),
     responses(
         (status = 204, description = "Task marked as read"),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn mark_task_read(
@@ -590,7 +593,7 @@ pub async fn mark_task_read(
     ),
     responses(
         (status = 200, description = "Task followed", body = FollowTaskResponse),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn follow_task(
@@ -623,7 +626,7 @@ pub async fn follow_task(
     ),
     responses(
         (status = 200, description = "Task unfollowed", body = FollowTaskResponse),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn unfollow_task(
@@ -656,8 +659,8 @@ pub async fn unfollow_task(
     ),
     responses(
         (status = 200, description = "Task closed", body = TaskResponse),
-        (status = 400, description = "Child-close choice required", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Child-close choice required", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn close_task(
@@ -732,8 +735,8 @@ pub async fn close_task(
     ),
     responses(
         (status = 200, description = "Task reopened", body = TaskResponse),
-        (status = 400, description = "Task is not closed", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Task is not closed", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn reopen_task(
@@ -827,8 +830,8 @@ pub async fn reopen_task_for(
     ),
     responses(
         (status = 204, description = "Task started"),
-        (status = 400, description = "Invalid task state", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Invalid task state", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[expect(
@@ -928,7 +931,7 @@ pub async fn start_task(
     ),
     responses(
         (status = 204, description = "Agent stopped"),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn stop_task(
@@ -961,7 +964,7 @@ pub async fn stop_task(
     request_body = SetTagsRequest,
     responses(
         (status = 200, description = "Tags updated", body = Vec<TagResponse>),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn set_task_tags(
@@ -1007,8 +1010,8 @@ pub async fn set_task_tags(
     request_body = UpdateVisibilityRequest,
     responses(
         (status = 200, description = "Visibility updated", body = TaskResponse),
-        (status = 400, description = "Invalid visibility value", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Invalid visibility value", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn update_visibility(
@@ -1023,7 +1026,7 @@ pub async fn update_visibility(
         .update_task(
             &task_id,
             &TaskPatch {
-                visibility: Some(visibility_from_wire(req.visibility)),
+                visibility: Some(req.visibility),
                 ..Default::default()
             },
             &scope_ctx,
@@ -1059,8 +1062,8 @@ pub async fn update_visibility(
     request_body = UpdateTaskTtlRequest,
     responses(
         (status = 200, description = "TTL updated", body = TaskResponse),
-        (status = 400, description = "Invalid TTL value", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Invalid TTL value", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn update_ttl(

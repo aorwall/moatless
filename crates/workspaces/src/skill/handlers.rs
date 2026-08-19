@@ -29,8 +29,8 @@ use moatless_identity::extractors::AuthUser;
     ),
     responses(
         (status = 200, description = "List of skills", body = ListSkillsResponse),
-        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody),
-        (status = 502, description = "Failed to fetch a git repository", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 502, description = "Failed to fetch a git repository", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn list_repository_skills(

@@ -19,7 +19,7 @@ use crate::common;
 use moatless_backend::repository::dao as repository_dao;
 use moatless_backend::task::dao as task_dao;
 use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, ensure_shadow_workspace};
-use moatless_core::scope::{Scope, ScopeContext};
+use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_backend::task_listing::current_position;
 use sqlx::PgPool;
 
@@ -52,7 +52,7 @@ async fn ensure_shadow_workspace_creates_shadow_and_primary_placement(pool: PgPo
         .unwrap()
         .expect("shadow workspace present");
     assert_eq!(ws.name, repo_row.name);
-    assert_eq!(ws.kind, "single");
+    assert_eq!(ws.kind, moatless_types::workspace::WorkspaceKind::Single);
     assert_eq!(ws.scope, Scope::User);
     assert_eq!(ws.owner_user_id.as_deref(), Some("user-1"));
 

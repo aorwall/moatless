@@ -16,6 +16,7 @@ uuid = { version = "1", features = ["v4"] }
 
 moatless-adapter-model = { path = "../adapter-model" }
 moatless-loops = { path = "../loops" }
+moatless-types = { path = "../types" }
 
 [lints]
 workspace = true

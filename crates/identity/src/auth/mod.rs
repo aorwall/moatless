@@ -3,12 +3,10 @@
 //! Handles login flows (local email/password, GitHub App, Auth0, OIDC),
 //! session management, API key management, and Traefik ForwardAuth verification.
 
-pub mod actor;
 pub mod api_key;
 pub mod api_keys;
 pub mod cache;
 pub mod codex_auth_json;
-pub mod codex_scope;
 pub mod cookie;
 pub mod credentials;
 pub mod error;

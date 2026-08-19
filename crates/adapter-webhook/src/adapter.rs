@@ -17,9 +17,8 @@ use tracing::{debug, warn};
 
 use moatless_loops::adapters::delivery::Admission;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{
-    Audience, BindingContext, InboundMessage, LoopContext, OutboundReply,
-};
+use moatless_types::adapter::{Audience, BindingContext, InboundMessage, OutboundReply};
+use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{
     Adapter, AdapterBindingReply, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
     Adapters,
@@ -307,12 +306,12 @@ impl AdapterMessageReply for WebhookAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_loops::adapters::models::RoutingMode;
+    use moatless_types::loops::RoutingMode;
 
     fn test_config(adapter_config: Option<serde_json::Value>) -> LoopContext {
         LoopContext {
             id: "cfg-1".into(),
-            adapter_kind: "webhook".into(),
+            adapter_kind: "webhook".to_string(),
             source_id: "my-webhook".into(),
             source_name: None,
             repository_id: "repo-1".into(),
@@ -322,7 +321,7 @@ mod tests {
             allow_direct_send: false,
             adapter_config,
             ongoing_task_id: None,
-            scope: moatless_backend_core::scope::Scope::User,
+            scope: moatless_types::access_control::Scope::User,
             task_name: None,
             tag_ids: vec![],
             skills: Vec::new(),

@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::data::T3TaskDao;
 use crate::preview_tabs::{PreviewTab, PreviewTabDao, PreviewTabError};
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 /// Everything the `preview.*` handlers need.
 #[derive(Clone)]
@@ -364,7 +364,7 @@ mod tests {
     /// only whether a scoped read returned one.
     fn task_fixture(_task_id: &str) -> TaskView {
         TaskView {
-            status: moatless_backend_core::models::TaskStatus::Open,
+            status: moatless_types::task::TaskStatus::Open,
         }
     }
 

@@ -755,7 +755,7 @@ pub mod test_support {
 mod tests {
     use super::*;
     use crate::secret::service::LocalEnvelopeSecretCipher;
-    use moatless_core::config::SecretsConfig;
+    use moatless_types::secret::SecretsConfig;
 
     fn cipher() -> std::sync::Arc<dyn SecretCipher> {
         LocalEnvelopeSecretCipher::from_config(&SecretsConfig {

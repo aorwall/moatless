@@ -14,11 +14,10 @@
 use crate::task::dao::TaskDao;
 use crate::task::sandbox_waker::SandboxWaker;
 use crate::task::schemas::MessageContextInput;
-use moatless_backend_core::scope::ScopeContext;
-use moatless_core::shared_models::AgentMode;
+use moatless_types::access_control::ScopeContext;
+use moatless_types::agent::AgentMode;
 
 use super::error::MessageError;
-use super::send;
 use super::send::MessageSendService;
 
 /// What a person is sending, independent of how it reached the process.
@@ -38,7 +37,7 @@ pub struct UserMessage {
     /// Skills to activate for this turn.
     pub skills: Vec<String>,
     /// The message's uuid when the caller owns it. See
-    /// [`send::MessageSendService::send_message_flow`].
+    /// [`super::send::MessageSendService::send_message_flow`].
     pub message_uuid: Option<String>,
     /// An answer to a question the agent asked, rather than a new message.
     /// Both halves are required; one alone is treated as a plain message,
@@ -128,9 +127,9 @@ pub async fn send_user_message(
                     &message.file_ids,
                     &message.contexts,
                     message.resume,
-                    send::ExternalOrigin {
+                    moatless_types::task::ExternalOrigin {
                         source_task_id: message.source_task_id.as_deref(),
-                        ..send::ExternalOrigin::none()
+                        ..moatless_types::task::ExternalOrigin::none()
                     },
                     message.start_fresh,
                     Some(sender.user_id),

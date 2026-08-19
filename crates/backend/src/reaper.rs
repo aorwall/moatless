@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use moatless_events::{TaskSubType, TaskTurnSubType};
+use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -28,17 +28,18 @@ use crate::event_handler::agent_handlers::AgentErrorPorts;
 use crate::message::dao::MessageDao;
 use crate::task::binding_dao::TaskBindingDao;
 use crate::task::dao::{TaskDao, TaskPatch};
-use crate::task::models::{ArchiveRetention, SandboxDesiredState, SandboxStopReason, TaskStatus};
+use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use moatless_types::sandbox::ArchiveRetention;
 use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
 use moatless_backend_core::sandbox::SandboxConnector;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::leader::LeaderGuard;
-use moatless_events::EventType;
+use moatless_types::event::EventType;
 
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
 ///

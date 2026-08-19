@@ -17,42 +17,13 @@
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-
 use crate::adapters::delivery::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryRequest,
 };
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::metrics::record_webhook;
-use crate::adapters::models::InboundMessage;
+use moatless_types::adapter::InboundDeliveryPayload;
 use crate::bindings::runtime::RoutingService;
-
-/// Everything [`route_inbound_message`] needs, in a form that outlives the
-/// process that admitted it.
-///
-/// The connection and the Loop are referenced by id rather than embedded:
-/// they are durable rows already, and a connection carries credentials that
-/// have no business being copied into a queue row that outlives the request by
-/// days.
-///
-/// Fields may only ever be *added*, and only with `#[serde(default)]`. During a
-/// rolling deploy the new build executes records the old build admitted, so a
-/// payload that stops deserializing is a payload whose work goes terminal.
-///
-/// [`route_inbound_message`]: crate::bindings::runtime::route_inbound_message
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InboundDeliveryPayload {
-    pub connection_id: String,
-    pub loop_id: String,
-    pub subject_kind: String,
-    pub subject_key: String,
-    pub destination_config: serde_json::Value,
-    /// The sender's own event name, carried only so the webhook outcome
-    /// metric keeps the labels it had while routing ran on the request path.
-    /// Empty for senders that never labelled it.
-    pub event_type: String,
-    pub message: InboundMessage,
-}
 
 /// Routes one admitted inbound message.
 ///
@@ -173,7 +144,7 @@ pub fn inbound_delivery_request(
 mod tests {
     use super::*;
     use crate::adapters::AdapterKind;
-    use crate::adapters::models::Audience;
+    use moatless_types::adapter::{Audience, InboundMessage};
 
     fn payload() -> InboundDeliveryPayload {
         InboundDeliveryPayload {

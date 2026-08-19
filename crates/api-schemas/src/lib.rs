@@ -17,6 +17,7 @@ pub mod auth;
 pub mod bindings;
 pub mod codex;
 pub mod enums;
+pub mod error;
 pub mod feedback;
 pub mod file_storage;
 pub mod github;

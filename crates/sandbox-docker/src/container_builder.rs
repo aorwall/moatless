@@ -16,7 +16,7 @@ use super::naming::{
     generate_claude_config_host_path, generate_container_name, generate_data_host_path,
     generate_sandbox_host_path, generate_server_container_name,
 };
-use moatless_backend_core::run_config::{Memory, Port, ServerConfig};
+use moatless_types::workspace::{Memory, Port, ServerConfig};
 use moatless_core::config::Config;
 use moatless_sandbox_control::lifecycle::runtime::{
     OPERATION_GENERATION_LABEL, RuntimeOperationContext,
@@ -481,6 +481,8 @@ mod tests {
 
     fn test_config() -> Config {
         use moatless_core::config::*;
+        use moatless_types::auth::*;
+        use moatless_types::sandbox::*;
         Config {
             server: moatless_core::config::ServerConfig {
                 port: 8080,
@@ -584,7 +586,7 @@ mod tests {
                 consumer_id: "test".into(),
             },
             auth: AuthConfig {
-                provider: moatless_core::config::AuthProvider::Local,
+                provider: moatless_types::auth::AuthProvider::Local,
                 github_required_org: None,
                 auth0_domain: None,
                 auth0_client_id: None,
@@ -634,7 +636,7 @@ mod tests {
             github_pr: moatless_core::config::GithubPrConfig {
                 webhook_secret: None,
             },
-            linear: moatless_core::config::LinearConfig {
+            linear: moatless_types::adapter::LinearConfig {
                 webhook_secret: None,
                 oauth_client_id: None,
                 oauth_client_secret: None,
@@ -642,11 +644,11 @@ mod tests {
                 api_base_url: None,
             },
             skill: moatless_core::config::SkillConfig { cache_ttl_secs: 60 },
-            secrets: moatless_core::config::SecretsConfig {
+            secrets: moatless_types::secret::SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
             },
-            codex_oauth: moatless_core::config::CodexOAuthConfig {
+            codex_oauth: moatless_types::agent::CodexOAuthConfig {
                 issuer: "https://auth.openai.com".into(),
                 client_id: "test-codex-client".into(),
             },
@@ -771,8 +773,8 @@ mod tests {
     fn container_config_applies_resource_limits_from_repo_config() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources = Some(moatless_backend_core::run_config::ResourceConfig {
-            limits: moatless_backend_core::run_config::ResourceQuantities {
+        plan.repo_config.resources = Some(moatless_types::workspace::ResourceConfig {
+            limits: moatless_types::workspace::ResourceQuantities {
                 cpu: Some("4".parse().expect("cpu")),
                 memory: Some("8Gi".parse().expect("memory")),
             },

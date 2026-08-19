@@ -14,14 +14,16 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use moatless_backend_core::scope::ScopeContext;
-use moatless_events::TaskSubType;
+use moatless_types::access_control::ScopeContext;
+use moatless_types::task::TaskSubType;
 
 use super::dao::{TaskDao, TaskPatch};
 use super::error::TaskError;
 use super::handlers::{deactivate_task_bindings, task_resource};
-use super::models::{ArchiveRetention, TaskStatus};
-use super::relations::{TaskRelationDao, TaskRelationType};
+use super::models::TaskStatus;
+use moatless_types::sandbox::ArchiveRetention;
+use moatless_types::task::TaskRelationType;
+use super::relations::TaskRelationDao;
 use super::sandbox_lifecycle::SandboxLifecycle;
 use crate::task::binding_dao::TaskBindingDao;
 use moatless_core::config::Config;

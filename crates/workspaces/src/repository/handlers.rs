@@ -10,11 +10,11 @@ use moatless_api_schemas::workspace::WorkspaceSyncSummary;
 
 use std::sync::Arc;
 
-use moatless_api_schemas::enums::RepositoryProvider as GitHostProvider;
+use moatless_types::repository::RepositoryProvider as GitHostProvider;
 use moatless_backend_core::access_control::resolve_scope_for_create;
-use moatless_backend_core::scope::{Scope, ScopeContext};
+use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_core::db::DbPool;
-use moatless_identity::auth::actor::Actor;
+use moatless_types::access_control::Actor;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::extractors::AuthUser;
 use moatless_identity::git_host_repo::GitHostRepo;
@@ -24,7 +24,8 @@ use moatless_identity::secret::models::looks_like_secret_key;
 use super::access::git_host_token_error;
 use super::dao::{RepositoryDao, RepositoryPatch};
 use super::error::RepositoryError;
-use super::models::{Repository, RepositoryKind, RepositoryProvider};
+use moatless_types::repository::{RepositoryKind, RepositoryProvider};
+use super::models::Repository;
 use super::schemas::*;
 use crate::workspace::git_sync::{GitSyncService, SyncForce};
 
@@ -52,7 +53,7 @@ pub(crate) fn validate_non_secret_env_vars(
     request_body = CreateRepositoryRequest,
     responses(
         (status = 201, description = "Repository created", body = RepositoryResponse),
-        (status = 409, description = "Repository already exists", body = moatless_core::error::ErrorBody)
+        (status = 409, description = "Repository already exists", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn create_repository(
@@ -66,7 +67,7 @@ pub async fn create_repository(
     let user_id = auth.user_id;
 
     let resolved_scope =
-        resolve_scope_for_create(&auth.scope_context(), req.scope.map(scope_from_wire))?;
+        resolve_scope_for_create(&auth.scope_context(), req.scope)?;
     let scope_ctx = auth.scope_context();
 
     ensure_unique_remote_url(
@@ -81,15 +82,15 @@ pub async fn create_repository(
     let row = Repository {
         id: id.clone(),
         name: req.name,
-        kind: repository_kind_from_wire(req.kind),
+        kind: req.kind,
         remote_url: req.remote_url,
         default_branch: req.default_branch,
         description: req.description,
-        provider: req.provider.map(repository_provider_from_wire),
+        provider: req.provider,
         scope: resolved_scope.scope,
         owner_user_id: resolved_scope.owner_user_id,
         created_by: Some(user_id.to_string()),
-        deleted: Some(false),
+        deleted: false,
         created_at: Some(now),
         updated_at: Some(now),
     };
@@ -120,7 +121,7 @@ pub async fn create_repository(
         .await;
     }
 
-    let resp: RepositoryResponse = final_row.into();
+    let resp = repository_response(final_row);
     Ok((StatusCode::CREATED, Json(resp)))
 }
 
@@ -172,7 +173,7 @@ pub async fn list_repositories(
     auth: AuthUser,
 ) -> Result<Json<Vec<RepositoryResponse>>, RepositoryError> {
     let rows = repositories.list_all(&auth.scope_context()).await?;
-    let repos: Vec<RepositoryResponse> = rows.into_iter().map(Into::into).collect();
+    let repos: Vec<RepositoryResponse> = rows.into_iter().map(repository_response).collect();
     Ok(Json(repos))
 }
 
@@ -186,7 +187,7 @@ pub async fn list_repositories(
     ),
     responses(
         (status = 200, description = "Repository details", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_repository(
@@ -199,7 +200,7 @@ pub async fn get_repository(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
-    Ok(Json(row.into()))
+    Ok(Json(repository_response(row)))
 }
 
 /// Update a repository by ID.
@@ -213,8 +214,8 @@ pub async fn get_repository(
     request_body = UpdateRepositoryRequest,
     responses(
         (status = 200, description = "Repository updated", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody),
-        (status = 409, description = "Repository URL already exists", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 409, description = "Repository URL already exists", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn update_repository(
@@ -232,7 +233,7 @@ pub async fn update_repository(
     // User ownership is immutable here: re-submitting `scope: user` preserves
     // the existing owner even when an admin is editing the row.
     // Global moves require admin (enforced by resolve_scope_for_create).
-    let (scope, owner_user_id) = match req.scope.map(scope_from_wire) {
+    let (scope, owner_user_id) = match req.scope {
         Some(Scope::User) => {
             let existing_owner_user_id = preserved_user_scope(&existing)?;
             (Some(Scope::User), Some(Some(existing_owner_user_id)))
@@ -289,7 +290,7 @@ pub async fn update_repository(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
-    Ok(Json(updated.into()))
+    Ok(Json(repository_response(updated)))
 }
 
 async fn ensure_unique_remote_url(
@@ -334,7 +335,7 @@ fn preserved_user_scope(existing: &Repository) -> Result<String, RepositoryError
     ),
     responses(
         (status = 204, description = "Repository deleted"),
-        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn delete_repository(
@@ -388,8 +389,8 @@ async fn delete_declared_workspaces(
     ),
     responses(
         (status = 200, description = "Repository converted to template", body = RepositoryResponse),
-        (status = 400, description = "Cannot convert", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Cannot convert", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn convert_to_template(
@@ -422,7 +423,7 @@ pub async fn convert_to_template(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
-    Ok(Json(updated.into()))
+    Ok(Json(repository_response(updated)))
 }
 
 /// Get branches for a repository.
@@ -435,9 +436,9 @@ pub async fn convert_to_template(
     ),
     responses(
         (status = 200, description = "Branch list", body = BranchListResponse),
-        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
-        (status = 403, description = "Access denied - token lacks permissions", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Access denied - token lacks permissions", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn get_branches(
@@ -592,7 +593,7 @@ fn git_host_repo(
     provider: RepositoryProvider,
     remote_url: &str,
 ) -> Result<GitHostRepo, RepositoryError> {
-    GitHostRepo::parse(GitHostProvider::from(provider), remote_url).ok_or_else(|| {
+    GitHostRepo::parse(provider, remote_url).ok_or_else(|| {
         RepositoryError::BadRequest(format!(
             "Cannot parse {} URL: {remote_url}",
             provider.as_str()
@@ -974,7 +975,7 @@ mod tests {
             scope,
             owner_user_id: owner_user_id.map(str::to_string),
             created_by: Some("creator".to_string()),
-            deleted: Some(false),
+            deleted: false,
             created_at: None,
             updated_at: None,
         }

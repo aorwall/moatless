@@ -21,7 +21,8 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use crate::task::models::{ArchiveRetention, SandboxDesiredState, SandboxStopReason};
+use crate::task::models::{SandboxDesiredState, SandboxStopReason};
+use moatless_types::sandbox::ArchiveRetention;
 
 /// A lifecycle operation failure, band-clean and reduced to what the task API
 /// surfaces. The sandbox-band implementation pre-classifies each variant from

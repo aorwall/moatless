@@ -24,9 +24,7 @@ use super::super::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use super::super::signal::{Cause, Input, InputId, Outcome, Signal};
 use super::super::source::{Role, SourceEvent};
 use super::super::Harness;
-use super::classify::{
-    classify_startup_error, classify_stream_error, classify_turn_error, is_expired_credential,
-};
+use super::classify::{classify_startup_error, classify_stream_error, classify_turn_error, is_expired_credential};
 use super::{CodexConfig, CodexProcess, MID_TURN_DELIVERY_TIMEOUT};
 
 fn config() -> CodexConfig {

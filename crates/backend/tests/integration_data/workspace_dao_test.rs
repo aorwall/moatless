@@ -16,11 +16,14 @@
 
 use crate::common;
 
-use moatless_core::scope::{Scope, ScopeContext};
+use std::collections::HashMap;
+
+use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::workspace::{ServerConfig, WorkspaceKind, WorkspaceSource};
 use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
 use sqlx::PgPool;
 
-use common::{make_workspace_repo_row, make_workspace_row};
+use common::{make_workspace_repo_row, make_workspace_row, run_config};
 
 /// Non-admin `ScopeContext` for a given user.
 fn scope_ctx(user_id: &str) -> ScopeContext {
@@ -46,7 +49,7 @@ async fn insert_and_find_by_id(pool: PgPool) {
     let found = found.unwrap();
     assert_eq!(found.id, "ws-1");
     assert_eq!(found.name, "ws-ws-1");
-    assert_eq!(found.kind, "blank");
+    assert_eq!(found.kind, WorkspaceKind::Blank);
 
     // A different user cannot read another user's user-scoped workspace
     // (out-of-scope reads are indistinguishable from missing → None).
@@ -78,7 +81,7 @@ async fn find_by_id_scoped_hides_plain_soft_deleted(pool: PgPool) {
 async fn find_and_list_keep_git_origin_tombstones_visible(pool: PgPool) {
     let repo = PgWorkspaceDao(pool.clone());
     let mut ws = make_workspace_row("ws-git-del", "user-1");
-    ws.source = "git".to_string();
+    ws.source = WorkspaceSource::Git;
     ws.source_repository_id = Some("repo-1".to_string());
     ws.source_key = Some("api".to_string());
     ws.source_config_path = Some(".moatless/workspaces.json".to_string());
@@ -94,8 +97,8 @@ async fn find_and_list_keep_git_origin_tombstones_visible(pool: PgPool) {
         .await
         .unwrap()
         .expect("git-origin tombstone should stay addressable");
-    assert_eq!(found.source, "manual");
-    assert_eq!(found.deleted, Some(true));
+    assert_eq!(found.source, WorkspaceSource::Manual);
+    assert!(found.deleted);
     assert_eq!(found.source_repository_id.as_deref(), Some("repo-1"));
     assert_eq!(found.source_key.as_deref(), Some("api"));
 
@@ -184,8 +187,8 @@ async fn update_jsonb_run_config_round_trips(pool: PgPool) {
         .await
         .unwrap();
 
-    let servers = serde_json::json!([{"name": "web", "port": 3000}]);
-    let env_vars = serde_json::json!({"NODE_ENV": "test"});
+    let servers: Vec<ServerConfig> = run_config(serde_json::json!([{"name": "web", "port": 3000}]));
+    let env_vars = HashMap::from([("NODE_ENV".to_string(), "test".to_string())]);
     let patch = WorkspacePatch {
         servers: Some(Some(servers.clone())),
         env_vars: Some(Some(env_vars.clone())),
@@ -284,7 +287,7 @@ async fn refresh_kind_derives_label_and_remove_repo(pool: PgPool) {
     repo.refresh_kind("ws-k", &scope_ctx("user-1"))
         .await
         .unwrap();
-    assert_eq!(kind_of(&repo, "ws-k").await, "blank");
+    assert_eq!(kind_of(&repo, "ws-k").await, WorkspaceKind::Blank);
 
     // 1 placement → single.
     repo.add_repo(
@@ -296,7 +299,7 @@ async fn refresh_kind_derives_label_and_remove_repo(pool: PgPool) {
     repo.refresh_kind("ws-k", &scope_ctx("user-1"))
         .await
         .unwrap();
-    assert_eq!(kind_of(&repo, "ws-k").await, "single");
+    assert_eq!(kind_of(&repo, "ws-k").await, WorkspaceKind::Single);
 
     // 2 placements → multi.
     repo.add_repo(
@@ -308,7 +311,7 @@ async fn refresh_kind_derives_label_and_remove_repo(pool: PgPool) {
     repo.refresh_kind("ws-k", &scope_ctx("user-1"))
         .await
         .unwrap();
-    assert_eq!(kind_of(&repo, "ws-k").await, "multi");
+    assert_eq!(kind_of(&repo, "ws-k").await, WorkspaceKind::Multi);
 
     // Remove one → back to single. remove_repo is scoped to the workspace.
     assert!(repo
@@ -318,7 +321,7 @@ async fn refresh_kind_derives_label_and_remove_repo(pool: PgPool) {
     repo.refresh_kind("ws-k", &scope_ctx("user-1"))
         .await
         .unwrap();
-    assert_eq!(kind_of(&repo, "ws-k").await, "single");
+    assert_eq!(kind_of(&repo, "ws-k").await, WorkspaceKind::Single);
 
     // Removing a placement that isn't there is a no-op.
     assert!(!repo
@@ -380,7 +383,7 @@ async fn find_repos_for_workspaces_batches_by_id(pool: PgPool) {
 }
 
 /// Read a workspace's derived `kind` label via the scoped finder.
-async fn kind_of(repo: &PgWorkspaceDao, id: &str) -> String {
+async fn kind_of(repo: &PgWorkspaceDao, id: &str) -> WorkspaceKind {
     repo.find_by_id(id, &scope_ctx("user-1"))
         .await
         .unwrap()

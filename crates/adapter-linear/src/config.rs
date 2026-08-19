@@ -203,10 +203,11 @@ pub fn rules_need_issue_fetch(rules: &[SubscriptionMatch]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use moatless_types::adapter::AdapterKind;
     use super::*;
-    use moatless_loops::adapters::models::RoutingMode;
+    use moatless_types::loops::RoutingMode;
     use chrono::Utc;
-    use moatless_backend_core::scope::Scope;
+    use moatless_types::access_control::Scope;
 
     fn rule_with(
         adapter_config: serde_json::Value,
@@ -214,7 +215,7 @@ mod tests {
     ) -> SubscriptionMatch {
         SubscriptionMatch {
             id: "ir_test".into(),
-            adapter_kind: "linear".into(),
+            adapter_kind: AdapterKind::Linear,
             connection_id: "pc_test".into(),
             source_matcher: "team-uuid".into(),
             source_name: None,

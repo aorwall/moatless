@@ -127,7 +127,7 @@ impl GitHubAppProver for ProviderGitHubAppProver {
         private_key_pem: &str,
         default_installation_id: Option<u64>,
     ) -> Result<ProvedApp, AppAdministrationError> {
-        let entry = moatless_core::config::GitHubAppConfig {
+        let entry = moatless_types::auth::GitHubAppConfig {
             key: app_key.to_string(),
             app_id,
             private_key: private_key_pem.to_string(),
@@ -663,7 +663,7 @@ mod tests {
         let store = Arc::new(InMemoryAdapterAppDao::default());
         let store_port: Arc<dyn AdapterAppDao> = store.clone();
         let cipher =
-            LocalEnvelopeSecretCipher::from_config(&moatless_core::config::SecretsConfig {
+            LocalEnvelopeSecretCipher::from_config(&moatless_types::secret::SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
             })
@@ -703,7 +703,7 @@ mod tests {
     async fn removal_reports_bot_users_orphaned_by_the_app() {
         let store = Arc::new(InMemoryAdapterAppDao::default());
         let cipher =
-            LocalEnvelopeSecretCipher::from_config(&moatless_core::config::SecretsConfig {
+            LocalEnvelopeSecretCipher::from_config(&moatless_types::secret::SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
             })

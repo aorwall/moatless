@@ -23,9 +23,9 @@ pub enum PluginError {
     Db(#[from] sqlx::Error),
 }
 
-impl From<moatless_backend_core::access_control::AccessControlError> for PluginError {
-    fn from(e: moatless_backend_core::access_control::AccessControlError) -> Self {
-        use moatless_backend_core::access_control::AccessControlError as E;
+impl From<moatless_types::access_control::AccessControlError> for PluginError {
+    fn from(e: moatless_types::access_control::AccessControlError) -> Self {
+        use moatless_types::access_control::AccessControlError as E;
         match e {
             E::BadRequest(m) => PluginError::BadRequest(m),
             E::Forbidden(m) => PluginError::Forbidden(m),

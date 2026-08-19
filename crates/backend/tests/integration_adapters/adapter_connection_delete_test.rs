@@ -13,6 +13,7 @@
 //! connection they cannot control is refused the same way as one that is not
 //! there — a delete must not confirm existence the read would have hidden.
 
+use moatless_types::adapter::AdapterKind;
 use crate::common;
 
 use chrono::Utc;
@@ -20,7 +21,7 @@ use tower::ServiceExt;
 
 use moatless_backend::adapters::models::AdapterConnection;
 use moatless_backend::adapters::routes::adapter_router;
-use moatless_core::scope::Scope;
+use moatless_types::access_control::Scope;
 use moatless_backend::state::AppState;
 
 use common::{authed_request, test_app_state, user_scope, USER_1, USER_2};
@@ -30,7 +31,7 @@ async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {
     let now = Utc::now();
     let row = AdapterConnection {
         id: id.to_string(),
-        adapter_kind: "webhook".to_string(),
+        adapter_kind: AdapterKind::Webhook,
         connection_kind: "webhook".to_string(),
         scope_value: format!("acct-{id}"),
         credential_ref: None,

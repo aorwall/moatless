@@ -18,7 +18,7 @@ use super::dao::{SecretDao, SecretInsert, SecretReplace};
 use super::error::SecretError;
 use super::models::{EncryptedSecretValue, SecretRecord};
 use super::service::{SecretCipher, SecretService};
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 /// Read-only in-memory store. Write methods are unimplemented — tests that
 /// exercise writes should use the real DAO via `#[sqlx::test]`.

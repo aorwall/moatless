@@ -24,6 +24,7 @@ moatless-core = { path = "../core" }
 moatless-identity = { path = "../identity" }
 moatless-loops = { path = "../loops" }
 moatless-tasks = { path = "../tasks" }
+moatless-types = { path = "../types" }
 
 [features]
 db-tests = []

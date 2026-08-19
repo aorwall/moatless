@@ -7,15 +7,15 @@
 
 use std::collections::{HashMap, HashSet};
 
-use tracing::{error, info, warn};
+use serde_json::json;
 
-use moatless_backend_core::run_config::{Port, ResourceConfig, ServerConfig};
-use moatless_backend_core::scope::ScopeContext;
+use tracing::{info, warn};
+
+use moatless_types::workspace::{Port, ResourceConfig, ServerConfig};
+use moatless_types::access_control::ScopeContext;
 
 use crate::error::SandboxError;
-use crate::models::{
-    ProvisionRequest, RepoCheckout, RepoConfig, derive_mount_name, sanitize_mount_name,
-};
+use crate::models::{ProvisionRequest, RepoCheckout, RepoConfig, derive_mount_name, sanitize_mount_name};
 use crate::preflight::preflight_validate_task_control;
 use moatless_api_schemas::plugin::PluginDelivery;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
@@ -25,7 +25,7 @@ use moatless_tasks::task::models::Task;
 use moatless_workspaces::plugin::activation;
 use moatless_workspaces::plugin::dao::PluginDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::repository::models::RepositoryProvider;
+use moatless_types::repository::RepositoryProvider;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 use moatless_workspaces::workspace::models::Workspace;
 
@@ -40,10 +40,7 @@ use moatless_workspaces::workspace::models::Workspace;
 /// from the workspace's `servers` JSONB (data-driven).
 pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
     let servers = build_server_configs_from_workspace(ws);
-    let resources: Option<ResourceConfig> = ws
-        .resources
-        .as_ref()
-        .and_then(|v| decode_run_config(v.clone(), &ws.id, "resources"));
+    let resources: Option<ResourceConfig> = ws.resources.clone();
     let code_execution = build_code_execution_from_workspace(ws);
 
     RepoConfig {
@@ -66,39 +63,10 @@ pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
     }
 }
 
-/// Decode one JSONB run-config column, logging what was dropped.
-///
-/// A column that fails to decode reads as unset, so one bad value cannot block
-/// a start. The log is what makes that recoverable: the sandbox comes up on the
-/// deployment defaults instead of the workspace's own configuration, and
-/// without the log nothing says why.
-fn decode_run_config<T: serde::de::DeserializeOwned>(
-    value: serde_json::Value,
-    workspace_id: &str,
-    column: &str,
-) -> Option<T> {
-    match serde_json::from_value(value) {
-        Ok(decoded) => Some(decoded),
-        Err(e) => {
-            error!(
-                workspace_id,
-                column,
-                error = %e,
-                "Failed to decode a workspace run-config column; provisioning without it"
-            );
-            None
-        }
-    }
-}
-
-/// Build the server list from a workspace's `servers` JSONB column, ensuring a
+/// Build the server list from a workspace's declared servers, ensuring a
 /// default is elected and every server has a port assigned.
 pub fn build_server_configs_from_workspace(ws: &Workspace) -> Vec<ServerConfig> {
-    let mut servers: Vec<ServerConfig> = ws
-        .servers
-        .as_ref()
-        .and_then(|v| decode_run_config(v.clone(), &ws.id, "servers"))
-        .unwrap_or_default();
+    let mut servers: Vec<ServerConfig> = ws.servers.clone().unwrap_or_default();
 
     // Ensure at least one default among any present servers, then assign ports.
     if !servers.iter().any(|s| s.default) {
@@ -110,14 +78,12 @@ pub fn build_server_configs_from_workspace(ws: &Workspace) -> Vec<ServerConfig> 
     servers
 }
 
-/// Parse a workspace's `env_vars` JSONB column into a HashMap.
+/// The environment variables a workspace declares.
 pub fn parse_env_vars_from_workspace(ws: &Workspace) -> Option<HashMap<String, String>> {
-    ws.env_vars
-        .as_ref()
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
+    ws.env_vars.clone()
 }
 
-/// Build code_execution JSON pass-through from a workspace's run-config columns.
+/// Build the code_execution JSON pass-through from a workspace's run config.
 fn build_code_execution_from_workspace(ws: &Workspace) -> Option<serde_json::Value> {
     let has_any = ws.setup_commands.is_some() || ws.docker_image.is_some() || ws.env_vars.is_some();
     if !has_any {
@@ -126,7 +92,7 @@ fn build_code_execution_from_workspace(ws: &Workspace) -> Option<serde_json::Val
 
     let mut config = serde_json::Map::new();
     if let Some(ref cmds) = ws.setup_commands {
-        config.insert("setupCommands".to_string(), cmds.clone());
+        config.insert("setupCommands".to_string(), json!(cmds));
     }
     if let Some(ref image) = ws.docker_image {
         config.insert(
@@ -135,7 +101,7 @@ fn build_code_execution_from_workspace(ws: &Workspace) -> Option<serde_json::Val
         );
     }
     if let Some(ref vars) = ws.env_vars {
-        config.insert("envVars".to_string(), vars.clone());
+        config.insert("envVars".to_string(), json!(vars));
     }
     Some(serde_json::Value::Object(config))
 }
@@ -214,7 +180,7 @@ pub async fn build_provision_request(
     // Gate: never provision a pod for a Closed task. A webhook racing a close is
     // rejected here because the Closed status is authoritative. Only `Closed` is
     // gated: `Error` stays resumable to match `start_task`.
-    if task.status == moatless_backend_core::models::TaskStatus::Closed {
+    if task.status == moatless_types::task::TaskStatus::Closed {
         return Err(SandboxError::BadRequest(format!(
             "Task '{task_id}' is closed; refusing to provision a sandbox"
         )));

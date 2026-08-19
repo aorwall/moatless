@@ -2,9 +2,9 @@
 
 use sqlx::{AssertSqlSafe, PgPool};
 
-use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
+use moatless_types::access_control::{ScopeContext, ScopedEntity};
 
-use crate::models::AdapterConnection;
+use crate::models::{AdapterConnection, AdapterConnectionRow};
 
 #[async_trait::async_trait]
 pub trait AdapterConnectionDao: Send + Sync {
@@ -93,12 +93,13 @@ impl PgAdapterConnectionDao {
             "{PROVIDER_CONNECTION_SELECT} WHERE id = $1 AND {}",
             access.sql()
         );
-        sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(sql))
+        let row: Option<AdapterConnectionRow> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_optional(&self.0)
-            .await
+            .await?;
+        Ok(row.map(AdapterConnection::from))
     }
 
     pub async fn find_by_scope_value(
@@ -117,13 +118,14 @@ impl PgAdapterConnectionDao {
         adapter_kind: &str,
         external_account_id: &str,
     ) -> Result<Option<AdapterConnection>, sqlx::Error> {
-        sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(format!(
+        let row: Option<AdapterConnectionRow> = sqlx::query_as(AssertSqlSafe(format!(
             "{PROVIDER_CONNECTION_SELECT} WHERE adapter_kind = $1 AND external_account_id = $2 LIMIT 1"
         )))
         .bind(adapter_kind)
         .bind(external_account_id)
         .fetch_optional(&self.0)
-        .await
+        .await?;
+        Ok(row.map(AdapterConnection::from))
     }
 
     /// List all connections for an Adapter, unscoped. Used by webhook routing
@@ -132,12 +134,13 @@ impl PgAdapterConnectionDao {
         &self,
         adapter_kind: &str,
     ) -> Result<Vec<AdapterConnection>, sqlx::Error> {
-        sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(format!(
+        let rows: Vec<AdapterConnectionRow> = sqlx::query_as(AssertSqlSafe(format!(
             "{PROVIDER_CONNECTION_SELECT} WHERE adapter_kind = $1 ORDER BY created_at ASC"
         )))
         .bind(adapter_kind)
         .fetch_all(&self.0)
-        .await
+        .await?;
+        Ok(rows.into_iter().map(AdapterConnection::from).collect())
     }
 
     pub async fn list(
@@ -153,12 +156,13 @@ impl PgAdapterConnectionDao {
                  ORDER BY created_at ASC",
                 access.sql()
             );
-            return sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(sql))
+            let rows: Vec<AdapterConnectionRow> = sqlx::query_as(AssertSqlSafe(sql))
                 .bind(adapter_kind)
                 .bind(ctx.is_admin)
                 .bind(&ctx.user_id)
                 .fetch_all(&self.0)
-                .await;
+                .await?;
+            return Ok(rows.into_iter().map(AdapterConnection::from).collect());
         }
         let access = ctx.access_filter(ScopedEntity::Resource, "", 1);
         let sql = format!(
@@ -167,11 +171,12 @@ impl PgAdapterConnectionDao {
              ORDER BY created_at ASC",
             access.sql()
         );
-        sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(sql))
+        let rows: Vec<AdapterConnectionRow> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_all(&self.0)
-            .await
+            .await?;
+        Ok(rows.into_iter().map(AdapterConnection::from).collect())
     }
 
     /// Upsert an adapter connection. On conflict (adapter_kind, external_account_id),
@@ -215,16 +220,16 @@ impl PgAdapterConnectionDao {
                          updated_at"#,
             ctrl.sql()
         );
-        sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(sql))
+        let inserted: AdapterConnectionRow = sqlx::query_as(AssertSqlSafe(sql))
             .bind(&row.id)
-            .bind(&row.adapter_kind)
+            .bind(row.adapter_kind.as_str())
             .bind(&row.connection_kind)
             .bind(&row.scope_value)
             .bind(&row.credential_ref)
             .bind(&row.webhook_secret)
             .bind(&row.transport_config)
             .bind(&row.created_by)
-            .bind(row.scope)
+            .bind(row.scope.as_str())
             .bind(&row.owner_user_id)
             .bind(row.created_at)
             .bind(row.updated_at)
@@ -232,7 +237,8 @@ impl PgAdapterConnectionDao {
             .bind(&ctx.user_id)
             .fetch_optional(&self.0)
             .await?
-            .ok_or(sqlx::Error::RowNotFound)
+            .ok_or(sqlx::Error::RowNotFound)?;
+        Ok(AdapterConnection::from(inserted))
     }
 
     pub async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error> {

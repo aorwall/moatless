@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Kind of firing source owned by a Loop.
+ */
 export type LoopKind = typeof LoopKind[keyof typeof LoopKind];
 
 

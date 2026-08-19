@@ -25,6 +25,7 @@
 //! production behaviour on an expired install: the session heartbeat fails and
 //! is logged, and the forward to the task carries on regardless.
 
+use moatless_types::adapter::AdapterKind;
 use crate::common;
 
 use axum::body::Bytes;
@@ -35,8 +36,9 @@ use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use sqlx::PgPool;
 
-use moatless_core::scope::Scope;
-use moatless_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
+use moatless_types::access_control::Scope;
+use moatless_backend::adapters::models::{SubscriptionMatch, TaskBinding};
+use moatless_types::loops::RoutingMode;
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_backend::repository::dao as repository_dao;
 use moatless_backend::state::AppState;
@@ -183,7 +185,7 @@ async fn seed_bound_session(state: &AppState, pool: &PgPool) {
     let binding = TaskBinding {
         id: "tb-linear-1".to_string(),
         task_id: TASK.to_string(),
-        adapter_kind: "linear".to_string(),
+        adapter_kind: AdapterKind::Linear,
         subject_kind: "linear_agent_session".to_string(),
         subject_key: SESSION.to_string(),
         connection_id: CONNECTION.to_string(),
@@ -218,7 +220,7 @@ async fn seed_rule(state: &AppState) {
         .loops
         .upsert_subscription(&SubscriptionMatch {
             id: "trigger-linear-1".to_string(),
-            adapter_kind: "linear".to_string(),
+            adapter_kind: AdapterKind::Linear,
             connection_id: CONNECTION.to_string(),
             source_matcher: TEAM.to_string(),
             source_name: Some("Engineering".to_string()),
@@ -234,7 +236,7 @@ async fn seed_rule(state: &AppState) {
             // query. Without it the rule exists and matches nothing, and the
             // issue-update handler returns before it forwards anything.
             run_as_user_id: Some(USER_1.to_string()),
-            agent_type: "claude-code".to_string(),
+            agent_type: "claude-code".into(),
             inactive_ttl_days: None,
             allow_direct_send: false,
             adapter_config: None,

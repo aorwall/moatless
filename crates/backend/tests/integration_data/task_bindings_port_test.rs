@@ -13,6 +13,7 @@
 //! themselves: a binding written through `state.task_bindings` is the one
 //! `GET /api/v1/tasks/{task_id}/connections` returns.
 
+use moatless_types::adapter::AdapterKind;
 use crate::common;
 
 use chrono::Utc;
@@ -21,7 +22,7 @@ use tower::ServiceExt;
 
 use moatless_backend::adapters::models::{AdapterConnection, TaskBinding};
 use moatless_backend::repository::dao as repository_dao;
-use moatless_core::scope::Scope;
+use moatless_types::access_control::Scope;
 use moatless_backend::state::AppState;
 use moatless_backend::task::dao as task_dao;
 use moatless_backend::task_connections::routes::task_connections_router;
@@ -49,7 +50,7 @@ async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {
     let now = Utc::now();
     let row = AdapterConnection {
         id: id.to_string(),
-        adapter_kind: "github".to_string(),
+        adapter_kind: AdapterKind::Github,
         connection_kind: "org_webhook".to_string(),
         scope_value: "acme".to_string(),
         credential_ref: None,
@@ -74,7 +75,7 @@ fn binding(id: &str, task_id: &str, connection_id: &str, subject_key: &str) -> T
     TaskBinding {
         id: id.to_string(),
         task_id: task_id.to_string(),
-        adapter_kind: "github".to_string(),
+        adapter_kind: AdapterKind::Github,
         subject_kind: "github_pr".to_string(),
         subject_key: subject_key.to_string(),
         connection_id: connection_id.to_string(),
@@ -199,7 +200,7 @@ async fn adapter_connection_port_round_trips_a_connection(pool: PgPool) {
         .await
         .expect("find_by_id through the port")
         .expect("connection row");
-    assert_eq!(by_id.adapter_kind, "github");
+    assert_eq!(by_id.adapter_kind, AdapterKind::Github);
     assert_eq!(by_id.scope_value, "acme");
 
     let by_account = state

@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_events::{SandboxEventPayload, ServerEventPayload, ServerSubType};
+use moatless_types::sandbox::{SandboxEventPayload, ServerEventPayload, ServerSubType};
 
 use moatless_core::events::EventPublisher;
 
@@ -151,7 +151,7 @@ impl LifecycleEventSink for OutboxEventSink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_events::SandboxStatus;
+    use moatless_types::sandbox::SandboxStatus;
 
     #[test]
     fn degradation_status_tracks_the_runtime_observation() {

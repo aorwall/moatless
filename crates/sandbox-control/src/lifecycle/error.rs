@@ -6,7 +6,7 @@
 
 use thiserror::Error;
 
-use moatless_backend_core::models::TaskStatus;
+use moatless_types::task::TaskStatus;
 
 use super::types::OperationKind;
 

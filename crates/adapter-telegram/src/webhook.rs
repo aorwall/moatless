@@ -12,7 +12,9 @@ use tracing::{debug, info};
 
 use moatless_loops::adapters::AdapterKind;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{AccessDecision, Audience, InboundMessage, LoopContext};
+use moatless_loops::adapters::models::AccessDecision;
+use moatless_types::adapter::{Audience, InboundMessage};
+use moatless_types::loops::LoopContext;
 use moatless_core::db::DbPool;
 
 use super::access::{self, DmDecision, DmSender};

@@ -8,9 +8,8 @@ use tracing::{debug, info};
 
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::inbound_delivery::{
-    InboundDeliveryPayload, inbound_delivery_request,
-};
+use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
+use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::admit_delivery;
 use moatless_loops::loops::dao::LoopDao;
 
@@ -54,7 +53,7 @@ pub async fn webhook_inbound(
         .await?
         .ok_or_else(|| SharedAdapterError::ConfigNotFound(loop_id.clone()))?;
 
-    if subscription.adapter_kind != ADAPTER {
+    if subscription.adapter_kind.as_str() != ADAPTER {
         return Err(SharedAdapterError::BadRequest(format!(
             "Loop {loop_id} is not a webhook Subscription"
         ))
@@ -64,7 +63,7 @@ pub async fn webhook_inbound(
     let signature = headers
         .get("x-webhook-signature")
         .and_then(|v| v.to_str().ok());
-    let config = moatless_adapter_model::models::subscription_context(&subscription, ADAPTER);
+    let config = moatless_adapter_model::models::subscription_context(&subscription);
     let delivery = WebhookAdapter::parse_inbound(&config, &body, signature)?;
     let message = delivery.message;
     let thread_id = message

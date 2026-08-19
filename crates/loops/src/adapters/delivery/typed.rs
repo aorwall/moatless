@@ -15,7 +15,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::SharedAdapterError;

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use moatless_api_schemas::agent::AgentDescriptor;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use crate::adapters::models::TaskBinding;
 use crate::file_storage::store as file_store;
@@ -90,7 +90,7 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
         // The active GitHub PR binding, if any. A Task has at most one.
         let binding = bindings.into_iter().find(|binding| {
             binding.active
-                && binding.adapter_kind == "github"
+                && binding.adapter_kind == moatless_types::adapter::AdapterKind::Github
                 && binding.subject_kind == "github_pr"
         })?;
         if let Some(pr) = bound_pull_request_from_binding(&binding) {
@@ -210,7 +210,7 @@ impl AppStateBoundPullRequests {
             .ok_or(PullRequestError::NotFound)?;
         let remote_url = repository.remote_url.ok_or(PullRequestError::NotFound)?;
         moatless_identity::git_host_repo::GitHostRepo::parse(
-            moatless_api_schemas::enums::RepositoryProvider::Github,
+            moatless_types::repository::RepositoryProvider::Github,
             &remote_url,
         )
         .map(|repo| (repo.owner().to_string(), repo.name().to_string()))
@@ -286,7 +286,7 @@ async fn bind_thread_to_open_pr(
         return;
     };
     let Some(parsed) = moatless_identity::git_host_repo::GitHostRepo::parse(
-        moatless_api_schemas::enums::RepositoryProvider::Github,
+        moatless_types::repository::RepositoryProvider::Github,
         &remote_url,
     ) else {
         return;
@@ -599,19 +599,16 @@ impl ThreadCommandSink for AppStateCommands {
             workspace_id: Some(thread.workspace_id),
             sandbox_id: None,
             checkout_mode: None,
-            agent_type: Some(moatless_tasks::task::schemas::agent_type_to_wire(
-                &agent_type,
-            )),
+            agent_type: Some(agent_type),
             name: thread.title,
             description: None,
             branch: thread.branch,
             message: thread.first_message.as_ref().map(|m| m.text.clone()),
             model: thread.model,
-            agent_mode: thread.first_message.as_ref().and_then(|m| {
-                m.agent_mode
-                    .as_ref()
-                    .map(moatless_tasks::message::schemas::agent_mode_to_wire)
-            }),
+            agent_mode: thread
+                .first_message
+                .as_ref()
+                .and_then(|m| m.agent_mode.clone()),
             effort: thread.first_message.as_ref().and_then(|m| m.effort.clone()),
             contexts: vec![],
             file_ids,
@@ -815,15 +812,15 @@ impl ThreadCommandSink for AppStateCommands {
 }
 
 /// The agent a thread created from T3 runs.
-fn default_agent_for(instance: &str) -> moatless_core::shared_models::AgentType {
+fn default_agent_for(instance: &str) -> moatless_types::agent::AgentType {
     let id = crate::agent::catalog::catalog()
         .iter()
         .find(|entry| agent_instance_for(entry.kind) == instance)
         .map_or(
-            moatless_core::shared_models::AgentType::CLAUDE_CODE,
+            moatless_types::agent::AgentType::CLAUDE_CODE,
             |entry| entry.id,
         );
-    moatless_core::shared_models::AgentType(id.to_string())
+    moatless_types::agent::AgentType(id.to_string())
 }
 
 fn agent_instance_for(kind: crate::agent::catalog::AgentKind) -> &'static str {
@@ -880,11 +877,11 @@ mod tests {
     fn each_instance_maps_to_the_first_catalog_agent_of_its_kind() {
         assert_eq!(
             default_agent_for("claudeAgent"),
-            moatless_core::shared_models::AgentType(catalog::CLAUDE_CODE.id.to_string())
+            moatless_types::agent::AgentType(catalog::CLAUDE_CODE.id.to_string())
         );
         assert_eq!(
             default_agent_for("codex"),
-            moatless_core::shared_models::AgentType(catalog::CODEX.id.to_string())
+            moatless_types::agent::AgentType(catalog::CODEX.id.to_string())
         );
     }
 
@@ -895,8 +892,8 @@ mod tests {
     fn an_unknown_instance_falls_back_to_claude() {
         assert_eq!(
             default_agent_for("somethingElse"),
-            moatless_core::shared_models::AgentType(
-                moatless_core::shared_models::AgentType::CLAUDE_CODE.to_string()
+            moatless_types::agent::AgentType(
+                moatless_types::agent::AgentType::CLAUDE_CODE.to_string()
             )
         );
     }

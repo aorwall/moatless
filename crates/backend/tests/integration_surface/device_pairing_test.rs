@@ -21,7 +21,7 @@ use std::sync::Arc;
 use chrono::{Duration, Utc};
 use moatless_backend::auth::api_key::validate_key;
 use moatless_backend::auth::api_keys::{ApiKeyDao, PgApiKeyDao};
-use moatless_backend::auth::models::UserRole;
+use moatless_types::user::UserRole;
 use moatless_backend::auth::pairing::{
     DevicePairing, PairingClient, PairingCode, PairingCodeDao, PairingError, PgPairingApiKeyIssuer,
     PgPairingCodeDao, PAIRED_DEVICE_KEY_TTL, PAIRING_CODE_TTL,

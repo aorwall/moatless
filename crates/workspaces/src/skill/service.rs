@@ -22,8 +22,9 @@ use crate::plugin::dao::PluginDao;
 use crate::plugin::models::Plugin;
 use crate::plugin::sync::PluginSyncService;
 use crate::repository::dao::RepositoryDao;
-use crate::repository::models::{Repository, RepositoryKind};
-use moatless_identity::auth::actor::Actor;
+use moatless_types::repository::RepositoryKind;
+use crate::repository::models::Repository;
+use moatless_types::access_control::Actor;
 use moatless_identity::extractors::AuthUser;
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
@@ -179,7 +180,7 @@ impl SkillService {
         let Some(provider) = repo.provider else {
             return Ok(None);
         };
-        let Some(host_repo) = GitHostRepo::parse(provider.into(), remote_url) else {
+        let Some(host_repo) = GitHostRepo::parse(provider, remote_url) else {
             return Ok(None);
         };
         match self.git_host_tokens.token(actor, &host_repo).await {

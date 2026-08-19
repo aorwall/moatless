@@ -6,7 +6,8 @@ use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::models::{OAuthTokens, ProviderUserInfo, UserRole};
+use moatless_types::user::UserRole;
+use super::models::{OAuthTokens, ProviderUserInfo};
 use super::provider_tokens::{ProviderToken, ProviderTokenAuthDao};
 use super::sessions::{AuthenticatedSession, NewAuthSession, SessionDao};
 use super::users::{User, UserDao};

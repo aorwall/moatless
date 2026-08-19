@@ -307,8 +307,8 @@ fn transform_tool_only_turn(uuid: &str, activities: &[&Activity], is_last: bool)
 
     UiMessage {
         uuid: uuid.to_string(),
-        message_type: message_type_to_wire(MessageType::Assistant),
-        role: message_role_to_wire(crate::message::models::MessageRole::Assistant),
+        message_type: MessageType::Assistant,
+        role: crate::message::models::MessageRole::Assistant,
         timestamp,
         session_id: None,
         turn_number: None,
@@ -468,12 +468,12 @@ fn transform_assistant(msg: &TaskMessage, activities: &[&Activity], is_last: boo
 
     UiMessage {
         uuid: msg.uuid.clone(),
-        message_type: message_type_to_wire(msg.message_type),
-        role: message_role_to_wire(msg.message_role),
+        message_type: msg.message_type,
+        role: msg.message_role,
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
-        agent_mode: msg.agent_mode.as_ref().map(agent_mode_to_wire),
+        agent_mode: msg.agent_mode(),
         model: msg
             .assistant_message_model
             .clone()
@@ -530,12 +530,12 @@ fn transform_user(
 
     UiMessage {
         uuid: msg.uuid.clone(),
-        message_type: message_type_to_wire(msg.message_type),
-        role: message_role_to_wire(msg.message_role),
+        message_type: msg.message_type,
+        role: msg.message_role,
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
-        agent_mode: msg.agent_mode.as_ref().map(agent_mode_to_wire),
+        agent_mode: msg.agent_mode(),
         model: msg.model.clone(),
         is_queued: if is_queued { Some(true) } else { None },
         content,
@@ -560,12 +560,12 @@ fn transform_result(msg: &TaskMessage) -> UiMessage {
 
     UiMessage {
         uuid: msg.uuid.clone(),
-        message_type: message_type_to_wire(msg.message_type),
-        role: message_role_to_wire(msg.message_role),
+        message_type: msg.message_type,
+        role: msg.message_role,
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
-        agent_mode: msg.agent_mode.as_ref().map(agent_mode_to_wire),
+        agent_mode: msg.agent_mode(),
         model: msg.model.clone(),
         is_queued: None,
         content,
@@ -827,7 +827,7 @@ mod tests {
             agent_session_id: None,
             will_not_resume: None,
             run_metrics: None,
-            agent_mode: None,
+            agent_mode_raw: None,
             effort: None,
             model: None,
             skills: Vec::new(),
@@ -880,10 +880,10 @@ mod tests {
         assert_eq!(
             types,
             vec![
-                message_type_to_wire(MessageType::User),
-                message_type_to_wire(MessageType::Assistant),
-                message_type_to_wire(MessageType::Assistant),
-                message_type_to_wire(MessageType::Result),
+                MessageType::User,
+                MessageType::Assistant,
+                MessageType::Assistant,
+                MessageType::Result,
             ]
         );
     }
@@ -1048,7 +1048,7 @@ mod tests {
                 filename: "legacy.txt".to_string(),
                 mime_type: "text/plain".to_string(),
                 size: 7,
-                scope: moatless_backend_core::scope::Scope::User,
+                scope: moatless_types::access_control::Scope::User,
                 owner_user_id: Some("user-1".to_string()),
                 created_by: Some("user-1".to_string()),
                 uploaded_at: chrono::Utc::now(),
@@ -1187,9 +1187,9 @@ mod tests {
         assert_eq!(
             types,
             vec![
-                message_type_to_wire(MessageType::User),
-                message_type_to_wire(MessageType::Assistant),
-                message_type_to_wire(MessageType::Error),
+                MessageType::User,
+                MessageType::Assistant,
+                MessageType::Error,
             ]
         );
     }

@@ -16,7 +16,8 @@
 //! Identity plays no part: the resolver is never given a user identity. A task
 //! is passed over only where it can be *named* as the author of what arrived.
 
-use moatless_adapter_model::models::{Audience, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
+use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
+use moatless_types::adapter::Audience;
 
 /// What the event says about who wrote it, resolved before the resolver runs.
 ///
@@ -114,10 +115,8 @@ fn is_producer(binding: &TaskBinding) -> bool {
 mod tests {
     use super::{resolve_recipients, EventProvenance};
     use chrono::Utc;
-    use moatless_adapter_model::models::{
-        Audience, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
-        TASK_OWNED_BINDING_ORIGIN,
-    };
+    use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN, TASK_OWNED_BINDING_ORIGIN, TaskBinding};
+    use moatless_types::adapter::Audience;
 
     /// A binding is identified in these tests by its task id; every other column
     /// is scenery. `origin` is the only field the resolver reads besides
@@ -127,7 +126,7 @@ mod tests {
         TaskBinding {
             id: format!("ts_{task_id}"),
             task_id: task_id.to_string(),
-            adapter_kind: "github".to_string(),
+            adapter_kind: moatless_adapter_model::models::AdapterKind::Github,
             subject_kind: "subject".to_string(),
             subject_key: "acme/widgets#1".to_string(),
             connection_id: "pc_1".to_string(),

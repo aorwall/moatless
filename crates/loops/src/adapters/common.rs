@@ -1,133 +1,46 @@
 use cron::Schedule as CronSchedule;
 use moatless_adapter_model::error::ReplyTarget;
-use moatless_adapter_model::models::{AdapterKind, RoutingMode};
+use moatless_types::access_control::Scope;
+use moatless_types::adapter::AdapterKind;
 use moatless_api_schemas::adapters::AdapterConnectionResponse;
 use moatless_api_schemas::bindings::{ReplyTargetDescriptor, TaskBindingResponse};
-use moatless_api_schemas::enums::{
-    AdapterKind as WireAdapterKind, RoutingMode as WireRoutingMode, Scope as WireScope,
-};
-use moatless_api_schemas::loops::{
-    Loop, LoopConfig, LoopConfigSource as WireLoopConfigSource, LoopExecutionState,
-    LoopKind as WireLoopKind, LoopSource, ManualSource, Schedule, Subscription,
-};
+use moatless_api_schemas::loops::{Loop, LoopConfig, LoopExecutionState, LoopSource, ManualSource, Schedule, Subscription};
 use serde::Deserialize;
 
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, TaskBinding};
-use moatless_backend_core::access_control::{
-    ResolvedScope, ensure_can_use_repository, resolve_scope_for_create,
-};
+use moatless_backend_core::access_control::{ResolvedScope, ensure_can_use_repository, resolve_scope_for_create};
 // `parse_adapter_kind` now lives in `moatless-adapter-model`; re-exported so the
 // handler-support callers here and in `loops`/`task` keep their path unchanged.
 pub use crate::adapters::models::parse_adapter_kind;
 use crate::loops::dao::{LoopDao, LoopRecord, LoopSourceRow};
-use crate::loops::models::{LoopConfigSource, LoopKind};
-use moatless_backend_core::scope::{ScopeContext, ScopedResource};
+use moatless_types::loops::{LoopConfigSource, LoopKind};
+use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_tasks::task::dao::TaskDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdapterFilter {
-    pub adapter_kind: Option<WireAdapterKind>,
+    pub adapter_kind: Option<AdapterKind>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopFilter {
-    pub kind: Option<WireLoopKind>,
-    pub adapter_kind: Option<WireAdapterKind>,
-}
-
-pub fn adapter_kind_from_wire(value: WireAdapterKind) -> AdapterKind {
-    match value {
-        WireAdapterKind::Slack => AdapterKind::Slack,
-        WireAdapterKind::Telegram => AdapterKind::Telegram,
-        WireAdapterKind::Github => AdapterKind::Github,
-        WireAdapterKind::GithubPr => AdapterKind::GithubPr,
-        WireAdapterKind::Linear => AdapterKind::Linear,
-        WireAdapterKind::Webhook => AdapterKind::Webhook,
-    }
-}
-
-pub fn adapter_kind_to_wire(value: AdapterKind) -> WireAdapterKind {
-    match value {
-        AdapterKind::Slack => WireAdapterKind::Slack,
-        AdapterKind::Telegram => WireAdapterKind::Telegram,
-        AdapterKind::Github => WireAdapterKind::Github,
-        AdapterKind::GithubPr => WireAdapterKind::GithubPr,
-        AdapterKind::Linear => WireAdapterKind::Linear,
-        AdapterKind::Webhook => WireAdapterKind::Webhook,
-    }
-}
-
-pub fn routing_mode_from_wire(value: WireRoutingMode) -> RoutingMode {
-    match value {
-        WireRoutingMode::Ongoing => RoutingMode::Ongoing,
-        WireRoutingMode::BySubject => RoutingMode::BySubject,
-    }
-}
-
-pub fn routing_mode_to_wire(value: RoutingMode) -> WireRoutingMode {
-    match value {
-        RoutingMode::Ongoing => WireRoutingMode::Ongoing,
-        RoutingMode::BySubject => WireRoutingMode::BySubject,
-    }
-}
-
-pub fn loop_kind_from_wire(value: WireLoopKind) -> LoopKind {
-    match value {
-        WireLoopKind::AdapterEvent => LoopKind::AdapterEvent,
-        WireLoopKind::Schedule => LoopKind::Schedule,
-        WireLoopKind::Manual => LoopKind::Manual,
-    }
-}
-
-pub fn loop_kind_to_wire(value: LoopKind) -> WireLoopKind {
-    match value {
-        LoopKind::AdapterEvent => WireLoopKind::AdapterEvent,
-        LoopKind::Schedule => WireLoopKind::Schedule,
-        LoopKind::Manual => WireLoopKind::Manual,
-    }
-}
-
-pub fn loop_config_source_to_wire(value: LoopConfigSource) -> WireLoopConfigSource {
-    match value {
-        LoopConfigSource::Git => WireLoopConfigSource::Git,
-        LoopConfigSource::Manual => WireLoopConfigSource::Manual,
-    }
-}
-
-pub fn loop_config_source_from_wire(value: WireLoopConfigSource) -> LoopConfigSource {
-    match value {
-        WireLoopConfigSource::Git => LoopConfigSource::Git,
-        WireLoopConfigSource::Manual => LoopConfigSource::Manual,
-    }
-}
-
-pub fn scope_from_wire(value: WireScope) -> moatless_backend_core::scope::Scope {
-    match value {
-        WireScope::Global => moatless_backend_core::scope::Scope::Global,
-        WireScope::User => moatless_backend_core::scope::Scope::User,
-    }
-}
-
-pub fn scope_to_wire(value: moatless_backend_core::scope::Scope) -> WireScope {
-    match value {
-        moatless_backend_core::scope::Scope::Global => WireScope::Global,
-        moatless_backend_core::scope::Scope::User => WireScope::User,
-    }
+    pub kind: Option<LoopKind>,
+    pub adapter_kind: Option<AdapterKind>,
 }
 
 pub fn adapter_connection_response(row: &AdapterConnection) -> AdapterConnectionResponse {
     AdapterConnectionResponse {
         id: row.id.clone(),
-        adapter_kind: adapter_kind_to_wire(parse_adapter_kind(&row.adapter_kind)),
+        adapter_kind: row.adapter_kind,
         connection_kind: row.connection_kind.clone(),
         external_account_id: row.scope_value.clone(),
         created_by: row.created_by.clone(),
-        scope: scope_to_wire(row.scope),
+        scope: row.scope,
         owner_user_id: row.owner_user_id.clone(),
         created_at: row.created_at.to_rfc3339(),
         updated_at: row.updated_at.to_rfc3339(),
@@ -147,7 +60,7 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
     };
     let source = match &record.source {
         LoopSourceRow::AdapterEvent(source) => LoopSource::AdapterEvent(Subscription {
-            adapter_kind: adapter_kind_to_wire(parse_adapter_kind(&source.adapter_kind)),
+            adapter_kind: source.adapter_kind,
             connection_id: source.connection_id.clone(),
             source_matcher: source.source_matcher.clone(),
             source_name: source.source_name.clone(),
@@ -172,14 +85,14 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
     Loop {
         id: record.loop_.id.clone(),
         name: record.loop_.name.clone(),
-        kind: loop_kind_to_wire(kind),
+        kind,
         active: record.loop_.active,
-        scope: scope_to_wire(record.loop_.scope),
+        scope: record.loop_.scope,
         owner_user_id: record.loop_.owner_user_id.clone(),
         created_by: record.loop_.created_by.clone(),
         created_at: record.loop_.created_at.to_rfc3339(),
         updated_at: record.loop_.updated_at.to_rfc3339(),
-        config_source: loop_config_source_to_wire(config_source),
+        config_source,
         synced_from_git: config_source == LoopConfigSource::Git && !record.loop_.deleted,
         source_repository_id: record.loop_.source_repository_id.clone(),
         source_key: record.loop_.source_key.clone(),
@@ -188,14 +101,14 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
         execution_state,
         config: LoopConfig {
             repository_id: record.config.repository_id.clone(),
-            routing_mode: routing_mode_to_wire(record.config.routing_mode),
+            routing_mode: record.config.routing_mode,
             ongoing_task_id: record.config.ongoing_task_id.clone(),
             task_name: record.config.task_name.clone(),
             prompt: record.config.prompt.clone(),
             tag_ids: record.config.tag_ids.clone(),
             skills: record.config.skills.clone(),
             run_as_user_id: record.config.run_as_user_id.clone(),
-            agent_type: record.config.agent_type.clone(),
+            agent_type: record.config.agent_type.as_str().to_string(),
             inactive_ttl_days: record.config.inactive_ttl_days,
         },
         source,
@@ -206,7 +119,7 @@ pub(crate) fn task_binding_response(row: &TaskBinding) -> TaskBindingResponse {
     TaskBindingResponse {
         id: row.id.clone(),
         task_id: row.task_id.clone(),
-        adapter_kind: adapter_kind_to_wire(parse_adapter_kind(&row.adapter_kind)),
+        adapter_kind: row.adapter_kind,
         connection_id: row.connection_id.clone(),
         loop_id: row.loop_id.clone(),
         subject_kind: row.subject_kind.clone(),
@@ -277,11 +190,11 @@ pub(crate) async fn ensure_repository_exists(
 /// the caller; requesting `Global` requires admin.
 pub fn resolve_scope_for_adapter_create(
     ctx: &ScopeContext,
-    requested_scope: Option<WireScope>,
+    requested_scope: Option<Scope>,
 ) -> Result<ResolvedScope, AdapterError> {
     Ok(resolve_scope_for_create(
         ctx,
-        requested_scope.map(scope_from_wire),
+        requested_scope,
     )?)
 }
 
@@ -352,7 +265,7 @@ pub async fn resolve_connection(
 ) -> Result<AdapterConnection, AdapterError> {
     if let Some(id) = connection_id {
         let conn = load_adapter_connection_for_auth_with(adapter_connections, ctx, id).await?;
-        if conn.adapter_kind != kind.as_str() {
+        if conn.adapter_kind != kind {
             return Err(SharedAdapterError::BadRequest(format!(
                 "Connection {id} is for adapter {}, not {}",
                 conn.adapter_kind,
@@ -385,53 +298,3 @@ pub async fn resolve_connection(
     }
 }
 
-#[cfg(test)]
-mod mapping_tests {
-    use super::*;
-
-    fn same_json<T: serde::Serialize, U: serde::Serialize>(domain: T, wire: U) {
-        assert_eq!(
-            serde_json::to_value(domain).expect("serialize domain"),
-            serde_json::to_value(wire).expect("serialize wire")
-        );
-    }
-
-    #[test]
-    fn every_adapter_and_loop_discriminant_maps_both_ways_with_identical_json() {
-        for domain in [
-            AdapterKind::Slack,
-            AdapterKind::Telegram,
-            AdapterKind::Github,
-            AdapterKind::GithubPr,
-            AdapterKind::Linear,
-            AdapterKind::Webhook,
-        ] {
-            let wire = adapter_kind_to_wire(domain);
-            assert_eq!(adapter_kind_from_wire(wire), domain);
-            same_json(domain, wire);
-        }
-        for domain in [RoutingMode::Ongoing, RoutingMode::BySubject] {
-            let wire = routing_mode_to_wire(domain);
-            assert_eq!(routing_mode_from_wire(wire), domain);
-            same_json(domain, wire);
-        }
-        for domain in [LoopKind::AdapterEvent, LoopKind::Schedule, LoopKind::Manual] {
-            let wire = loop_kind_to_wire(domain);
-            assert_eq!(loop_kind_from_wire(wire), domain);
-            same_json(domain, wire);
-        }
-        for domain in [LoopConfigSource::Git, LoopConfigSource::Manual] {
-            let wire = loop_config_source_to_wire(domain);
-            assert_eq!(loop_config_source_from_wire(wire), domain);
-            same_json(domain, wire);
-        }
-        for domain in [
-            moatless_backend_core::scope::Scope::Global,
-            moatless_backend_core::scope::Scope::User,
-        ] {
-            let wire = scope_to_wire(domain);
-            assert_eq!(scope_from_wire(wire), domain);
-            same_json(domain, wire);
-        }
-    }
-}

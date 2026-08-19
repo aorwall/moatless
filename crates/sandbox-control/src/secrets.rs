@@ -3,14 +3,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use moatless_core::secret_keys::{
-    ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN,
-    GITNESS_TOKEN, OPENAI_API_KEY,
-};
+use moatless_core::secret_keys::{ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN, GITNESS_TOKEN, OPENAI_API_KEY};
 use tracing::warn;
 
-use moatless_api_schemas::enums::RepositoryProvider as GitHostProvider;
-use moatless_identity::auth::actor::Actor;
+use moatless_types::repository::RepositoryProvider as GitHostProvider;
+use moatless_types::access_control::Actor;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::users::UserDao;
 use moatless_identity::git_host_repo::GitHostRepo;
@@ -210,7 +207,7 @@ pub async fn resolve_task_credential_targets(
     };
     // reason: repository lookup for sandbox provisioning is system-wide
     #[allow(clippy::disallowed_methods)]
-    let sys_ctx = moatless_backend_core::scope::ScopeContext::system();
+    let sys_ctx = moatless_types::access_control::ScopeContext::system();
     let Some(task) = tasks.find_by_id(task_id, &sys_ctx).await.ok().flatten() else {
         return TaskCredentialTargets::default();
     };
@@ -247,7 +244,7 @@ pub async fn resolve_task_actor(
     // reason: the sandbox acts on behalf of a task whose own authorization
     // already decided the workspace may be run; there is no viewer here.
     #[allow(clippy::disallowed_methods)]
-    let sys_ctx = moatless_backend_core::scope::ScopeContext::system();
+    let sys_ctx = moatless_types::access_control::ScopeContext::system();
     let run_as = match workspaces.find_by_id(workspace_id, &sys_ctx).await {
         Ok(workspace) => workspace.and_then(|workspace| workspace.run_as_user_id),
         Err(e) => {
@@ -321,7 +318,7 @@ async fn fill_provider_tokens(
 fn task_git_host_repo(repository: Option<&Repository>) -> Option<GitHostRepo> {
     let repository = repository?;
     let provider = repository.provider?;
-    GitHostRepo::parse(provider.into(), repository.remote_url.as_deref()?)
+    GitHostRepo::parse(provider, repository.remote_url.as_deref()?)
 }
 
 /// Resolve the git-host tokens this task's sandbox needs.
@@ -425,7 +422,7 @@ async fn fill_codex(
     }
 
     // No CredentialService: walk user > global with raw DAO reads.
-    use moatless_identity::auth::codex_scope::CodexScope;
+    use moatless_types::agent::CodexScope;
     let scopes = [CodexScope::user(user_id), CodexScope::Global];
 
     for scope in scopes {
@@ -609,19 +606,19 @@ mod tests {
     use moatless_identity::auth::test_support::StubProviderTokens;
     use moatless_identity::secret::test_support::{secret, service_with};
 
-    fn github_repository(scope: moatless_backend_core::scope::Scope) -> Repository {
+    fn github_repository(scope: moatless_types::access_control::Scope) -> Repository {
         Repository {
             id: "repo-1".to_string(),
             name: "repo".to_string(),
-            kind: moatless_workspaces::repository::models::RepositoryKind::Remote,
+            kind: moatless_types::repository::RepositoryKind::Remote,
             remote_url: Some("https://github.com/acme/repo.git".to_string()),
             default_branch: None,
             description: None,
-            provider: Some(moatless_workspaces::repository::models::RepositoryProvider::Github),
+            provider: Some(moatless_types::repository::RepositoryProvider::Github),
             scope,
             owner_user_id: Some("u1".to_string()),
             created_by: Some("u1".to_string()),
-            deleted: Some(false),
+            deleted: false,
             created_at: None,
             updated_at: None,
         }
@@ -690,7 +687,7 @@ mod tests {
                 id: id.to_string(),
                 name: "ws".to_string(),
                 description: None,
-                kind: "single".to_string(),
+                kind: moatless_types::workspace::WorkspaceKind::Single,
                 docker_image: None,
                 docker_access: None,
                 sandbox_service_account: None,
@@ -701,15 +698,15 @@ mod tests {
                 scripts: None,
                 resources: None,
                 network_profile: None,
-                source: "manual".to_string(),
+                source: moatless_types::workspace::WorkspaceSource::Manual,
                 source_repository_id: None,
                 source_key: None,
                 source_config_path: None,
-                scope: moatless_backend_core::scope::Scope::User,
+                scope: moatless_types::access_control::Scope::User,
                 owner_user_id: None,
                 run_as_user_id: run_as.clone(),
                 created_by: None,
-                deleted: Some(false),
+                deleted: false,
                 created_at: None,
                 updated_at: None,
             }))
@@ -755,7 +752,7 @@ mod tests {
         let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
             moatless_identity::auth::test_support::github_row("oauth", "gho_from_user"),
         )));
-        let repository = github_repository(moatless_backend_core::scope::Scope::User);
+        let repository = github_repository(moatless_types::access_control::Scope::User);
         let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
         let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
 
@@ -784,7 +781,7 @@ mod tests {
             OPENAI_API_KEY,
             "sk-from-secret",
         )]));
-        let repository = github_repository(moatless_backend_core::scope::Scope::User);
+        let repository = github_repository(moatless_types::access_control::Scope::User);
         let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
 
         let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
@@ -825,7 +822,7 @@ mod tests {
             "ghp_validated",
         )]);
 
-        let repository = github_repository(moatless_backend_core::scope::Scope::User);
+        let repository = github_repository(moatless_types::access_control::Scope::User);
         let token = sandbox_github_token(tokens, secrets, &repository).await;
         assert_eq!(token, None);
     }
@@ -843,7 +840,7 @@ mod tests {
             "ghp_unvalidated",
         )]);
 
-        let repository = github_repository(moatless_backend_core::scope::Scope::User);
+        let repository = github_repository(moatless_types::access_control::Scope::User);
         let token = sandbox_github_token(tokens, secrets, &repository).await;
         assert_eq!(token, None);
     }
@@ -861,7 +858,7 @@ mod tests {
             "ghp_from_secret",
         )]);
 
-        let repository = github_repository(moatless_backend_core::scope::Scope::User);
+        let repository = github_repository(moatless_types::access_control::Scope::User);
         let token = sandbox_github_token(tokens, secrets, &repository).await;
         assert_eq!(token, Some("gho_from_row".to_string()));
     }
@@ -881,7 +878,7 @@ mod tests {
             )),
         );
 
-        let repository = github_repository(moatless_backend_core::scope::Scope::Global);
+        let repository = github_repository(moatless_types::access_control::Scope::Global);
         let token = sandbox_github_token(tokens, service_with(vec![]), &repository).await;
         assert_eq!(token, Some("gho_run_as_user".to_string()));
     }
@@ -896,7 +893,7 @@ mod tests {
                 moatless_identity::auth::test_support::github_row("oauth", "gho_global_binding"),
             ));
 
-        let repository = github_repository(moatless_backend_core::scope::Scope::Global);
+        let repository = github_repository(moatless_types::access_control::Scope::Global);
         let token = sandbox_github_token(tokens, service_with(vec![]), &repository).await;
         assert_eq!(token, None);
     }
@@ -919,7 +916,7 @@ mod tests {
             "ghp_from_secret",
         )]);
 
-        let repository = github_repository(moatless_backend_core::scope::Scope::User);
+        let repository = github_repository(moatless_types::access_control::Scope::User);
         let token = sandbox_github_token(tokens, secrets, &repository).await;
         assert_eq!(token, Some("ghp_from_secret".to_string()));
     }
@@ -933,7 +930,7 @@ mod tests {
                 moatless_identity::auth::test_support::github_row("manual", "ghp_org"),
             ));
 
-        let repository = github_repository(moatless_backend_core::scope::Scope::User);
+        let repository = github_repository(moatless_types::access_control::Scope::User);
         let token = sandbox_github_token(tokens, service_with(vec![]), &repository).await;
         assert_eq!(token, None);
     }
@@ -954,7 +951,7 @@ mod tests {
             name: name.map(str::to_string),
             avatar_url: None,
             provider: "github".to_string(),
-            role: moatless_identity::auth::models::UserRole::User,
+            role: moatless_types::user::UserRole::User,
             created_at: epoch,
             last_login_at: epoch,
             settings: serde_json::Value::Null,

@@ -31,7 +31,7 @@ use crate::projection;
 use crate::terminal::{self, TerminalError, TerminalHub};
 use moatless_api_schemas::repository::ScriptConfig;
 use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, SandboxPortPublisher};
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 /// Everything `scripts.run` reaches that the terminal path does not already
 /// hand it. The conversation, sandbox and terminal handles are the ones

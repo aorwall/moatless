@@ -31,7 +31,7 @@ use moatless_backend::task_activities::mapping::ConversationWrite;
 use moatless_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
 use moatless_backend::task_turn::models::{TurnStatus, TurnTransition};
 use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
-use moatless_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 use moatless_backend::tag::dao::{PgTagDao, TagDao};
 use moatless_backend::task_listing::{
     ListingHead, RESUME_WINDOW, RETAINED_CHANGES, Resume, changes_after, current_head,
@@ -348,7 +348,7 @@ async fn workspace_mutations_do_not_advance_the_task_listing(pool: PgPool) {
     assert!(workspaces.soft_delete("ws-manual", &viewer).await.unwrap());
 
     let mut git = make_workspace_row("ws-git", USER_1);
-    git.source = "git".to_string();
+    git.source = moatless_types::workspace::WorkspaceSource::Git;
     git.source_repository_id = Some("repo-a".to_string());
     git.source_key = Some("api".to_string());
     workspaces.insert_workspace(&git).await.unwrap();

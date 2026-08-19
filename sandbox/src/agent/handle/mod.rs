@@ -16,7 +16,7 @@ pub(crate) mod retry;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use moatless_events::AgentSubType;
+use moatless_types::agent::AgentSubType;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::backend_client::BackendClient;

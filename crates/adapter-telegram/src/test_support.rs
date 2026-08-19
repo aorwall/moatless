@@ -11,9 +11,10 @@ use std::sync::{Arc, Mutex};
 use axum::extract::State;
 use axum::routing::any;
 use axum::{Json, Router};
-use moatless_backend_core::scope::Scope;
+use moatless_types::access_control::Scope;
 
-use moatless_loops::adapters::models::{LoopContext, RoutingMode, SubscriptionMatch};
+use moatless_loops::adapters::models::SubscriptionMatch;
+use moatless_types::loops::{LoopContext, RoutingMode};
 
 /// The Subscription's run-as user — the fallback identity an unmapped Telegram
 /// sender is routed as.
@@ -25,11 +26,11 @@ pub(super) const OWNER: &str = "user-owner";
 /// of them; spelling the rest out per module is how two copies drift into
 /// disagreeing about what a default Subscription is. Set what your test is
 /// about on the value this returns.
-pub(super) fn test_rule(adapter_kind: &str, source_matcher: &str) -> SubscriptionMatch {
+pub(super) fn test_rule(adapter_kind: moatless_types::adapter::AdapterKind, source_matcher: &str) -> SubscriptionMatch {
     let now = chrono::Utc::now();
     SubscriptionMatch {
         id: "tt_test".into(),
-        adapter_kind: adapter_kind.into(),
+        adapter_kind,
         connection_id: "pc_test".into(),
         source_matcher: source_matcher.into(),
         source_name: None,
@@ -96,7 +97,7 @@ pub(super) fn test_loop_context(source_id: &str) -> LoopContext {
     let now = chrono::Utc::now();
     LoopContext {
         id: "tt_test".into(),
-        adapter_kind: "telegram".into(),
+        adapter_kind: "telegram".to_string(),
         source_id: source_id.into(),
         source_name: None,
         repository_id: "repo-1".into(),

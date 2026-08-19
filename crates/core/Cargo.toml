@@ -57,8 +57,11 @@ tracing = "0.1"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
 
-# Typed event system (shared with sandbox)
-moatless-events = { path = "../events" }
+# Shared type definitions
+moatless-types = { path = "../types" }
+
+# Shared API DTOs — `error_response()` returns the canonical `ErrorBody`.
+moatless-api-schemas = { path = "../api-schemas" }
 
 # Pure backend access-control policy and scope types
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
@@ -69,7 +72,8 @@ moatless-backend-core = { path = "../backend-core", features = ["database"] }
 # consumer gets the config/db/event/scope types without utoipa.
 openapi = [
     "dep:utoipa",
-    "moatless-events/openapi",
+    "moatless-types/openapi",
+    "moatless-api-schemas/openapi",
     "moatless-backend-core/openapi",
 ]
 # Exposes test-only constructors such as `Config::test_minimal` and the

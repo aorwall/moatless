@@ -25,7 +25,7 @@ use tracing::{debug, info, warn};
 
 use crate::task::dao::TaskDao;
 use moatless_backend_core::sandbox::SandboxConnector;
-use moatless_identity::auth::codex_scope::CodexScope;
+use moatless_types::agent::CodexScope;
 use moatless_workspaces::credentials::codex::refresh::CodexRefreshOutcome;
 use moatless_workspaces::credentials::{
     CredentialError, CredentialService, StoreOutcome, WriteSource, should_broadcast,
@@ -287,9 +287,7 @@ mod tests {
     use crate::task::dao::MockTaskDao;
     use async_trait::async_trait;
     use moatless_backend_core::sandbox::{SandboxClient, SandboxConnector, SandboxError};
-    use moatless_identity::auth::models::{
-        GithubTokenPresence, ProviderAccessToken, ProviderToken,
-    };
+    use moatless_identity::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
     use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 
     /// A `SandboxConnector` that must never be reached. Every test below either

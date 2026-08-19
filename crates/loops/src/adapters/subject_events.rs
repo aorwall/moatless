@@ -5,7 +5,8 @@
 //! deduplication, self-echo filtering, and sandbox notification.
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch, TaskBinding};
+use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::InboundMessage;
 use crate::bindings::runtime::RoutingService;
 
 /// One Adapter event and the active bindings listening to its subject.

@@ -14,7 +14,9 @@ use tracing::{info, warn};
 use crate::auth::error::AuthError;
 use crate::secret::models::EncryptedSecretValue;
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher};
-use moatless_core::config::{Config, LinearConfig, SecretsConfig, SlackConfig, TelegramConfig};
+use moatless_core::config::{Config, SlackConfig, TelegramConfig};
+use moatless_types::adapter::LinearConfig;
+use moatless_types::secret::SecretsConfig;
 use moatless_core::db::DbPool;
 
 pub mod dao;

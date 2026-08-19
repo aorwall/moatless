@@ -6,9 +6,10 @@
 //! orphaned turns). Placed at the tasks band so neither consumer reaches up
 //! into the other.
 
-use moatless_events::{
-    AgentSubType, EventType, SandboxStatus, ServerSubType, TaskSubType, TaskTurnSubType,
-};
+use moatless_types::agent::AgentSubType;
+use moatless_types::event::EventType;
+use moatless_types::sandbox::{SandboxStatus, ServerSubType};
+use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use serde::Deserialize;
 
 /// Typed event dispatch key — replaces string-concat `format!("{}.{}", type, sub)`.

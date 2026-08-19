@@ -25,8 +25,8 @@ use crate::extractors::UserTokenVerifier;
     ),
     components(schemas(
         moatless_api_schemas::enums::Scope,
-        super::models::SecretKind,
-        super::models::SecretSource,
+        moatless_types::secret::SecretKind,
+        moatless_types::secret::SecretSource,
         super::schemas::SecretMetadataResponse,
         super::schemas::PutSecretRequest,
         super::schemas::PatchSecretRequest,

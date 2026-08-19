@@ -1,0 +1,557 @@
+//! Sandbox vocabulary: which provider runs a Sandbox, what survives its
+//! removal, and the live status of a Sandbox and of the servers inside it.
+//!
+//! `AgentStatus` lives here, not in `agent`, because it belongs to the
+//! live-status cluster: [`LiveStatus`] names it alongside [`SandboxStatus`],
+//! and its consumers are the sandbox band and the HTTP schema chain —
+//! disjoint from those of `agent::AgentSubType`.
+
+// reason: test code may unwrap freely; production code keeps the workspace `deny`.
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
+use std::fmt;
+use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
+
+/// Which sandbox provider implementation to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxProviderType {
+    Kubernetes,
+    Docker,
+}
+
+impl fmt::Display for SandboxProviderType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Kubernetes => write!(f, "kubernetes"),
+            Self::Docker => write!(f, "docker"),
+        }
+    }
+}
+
+impl FromStr for SandboxProviderType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "kubernetes" | "k8s" => Ok(Self::Kubernetes),
+            "docker" => Ok(Self::Docker),
+            _ => Err(format!("unknown sandbox provider: {s}")),
+        }
+    }
+}
+
+/// Typed policy for task archive retention.
+/// Runtime resources (Deployment, Service, IngressRoutes, **and the PVC**) are
+/// always removed regardless of this policy; it governs S3 archives and
+/// managed provider-local disk archives (opt-in Kubernetes node hostPaths and
+/// Docker task directories).
+///
+/// The lifecycle store, providers, and reconciler that persist and apply it
+/// reach it re-exported from `sandbox::lifecycle`, so their paths name the
+/// lifecycle module rather than this one.
+///
+/// Persisted alongside `Removed` intent in the same atomic write so a crashed
+/// remove can be retried with the *original* policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArchiveRetention {
+    /// Soft removal: keep archives so the task can be revived (reopen).
+    RetainArchives,
+    /// Permanent deletion: remove all archives too. Never superseded by a
+    /// later message-wake — deletion wins.
+    DeleteArchives,
+}
+
+impl ArchiveRetention {
+    pub fn retains(self) -> bool {
+        matches!(self, Self::RetainArchives)
+    }
+
+    /// The close-time policy from the `SANDBOX_RETAIN_STORAGE_ON_CLOSE` flag:
+    /// retain archives (revivable) when set, delete them otherwise. One helper
+    /// so the close/auto-close/adapter-close sites can't drift.
+    pub fn on_close(retain_archives: bool) -> Self {
+        if retain_archives {
+            Self::RetainArchives
+        } else {
+            Self::DeleteArchives
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RetainArchives => "retain_archives",
+            Self::DeleteArchives => "delete_archives",
+        }
+    }
+
+    /// Parse the persisted slug back into a policy. `None` for an unknown value.
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "retain_archives" => Some(Self::RetainArchives),
+            "delete_archives" => Some(Self::DeleteArchives),
+            _ => None,
+        }
+    }
+}
+
+/// Sandbox status — valid status values for sandbox lifecycle events.
+///
+/// These match the frontend `SandboxStatus` values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxStatus {
+    NotCreated,
+    Initializing,
+    Ready,
+    Stopped,
+    Removing,
+    Removed,
+    Error,
+}
+
+impl SandboxStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotCreated => "not_created",
+            Self::Initializing => "initializing",
+            Self::Ready => "ready",
+            Self::Stopped => "stopped",
+            Self::Removing => "removing",
+            Self::Removed => "removed",
+            Self::Error => "error",
+        }
+    }
+}
+
+impl std::fmt::Display for SandboxStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for SandboxStatus {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, String> {
+        match s {
+            "not_created" => Ok(Self::NotCreated),
+            "initializing" => Ok(Self::Initializing),
+            "ready" => Ok(Self::Ready),
+            "stopped" => Ok(Self::Stopped),
+            "removing" => Ok(Self::Removing),
+            "removed" => Ok(Self::Removed),
+            "error" => Ok(Self::Error),
+            // Accept legacy "fatal" as Error for backwards compatibility
+            "fatal" => Ok(Self::Error),
+            other => Err(format!("unknown SandboxStatus: {other}")),
+        }
+    }
+}
+
+/// Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum ServerStatus {
+    Stopped,
+    Installing,
+    Starting,
+    Started,
+    Failed,
+}
+
+impl ServerStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Stopped => "stopped",
+            Self::Installing => "installing",
+            Self::Starting => "starting",
+            Self::Started => "started",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+impl std::fmt::Display for ServerStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<&str> for ServerStatus {
+    /// Lenient: an unrecognised value reads as [`ServerStatus::Stopped`] rather
+    /// than failing.
+    fn from(s: &str) -> Self {
+        match s {
+            "installing" => Self::Installing,
+            "starting" => Self::Starting,
+            "started" => Self::Started,
+            "failed" => Self::Failed,
+            _ => Self::Stopped,
+        }
+    }
+}
+
+/// Server capabilities (deterministic from server name)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerCapabilities {
+    pub address_bar: bool,
+    pub inspector: bool,
+    pub reload: bool,
+    pub open_external: bool,
+    pub viewport: bool,
+    pub console: bool,
+}
+
+/// Single server entry in the workspace status response
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerEntry {
+    pub name: String,
+    pub label: String,
+    pub port: u16,
+    pub status: ServerStatus,
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    pub default: bool,
+    pub capabilities: ServerCapabilities,
+}
+
+/// Observed Agent lifecycle while its Sandbox is ready.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum AgentStatus {
+    Running,
+    /// Parked on a person: the run is open, and nothing is running until it is
+    /// answered.
+    Waiting,
+    Idle,
+    Unknown,
+}
+
+impl AgentStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Waiting => "waiting",
+            Self::Idle => "idle",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for AgentStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<&str> for AgentStatus {
+    /// Lenient: an unrecognised value reads as [`AgentStatus::Unknown`] rather
+    /// than failing, and legacy `"stopped"` reads as [`AgentStatus::Idle`].
+    fn from(s: &str) -> Self {
+        match s {
+            "running" => Self::Running,
+            "waiting" => Self::Waiting,
+            "idle" | "stopped" => Self::Idle,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// The complete live status of a Task's Sandbox and Agent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct LiveStatus {
+    pub sandbox_status: SandboxStatus,
+    #[cfg_attr(feature = "openapi", schema(required = true))]
+    pub agent_status: Option<AgentStatus>,
+    #[cfg_attr(feature = "openapi", schema(required = true))]
+    pub sandbox_error: Option<String>,
+}
+
+/// Server sub-types — server container lifecycle.
+///
+/// `Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ServerSubType {
+    Installing,
+    Starting,
+    Started,
+    Stopped,
+    Failed,
+}
+
+impl ServerSubType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Installing => "installing",
+            Self::Starting => "starting",
+            Self::Started => "started",
+            Self::Stopped => "stopped",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+impl std::fmt::Display for ServerSubType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for ServerSubType {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "installing" => Ok(Self::Installing),
+            "starting" => Ok(Self::Starting),
+            "started" => Ok(Self::Started),
+            "stopped" => Ok(Self::Stopped),
+            "failed" => Ok(Self::Failed),
+            other => Err(format!("unknown ServerSubType: {other}")),
+        }
+    }
+}
+
+/// Server event payload — matches frontend `ServerEventPayloadSchema`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerEventPayload {
+    pub server_name: String,
+    pub status: ServerSubType,
+    /// Human-readable contextual detail (e.g. "ContainerCreating", "CrashLoopBackOff").
+    /// Always set by the publisher. `#[serde(default)]` handles old events without this field.
+    #[serde(default)]
+    pub message: String,
+}
+
+/// Sandbox event payload — typed payload for sandbox lifecycle events.
+///
+/// Used by the pod watcher and provider to publish structured events
+/// instead of raw `serde_json::Value`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SandboxEventPayload {
+    /// Human-readable description of the event.
+    #[serde(default)]
+    pub message: String,
+    /// K8s lifecycle event name (e.g. "pod_ready", "container_oom_killed").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle_event: Option<String>,
+    /// Error detail when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Exit code of the terminated sandbox container, when known.
+    ///
+    /// Lets consumers distinguish OOM (137) from an application crash (1) or a
+    /// graceful SIGTERM (143). `#[serde(default)]` keeps old events readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    /// K8s termination reason of the sandbox container (e.g. "OOMKilled",
+    /// "Error", "Completed"), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminated_reason: Option<String>,
+    /// Node the pod was scheduled on (`pod.spec.node_name`). Enables node-level
+    /// correlation of otherwise-unrelated tasks that stopped together.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_name: Option<String>,
+    /// Why the pod was disrupted, from
+    /// `pod.status.conditions[DisruptionTarget].reason` (PreemptionByScheduler |
+    /// DeletionByTaintManager | TerminationByKubelet | EvictionByEvictionAPI |
+    /// DeletionByPodGC), falling back to `pod.status.reason`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disruption_reason: Option<String>,
+    /// Who caused an intentional stop: "reaper" | "user" | "close" | "restart"
+    /// | "crash_autostop" | "eviction". Null for events that aren't stops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initiator: Option<String>,
+    /// Seconds the pod spent `Pending` before it was scheduled onto a node.
+    /// Attached to `pod_scheduled` events so slow scheduling is readable directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_seconds: Option<i64>,
+}
+
+/// Resources event payload — typed shape for `EventType::Resources` events.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ResourcesEventPayload {
+    #[serde(default)]
+    pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every status the backend can serialize must round-trip here — a missing
+    /// variant fails the whole `/sandbox/status` response, not just the field.
+    #[test]
+    fn every_agent_status_deserializes() {
+        for wire in ["running", "waiting", "idle", "unknown"] {
+            let json = format!("\"{wire}\"");
+            let parsed: AgentStatus =
+                serde_json::from_str(&json).unwrap_or_else(|e| panic!("{wire}: {e}"));
+            assert_eq!(parsed.to_string(), wire);
+            assert_eq!(AgentStatus::from(wire), parsed);
+        }
+    }
+
+    #[test]
+    fn every_server_status_deserializes() {
+        for wire in ["stopped", "installing", "starting", "started", "failed"] {
+            let json = format!("\"{wire}\"");
+            let parsed: ServerStatus =
+                serde_json::from_str(&json).unwrap_or_else(|e| panic!("{wire}: {e}"));
+            assert_eq!(parsed.to_string(), wire);
+            assert_eq!(ServerStatus::from(wire), parsed);
+        }
+    }
+
+    #[test]
+    fn sandbox_status_serializes_to_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&SandboxStatus::NotCreated).unwrap(),
+            "\"not_created\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SandboxStatus::Initializing).unwrap(),
+            "\"initializing\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SandboxStatus::Removed).unwrap(),
+            "\"removed\""
+        );
+    }
+
+    #[test]
+    fn server_sub_type_serializes() {
+        assert_eq!(
+            serde_json::to_string(&ServerSubType::Started).unwrap(),
+            "\"started\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ServerSubType::Failed).unwrap(),
+            "\"failed\""
+        );
+    }
+
+    #[test]
+    fn server_event_payload_serializes() {
+        let payload = ServerEventPayload {
+            server_name: "preview".to_string(),
+            status: ServerSubType::Started,
+            message: String::new(),
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["serverName"], "preview");
+        assert_eq!(json["status"], "started");
+        assert_eq!(json["message"], "");
+    }
+
+    #[test]
+    fn server_event_payload_with_message() {
+        let payload = ServerEventPayload {
+            server_name: "preview".to_string(),
+            status: ServerSubType::Starting,
+            message: "ContainerCreating".to_string(),
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["message"], "ContainerCreating");
+    }
+
+    #[test]
+    fn server_event_payload_deserializes_without_message() {
+        let json = serde_json::json!({
+            "serverName": "preview",
+            "status": "started"
+        });
+        let payload: ServerEventPayload = serde_json::from_value(json).unwrap();
+        assert_eq!(payload.message, "");
+    }
+
+    #[test]
+    fn sandbox_status_try_from() {
+        assert_eq!(
+            SandboxStatus::try_from("not_created"),
+            Ok(SandboxStatus::NotCreated)
+        );
+        assert_eq!(
+            SandboxStatus::try_from("removed"),
+            Ok(SandboxStatus::Removed)
+        );
+        // Legacy "fatal" maps to Error
+        assert_eq!(SandboxStatus::try_from("fatal"), Ok(SandboxStatus::Error));
+        assert!(SandboxStatus::try_from("bad").is_err());
+    }
+
+    #[test]
+    fn server_sub_type_try_from() {
+        assert_eq!(ServerSubType::try_from("failed"), Ok(ServerSubType::Failed));
+        assert!(ServerSubType::try_from("nah").is_err());
+    }
+}
+
+crate::string_enum!(
+    /// Persisted application intent for a task's sandbox lifecycle.
+    SandboxDesiredState {
+        Running => "running",
+        Stopped => "stopped",
+        Removed => "removed",
+    }
+);
+
+crate::string_enum!(
+    /// Reason the persisted sandbox intent moved away from `running`.
+    SandboxStopReason {
+        User => "user",
+        IdleReaper => "idle_reaper",
+        Cleanup => "cleanup",
+        System => "system",
+        Error => "error",
+    }
+);
+
+#[cfg(test)]
+mod wire_contract {
+    use super::*;
+
+    #[test]
+    fn sandbox_intent_wire_strings() {
+        for (value, wire) in [
+            (SandboxDesiredState::Running, "running"),
+            (SandboxDesiredState::Stopped, "stopped"),
+            (SandboxDesiredState::Removed, "removed"),
+        ] {
+            assert_eq!(value.as_str(), wire);
+            assert_eq!(SandboxDesiredState::try_from(wire), Ok(value));
+            assert_eq!(serde_json::to_string(&value).unwrap(), format!("\"{wire}\""));
+        }
+        for (value, wire) in [
+            (SandboxStopReason::User, "user"),
+            (SandboxStopReason::IdleReaper, "idle_reaper"),
+            (SandboxStopReason::Cleanup, "cleanup"),
+            (SandboxStopReason::System, "system"),
+            (SandboxStopReason::Error, "error"),
+        ] {
+            assert_eq!(value.as_str(), wire);
+            assert_eq!(SandboxStopReason::try_from(wire), Ok(value));
+            assert_eq!(serde_json::to_string(&value).unwrap(), format!("\"{wire}\""));
+        }
+    }
+}

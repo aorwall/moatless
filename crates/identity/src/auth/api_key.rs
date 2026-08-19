@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 
 use super::api_keys::{ApiKey, ApiKeyDao};
-use super::models::UserRole;
+use moatless_types::user::UserRole;
 use super::users::UserDao;
 
 const KEY_PREFIX: &str = "mvk_";

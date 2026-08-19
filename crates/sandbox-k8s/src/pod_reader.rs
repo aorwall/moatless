@@ -12,7 +12,7 @@ use tracing::{debug, warn};
 
 use super::client::K8sClient;
 use super::pod_status::{extract_all_container_statuses, extract_container_observed_statuses};
-use moatless_backend_core::run_config::{Cpu, Memory};
+use moatless_types::workspace::{Cpu, Memory};
 use moatless_backend_core::sandbox::{SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};
 use moatless_sandbox_control::access::LogOptions;
 use moatless_sandbox_control::models::{ContainerObservedStatus, ContainerState, PodPhase};

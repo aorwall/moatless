@@ -1,6 +1,6 @@
 //! Naming a repository on a git host.
 
-use moatless_api_schemas::enums::RepositoryProvider;
+use moatless_types::repository::RepositoryProvider;
 
 /// A repository named on a git host: which host, whose account, and what it is
 /// called.

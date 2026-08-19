@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use super::models::UserRole;
+use moatless_types::user::UserRole;
 use moatless_core::db::DbPool;
 
 /// A newly issued auth session. The browser receives the raw token; this row
@@ -29,6 +29,7 @@ pub struct AuthenticatedSession {
     pub id: Uuid,
     pub user_id: Uuid,
     pub login: String,
+    #[sqlx(try_from = "String")]
     pub role: UserRole,
     pub authenticated_via: String,
     pub csrf_token_hash: Vec<u8>,

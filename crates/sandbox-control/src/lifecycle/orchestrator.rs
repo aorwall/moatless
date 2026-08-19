@@ -29,8 +29,9 @@ use tracing::Instrument;
 use moatless_backend_core::sandbox as core_sandbox;
 
 use crate::error::SandboxError;
-use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
-use moatless_tasks::task::models::CheckoutMode;
+use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+use moatless_types::task::TaskStatus;
+use moatless_types::task::CheckoutMode;
 use moatless_tasks::task::sandbox_lifecycle::{SandboxLifecycle, SandboxOpError};
 
 use super::error::LifecycleError;
@@ -62,6 +63,7 @@ pub struct TaskIntent {
 pub struct SandboxMember {
     pub task_id: String,
     pub sandbox_id: String,
+    #[sqlx(try_from = "String")]
     pub checkout_mode: CheckoutMode,
 }
 
@@ -2339,7 +2341,7 @@ mod tests {
                 .lock()
                 .expect("lock")
                 .iter()
-                .all(|e| e.status != moatless_events::SandboxStatus::Ready)
+                .all(|e| e.status != moatless_types::sandbox::SandboxStatus::Ready)
         );
     }
 

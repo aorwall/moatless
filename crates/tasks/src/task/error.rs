@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_backend_core::access_control::AccessControlError;
+use moatless_types::access_control::AccessControlError;
 use moatless_core::error::error_response;
 
 #[derive(Debug, thiserror::Error)]

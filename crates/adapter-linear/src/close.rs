@@ -17,14 +17,12 @@ use std::fmt::Write as _;
 
 use tracing::{debug, info, warn};
 
-use moatless_backend_core::models::TaskStatus;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::task::TaskStatus;
+use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{
-    ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding,
-};
+use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
 use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_tasks::task::closer::{CloseEvent, TaskCloser};
 use moatless_tasks::task::dao::TaskDao;

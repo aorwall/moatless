@@ -34,16 +34,17 @@ use tracing::warn;
 use crate::secrets::{
     resolve_task_actor, resolve_task_github_token, resolve_workspace_credentials,
 };
-use moatless_api_schemas::enums::RepositoryProvider as GitHostProvider;
-use moatless_backend_core::scope::{Scope, ScopeContext};
-use moatless_identity::auth::models::UserRole;
+use moatless_types::repository::RepositoryProvider as GitHostProvider;
+use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::user::UserRole;
 use moatless_identity::auth::users::UserDao;
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
 use moatless_tasks::credential_sync::CredentialSync;
 use moatless_tasks::task::creation::{PreflightPort, PreflightRejection};
 use moatless_tasks::task::models::Task;
-use moatless_workspaces::repository::models::{Repository, RepositoryKind, RepositoryProvider};
+use moatless_types::repository::{RepositoryKind, RepositoryProvider};
+use moatless_workspaces::repository::models::Repository;
 use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 
@@ -386,11 +387,11 @@ mod tests {
         Task {
             task_id: "task-1".to_string(),
             short_id: None,
-            created_at: String::new(),
-            last_message_at: String::new(),
-            agent_type: moatless_core::shared_models::AgentType("claude-code".to_string()),
+            created_at: chrono::Utc::now(),
+            last_message_at: chrono::Utc::now(),
+            agent_type: moatless_types::agent::AgentType("claude-code".to_string()),
             repository_id: "r".to_string(),
-            status: moatless_backend_core::models::TaskStatus::Open,
+            status: moatless_types::task::TaskStatus::Open,
             total_cost_usd: 0.0,
             site_url: None,
             template_id: None,
@@ -402,10 +403,9 @@ mod tests {
             branch: None,
             model: None,
             created_by: created_by.map(|u| uid(u).to_string()),
-            visibility: moatless_tasks::task::models::Visibility::Private,
+            visibility: moatless_types::task::Visibility::Private,
             scope,
             owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
-            created_at_db: None,
             updated_at: None,
             append_system_prompt: None,
             headless: false,
@@ -569,10 +569,10 @@ mod tests {
             default_branch: None,
             description: None,
             provider,
-            scope: moatless_backend_core::scope::Scope::User,
+            scope: moatless_types::access_control::Scope::User,
             owner_user_id: None,
             created_by: None,
-            deleted: None,
+            deleted: false,
             created_at: None,
             updated_at: None,
         }

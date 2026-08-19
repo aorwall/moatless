@@ -2,7 +2,8 @@
 //! that frame an inbound message, and the thread history fetched alongside it.
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{BindingContext, InboundMessage, LoopContext};
+use moatless_types::adapter::{BindingContext, InboundMessage};
+use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::AdapterInboundPresentation;
 
 use super::adapter::SlackAdapter;
@@ -115,12 +116,11 @@ impl AdapterInboundPresentation for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use moatless_loops::adapters::models::{
-        Audience, BindingContext, InboundMessage, LoopContext, RoutingMode,
-    };
+    use moatless_types::adapter::{Audience, BindingContext, InboundMessage};
+    use moatless_types::loops::{LoopContext, RoutingMode};
     use moatless_loops::adapters::test_support::ProviderStub;
     use moatless_loops::adapters::{AdapterInboundPresentation, AdapterKind};
-    use moatless_backend_core::scope::Scope;
+    use moatless_types::access_control::Scope;
 
     use crate::adapter::SlackAdapter;
     use crate::api::SlackApi;
@@ -171,7 +171,7 @@ mod tests {
         let now = chrono::Utc::now();
         LoopContext {
             id: "tt_1".into(),
-            adapter_kind: "slack".into(),
+            adapter_kind: "slack".to_string(),
             source_id: "C1".into(),
             source_name: None,
             repository_id: "repo-1".into(),

@@ -108,7 +108,7 @@ impl InteractivePermissionHandler {
         let published = events
             .publish_agent_event(
                 &sink.task_id,
-                moatless_events::AgentSubType::Message,
+                moatless_types::agent::AgentSubType::Message,
                 prompt_message_payload(
                     tool_name,
                     tool_use_id,

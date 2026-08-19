@@ -5,11 +5,12 @@ use std::sync::Arc;
 use tracing::debug;
 
 use moatless_core::db::DbPool;
-use moatless_identity::auth::actor::Actor;
+use moatless_types::access_control::Actor;
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{BindingContext, SubscriptionMatch, TaskBinding};
+use moatless_loops::adapters::models::{SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::BindingContext;
 
 use super::api::GithubPrApi;
 
@@ -239,6 +240,7 @@ fn binding_filter_user_id<'a>(
 
 #[cfg(test)]
 mod tests {
+    use moatless_types::adapter::AdapterKind;
     use super::*;
     use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
@@ -255,7 +257,7 @@ mod tests {
         TaskBinding {
             id: "binding".into(),
             task_id: "task".into(),
-            adapter_kind: "github_pr".into(),
+            adapter_kind: AdapterKind::GithubPr,
             subject_kind: "github_pr".into(),
             subject_key: "soaplabs/repo#42".into(),
             connection_id: "connection".into(),
@@ -279,12 +281,12 @@ mod tests {
 
     fn rule_with_run_as(user_id: &str) -> SubscriptionMatch {
         use chrono::Utc;
-        use moatless_backend_core::scope::Scope;
-        use moatless_loops::adapters::models::RoutingMode;
+        use moatless_types::access_control::Scope;
+        use moatless_types::loops::RoutingMode;
 
         SubscriptionMatch {
             id: "rule".into(),
-            adapter_kind: "github".into(),
+            adapter_kind: AdapterKind::Github,
             connection_id: "connection".into(),
             source_matcher: "soaplabs/repo".into(),
             source_name: None,

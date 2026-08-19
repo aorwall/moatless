@@ -16,7 +16,7 @@ use tracing::{debug, info, warn};
 use crate::credentials::codex::oauth;
 use crate::credentials::{CredentialError, CredentialService};
 use moatless_core::db::DbPool;
-use moatless_identity::auth::codex_scope::CodexScope;
+use moatless_types::agent::CodexScope;
 
 impl CredentialService {
     /// The pure Codex `auth.json` refresh, serialized on the per-scope mutex.

@@ -1,67 +1,7 @@
 //! Secret domain types and validation helpers.
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-
-/// Secret value category.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SecretKind {
-    Env,
-    ProviderToken,
-    RuntimeFile,
-    Deployment,
-    /// SSH private key. Materialized into the sandbox's `~/.ssh` directory
-    /// (never set as an env var) and used transparently for git/ssh over SSH
-    /// remotes.
-    SshKey,
-    /// Backend-only value (e.g. an OAuth token stashed behind a PAT override).
-    /// Never delivered to a sandbox through any channel.
-    Internal,
-}
-
-impl SecretKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Env => "env",
-            Self::ProviderToken => "provider_token",
-            Self::RuntimeFile => "runtime_file",
-            Self::Deployment => "deployment",
-            Self::SshKey => "ssh_key",
-            Self::Internal => "internal",
-        }
-    }
-}
-
-impl std::fmt::Display for SecretKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for SecretKind {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "env" => Ok(Self::Env),
-            "provider_token" => Ok(Self::ProviderToken),
-            "runtime_file" => Ok(Self::RuntimeFile),
-            "deployment" => Ok(Self::Deployment),
-            "ssh_key" => Ok(Self::SshKey),
-            "internal" => Ok(Self::Internal),
-            other => Err(format!("unknown secret kind: {other}")),
-        }
-    }
-}
-
-/// Where a secret value is stored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SecretSource {
-    InlineEncrypted,
-    ExternalRef,
-}
+use moatless_types::secret::SecretSource;
 
 /// Persisted secret row. The plaintext value is intentionally absent.
 #[derive(sqlx::FromRow, Debug, Clone)]

@@ -8,12 +8,13 @@
 
 use std::collections::BTreeMap;
 
-use super::models::{looks_like_secret_key, SecretKind};
+use moatless_types::secret::SecretKind;
+use super::models::looks_like_secret_key;
 use super::schemas::PutSecretRequest;
 use super::service::SecretService;
 use moatless_core::db::DbPool;
 use moatless_api_schemas::enums::Scope;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 #[derive(Debug, Clone, Copy)]
 pub struct MigrateOptions {
@@ -204,7 +205,7 @@ async fn put_user(
     // For user-scoped migrate we create via the admin context which allows any scope.
     // The owner_id is set as the ctx user for resolution via resolve_scope_for_create.
     // We use a temporary ctx to impersonate the owner.
-    let owner_ctx = moatless_backend_core::scope::ScopeContext {
+    let owner_ctx = moatless_types::access_control::ScopeContext {
         user_id: owner_id.to_string(),
         is_admin: false,
     };

@@ -4,7 +4,7 @@ use sqlx::AssertSqlSafe;
 
 use moatless_core::db::DbPool;
 
-use moatless_adapter_model::models::{TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
+use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding, TaskBindingRow};
 
 use moatless_tasks::task::binding_dao::{LoopRecentTaskRow, TaskBindingDao, TaskBindingInfo};
 
@@ -222,12 +222,13 @@ const TASK_BINDING_SELECT: &str = r#"
 
 impl PgTaskBindingDao {
     pub async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
-        sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
+        let row = sqlx::query_as::<_, TaskBindingRow>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE id = $1"
         )))
         .bind(id)
         .fetch_optional(&self.0)
-        .await
+        .await?;
+        Ok(row.map(TaskBinding::from))
     }
 
     pub async fn find_by_subject(
@@ -236,14 +237,15 @@ impl PgTaskBindingDao {
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
+        let rows = sqlx::query_as::<_, TaskBindingRow>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 AND subject_kind = $2 AND subject_key = $3 ORDER BY created_at ASC"
         )))
         .bind(adapter_kind)
         .bind(subject_kind)
         .bind(subject_key)
         .fetch_all(&self.0)
-        .await
+        .await?;
+        Ok(rows.into_iter().map(TaskBinding::from).collect())
     }
 
     pub async fn find_all_by_subject_excluding_task(
@@ -253,7 +255,7 @@ impl PgTaskBindingDao {
         subject_key: &str,
         exclude_task_id: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
+        let rows = sqlx::query_as::<_, TaskBindingRow>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 AND subject_kind = $2 AND subject_key = $3 AND task_id <> $4 ORDER BY created_at ASC"
         )))
         .bind(adapter_kind)
@@ -261,16 +263,18 @@ impl PgTaskBindingDao {
         .bind(subject_key)
         .bind(exclude_task_id)
         .fetch_all(&self.0)
-        .await
+        .await?;
+        Ok(rows.into_iter().map(TaskBinding::from).collect())
     }
 
     pub async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
+        let rows = sqlx::query_as::<_, TaskBindingRow>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE task_id = $1 ORDER BY created_at ASC"
         )))
         .bind(task_id)
         .fetch_all(&self.0)
-        .await
+        .await?;
+        Ok(rows.into_iter().map(TaskBinding::from).collect())
     }
 
     pub async fn find_by_task_id_and_subject(
@@ -280,7 +284,7 @@ impl PgTaskBindingDao {
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error> {
-        sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
+        let row = sqlx::query_as::<_, TaskBindingRow>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE task_id = $1 AND adapter_kind = $2 AND subject_kind = $3 AND subject_key = $4 LIMIT 1"
         )))
         .bind(task_id)
@@ -288,7 +292,8 @@ impl PgTaskBindingDao {
         .bind(subject_kind)
         .bind(subject_key)
         .fetch_optional(&self.0)
-        .await
+        .await?;
+        Ok(row.map(TaskBinding::from))
     }
 
     pub async fn find_provider_event_created_for_subject(
@@ -297,7 +302,7 @@ impl PgTaskBindingDao {
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error> {
-        sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
+        let row = sqlx::query_as::<_, TaskBindingRow>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 AND subject_kind = $2 AND subject_key = $3 AND origin = $4 ORDER BY created_at ASC LIMIT 1"
         )))
         .bind(adapter_kind)
@@ -305,7 +310,8 @@ impl PgTaskBindingDao {
         .bind(subject_key)
         .bind(ADAPTER_EVENT_BINDING_ORIGIN)
         .fetch_optional(&self.0)
-        .await
+        .await?;
+        Ok(row.map(TaskBinding::from))
     }
 
     /// Whitelist of allowed `destination_config` keys for
@@ -333,16 +339,17 @@ impl PgTaskBindingDao {
                AND COALESCE(destination_config->>'pending', 'false') <> 'true' \
              ORDER BY created_at ASC"
         );
-        sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(sql))
+        let rows = sqlx::query_as::<_, TaskBindingRow>(AssertSqlSafe(sql))
             .bind(adapter_kind)
             .bind(subject_kind)
             .bind(field_value)
             .fetch_all(&self.0)
-            .await
+            .await?;
+        Ok(rows.into_iter().map(TaskBinding::from).collect())
     }
 
     pub async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
-        sqlx::query_as::<_, TaskBinding>(
+        let row = sqlx::query_as::<_, TaskBindingRow>(
             r#"INSERT INTO task_bindings
                (id, task_id, adapter_kind, subject_kind, subject_key, connection_id,
                 loop_id, destination_config, metadata,
@@ -373,7 +380,7 @@ impl PgTaskBindingDao {
         )
         .bind(&row.id)
         .bind(&row.task_id)
-        .bind(&row.adapter_kind)
+        .bind(row.adapter_kind.as_str())
         .bind(&row.subject_kind)
         .bind(&row.subject_key)
         .bind(&row.connection_id)
@@ -385,7 +392,8 @@ impl PgTaskBindingDao {
         .bind(row.created_at)
         .bind(row.last_event_at)
         .fetch_one(&self.0)
-        .await
+        .await?;
+        Ok(TaskBinding::from(row))
     }
 
     pub async fn delete(&self, id: &str) -> Result<u64, sqlx::Error> {
@@ -548,7 +556,7 @@ impl PgTaskBindingDao {
         if task_ids.is_empty() {
             return Ok(vec![]);
         }
-        sqlx::query_as::<_, TaskBinding>(
+        let rows = sqlx::query_as::<_, TaskBindingRow>(
             r#"SELECT id,
                       task_id,
                       adapter_kind AS adapter_kind,
@@ -576,6 +584,7 @@ impl PgTaskBindingDao {
         )
         .bind(task_ids)
         .fetch_all(&self.0)
-        .await
+        .await?;
+        Ok(rows.into_iter().map(TaskBinding::from).collect())
     }
 }

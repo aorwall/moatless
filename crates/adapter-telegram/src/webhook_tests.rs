@@ -14,7 +14,8 @@
 use axum::http::StatusCode;
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{InboundMessage, LoopContext};
+use moatless_types::adapter::InboundMessage;
+use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::test_support::stub_provider;
 use moatless_core::db::DbPool;
 
@@ -454,7 +455,7 @@ async fn a_group_never_gets_a_pairing_code() {
 mod db_tests {
     use sqlx::PgPool;
 
-    use moatless_loops::adapters::models::Audience;
+    use moatless_types::adapter::Audience;
     use moatless_loops::adapters::AdapterKind;
 
     use super::super::test_support::OWNER;

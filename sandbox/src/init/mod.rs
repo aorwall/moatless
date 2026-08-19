@@ -32,7 +32,7 @@ pub mod workspace_sync;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use moatless_events::SandboxStatus;
+use moatless_types::sandbox::SandboxStatus;
 use sandbox_proto::PublishEventRequest;
 use tracing::{error, info, warn};
 

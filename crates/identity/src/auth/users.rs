@@ -18,7 +18,7 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use super::models::UserRole;
+use moatless_types::user::UserRole;
 use moatless_core::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
@@ -33,6 +33,7 @@ pub struct User {
     /// `bot:<appkey>`, or an Auth0 `sub`). Preserved so login can resolve
     /// `(provider, provider_user_id)` to this internal uuid.
     pub provider_user_id: Option<String>,
+    #[sqlx(try_from = "String")]
     pub role: UserRole,
     pub created_at: DateTime<Utc>,
     pub last_login_at: DateTime<Utc>,
@@ -169,7 +170,7 @@ impl UserDao for PgUserDao {
         .bind(&user.avatar_url)
         .bind(&user.provider)
         .bind(&user.provider_user_id)
-        .bind(user.role)
+        .bind(user.role.as_str())
         .bind(user.created_at)
         .bind(user.last_login_at)
         .bind(user.is_bot)
@@ -239,7 +240,7 @@ impl UserDao for PgUserDao {
         .bind(name.flatten())
         .bind(should_update_email)
         .bind(email.flatten())
-        .bind(role)
+        .bind(role.map(UserRole::as_str))
         .fetch_optional(&self.0)
         .await
     }

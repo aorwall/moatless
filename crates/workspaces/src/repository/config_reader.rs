@@ -8,8 +8,8 @@
 use tracing::{debug, warn};
 
 use super::error::RepositoryError;
-use super::models::RepositoryProvider;
-use moatless_api_schemas::enums::RepositoryProvider as GitHostProvider;
+use moatless_types::repository::RepositoryProvider;
+use moatless_types::repository::RepositoryProvider as GitHostProvider;
 use moatless_identity::git_host_repo::GitHostRepo;
 
 /// Fetch a repository file's raw contents via the provider API.

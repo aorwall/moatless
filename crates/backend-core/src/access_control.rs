@@ -1,20 +1,13 @@
 //! Helpers for the canonical scoped-resource policy.
 //!
-//! The policy itself is pure and lives in [`crate::scope::ScopeContext`].
+//! The policy itself is pure and lives in [`moatless_types::access_control::ScopeContext`].
 //! Enforcement is SQL-embedded: reads filter through `access_filter()`,
 //! mutations through `control_filter()` inside the DAO statement. The helpers
 //! here cover the two decisions that happen before a row exists: what scope a
 //! new resource may be created with, and whether a repository may be used.
 
-use crate::scope::{Scope, ScopeContext, ScopedResource};
-
-#[derive(Debug, thiserror::Error)]
-pub enum AccessControlError {
-    #[error("Bad request: {0}")]
-    BadRequest(String),
-    #[error("Forbidden: {0}")]
-    Forbidden(String),
-}
+use moatless_types::access_control::AccessControlError;
+use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedScope {

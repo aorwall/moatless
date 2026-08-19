@@ -24,16 +24,18 @@
 //! normalization or routes without a command, so nothing on these paths calls
 //! api.telegram.org.
 
+use moatless_types::adapter::AdapterKind;
 use crate::common;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Utc;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-use moatless_backend::adapters::models::{RoutingMode, SubscriptionMatch};
+use moatless_backend::adapters::models::SubscriptionMatch;
+use moatless_types::loops::RoutingMode;
 use moatless_backend::adapters::routes::adapter_router;
 use moatless_backend::repository::dao as repository_dao;
-use moatless_core::scope::Scope;
+use moatless_types::access_control::Scope;
 use moatless_backend::state::AppState;
 use sqlx::{PgPool, Row};
 use tower::ServiceExt;
@@ -153,7 +155,7 @@ async fn seed_subscription(
         .loops
         .upsert_subscription(&SubscriptionMatch {
             id: TRIGGER.to_string(),
-            adapter_kind: "telegram".to_string(),
+            adapter_kind: AdapterKind::Telegram,
             connection_id: CONNECTION.to_string(),
             source_matcher: source_matcher.to_string(),
             source_name: None,
@@ -165,7 +167,7 @@ async fn seed_subscription(
             tag_ids: vec![],
             skills: Vec::new(),
             run_as_user_id: Some(USER_1.to_string()),
-            agent_type: "claude-code".to_string(),
+            agent_type: "claude-code".into(),
             inactive_ttl_days: None,
             allow_direct_send: false,
             adapter_config: secret

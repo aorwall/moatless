@@ -3,7 +3,7 @@
 //! `moatless_adapter_model::footer`.
 
 use moatless_adapter_model::footer::render_footer;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use moatless_tasks::task::dao::TaskDao;
 

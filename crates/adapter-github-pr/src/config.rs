@@ -186,9 +186,10 @@ pub(super) fn ignored_title_patterns(adapter_config: Option<&serde_json::Value>)
 
 #[cfg(test)]
 mod tests {
+    use moatless_types::adapter::AdapterKind;
     use super::*;
     use chrono::Utc;
-    use moatless_backend_core::scope::Scope;
+    use moatless_types::access_control::Scope;
 
     fn rule_with(
         events_filter: serde_json::Value,
@@ -206,11 +207,11 @@ mod tests {
     ) -> SubscriptionMatch {
         SubscriptionMatch {
             id: "ir_test".into(),
-            adapter_kind: "github".into(),
+            adapter_kind: AdapterKind::Github,
             connection_id: "pc_test".into(),
             source_matcher: "soaplabs/repo".into(),
             source_name: None,
-            routing_mode: moatless_loops::adapters::models::RoutingMode::BySubject,
+            routing_mode: moatless_types::loops::RoutingMode::BySubject,
             event_filter: events_filter,
             repository_id: "repo-1".into(),
             prompt_template: None,

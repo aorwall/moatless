@@ -24,15 +24,15 @@ use moatless_backend::task::models::{Task, TaskStatus, Visibility};
 use moatless_backend::workspace::models::{Workspace, WorkspaceRepo};
 use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_backend_core::sandbox::SandboxError;
-use moatless_core::config::{
-    AuthConfig, AuthProvider, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig,
-    GithubPrConfig, LinearConfig, OtelConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
-    SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
-    TelegramConfig,
-};
+use moatless_core::config::{Config, DatabaseConfig, DockerConfig, GithubPrConfig, OtelConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig};
+use moatless_types::adapter::LinearConfig;
+use moatless_types::agent::CodexOAuthConfig;
+use moatless_types::auth::{AuthConfig, AuthProvider};
+use moatless_types::sandbox::SandboxProviderType;
+use moatless_types::secret::SecretsConfig;
 use moatless_core::events::test_support::RecordingPublisher;
-use moatless_core::scope::ScopeContext;
-use moatless_core::shared_models::AgentType;
+use moatless_types::access_control::ScopeContext;
+use moatless_types::agent::AgentType;
 
 // =========================================================================
 // Mock sandbox capabilities
@@ -572,11 +572,11 @@ pub async fn seed_team(pool: &PgPool, team_id: &str) {
 /// Create a minimal Task for tests.
 #[allow(dead_code)]
 pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let now = chrono::Utc::now();
     Task {
         task_id: task_id.to_string(),
         short_id: Some(format!("s-{task_id}")),
-        created_at: now.clone(),
+        created_at: now,
         last_message_at: now,
         agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
         repository_id: "repo-1".to_string(),
@@ -593,9 +593,8 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         model: None,
         created_by: Some(user_id.to_string()),
         visibility: Visibility::Private,
-        scope: moatless_core::scope::Scope::User,
+        scope: moatless_types::access_control::Scope::User,
         owner_user_id: Some(user_id.to_string()),
-        created_at_db: None,
         updated_at: None,
         append_system_prompt: None,
         headless: false,
@@ -621,10 +620,10 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         default_branch: Some("main".to_string()),
         description: None,
         provider: Some(RepositoryProvider::Github),
-        scope: moatless_core::scope::Scope::User,
+        scope: moatless_types::access_control::Scope::User,
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
-        deleted: Some(false),
+        deleted: false,
         created_at: Some(now),
         updated_at: Some(now),
     }
@@ -668,7 +667,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         agent_session_id: None,
         will_not_resume: None,
         run_metrics: None,
-        agent_mode: None,
+        agent_mode_raw: None,
         model: None,
         effort: None,
         resume: true,
@@ -778,7 +777,7 @@ pub fn authed_request(
             user_id: Uuid::parse_str(user_id)
                 .expect("authed_request user_id must be a UUID (use common::USER_1)"),
             login: user_id.to_string(),
-            role: moatless_backend::auth::models::UserRole::User,
+            role: moatless_types::user::UserRole::User,
             provider: "test".to_string(),
             group_id: None,
         });
@@ -804,7 +803,7 @@ pub fn authed_json_request(
             user_id: Uuid::parse_str(user_id)
                 .expect("authed_request user_id must be a UUID (use common::USER_1)"),
             login: user_id.to_string(),
-            role: moatless_backend::auth::models::UserRole::User,
+            role: moatless_types::user::UserRole::User,
             provider: "test".to_string(),
             group_id: None,
         });
@@ -837,7 +836,7 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         id: id.to_string(),
         name: format!("ws-{id}"),
         description: None,
-        kind: "blank".to_string(),
+        kind: moatless_types::workspace::WorkspaceKind::Blank,
         docker_image: None,
         docker_access: None,
         sandbox_service_account: None,
@@ -848,18 +847,25 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         scripts: None,
         resources: None,
         network_profile: None,
-        source: "manual".to_string(),
+        source: moatless_types::workspace::WorkspaceSource::Manual,
         source_repository_id: None,
         source_key: None,
         source_config_path: None,
         run_as_user_id: None,
-        scope: moatless_core::scope::Scope::User,
+        scope: moatless_types::access_control::Scope::User,
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
-        deleted: Some(false),
+        deleted: false,
         created_at: Some(now),
         updated_at: Some(now),
     }
+}
+
+/// Decode a run-config JSON literal into the typed field a `Workspace` carries,
+/// so a test can keep writing the shape the column actually stores.
+#[allow(dead_code)]
+pub fn run_config<T: serde::de::DeserializeOwned>(value: serde_json::Value) -> T {
+    serde_json::from_value(value).expect("decode run-config literal")
 }
 
 /// Create a `WorkspaceRepo` placement row for tests.

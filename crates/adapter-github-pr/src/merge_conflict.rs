@@ -5,9 +5,8 @@ use tracing::{debug, info, warn};
 
 use moatless_loops::adapters::AdapterKind;
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{
-    AdapterConnection, Audience, InboundMessage, SubscriptionMatch,
-};
+use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch};
+use moatless_types::adapter::{Audience, InboundMessage};
 
 use super::router::GithubPrInboundRouter;
 use super::signals::MergeableState;

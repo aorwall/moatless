@@ -32,7 +32,7 @@ sequence, gRPC API, preview-server state machine).
 | Agent state machine | `sandbox/src/agent/agent_state.rs` | agent states surfaced via gRPC `GetAgentStatus` |
 | Server monitoring | `sandbox/src/server/` | preview/files server process + status |
 
-## Event types (`crates/events/src/lib.rs`)
+## Event types (`crates/types/src/event.rs`)
 
 - `SandboxStatus`: `not_created | initializing | ready | stopped | removing | removed | error`
 - `ServerSubType`: `installing | starting | started | stopped | failed`

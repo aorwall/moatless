@@ -31,9 +31,9 @@ tracing = "0.1"
 
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
 moatless-core = { path = "../core", features = ["openapi"] }
-moatless-events = { path = "../events", features = ["openapi"] }
 moatless-s3 = { path = "../s3" }
 moatless-sandbox-control = { path = "../sandbox-control" }
+moatless-types = { path = "../types", features = ["openapi"] }
 
 [dev-dependencies]
 # RecordingPublisher, to assert the events the pod watcher emits without Redis.

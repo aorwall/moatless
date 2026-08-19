@@ -33,7 +33,7 @@ use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::footer::FOOTER_MARKER;
 use moatless_loops::adapters::AdapterDestinationBuilder;
 use moatless_loops::bindings::recently_sent::RecentlySent;
-use moatless_identity::auth::actor::Actor;
+use moatless_types::access_control::Actor;
 use moatless_identity::extractors::AuthUser;
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_tasks::message::dao::MessageDao;
@@ -69,9 +69,9 @@ fn require_provider(
     request_body = GithubCreatePrRequest,
     responses(
         (status = 200, description = "Pull request created", body = GithubCreatePrResponse),
-        (status = 400, description = "Bad request / adapter not configured", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
-        (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_core::error::ErrorBody),
+        (status = 400, description = "Bad request / adapter not configured", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn create_pr(
@@ -222,9 +222,9 @@ impl CreatedPr {
     request_body = GithubCommentRequest,
     responses(
         (status = 200, description = "Comment posted", body = GithubCommentResponse),
-        (status = 400, description = "Bad request / adapter not configured", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
-        (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_core::error::ErrorBody),
+        (status = 400, description = "Bad request / adapter not configured", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn post_comment(
@@ -303,9 +303,9 @@ pub async fn post_comment(
     request_body = GithubReplyRequest,
     responses(
         (status = 200, description = "Threaded reply posted", body = GithubCommentResponse),
-        (status = 400, description = "Bad request / adapter not configured", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
-        (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_core::error::ErrorBody),
+        (status = 400, description = "Bad request / adapter not configured", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn reply_to_review_comment(
@@ -382,8 +382,8 @@ pub async fn reply_to_review_comment(
     request_body = GithubBindPrRequest,
     responses(
         (status = 200, description = "Pull request bound to task", body = GithubBindPrResponse),
-        (status = 400, description = "Bad request / adapter not configured", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
+        (status = 400, description = "Bad request / adapter not configured", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 pub async fn bind_pr(
@@ -427,8 +427,8 @@ pub async fn bind_pr(
     request_body = GithubExternalEventRequest,
     responses(
         (status = 200, description = "External event recorded", body = GithubExternalEventResponse),
-        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
+        (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
 /// Record a GitHub event the caller produced outside the typed routes above.

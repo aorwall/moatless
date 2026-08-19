@@ -10,7 +10,7 @@ use crate::adapters::capabilities::{
 };
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 
-use moatless_adapter_model::models::AdapterKind;
+use moatless_types::adapter::AdapterKind;
 
 /// Registry of external adapters keyed by AdapterKind.
 ///

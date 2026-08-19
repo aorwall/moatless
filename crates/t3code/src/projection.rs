@@ -16,8 +16,8 @@ use crate::activity::T3ActivityViewExt;
 use crate::agent::catalog::{self, UiRpcAgentKind};
 use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
 use moatless_backend_core::change_feed::conversation::{ConversationChange, EVENTS_PER_CHANGE};
-use moatless_backend_core::models::MessageType;
-use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason};
+use moatless_types::message::MessageType;
+use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_tasks::task_activities::dao::Activity;
 use moatless_tasks::task_activities::mapping::ActivityKind;
 use moatless_tasks::task_activities::view::ActivityView;
@@ -1336,7 +1336,7 @@ fn turn_id(task_id: &str, turn_number: i32) -> String {
 /// a `sandboxes` row is the lazy converged-Stopped default, and it is the one
 /// case that means *no session*, not *a stopped session*.
 fn session(conversation: &Conversation) -> Value {
-    let Some(desired_state) = conversation.sandbox_desired_state else {
+    let Some(desired_state) = conversation.sandbox_desired_state() else {
         return Value::Null;
     };
     json!({
@@ -1389,7 +1389,7 @@ fn session_status(conversation: &Conversation, desired_state: SandboxDesiredStat
         // A Sandbox stood down after a failure is the one stop the client has
         // a distinct rendering for, and it is the one worth showing.
         SandboxDesiredState::Stopped | SandboxDesiredState::Removed => {
-            match conversation.sandbox_stop_reason {
+            match conversation.sandbox_stop_reason() {
                 Some(SandboxStopReason::Error) => "error",
                 _ => "stopped",
             }
@@ -1403,7 +1403,7 @@ fn session_status(conversation: &Conversation, desired_state: SandboxDesiredStat
 /// and null is also what tells the client there are no files to ask for, since
 /// it falls back to the project's root and gets an answer saying so.
 fn worktree_path(conversation: &Conversation) -> Value {
-    match conversation.sandbox_desired_state {
+    match conversation.sandbox_desired_state() {
         Some(SandboxDesiredState::Running | SandboxDesiredState::Stopped) => {
             json!(nominal_worktree(&conversation.task_id))
         }
@@ -1774,9 +1774,9 @@ mod tests {
 
     use super::*;
     use crate::activity_dao::SubagentUsage;
-    use moatless_backend_core::models::AgentType;
-    use moatless_backend_core::models::MessageRole;
-    use moatless_backend_core::scope::Scope;
+    use moatless_types::agent::AgentType;
+    use moatless_types::message::MessageRole;
+    use moatless_types::access_control::Scope;
     use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
 
     fn matched(workspace_id: Option<&str>, from_user: bool, text: &str) -> ConversationMatch {
@@ -2016,8 +2016,8 @@ mod tests {
             turn_status: None,
             turn_started_at: None,
             turn_ended_at: None,
-            sandbox_desired_state: None,
-            sandbox_stop_reason: None,
+            sandbox_desired_state_raw: None,
+            sandbox_stop_reason_raw: None,
             sandbox_started_at: None,
             sandbox_updated_at: None,
             latest_user_message_at: None,
@@ -2040,7 +2040,7 @@ mod tests {
             turn_number: Some(3),
             turn_status: Some("active".to_string()),
             turn_started_at: Some(now),
-            sandbox_desired_state: Some(SandboxDesiredState::Running),
+            sandbox_desired_state_raw: Some(SandboxDesiredState::Running.as_str().to_string()),
             sandbox_started_at: Some(now),
             sandbox_updated_at: Some(now),
             latest_user_message_at: Some(now),
@@ -2305,13 +2305,13 @@ mod tests {
         assert_eq!(one_thread(&row)["session"]["status"], "starting");
 
         row.sandbox_started_at = Some(Utc::now());
-        row.sandbox_desired_state = Some(SandboxDesiredState::Stopped);
+        row.sandbox_desired_state_raw = Some(SandboxDesiredState::Stopped.as_str().to_string());
         assert_eq!(one_thread(&row)["session"]["status"], "stopped");
 
-        row.sandbox_stop_reason = Some(SandboxStopReason::Error);
+        row.sandbox_stop_reason_raw = Some(SandboxStopReason::Error.as_str().to_string());
         assert_eq!(one_thread(&row)["session"]["status"], "error");
 
-        row.sandbox_desired_state = Some(SandboxDesiredState::Removed);
+        row.sandbox_desired_state_raw = Some(SandboxDesiredState::Removed.as_str().to_string());
         assert_eq!(
             one_thread(&row)["worktreePath"],
             Value::Null,
@@ -4258,7 +4258,7 @@ mod tests {
     #[test]
     fn a_conversation_with_no_sandbox_sends_no_session_event() {
         let without = Conversation {
-            sandbox_desired_state: None,
+            sandbox_desired_state_raw: None,
             ..running_conversation("task-a", "ws-a")
         };
         assert!(

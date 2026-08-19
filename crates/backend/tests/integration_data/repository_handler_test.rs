@@ -15,7 +15,7 @@ use tower::ServiceExt;
 
 use moatless_backend::repository::dao as repository_dao;
 use moatless_backend::repository::routes::repository_router;
-use moatless_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use common::{
     authed_json_request, authed_request, body_json, make_repository_row, seed_team, test_app_state,

@@ -20,9 +20,8 @@ use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::{Event as CoreEvent, Pod};
 use kube::api::{Api, DeleteParams, ListParams, LogParams};
 use kube::runtime::watcher::{self, Config as WatcherConfig};
-use moatless_events::{
-    SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType, TaskTurnSubType,
-};
+use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType};
+use moatless_types::task::TaskTurnSubType;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -37,7 +36,7 @@ use super::pod_observation_policy::{
 };
 use super::pod_status::{extract_container_observed_statuses, is_sandbox_container_ready};
 use super::provider::{StorageFallback, StorageFallbackOutcome};
-use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason};
+use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_core::events::EventPublisher;
 use moatless_sandbox_control::lifecycle::Lifecycle;
 use moatless_sandbox_control::lifecycle::OperationGeneration;

@@ -18,10 +18,10 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::access_control::ScopeContext;
 
 use crate::auth::identity::AuthIdentity;
-use crate::auth::models::UserRole;
+use moatless_types::user::UserRole;
 use crate::extractors::AuthUser;
 use crate::task::dao::TaskDao;
 use crate::task_event::dao::TaskEventDao;
@@ -275,7 +275,7 @@ pub(crate) async fn task_events_handler(
 
 /// Reconstruct the SSE `StreamEvent` wire envelope from a persisted row.
 ///
-/// This mirrors `moatless_events::StreamEvent`'s serialization exactly (camelCase
+/// This mirrors `moatless_types::event::StreamEvent`'s serialization exactly (camelCase
 /// keys, `type` for the event type, optional `agentType`/`turnNumber` omitted
 /// when absent), so the payload is byte-for-byte compatible with what the old
 /// Redis `XRANGE` replay produced — the frontend needs no changes.

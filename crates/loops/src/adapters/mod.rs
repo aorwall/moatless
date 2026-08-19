@@ -30,8 +30,7 @@ pub mod test_support;
 mod capabilities;
 mod registry;
 
-pub use capabilities::{BindingDestination, DestinationPostResult};
-pub use moatless_adapter_model::models::AdapterKind;
+pub use moatless_types::adapter::{AdapterKind, BindingDestination, DestinationPostResult};
 
 // Adapter domain types, `adapter_connections` persistence, and the pure footer
 // render/parse layer live in the `moatless-adapter-model` crate. This re-export

@@ -3,8 +3,9 @@
 use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
-use super::models::{Repository, RepositoryKind, RepositoryProvider};
-use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
+use moatless_types::repository::{RepositoryKind, RepositoryProvider};
+use super::models::{Repository, RepositoryRow};
+use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 use moatless_core::db::DbPool;
 
 /// Patch struct for partial updates.
@@ -78,12 +79,13 @@ impl RepositoryDao for PgRepositoryDao {
              AND {}",
             access.sql()
         );
-        sqlx::query_as::<_, Repository>(AssertSqlSafe(sql))
+        let row: Option<RepositoryRow> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_optional(&self.0)
-            .await
+            .await?;
+        Ok(row.map(Repository::from))
     }
 
     async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
@@ -95,11 +97,12 @@ impl RepositoryDao for PgRepositoryDao {
              ORDER BY name ASC",
             access.sql()
         );
-        sqlx::query_as::<_, Repository>(AssertSqlSafe(sql))
+        let rows: Vec<RepositoryRow> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_all(&self.0)
-            .await
+            .await?;
+        Ok(rows.into_iter().map(Repository::from).collect())
     }
 
     async fn insert(&self, row: &Repository) -> Result<(), sqlx::Error> {
@@ -116,12 +119,12 @@ impl RepositoryDao for PgRepositoryDao {
         )
         .bind(&row.id)
         .bind(&row.name)
-        .bind(row.kind)
+        .bind(row.kind.as_str())
         .bind(&row.remote_url)
         .bind(&row.default_branch)
         .bind(&row.description)
-        .bind(row.provider)
-        .bind(row.scope)
+        .bind(row.provider.map(RepositoryProvider::as_str))
+        .bind(row.scope.as_str())
         .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(row.deleted)
@@ -186,13 +189,19 @@ impl RepositoryDao for PgRepositoryDao {
         }
 
         bind_opt!(name);
-        bind_opt!(kind);
-        bind_opt!(scope);
+        if let Some(kind) = patch.kind {
+            q = q.bind(kind.as_str());
+        }
+        if let Some(scope) = patch.scope {
+            q = q.bind(scope.as_str());
+        }
         bind_opt!(owner_user_id);
         bind_opt!(remote_url);
         bind_opt!(default_branch);
         bind_opt!(description);
-        bind_opt!(provider);
+        if let Some(provider) = patch.provider {
+            q = q.bind(provider.map(RepositoryProvider::as_str));
+        }
 
         // Bind updated_at then control_filter params
         q = q.bind(now);
@@ -229,7 +238,7 @@ impl RepositoryDao for PgRepositoryDao {
         // Normalize the stored URL the same way `normalize_remote_url` does:
         // trim, strip trailing slashes, drop a trailing `.git`, strip trailing
         // slashes again, then lowercase. Scope the lookup to one access owner.
-        sqlx::query_as::<_, Repository>(
+        let row: Option<RepositoryRow> = sqlx::query_as(
             r#"SELECT * FROM repositories
                WHERE (deleted IS NULL OR deleted = false)
                  AND lower(
@@ -245,10 +254,11 @@ impl RepositoryDao for PgRepositoryDao {
                LIMIT 1"#,
         )
         .bind(url_key)
-        .bind(scope)
+        .bind(scope.as_str())
         .bind(owner_user_id)
         .fetch_optional(&self.0)
-        .await
+        .await?;
+        Ok(row.map(Repository::from))
     }
 
     async fn find_names_by_ids(
@@ -287,7 +297,7 @@ impl RepositoryDao for PgRepositoryDao {
                LIMIT 1"#,
         )
         .bind(url_key)
-        .bind(scope)
+        .bind(scope.as_str())
         .bind(owner_user_id)
         .fetch_optional(&self.0)
         .await?;

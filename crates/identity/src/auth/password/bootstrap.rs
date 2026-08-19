@@ -6,9 +6,9 @@ use tracing::{info, warn};
 
 use super::dao::UserCredentialDao;
 use super::hash::{PasswordHashError, generate_password, hash_password};
-use crate::auth::models::UserRole;
+use moatless_types::user::UserRole;
 use crate::auth::users::{User, UserDao};
-use moatless_core::config::AuthConfig;
+use moatless_types::auth::AuthConfig;
 
 /// Length of a generated bootstrap password.
 const GENERATED_PASSWORD_LEN: usize = 24;
@@ -142,7 +142,7 @@ mod tests {
     use crate::auth::password::dao::MockUserCredentialDao;
     use crate::auth::password::hash::verify_password;
     use crate::auth::users::MockUserDao;
-    use moatless_core::config::AuthProvider;
+    use moatless_types::auth::AuthProvider;
     use std::sync::{Arc, Mutex};
 
     fn auth_config(admin_password: Option<&str>) -> AuthConfig {

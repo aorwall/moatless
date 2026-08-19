@@ -18,8 +18,8 @@ use super::lifecycle::{ArchiveRetention, Lifecycle};
 use super::models::*;
 use super::routes::SandboxApiState;
 use super::schemas::*;
-use moatless_backend_core::models::{SandboxDesiredState, SandboxStopReason};
-use moatless_backend_core::scope::ScopeContext;
+use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+use moatless_types::access_control::ScopeContext;
 use moatless_identity::extractors::OptionalScope;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::models::Task;
@@ -37,9 +37,9 @@ use moatless_tasks::task::models::Task;
     ),
     responses(
         (status = 200, description = "Sandbox provisioned successfully", body = ProvisionResponse),
-        (status = 400, description = "Task is Closed — start not allowed", body = moatless_core::error::ErrorBody),
-        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_core::error::ErrorBody),
-        (status = 500, description = "Provisioning failed", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Task is Closed — start not allowed", body = moatless_api_schemas::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_api_schemas::error::ErrorBody),
+        (status = 500, description = "Provisioning failed", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -70,7 +70,7 @@ pub async fn provision_handler(
     ),
     responses(
         (status = 200, description = "Task live status", body = crate::live_status::LiveStatus),
-        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -108,8 +108,8 @@ pub async fn live_status_handler(
     ),
     responses(
         (status = 200, description = "Full sandbox status", body = SandboxStatusFullResponse),
-        (status = 503, description = "Sandbox not ready", body = moatless_core::error::ErrorBody),
-        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
+        (status = 503, description = "Sandbox not ready", body = moatless_api_schemas::error::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -138,7 +138,7 @@ pub async fn sandbox_status_handler(
             // image. The "latest" image is what a fresh (re)deploy would use:
             // the per-repo `docker_image` override, else the configured default.
             resp.sandbox_desired_state =
-                Some(crate::schemas::sandbox_desired_state_to_wire(desired_state));
+                Some(desired_state);
 
             if let Some(lifecycle) = state.lifecycle.as_deref() {
                 match lifecycle.expected_sandbox_image(&task_id).await {
@@ -178,8 +178,8 @@ pub async fn sandbox_status_handler(
     ),
     responses(
         (status = 204, description = "Sandbox stopped"),
-        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_core::error::ErrorBody),
-        (status = 500, description = "Stop failed", body = moatless_core::error::ErrorBody)
+        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_api_schemas::error::ErrorBody),
+        (status = 500, description = "Stop failed", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -207,9 +207,9 @@ pub async fn stop_handler(
     ),
     responses(
         (status = 204, description = "Sandbox restarted"),
-        (status = 400, description = "Task is Closed — restart not allowed", body = moatless_core::error::ErrorBody),
-        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_core::error::ErrorBody),
-        (status = 500, description = "Restart failed", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Task is Closed — restart not allowed", body = moatless_api_schemas::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_api_schemas::error::ErrorBody),
+        (status = 500, description = "Restart failed", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -239,9 +239,9 @@ pub async fn restart_handler(
     ),
     responses(
         (status = 200, description = "Sandbox redeployed successfully", body = ProvisionResponse),
-        (status = 400, description = "Task is Closed — redeploy not allowed", body = moatless_core::error::ErrorBody),
-        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_core::error::ErrorBody),
-        (status = 500, description = "Redeploy failed", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Task is Closed — redeploy not allowed", body = moatless_api_schemas::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_api_schemas::error::ErrorBody),
+        (status = 500, description = "Redeploy failed", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -272,8 +272,8 @@ pub async fn redeploy_handler(
     ),
     responses(
         (status = 204, description = "Sandbox cleaned up"),
-        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_core::error::ErrorBody),
-        (status = 500, description = "Cleanup failed", body = moatless_core::error::ErrorBody)
+        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_api_schemas::error::ErrorBody),
+        (status = 500, description = "Cleanup failed", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -307,7 +307,7 @@ pub async fn remove_handler(
     ),
     responses(
         (status = 200, description = "Server status", body = ServerStatusResponse),
-        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn server_status_handler(
@@ -400,7 +400,7 @@ fn default_tail() -> i64 {
     ),
     responses(
         (status = 200, description = "SSE stream of server log lines"),
-        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn server_logs_handler(
@@ -459,7 +459,7 @@ pub async fn server_logs_handler(
     params(("task_id" = String, Path, description = "Task identifier")),
     responses(
         (status = 200, description = "Overrides in effect", body = ServerOverridesResponse),
-        (status = 503, description = "Sandbox not reachable", body = moatless_core::error::ErrorBody)
+        (status = 503, description = "Sandbox not reachable", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn list_server_config_handler(
@@ -500,10 +500,10 @@ pub async fn list_server_config_handler(
     request_body = UpdateServerConfigRequest,
     responses(
         (status = 200, description = "Override applied", body = ServerConfigResponse),
-        (status = 400, description = "Invalid env key or server name", body = moatless_core::error::ErrorBody),
-        (status = 404, description = "No such server on this task", body = moatless_core::error::ErrorBody),
-        (status = 409, description = "Field requires a redeploy to change", body = moatless_core::error::ErrorBody),
-        (status = 503, description = "Sandbox not reachable", body = moatless_core::error::ErrorBody)
+        (status = 400, description = "Invalid env key or server name", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "No such server on this task", body = moatless_api_schemas::error::ErrorBody),
+        (status = 409, description = "Field requires a redeploy to change", body = moatless_api_schemas::error::ErrorBody),
+        (status = 503, description = "Sandbox not reachable", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn update_server_config_handler(
@@ -574,8 +574,8 @@ pub async fn update_server_config_handler(
     ),
     responses(
         (status = 200, description = "Server restarted", body = ServerConfigResponse),
-        (status = 404, description = "No such server on this task", body = moatless_core::error::ErrorBody),
-        (status = 503, description = "Sandbox not reachable", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "No such server on this task", body = moatless_api_schemas::error::ErrorBody),
+        (status = 503, description = "Sandbox not reachable", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn restart_server_handler(
@@ -605,8 +605,8 @@ pub async fn restart_server_handler(
     ),
     responses(
         (status = 200, description = "Override cleared", body = ServerConfigResponse),
-        (status = 404, description = "No such server on this task", body = moatless_core::error::ErrorBody),
-        (status = 503, description = "Sandbox not reachable", body = moatless_core::error::ErrorBody)
+        (status = 404, description = "No such server on this task", body = moatless_api_schemas::error::ErrorBody),
+        (status = 503, description = "Sandbox not reachable", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn reset_server_config_handler(
@@ -867,7 +867,7 @@ mod authz_tests {
     //! handlers compose read + control on the task a scoped read returned.
     use super::*;
 
-    use moatless_backend_core::scope::Scope;
+    use moatless_types::access_control::Scope;
 
     use moatless_tasks::task::dao::MockTaskDao;
 
@@ -883,11 +883,11 @@ mod authz_tests {
         Task {
             task_id: "task-1".to_string(),
             short_id: None,
-            created_at: String::new(),
-            last_message_at: String::new(),
-            agent_type: moatless_core::shared_models::AgentType("claude-code".to_string()),
+            created_at: chrono::Utc::now(),
+            last_message_at: chrono::Utc::now(),
+            agent_type: moatless_types::agent::AgentType("claude-code".to_string()),
             repository_id: "repo-1".to_string(),
-            status: moatless_backend_core::models::TaskStatus::Open,
+            status: moatless_types::task::TaskStatus::Open,
             total_cost_usd: 0.0,
             site_url: None,
             template_id: None,
@@ -899,10 +899,9 @@ mod authz_tests {
             branch: None,
             model: None,
             created_by: owner_user_id.map(|u| uid(u).to_string()),
-            visibility: moatless_tasks::task::models::Visibility::Private,
+            visibility: moatless_types::task::Visibility::Private,
             scope,
             owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
-            created_at_db: None,
             updated_at: None,
             append_system_prompt: None,
             headless: false,

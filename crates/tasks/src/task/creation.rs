@@ -29,19 +29,20 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use moatless_backend_core::sandbox::{SandboxError, SandboxStarter};
-use moatless_backend_core::scope::{Scope, ScopeContext};
-use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
+use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
+use moatless_types::task::TaskSubType;
 
 use crate::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
-use crate::task::models::{CheckoutMode, Task, TaskStatus, Visibility};
-use crate::task::relations::{
-    CreatedByParent, RelatedTask, TaskRelationDao, record_created_by, record_related_to,
-};
+use moatless_types::task::{CheckoutMode, Visibility};
+use crate::task::models::{Task, TaskStatus};
+use crate::task::relations::{CreatedByParent, TaskRelationDao, record_created_by, record_related_to};
+use moatless_types::task::RelatedTask;
 use crate::task::schemas::MessageContextInput;
 use moatless_core::events::EventPublisher;
-use moatless_core::shared_models::{AgentMode, AgentType};
+use moatless_types::agent::{AgentMode, AgentType};
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::repository::models::Repository;
 
@@ -97,7 +98,7 @@ pub struct NewTaskRequest {
     pub loop_id: Option<String>,
     pub workspace_id: Option<String>,
     pub sandbox_id: Option<String>,
-    pub checkout_mode: Option<crate::task::models::CheckoutMode>,
+    pub checkout_mode: Option<moatless_types::task::CheckoutMode>,
     pub template_id: Option<String>,
     pub vibe: Option<bool>,
     pub append_system_prompt: Option<String>,
@@ -289,11 +290,11 @@ impl TaskCreationService {
         }
         let join_checkout_mode = req.sandbox_id.as_ref().map(|_| {
             req.checkout_mode
-                .unwrap_or(crate::task::models::CheckoutMode::Shared)
+                .unwrap_or(moatless_types::task::CheckoutMode::Shared)
         });
         let persisted_checkout_mode = join_checkout_mode.or(req.checkout_mode);
         let short_id = self.generate_unique_short_id().await?;
-        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let now = chrono::Utc::now();
         let owner_user_id = req.created_by.clone();
         let workspace_id = self
             .tasks
@@ -303,7 +304,7 @@ impl TaskCreationService {
         let mut row = Task {
             task_id: task_id.clone(),
             short_id: Some(short_id),
-            created_at: now.clone(),
+            created_at: now,
             last_message_at: now,
             agent_type: req.agent_type.clone(),
             repository_id: req.repository_id.clone(),
@@ -322,7 +323,6 @@ impl TaskCreationService {
             visibility: req.visibility,
             scope: Scope::User,
             owner_user_id,
-            created_at_db: None,
             updated_at: None,
             append_system_prompt: req.append_system_prompt.clone(),
             headless: req.headless,
@@ -540,7 +540,8 @@ mod tests {
     use moatless_backend_core::sandbox::SandboxError;
     use moatless_core::events::test_support::RecordingPublisher;
     use moatless_workspaces::repository::dao::MockRepositoryDao;
-    use moatless_workspaces::repository::models::{Repository, RepositoryKind};
+    use moatless_types::repository::RepositoryKind;
+    use moatless_workspaces::repository::models::Repository;
 
     mockall::mock! {
         Starter {}
@@ -578,7 +579,7 @@ mod tests {
             scope: Scope::User,
             owner_user_id: None,
             created_by: None,
-            deleted: None,
+            deleted: false,
             created_at: None,
             updated_at: None,
         }

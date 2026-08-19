@@ -150,7 +150,7 @@ mod tests {
         ScheduledJobInfo, ScheduledJobKind, ServerEntry, WakeupJobInfo,
     };
     use moatless_api_schemas::enums::SandboxDesiredState;
-    use moatless_events::SandboxStatus;
+    use moatless_types::sandbox::SandboxStatus;
 
     /// Every field of the rich response populated with a value distinguishable
     /// from a default, written as an exhaustive struct literal: a field added to

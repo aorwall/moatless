@@ -22,7 +22,7 @@ use crate::common;
 
 use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
 use moatless_api_schemas::task::{FileContextData, MessageContextInput, PreviewUrlContextData};
-use moatless_events::SandboxEventPayload;
+use moatless_types::sandbox::SandboxEventPayload;
 use moatless_t3code::dao::{ConversationDao, PgConversationDao};
 use moatless_backend::message::contexts::message_context_input_to_row;
 use moatless_backend::message::dao as message_dao;

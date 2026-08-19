@@ -1,8 +1,7 @@
-//! Canonical access-control scope policy.
+//! Canonical access control: which identity acts, and what it may reach.
 //!
-//! The `Scope` enum and its persistence codecs are owned here.
-//! `ScopeContext` is backend-only and is used for both query filtering and
-//! pure policy checks. The policy is a pure function of
+//! The `Scope` enum is owned here. `ScopeContext` is used for both query
+//! filtering and pure policy checks. The policy is a pure function of
 //! `(user_id, is_admin)` × `(scope, owner, visibility)` — no database input:
 //!
 //! - **read**: `is_admin ∨ scope = global ∨ owner = me ∨ (Task ∧ visibility = public)`
@@ -11,11 +10,34 @@
 //! Owner is `COALESCE(owner_user_id, created_by)`. These are the only two
 //! grants; for tasks, read includes interact (send message, follow,
 //! mark read) by product rule — a public task is collaborative.
+//!
+//! [`Actor`] names the identity a call acts as. Every constructor on it is one
+//! way an identity can be chosen, so a reader can enumerate the rules without
+//! searching for them. Two rules cannot live here, because they read types
+//! this band cannot see: the GitHub PR Adapter's outbound precedence
+//! (`TaskBinding`, `SubscriptionMatch`) and its webhook sender mapping. Both
+//! stay in `adapter-github-pr/src/auth.rs` and end in [`Actor::of`], which is
+//! why that constructor exists.
+
+#![cfg_attr(
+    test,
+    allow(
+        clippy::disallowed_methods,
+        clippy::unwrap_used,
+        reason = "unit tests assert exact policy cases, including the system bypass"
+    )
+)]
 
 use serde::{Deserialize, Serialize};
 
 /// Access scope for repositories, tasks, integrations, and credentials.
+///
+/// Reads: `global` is readable by every authenticated user; `user` only by
+/// its owner (and admins). Control: `global` is admin-managed; `user` is
+/// owner-managed. Task `visibility = 'public'` additionally grants
+/// read/interact on tasks — never control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Scope {
     Global,
@@ -49,28 +71,11 @@ impl TryFrom<&str> for Scope {
     }
 }
 
-#[cfg(feature = "database")]
-impl sqlx::Type<sqlx::Postgres> for Scope {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
+impl TryFrom<String> for Scope {
+    type Error = String;
 
-#[cfg(feature = "database")]
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Scope {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let value = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Self::try_from(value.as_str()).map_err(Into::into)
-    }
-}
-
-#[cfg(feature = "database")]
-impl sqlx::Encode<'_, sqlx::Postgres> for Scope {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
     }
 }
 
@@ -191,7 +196,7 @@ impl ScopeContext {
     /// The required form at a call site:
     ///
     /// ```
-    /// use moatless_backend_core::scope::ScopeContext;
+    /// use moatless_types::access_control::ScopeContext;
     ///
     /// // reason: reaper sweeps idle sandboxes across all owners (no user ctx)
     /// #[allow(clippy::disallowed_methods)]
@@ -321,6 +326,77 @@ impl ScopeContext {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Actor — the identity a call acts as
+// ---------------------------------------------------------------------------
+
+/// The identity a git-host call is made as.
+///
+/// There is no way to obtain a git-host token without naming one — see
+/// `moatless_identity::git_host_tokens::GitHostTokens`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Actor(String);
+
+impl Actor {
+    /// A user id chosen by a rule this band cannot express.
+    pub fn of(user_id: impl Into<String>) -> Self {
+        Self(user_id.into())
+    }
+
+    /// The caller of a request. An admin acts as themselves, never as the
+    /// owner of what they are looking at.
+    pub fn caller(ctx: &ScopeContext) -> Self {
+        Self(ctx.user_id.clone())
+    }
+
+    /// The owner of a scoped resource — a Task, say.
+    ///
+    /// Reads [`ScopedResource::owner_user_id`], which a Task fills from
+    /// `owner_user_id` falling back to `created_by`, so this cannot drift from
+    /// `Task::scoped_resource`.
+    pub fn owner_of(resource: &ScopedResource) -> Option<Self> {
+        resource
+            .owner_user_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .map(Self::of)
+    }
+
+    /// The identity a Workspace runs as, falling back to the owner of the work.
+    ///
+    /// A Workspace names the account its Tasks act as, so it outranks whoever
+    /// started the Task.
+    pub fn run_as(workspace_run_as_user_id: Option<&str>, owner: Option<Self>) -> Option<Self> {
+        workspace_run_as_user_id
+            .filter(|id| !id.is_empty())
+            .map(Self::of)
+            .or(owner)
+    }
+
+    pub fn user_id(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Actor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AccessControlError
+// ---------------------------------------------------------------------------
+
+/// Why an access-control decision refused.
+#[derive(Debug, thiserror::Error)]
+pub enum AccessControlError {
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,6 +417,14 @@ mod tests {
         assert_eq!(Scope::try_from("user"), Ok(Scope::User));
         assert!(Scope::try_from("team").is_err());
         assert!(Scope::try_from("invalid").is_err());
+    }
+
+    #[test]
+    fn scope_try_from_owned_string() {
+        // The owned form is what a persisted column is read back through.
+        assert_eq!(Scope::try_from("global".to_string()), Ok(Scope::Global));
+        assert_eq!(Scope::try_from("user".to_string()), Ok(Scope::User));
+        assert!(Scope::try_from("team".to_string()).is_err());
     }
 
     #[test]
@@ -575,5 +659,47 @@ user   public  owner read=allow interact=allow control=allow
 user   public  other read=allow interact=allow control=deny
 user   public  admin read=allow interact=allow control=allow";
         assert_eq!(lines.join("\n"), expected);
+    }
+
+    // -- actor --
+
+    #[test]
+    fn a_caller_acts_as_themselves_even_as_admin() {
+        let ctx = ScopeContext {
+            user_id: "admin".to_string(),
+            is_admin: true,
+        };
+        assert_eq!(Actor::caller(&ctx).user_id(), "admin");
+    }
+
+    #[test]
+    fn owner_of_falls_back_to_created_by_through_scoped_resource() {
+        // `Task::scoped_resource` is `owner_user_id.or(created_by)`, so a row
+        // predating `owner_user_id` still names an identity here.
+        let backfilled = ScopedResource::borrowed(Scope::User, Some("creator"));
+        assert_eq!(
+            Actor::owner_of(&backfilled),
+            Some(Actor::of("creator")),
+            "a resource carrying only created_by must still name an actor"
+        );
+
+        let ownerless = ScopedResource::borrowed(Scope::Global, None);
+        assert_eq!(Actor::owner_of(&ownerless), None);
+    }
+
+    #[test]
+    fn a_workspace_run_as_identity_outranks_the_owner() {
+        let owner = Some(Actor::of("starter"));
+        assert_eq!(
+            Actor::run_as(Some("bot"), owner.clone()),
+            Some(Actor::of("bot"))
+        );
+        assert_eq!(Actor::run_as(None, owner.clone()), owner);
+        assert_eq!(
+            Actor::run_as(Some(""), owner.clone()),
+            owner,
+            "an empty column is not a named identity"
+        );
+        assert_eq!(Actor::run_as(None, None), None);
     }
 }

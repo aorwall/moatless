@@ -16,12 +16,11 @@ use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::inbound;
 use crate::loops::firing::receipts::EventReceiptDao;
-use moatless_adapter_model::models::{
-    AdapterConnection, Audience, InboundMessage, RoutingMode, SubscriptionMatch, TaskBinding,
-    binding_context, subscription_context,
-};
-use moatless_backend_core::models::TaskStatus;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_adapter_model::models::{parse_adapter_kind, AdapterConnection, SubscriptionMatch, TaskBinding, binding_context, subscription_context};
+use moatless_types::adapter::{Audience, InboundMessage};
+use moatless_types::loops::RoutingMode;
+use moatless_types::task::TaskStatus;
+use moatless_types::access_control::ScopeContext;
 use moatless_tasks::message::dao::MessageDao;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
@@ -29,10 +28,7 @@ use moatless_tasks::task::creation::{TaskCreationError, TaskCreationService};
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::sandbox_waker::{SandboxWaker, wake_for_message};
 
-pub use moatless_adapter_model::models::{
-    ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT,
-    CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD,
-};
+pub use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT, CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD};
 
 /// The inbound-routing subgraph, owning the ports it reads so the routing logic
 /// names none of them through `AppState`.
@@ -257,7 +253,7 @@ impl RoutingService {
             // not as a parent.
             let related = bindings
                 .first()
-                .map(|b| moatless_tasks::task::relations::RelatedTask {
+                .map(|b| moatless_types::task::RelatedTask {
                     related_task_id: b.task_id.clone(),
                     context: serde_json::json!({
                         "via": "binding_webhook",
@@ -267,7 +263,7 @@ impl RoutingService {
                         "origin_binding_id": b.id,
                     }),
                 });
-            let config = subscription_context(subscription, adapter_label);
+            let config = subscription_context(subscription);
             // Resolve the bound adapter's reply instructions from the registry
             // and pass them to the firing entry point as a value.
             let reply_instructions = self
@@ -629,7 +625,7 @@ impl RoutingService {
         adapter_label: &str,
         is_new_task: bool,
     ) -> Result<(), AdapterError> {
-        let config = subscription_context(subscription, adapter_label);
+        let config = subscription_context(subscription);
         let thread = binding_context(binding);
 
         let thread_context = if msg.thread_id.is_some() {
@@ -701,7 +697,7 @@ impl RoutingService {
                 &msg.file_ids,
                 &[],
                 true,
-                moatless_tasks::message::send::ExternalOrigin {
+                moatless_types::task::ExternalOrigin {
                     event_id: msg.external_event_id.as_deref(),
                     adapter: Some(adapter_label),
                     subject_key: Some(&binding.subject_key),
@@ -869,7 +865,7 @@ pub async fn upsert_binding_into(
     let binding = TaskBinding {
         id: format!("ts_{}", uuid::Uuid::new_v4()),
         task_id: task_id.to_string(),
-        adapter_kind: provider.to_string(),
+        adapter_kind: parse_adapter_kind(provider),
         subject_kind: subject_kind.to_string(),
         subject_key: subject_key.to_string(),
         connection_id: connection.id.clone(),

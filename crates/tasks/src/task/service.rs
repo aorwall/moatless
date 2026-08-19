@@ -18,27 +18,26 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use moatless_events::TaskSubType;
+use moatless_types::task::TaskSubType;
 
 use super::creation::{FirstMessage, NewTaskRequest, TaskCreationOutcome, TaskCreationService};
 use super::dao::TaskDao;
 use super::error::TaskError;
 use super::models::Task;
 use super::relations::CreatedByParent;
-use super::schemas::{CreateTaskRequest, agent_type_from_wire};
+use super::schemas::CreateTaskRequest;
 use crate::agent::catalog;
 use crate::credential_sync::CredentialSync;
-use crate::message::schemas::agent_mode_from_wire;
 use crate::message::send::MessageSendService;
-use crate::task::models::Visibility;
+use moatless_types::task::Visibility;
 use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use moatless_backend_core::access_control::ensure_can_use_repository;
-use moatless_backend_core::scope::{ScopeContext, ScopedResource};
+use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
-use moatless_core::shared_models::AgentType;
+use moatless_types::agent::AgentType;
 use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::repository::models::RepositoryKind;
+use moatless_types::repository::RepositoryKind;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 /// A create request plus the two things only an internal caller supplies.
@@ -98,7 +97,7 @@ where
                 &fm.file_ids,
                 &fm.contexts,
                 true,
-                crate::message::send::ExternalOrigin::none(),
+                moatless_types::task::ExternalOrigin::none(),
                 false,
                 fm.sent_by.as_deref(),
                 &fm.skills,
@@ -149,7 +148,7 @@ pub async fn stop_task(
         events
             .publish_agent_event(
                 task_id,
-                moatless_events::AgentSubType::Stopped,
+                moatless_types::agent::AgentSubType::Stopped,
                 None,
                 serde_json::json!({
                     "source": crate::task::models::SandboxStopReason::User.as_str()
@@ -183,7 +182,7 @@ pub async fn normalize(
         provision,
         first_message_uuid,
     } = intent;
-    let agent_type = validate_agent_type(req.agent_type.map(agent_type_from_wire))?;
+    let agent_type = validate_agent_type(req.agent_type)?;
 
     // A task accepts `repository_id` and/or `workspace_id`. When a workspace is
     // supplied it drives the task's repositories (workspace wins): the effective
@@ -196,7 +195,7 @@ pub async fn normalize(
                 .find_by_id(workspace_id, scope_ctx)
                 .await?
                 .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?;
-            if workspace.deleted == Some(true) {
+            if workspace.deleted {
                 return Err(TaskError::BadRequest(format!(
                     "Workspace {workspace_id} has been deleted; restore it from Git before creating tasks"
                 )));
@@ -274,8 +273,7 @@ pub async fn normalize(
         workspace_id: req.workspace_id.clone(),
         sandbox_id: req.sandbox_id.clone(),
         checkout_mode: req
-            .checkout_mode
-            .map(super::schemas::checkout_mode_from_wire),
+            .checkout_mode,
         template_id: if is_template {
             Some(repository_id)
         } else {
@@ -295,7 +293,7 @@ pub async fn normalize(
         first_message: req.message.clone().map(|text| FirstMessage {
             text,
             model: req.model.clone(),
-            agent_mode: req.agent_mode.clone().map(agent_mode_from_wire),
+            agent_mode: req.agent_mode.clone(),
             effort: req.effort.clone(),
             file_ids: req.file_ids.clone(),
             contexts: req.contexts.clone(),

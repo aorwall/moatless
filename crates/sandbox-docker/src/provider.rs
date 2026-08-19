@@ -23,7 +23,7 @@ use super::naming::{
     generate_container_name, generate_server_container_name, generate_task_host_path,
 };
 use super::status_resolver::DockerStatusResolver;
-use moatless_backend_core::run_config::ServerConfig;
+use moatless_types::workspace::ServerConfig;
 use moatless_backend_core::sandbox as core_sandbox;
 use moatless_core::config::Config;
 use moatless_sandbox_control::client::SandboxClient;
@@ -619,8 +619,8 @@ impl SandboxStatusReader for DockerSandboxAdapter {
     async fn sandbox_status(
         &self,
         task_id: &str,
-        task_status: moatless_backend_core::models::TaskStatus,
-        desired_state: moatless_backend_core::models::SandboxDesiredState,
+        task_status: moatless_types::task::TaskStatus,
+        desired_state: moatless_types::sandbox::SandboxDesiredState,
     ) -> Result<SandboxStatusFullResponse, SandboxError> {
         let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         let server_configs = if let Some(plan) = &self.plan {
@@ -645,8 +645,8 @@ impl SandboxStatusReader for DockerSandboxAdapter {
     async fn live_status(
         &self,
         task_id: &str,
-        task_status: moatless_backend_core::models::TaskStatus,
-        desired_state: moatless_backend_core::models::SandboxDesiredState,
+        task_status: moatless_types::task::TaskStatus,
+        desired_state: moatless_types::sandbox::SandboxDesiredState,
     ) -> Result<moatless_sandbox_control::live_status::LiveStatus, SandboxError> {
         let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         Ok(self
