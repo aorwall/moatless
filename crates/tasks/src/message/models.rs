@@ -80,6 +80,7 @@ pub struct TaskMessage {
     pub will_not_resume: Option<bool>,
     pub run_metrics: Option<serde_json::Value>,
     /// Persisted column. Read the typed value through [`TaskMessage::agent_mode`].
+    #[sqlx(rename = "agent_mode")]
     pub agent_mode_raw: Option<String>,
     pub model: Option<String>,
     /// Reasoning effort for the turn, in the agent's own vocabulary. `None`

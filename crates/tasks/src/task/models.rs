@@ -54,6 +54,7 @@ pub struct TaskRow {
     pub sandbox_id: Option<String>,
     /// Checkout relationship to other members. `None` is read as shared for
     /// rows predating shared-sandbox membership.
+    #[sqlx(rename = "checkout_mode")]
     pub checkout_mode_raw: Option<String>,
     #[sqlx(try_from = "String")]
     pub status: TaskStatus,
