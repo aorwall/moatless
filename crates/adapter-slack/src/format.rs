@@ -34,9 +34,13 @@ static SUBTEAM_MENTION: LazyLock<Regex> =
 /// Extract readable text from Slack Block Kit `blocks` array.
 ///
 /// Walks the block structure and pulls text from:
-/// - `section` / `header` → `text.text`
+/// - `section` / `header` → `text.text`, plus each entry of `fields[].text`
 /// - `rich_text` → recursively from `elements[].elements[].text`
 /// - `context` → `elements[].text`
+///
+/// The `section` `fields[]` array is where AWS Chatbot renders a CloudWatch
+/// alarm's detail rows (reason, metric, threshold, timestamp) — without it only
+/// the one-line header `text` survives and every detail is silently dropped.
 ///
 /// Skips `actions`, `divider`, `image`, and other non-text blocks.
 /// The returned string has mrkdwn references already converted via [`format_slack_text`].
@@ -54,6 +58,18 @@ pub fn extract_text_from_blocks(blocks: &[serde_json::Value]) -> String {
                 {
                     if !text.is_empty() {
                         parts.push(text.to_string());
+                    }
+                }
+                // A `section` may also carry a `fields[]` array of two-column
+                // key/value objects (`{ "type": "mrkdwn", "text": "..." }`) —
+                // AWS Chatbot puts the alarm's detail rows here. Pull each one.
+                if let Some(fields) = block.get("fields").and_then(|f| f.as_array()) {
+                    for field in fields {
+                        if let Some(text) = field.get("text").and_then(|t| t.as_str()) {
+                            if !text.is_empty() {
+                                parts.push(text.to_string());
+                            }
+                        }
                     }
                 }
             }
@@ -421,6 +437,47 @@ mod tests {
         assert!(result.contains("Grafana v10.2.0"));
         // divider should not contribute text
         assert!(!result.contains("divider"));
+    }
+
+    #[test]
+    fn blocks_section_fields_are_extracted() {
+        // AWS Chatbot renders a CloudWatch alarm as a header `text` line plus
+        // the detail rows in a `section`'s `fields[]` array. Every field must
+        // survive, not just the header, and mrkdwn references convert.
+        let blocks = serde_json::json!([
+            {
+                "type": "section",
+                "text": { "type": "mrkdwn", "text": ":rotating_light: *CloudWatch Alarm* | soap-infra-prod-vpc-egress-anomaly" },
+                "fields": [
+                    { "type": "mrkdwn", "text": "*Reason:*\nThreshold Crossed: egress bytes above band" },
+                    { "type": "mrkdwn", "text": "*Region:*\neu-north-1" },
+                    { "type": "mrkdwn", "text": "*Account:*\n902916048039" }
+                ]
+            }
+        ]);
+        let result = extract_text_from_blocks(blocks.as_array().unwrap());
+        assert!(result.contains("*CloudWatch Alarm* | soap-infra-prod-vpc-egress-anomaly"));
+        assert!(result.contains("Threshold Crossed: egress bytes above band"));
+        assert!(result.contains("eu-north-1"));
+        assert!(result.contains("902916048039"));
+    }
+
+    #[test]
+    fn blocks_section_fields_only_without_text() {
+        // A `section` may carry `fields[]` with no top-level `text` at all.
+        let blocks = serde_json::json!([
+            {
+                "type": "section",
+                "fields": [
+                    { "type": "mrkdwn", "text": "*State:*\nALARM" },
+                    { "type": "mrkdwn", "text": "*Metric:*\nEgressBytes" }
+                ]
+            }
+        ]);
+        assert_eq!(
+            extract_text_from_blocks(blocks.as_array().unwrap()),
+            "*State:*\nALARM\n*Metric:*\nEgressBytes"
+        );
     }
 
     #[test]
