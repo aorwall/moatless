@@ -74,10 +74,38 @@ pub fn extract_text_from_blocks(blocks: &[serde_json::Value]) -> String {
                 }
             }
             "markdown" => {
-                // A `markdown` block's `text` is a bare string, not a text object.
+                // Slack expands a posted `markdown` block into native blocks
+                // before storing it, so this arm does not fire on our own
+                // messages. It is here for a source that stores one unexpanded.
+                // Its `text` is a bare string, not a text object.
                 if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
                     if !text.is_empty() {
                         parts.push(text.to_string());
+                    }
+                }
+            }
+            // Reached two ways: a `table` we posted ourselves, and the table a
+            // posted `markdown` block expands into. Cells are `rich_text`.
+            "table" => {
+                if let Some(rows) = block.get("rows").and_then(|r| r.as_array()) {
+                    for row in rows {
+                        let Some(cells) = row.as_array() else { continue };
+                        let mut cell_parts: Vec<String> = Vec::new();
+                        for cell in cells {
+                            if let Some(elements) =
+                                cell.get("elements").and_then(|e| e.as_array())
+                            {
+                                for element in elements {
+                                    extract_rich_text_element(element, &mut cell_parts);
+                                }
+                            }
+                        }
+                        // One row per line keeps the columns readable to an
+                        // agent re-reading the thread.
+                        let line = cell_parts.join(" | ");
+                        if !line.trim().is_empty() {
+                            parts.push(line);
+                        }
                     }
                 }
             }
@@ -329,6 +357,58 @@ mod tests {
     // --- extract_text_from_blocks tests ---
 
     /// We post `markdown` blocks ourselves, and both readers prefer blocks over
+    /// Verified against a real `chat.postMessage` round trip: Slack does not
+    /// store a posted `markdown` block, it expands it into native blocks — the
+    /// Markdown table becomes a `table` block. So a table reaches this function
+    /// two ways, and losing it loses the substance of a release summary.
+    #[test]
+    fn a_table_block_survives_a_re_read() {
+        let blocks = serde_json::json!([
+            {
+                "type": "table",
+                "rows": [
+                    [
+                        {"type": "rich_text", "elements": [{"type": "rich_text_section",
+                            "elements": [{"type": "text", "text": "App"}]}]},
+                        {"type": "rich_text", "elements": [{"type": "rich_text_section",
+                            "elements": [{"type": "text", "text": "Prod"}]}]}
+                    ],
+                    [
+                        {"type": "rich_text", "elements": [{"type": "rich_text_section",
+                            "elements": [{"type": "text", "text": "soap-backend"}]}]},
+                        {"type": "rich_text", "elements": [{"type": "rich_text_section",
+                            "elements": [{"type": "text", "text": "1.0.1204"}]}]}
+                    ]
+                ]
+            }
+        ]);
+        assert_eq!(
+            extract_text_from_blocks(blocks.as_array().expect("array")),
+            "App | Prod\nsoap-backend | 1.0.1204"
+        );
+    }
+
+    /// A cell may carry a link — that is the whole reason the release matrix
+    /// uses a table — and the label has to come back, not the raw url only.
+    #[test]
+    fn a_linked_table_cell_keeps_its_label() {
+        let blocks = serde_json::json!([
+            {
+                "type": "table",
+                "rows": [[
+                    {"type": "rich_text", "elements": [{"type": "rich_text_section",
+                        "elements": [{"type": "link",
+                                      "url": "https://example.test/compare",
+                                      "text": "1.0.1204 (d0eec4f3)"}]}]}
+                ]]
+            }
+        ]);
+        assert!(
+            extract_text_from_blocks(blocks.as_array().expect("array"))
+                .contains("1.0.1204 (d0eec4f3)")
+        );
+    }
+
     /// text — so failing to read one back loses our own message content.
     #[test]
     fn blocks_markdown_is_extracted() {
