@@ -29,6 +29,7 @@ pub(super) struct NormalizedWebhook {
     pub(super) primary: Result<PrimaryWebhook, AdapterError>,
     pub(super) merge_conflict_candidate: Option<super::merge_conflict::Candidate>,
     pub(super) post_merge_candidate: Option<super::post_merge::PostMergeRun>,
+    pub(super) merged_candidate: Option<super::merged::MergedPr>,
 }
 
 /// The primary durable effect, if any, of a webhook.
@@ -120,6 +121,9 @@ pub(super) async fn normalize(
     let post_merge_candidate = (!config.event_filtered_out(super::config::POST_MERGE))
         .then(|| super::post_merge::candidate(event_type, payload))
         .flatten();
+    let merged_candidate = (!config.event_filtered_out(super::config::PR_MERGED))
+        .then(|| super::merged::candidate(event_type, payload))
+        .flatten();
     let mut status_observations = Vec::new();
 
     let primary = if config.event_filtered_out(event_type) {
@@ -145,6 +149,7 @@ pub(super) async fn normalize(
         primary,
         merge_conflict_candidate,
         post_merge_candidate,
+        merged_candidate,
     }
 }
 
@@ -154,6 +159,7 @@ fn ignored(reason: IgnoredWebhook) -> NormalizedWebhook {
         primary: Ok(PrimaryWebhook::Ignore(reason)),
         merge_conflict_candidate: None,
         post_merge_candidate: None,
+        merged_candidate: None,
     }
 }
 

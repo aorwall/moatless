@@ -182,6 +182,7 @@ pub(crate) async fn receive(
     if rule_config.event_filtered_out(event_type)
         && rule_config.event_filtered_out(super::config::MERGE_CONFLICT)
         && rule_config.event_filtered_out(super::config::POST_MERGE)
+        && rule_config.event_filtered_out(super::config::PR_MERGED)
     {
         debug!(
             event_type,
@@ -229,7 +230,7 @@ pub(crate) async fn receive(
         repo_full_name: repo_full_name.to_string(),
     };
     let event_id = delivery_event_id(delivery_id, body);
-    let mut plan = Vec::with_capacity(3);
+    let mut plan = Vec::with_capacity(4);
 
     match primary {
         PrimaryWebhook::Message(msg) => {
@@ -247,27 +248,26 @@ pub(crate) async fn receive(
         }
         PrimaryWebhook::CloseTask(info) => {
             // Auto-close only applies to trigger-created tasks; with no trigger
-            // there is nothing to close.
+            // there is nothing to close. The merged-PR notice below is not
+            // gated on a trigger, so this skips the close alone.
             if rule.is_none() {
                 debug!(
                     repo = repo_full_name,
                     "PR closed but no trigger for this repo — nothing to auto-close"
                 );
-                return Ok(Outcome::Processed {
-                    event_type: event_type.to_string(),
-                });
+            } else {
+                plan.push(
+                    super::delivery::request(
+                        super::delivery::kind::CLOSE,
+                        event_id.clone(),
+                        &super::delivery::CloseDelivery {
+                            context: delivery_context.clone(),
+                            close: info,
+                        },
+                    )
+                    .map_err(ingress)?,
+                );
             }
-            plan.push(
-                super::delivery::request(
-                    super::delivery::kind::CLOSE,
-                    event_id.clone(),
-                    &super::delivery::CloseDelivery {
-                        context: delivery_context.clone(),
-                        close: info,
-                    },
-                )
-                .map_err(ingress)?,
-            );
         }
         PrimaryWebhook::Ignore(reason) => {
             debug!(
@@ -276,6 +276,29 @@ pub(crate) async fn receive(
                 "GitHub PR event ignored"
             );
         }
+    }
+
+    // Merged PR: a merge reaches this endpoint as `pull_request` `closed` with
+    // `merged: true`, where the primary effect is the trigger's auto-close (or
+    // nothing at all). Notifying the tasks that outlive the pull request is a
+    // separate effect with its own retry budget, so it is admitted as its own
+    // kind rather than folded into the close.
+    if let Some(merged) = normalized.merged_candidate {
+        plan.push(
+            super::delivery::request(
+                super::delivery::kind::PR_MERGED,
+                event_id.clone(),
+                &super::delivery::PrMergedDelivery {
+                    context: delivery_context.clone(),
+                    execution: super::merged::Execution {
+                        owner: owner.to_string(),
+                        repo: repo.to_string(),
+                        merged,
+                    },
+                },
+            )
+            .map_err(ingress)?,
+        );
     }
 
     // Post-merge CI: a base-branch `workflow_run` completing carries no PR

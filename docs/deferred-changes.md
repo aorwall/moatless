@@ -119,6 +119,20 @@ in the change that found them.
 | The GitHub preflight never runs on a restart | `crates/sandbox-control/src/auto_provision.rs::build_provision_request` runs only `preflight::preflight_validate_sandbox_control`; `RealPreflight`'s repo-access probe reaches only creation and task start | When `SandboxRuntime::ensure_running` no longer builds a plan on the reuse path; see below |
 | A `moat push` commit claim is process-local | `crates/adapter-github-pr/src/api_routes.rs::claim_change`, the `GithubClaimSubject::Commit` arm — `RecentlySent::note_commit` only | When a `pull_request.synchronize` is observed reaching a replica that did not serve the claim; see below |
 | Every member of a shared Sandbox runs the first member's agent harness | `sandbox/src/state.rs::register_task_context` — its three-field config clone leaves `agent_type` and `use_tmux` inherited from the pod, while `spawn_agent` is already called per member and `TaskContext` already holds its own `AgentHandle` | When a shared warm Sandbox needs two harnesses at once; see below |
+| A Task auto-close spares for its sibling Bindings is told nothing about the PR | `crates/adapter-github-pr/src/routing.rs::close_subject`, the `siblings_count > 1` arm | When a Task bound to two pull requests is observed missing the close of one; see below |
+
+**A Task auto-close spares hears neither notice.** `close_subject` walks the
+Bindings its own trigger created, and where the Task carries other Bindings it
+logs *"leaving task open"* and `continue`s — ahead of the
+`build_close_inbound_message` call, so that Task gets no close notice. The
+merged-PR notice does not cover it either: `merged.rs::auto_close_owns` splits
+the two audiences on the structural facts a Binding carries (origin and
+`loop_id`), which is what keeps `github.close` and `github.pr_merged`
+independent of the order they execute in, and the sibling rule is not one of
+those facts — it is a per-Task database read `close_subject` makes at execution
+time. Closing the gap belongs in `close_subject`, which already knows it is
+sparing the Task: deliver the notice before the `continue`, and
+`auto_close_owns` keeps working unchanged.
 
 **Workspace control-filter writes.** `WorkspaceDao`'s `update`, `add_repo`,
 `remove_repo` and `set_primary` all return `bool`, and the trait documents it:

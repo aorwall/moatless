@@ -18,6 +18,7 @@ mod external_id;
 pub mod handlers;
 mod ingress;
 mod merge_conflict;
+mod merged;
 mod outbound;
 mod post_merge;
 mod reactions;

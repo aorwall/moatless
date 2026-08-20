@@ -253,6 +253,121 @@ async fn close_metadata_and_pr_status_are_normalized_together() {
 }
 
 #[tokio::test]
+async fn a_merged_pull_request_is_a_candidate_whatever_the_close_does() {
+    let payload = serde_json::json!({
+        "action": "closed",
+        "sender": {"login": "alice"},
+        "pull_request": {
+            "number": 42,
+            "state": "closed",
+            "merged": true,
+            "draft": false,
+            "title": "feat: done",
+            "html_url": "https://github.com/soaplabs/repo/pull/42",
+            "merged_by": {"login": "maintainer"},
+            "base": {"ref": "main"},
+            "head": {"ref": "feature"},
+            "merge_commit_sha": "abcdef0123456789",
+        }
+    });
+
+    // A trigger that leaves its tasks open: the primary has no effect at all,
+    // and the merge notice is the only thing the pull request produces.
+    let keeping = normalize_payload("pull_request", &payload, &fake_rule()).await;
+    assert!(matches!(
+        keeping.primary,
+        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::NotificationDisabled))
+    ));
+    let merged = keeping
+        .merged_candidate
+        .expect("a merged close is a merge notice");
+    assert_eq!(merged.pr_number, 42);
+    assert_eq!(merged.merged_by, "maintainer");
+
+    // A trigger that closes its tasks: the notice is derived alongside the
+    // close, because a task the close does not own still outlives the PR.
+    let mut closing = fake_rule();
+    closing.close_task_on_close = true;
+    let both = normalize_payload("pull_request", &payload, &closing).await;
+    assert!(matches!(both.primary, Ok(PrimaryWebhook::CloseTask(_))));
+    assert!(both.merged_candidate.is_some());
+}
+
+#[tokio::test]
+async fn a_pull_request_closed_without_merging_produces_no_merge_notice() {
+    let payload = serde_json::json!({
+        "action": "closed",
+        "sender": {"login": "alice"},
+        "pull_request": {
+            "number": 42,
+            "state": "closed",
+            "merged": false,
+            "draft": false,
+            "title": "feat: abandoned",
+            "html_url": "https://github.com/soaplabs/repo/pull/42",
+        }
+    });
+    let normalized = normalize_payload("pull_request", &payload, &fake_rule()).await;
+    assert!(normalized.merged_candidate.is_none());
+}
+
+#[tokio::test]
+async fn ignoring_the_merge_notice_leaves_the_close_alone() {
+    let payload = serde_json::json!({
+        "action": "closed",
+        "sender": {"login": "alice"},
+        "pull_request": {
+            "number": 42,
+            "state": "closed",
+            "merged": true,
+            "draft": false,
+            "title": "feat: done",
+            "html_url": "https://github.com/soaplabs/repo/pull/42",
+        }
+    });
+    let mut rule = fake_rule();
+    rule.close_task_on_close = true;
+    rule.adapter_config = Some(serde_json::json!({"ignored_events": ["pr_merged"]}));
+    let normalized = normalize_payload("pull_request", &payload, &rule).await;
+
+    assert!(normalized.merged_candidate.is_none());
+    assert!(matches!(
+        normalized.primary,
+        Ok(PrimaryWebhook::CloseTask(_))
+    ));
+}
+
+#[tokio::test]
+async fn allowlisting_only_the_merge_notice_still_derives_it() {
+    // The `pull_request` event is the carrier, so filtering out its own message
+    // must not cancel the merge notice a loop asked to receive.
+    let mut rule = fake_rule();
+    rule.event_filter = serde_json::json!(["pr_merged"]);
+    let normalized = normalize_payload(
+        "pull_request",
+        &serde_json::json!({
+            "action": "closed",
+            "sender": {"login": "alice"},
+            "pull_request": {
+                "number": 42,
+                "state": "closed",
+                "merged": true,
+                "draft": false,
+                "title": "feat: done",
+            }
+        }),
+        &rule,
+    )
+    .await;
+
+    assert!(normalized.merged_candidate.is_some());
+    assert!(matches!(
+        normalized.primary,
+        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
+    ));
+}
+
+#[tokio::test]
 async fn review_verdict_preserves_observation_message_and_audience() {
     let payload = serde_json::json!({
         "action": "submitted",

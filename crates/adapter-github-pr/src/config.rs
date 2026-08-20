@@ -18,8 +18,15 @@ pub(super) const MERGE_CONFLICT: &str = "merge_conflict";
 /// is likewise derived rather than received. Named for the same reason.
 pub(super) const POST_MERGE: &str = "post_merge";
 
+/// GitHub has no `merged` action: a merge arrives as `pull_request` `closed`
+/// carrying `merged: true`. The notification a task receives when its pull
+/// request lands is therefore derived from that event rather than received as
+/// one, and is named here so a loop can include or ignore it like any other
+/// event.
+pub(super) const PR_MERGED: &str = "pr_merged";
+
 /// Every event name a loop's include/ignore list can name: the GitHub webhook
-/// event types this adapter handles, plus the two derived signals above.
+/// event types this adapter handles, plus the three derived signals above.
 ///
 /// `workflow_run` produces no message of its own — it is only ever the carrier
 /// for [`POST_MERGE`] — but it is a real event type this endpoint receives, so
@@ -34,6 +41,7 @@ pub(super) const KNOWN_EVENTS: &[&str] = &[
     "workflow_run",
     MERGE_CONFLICT,
     POST_MERGE,
+    PR_MERGED,
 ];
 
 /// Extracted GitHub-specific knobs from an `SubscriptionMatch`.
@@ -387,6 +395,24 @@ mod tests {
         assert!(!cfg.event_filtered_out("pull_request"));
         assert!(!cfg.event_filtered_out("issue_comment"));
         assert!(!cfg.event_filtered_out(POST_MERGE));
+        assert!(!cfg.event_filtered_out(PR_MERGED));
+    }
+
+    #[test]
+    fn ignoring_the_merged_signal_keeps_the_pull_request_event() {
+        let rule = rule_with_adapter_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_events": [PR_MERGED]})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(cfg.event_filtered_out(PR_MERGED));
+        // `pull_request` is the carrier, so it keeps its own message and its
+        // other derived signals.
+        assert!(!cfg.event_filtered_out("pull_request"));
+        assert!(!cfg.event_filtered_out(MERGE_CONFLICT));
+        assert!(cfg.unknown_event_names().is_empty());
     }
 
     #[test]

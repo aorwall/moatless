@@ -1,13 +1,14 @@
 //! Durable admission for the GitHub PR work that must not be lost.
 //!
-//! Four units of work used to be `tokio::spawn`ed from the webhook handler and
-//! then acknowledged with a 200 before any of them had run: routing an inbound
-//! PR message (which can create a task and provision a sandbox), closing the
-//! tasks a merged PR created, the post-merge CI notice, and the merge-conflict
-//! check. A deploy, an OOM kill, or a panic lost all four with no trace, and
-//! GitHub had already been told the delivery was accepted.
+//! One GitHub webhook can loop several units of work that must not be lost:
+//! routing an inbound PR message (which can create a task and provision a
+//! sandbox), closing the tasks a merged PR created, telling the tasks that
+//! outlive it that it merged, the post-merge CI notice, and the merge-conflict
+//! check. None of them can run under GitHub's response deadline, and a deploy,
+//! an OOM kill, or a panic must not lose work the sender was already told was
+//! accepted.
 //!
-//! Each is now admitted into [`moatless_loops::adapters::delivery`] inside the request
+//! Each is admitted into [`moatless_loops::adapters::delivery`] inside the request
 //! handler and executed by the supervised worker. The admission contract —
 //! when the producer may be acknowledged, what is durable, how retries and
 //! deduplication work, what happens at capacity, and how shutdown drains — is
@@ -24,7 +25,7 @@
 //! of delivery ids on [`GithubPrAdapter`](super::adapter::GithubPrAdapter) as
 //! well; it is gone, along with the compensating eviction a failed admission
 //! needed to undo it. What is left is authoritative for *effects* — whether
-//! these four units of work run twice — on any replica, after any restart, and
+//! these units of work run twice — on any replica, after any restart, and
 //! past any expiry, which is strictly more than the cache ever covered.
 //!
 //! What the cache did cover and the index does not is the work the ingress path
@@ -92,6 +93,8 @@ pub(super) mod kind {
     pub const PR_MESSAGE: &str = "github.pr_message";
     /// Auto-close the tasks a closed/merged PR's trigger created.
     pub const CLOSE: &str = "github.close";
+    /// Tell the tasks that outlive a merged PR that it landed.
+    pub const PR_MERGED: &str = "github.pr_merged";
     /// Announce a base-branch CI run that completed after a merge.
     pub const POST_MERGE: &str = "github.post_merge";
     /// Re-check a PR's mergeable state and announce a new conflict.
@@ -111,6 +114,10 @@ pub fn register(handlers: &mut AdapterDeliveryHandlers, router: Arc<GithubPrInbo
     register_typed_delivery::<CloseDelivery, _, _>(handlers, kind::CLOSE, {
         let router = router.clone();
         move |delivery, payload| execute_close(router.clone(), delivery, payload)
+    });
+    register_typed_delivery::<PrMergedDelivery, _, _>(handlers, kind::PR_MERGED, {
+        let router = router.clone();
+        move |delivery, payload| execute_pr_merged(router.clone(), delivery, payload)
     });
     register_typed_delivery::<PostMergeDelivery, _, _>(handlers, kind::POST_MERGE, {
         let router = router.clone();
@@ -211,6 +218,15 @@ pub(super) struct CloseDelivery {
     pub(super) close: PrCloseInfo,
 }
 
+/// Notify the tasks that outlive a merged PR.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(super) struct PrMergedDelivery {
+    #[serde(flatten)]
+    pub(super) context: DeliveryContext,
+    #[serde(flatten)]
+    pub(super) execution: super::merged::Execution,
+}
+
 /// Announce a completed base-branch CI run.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct PostMergeDelivery {
@@ -288,6 +304,22 @@ async fn execute_close(
     };
     router
         .close_subject(&trigger, &payload.close)
+        .await
+        .map_err(AdapterDeliveryFailure::from)
+}
+
+async fn execute_pr_merged(
+    router: Arc<GithubPrInboundRouter>,
+    _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+    payload: PrMergedDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    let (connection, trigger) = payload.context.resolve(&router).await?;
+    // A trigger deleted between admission and execution leaves the bindings on
+    // the pull request intact, so the notice is still owed to them; the
+    // delivery-only rule carries the labelling they route under.
+    let rule = payload.context.rule_for_parse(&connection, trigger.as_ref());
+    router
+        .run_pr_merged(&connection, &rule, &payload.execution)
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
@@ -422,6 +454,34 @@ mod tests {
     }
 
     #[test]
+    fn the_pr_merged_payload_is_stored_flat_with_a_nested_merge() {
+        let stored = serde_json::json!({
+            "connection_id": "conn-1",
+            "loop_id": "trigger-1",
+            "repo_full_name": "acme/widgets",
+            "owner": "acme",
+            "repo": "widgets",
+            "merged": {
+                "pr_number": 42,
+                "title": "Add the widget",
+                "html_url": "https://github.com/acme/widgets/pull/42",
+                "merged_by": "octocat",
+                "base_ref": "main",
+                "head_ref": "feature",
+                "merge_commit_sha": "abcdef0123456789",
+            },
+        });
+        let delivery: PrMergedDelivery =
+            serde_json::from_value(stored.clone()).expect("deserialize");
+
+        assert_eq!(delivery.context.connection_id, "conn-1");
+        assert_eq!(delivery.execution.owner, "acme");
+        assert_eq!(delivery.execution.merged.pr_number, 42);
+        assert_eq!(delivery.execution.merged.merged_by, "octocat");
+        assert_eq!(serde_json::to_value(&delivery).expect("serialize"), stored);
+    }
+
+    #[test]
     fn the_post_merge_payload_is_stored_flat_with_a_nested_run() {
         let stored = serde_json::json!({
             "connection_id": "conn-1",
@@ -498,6 +558,7 @@ mod tests {
         let kinds = [
             kind::PR_MESSAGE,
             kind::CLOSE,
+            kind::PR_MERGED,
             kind::POST_MERGE,
             kind::MERGE_CONFLICT,
         ];

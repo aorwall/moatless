@@ -52,6 +52,8 @@ const OWNER: &str = "acme";
 const REPO_FULL_NAME: &str = "acme/widgets";
 const SUBJECT_KEY: &str = "acme/widgets#42";
 const GITHUB_PR_MESSAGE: &str = "github.pr_message";
+const GITHUB_CLOSE: &str = "github.close";
+const GITHUB_PR_MERGED: &str = "github.pr_merged";
 const GITHUB_POST_MERGE: &str = "github.post_merge";
 const GITHUB_MERGE_CONFLICT: &str = "github.merge_conflict";
 /// The task's owner. Deliberately not the connection's user: an event whose
@@ -699,6 +701,78 @@ async fn connection_without_subscription_delivers_existing_bindings_but_creates_
         message_count(&pool, task_id).await,
         2,
         "the opened event still reaches the already-bound task"
+    );
+}
+
+/// A merge is a `pull_request` `closed` carrying `merged: true`, and the notice
+/// it produces is its own durable kind. This asserts the shape that motivates
+/// the split: the task that opened the pull request is bound to it as a
+/// `connected_thread`, nothing auto-closes it, and it hears that its work
+/// landed — without the handler making a single GitHub call.
+#[sqlx::test]
+async fn a_merged_pull_request_notifies_the_task_that_outlives_it(pool: PgPool) {
+    let task_id = "task-merged-notice";
+    seed_fixtures(&pool, task_id).await;
+    let state = replica(&pool).await;
+
+    deliver(
+        &state,
+        "pull_request",
+        "delivery-merged",
+        &pull_request_payload("closed", "closed", true),
+    )
+    .await;
+    assert_eq!(
+        count_records(&pool, GITHUB_PR_MERGED, "delivery-merged").await,
+        1,
+        "the merge notice is admitted before GitHub is acknowledged"
+    );
+    assert_eq!(
+        count_records(&pool, GITHUB_CLOSE, "delivery-merged").await,
+        0,
+        "with no Subscription there is no trigger-created task to auto-close"
+    );
+
+    let pool_for_check = pool.clone();
+    run_worker_until(&state, Duration::from_secs(30), async || {
+        matches!(
+            status_of(&pool_for_check, GITHUB_PR_MERGED, "delivery-merged").await,
+            Some((ref status, _)) if status == "succeeded" || status == "failed"
+        )
+    })
+    .await;
+
+    assert_eq!(
+        status_of(&pool, GITHUB_PR_MERGED, "delivery-merged")
+            .await
+            .map(|(status, _)| status),
+        Some("succeeded".to_string()),
+    );
+    assert_eq!(
+        message_count(&pool, task_id).await,
+        1,
+        "the connected task is told its pull request merged"
+    );
+}
+
+#[sqlx::test]
+async fn a_pull_request_closed_without_merging_admits_no_merge_notice(pool: PgPool) {
+    let task_id = "task-unmerged-close";
+    seed_fixtures(&pool, task_id).await;
+    let state = replica(&pool).await;
+
+    deliver(
+        &state,
+        "pull_request",
+        "delivery-unmerged",
+        &pull_request_payload("closed", "closed", false),
+    )
+    .await;
+
+    assert_eq!(
+        count_records(&pool, GITHUB_PR_MERGED, "delivery-unmerged").await,
+        0,
+        "an abandoned pull request did not land, so there is nothing to announce"
     );
 }
 

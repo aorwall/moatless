@@ -35,6 +35,15 @@ pub(super) fn pr_synchronize(pr_number: u64, sha: &str) -> String {
     pr_event("synchronize", pr_number, Some(sha))
 }
 
+/// `github:pr:merged:<pr_number>` - the merged-PR notification.
+///
+/// A distinct namespace from `github:pr:closed:<pr_number>`, which the
+/// auto-close notice owns: the two carry different text to different tasks, so
+/// sharing an id would let whichever ran first suppress the other's receipt.
+pub(super) fn pr_merged(pr_number: u64) -> String {
+    pr_event("merged", pr_number, None)
+}
+
 /// `github:cr:<id>` - check_run completion.
 pub(super) fn check_run(id: u64) -> String {
     format!("github:cr:{id}")
@@ -114,6 +123,8 @@ mod tests {
             "github:pr:synchronize:42:abcdef0"
         );
         assert_eq!(pr_opened(42), "github:pr:opened:42");
+        assert_eq!(pr_merged(42), "github:pr:merged:42");
+        assert_ne!(pr_merged(42), pr_event("closed", 42, None));
         assert_eq!(
             pr_synchronize(42, "7fc06122f3aa1b4ed6cdee04b40dabf01dadbeef"),
             "github:pr:synchronize:42:7fc06122f3aa1b4ed6cdee04b40dabf01dadbeef"

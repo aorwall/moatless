@@ -42,9 +42,9 @@ pub enum LoopsAction {
     /// Events are named by --event-filter (an allowlist; empty = all) or
     /// ignored_events (a denylist, which wins). Names: pull_request,
     /// issue_comment, pull_request_review_comment, pull_request_review,
-    /// check_run, check_suite, plus the two signals this adapter derives —
-    /// merge_conflict and post_merge. Ignoring a derived signal skips its
-    /// GitHub call entirely and keeps the events it is derived from.
+    /// check_run, check_suite, plus the three signals this adapter derives —
+    /// merge_conflict, post_merge and pr_merged. Ignoring a derived signal
+    /// skips only that signal's work and keeps the events it is derived from.
     /// The backend validates values (e.g. compiles each regex) — this command does not.
     ///
     /// Examples:
@@ -130,9 +130,9 @@ pub enum LoopsAction {
     /// Events are named by --event-filter (an allowlist; empty = all) or
     /// ignored_events (a denylist, which wins). Names: pull_request,
     /// issue_comment, pull_request_review_comment, pull_request_review,
-    /// check_run, check_suite, plus the two signals this adapter derives —
-    /// merge_conflict and post_merge. Ignoring a derived signal skips its
-    /// GitHub call entirely and keeps the events it is derived from.
+    /// check_run, check_suite, plus the three signals this adapter derives —
+    /// merge_conflict, post_merge and pr_merged. Ignoring a derived signal
+    /// skips only that signal's work and keeps the events it is derived from.
     /// The backend validates values (e.g. compiles each regex) — this command does not.
     ///
     /// Examples:
