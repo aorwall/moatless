@@ -256,7 +256,7 @@ impl AdapterBindingReply for WebhookAdapter {
             "task_id": thread.task_id,
             "thread_id": thread.subject_key,
             "text": message.text,
-            "task_url": message.task_url,
+            "provenance": message.provenance,
             "is_error": message.is_error,
         });
 

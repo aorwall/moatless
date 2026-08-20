@@ -5,7 +5,12 @@ use std::sync::Arc;
 use tracing::warn;
 
 use moatless_adapter_model::models::TaskBinding;
-use moatless_types::adapter::{OutboundFile, OutboundReply};
+use moatless_types::adapter::{
+    OutboundFile, OutboundPresentation, OutboundReply, TaskOrigin, TaskProvenance,
+};
+use moatless_types::loops::SubscriptionMatch;
+use moatless_identity::auth::users::UserDao;
+use moatless_workspaces::workspace::dao::WorkspaceDao;
 use moatless_types::access_control::ScopeContext;
 use moatless_core::config::S3Config;
 use moatless_types::auth::AuthConfig;
@@ -25,6 +30,37 @@ use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task_activities::mapping::ConversationWrite;
 use moatless_tasks::task_turn::dao::TaskTurnDao;
 
+/// Whether this thread has already carried a provenance footer.
+///
+/// The footer names the thread, not the message, so it renders once and the
+/// lookups behind it are paid once. The binding is already loaded at every send
+/// site, so asking costs nothing.
+pub fn task_link_already_sent(binding: &TaskBinding) -> bool {
+    binding
+        .metadata
+        .get("task_link_sent")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+/// Reject a presentation addressed to a different adapter than the send
+/// resolves to. Dropping it silently would post the plain-text fallback and
+/// report success, which reads as "Slack ignored my blocks".
+pub fn checked_presentation(
+    presentation: Option<OutboundPresentation>,
+    adapter: AdapterKind,
+) -> Result<Option<OutboundPresentation>, AdapterError> {
+    match presentation {
+        Some(p) if p.kind() != adapter => Err(SharedAdapterError::BadRequest(format!(
+            "presentation kind `{}` does not match the destination adapter `{}`",
+            p.kind().as_str(),
+            adapter.as_str()
+        ))
+        .into()),
+        other => Ok(other),
+    }
+}
+
 /// Binding-based outbound delivery, owning the ports the send path reads rather
 /// than the whole `AppState`. Held by `ExternalReplyService`, which is the only
 /// consumer; this is a module boundary made concrete (a plain struct, no trait,
@@ -42,6 +78,8 @@ pub struct OutboundSender {
     auth_config: Arc<AuthConfig>,
     s3_config: Arc<S3Config>,
     files: Arc<dyn FileDao>,
+    workspaces: Arc<dyn WorkspaceDao>,
+    users: Arc<dyn UserDao>,
 }
 
 impl OutboundSender {
@@ -61,6 +99,8 @@ impl OutboundSender {
         auth_config: Arc<AuthConfig>,
         s3_config: Arc<S3Config>,
         files: Arc<dyn FileDao>,
+        workspaces: Arc<dyn WorkspaceDao>,
+        users: Arc<dyn UserDao>,
     ) -> Self {
         Self {
             task_bindings,
@@ -74,6 +114,8 @@ impl OutboundSender {
             auth_config,
             s3_config,
             files,
+            workspaces,
+            users,
         }
     }
 
@@ -91,6 +133,7 @@ impl OutboundSender {
         binding_id: &str,
         text: &str,
         file_ids: &[String],
+        presentation: Option<OutboundPresentation>,
     ) -> Result<(u32, Vec<String>), AdapterError> {
         let binding_repo = self.task_bindings.clone();
         let binding = binding_repo.find_by_id(binding_id).await?.ok_or_else(|| {
@@ -163,13 +206,22 @@ impl OutboundSender {
             .flatten()
             .and_then(|t| t.owner_user_id);
 
+        let presentation = checked_presentation(presentation, provider.adapter_kind())?;
+        let provenance = if task_link_already_sent(&binding) {
+            None
+        } else {
+            self.maybe_task_provenance(provider.adapter_kind(), task_id, rule.as_ref())
+                .await
+        };
+        let sent_provenance = provenance.is_some();
         let reply = OutboundReply {
             text: truncate_text(text, provider.max_message_length()),
-            task_url: None,
+            provenance,
             footer,
             author_user_id,
             is_error: false,
             files,
+            presentation,
         };
 
         // Persist a visible stub up front so the row shows in the task timeline
@@ -182,7 +234,17 @@ impl OutboundSender {
             .send_reply_for_binding(&binding, &connection, rule.as_ref(), &reply)
             .await
         {
-            Ok(id) => id,
+            Ok(id) => {
+                if sent_provenance {
+                    // Best effort: a failure re-renders the footer once, which
+                    // beats failing a reply that already landed.
+                    if let Err(e) = self.task_bindings.mark_task_link_sent(&binding.id).await {
+                        warn!(binding_id = %binding.id, error = %e,
+                              "Failed to record that the task link was sent");
+                    }
+                }
+                id
+            }
             Err(e) => {
                 record_outbound(
                     adapter_label,
@@ -239,6 +301,86 @@ impl OutboundSender {
     /// The footer that GitHub/Linear comments end with — a link back to the
     /// moatless task. Other providers don't carry the footer, so this returns
     /// `None` for them (and when the task can't be resolved).
+    /// The provenance footer for adapters that render the task link themselves.
+    ///
+    /// `None` for the Markdown-comment adapters — they carry the link in
+    /// `footer` via `render_footer` instead — and when no frontend URL is
+    /// configured. Each lookup is best-effort: a failure drops its own segment
+    /// rather than the reply, the way `task_comment_footer` already treats a
+    /// failed task-name read.
+    pub(crate) async fn maybe_task_provenance(
+        &self,
+        adapter_kind: AdapterKind,
+        task_id: &str,
+        rule: Option<&SubscriptionMatch>,
+    ) -> Option<TaskProvenance> {
+        if !matches!(adapter_kind, AdapterKind::Slack | AdapterKind::Telegram) {
+            return None;
+        }
+        let base = self.auth_config.frontend_url.trim_end_matches('/');
+        if base.is_empty() {
+            return None;
+        }
+        let url = format!("{base}/tasks/{task_id}");
+
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a formatting lookup on an already-authorised reply, with no caller identity"
+        )]
+        let sys = ScopeContext::system();
+
+        let task = match self.tasks.find_by_id(task_id, &sys).await {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(task_id, error = %e, "Failed to load task for provenance footer");
+                None
+            }
+        };
+
+        let mut workspace_name = None;
+        if let Some(workspace_id) = task.as_ref().and_then(|t| t.workspace_id.as_deref()) {
+            match self.workspaces.find_by_id(workspace_id, &sys).await {
+                Ok(Some(w)) => workspace_name = Some(w.name),
+                Ok(None) => {}
+                Err(e) => warn!(task_id, error = %e, "Failed to load workspace for provenance footer"),
+            }
+        }
+
+        // A Loop that fired the task names itself; otherwise the person who
+        // started it does.
+        let origin = match rule {
+            Some(r) => TaskOrigin::Loop {
+                name: r.name.clone(),
+            },
+            None => self.started_by(task.as_ref().and_then(|t| t.created_by.as_deref())).await,
+        };
+
+        Some(TaskProvenance {
+            url,
+            task_name: task.and_then(|t| t.name),
+            workspace_name,
+            origin,
+        })
+    }
+
+    /// Resolve a `created_by` user id to a login, best effort.
+    async fn started_by(&self, created_by: Option<&str>) -> TaskOrigin {
+        let Some(raw) = created_by else {
+            return TaskOrigin::Unknown;
+        };
+        let Ok(uuid) = uuid::Uuid::parse_str(raw) else {
+            return TaskOrigin::Unknown;
+        };
+        match self.users.get_user(&uuid).await {
+            Ok(Some(u)) => TaskOrigin::StartedBy { login: u.login },
+            Ok(None) => TaskOrigin::Unknown,
+            Err(e) => {
+                warn!(error = %e, "Failed to load user for provenance footer");
+                TaskOrigin::Unknown
+            }
+        }
+    }
+
     pub(crate) async fn maybe_task_comment_footer(
         &self,
         adapter_kind: AdapterKind,
@@ -388,7 +530,58 @@ pub async fn resolve_files_with(
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_text;
+    use super::{task_link_already_sent, truncate_text};
+    use moatless_adapter_model::models::TaskBinding;
+
+    fn binding(metadata: serde_json::Value) -> TaskBinding {
+        let now = chrono::Utc::now();
+        TaskBinding {
+            id: "tb_1".into(),
+            task_id: "task-1".into(),
+            adapter_kind: crate::adapters::AdapterKind::Telegram,
+            subject_kind: "thread".into(),
+            subject_key: "subject-1".into(),
+            connection_id: "conn-1".into(),
+            loop_id: None,
+            destination_config: serde_json::json!({}),
+            metadata,
+            last_external_event_id: None,
+            origin: "inbound".into(),
+            created_at: now,
+            last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
+        }
+    }
+
+    /// The footer names the thread, so a fresh thread wants one and a thread
+    /// that already carried one does not.
+    #[test]
+    fn the_footer_is_owed_once_per_thread() {
+        assert!(!task_link_already_sent(&binding(serde_json::json!({}))));
+        assert!(task_link_already_sent(&binding(
+            serde_json::json!({"task_link_sent": true})
+        )));
+    }
+
+    /// Unrelated metadata must not read as "already sent" — that would silently
+    /// suppress the footer on every thread carrying any other key.
+    #[test]
+    fn unrelated_metadata_does_not_suppress_the_footer() {
+        assert!(!task_link_already_sent(&binding(
+            serde_json::json!({"something_else": true})
+        )));
+        assert!(!task_link_already_sent(&binding(
+            serde_json::json!({"task_link_sent": "yes"})
+        )));
+    }
+
 
     #[test]
     fn truncate_under_max_returns_input() {

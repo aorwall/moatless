@@ -10,7 +10,7 @@ use moatless_api_schemas::shared::AgentMode;
 use moatless_api_schemas::user::SendDmRequest;
 
 use crate::client::MoatClient;
-use crate::commands::misc::{read_text_or_stdin, upload_files};
+use crate::commands::misc::{read_json_arg, read_text_or_stdin, upload_files};
 use crate::config::Config;
 use crate::output;
 
@@ -34,6 +34,12 @@ pub struct SendArgs {
     /// Pair with `--via`.
     #[arg(long, group = "send_target", requires = "via")]
     pub to: Option<String>,
+
+    /// Adapter-native rich payload, inline JSON or `@file`, for use with
+    /// `--to`. The payload names the adapter it addresses, e.g.
+    /// `{"kind":"slack","blocks":[...]}`. `--text` is still sent.
+    #[arg(long)]
+    pub rich: Option<String>,
 
     /// Adapter selector. For `--user`: provider ID type to look up
     /// (slack | telegram). For `--to`: adapter kind to dispatch through.
@@ -131,6 +137,11 @@ pub async fn run(
     if let Some(destination) = args.to {
         let via = args.via.as_deref().ok_or("--via is required with --to")?;
         let adapter = AdapterKind::parse(via).ok_or_else(|| format!("Unknown adapter: {via}"))?;
+        let presentation = args
+            .rich
+            .as_deref()
+            .map(|arg| read_json_arg("--rich", arg))
+            .transpose()?;
         let req = AdapterSendRequest {
             adapter,
             connection_id: args.connection,
@@ -138,6 +149,7 @@ pub async fn run(
             text,
             file_ids,
             task_id: task_id_ctx.clone(),
+            presentation,
         };
         let resp = moat.api().adapter_send(&req).await?;
         if json {

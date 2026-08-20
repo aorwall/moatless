@@ -120,6 +120,10 @@ impl TaskBindingDao for PgTaskBindingDao {
         PgTaskBindingDao::touch_last_event(self, id).await
     }
 
+    async fn mark_task_link_sent(&self, id: &str) -> Result<(), sqlx::Error> {
+        PgTaskBindingDao::mark_task_link_sent(self, id).await
+    }
+
     async fn touch_cursor(
         &self,
         id: &str,
@@ -425,6 +429,18 @@ impl PgTaskBindingDao {
             .bind(id)
             .execute(&self.0)
             .await?;
+        Ok(())
+    }
+
+    pub async fn mark_task_link_sent(&self, id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE task_bindings
+               SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"task_link_sent": true}'::jsonb
+               WHERE id = $1"#,
+        )
+        .bind(id)
+        .execute(&self.0)
+        .await?;
         Ok(())
     }
 

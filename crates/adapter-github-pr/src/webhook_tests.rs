@@ -20,6 +20,7 @@ fn fake_rule() -> SubscriptionMatch {
     use moatless_types::access_control::Scope;
 
     SubscriptionMatch {
+        name: "test-loop".to_string(),
         id: "ir_test".into(),
         adapter_kind: AdapterKind::Github,
         connection_id: "pc_test".into(),

@@ -1381,6 +1381,7 @@ impl LoopDao {
 
 const SUBSCRIPTION_MATCH_SELECT: &str = r#"
     SELECT t.id,
+           t.name,
            aes.adapter_kind,
            aes.connection_id,
            aes.source_matcher AS source_matcher,

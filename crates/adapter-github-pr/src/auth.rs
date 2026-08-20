@@ -285,6 +285,7 @@ mod tests {
         use moatless_types::loops::RoutingMode;
 
         SubscriptionMatch {
+            name: "test-loop".to_string(),
             id: "rule".into(),
             adapter_kind: AdapterKind::Github,
             connection_id: "connection".into(),

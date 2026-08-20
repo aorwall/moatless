@@ -262,6 +262,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
     state
         .loops
         .upsert_subscription(&SubscriptionMatch {
+            name: "test-loop".to_string(),
             id: id.to_string(),
             adapter_kind: AdapterKind::Linear,
             connection_id: CONNECTION.to_string(),

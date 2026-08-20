@@ -151,6 +151,7 @@ pub async fn send_task_reply(
             req.binding_id.as_deref(),
             &req.text,
             &req.file_ids,
+            req.presentation,
         )
         .await?;
     Ok(Json(response))
@@ -245,7 +246,7 @@ pub async fn reply_to_message(
 ) -> Result<Json<ReplyToMessageResponse>, AdapterError> {
     let ctx = auth.scope_context();
     let response = external_reply
-        .reply_to_message(&ctx, &message_id, &req.text, &req.file_ids)
+        .reply_to_message(&ctx, &message_id, &req.text, &req.file_ids, req.presentation)
         .await?;
     Ok(Json(response))
 }

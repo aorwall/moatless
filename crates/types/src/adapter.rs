@@ -195,11 +195,212 @@ pub struct OutboundFile {
     pub data: Vec<u8>,
 }
 
+// =============================================================================
+// Adapter-native presentation
+// =============================================================================
+
+/// Adapter-native rich rendering of an outbound message body.
+///
+/// [`OutboundReply::text`] stays mandatory and portable: every adapter sends it,
+/// Slack uses it for the notification, and the binding layer records it as the
+/// task-timeline entry. A presentation is the optional richer form, for the
+/// adapters that have one. An adapter ignores a presentation addressed to
+/// another kind, the way Slack already ignores `footer`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OutboundPresentation {
+    /// Slack Block Kit. Display only: there is no interactive-element variant,
+    /// because nothing routes a `block_actions` click back to a waiting task.
+    Slack { blocks: Vec<SlackBlock> },
+}
+
+impl OutboundPresentation {
+    /// The adapter this presentation addresses.
+    pub fn kind(&self) -> AdapterKind {
+        match self {
+            Self::Slack { .. } => AdapterKind::Slack,
+        }
+    }
+}
+
+/// One Slack Block Kit block.
+///
+/// Typed rather than a raw `Value` so a malformed payload fails where it is
+/// entered, with a field path, instead of reaching Slack and returning a bare
+/// `invalid_blocks` with the message silently unposted.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SlackBlock {
+    /// Large bold title. Slack accepts only `plain_text` here.
+    Header { text: SlackPlainText },
+    /// Body text, optionally with a two-column `fields` array.
+    Section {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<SlackText>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fields: Option<Vec<SlackText>>,
+    },
+    /// Standard Markdown that Slack translates, headings and tables included.
+    Markdown { text: String },
+    /// Tabular data. Cells are rich text, so they can carry live links.
+    Table { rows: Vec<Vec<SlackTableCell>> },
+    /// Small muted line, typically a footer.
+    Context { elements: Vec<SlackText> },
+    Divider,
+    Image { image_url: String, alt_text: String },
+}
+
+/// A Slack composition text object.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SlackText {
+    /// Slack mrkdwn: `*bold*`, `_italic_`, `<url|text>`.
+    Mrkdwn { text: String },
+    PlainText {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        emoji: Option<bool>,
+    },
+}
+
+/// A `plain_text` object. Single-variant so the `type` tag is fixed: a header
+/// cannot be handed the mrkdwn that Slack would reject there.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SlackPlainText {
+    PlainText {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        emoji: Option<bool>,
+    },
+}
+
+/// One `table` cell.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SlackTableCell {
+    RichText { elements: Vec<SlackRichTextSection> },
+}
+
+/// A rich-text section inside a table cell.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SlackRichTextSection {
+    RichTextSection { elements: Vec<SlackRichTextElement> },
+}
+
+/// A leaf inside a rich-text section.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SlackRichTextElement {
+    Text {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        style: Option<SlackTextStyle>,
+    },
+    Link {
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        style: Option<SlackTextStyle>,
+    },
+}
+
+/// Inline styling for a rich-text leaf.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SlackTextStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bold: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub italic: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strike: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<bool>,
+}
+
+/// Where a reply came from, rendered as a footer by adapters that link back to
+/// the task themselves.
+///
+/// Linear and GitHub PR do not use this — their comment bodies are Markdown, so
+/// they carry the link in [`OutboundReply::footer`] via `render_footer`. Slack
+/// mrkdwn has no `[text](url)`, which is why the pieces travel structured and
+/// the adapter renders them.
+///
+/// Every field but `url` is droppable: a missing workspace or task name omits
+/// its segment rather than failing the send.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskProvenance {
+    /// `{frontend_url}/tasks/{task_id}`.
+    pub url: String,
+    pub task_name: Option<String>,
+    pub workspace_name: Option<String>,
+    pub origin: TaskOrigin,
+}
+
+impl TaskProvenance {
+    /// Text for the link itself: the task's name, or a generic fallback — the
+    /// same rule `render_footer` uses for Linear and GitHub.
+    pub fn label(&self) -> &str {
+        self.task_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("View task")
+    }
+
+    /// The segments that follow the link, in order, skipping what is unknown.
+    /// Adapters join these with their own separator so one adapter's markup
+    /// never leaks into another's.
+    pub fn details(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Some(ws) = self
+            .workspace_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            out.push(ws.to_string());
+        }
+        match &self.origin {
+            TaskOrigin::Loop { name } => out.push(format!("loop: {name}")),
+            TaskOrigin::StartedBy { login } => out.push(format!("started by {login}")),
+            TaskOrigin::Unknown => {}
+        }
+        out
+    }
+}
+
+/// What set a task going.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TaskOrigin {
+    /// Fired by a Loop, named by `loops.name`.
+    Loop { name: String },
+    /// Started by a person, named by their moatless login.
+    StartedBy { login: String },
+    /// Neither is known — the task predates provenance, or both lookups failed.
+    Unknown,
+}
+
 /// Outbound reply to send back to an external target.
 #[derive(Debug)]
 pub struct OutboundReply {
     pub text: String,
-    pub task_url: Option<String>,
+    /// Provenance footer for adapters that render the task link themselves
+    /// (Slack). `None` leaves the reply without one.
+    pub provenance: Option<TaskProvenance>,
     /// Footer suffix appended to comment bodies by the Linear/GitHub adapters
     /// (e.g. `"\n\n---\nMoatless task: [Task name](https://app/tasks/<id>)"`).
     /// Built by the binding layer's `task_comment_footer`. The footer URL
@@ -216,6 +417,9 @@ pub struct OutboundReply {
     pub author_user_id: Option<String>,
     pub is_error: bool,
     pub files: Vec<OutboundFile>,
+    /// Adapter-native rich rendering of this reply, when the caller supplied
+    /// one. `None` reproduces the pre-presentation behaviour exactly.
+    pub presentation: Option<OutboundPresentation>,
 }
 
 // =============================================================================
@@ -349,6 +553,7 @@ impl std::fmt::Debug for LinearConfig {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, reason = "the assertions are the wire contract")]
 mod tests {
     use super::*;
 
@@ -366,6 +571,121 @@ mod tests {
         assert!(!debug.contains("real-oauth-secret"));
         assert!(debug.contains("[REDACTED]"));
         assert!(debug.contains("client-123")); // oauth_client_id is not a secret
+    }
+
+    /// Slack rejects a payload whose shape is off by one key, so the wire form
+    /// of every block variant is pinned here rather than discovered in staging.
+    #[test]
+    fn every_block_variant_serialises_to_the_shape_slack_documents() {
+        let cases: Vec<(SlackBlock, serde_json::Value)> = vec![
+            (
+                SlackBlock::Header {
+                    text: SlackPlainText::PlainText {
+                        text: "Prod release".into(),
+                        emoji: Some(true),
+                    },
+                },
+                serde_json::json!({
+                    "type": "header",
+                    "text": { "type": "plain_text", "text": "Prod release", "emoji": true }
+                }),
+            ),
+            (
+                SlackBlock::Section {
+                    text: Some(SlackText::Mrkdwn { text: "*7 apps*".into() }),
+                    fields: None,
+                },
+                serde_json::json!({
+                    "type": "section",
+                    "text": { "type": "mrkdwn", "text": "*7 apps*" }
+                }),
+            ),
+            (
+                SlackBlock::Markdown { text: "### Heading".into() },
+                serde_json::json!({ "type": "markdown", "text": "### Heading" }),
+            ),
+            (
+                SlackBlock::Divider,
+                serde_json::json!({ "type": "divider" }),
+            ),
+            (
+                SlackBlock::Context {
+                    elements: vec![SlackText::Mrkdwn { text: "93 to promote".into() }],
+                },
+                serde_json::json!({
+                    "type": "context",
+                    "elements": [{ "type": "mrkdwn", "text": "93 to promote" }]
+                }),
+            ),
+        ];
+
+        for (block, expected) in cases {
+            assert_eq!(serde_json::to_value(&block).expect("a block serialises"), expected);
+            // and the payload an agent hands us round-trips back to the same block
+            let parsed: SlackBlock = serde_json::from_value(expected).expect("it parses back");
+            assert_eq!(parsed, block);
+        }
+    }
+
+    /// A table cell is the one place a link survives inside tabular data, which
+    /// is the whole reason the release matrix uses a table block.
+    #[test]
+    fn a_table_cell_carries_a_live_link() {
+        let block = SlackBlock::Table {
+            rows: vec![vec![SlackTableCell::RichText {
+                elements: vec![SlackRichTextSection::RichTextSection {
+                    elements: vec![SlackRichTextElement::Link {
+                        url: "https://github.com/soap/soap-backend/compare/a...b".into(),
+                        text: Some("1.0.1204 (d0eec4f3)".into()),
+                        style: Some(SlackTextStyle { bold: Some(true), ..Default::default() }),
+                    }],
+                }],
+            }]],
+        };
+
+        assert_eq!(
+            serde_json::to_value(&block).expect("a table block serialises"),
+            serde_json::json!({
+                "type": "table",
+                "rows": [[{
+                    "type": "rich_text",
+                    "elements": [{
+                        "type": "rich_text_section",
+                        "elements": [{
+                            "type": "link",
+                            "url": "https://github.com/soap/soap-backend/compare/a...b",
+                            "text": "1.0.1204 (d0eec4f3)",
+                            "style": { "bold": true }
+                        }]
+                    }]
+                }]]
+            })
+        );
+    }
+
+    #[test]
+    fn a_presentation_names_the_adapter_it_addresses() {
+        let pres = OutboundPresentation::Slack {
+            blocks: vec![SlackBlock::Divider],
+        };
+        assert_eq!(pres.kind(), AdapterKind::Slack);
+        assert_eq!(
+            serde_json::to_value(&pres).expect("a presentation serialises"),
+            serde_json::json!({ "kind": "slack", "blocks": [{ "type": "divider" }] })
+        );
+    }
+
+    /// Unset optional keys must be absent, not `null` — Slack validates on
+    /// presence, so a `"style": null` is a rejected block.
+    #[test]
+    fn unset_optional_keys_are_omitted_not_null() {
+        let block = SlackBlock::Section {
+            text: Some(SlackText::PlainText { text: "hi".into(), emoji: None }),
+            fields: None,
+        };
+        let json = serde_json::to_string(&block).expect("a section serialises");
+        assert_eq!(json, r#"{"type":"section","text":{"type":"plain_text","text":"hi"}}"#);
+        assert!(!json.contains("null"));
     }
 }
 

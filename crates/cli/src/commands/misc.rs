@@ -32,6 +32,22 @@ pub fn read_text_or_stdin(text: Option<String>) -> Result<String, Box<dyn std::e
     Ok(buf.trim().to_string())
 }
 
+/// Parse a JSON argument given inline or as `@path/to/file.json`.
+///
+/// Separate from [`read_text_or_stdin`], which trims its input: that is right
+/// for prose and wrong for a payload.
+pub fn read_json_arg<T: serde::de::DeserializeOwned>(
+    flag: &str,
+    arg: &str,
+) -> Result<T, Box<dyn std::error::Error>> {
+    let raw = match arg.strip_prefix('@') {
+        Some(path) => std::fs::read_to_string(path)
+            .map_err(|e| format!("{flag}: cannot read {path}: {e}"))?,
+        None => arg.to_string(),
+    };
+    serde_json::from_str(&raw).map_err(|e| format!("{flag}: {e}").into())
+}
+
 /// Upload each file path via `POST /api/v1/uploads` and return the file IDs.
 pub async fn upload_files(
     moat: &MoatClient,

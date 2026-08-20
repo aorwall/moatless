@@ -135,6 +135,7 @@ impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct SubscriptionMatchRow {
     pub id: String,
+    pub name: String,
     pub adapter_kind: String,
     pub connection_id: String,
     pub source_matcher: String,
@@ -170,6 +171,7 @@ impl From<SubscriptionMatchRow> for SubscriptionMatch {
             adapter_kind: parse_adapter_kind(&row.adapter_kind),
             agent_type: AgentType(row.agent_type),
             id: row.id,
+            name: row.name,
             connection_id: row.connection_id,
             source_matcher: row.source_matcher,
             source_name: row.source_name,

@@ -419,6 +419,11 @@ pub struct ReplyToMessageRequest {
     pub text: String,
     #[serde(default)]
     pub file_ids: Vec<String>,
+    /// Adapter-native rich rendering of the message body. The payload names
+    /// the adapter it addresses; one whose kind does not match the resolved
+    /// destination is rejected rather than dropped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<moatless_types::adapter::OutboundPresentation>,
 }
 
 /// Response from the reply endpoint.

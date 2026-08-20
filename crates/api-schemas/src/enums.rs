@@ -5,6 +5,7 @@
 //! wire spelling to convert to.
 
 pub use moatless_types::adapter::AdapterKind;
+pub use moatless_types::adapter::OutboundPresentation;
 pub use moatless_types::task::CheckoutMode;
 pub use moatless_types::message::MessageRole;
 pub use moatless_types::message::MessageType;

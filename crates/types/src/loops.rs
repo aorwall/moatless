@@ -163,6 +163,8 @@ impl LoopSpawnConfig {
 #[derive(Debug, Clone)]
 pub struct SubscriptionMatch {
     pub id: String,
+    /// The Loop's own name (`loops.name`, NOT NULL since migration 0115).
+    pub name: String,
     pub adapter_kind: AdapterKind,
     pub connection_id: String,
     pub source_matcher: String,

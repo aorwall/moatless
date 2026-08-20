@@ -257,13 +257,14 @@ mod tests {
     fn outbound_reply() -> OutboundReply {
         OutboundReply {
             text: "Characterization reply".to_string(),
-            task_url: None,
+            provenance: None,
             footer: Some(
                 "\n\n---\nMoatless task: https://app.example.com/tasks/task_test".to_string(),
             ),
             author_user_id: Some("owner-user".to_string()),
             is_error: false,
             files: Vec::new(),
+            presentation: None,
         }
     }
 }

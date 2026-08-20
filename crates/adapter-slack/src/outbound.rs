@@ -1,11 +1,15 @@
 //! Everything the Slack Adapter sends: thread replies, direct posts, DMs, and
 //! the first message of a new thread.
 
+use std::fmt::Write as _;
+
 use tracing::warn;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
-use moatless_types::adapter::{BindingContext, OutboundReply};
+use moatless_types::adapter::{
+    BindingContext, OutboundPresentation, OutboundReply, SlackBlock, SlackText, TaskProvenance,
+};
 use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{
     AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
@@ -13,7 +17,8 @@ use moatless_loops::adapters::{
 };
 
 use super::adapter::SlackAdapter;
-use super::api::SlackApi;
+use super::api::{PostMessage, SlackApi};
+use super::config::SlackAdapterConfig;
 use super::{subject, text};
 
 /// Upload each attachment into `thread_ts`, best-effort: a failed upload is
@@ -33,12 +38,52 @@ async fn upload_files(api: &SlackApi, channel: &str, thread_ts: &str, message: &
     }
 }
 
+/// The provenance to render, honouring the Loop's `task_link` setting.
+///
+/// The loops band assembles provenance for every Slack reply; whether it is
+/// shown is this adapter's call, because the setting lives in this adapter's
+/// config.
+fn wanted_provenance<'a>(
+    message: &'a OutboundReply,
+    config: &LoopContext,
+) -> Option<&'a TaskProvenance> {
+    message
+        .provenance
+        .as_ref()
+        .filter(|_| SlackAdapterConfig::from_config(config).task_link)
+}
+
+/// The blocks to post for this reply, or `None` when it carries no Slack
+/// presentation and the text path applies unchanged.
+///
+/// `provenance` is taken as an argument rather than read off `message` so the
+/// decision sits where [`text::with_task_link`] already makes it.
+fn reply_blocks(
+    message: &OutboundReply,
+    provenance: Option<&TaskProvenance>,
+) -> Option<Vec<SlackBlock>> {
+    let OutboundPresentation::Slack { blocks } = message.presentation.as_ref()?;
+    let mut blocks = blocks.clone();
+    if let Some(p) = provenance {
+        // The mrkdwn footer in `text` is not displayed once blocks are present,
+        // so it is rendered again as the block Slack greys out.
+        let mut line = format!("<{}|{}>", p.url, p.label());
+        for detail in p.details() {
+            let _ = write!(line, " · {detail}");
+        }
+        blocks.push(SlackBlock::Context {
+            elements: vec![SlackText::Mrkdwn { text: line }],
+        });
+    }
+    Some(blocks)
+}
+
 #[async_trait::async_trait]
 impl AdapterBindingReply for SlackAdapter {
     async fn send_reply(
         &self,
         thread: &BindingContext,
-        _config: &LoopContext,
+        config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
@@ -50,11 +95,18 @@ impl AdapterBindingReply for SlackAdapter {
             SharedAdapterError::Internal("No thread_ts in thread properties".into())
         })?;
 
-        let text = text::with_task_link(&message.text, message.task_url.as_deref());
+        let provenance = wanted_provenance(message, config);
+        let text = text::with_task_link(&message.text, provenance);
+        let blocks = reply_blocks(message, provenance);
 
         let ts = app
             .api
-            .post_message(channel, &text, Some(thread_ts))
+            .post_message_with(PostMessage {
+                channel,
+                text: &text,
+                thread_ts: Some(thread_ts),
+                blocks: blocks.as_deref(),
+            })
             .await?;
 
         upload_files(&app.api, channel, thread_ts, message).await;
@@ -73,7 +125,7 @@ impl AdapterBindingReply for SlackAdapter {
             moatless_identity::adapter_apps::app_key_from_transport_config(&_connection.transport_config);
         let app = self.app(app_key).await?;
         let thread = moatless_adapter_model::models::binding_context(binding);
-        let _config = rule.map_or_else(
+        let config = rule.map_or_else(
             || LoopContext {
                 id: binding.loop_id.clone().unwrap_or_default(),
                 adapter_kind: "slack".to_string(),
@@ -110,10 +162,17 @@ impl AdapterBindingReply for SlackAdapter {
             SharedAdapterError::Internal("No thread_ts in thread properties".into())
         })?;
 
-        let text = text::with_task_link(&message.text, message.task_url.as_deref());
+        let provenance = wanted_provenance(message, &config);
+        let text = text::with_task_link(&message.text, provenance);
+        let blocks = reply_blocks(message, provenance);
         let ts = app
             .api
-            .post_message(channel, &text, Some(thread_ts))
+            .post_message_with(PostMessage {
+                channel,
+                text: &text,
+                thread_ts: Some(thread_ts),
+                blocks: blocks.as_deref(),
+            })
             .await?;
         upload_files(&app.api, channel, thread_ts, message).await;
 
@@ -147,9 +206,15 @@ impl AdapterDirectDestination for SlackAdapter {
         let workspace_id = self.ensure_workspace_id().await?;
         let (channel, thread_ts) = subject::parse_destination(destination)?;
 
+        let blocks = reply_blocks(message, None);
         let ts = app
             .api
-            .post_message(&channel, &message.text, thread_ts.as_deref())
+            .post_message_with(PostMessage {
+                channel: &channel,
+                text: &message.text,
+                thread_ts: thread_ts.as_deref(),
+                blocks: blocks.as_deref(),
+            })
             .await?
             .ok_or_else(|| {
                 SharedAdapterError::Internal("Slack did not return message ts".into())
@@ -188,7 +253,10 @@ impl AdapterDirectMessage for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::adapter::{BindingContext, OutboundFile, OutboundReply};
+    use moatless_types::adapter::{
+        BindingContext, OutboundFile, OutboundPresentation, OutboundReply, SlackBlock,
+        SlackPlainText, TaskOrigin, TaskProvenance,
+    };
     use moatless_types::loops::{LoopContext, RoutingMode};
     use moatless_loops::adapters::test_support::ProviderStub;
     use moatless_loops::adapters::{
@@ -229,11 +297,17 @@ mod tests {
     fn reply(text: &str, task_url: Option<&str>) -> OutboundReply {
         OutboundReply {
             text: text.to_string(),
-            task_url: task_url.map(ToString::to_string),
+            provenance: task_url.map(|u| TaskProvenance {
+                url: u.to_string(),
+                task_name: None,
+                workspace_name: None,
+                origin: TaskOrigin::Unknown,
+            }),
             footer: None,
             author_user_id: None,
             is_error: false,
             files: vec![],
+            presentation: None,
         }
     }
 
@@ -456,4 +530,267 @@ mod tests {
         assert_eq!(stub.paths(), vec!["/conversations.open".to_string()]);
     }
 
+    fn reply_with_blocks(
+        text: &str,
+        task_url: Option<&str>,
+        blocks: Vec<SlackBlock>,
+    ) -> OutboundReply {
+        OutboundReply {
+            presentation: Some(OutboundPresentation::Slack { blocks }),
+            ..reply(text, task_url)
+        }
+    }
+
+    /// The text path is load-bearing for every reply that sends no blocks, so
+    /// it has to keep posting exactly the body it posted before.
+    #[tokio::test]
+    async fn a_reply_without_a_presentation_posts_no_blocks_key() {
+        let stub = slack_stub().await;
+        let binding = binding_context(serde_json::json!({
+            "channel": "C1",
+            "thread_ts": "1700000000.000100",
+        }));
+
+        adapter(&stub)
+            .send_reply(&binding, &loop_context("C1"), &reply("all done", None))
+            .await
+            .expect("the stub accepts the post");
+
+        let posted = body(&stub.requests()[0]);
+        assert_eq!(posted.get("blocks"), None);
+        assert_eq!(posted["text"], "all done");
+    }
+
+    /// Blocks go out untouched, and the task link moves into a block — the
+    /// mrkdwn link in `text` is not displayed once blocks are present.
+    #[tokio::test]
+    async fn a_presentation_posts_its_blocks_and_appends_the_task_link_as_a_block() {
+        let stub = slack_stub().await;
+        let binding = binding_context(serde_json::json!({
+            "channel": "C1",
+            "thread_ts": "1700000000.000100",
+        }));
+        let blocks = vec![SlackBlock::Header {
+            text: SlackPlainText::PlainText {
+                text: "Prod release".into(),
+                emoji: None,
+            },
+        }];
+
+        adapter(&stub)
+            .send_reply(
+                &binding,
+                &loop_context("C1"),
+                &reply_with_blocks("7 apps", Some("https://example.test/t/1"), blocks),
+            )
+            .await
+            .expect("the stub accepts the post");
+
+        let posted = body(&stub.requests()[0]);
+        assert_eq!(
+            posted["blocks"],
+            serde_json::json!([
+                { "type": "header", "text": { "type": "plain_text", "text": "Prod release" } },
+                {
+                    "type": "context",
+                    "elements": [
+                        { "type": "mrkdwn", "text": "<https://example.test/t/1|View task>" }
+                    ]
+                }
+            ])
+        );
+        // `text` still carries the whole message: Slack notifies on it and the
+        // binding layer persists it as the task-timeline entry.
+        assert_eq!(
+            posted["text"],
+            "7 apps\n<https://example.test/t/1|View task>"
+        );
+    }
+
+    /// A direct send has never rendered the task link, and gains no block for it.
+    #[tokio::test]
+    async fn a_direct_send_posts_blocks_without_a_task_link_block() {
+        let stub = slack_stub().await;
+
+        adapter(&stub)
+            .post_to_destination(
+                "channel:C1",
+                &reply_with_blocks(
+                    "hi",
+                    Some("https://example.test/t/1"),
+                    vec![SlackBlock::Divider],
+                ),
+            )
+            .await
+            .expect("the stub accepts the post");
+
+        let posted = body(
+            stub.requests()
+                .iter()
+                .find(|r| r.path == "/chat.postMessage")
+                .expect("a message was posted"),
+        );
+        assert_eq!(posted["blocks"], serde_json::json!([{ "type": "divider" }]));
+    }
+
+    /// A block Slack dislikes costs the message its formatting, not its
+    /// existence.
+    #[tokio::test]
+    async fn slack_rejecting_the_blocks_reposts_the_message_without_them() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let seen = Arc::new(AtomicUsize::new(0));
+        let counter = seen.clone();
+        let stub = ProviderStub::start(move |path| match path {
+            "/chat.postMessage" => {
+                if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+                    serde_json::json!({"ok": false, "error": "invalid_blocks"})
+                } else {
+                    serde_json::json!({"ok": true, "ts": "1700000000.000900"})
+                }
+            }
+            "/auth.test" => serde_json::json!({
+                "ok": true, "user_id": "U0BOT", "team_id": "T1",
+            }),
+            other => serde_json::json!({"ok": false, "error": format!("unexpected {other}")}),
+        })
+        .await;
+
+        let binding = binding_context(serde_json::json!({
+            "channel": "C1",
+            "thread_ts": "1700000000.000100",
+        }));
+
+        let external_id = adapter(&stub)
+            .send_reply(
+                &binding,
+                &loop_context("C1"),
+                &reply_with_blocks("all done", None, vec![SlackBlock::Divider]),
+            )
+            .await
+            .expect("the retry lands");
+
+        assert_eq!(external_id.as_deref(), Some("slack:ts:1700000000.000900"));
+
+        let posts: Vec<_> = stub
+            .requests()
+            .into_iter()
+            .filter(|r| r.path == "/chat.postMessage")
+            .collect();
+        assert_eq!(posts.len(), 2, "one rejected post, one retry");
+        assert!(body(&posts[0]).get("blocks").is_some());
+        assert_eq!(body(&posts[1]).get("blocks"), None);
+        assert_eq!(body(&posts[1])["text"], "all done");
+    }
+
+    fn reply_with_provenance(text: &str, blocks: Vec<SlackBlock>) -> OutboundReply {
+        OutboundReply {
+            presentation: Some(OutboundPresentation::Slack { blocks }),
+            provenance: Some(TaskProvenance {
+                url: "https://example.test/t/1".into(),
+                task_name: Some("prod-release — 7 apps".into()),
+                workspace_name: Some("soap-app-gitops".into()),
+                origin: TaskOrigin::Loop {
+                    name: "prod-release".into(),
+                },
+            }),
+            ..reply(text, None)
+        }
+    }
+
+    fn loop_context_with(adapter_config: serde_json::Value) -> LoopContext {
+        LoopContext {
+            adapter_config: Some(adapter_config),
+            ..loop_context("C1")
+        }
+    }
+
+    /// The footer is repeated as a block because the mrkdwn one in `text` is
+    /// not displayed once blocks are present.
+    #[tokio::test]
+    async fn provenance_renders_as_a_trailing_context_block() {
+        let stub = slack_stub().await;
+        let binding = binding_context(serde_json::json!({
+            "channel": "C1",
+            "thread_ts": "1700000000.000100",
+        }));
+
+        adapter(&stub)
+            .send_reply(
+                &binding,
+                &loop_context("C1"),
+                &reply_with_provenance("7 apps", vec![SlackBlock::Divider]),
+            )
+            .await
+            .expect("the stub accepts the post");
+
+        let posted = body(&stub.requests()[0]);
+        assert_eq!(
+            posted["blocks"],
+            serde_json::json!([
+                { "type": "divider" },
+                {
+                    "type": "context",
+                    "elements": [{
+                        "type": "mrkdwn",
+                        "text": "<https://example.test/t/1|prod-release — 7 apps> · soap-app-gitops · loop: prod-release"
+                    }]
+                }
+            ])
+        );
+        assert!(
+            posted["text"].as_str().is_some_and(|t| t.contains("loop: prod-release")),
+            "text carries the footer too, for the notification and the timeline"
+        );
+    }
+
+    /// `task_link: false` on the Loop suppresses the footer on both paths.
+    #[tokio::test]
+    async fn the_loop_can_turn_the_footer_off() {
+        let stub = slack_stub().await;
+        let binding = binding_context(serde_json::json!({
+            "channel": "C1",
+            "thread_ts": "1700000000.000100",
+        }));
+
+        adapter(&stub)
+            .send_reply(
+                &binding,
+                &loop_context_with(serde_json::json!({ "task_link": false })),
+                &reply_with_provenance("7 apps", vec![SlackBlock::Divider]),
+            )
+            .await
+            .expect("the stub accepts the post");
+
+        let posted = body(&stub.requests()[0]);
+        assert_eq!(
+            posted["blocks"],
+            serde_json::json!([{ "type": "divider" }]),
+            "no context block"
+        );
+        assert_eq!(posted["text"], "7 apps", "and no footer in the text either");
+    }
+
+    /// Absent config means on: a Loop that says nothing still gets a way home.
+    #[tokio::test]
+    async fn the_footer_is_on_when_the_loop_says_nothing() {
+        let stub = slack_stub().await;
+        let binding = binding_context(serde_json::json!({
+            "channel": "C1",
+            "thread_ts": "1700000000.000100",
+        }));
+
+        adapter(&stub)
+            .send_reply(
+                &binding,
+                &loop_context_with(serde_json::json!({ "trigger": "all_messages" })),
+                &reply_with_provenance("7 apps", vec![SlackBlock::Divider]),
+            )
+            .await
+            .expect("the stub accepts the post");
+
+        let posted = body(&stub.requests()[0]);
+        assert_eq!(posted["blocks"].as_array().map(Vec::len), Some(2));
+    }
 }

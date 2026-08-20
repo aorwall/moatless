@@ -249,6 +249,7 @@ mod tests {
 
     fn rule(id: &str, close_task_on_close: bool) -> SubscriptionMatch {
         SubscriptionMatch {
+            name: "test-loop".to_string(),
             id: id.into(),
             adapter_kind: AdapterKind::Github,
             connection_id: "pc_test".into(),

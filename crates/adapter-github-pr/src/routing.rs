@@ -51,6 +51,9 @@ pub(super) fn delivery_only_rule(
     let now = Utc::now();
     SubscriptionMatch {
         id: format!("virtual:{}", connection.id),
+        // Not a real Loop, so it has no configured name — say so rather than
+        // borrowing one that would read as a Loop in any UI that shows it.
+        name: "delivery-only".to_string(),
         adapter_kind: AdapterKind::GithubPr,
         connection_id: connection.id.clone(),
         source_matcher: repo_full_name.to_string(),

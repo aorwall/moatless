@@ -6,6 +6,8 @@
 
 use std::fmt::Write as _;
 
+use moatless_types::adapter::TaskProvenance;
+
 /// Build Slack-specific reply instructions, with the bot's own Slack identity
 /// stated up-front so the agent always knows who it is in the thread.
 pub(super) fn reply_instructions(bot_user_id: Option<&str>) -> String {
@@ -76,14 +78,17 @@ people often mention the bot in passing (\"look at what @you said\", \"ask @you 
     s
 }
 
-/// Append the `View task` link an outbound reply carries, when it carries one.
+/// Append the provenance footer an outbound reply carries, when it carries one.
 ///
-/// The direct-send path deliberately does not call this — a direct send has
-/// never rendered the link, and that stays true.
-pub(super) fn with_task_link(text: &str, task_url: Option<&str>) -> String {
+/// mrkdwn, not Markdown: Slack has no `[text](url)`, so the link is
+/// `<url|text>` and the trailing segments are joined with a middle dot.
+pub(super) fn with_task_link(text: &str, provenance: Option<&TaskProvenance>) -> String {
     let mut rendered = text.to_string();
-    if let Some(url) = task_url {
-        let _ = write!(rendered, "\n<{url}|View task>");
+    if let Some(p) = provenance {
+        let _ = write!(rendered, "\n<{}|{}>", p.url, p.label());
+        for detail in p.details() {
+            let _ = write!(rendered, " · {detail}");
+        }
     }
     rendered
 }
@@ -91,6 +96,7 @@ pub(super) fn with_task_link(text: &str, task_url: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{reply_instructions, with_task_link};
+    use moatless_types::adapter::{TaskOrigin, TaskProvenance};
 
     #[test]
     fn reply_instructions_include_identity_with_bot_id() {
@@ -122,16 +128,73 @@ mod tests {
         assert!(!s.contains("### When to respond"));
     }
 
+    fn provenance(task_name: Option<&str>, origin: TaskOrigin) -> TaskProvenance {
+        TaskProvenance {
+            url: "https://example.test/t/1".into(),
+            task_name: task_name.map(str::to_string),
+            workspace_name: Some("soap-app-gitops".into()),
+            origin,
+        }
+    }
+
     #[test]
-    fn a_task_url_renders_as_a_slack_link_on_its_own_line() {
+    fn a_bare_provenance_renders_as_a_slack_link_on_its_own_line() {
+        let bare = TaskProvenance {
+            url: "https://example.test/t/1".into(),
+            task_name: None,
+            workspace_name: None,
+            origin: TaskOrigin::Unknown,
+        };
         assert_eq!(
-            with_task_link("done", Some("https://example.test/t/1")),
+            with_task_link("done", Some(&bare)),
             "done\n<https://example.test/t/1|View task>"
         );
         assert_eq!(
             with_task_link("done", None),
             "done",
-            "no url, no link, no trailing newline"
+            "no provenance, no footer, no trailing newline"
+        );
+    }
+
+    /// mrkdwn, not Markdown: the link is `<url|text>` and the segments follow
+    /// it on the same line.
+    #[test]
+    fn a_loop_fired_reply_names_the_task_workspace_and_loop() {
+        let p = provenance(
+            Some("prod-release — 7 apps"),
+            TaskOrigin::Loop {
+                name: "prod-release".into(),
+            },
+        );
+        assert_eq!(
+            with_task_link("done", Some(&p)),
+            "done\n<https://example.test/t/1|prod-release — 7 apps> · soap-app-gitops · loop: prod-release"
+        );
+    }
+
+    #[test]
+    fn a_reply_off_a_loop_names_the_person_instead() {
+        let p = provenance(
+            Some("investigate flake"),
+            TaskOrigin::StartedBy {
+                login: "albert".into(),
+            },
+        );
+        assert!(with_task_link("done", Some(&p)).ends_with("· started by albert"));
+    }
+
+    /// A missing segment drops itself, not the footer.
+    #[test]
+    fn an_unknown_workspace_drops_only_its_own_segment() {
+        let p = TaskProvenance {
+            url: "https://example.test/t/1".into(),
+            task_name: Some("t".into()),
+            workspace_name: None,
+            origin: TaskOrigin::Loop { name: "l".into() },
+        };
+        assert_eq!(
+            with_task_link("done", Some(&p)),
+            "done\n<https://example.test/t/1|t> · loop: l"
         );
     }
 }

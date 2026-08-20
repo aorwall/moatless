@@ -29,6 +29,7 @@ pub(super) const OWNER: &str = "user-owner";
 pub(super) fn test_rule(adapter_kind: moatless_types::adapter::AdapterKind, source_matcher: &str) -> SubscriptionMatch {
     let now = chrono::Utc::now();
     SubscriptionMatch {
+        name: "test-loop".to_string(),
         id: "tt_test".into(),
         adapter_kind,
         connection_id: "pc_test".into(),

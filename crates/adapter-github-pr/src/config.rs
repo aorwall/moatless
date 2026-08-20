@@ -214,6 +214,7 @@ mod tests {
         adapter_config: Option<serde_json::Value>,
     ) -> SubscriptionMatch {
         SubscriptionMatch {
+            name: "test-loop".to_string(),
             id: "ir_test".into(),
             adapter_kind: AdapterKind::Github,
             connection_id: "pc_test".into(),

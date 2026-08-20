@@ -1293,6 +1293,9 @@ mod tests {
         async fn touch_last_event(&self, _id: &str) -> Result<(), sqlx::Error> {
             unimplemented!("not reachable from deactivate_task_bindings")
         }
+        async fn mark_task_link_sent(&self, _id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
         async fn touch_cursor(
             &self,
             _id: &str,

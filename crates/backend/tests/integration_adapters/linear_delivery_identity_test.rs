@@ -219,6 +219,7 @@ async fn seed_rule(state: &AppState) {
     state
         .loops
         .upsert_subscription(&SubscriptionMatch {
+            name: "test-loop".to_string(),
             id: "trigger-linear-1".to_string(),
             adapter_kind: AdapterKind::Linear,
             connection_id: CONNECTION.to_string(),

@@ -8934,6 +8934,17 @@
             },
             "description": "File IDs (uploaded via `POST /api/v1/uploads`) to attach."
           },
+          "presentation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OutboundPresentation",
+                "description": "Adapter-native rich rendering of the message body. The payload names\nthe adapter it addresses; one whose kind does not match the resolved\ndestination is rejected rather than dropped."
+              }
+            ]
+          },
           "taskId": {
             "type": [
               "string",
@@ -12895,6 +12906,33 @@
           }
         }
       },
+      "OutboundPresentation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Slack Block Kit. Display only: there is no interactive-element variant,\nbecause nothing routes a `block_actions` click back to a waiting task.",
+            "required": [
+              "blocks",
+              "kind"
+            ],
+            "properties": {
+              "blocks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SlackBlock"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "slack"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Adapter-native rich rendering of an outbound message body.\n\n[`OutboundReply::text`] stays mandatory and portable: every adapter sends it,\nSlack uses it for the notification, and the binding layer records it as the\ntask-timeline entry. A presentation is the optional richer form, for the\nadapters that have one. An adapter ignores a presentation addressed to\nanother kind, the way Slack already ignores `footer`."
+      },
       "PaginationResponse": {
         "type": "object",
         "required": [
@@ -13355,6 +13393,17 @@
             "items": {
               "type": "string"
             }
+          },
+          "presentation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OutboundPresentation",
+                "description": "Adapter-native rich rendering of the message body. The payload names\nthe adapter it addresses; one whose kind does not match the resolved\ndestination is rejected rather than dropped."
+              }
+            ]
           },
           "text": {
             "type": "string"
@@ -14658,6 +14707,17 @@
               "type": "string"
             }
           },
+          "presentation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OutboundPresentation",
+                "description": "Adapter-native rich rendering of the message body. The payload names\nthe adapter it addresses; one whose kind does not match the resolved\ndestination is rejected rather than dropped."
+              }
+            ]
+          },
           "text": {
             "type": "string"
           }
@@ -15299,6 +15359,166 @@
           "plugin"
         ]
       },
+      "SlackBlock": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Large bold title. Slack accepts only `plain_text` here.",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "text": {
+                "$ref": "#/components/schemas/SlackPlainText"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "header"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Body text, optionally with a two-column `fields` array.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "fields": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "$ref": "#/components/schemas/SlackText"
+                }
+              },
+              "text": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlackText"
+                  }
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "section"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Standard Markdown that Slack translates, headings and tables included.",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "markdown"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Tabular data. Cells are rich text, so they can carry live links.",
+            "required": [
+              "rows",
+              "type"
+            ],
+            "properties": {
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SlackTableCell"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "table"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Small muted line, typically a footer.",
+            "required": [
+              "elements",
+              "type"
+            ],
+            "properties": {
+              "elements": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SlackText"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "context"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "divider"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "image_url",
+              "alt_text",
+              "type"
+            ],
+            "properties": {
+              "alt_text": {
+                "type": "string"
+              },
+              "image_url": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "image"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "One Slack Block Kit block.\n\nTyped rather than a raw `Value` so a malformed payload fails where it is\nentered, with a field path, instead of reaching Slack and returning a bare\n`invalid_blocks` with the message silently unposted."
+      },
       "SlackConfig": {
         "type": "object",
         "description": "Slack workspace configuration.",
@@ -15308,6 +15528,232 @@
         "properties": {
           "teamId": {
             "type": "string"
+          }
+        }
+      },
+      "SlackPlainText": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "emoji": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "plain_text"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A `plain_text` object. Single-variant so the `type` tag is fixed: a header\ncannot be handed the mrkdwn that Slack would reject there."
+      },
+      "SlackRichTextElement": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "style": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlackTextStyle"
+                  }
+                ]
+              },
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "url",
+              "type"
+            ],
+            "properties": {
+              "style": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlackTextStyle"
+                  }
+                ]
+              },
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "link"
+                ]
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "A leaf inside a rich-text section."
+      },
+      "SlackRichTextSection": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "elements",
+              "type"
+            ],
+            "properties": {
+              "elements": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SlackRichTextElement"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "rich_text_section"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A rich-text section inside a table cell."
+      },
+      "SlackTableCell": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "elements",
+              "type"
+            ],
+            "properties": {
+              "elements": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SlackRichTextSection"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "rich_text"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "One `table` cell."
+      },
+      "SlackText": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Slack mrkdwn: `*bold*`, `_italic_`, `<url|text>`.",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "mrkdwn"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "emoji": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "plain_text"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A Slack composition text object."
+      },
+      "SlackTextStyle": {
+        "type": "object",
+        "description": "Inline styling for a rich-text leaf.",
+        "properties": {
+          "bold": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "code": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "italic": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "strike": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         }
       },

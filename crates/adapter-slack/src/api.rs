@@ -4,6 +4,7 @@ use serde::Deserialize;
 use tracing::warn;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_types::adapter::SlackBlock;
 
 /// Slack API client wrapping reqwest.
 #[derive(Clone)]
@@ -102,6 +103,42 @@ pub struct ThreadReply {
     pub ts: Option<String>,
 }
 
+/// One `chat.postMessage` request.
+///
+/// `text` is always sent. Slack uses it for the notification and for clients
+/// that cannot render Block Kit, and moatless persists it as the task-timeline
+/// entry, so it carries the message rather than a stub. `blocks` supersedes it
+/// for display in the channel.
+pub struct PostMessage<'a> {
+    pub channel: &'a str,
+    pub text: &'a str,
+    pub thread_ts: Option<&'a str>,
+    pub blocks: Option<&'a [SlackBlock]>,
+}
+
+impl PostMessage<'_> {
+    fn has_blocks(&self) -> bool {
+        self.blocks.is_some_and(|b| !b.is_empty())
+    }
+
+    fn body(&self, with_blocks: bool) -> serde_json::Value {
+        let mut body = serde_json::json!({
+            "channel": self.channel,
+            "text": self.text,
+        });
+        if let Some(ts) = self.thread_ts {
+            body["thread_ts"] = serde_json::Value::String(ts.to_string());
+        }
+        if with_blocks && self.has_blocks() {
+            match serde_json::to_value(self.blocks) {
+                Ok(v) => body["blocks"] = v,
+                Err(e) => warn!(error = %e, "dropping unserialisable Slack blocks"),
+            }
+        }
+        body
+    }
+}
+
 impl SlackApi {
     pub fn new(token: &str) -> Self {
         Self {
@@ -129,25 +166,33 @@ impl SlackApi {
         text: &str,
         thread_ts: Option<&str>,
     ) -> Result<Option<String>, AdapterError> {
-        let mut body = serde_json::json!({
-            "channel": channel,
-            "text": text,
-        });
-        if let Some(ts) = thread_ts {
-            body["thread_ts"] = serde_json::Value::String(ts.to_string());
-        }
+        self.post_message_with(PostMessage {
+            channel,
+            text,
+            thread_ts,
+            blocks: None,
+        })
+        .await
+    }
 
-        let resp: PostMessageResponse = self
-            .client
-            .post(format!("{}/chat.postMessage", self.base_url))
-            .bearer_auth(&self.token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("chat.postMessage", e))?
-            .json()
-            .await
-            .map_err(|e| SharedAdapterError::provider_response_invalid("chat.postMessage", e))?;
+    /// Post a message that may carry Block Kit blocks.
+    ///
+    /// When Slack rejects the blocks, the same message is posted once more
+    /// without them. A block Slack dislikes then costs the message its
+    /// formatting instead of costing the reply its existence.
+    pub async fn post_message_with(
+        &self,
+        msg: PostMessage<'_>,
+    ) -> Result<Option<String>, AdapterError> {
+        let resp = self.post_once(&msg.body(true)).await?;
+
+        let resp = match (resp.ok, resp.error.as_deref()) {
+            (false, Some("invalid_blocks")) if msg.has_blocks() => {
+                warn!("Slack rejected the blocks; reposting as text only");
+                self.post_once(&msg.body(false)).await?
+            }
+            _ => resp,
+        };
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -156,6 +201,24 @@ impl SlackApi {
         }
 
         Ok(resp.ts)
+    }
+
+    /// One `chat.postMessage` round trip. Returns the parsed response even when
+    /// Slack reports failure, so the caller can decide whether to retry.
+    async fn post_once(
+        &self,
+        body: &serde_json::Value,
+    ) -> Result<PostMessageResponse, AdapterError> {
+        self.client
+            .post(format!("{}/chat.postMessage", self.base_url))
+            .bearer_auth(&self.token)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable("chat.postMessage", e))?
+            .json()
+            .await
+            .map_err(|e| SharedAdapterError::provider_response_invalid("chat.postMessage", e).into())
     }
 
     /// Resolve the identity of the Slack token via `auth.test`.

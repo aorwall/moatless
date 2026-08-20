@@ -569,11 +569,12 @@ mod tests {
     fn reply(text: &str, footer: Option<&str>) -> OutboundReply {
         OutboundReply {
             text: text.to_string(),
-            task_url: None,
+            provenance: None,
             footer: footer.map(str::to_string),
             author_user_id: None,
             is_error: false,
             files: vec![],
+            presentation: None,
         }
     }
 

@@ -5,11 +5,13 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { OutboundPresentation } from './outboundPresentation';
 
 /**
  * Request body for POST /api/v1/messages/{message_id}/reply.
  */
 export interface ReplyToMessageRequest {
   fileIds?: string[];
+  presentation?: null | OutboundPresentation;
   text: string;
 }

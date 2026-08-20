@@ -490,6 +490,8 @@ impl AppState {
             auth_config.clone(),
             s3_config.clone(),
             files.clone(),
+            workspaces.clone(),
+            users.clone(),
         ));
         let external_reply = Arc::new(crate::bindings::reply::ExternalReplyService::new(
             adapters.clone(),

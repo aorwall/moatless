@@ -28,6 +28,14 @@ pub struct SlackAdapterConfig {
     /// by message ts), so enabling this does not create echo loops.
     #[serde(default)]
     pub allow_bot_messages: bool,
+    /// Render the task-provenance footer on the first reply in a thread.
+    /// Defaults to on: a message nobody can trace back is the worse default.
+    #[serde(default = "default_true")]
+    pub task_link: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for SlackAdapterConfig {
@@ -39,6 +47,7 @@ impl Default for SlackAdapterConfig {
             user_allowlist: Vec::new(),
             thread_context_limit: None,
             allow_bot_messages: false,
+            task_link: true,
         }
     }
 }

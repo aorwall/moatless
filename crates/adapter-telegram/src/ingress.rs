@@ -308,6 +308,7 @@ mod tests {
 
     fn rule_with(adapter_config: Option<serde_json::Value>) -> SubscriptionMatch {
         SubscriptionMatch {
+            name: "test-loop".to_string(),
             adapter_config,
             ..test_rule(AdapterKind::Telegram, "111")
         }

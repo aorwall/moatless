@@ -15,7 +15,7 @@ use crate::adapters::AdapterKind;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::AdapterConnection;
 use moatless_types::adapter::OutboundReply;
-use crate::bindings::outbound::{resolve_files_with, truncate_text};
+use crate::bindings::outbound::{checked_presentation, resolve_files_with, truncate_text};
 use crate::bindings::runtime::{ORIGIN_CONNECTED_THREAD, upsert_binding_into};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
@@ -189,13 +189,18 @@ pub async fn adapter_send(
         .into());
     }
 
+    let presentation = checked_presentation(req.presentation, adapter_kind)?;
     let reply = OutboundReply {
         text: truncate_text(&req.text, provider.max_message_length()),
-        task_url: None,
+        // Direct sends carry no provenance: the DM path has no task, and
+        // reaching the assembler would mean putting `OutboundSender` on
+        // `AppState`, which the composition root deliberately avoids.
+        provenance: None,
         footer: None,
         author_user_id: None,
         is_error: false,
         files,
+        presentation,
     };
 
     let result = provider
@@ -299,11 +304,15 @@ pub async fn send_user_dm(
 
     let reply = OutboundReply {
         text: truncate_text(&req.text, send_provider.max_message_length()),
-        task_url: None,
+        // Direct sends carry no provenance: the DM path has no task, and
+        // reaching the assembler would mean putting `OutboundSender` on
+        // `AppState`, which the composition root deliberately avoids.
+        provenance: None,
         footer: None,
         author_user_id: None,
         is_error: false,
         files: vec![],
+        presentation: None,
     };
 
     let result = send_provider

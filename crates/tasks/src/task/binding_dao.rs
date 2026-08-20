@@ -70,6 +70,12 @@ pub trait TaskBindingDao: Send + Sync {
 
     async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error>;
 
+    /// Record that this binding's thread has carried a task-provenance footer,
+    /// so later replies in the same thread do not repeat it. Merges into
+    /// `metadata` rather than taking a column: the footer is presentation
+    /// state, not part of the binding's identity.
+    async fn mark_task_link_sent(&self, id: &str) -> Result<(), sqlx::Error>;
+
     async fn touch_cursor(&self, id: &str, last_external_event_id: &str)
         -> Result<(), sqlx::Error>;
 

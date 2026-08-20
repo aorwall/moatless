@@ -154,6 +154,7 @@ async fn seed_subscription(
     state
         .loops
         .upsert_subscription(&SubscriptionMatch {
+            name: "test-loop".to_string(),
             id: TRIGGER.to_string(),
             adapter_kind: AdapterKind::Telegram,
             connection_id: CONNECTION.to_string(),

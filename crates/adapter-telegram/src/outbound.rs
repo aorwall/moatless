@@ -23,8 +23,11 @@ use super::subject::{
 /// to render it differently.
 fn with_task_link(message: &OutboundReply) -> String {
     let mut text = message.text.clone();
-    if let Some(ref url) = message.task_url {
-        let _ = write!(text, "\n\n[View task]({url})");
+    if let Some(p) = message.provenance.as_ref() {
+        let _ = write!(text, "\n\n[{}]({})", p.label(), p.url);
+        for detail in p.details() {
+            let _ = write!(text, " · {detail}");
+        }
     }
     text
 }
@@ -172,6 +175,7 @@ impl AdapterDirectMessage for TelegramAdapter {
 #[cfg(test)]
 mod tests {
     use moatless_types::adapter::AdapterKind;
+    use moatless_types::adapter::{TaskOrigin, TaskProvenance};
     use axum::http::StatusCode;
 
     use moatless_loops::adapters::test_support::stub_provider;
@@ -237,11 +241,17 @@ mod tests {
     fn reply(text: &str, task_url: Option<&str>) -> OutboundReply {
         OutboundReply {
             text: text.to_string(),
-            task_url: task_url.map(str::to_string),
+            provenance: task_url.map(|u| TaskProvenance {
+                url: u.to_string(),
+                task_name: None,
+                workspace_name: None,
+                origin: TaskOrigin::Unknown,
+            }),
             footer: None,
             author_user_id: None,
             is_error: false,
             files: vec![],
+            presentation: None,
         }
     }
 

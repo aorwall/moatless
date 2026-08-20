@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
-use moatless_types::adapter::OutboundReply;
+use moatless_types::adapter::{OutboundPresentation, OutboundReply};
 use moatless_api_schemas::bindings::SendTaskReplyResponse;
 use moatless_api_schemas::message::ReplyToMessageResponse;
 use moatless_types::access_control::ScopeContext;
@@ -75,6 +75,7 @@ impl ExternalReplyService {
         binding_id: Option<&str>,
         text: &str,
         file_ids: &[String],
+        presentation: Option<OutboundPresentation>,
     ) -> Result<SendTaskReplyResponse, AdapterError> {
         let providers = self.adapters.as_ref().ok_or_else(|| {
             SharedAdapterError::AdapterNotConfigured("No adapters configured".into())
@@ -111,7 +112,7 @@ impl ExternalReplyService {
                 let binding = &bindings[0];
                 let (sent_count, errors) = self
                     .outbound
-                    .send_to_binding(providers, task_id, &binding.id, text, file_ids)
+                    .send_to_binding(providers, task_id, &binding.id, text, file_ids, presentation)
                     .await?;
                 if sent_count == 0 && !errors.is_empty() {
                     return Err(SharedAdapterError::AdapterApi(errors.join("; ")).into());
@@ -139,6 +140,7 @@ impl ExternalReplyService {
         message_id: &str,
         text: &str,
         file_ids: &[String],
+        presentation: Option<OutboundPresentation>,
     ) -> Result<ReplyToMessageResponse, AdapterError> {
         let msg = self
             .messages
@@ -206,18 +208,38 @@ impl ExternalReplyService {
             .outbound
             .maybe_task_comment_footer(adapter.adapter_kind(), &binding.task_id)
             .await;
+        let presentation =
+            outbound::checked_presentation(presentation, adapter.adapter_kind())?;
+        let provenance = if outbound::task_link_already_sent(&binding) {
+            None
+        } else {
+            self.outbound
+                .maybe_task_provenance(adapter.adapter_kind(), &binding.task_id, rule.as_ref())
+                .await
+        };
+        let sent_provenance = provenance.is_some();
         let reply = OutboundReply {
             text: outbound::truncate_text(text, adapter.max_message_length()),
-            task_url: None,
+            provenance,
             footer,
             author_user_id: task.owner_user_id,
             is_error: false,
             files,
+            presentation,
         };
 
         let external_id = adapter
             .reply_to_message(&binding, &connection, rule.as_ref(), &ext_id, &reply)
             .await?;
+
+        if sent_provenance {
+            // Best effort: a failure re-renders the footer once, which beats
+            // failing a reply that already landed.
+            if let Err(e) = self.task_bindings.mark_task_link_sent(&binding.id).await {
+                tracing::warn!(binding_id = %binding.id, error = %e,
+                               "Failed to record that the task link was sent");
+            }
+        }
 
         let stub_uuid = self
             .outbound

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AdapterKind } from './adapterKind';
+import type { OutboundPresentation } from './outboundPresentation';
 
 /**
  * Request body for `POST /api/v1/adapters/send` — generic adapter pass-through send.
@@ -26,6 +27,7 @@ Linear: `issue:LIN-123`). */
   destination: string;
   /** File IDs (uploaded via `POST /api/v1/uploads`) to attach. */
   fileIds?: string[];
+  presentation?: null | OutboundPresentation;
   /**
    * Optional task to bind this send to. When set, a `task_bindings` row
 is created so future `moat reply` calls thread under this destination.

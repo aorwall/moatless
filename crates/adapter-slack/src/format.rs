@@ -73,6 +73,14 @@ pub fn extract_text_from_blocks(blocks: &[serde_json::Value]) -> String {
                     }
                 }
             }
+            "markdown" => {
+                // A `markdown` block's `text` is a bare string, not a text object.
+                if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                    if !text.is_empty() {
+                        parts.push(text.to_string());
+                    }
+                }
+            }
             "rich_text" => {
                 if let Some(elements) = block.get("elements").and_then(|e| e.as_array()) {
                     for element in elements {
@@ -319,6 +327,19 @@ mod tests {
     }
 
     // --- extract_text_from_blocks tests ---
+
+    /// We post `markdown` blocks ourselves, and both readers prefer blocks over
+    /// text — so failing to read one back loses our own message content.
+    #[test]
+    fn blocks_markdown_is_extracted() {
+        let blocks = serde_json::json!([
+            { "type": "markdown", "text": "### Release\n\n**7 apps**" }
+        ]);
+        assert_eq!(
+            extract_text_from_blocks(blocks.as_array().unwrap()),
+            "### Release\n\n**7 apps**"
+        );
+    }
 
     #[test]
     fn blocks_section() {

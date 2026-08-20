@@ -4,7 +4,7 @@ use clap::Subcommand;
 use moatless_api_schemas::message::{AddMessageReactionRequest, ReplyToMessageRequest, UiMessage};
 
 use crate::client::MoatClient;
-use crate::commands::misc::{read_text_or_stdin, upload_files};
+use crate::commands::misc::{read_json_arg, read_text_or_stdin, upload_files};
 use crate::output;
 
 #[derive(Subcommand)]
@@ -38,6 +38,12 @@ pub enum MessageAction {
         /// File(s) to attach. Repeatable.
         #[arg(long = "file")]
         files: Vec<String>,
+        /// Adapter-native rich payload, inline JSON or `@file`. The payload
+        /// names the adapter it addresses, e.g.
+        /// `{"kind":"slack","blocks":[...]}`. `--text` is still sent, and is
+        /// what the notification and the task timeline show.
+        #[arg(long)]
+        rich: Option<String>,
     },
 
     /// React to a specific message with an emoji.
@@ -95,10 +101,19 @@ pub async fn run(
             message,
             text,
             files,
+            rich,
         } => {
             let text = read_text_or_stdin(text)?;
             let file_ids = upload_files(moat, &files).await?;
-            let req = ReplyToMessageRequest { text, file_ids };
+            let presentation = rich
+                .as_deref()
+                .map(|arg| read_json_arg("--rich", arg))
+                .transpose()?;
+            let req = ReplyToMessageRequest {
+                text,
+                file_ids,
+                presentation,
+            };
             let resp = moat.api().reply_to_message(&message, &req).await?;
             if json {
                 output::print_json_typed(&resp);
