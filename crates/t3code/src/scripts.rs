@@ -177,9 +177,39 @@ pub async fn run(
 /// `&&`, or a redirect still means what it says — `exec` takes a simple command,
 /// and appending a compound one would exec only its first word. Single quotes in
 /// the command are escaped for the single-quoted argument they land in.
+///
+/// It is preceded by the workspace-setup gate ([`SETUP_GATE`]), because a Script
+/// is the one workspace command that can otherwise start before its
+/// dependencies are installed.
 fn exec_line(command: &str) -> String {
-    format!("exec sh -c '{}'\r", command.replace('\'', r"'\''"))
+    format!(
+        "{SETUP_GATE}exec sh -c '{}'\r",
+        command.replace('\'', r"'\''")
+    )
 }
+
+/// Hold the Script until the sandbox's workspace setup has finished.
+///
+/// A Sandbox reports Ready when its health endpoint is up, which is *before*
+/// Phase 2 runs the Workspace's setup commands — so a Script that starts at
+/// Ready can run `bun run dev` against a checkout whose `bun install` has not
+/// happened yet. That is not a rare race: a restarted Sandbox restores its repo
+/// from the snapshot without gitignored `node_modules`, so setup is exactly
+/// when it is slowest and the Script is exactly when it would fail.
+///
+/// Declared preview servers already wait on the `.workspace-ready` sentinel the
+/// sandbox writes after setup (`sandbox-control`'s server runner); a Script is a
+/// PTY write and bypassed it. This is the same gate, in the Script's own
+/// terminal — so the wait is something the person watches rather than a failure
+/// they have to interpret. `DATA_DIR` is the sandbox's own env var, defaulted to
+/// the same path its config defaults to. When setup is already done — every run
+/// on a warm sandbox — the file is there and this costs one `[ -f ]`.
+const SETUP_GATE: &str = concat!(
+    r#"if [ ! -f "${DATA_DIR:-/opt/moatless/data}/.workspace-ready" ]; then "#,
+    r#"echo "Waiting for workspace setup to finish..."; "#,
+    r#"until [ -f "${DATA_DIR:-/opt/moatless/data}/.workspace-ready" ]; do sleep 2; done; "#,
+    "fi; ",
+);
 
 /// Why a Scripts write could not be carried out.
 ///
@@ -359,18 +389,27 @@ fn carry_over_env(
 mod tests {
     use super::*;
 
+    /// What `exec_line` appends after the setup gate — the assertions below are
+    /// about the command half, which the gate prefixes without changing.
+    fn command_half(command: &str) -> String {
+        exec_line(command)
+            .strip_prefix(SETUP_GATE)
+            .expect("the setup gate precedes the command")
+            .to_string()
+    }
+
     #[test]
     fn a_plain_command_runs_as_the_session_itself() {
         // `exec` is the whole point: without it the shell outlives the command
         // and the terminal never reports the command's exit.
-        assert_eq!(exec_line("pnpm dev"), "exec sh -c 'pnpm dev'\r");
+        assert_eq!(command_half("pnpm dev"), "exec sh -c 'pnpm dev'\r");
     }
 
     #[test]
     fn a_compound_command_keeps_its_shell_meaning() {
         // Appending this to a bare `exec` would exec `pnpm` and drop the rest.
         assert_eq!(
-            exec_line("pnpm build && pnpm start"),
+            command_half("pnpm build && pnpm start"),
             "exec sh -c 'pnpm build && pnpm start'\r"
         );
     }
@@ -380,8 +419,36 @@ mod tests {
         // The classic injection shape: an unescaped quote would close `sh -c`'s
         // argument and leave the rest of the line as shell words of its own.
         assert_eq!(
-            exec_line("echo 'hi'"),
+            command_half("echo 'hi'"),
             r"exec sh -c 'echo '\''hi'\'''".to_string() + "\r"
+        );
+    }
+
+    /// The gate is what keeps a Script from starting before `bun install` has
+    /// run on a Sandbox that reported Ready. It has to wait on the same sentinel
+    /// the declared preview servers wait on, and it has to come *before* the
+    /// `exec` — after it, the shell is already gone.
+    #[test]
+    fn the_command_waits_for_workspace_setup_before_it_execs() {
+        let line = exec_line("bun run dev");
+
+        let gate = line.find(".workspace-ready").expect("waits on the sentinel");
+        let exec = line.find("exec sh -c").expect("still execs the command");
+        assert!(gate < exec, "the gate must precede the exec: {line}");
+        assert!(
+            line.contains("until [ -f"),
+            "the gate must actually block: {line}"
+        );
+    }
+
+    /// A warm Sandbox has written the sentinel already, so the gate must be a
+    /// test rather than an unconditional sleep — otherwise every run of every
+    /// Script pays for a race that is not happening.
+    #[test]
+    fn the_gate_costs_nothing_once_setup_has_finished() {
+        assert!(
+            SETUP_GATE.starts_with(r#"if [ ! -f "#),
+            "the wait is guarded by a file test: {SETUP_GATE}"
         );
     }
 
