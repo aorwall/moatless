@@ -12,7 +12,7 @@ use super::dao::WorkspaceDao;
 use super::git_sync::GitSyncService;
 use super::handlers;
 use crate::repository::dao::RepositoryDao;
-use moatless_identity::auth::users::UserDao;
+use moatless_backend_core::identity::UserResolver;
 use moatless_identity::extractors::UserTokenVerifier;
 
 #[derive(OpenApi)]
@@ -48,7 +48,7 @@ pub struct WorkspaceApiDoc;
 /// Generic over the router state `S` so this module names no root type: the
 /// composition root supplies the concrete state at the call site, and each
 /// handler reaches its ports — `Arc<GitSyncService>`, `Arc<dyn RepositoryDao>`,
-/// `Arc<dyn WorkspaceDao>`, `Arc<dyn UserDao>`, and the `UserTokenVerifier`
+/// `Arc<dyn WorkspaceDao>`, `Arc<dyn UserResolver>`, and the `UserTokenVerifier`
 /// behind `AuthUser` —
 /// through `FromRef<S>`.
 pub fn workspace_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
@@ -58,7 +58,7 @@ where
     Arc<dyn RepositoryDao>: FromRef<S>,
     Arc<dyn WorkspaceDao>: FromRef<S>,
     Arc<WorkspaceCredentialService>: FromRef<S>,
-    Arc<dyn UserDao>: FromRef<S>,
+    Arc<dyn UserResolver>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
 {
     let (router, api) = OpenApiRouter::with_openapi(WorkspaceApiDoc::openapi())

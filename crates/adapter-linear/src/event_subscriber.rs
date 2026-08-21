@@ -29,13 +29,14 @@ use std::sync::Arc;
 
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
+use moatless_backend_core::identity::AppCredentials;
+use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_types::agent::AgentSubType;
 use moatless_types::sandbox::SandboxStatus;
 use moatless_loops::adapters::dao::AdapterConnectionDao;
 use moatless_loops::adapters::events::{TaskEventSubscriber, TaskEventSubscribers};
+use moatless_backend_core::task::{TaskReader, TranscriptAppend};
 use moatless_tasks::agent_event::{AgentEvent, EventKey};
-use moatless_tasks::message::dao::MessageDao;
-use moatless_tasks::task::dao::TaskDao;
 
 use super::active_turns::ActiveLinearTurns;
 use super::activity::{
@@ -46,24 +47,35 @@ use super::activity::{
 /// The ports the Linear event reaction reads.
 pub struct LinearEventSubscriber {
     db: DbPool,
+    app_tokens: Arc<dyn AppCredentials>,
+    task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     config: Arc<Config>,
-    messages: Arc<dyn MessageDao>,
-    tasks: Arc<dyn TaskDao>,
+    messages: Arc<dyn TranscriptAppend>,
+    tasks: Arc<dyn TaskReader>,
     active_turns: Arc<ActiveLinearTurns>,
 }
 
 impl LinearEventSubscriber {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the ports this subscriber's reaction reads, inverted out of the AppState \
+                  it used to hold; grouping them back would reintroduce that bag"
+    )]
     pub fn new(
         db: DbPool,
+        app_tokens: Arc<dyn AppCredentials>,
+        task_bindings: Arc<dyn TaskBindingDao>,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         config: Arc<Config>,
-        messages: Arc<dyn MessageDao>,
-        tasks: Arc<dyn TaskDao>,
+        messages: Arc<dyn TranscriptAppend>,
+        tasks: Arc<dyn TaskReader>,
         active_turns: Arc<ActiveLinearTurns>,
     ) -> Self {
         Self {
             db,
+            app_tokens,
+            task_bindings,
             adapter_connections,
             config,
             messages,
@@ -107,6 +119,8 @@ impl LinearEventSubscriber {
         if role == "user" {
             tokio::spawn(notify_linear_tool_results(
                 self.db.clone(),
+            self.app_tokens.clone(),
+            self.task_bindings.clone(),
                 self.adapter_connections.clone(),
                 self.config.clone(),
                 self.messages.clone(),
@@ -116,6 +130,8 @@ impl LinearEventSubscriber {
         } else {
             tokio::spawn(notify_linear_message_activities(
                 self.db.clone(),
+            self.app_tokens.clone(),
+            self.task_bindings.clone(),
                 self.adapter_connections.clone(),
                 self.config.clone(),
                 event.task_id.clone(),
@@ -144,7 +160,7 @@ impl LinearEventSubscriber {
     }
 
     async fn emit_completion_response(&self, task_id: &str) {
-        let msg = match self.messages.get_last_assistant_message(task_id).await {
+        let msg = match self.messages.last_assistant_reply(task_id).await {
             Ok(Some(m)) => m,
             Ok(None) => {
                 tracing::warn!(
@@ -163,7 +179,7 @@ impl LinearEventSubscriber {
             }
         };
 
-        let mut body = msg.message_text.clone().unwrap_or_default();
+        let mut body = msg.text.clone().unwrap_or_default();
         if body.trim().is_empty() {
             tracing::warn!(
                 task_id,
@@ -218,6 +234,8 @@ impl LinearEventSubscriber {
     fn spawn_action(&self, task_id: &str, action: &str, parameter: &str) {
         tokio::spawn(notify_linear_action(
             self.db.clone(),
+            self.app_tokens.clone(),
+            self.task_bindings.clone(),
             self.adapter_connections.clone(),
             self.config.clone(),
             task_id.to_string(),
@@ -231,6 +249,8 @@ impl LinearEventSubscriber {
     fn spawn_status(&self, task_id: &str, kind: ActivityKind, body: String) {
         tokio::spawn(notify_linear_status(
             self.db.clone(),
+            self.app_tokens.clone(),
+            self.task_bindings.clone(),
             self.adapter_connections.clone(),
             self.config.clone(),
             task_id.to_string(),

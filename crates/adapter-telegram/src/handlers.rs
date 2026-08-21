@@ -8,6 +8,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::{info, warn};
 
+use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_loops::adapters::metrics::record_webhook;
@@ -24,6 +25,7 @@ use super::ingress::{self, Transport};
 )]
 pub async fn telegram_webhook(
     State(telegram_provider): State<Option<Arc<TelegramAdapter>>>,
+    State(users): State<Arc<dyn ProviderIdentityLink>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, AdapterError> {
@@ -38,7 +40,7 @@ pub async fn telegram_webhook(
             .and_then(|v| v.to_str().ok()),
     };
 
-    match ingress::receive(&telegram_provider, &body, transport).await {
+    match ingress::receive(&telegram_provider, users.as_ref(), &body, transport).await {
         // Routing is durably owned now; its outcome is recorded by the work
         // handler when it actually runs. Recording "success" here would count
         // an outcome this path no longer knows.

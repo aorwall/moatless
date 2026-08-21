@@ -23,6 +23,8 @@ use super::adapter::TelegramAdapter;
 use super::api::TelegramApi;
 use super::config::TelegramAdapterConfig;
 use super::test_support::{bot_api_stub, test_loop_context, BotApiStub};
+use moatless_backend_core::identity::ProviderIdentityLink;
+
 use super::webhook::{Normalization, NormalizeContext};
 
 /// The outcome of normalizing one update, in the vocabulary the assertions use.
@@ -69,6 +71,7 @@ async fn normalize(
     config: &LoopContext,
     is_private_chat: bool,
     db: &DbPool,
+    users: &dyn ProviderIdentityLink,
 ) -> Result<Normalized, AdapterError> {
     let tg_config = TelegramAdapterConfig::from_config(config);
     let normalized = super::webhook::normalize(
@@ -76,7 +79,7 @@ async fn normalize(
         &NormalizeContext {
             config,
             tg_config: &tg_config,
-            db,
+            users,
             is_private_chat,
         },
     )
@@ -154,6 +157,55 @@ fn unreachable_pool() -> DbPool {
         .expect("lazy pool")
 }
 
+/// An identity port nothing stands behind: a path that reaches it resolves no
+/// sender, which is what these cases assert.
+struct NoUsers;
+
+#[async_trait::async_trait]
+impl ProviderIdentityLink for NoUsers {
+    async fn user_with_login(
+        &self,
+        _provider: &str,
+        _login: &str,
+    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        Ok(None)
+    }
+
+    async fn user_at(
+        &self,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<Option<moatless_backend_core::identity::LinkedUser>, moatless_backend_core::store::StoreError>
+    {
+        Ok(None)
+    }
+
+    async fn user_by_email(
+        &self,
+        _email: &str,
+    ) -> Result<Option<moatless_backend_core::identity::LinkedUser>, moatless_backend_core::store::StoreError>
+    {
+        Ok(None)
+    }
+
+    async fn user_who_connected(
+        &self,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        Ok(None)
+    }
+
+    async fn link(
+        &self,
+        _user_id: &uuid::Uuid,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<bool, moatless_backend_core::store::StoreError> {
+        Ok(false)
+    }
+}
+
 // =========================================================================
 // Updates that carry nothing to route
 // =========================================================================
@@ -172,6 +224,7 @@ async fn an_update_with_no_message_is_ignored() {
         &config("111"),
         false,
         &unreachable_pool(),
+        &NoUsers,
     )
     .await
     .expect("an unsupported update is ignored, not an error");
@@ -202,6 +255,7 @@ async fn a_channel_post_without_a_sender_is_ignored() {
         &config("-100123"),
         false,
         &unreachable_pool(),
+        &NoUsers,
     )
     .await
     .expect("a senderless post is ignored, not an error");
@@ -229,6 +283,7 @@ async fn a_message_with_no_text_is_ignored() {
         &config("111"),
         false,
         &unreachable_pool(),
+        &NoUsers,
     )
     .await
     .expect("a sticker is ignored, not an error");
@@ -247,6 +302,7 @@ async fn a_message_that_is_only_a_bot_mention_is_ignored() {
         &config("-100123"),
         false,
         &unreachable_pool(),
+        &NoUsers,
     )
     .await
     .expect("an empty message after mention stripping is ignored");
@@ -291,6 +347,7 @@ async fn each_missing_envelope_field_is_named_in_the_rejection() {
             &config("111"),
             false,
             &unreachable_pool(),
+            &NoUsers,
         )
         .await
         .expect_err("a malformed envelope is rejected");
@@ -313,6 +370,7 @@ async fn start_is_answered_with_one_message_and_the_update_is_still_ignored() {
             &config("111"),
             true,
             &unreachable_pool(),
+            &NoUsers,
         )
         .await
         .expect("a command is answered, not an error");
@@ -339,6 +397,7 @@ async fn help_is_answered_with_one_message_and_the_update_is_still_ignored() {
             &config("111"),
             true,
             &unreachable_pool(),
+            &NoUsers,
         )
         .await
         .expect("a command is answered, not an error");
@@ -365,6 +424,7 @@ async fn a_refused_command_answer_still_ignores_the_update() {
         &config("111"),
         true,
         &unreachable_pool(),
+        &NoUsers,
     )
     .await
     .expect("a failed answer is swallowed");
@@ -410,6 +470,7 @@ async fn a_blocking_access_decision_ignores_the_update_without_a_bot_call() {
             &with_adapter_config(config("111"), policy_config.clone()),
             is_private,
             &unreachable_pool(),
+            &NoUsers,
         )
         .await
         .expect("a denied message is ignored, not an error");
@@ -434,6 +495,7 @@ async fn a_group_never_gets_a_pairing_code() {
         ),
         false,
         &unreachable_pool(),
+        &NoUsers,
     )
     .await
     .expect("an unlisted group is ignored");
@@ -487,6 +549,7 @@ mod db_tests {
             &config("111"),
             true,
             &pool,
+            &NoUsers,
         )
         .await
         .unwrap()
@@ -524,7 +587,11 @@ mod db_tests {
     async fn a_private_chat_under_a_wildcard_subscription_keeps_the_wildcard_source(pool: PgPool) {
         let (provider, _stub) = provider_with_stub().await;
 
-        let message = normalize(&provider, &private_message("hi"), &config("*"), true, &pool)
+        let message = normalize(
+            &provider, &private_message("hi"), &config("*"), true,
+            &pool,
+            &NoUsers,
+        )
             .await
             .unwrap()
             .message();
@@ -549,7 +616,11 @@ mod db_tests {
             }
         });
 
-        let message = normalize(&provider, &update, &config("-100123"), false, &pool)
+        let message = normalize(
+            &provider, &update, &config("-100123"), false,
+            &pool,
+            &NoUsers,
+        )
             .await
             .unwrap()
             .message();
@@ -588,7 +659,11 @@ mod db_tests {
             }
         });
 
-        let message = normalize(&provider, &update, &config("-100123"), false, &pool)
+        let message = normalize(
+            &provider, &update, &config("-100123"), false,
+            &pool,
+            &NoUsers,
+        )
             .await
             .unwrap()
             .message();
@@ -613,7 +688,11 @@ mod db_tests {
             }
         });
 
-        let message = normalize(&provider, &update, &config("-100123"), false, &pool)
+        let message = normalize(
+            &provider, &update, &config("-100123"), false,
+            &pool,
+            &NoUsers,
+        )
             .await
             .unwrap()
             .message();
@@ -628,6 +707,7 @@ mod db_tests {
             &config("-100123"),
             false,
             &pool,
+            &NoUsers,
         )
         .await
         .unwrap()
@@ -649,6 +729,7 @@ mod db_tests {
             &config("-100123"),
             false,
             &pool,
+            &NoUsers,
         )
         .await
         .unwrap()
@@ -675,6 +756,7 @@ mod db_tests {
             &subscription,
             true,
             &pool,
+            &NoUsers,
         )
         .await
         .unwrap();
@@ -704,6 +786,7 @@ mod db_tests {
             &subscription,
             true,
             &pool,
+            &NoUsers,
         )
         .await
         .unwrap();
@@ -731,6 +814,7 @@ mod db_tests {
             ),
             true,
             &pool,
+            &NoUsers,
         )
         .await
         .unwrap()

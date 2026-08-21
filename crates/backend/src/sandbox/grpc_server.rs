@@ -46,9 +46,6 @@ use moatless_tasks::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use moatless_tasks::task_turn::dao::{TaskTurnDao, TurnStateEvent};
 use moatless_tasks::task_turn::models::{TurnStatus, classify_turn_transition};
 use moatless_workspaces::credentials::WriteSource;
-use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 /// Known credential env var names.
 ///
@@ -105,17 +102,16 @@ pub struct HandlerDbPorts {
     /// rotations through `store(.., WriteSource::SandboxRotation)` so the
     /// broadcast fan-out picks them up automatically.
     pub credential_sync: Arc<CredentialSync>,
-    /// Repository DAO — used to resolve a task's repo owner for credentials.
-    pub repositories: Arc<dyn RepositoryDao>,
+    /// Workspace projection — supplies the primary repository a task's
+    /// credentials are minted against, the run-as identity, and the
+    /// `system_prompt` / `servers` the agent's append prompt is built from.
+    pub workspace_resolver: Arc<dyn moatless_backend_core::workspace::WorkspaceResolver>,
     /// Sandbox lifecycle store — read for the Sandbox a task belongs to, whose
     /// workspace names the credentials the pod is handed.
     pub sandboxes: Arc<dyn LifecycleDao>,
-    /// Workspace DAO — used to load the workspace's `system_prompt` and `servers`
-    /// when assembling the agent's append system prompt.
-    pub workspaces: Arc<dyn WorkspaceDao>,
     /// Provider credentials pinned to a workspace — the highest-precedence
     /// source in the credential set a sandbox is handed.
-    pub workspace_credentials: Arc<WorkspaceCredentialService>,
+    pub workspace_credentials: Arc<dyn moatless_backend_core::workspace::WorkspaceCredentialReader>,
     /// The one way to a git-host token, for the identity the task acts as.
     pub git_host_tokens: Arc<GitHostTokens>,
     /// File metadata repository — supplies filename and mime type when
@@ -124,6 +120,10 @@ pub struct HandlerDbPorts {
     /// User repository — used to render `<sent_by>` headers on pending
     /// messages so the agent sees the inbound sender's moatless login.
     pub users: Arc<dyn UserDao>,
+    /// The git author identity the pod's commits attribute to.
+    pub commit_identity: Arc<dyn moatless_backend_core::identity::CommitIdentity>,
+    /// The stored access tokens the agent harness runs with.
+    pub harness_credentials: Arc<dyn moatless_backend_core::identity::HarnessCredentials>,
 }
 
 /// Durable-admission writers (commit-before-fan-out): the turn/event/outbox rows
@@ -1186,8 +1186,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let handlers = self.handlers.as_ref();
         let targets = resolve_task_credential_targets(
             handlers.map(|h| &h.sandboxes),
-            handlers.map(|h| &h.repositories),
-            handlers.map(|h| &h.workspaces),
+            handlers.map(|h| &h.workspace_resolver),
             &req.task_id,
         )
         .await;
@@ -1216,7 +1215,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let codex_credentials: Option<Arc<dyn CodexCredentials>> = handlers
             .map(|h| h.credential_sync.clone() as Arc<dyn CodexCredentials>);
         let actor = resolve_task_actor(
-            handlers.map(|h| &h.workspaces),
+            handlers.map(|h| &h.workspace_resolver),
             targets.workspace_id.as_deref(),
             &grant.ctx.user_id,
         )
@@ -1225,10 +1224,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             task_id: &req.task_id,
             user_id: actor.user_id(),
             secrets: handlers.map(|h| &h.secrets),
-            provider_tokens: handlers.map(|h| &h.provider_tokens),
+            provider_tokens: handlers.map(|h| &h.harness_credentials),
             git_host_tokens: handlers.map(|h| &h.git_host_tokens),
             repository: targets.repository.as_ref(),
-            users: handlers.map(|h| &h.users),
+            users: handlers.map(|h| &h.commit_identity),
             credential_sync: codex_credentials.as_ref(),
             workspace_credentials,
         })
@@ -1403,7 +1402,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let system_prompt = prompt::build_for_task(
             &req.task_id,
             task.as_ref(),
-            self.handlers.as_ref().map(|h| &h.workspaces),
+            self.handlers.as_ref().map(|h| &h.workspace_resolver),
             self.handlers.as_ref().map(|h| &h.task_relations),
             Some(&self.backend_config),
         )

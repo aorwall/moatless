@@ -5,6 +5,7 @@ pub mod footer;
 pub mod handlers;
 pub mod metrics;
 pub mod outbound;
+pub mod ports;
 pub mod recently_sent;
 pub mod recipients;
 pub mod reply;

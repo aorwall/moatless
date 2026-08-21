@@ -21,6 +21,7 @@ pub mod credential_sync;
 pub mod event_ingress;
 pub mod feedback;
 pub mod message;
+pub mod ports;
 pub mod tag;
 pub mod task;
 pub mod task_activities;

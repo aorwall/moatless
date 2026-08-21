@@ -21,6 +21,10 @@ pub enum LoopError {
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
 
+    /// A read or write through a published store seam failed.
+    #[error(transparent)]
+    Store(#[from] moatless_backend_core::store::StoreError),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }

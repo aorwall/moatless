@@ -2,17 +2,54 @@ use moatless_types::adapter::AdapterKind;
 use moatless_loops::adapters::models::SubscriptionMatch;
 use moatless_types::adapter::Audience;
 use moatless_types::loops::RoutingMode;
-use moatless_core::db::DbPool;
+use moatless_backend_core::identity::{LinkedUser, ProviderIdentityLink};
+use moatless_backend_core::store::StoreError;
 
 use super::{IgnoredWebhook, NormalizeContext, PrimaryWebhook, normalize, title_is_ignored};
 use crate::status::WebhookStatusObservation;
 
-fn fake_db_pool() -> DbPool {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(std::time::Duration::from_millis(10))
-        .connect_lazy("postgres://fake:fake@localhost:1/fake")
-        .unwrap()
+/// An identity port with nothing in it: normalization attributes an unmapped
+/// sender to the rule owner, which is what these cases assert.
+struct NoUsers;
+
+#[async_trait::async_trait]
+impl ProviderIdentityLink for NoUsers {
+    async fn user_at(
+        &self,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<Option<LinkedUser>, StoreError> {
+        Ok(None)
+    }
+
+    async fn user_by_email(&self, _email: &str) -> Result<Option<LinkedUser>, StoreError> {
+        Ok(None)
+    }
+
+    async fn user_who_connected(
+        &self,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(None)
+    }
+
+    async fn user_with_login(
+        &self,
+        _provider: &str,
+        _login: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(None)
+    }
+
+    async fn link(
+        &self,
+        _user_id: &uuid::Uuid,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<bool, StoreError> {
+        Ok(false)
+    }
 }
 
 fn fake_rule() -> SubscriptionMatch {
@@ -55,7 +92,6 @@ async fn normalize_payload(
     payload: &serde_json::Value,
     rule: &SubscriptionMatch,
 ) -> super::NormalizedWebhook {
-    let db = fake_db_pool();
     normalize(
         event_type,
         payload,
@@ -68,7 +104,7 @@ async fn normalize_payload(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("alice"),
             frontend_url: "https://app.example.com",
-            db: &db,
+            users: &NoUsers,
         },
     )
     .await

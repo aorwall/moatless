@@ -22,7 +22,7 @@ use moatless_backend::sandbox::lifecycle::{
 use moatless_backend::state::AppState;
 use moatless_backend::task::models::{Task, TaskStatus, Visibility};
 use moatless_backend::workspace::models::{Workspace, WorkspaceRepo};
-use moatless_backend_core::sandbox::SandboxConnector;
+use sandbox_proto::client::SandboxConnector;
 use moatless_backend_core::sandbox::SandboxError;
 use moatless_core::config::{Config, DatabaseConfig, DockerConfig, GithubPrConfig, OtelConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig};
 use moatless_types::adapter::LinearConfig;
@@ -500,11 +500,8 @@ fn build_app_state(
         pool.clone(),
         ProvisionDeps::new(
             ports.lifecycle_store(),
-            ports.repositories.clone(),
-            ports.provider_tokens.clone(),
-            ports.plugins.clone(),
-            ports.workspaces.clone(),
-            ports.users.clone(),
+            ports.workspace_resolver.clone(),
+            ports.user_directory.clone(),
         ),
         Arc::new(MockSandboxRuntime),
         connector.clone(),
@@ -708,10 +705,11 @@ pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState
         moatless_backend::adapters::providers::linear::delivery::LinearInboundRouter::new(
             worker_state.adapter_connections.clone(),
             worker_state.db.clone(),
+            worker_state.harness_credentials.clone(),
             worker_state.config.clone(),
             worker_state.loops.clone(),
             worker_state.task_bindings.clone(),
-            worker_state.tasks.clone(),
+            worker_state.task_reader.clone(),
             worker_state.task_creation.clone(),
             worker_state.task_relations.clone(),
             worker_state.message_send.clone(),

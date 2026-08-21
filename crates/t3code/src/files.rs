@@ -26,7 +26,8 @@ use tracing::warn;
 
 use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
-use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_grpc_error};
+use moatless_backend_core::sandbox::SandboxError;
+use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 use moatless_types::access_control::ScopeContext;
 
 /// The most entries one listing carries.
@@ -311,7 +312,7 @@ pub async fn read_file(
 /// the checkout nearest the root — and equal-length ones break by name, so the
 /// same mention always opens the same file rather than depending on walk order.
 pub(crate) async fn nested_in_a_checkout(
-    client: &moatless_backend_core::sandbox::SandboxClient,
+    client: &sandbox_proto::client::SandboxClient,
     task_id: &str,
     relative_path: &str,
 ) -> Option<String> {
@@ -459,8 +460,8 @@ mod tests {
         async fn sandbox_client(
             &self,
             _task_id: &str,
-        ) -> Result<moatless_backend_core::sandbox::SandboxClient, SandboxError> {
-            moatless_backend_core::sandbox::SandboxClient::connect(&self.0)
+        ) -> Result<sandbox_proto::client::SandboxClient, SandboxError> {
+            sandbox_proto::client::SandboxClient::connect(&self.0)
                 .map_err(|error| SandboxError::GrpcClient(error.to_string()))
         }
     }

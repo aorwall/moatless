@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use moatless_backend_core::sandbox::SandboxConnector;
+use crate::client::SandboxConnector;
 
 use super::orchestrator::WorkspaceSyncPort;
 

@@ -412,7 +412,7 @@ pub fn spawn_grpc_server(
     ports: Option<&Ports>,
     event_publisher: Option<Arc<dyn EventPublisher>>,
     s3: Option<Arc<crate::file_storage::s3::S3Storage>>,
-    connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>,
+    connector: Arc<dyn sandbox_proto::client::SandboxConnector>,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
     // `tasks` and `users` are read by the authorizer's control gate; the request
@@ -461,30 +461,33 @@ pub fn spawn_grpc_server(
     let handlers = ports.map(|p| {
         let credentials_svc = Arc::new(
             CredentialService::new(p.provider_tokens.clone())
-                .with_codex_refresh(p.pool.clone(), codex_http.clone())
+                .with_codex_refresh(codex_http.clone())
                 .with_secrets(p.secrets.clone()),
         );
         // Tasks-band orchestrator (9c) — guard + fan-out over the pure service.
         let credential_sync = Arc::new(CredentialSync::new(
             credentials_svc,
             p.tasks.clone(),
-            Arc::clone(&connector),
+            Arc::new(crate::sandbox::notify::CredentialBroadcastService::new(
+                Arc::clone(&connector),
+            )),
         ));
         crate::sandbox::grpc_server::HandlerDbPorts {
             messages: p.messages.clone(),
             provider_tokens: p.provider_tokens.clone(),
+            workspace_resolver: p.workspace_resolver.clone(),
             tasks: p.tasks.clone(),
             task_relations: p.task_relations.clone(),
             provider_token_auth: p.provider_token_auth.clone(),
             secrets: p.secrets.clone(),
             credential_sync,
-            repositories: p.repositories.clone(),
             sandboxes: p.lifecycle_store.clone(),
-            workspaces: p.workspaces.clone(),
             workspace_credentials: p.workspace_credentials.clone(),
             git_host_tokens: p.git_host_tokens.clone(),
             files: p.files.clone(),
             users: p.users.clone(),
+            commit_identity: p.user_directory.clone(),
+            harness_credentials: p.harness_credentials.clone(),
         }
     });
 

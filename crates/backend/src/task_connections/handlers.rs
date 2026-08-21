@@ -27,7 +27,7 @@ use crate::bindings::status_service;
 use crate::extractors::AuthUser;
 use crate::message::dao::{ConnectionMessageCount, MessageDao};
 use crate::repository::dao::RepositoryDao;
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_loops::bindings::dao::TaskBindingDao;
 use crate::task::dao::{TaskDao, TaskFilter};
 use crate::task::error::TaskError;
 

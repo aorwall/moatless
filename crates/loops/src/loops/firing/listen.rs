@@ -13,7 +13,7 @@ use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use crate::adapters::{AdapterDestinationBuilder, AdapterKind};
 use crate::loops::dao::LoopDao;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use crate::bindings::dao::TaskBindingDao;
 
 /// Wires a task to an external Adapter subject: resolves the connection and
 /// (optionally) the Subscription, then upserts the canonical task binding.

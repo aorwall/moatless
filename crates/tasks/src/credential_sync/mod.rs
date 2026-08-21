@@ -1,14 +1,14 @@
 //! Codex credential sync — the tasks-band orchestrator over `CredentialService`.
 //!
 //! `CredentialService` (workspaces band) is the pure persist + refresh half: it
-//! names neither `TaskDao` nor `SandboxConnector`. This module wraps it to add
+//! names neither `TaskDao` nor `CredentialBroadcast`. This module wraps it to add
 //! the two pieces that reach *up* out of that band:
 //! - the in-flight guard (`any_other_open_codex_task`) that yields to a running
 //!   sandbox's own refresher rather than racing it for the single-use
 //!   refresh_token — needs `TaskDao`;
 //! - the write-through broadcast (`broadcast_to_scope`) that pushes a rotated
 //!   blob to every open codex sandbox in scope — needs `TaskDao` (to list them)
-//!   and `SandboxConnector` (to reach them).
+//!   and `CredentialBroadcast` (to reach them).
 //!
 //! Its deps floor at `TaskDao` (tasks, band 5) and its callers — `task::service`,
 //! `sandbox::secrets`, the gRPC `update_credential` handler, the settings UI —
@@ -24,7 +24,7 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::task::dao::TaskDao;
-use moatless_backend_core::sandbox::SandboxConnector;
+use moatless_backend_core::sandbox::CredentialBroadcast;
 use moatless_types::agent::CodexScope;
 use moatless_workspaces::credentials::codex::refresh::CodexRefreshOutcome;
 use moatless_workspaces::credentials::{
@@ -53,7 +53,7 @@ impl moatless_backend_core::sandbox::CodexCredentials for CredentialSync {
 pub struct CredentialSync {
     credentials: Arc<CredentialService>,
     tasks: Arc<dyn TaskDao>,
-    connector: Arc<dyn SandboxConnector>,
+    broadcast: Arc<dyn CredentialBroadcast>,
 }
 
 impl CredentialSync {
@@ -61,12 +61,12 @@ impl CredentialSync {
     pub fn new(
         credentials: Arc<CredentialService>,
         tasks: Arc<dyn TaskDao>,
-        connector: Arc<dyn SandboxConnector>,
+        broadcast: Arc<dyn CredentialBroadcast>,
     ) -> Self {
         Self {
             credentials,
             tasks,
-            connector,
+            broadcast,
         }
     }
 
@@ -277,19 +277,12 @@ impl CredentialSync {
         };
 
         for task_id in task_ids {
-            let connector = Arc::clone(&self.connector);
+            let broadcast = Arc::clone(&self.broadcast);
             let key = key.to_string();
             let value = value.to_string();
             tokio::spawn(async move {
-                let client = match connector.sandbox_client(&task_id).await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        debug!(task_id, error = %e, "broadcast: client connect failed");
-                        return;
-                    }
-                };
-                if let Err(e) = client.refresh_credential(&task_id, &key, &value).await {
-                    debug!(task_id, error = %e, "broadcast: refresh_credential gRPC failed");
+                if let Err(e) = broadcast.refresh_credential(&task_id, &key, &value).await {
+                    debug!(task_id, error = %e, "broadcast: refresh_credential failed");
                 } else {
                     info!(task_id, key, "broadcast: refresh_credential delivered");
                 }
@@ -303,20 +296,27 @@ mod tests {
     use super::*;
     use crate::task::dao::MockTaskDao;
     use async_trait::async_trait;
-    use moatless_backend_core::sandbox::{SandboxClient, SandboxConnector, SandboxError};
+    use moatless_backend_core::sandbox::{CredentialBroadcast, SandboxError};
     use moatless_identity::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
-    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+    use moatless_identity::auth::provider_token_dao::{
+        CodexBlobOutcome, CodexBlobRefresher, ProviderTokenDao,
+    };
 
-    /// A `SandboxConnector` that must never be reached. Every test below either
-    /// keeps `list_open_codex_tasks_for_scope` returning empty (nothing to fan
-    /// out to) or never enters the broadcast path, so a real connection is a
+    /// A `CredentialBroadcast` that must never be reached. Every test below
+    /// either keeps `list_open_codex_tasks_for_scope` returning empty (nothing
+    /// to fan out to) or never enters the broadcast path, so a delivery is a
     /// bug — fail loudly rather than making a network call.
-    struct NeverConnector;
+    struct NeverBroadcast;
 
     #[async_trait]
-    impl SandboxConnector for NeverConnector {
-        async fn sandbox_client(&self, task_id: &str) -> Result<SandboxClient, SandboxError> {
-            panic!("NeverConnector::sandbox_client called for {task_id}");
+    impl CredentialBroadcast for NeverBroadcast {
+        async fn refresh_credential(
+            &self,
+            task_id: &str,
+            _key: &str,
+            _value: &str,
+        ) -> Result<(), SandboxError> {
+            panic!("NeverBroadcast::refresh_credential called for {task_id}");
         }
     }
 
@@ -368,6 +368,50 @@ mod tests {
 
     #[async_trait]
     impl ProviderTokenDao for FakeTokens {
+    async fn find_user_by_provider_login(
+        &self,
+        _provider: &str,
+        _provider_login: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn find_user_by_provider_account(
+        &self,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn find_app_token(&self, _provider: &str) -> Result<Option<ProviderToken>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn upsert_app_token(
+        &self,
+        _provider: &str,
+        _access_token: &str,
+        _refresh_token: Option<&str>,
+        _token_type: Option<&str>,
+        _metadata: Option<&serde_json::Value>,
+        _expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn refresh_codex_blob(
+        &self,
+        _scope: &CodexScope,
+        _refresher: &(dyn CodexBlobRefresher + '_),
+    ) -> Result<Option<CodexBlobOutcome>, sqlx::Error> {
+        Ok(None)
+    }
+
         async fn find_provider_token(
             &self,
             _user_id: &str,
@@ -472,7 +516,7 @@ mod tests {
 
     fn make_sync(repo: Arc<dyn ProviderTokenDao>, tasks: MockTaskDao) -> CredentialSync {
         let credentials = Arc::new(CredentialService::new(repo));
-        CredentialSync::new(credentials, Arc::new(tasks), Arc::new(NeverConnector))
+        CredentialSync::new(credentials, Arc::new(tasks), Arc::new(NeverBroadcast))
     }
 
     // == Test A: the guard predicate ==
@@ -540,7 +584,7 @@ mod tests {
         let mut tasks = MockTaskDao::new();
         // Persisted + file-resident key → broadcast. Assert the resolution query
         // fires once with the originating task excluded. Empty result → the
-        // NeverConnector is never dialled.
+        // NeverBroadcast is never dialled.
         tasks
             .expect_list_open_codex_tasks_for_scope()
             .withf(|kind, id, except| kind == "user" && id == "u1" && except == "origin-task")

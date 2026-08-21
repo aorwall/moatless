@@ -131,7 +131,7 @@ impl GithubPrInboundRouter {
                 Some(ext_id) => {
                     let candidates = self.routing.external_id_aliases(ADAPTER_LABEL, ext_id);
                     self.messages
-                        .find_task_id_by_any_external_event_id(&candidates)
+                        .find_by_external_event_id(&candidates)
                         .await?
                 }
                 None => None,
@@ -358,7 +358,7 @@ impl GithubPrInboundRouter {
             #[allow(clippy::disallowed_methods)]
             // reason: GitHub PR close handler runs as background system, no caller identity
             let sys = ScopeContext::system();
-            match self.tasks.find_by_id(task_id, &sys).await {
+            match self.tasks.describe(task_id, &sys).await {
                 Ok(Some(task)) if task.status == TaskStatus::Closed => {
                     debug!(task_id, pr_number, "Task already closed, skipping");
                     continue;
@@ -469,7 +469,7 @@ impl GithubPrInboundRouter {
         }
         text.push_str("\n_Task auto-closed because the PR was closed._");
 
-        let user_id = super::auth::resolve_sender_user(&info.sender_login, rule, &self.db).await;
+        let user_id = super::auth::resolve_sender_user(&info.sender_login, rule, self.users.as_ref()).await;
 
         InboundMessage {
             adapter_kind: AdapterKind::GithubPr,

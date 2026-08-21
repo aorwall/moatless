@@ -41,6 +41,7 @@ reader outside that program can see them.
 | The error-type knot | `error.rs` split, 7c's registry inversion, 8b's remainder, 8d's error half | One knot, one entry condition, recorded in the plan |
 | `AuthUser` placement | `extractors.rs::AuthUser` — Step 5's open question, recorded as 8g | Recorded in the plan |
 | `SetupRequirementCheck` is a single-implementation trait | `setup/evaluator.rs::SetupRequirementCheck` — `checks()` returns `vec![Box::new(GithubTokenRequirement)]`; recorded as 8h | When it earns a second implementation, or is collapsed into `evaluate_setup` |
+| `moatless-api-schemas` is one crate for every domain | `crates/api-schemas/src/` — 15 crates depend on it, and each consumer already has a `<domain>/schemas.rs` that is one `pub use moatless_api_schemas::<domain>::*;` | When seven or eight more crates is an accepted cost. It is the single largest rebuild-cost edge in the workspace and the split itself is mechanical; the crate count is the decision |
 
 **On `AgentErrorSink` specifically.** It is a consumer-owned port with exactly one
 production implementation, created so the reaper stops naming `AppState` and comes
@@ -106,6 +107,18 @@ one field named. The fix is known in every case; what stops it is stated.
 | A Binding's origin is an open string | `crates/types/src/adapter.rs::TaskBinding::origin`, against `ADAPTER_EVENT_BINDING_ORIGIN` and its two siblings in `crates/adapter-model/src/models.rs` | When the legal set is settled: the three declared constants are not the whole set — `bindings/handlers.rs` writes `"api"` and the Linear delivery tests write `"provider_event"` |
 | A Binding's `subject_kind` and a connection's `connection_kind` are open strings | `crates/types/src/adapter.rs::TaskBinding::subject_kind`, `AdapterConnection::connection_kind` | Same as `origin`: each Adapter declares its own values and no enumeration exists |
 | `User` and `TeamMember` cannot reach `moatless-types` | `crates/identity/src/auth/users.rs::User`, `crates/identity/src/team/models.rs::TeamMember` — both key on `uuid::Uuid` | When `uuid` is admitted to the `moatless-types` dependency list. It is pure data in the same class as `chrono`, so this is a decision about the closed list, not a technical block |
+
+## Table ownership
+
+`scripts/check-table-ownership.sh` fails on a production SQL statement naming a
+table another crate owns, against the map stated in the script.
+`scripts/table-ownership-baseline.txt` holds the statements that predate it, each
+with its reason, and only shrinks. Two decisions sit outside that file.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| `t3code` reads fifteen tables it does not own | `crates/t3code/src/lib.rs` — 43 statements across `tasks`, `task_messages`, `task_turns`, `task_activities`, `task_follows`, `task_bindings`, `task_message_usage`, `task_message_contexts`, `workspaces`, `workspace_repos`, `users`, and the four listing/conversation change-feed tables. It behaves like a read model over the Task and Workspace tables and nothing says so; the script excludes the crate for that reason | When the T3 contract next changes shape, or when one of these reads has to become a write. Either outcome forces the choice the exclusion defers: declare it a read-only projection in `crates/t3code/AGENTS.md`, or route it through the ports |
+| `adapter-telegram/pairing.rs` is mostly unreachable | `crates/adapter-telegram/src/pairing.rs` — `find_by_code`, `list_pending`, `list_pending_for_user`, `approve_request`, `prune_expired` are `pub` with no caller anywhere in the workspace; only `upsert_pairing_request` is reached (from `ingress.rs`) | When the Telegram pairing flow is next worked on. Deleting them now would be a behaviour question dressed as a cleanup — nothing says whether the flow is unfinished or abandoned |
 
 ## Correctness
 
@@ -235,6 +248,7 @@ kept as the default a member inherits when it asks for nothing.
 | No `cargo fmt --all --check` gate | `ci.yml`; a standing diff in `adapters/providers/github_pr/api.rs` | Sweep and gate together, so the gate starts green |
 | Nothing alerts when `main` goes red | `ci.yml` | Pairs with a nightly build for the image tier |
 | A sandbox readiness test intermittently hangs to the CI timeout | `sandbox/src/init/replacement_test/readiness.rs::sustained_ack_failure_never_re_runs_and_aborts_on_shutdown` | When it fires a second time on `main`, or when anyone next works in `sandbox/src/init` |
+| Nothing holds a removed crate edge removed | `ci.yml`; `crates/backend-core/Cargo.toml` can regain `sandbox-proto` and `crates/core/Cargo.toml` can regain `moatless-api-schemas` with no gate objecting | A `cargo metadata` check over a forbidden-edge list, sized so one line per edge is the whole cost of adding one |
 
 **Route literals.** The suite already imports generated *types* from
 `@moatless/api-client` (`tests/shared/types.ts`, `tests/shared/wait-helpers.ts`),

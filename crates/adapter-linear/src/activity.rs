@@ -35,9 +35,11 @@ use tracing::{debug, warn};
 
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
+use moatless_backend_core::identity::AppCredentials;
+use moatless_loops::bindings::dao::TaskBindingDao;
 
+use moatless_backend_core::task::TranscriptAppend;
 use moatless_loops::adapters::dao::AdapterConnectionDao;
-use moatless_tasks::message::dao::MessageDao;
 
 use super::agent_api::LinearAgentApi;
 
@@ -51,12 +53,14 @@ pub use super::agent_api::ActivityKind;
 /// silently without bubbling errors into the event-handler hot path.
 async fn resolve_linear_sessions_for_task(
     db: &DbPool,
+    app_tokens: &Arc<dyn AppCredentials>,
+    task_bindings: &dyn TaskBindingDao,
     adapter_connections: &dyn AdapterConnectionDao,
     config: &Config,
     task_id: &str,
 ) -> Vec<(LinearAgentApi, String)> {
     let rows = match super::subject::bindings_in_scope(
-        db,
+        task_bindings,
         super::subject::BindingScope::SessionsOfTask(task_id),
     )
     .await
@@ -80,7 +84,14 @@ async fn resolve_linear_sessions_for_task(
         };
 
         let Some(api) =
-            super::auth::api_for_binding(adapter_connections, db, config, &binding).await
+            super::auth::api_for_binding(
+                adapter_connections,
+                db,
+                app_tokens.clone(),
+                config,
+                &binding,
+            )
+            .await
         else {
             continue;
         };
@@ -94,8 +105,16 @@ async fn resolve_linear_sessions_for_task(
 /// `task_id`. Fire-and-forget: any failure (no binding, missing connection,
 /// network error, GraphQL rejection) is logged and swallowed — callers in the
 /// event-consumer hot path must not be affected.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "five owned downward ports (db, app_tokens, task_bindings, adapter_connections, config) \
+              inverted out of the AppState this fire-and-forget emitter used to \
+              take by value, plus its four activity fields"
+)]
 pub async fn notify_linear_status(
     db: DbPool,
+    app_tokens: Arc<dyn AppCredentials>,
+    task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     config: Arc<Config>,
     task_id: String,
@@ -104,7 +123,14 @@ pub async fn notify_linear_status(
     ephemeral: bool,
 ) {
     for (api, session_id) in
-        resolve_linear_sessions_for_task(&db, adapter_connections.as_ref(), &config, &task_id).await
+        resolve_linear_sessions_for_task(
+            &db,
+            &app_tokens,
+            task_bindings.as_ref(),
+            adapter_connections.as_ref(),
+            &config,
+            &task_id,
+        ).await
     {
         if let Err(e) = api
             .agent_activity_create(&session_id, kind, &body, ephemeral)
@@ -126,12 +152,14 @@ pub async fn notify_linear_status(
 /// in the event-consumer hot path are unaffected.
 #[expect(
     clippy::too_many_arguments,
-    reason = "three owned downward ports (db, adapter_connections, config) \
+    reason = "five owned downward ports (db, app_tokens, task_bindings, adapter_connections, config) \
               inverted out of the AppState this fire-and-forget emitter used to \
               take by value, plus its four activity fields"
 )]
 pub async fn notify_linear_action(
     db: DbPool,
+    app_tokens: Arc<dyn AppCredentials>,
+    task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     config: Arc<Config>,
     task_id: String,
@@ -141,7 +169,14 @@ pub async fn notify_linear_action(
     ephemeral: bool,
 ) {
     for (api, session_id) in
-        resolve_linear_sessions_for_task(&db, adapter_connections.as_ref(), &config, &task_id).await
+        resolve_linear_sessions_for_task(
+            &db,
+            &app_tokens,
+            task_bindings.as_ref(),
+            adapter_connections.as_ref(),
+            &config,
+            &task_id,
+        ).await
     {
         if let Err(e) = api
             .agent_activity_create_action(
@@ -176,6 +211,8 @@ pub async fn notify_linear_action(
 /// - `text` blocks shorter than 4 chars after trim (Claude connector tokens).
 pub async fn notify_linear_message_activities(
     db: DbPool,
+    app_tokens: Arc<dyn AppCredentials>,
+    task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     config: Arc<Config>,
     task_id: String,
@@ -189,7 +226,14 @@ pub async fn notify_linear_message_activities(
     }
 
     let sessions =
-        resolve_linear_sessions_for_task(&db, adapter_connections.as_ref(), &config, &task_id)
+        resolve_linear_sessions_for_task(
+            &db,
+            &app_tokens,
+            task_bindings.as_ref(),
+            adapter_connections.as_ref(),
+            &config,
+            &task_id,
+        )
             .await;
     if sessions.is_empty() {
         return;
@@ -262,11 +306,19 @@ pub async fn notify_linear_message_activities(
 /// sees both the call and its outcome.
 ///
 /// Fire-and-forget: any DB or GraphQL failure is logged and swallowed.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "five owned downward ports (db, app_tokens, task_bindings, adapter_connections, \
+              config) inverted out of the AppState this fire-and-forget emitter used to take \
+              by value, plus its activity fields"
+)]
 pub async fn notify_linear_tool_results(
     db: DbPool,
+    app_tokens: Arc<dyn AppCredentials>,
+    task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     config: Arc<Config>,
-    messages: Arc<dyn MessageDao>,
+    messages: Arc<dyn TranscriptAppend>,
     task_id: String,
     message: serde_json::Value,
 ) {
@@ -296,14 +348,21 @@ pub async fn notify_linear_tool_results(
     }
 
     let sessions =
-        resolve_linear_sessions_for_task(&db, adapter_connections.as_ref(), &config, &task_id)
+        resolve_linear_sessions_for_task(
+            &db,
+            &app_tokens,
+            task_bindings.as_ref(),
+            adapter_connections.as_ref(),
+            &config,
+            &task_id,
+        )
             .await;
     if sessions.is_empty() {
         return;
     }
 
     for tool_use_id in tool_use_ids {
-        let row = match messages.find_tool_call(&task_id, &tool_use_id).await {
+        let row = match messages.tool_call(&task_id, &tool_use_id).await {
             Ok(Some(row)) => row,
             Ok(None) => {
                 debug!(

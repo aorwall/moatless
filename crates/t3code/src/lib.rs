@@ -54,7 +54,8 @@ pub mod workspace;
 
 pub use feed::{ShellFeed, ThreadFeed};
 use moatless_backend_core::sandbox::SandboxError;
-pub use moatless_backend_core::sandbox::{ClusterDiagnostics, SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxPortPublisher, SandboxStarter, SandboxStopper};
+pub use moatless_backend_core::sandbox::{ClusterDiagnostics, SandboxIntentReader, SandboxObserver, SandboxPortPublisher, SandboxStarter, SandboxStopper};
+pub use sandbox_proto::client::SandboxConnector;
 pub use moatless_backend_core::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 pub use moatless_identity::auth::pairing::DevicePairing;
 
@@ -3598,7 +3599,7 @@ mod tests {
         async fn sandbox_client(
             &self,
             task_id: &str,
-        ) -> Result<moatless_backend_core::sandbox::SandboxClient, SandboxError> {
+        ) -> Result<sandbox_proto::client::SandboxClient, SandboxError> {
             Err(unreachable(task_id))
         }
     }

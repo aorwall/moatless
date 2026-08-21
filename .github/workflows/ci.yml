@@ -179,6 +179,20 @@ jobs:
       - name: AppState is named only by the composition root and the routing tables
         run: ./scripts/check-appstate-composition-root.sh
 
+  # A table is private to the crate that owns it. A production SQL statement
+  # naming a foreign table bypasses the port that domain publishes, even where
+  # the port exists. A shrinking baseline
+  # (scripts/table-ownership-baseline.txt) holds the statements that predate the
+  # check; the map of table to owning crate is stated in the script. No Rust
+  # build.
+  table-ownership:
+    name: Table-ownership invariant
+    runs-on: staging-runners
+    steps:
+      - uses: actions/checkout@v6
+      - name: No production SQL against a table another crate owns
+        run: ./scripts/check-table-ownership.sh
+
   # Step 7 invariant — bindings does not depend on the Adapter aggregate or
   # Adapter-owned capability/error surface. A shrinking baseline tracks the
   # bindings files still naming `crate::adapters`; each slice deletes its own

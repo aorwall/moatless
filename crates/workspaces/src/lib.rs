@@ -15,6 +15,7 @@
 
 pub mod credentials;
 pub mod plugin;
+pub mod ports;
 pub mod repository;
 pub mod skill;
 pub mod workspace;

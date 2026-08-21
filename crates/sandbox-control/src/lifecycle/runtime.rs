@@ -80,6 +80,7 @@ pub fn map_sandbox_error(error: SandboxError) -> RuntimeError {
         | SandboxError::Unsupported { .. }
         | SandboxError::GrpcClient(_)
         | SandboxError::Database { .. }
+        | SandboxError::Store(_)
         | SandboxError::Authorization(_)
         | SandboxError::Lifecycle(_)) => {
             RuntimeError::Infrastructure(moatless_core::error::causal_chain(&error))

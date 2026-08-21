@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use crate::status_reader::SandboxStatusReader;
 use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::task::TaskStatus;
-use moatless_backend_core::sandbox::{SandboxConnector, classify_grpc_error};
+use crate::client::{SandboxConnector, classify_grpc_error};
 
 use super::convergence::SandboxObservedStatus;
 use super::orchestrator::SandboxMember;

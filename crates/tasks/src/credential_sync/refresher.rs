@@ -13,20 +13,18 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use sqlx::Row;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use moatless_types::agent::CodexScope;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use crate::credential_sync::CredentialSync;
-use moatless_core::db::DbPool;
 use moatless_core::leader::LeaderGuard;
 
 /// Spawn the background Codex refresher as a tokio task.
 ///
 /// Every `interval`, the leader replica:
-/// 1. Queries `provider_tokens` for codex rows that don't have a permanent
+/// 1. Asks the token store for every codex scope with no permanent
 ///    `refresh_failure` already recorded.
 /// 2. For each user, calls
 ///    [`CredentialSync::ensure_fresh_codex`] which is itself a no-op when
@@ -35,7 +33,7 @@ use moatless_core::leader::LeaderGuard;
 /// The expensive part (`refresh_chatgpt_tokens`) only runs when the row is
 /// actually near expiry; the sweeper is effectively idle most of the time.
 pub fn spawn_codex_refresher(
-    db: DbPool,
+    provider_tokens: Arc<dyn ProviderTokenDao>,
     credential_sync: Arc<CredentialSync>,
     leader_guard: Arc<dyn LeaderGuard>,
     interval: Duration,
@@ -53,7 +51,7 @@ pub fn spawn_codex_refresher(
             match leader_guard.try_acquire_or_renew().await {
                 Ok(true) => {
                     debug!(identity = %identity, "Codex refresher is leader, running sweep");
-                    if let Err(e) = run_sweep(&db, &credential_sync).await {
+                    if let Err(e) = run_sweep(provider_tokens.as_ref(), &credential_sync).await {
                         warn!(error = %e, "Codex refresher sweep failed");
                     }
                 }
@@ -76,38 +74,17 @@ pub fn spawn_codex_refresher(
     })
 }
 
-async fn run_sweep(db: &DbPool, credential_sync: &Arc<CredentialSync>) -> Result<(), sqlx::Error> {
-    // Reads every healthy codex row regardless of scope. Each row's
-    // `(user_id, team_id, scope)` tuple maps to one [`CodexScope`]; the
-    // refresher then runs the same code path on each. The partial index
-    // `idx_provider_tokens_codex_healthy` (migration `0059`) backs the
-    // predicate so this remains O(touched rows).
-    let rows = sqlx::query(
-        "SELECT user_id, scope FROM provider_tokens \
-         WHERE provider = 'codex' \
-           AND metadata->>'refresh_failure' IS NULL",
-    )
-    .fetch_all(db)
-    .await?;
+async fn run_sweep(
+    provider_tokens: &dyn ProviderTokenDao,
+    credential_sync: &Arc<CredentialSync>,
+) -> Result<(), sqlx::Error> {
+    // Every healthy codex scope, regardless of which one it is; the refresher
+    // then runs the same code path on each.
+    let scopes = provider_tokens.healthy_codex_scopes().await?;
 
     let mut attempted = 0u32;
     let mut errored = 0u32;
-    for row in rows {
-        let user_id: Option<String> = row.try_get("user_id")?;
-        let scope_str: Option<String> = row.try_get("scope")?;
-
-        let scope = match (scope_str.as_deref(), user_id) {
-            (Some("user"), Some(uid)) => CodexScope::user(uid),
-            (Some("global"), _) => CodexScope::Global,
-            other => {
-                warn!(
-                    ?other,
-                    "Codex refresher: skipping row with unrecognized scope shape"
-                );
-                continue;
-            }
-        };
-
+    for scope in scopes {
         attempted += 1;
         let scope_label = scope.display();
         if let Err(e) = credential_sync.ensure_fresh_codex(scope, None).await {

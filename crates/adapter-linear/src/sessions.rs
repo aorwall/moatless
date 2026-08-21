@@ -29,9 +29,9 @@ use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_loops::loops::dao::LoopDao;
 use moatless_tasks::message::send::MessageSendService;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_tasks::task::creation::TaskCreationService;
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
 use moatless_tasks::task::relations::TaskRelationDao;
 use moatless_backend_core::sandbox::SandboxWaker;
 
@@ -85,7 +85,7 @@ pub(super) async fn decline_session(api: &LinearAgentApi, session_id: &str, mess
 )]
 pub(super) async fn provision_selected_session_task(
     task_bindings: &dyn TaskBindingDao,
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     config: &Config,
     task_creation: &TaskCreationService,
     task_relations: &dyn TaskRelationDao,
@@ -296,7 +296,7 @@ pub(super) async fn handle_session_prompted(
 )]
 async fn provision_session_task(
     task_bindings: &dyn TaskBindingDao,
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     config: &Config,
     task_creation: &TaskCreationService,
     task_relations: &dyn TaskRelationDao,

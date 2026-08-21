@@ -21,6 +21,7 @@ use crate::auth::provider_tokens::{PgProviderTokenAuthDao, ProviderTokenAuthDao}
 use crate::auth::sessions::{PgSessionDao, SessionDao};
 use crate::auth::users::{PgUserDao, UserDao};
 use crate::bindings::dao::PgTaskBindingDao;
+use crate::bindings::ports::BindingDirectory;
 use crate::event_ingress::outbox::{IngressOutbox, PgIngressOutbox};
 use crate::feedback::dao::{FeedbackDao, PgFeedbackDao};
 use crate::file_storage::dao::{FileDao, PgFileDao};
@@ -40,7 +41,7 @@ use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
 use crate::secret::dao::{PgSecretDao, SecretDao};
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher, SecretService};
 use crate::tag::dao::{PgTagDao, TagDao};
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_loops::bindings::dao::TaskBindingDao;
 use crate::task::dao::{PgTaskDao, TaskDao};
 use crate::task::relations::{PgTaskRelationDao, TaskRelationDao};
 use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
@@ -49,7 +50,7 @@ use crate::team::dao::{PgTeamDao, TeamDao};
 use crate::workspace::credentials::dao::{PgWorkspaceCredentialDao, WorkspaceCredentialDao};
 use crate::workspace::credentials::service::WorkspaceCredentialService;
 use crate::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
-use moatless_backend_core::sandbox::SandboxConnector;
+use sandbox_proto::client::SandboxConnector;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
@@ -80,6 +81,9 @@ pub struct Ports {
     pub task_relations: Arc<dyn TaskRelationDao>,
     /// Task↔external-subject bindings (`task_bindings`).
     pub task_bindings: Arc<dyn TaskBindingDao>,
+    /// The binding store and the Loops that label its rows, behind the
+    /// `TaskBindings` seam the Task band reads. Also serves `BindingProbe`.
+    pub binding_directory: Arc<BindingDirectory>,
     pub task_events: Arc<dyn TaskEventDao>,
     /// Authoritative per-turn lifecycle state (`task_turns`).
     pub task_turns: Arc<dyn TaskTurnDao>,
@@ -87,7 +91,18 @@ pub struct Ports {
     pub feedback: Arc<dyn FeedbackDao>,
     pub repositories: Arc<dyn RepositoryDao>,
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
+    /// The `tasks` table behind the published `TaskReader` seam.
+    pub task_reader: Arc<moatless_tasks::ports::TaskProjection>,
+    /// The `task_messages` table behind the published `TranscriptAppend` seam.
+    pub transcript: Arc<moatless_tasks::ports::Transcript>,
+    /// The `task_turns` table behind the published `TurnCounter` seam.
+    pub turn_counter: Arc<moatless_tasks::ports::TurnLedger>,
+    /// The `tags` table behind the published `TagResolver` seam.
+    pub tag_resolver: Arc<moatless_tasks::ports::TagCatalog>,
     pub workspaces: Arc<dyn WorkspaceDao>,
+    /// The workspace, placement, and plugin stores behind the
+    /// `WorkspaceResolver` port.
+    pub workspace_resolver: Arc<moatless_workspaces::ports::WorkspaceProjection>,
     /// Provider credentials pinned to a Workspace (`workspace_credentials`).
     /// The highest-precedence source of a sandbox's provider credentials.
     pub workspace_credentials: Arc<WorkspaceCredentialService>,
@@ -111,6 +126,11 @@ pub struct Ports {
     pub adapter_delivery: Arc<AdapterDeliveryStore>,
 
     pub users: Arc<dyn UserDao>,
+    /// The `users` table behind the three identity ports peer crates read:
+    /// `UserDisplay`, `UserResolver`, `CommitIdentity`.
+    pub user_directory: Arc<moatless_identity::ports::UserDirectory>,
+    /// The `provider_tokens` table behind the `HarnessCredentials` port.
+    pub harness_credentials: Arc<moatless_identity::ports::HarnessTokens>,
     /// Local password credentials (`user_credentials`).
     pub user_credentials: Arc<dyn UserCredentialDao>,
     pub sessions: Arc<dyn SessionDao>,
@@ -168,6 +188,14 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
         cipher.clone(),
     ));
 
+    let repositories: Arc<dyn RepositoryDao> = Arc::new(PgRepositoryDao(pool.clone()));
+    let plugins: Arc<dyn PluginDao> = Arc::new(PgPluginDao(pool.clone()));
+    let workspace_resolver = Arc::new(moatless_workspaces::ports::WorkspaceProjection::new(
+        workspaces.clone(),
+        repositories.clone(),
+        plugins.clone(),
+    ));
+
     let api_keys: Arc<dyn ApiKeyDao> = Arc::new(PgApiKeyDao(pool.clone()));
     let pairing = Arc::new(DevicePairing::new(
         Arc::new(PgPairingCodeDao(pool.clone())),
@@ -179,6 +207,9 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
     let github_app_service = github_apps.default_service();
 
     let provider_tokens: Arc<dyn ProviderTokenDao> = Arc::new(PgProviderTokenDao(pool.clone()));
+    let harness_credentials = Arc::new(moatless_identity::ports::HarnessTokens::new(
+        provider_tokens.clone(),
+    ));
     let provider_token_auth: Arc<dyn ProviderTokenAuthDao> =
         Arc::new(PgProviderTokenAuthDao(pool.clone()));
     let git_host_tokens = Arc::new(GitHostTokens::new(
@@ -189,32 +220,66 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
         secrets.clone(),
     ));
 
-    // One PgTaskDao serves both the TaskDao port and the E-(b) TaskAccess port.
+    // One PgTaskDao serves the TaskDao port, the E-(b) TaskAccess port, and the
+    // published `TaskReader` seam peer crates read.
     let task_dao = Arc::new(PgTaskDao(pool.clone()));
+    let task_reader = Arc::new(moatless_tasks::ports::TaskProjection::new(task_dao.clone()));
+
+    let messages: Arc<dyn MessageDao> = Arc::new(PgMessageDao(pool.clone()));
+    let transcript = Arc::new(moatless_tasks::ports::Transcript::new(messages.clone()));
+    let task_turns: Arc<dyn TaskTurnDao> = Arc::new(PgTaskTurnDao(pool.clone()));
+    let turn_counter = Arc::new(moatless_tasks::ports::TurnLedger::new(task_turns.clone()));
+    let tags: Arc<dyn TagDao> = Arc::new(PgTagDao(pool.clone()));
+    let tag_resolver = Arc::new(moatless_tasks::ports::TagCatalog::new(tags.clone()));
+
+    // One PgUserDao serves the UserDao port and the three published identity
+    // ports the `UserDirectory` narrows it to.
+    let users: Arc<dyn UserDao> = Arc::new(PgUserDao(pool.clone()));
+
+    // One PgTaskBindingDao serves the store the Adapters that drive the binding
+    // lifecycle name, the `BindingProbe` predicate, and — joined to the Loop
+    // store — the `TaskBindings` seam the Task band reads.
+    let task_bindings: Arc<dyn TaskBindingDao> = Arc::new(PgTaskBindingDao::new(pool.clone()));
+    let loops = Arc::new(LoopDao::new(pool.clone()));
+    let binding_directory = Arc::new(BindingDirectory::new(
+        task_bindings.clone(),
+        loops.clone(),
+    ));
 
     Ports {
         tasks: task_dao.clone(),
         task_access: task_dao,
+        task_reader,
         task_relations: Arc::new(PgTaskRelationDao(pool.clone())),
-        task_bindings: Arc::new(PgTaskBindingDao::new(pool.clone())),
+        task_bindings,
+        binding_directory,
         task_events: Arc::new(PgTaskEventDao(pool.clone())),
-        task_turns: Arc::new(PgTaskTurnDao(pool.clone())),
-        messages: Arc::new(PgMessageDao(pool.clone())),
+        task_turns,
+        turn_counter,
+        messages,
+        transcript,
         feedback: Arc::new(PgFeedbackDao(pool.clone())),
-        repositories: Arc::new(PgRepositoryDao(pool.clone())),
+        repositories,
         workspaces,
+        workspace_resolver,
         workspace_credentials,
-        tags: Arc::new(PgTagDao(pool.clone())),
+        tags,
+        tag_resolver,
         files: Arc::new(PgFileDao(pool.clone())),
         teams: Arc::new(PgTeamDao(pool.clone())),
-        plugins: Arc::new(PgPluginDao(pool.clone())),
-        loops: Arc::new(LoopDao::new(pool.clone())),
+        plugins,
+        loops,
         adapter_connections: Arc::new(PgAdapterConnectionDao::new(pool.clone())),
         event_receipts: Arc::new(PgEventReceiptDao::new(pool.clone())),
         ingress_outbox: Arc::new(PgIngressOutbox(pool.clone())),
         adapter_delivery: Arc::new(AdapterDeliveryStore::new(pool.clone())),
 
-        users: Arc::new(PgUserDao(pool.clone())),
+        users: users.clone(),
+        user_directory: Arc::new(moatless_identity::ports::UserDirectory::new(
+            users,
+            provider_tokens.clone(),
+        )),
+        harness_credentials,
         user_credentials: Arc::new(PgUserCredentialDao(pool.clone())),
         sessions: Arc::new(PgSessionDao(pool.clone())),
         api_keys,

@@ -1,21 +1,27 @@
 //! Codex-specific refresh path for [`CredentialService`] — the pure half.
 //!
 //! This file adds a second `impl CredentialService` block holding the raw
-//! Codex refresh (`refresh_codex_locked`) and raw read (`read_raw_codex`) plus
-//! the SQL that backs them. The struct itself is declared in
-//! `credentials/mod.rs` — Rust allows multiple `impl` blocks for the same type
-//! across modules within a crate. The in-flight guard, the scope-precedence
-//! walk and the sandbox broadcast that used to live here moved up to
-//! the tasks-band `CredentialSync` (9c); this module names neither
-//! `TaskDao` nor `SandboxConnector`.
+//! Codex refresh (`refresh_codex_locked`) and raw read (`read_raw_codex`).
+//! The struct itself is declared in `credentials/mod.rs` — Rust allows multiple
+//! `impl` blocks for the same type across modules within a crate. The in-flight
+//! guard, the scope-precedence walk and the sandbox broadcast that used to live
+//! here moved up to the tasks-band `CredentialSync` (9c); this module names
+//! neither `TaskDao` nor `SandboxConnector`.
+//!
+//! `provider_tokens` belongs to `identity`. This module holds the policy half —
+//! the staleness rule and the OpenAI call — behind `CodexBlobRefresher`, and
+//! `ProviderTokenDao::refresh_codex_blob` owns the row, the lock, and the
+//! compare-and-swap.
 
+use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::AssertSqlSafe;
 use tracing::{debug, info, warn};
 
 use crate::credentials::codex::oauth;
 use crate::credentials::{CredentialError, CredentialService};
-use moatless_core::db::DbPool;
+use moatless_identity::auth::provider_token_dao::{
+    CodexBlobOutcome, CodexBlobRefresh, CodexBlobRefresher,
+};
 use moatless_types::agent::CodexScope;
 
 impl CredentialService {
@@ -27,16 +33,13 @@ impl CredentialService {
     /// blob out.
     ///
     /// Behaviour:
-    /// 1. Acquire the per-scope mutex + Postgres advisory transaction lock,
-    ///    then `SELECT … FOR UPDATE` the row addressed by the scope's WHERE
-    ///    clause.
-    /// 2. Check `should_refresh` (access-token exp <= now + 5min, or
-    ///    last_refresh < now - 8d). If not, return the stored blob unchanged.
-    /// 3. POST `refresh_token` to `auth.openai.com`. On success merge the
-    ///    rotated fields into the blob and CAS-update the row.
-    /// 4. On permanent failure, write `metadata.refresh_failure` and return
-    ///    `CredentialError::NotFound`. On transient failure, return the stored
-    ///    (stale) blob. Without DB / HTTP wired, fall back to a raw read.
+    /// 1. Check `should_refresh` (access-token exp <= now + 5min, or
+    ///    `last_refresh` < now - 8d). If not, return the stored blob unchanged.
+    /// 2. POST `refresh_token` to `auth.openai.com`. On success merge the
+    ///    rotated fields into the blob.
+    /// 3. On permanent failure the store writes `metadata.refresh_failure` and
+    ///    this returns `CredentialError::NotFound`. On transient failure, return
+    ///    the stored (stale) blob. Without HTTP wired, fall back to a raw read.
     pub async fn refresh_codex_locked(
         &self,
         scope: &CodexScope,
@@ -46,18 +49,75 @@ impl CredentialService {
             .await;
         let _guard = lock.lock().await;
 
-        // Require DB + HTTP. Without them we fall back to a raw read.
-        let (Some(db), Some(http)) = (self.db.as_ref(), self.http.as_ref()) else {
+        // Require HTTP. Without it we fall back to a raw read.
+        let Some(http) = self.http.as_ref() else {
             let blob = self.read_raw_codex(scope).await?;
             return Ok(CodexRefreshOutcome::Unchanged { blob });
         };
 
-        codex_refresh_inner(db, http, scope).await
+        let refresher = CodexRefresher { http, scope };
+        let outcome = self
+            .provider_tokens
+            .refresh_codex_blob(scope, &refresher)
+            .await?
+            .ok_or_else(|| {
+                CredentialError::NotFound(format!("No codex provider_token for {scope}"))
+            })?;
+
+        match outcome {
+            CodexBlobOutcome::Unchanged { blob } => Ok(CodexRefreshOutcome::Unchanged { blob }),
+            CodexBlobOutcome::Rotated { blob } => {
+                info!(
+                    scope = %scope.display(),
+                    "ensure_fresh_codex: refresh complete, row updated"
+                );
+                Ok(CodexRefreshOutcome::Rotated { new_blob: blob })
+            }
+            CodexBlobOutcome::Unreadable { blob } => {
+                // The store reports `Unreadable` only for a blob this same
+                // parse rejected, so the `Ok` arm does not occur in practice.
+                Err(match serde_json::from_str::<serde_json::Value>(&blob) {
+                    Err(source) => CredentialError::CodexBlobUnreadable {
+                        scope: scope.to_string(),
+                        source,
+                    },
+                    Ok(_) => CredentialError::Internal(format!(
+                        "Codex blob for {scope} reported unreadable but parses"
+                    )),
+                })
+            }
+            CodexBlobOutcome::PermanentFailure {
+                reason,
+                was_already_failing,
+            } => {
+                // WARN only on the transition into (or a change of) the terminal
+                // state — a row already marked with the same reason re-fails on
+                // every `GetCredentials`, so repeat the notice at DEBUG to avoid
+                // flooding the logs. A successful rotation clears the marker, so
+                // a genuine new failure WARNs again.
+                if was_already_failing {
+                    debug!(
+                        scope = %scope.display(),
+                        reason,
+                        "ensure_fresh_codex: refresh still failing permanently (repeat WARN suppressed)"
+                    );
+                } else {
+                    warn!(
+                        scope = %scope.display(),
+                        reason,
+                        "ensure_fresh_codex: refresh failed permanently — user must reconnect"
+                    );
+                }
+                Err(CredentialError::NotFound(format!(
+                    "Codex token refresh failed permanently for {scope} ({reason})"
+                )))
+            }
+        }
     }
 
     /// Read the codex blob for `scope` straight from `provider_tokens` with
     /// no refresh. Used by `CredentialSync` on the in-flight-guard path, and
-    /// here as the fallback when the DB / HTTP plumbing for refresh is absent
+    /// here as the fallback when the HTTP plumbing for refresh is absent
     /// (tests) or another replica is the active refresher.
     pub async fn read_raw_codex(&self, scope: &CodexScope) -> Result<String, CredentialError> {
         let row = self
@@ -71,10 +131,6 @@ impl CredentialService {
     }
 }
 
-// =============================================================================
-// Codex refresh — raw SQL implementation
-// =============================================================================
-
 /// Outcome of the pure refresh. `CredentialSync` broadcasts only on `Rotated`.
 pub enum CodexRefreshOutcome {
     /// The stored blob was already fresh — no HTTP call was made.
@@ -87,6 +143,60 @@ impl CodexRefreshOutcome {
     pub fn into_blob(self) -> String {
         match self {
             Self::Unchanged { blob } | Self::Rotated { new_blob: blob } => blob,
+        }
+    }
+}
+
+/// The staleness rule and the OpenAI call, behind the store's refresh port.
+struct CodexRefresher<'a> {
+    http: &'a reqwest::Client,
+    scope: &'a CodexScope,
+}
+
+#[async_trait]
+impl CodexBlobRefresher for CodexRefresher<'_> {
+    async fn refresh(&self, blob: &str) -> CodexBlobRefresh {
+        let Ok(existing) = serde_json::from_str::<serde_json::Value>(blob) else {
+            return CodexBlobRefresh::Unreadable;
+        };
+
+        if !codex_should_refresh(&existing) {
+            debug!(
+                scope = %self.scope.display(),
+                "ensure_fresh_codex: token still fresh, skipping refresh"
+            );
+            return CodexBlobRefresh::Fresh;
+        }
+
+        let Some(refresh_token) = existing
+            .get("tokens")
+            .and_then(|t| t.get("refresh_token"))
+            .and_then(serde_json::Value::as_str)
+        else {
+            return CodexBlobRefresh::Permanent {
+                reason: "blob has no tokens.refresh_token".to_string(),
+            };
+        };
+
+        info!(scope = %self.scope.display(), "ensure_fresh_codex: refreshing Codex tokens");
+        match oauth::refresh_chatgpt_tokens(self.http, refresh_token).await {
+            Ok(new_tokens) => CodexBlobRefresh::Rotated {
+                blob: merge_refreshed_blob(&existing, &new_tokens).to_string(),
+                refresh_token: new_tokens.refresh_token,
+            },
+            Err(oauth::RefreshTokenError::Permanent { reason, .. }) => {
+                CodexBlobRefresh::Permanent {
+                    reason: format!("{reason:?}"),
+                }
+            }
+            Err(e) => {
+                warn!(
+                    scope = %self.scope.display(),
+                    error = %e,
+                    "ensure_fresh_codex: transient refresh failure, returning stale blob"
+                );
+                CodexBlobRefresh::Transient
+            }
         }
     }
 }
@@ -182,228 +292,6 @@ fn merge_refreshed_blob(
         );
     }
     blob
-}
-
-/// Core Codex refresh — single transaction, advisory lock + CAS.
-///
-/// All raw SQL lives here so [`CredentialService::refresh_codex_locked`] keeps
-/// its high-level shape. Lives outside the `impl` so it can borrow `db` /
-/// `http` independently of `&self` (avoids long-lived borrows on the service
-/// across the network call).
-///
-/// Scope-parameterized: the `WHERE` fragment, the advisory-lock seed, and
-/// the bind value for the dynamic identifier all flow from `scope`. Every
-/// query keeps its positional layout (`$1` is always the scope identifier)
-/// so the rest of the binds are constant.
-pub(super) async fn codex_refresh_inner(
-    db: &DbPool,
-    http: &reqwest::Client,
-    scope: &CodexScope,
-) -> Result<CodexRefreshOutcome, CredentialError> {
-    let mut tx = db.begin().await?;
-
-    // Postgres advisory lock keyed on the scope. `pg_try_advisory_xact_lock`
-    // is released automatically when the transaction ends. If another
-    // replica already holds it, fall back to a raw read so we don't pile
-    // up waiters on a slow refresh. The lock key embeds the scope kind so
-    // a user named "foo" and a team named "foo" don't collide.
-    let lock_key: String = scope.advisory_id_input();
-    let acquired: bool =
-        sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))")
-            .bind(&lock_key)
-            .fetch_one(&mut *tx)
-            .await?;
-
-    let scope_where = scope.where_clause("$1");
-    let scope_bind = scope.bind_value();
-
-    if !acquired {
-        // Another replica holds the lock — release the transaction and read
-        // whatever they end up writing.
-        tx.rollback().await?;
-        debug!(
-            scope = %scope.display(),
-            "ensure_fresh_codex: another replica holds the advisory lock, returning current row"
-        );
-        let read_sql = format!("SELECT access_token FROM provider_tokens WHERE {scope_where}");
-        let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(read_sql))
-            .bind(scope_bind)
-            .fetch_optional(db)
-            .await?;
-        return match row {
-            Some((blob,)) => Ok(CodexRefreshOutcome::Unchanged { blob }),
-            None => Err(CredentialError::NotFound(format!(
-                "No codex provider_token for {scope}"
-            ))),
-        };
-    }
-
-    // Lock the row for the duration of the refresh. Also read the prior
-    // recorded failure reason so the permanent-failure arm can WARN only on the
-    // *transition* into a terminal state instead of on every retry.
-    let lock_sql = format!(
-        "SELECT access_token, metadata->'refresh_failure'->>'reason' AS prev_fail_reason \
-         FROM provider_tokens WHERE {scope_where} FOR UPDATE",
-    );
-    let row: Option<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(lock_sql))
-        .bind(scope_bind)
-        .fetch_optional(&mut *tx)
-        .await?;
-    let Some((existing_blob_str, prev_fail_reason)) = row else {
-        tx.rollback().await?;
-        return Err(CredentialError::NotFound(format!(
-            "No codex provider_token for {scope}"
-        )));
-    };
-
-    let existing_blob: serde_json::Value = match serde_json::from_str(&existing_blob_str) {
-        Ok(v) => v,
-        Err(source) => {
-            tx.rollback().await?;
-            return Err(CredentialError::CodexBlobUnreadable {
-                scope: scope.to_string(),
-                source,
-            });
-        }
-    };
-
-    if !codex_should_refresh(&existing_blob) {
-        tx.rollback().await?;
-        debug!(
-            scope = %scope.display(),
-            "ensure_fresh_codex: token still fresh, skipping refresh"
-        );
-        return Ok(CodexRefreshOutcome::Unchanged {
-            blob: existing_blob_str,
-        });
-    }
-
-    let refresh_token = existing_blob
-        .get("tokens")
-        .and_then(|t| t.get("refresh_token"))
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| {
-            CredentialError::Internal(format!(
-                "Codex blob for {scope} has no tokens.refresh_token"
-            ))
-        })?;
-
-    info!(scope = %scope.display(), "ensure_fresh_codex: refreshing Codex tokens");
-    let refresh_result = oauth::refresh_chatgpt_tokens(http, refresh_token).await;
-
-    match refresh_result {
-        Ok(new_tokens) => {
-            let new_blob = merge_refreshed_blob(&existing_blob, &new_tokens);
-            let new_blob_str = new_blob.to_string();
-            let new_refresh_inner = new_tokens.refresh_token.clone();
-
-            // CAS — only succeed when the row's blob still matches what we
-            // read. If the sandbox watcher beat us, retry by re-reading.
-            // `$1` is the scope identifier (consumed by `scope_where`); the
-            // SET params start at `$2` and the CAS check is `$5`.
-            let cas_where = scope.where_clause("$4");
-            let cas_sql = format!(
-                "UPDATE provider_tokens \
-                 SET access_token = $1, \
-                     refresh_token = COALESCE($2, refresh_token), \
-                     metadata = COALESCE(metadata, '{{}}'::jsonb) - 'refresh_failure', \
-                     updated_at = NOW() \
-                 WHERE {cas_where} AND access_token = $3",
-            );
-            let updated = sqlx::query(AssertSqlSafe(cas_sql))
-                .bind(&new_blob_str)
-                .bind(new_refresh_inner.as_deref())
-                .bind(&existing_blob_str)
-                .bind(scope_bind)
-                .execute(&mut *tx)
-                .await?;
-
-            if updated.rows_affected() == 0 {
-                // Someone (sandbox watcher) wrote underneath us; commit the
-                // empty tx and return their value.
-                tx.commit().await?;
-                let read_sql =
-                    format!("SELECT access_token FROM provider_tokens WHERE {scope_where}");
-                let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(read_sql))
-                    .bind(scope_bind)
-                    .fetch_optional(db)
-                    .await?;
-                debug!(
-                    scope = %scope.display(),
-                    "ensure_fresh_codex: CAS lost, returning watcher's blob"
-                );
-                return match row {
-                    Some((blob,)) => Ok(CodexRefreshOutcome::Unchanged { blob }),
-                    None => Err(CredentialError::NotFound(format!(
-                        "No codex provider_token for {scope}"
-                    ))),
-                };
-            }
-
-            tx.commit().await?;
-            info!(
-                scope = %scope.display(),
-                "ensure_fresh_codex: refresh complete, row updated"
-            );
-            Ok(CodexRefreshOutcome::Rotated {
-                new_blob: new_blob_str,
-            })
-        }
-        Err(oauth::RefreshTokenError::Permanent { reason, .. }) => {
-            let reason_str = format!("{reason:?}");
-            let failure = serde_json::json!({
-                "reason": reason_str,
-                "at": Utc::now().to_rfc3339(),
-            });
-            // SET takes `$1` (the failure payload); the scope predicate's
-            // bind shifts to `$2`.
-            let fail_where = scope.where_clause("$2");
-            let fail_sql = format!(
-                "UPDATE provider_tokens \
-                 SET metadata = jsonb_set(COALESCE(metadata, '{{}}'::jsonb), '{{refresh_failure}}', $1, true), \
-                     updated_at = NOW() \
-                 WHERE {fail_where}",
-            );
-            sqlx::query(AssertSqlSafe(fail_sql))
-                .bind(&failure)
-                .bind(scope_bind)
-                .execute(&mut *tx)
-                .await?;
-            tx.commit().await?;
-            // WARN only on the transition into (or a change of) the terminal
-            // state — a row already marked with the same reason re-fails on
-            // every `GetCredentials`, so repeat the notice at DEBUG to avoid
-            // flooding the logs. A successful rotation clears the marker
-            // (see the CAS UPDATE above), so a genuine new failure WARNs again.
-            if prev_fail_reason.as_deref() == Some(reason_str.as_str()) {
-                debug!(
-                    scope = %scope.display(),
-                    ?reason,
-                    "ensure_fresh_codex: refresh still failing permanently (repeat WARN suppressed)"
-                );
-            } else {
-                warn!(
-                    scope = %scope.display(),
-                    ?reason,
-                    "ensure_fresh_codex: refresh failed permanently — user must reconnect"
-                );
-            }
-            Err(CredentialError::NotFound(format!(
-                "Codex token refresh failed permanently for {scope} ({reason:?})"
-            )))
-        }
-        Err(e) => {
-            tx.rollback().await?;
-            warn!(
-                scope = %scope.display(),
-                error = %e,
-                "ensure_fresh_codex: transient refresh failure, returning stale blob"
-            );
-            Ok(CodexRefreshOutcome::Unchanged {
-                blob: existing_blob_str,
-            })
-        }
-    }
 }
 
 #[cfg(test)]

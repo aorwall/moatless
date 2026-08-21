@@ -39,7 +39,9 @@ use crate::secret::service::SecretService;
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::TagDao;
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_backend_core::binding::TaskBindings;
+use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::ports::{BindingDirectory, BindingProbe};
 use crate::task::closer::TaskCloser;
 use crate::task::creation::TaskCreationService;
 use moatless_backend_core::sandbox::{PreflightPort, SandboxJoiner};
@@ -54,7 +56,8 @@ use crate::team::dao::TeamDao;
 use crate::workspace::credentials::service::WorkspaceCredentialService;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::GitSyncService;
-use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_grpc_error};
+use moatless_backend_core::sandbox::SandboxError;
+use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 use moatless_core::config::{Config, S3Config};
 use moatless_types::agent::CodexOAuthConfig;
 use moatless_types::auth::AuthConfig;
@@ -149,6 +152,8 @@ pub struct AppState {
     // DAO trait objects
     // =========================================================================
     pub tasks: Arc<dyn TaskDao>,
+    /// The `tasks` table behind the published `TaskReader` seam.
+    pub task_reader: Arc<moatless_tasks::ports::TaskProjection>,
     /// Single owner of the create-then-provision sequence (short-id, preflight,
     /// insert, tags, relations, provision, first message, event).
     pub task_creation: Arc<TaskCreationService>,
@@ -158,8 +163,13 @@ pub struct AppState {
     pub preflight: Arc<dyn PreflightPort>,
     pub task_relations: Arc<dyn TaskRelationDao>,
     /// Task↔external-subject bindings (`task_bindings`) — the return channel a
-    /// task replies on. Handlers read and write bindings through this port.
+    /// task replies on. The store itself, for the Adapters that drive the
+    /// binding lifecycle (upsert plus reads plus status writes).
     pub task_bindings: Arc<dyn TaskBindingDao>,
+    /// The same store behind the two published Binding seams: `BindingProbe`
+    /// for an Adapter that only asks whether a subject is bound, and
+    /// `TaskBindings` for the Task band below `loops`.
+    pub binding_directory: Arc<BindingDirectory>,
     /// Adapter connections (`adapter_connections`) — the per-provider
     /// credential/webhook-secret rows inbound and outbound calls resolve
     /// against. Handlers read and write connections through this port.
@@ -177,15 +187,27 @@ pub struct AppState {
     /// `schedules`).
     pub loops: Arc<LoopDao>,
     pub messages: Arc<dyn MessageDao>,
+    /// The `task_messages` table behind the published `TranscriptAppend` seam.
+    pub transcript: Arc<moatless_tasks::ports::Transcript>,
     pub feedback: Arc<dyn FeedbackDao>,
     pub repositories: Arc<dyn RepositoryDao>,
+    /// The workspace, placement, and plugin stores behind the
+    /// `WorkspaceResolver` port.
+    pub workspace_resolver: Arc<moatless_workspaces::ports::WorkspaceProjection>,
     /// The one way to obtain a git-host token: a named identity and a
     /// repository, with no scope walk.
     pub git_host_tokens: Arc<GitHostTokens>,
     pub tags: Arc<dyn TagDao>,
+    /// The `tags` table behind the published `TagResolver` seam.
+    pub tag_resolver: Arc<moatless_tasks::ports::TagCatalog>,
     pub files: Arc<dyn FileDao>,
     pub users: Arc<dyn UserDao>,
+    /// The `users` table behind the three identity ports peer crates read:
+    /// `UserDisplay`, `UserResolver`, `CommitIdentity`, `ProviderIdentityLink`.
+    pub user_directory: Arc<moatless_identity::ports::UserDirectory>,
     pub provider_tokens: Arc<dyn ProviderTokenDao>,
+    /// The `provider_tokens` table behind the `HarnessCredentials` port.
+    pub harness_credentials: Arc<moatless_identity::ports::HarnessTokens>,
     pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     pub secret_records: Arc<dyn SecretDao>,
     pub secrets: Arc<SecretService>,
@@ -198,6 +220,8 @@ pub struct AppState {
     /// Authoritative per-turn lifecycle state (`task_turns`). Written
     /// transactionally at the gRPC ingress; the reaper reads it as the backstop.
     pub task_turns: Arc<dyn TaskTurnDao>,
+    /// The `task_turns` table behind the published `TurnCounter` seam.
+    pub turn_counter: Arc<moatless_tasks::ports::TurnLedger>,
     pub plugins: Arc<dyn PluginDao>,
     /// The one path from a plugin's git content to its stored skills. Every
     /// reader of plugin skills goes through this.
@@ -261,16 +285,22 @@ impl AppState {
         let Ports {
             pool,
             tasks,
+            task_reader,
             task_relations,
             task_bindings,
+            binding_directory,
             task_events,
             task_turns,
+            turn_counter,
             messages,
+            transcript,
             feedback,
             repositories,
             workspaces,
+            workspace_resolver,
             workspace_credentials,
             tags,
+            tag_resolver,
             files,
             teams,
             plugins,
@@ -280,7 +310,9 @@ impl AppState {
             ingress_outbox,
             adapter_delivery,
             users,
+            user_directory,
             provider_tokens,
+            harness_credentials,
             provider_token_auth,
             secret_records,
             secrets,
@@ -310,7 +342,7 @@ impl AppState {
         );
         let credentials_svc = Arc::new(
             CredentialService::new(provider_tokens.clone())
-                .with_codex_refresh(pool.clone(), codex_http)
+                .with_codex_refresh(codex_http)
                 .with_secrets(secrets.clone()),
         );
         // Tasks-band orchestrator (9c): the in-flight guard + sandbox fan-out
@@ -318,7 +350,9 @@ impl AppState {
         let credential_sync = Arc::new(CredentialSync::new(
             credentials_svc.clone(),
             tasks.clone(),
-            connector.clone(),
+            Arc::new(crate::sandbox::notify::CredentialBroadcastService::new(
+                connector.clone(),
+            )),
         ));
 
         let git_sync = Arc::new(GitSyncService::new(
@@ -331,7 +365,7 @@ impl AppState {
         let loop_sync = Arc::new(LoopSyncService::new(
             adapter_connections.clone(),
             loops.clone(),
-            tags.clone(),
+            tag_resolver.clone(),
             git_host_tokens.clone(),
         ));
 
@@ -349,9 +383,8 @@ impl AppState {
             tags.clone(),
             repositories.clone(),
             workspaces.clone(),
-            users.clone(),
-            task_bindings.clone(),
-            loops.clone(),
+            user_directory.clone(),
+            binding_directory.clone(),
             task_relations.clone(),
             tasks.clone(),
         ));
@@ -361,7 +394,7 @@ impl AppState {
             task_relations.clone(),
             config.clone(),
             lifecycle.clone(),
-            task_bindings.clone(),
+            binding_directory.clone(),
             events.clone(),
         ));
 
@@ -398,8 +431,8 @@ impl AppState {
         let preflight: Arc<dyn PreflightPort> = Arc::new(RealPreflight::new(
             PreflightCredentials {
                 git_host_tokens: git_host_tokens.clone(),
-                users: users.clone(),
-                workspaces: workspaces.clone(),
+                users: user_directory.clone(),
+                workspaces: workspace_resolver.clone(),
                 credential_sync: credential_sync.clone(),
                 workspace_credentials: workspace_credentials.clone(),
             },
@@ -464,8 +497,8 @@ impl AppState {
             adapter_connections.clone(),
             loops.clone(),
             task_bindings.clone(),
-            messages.clone(),
-            tasks.clone(),
+            transcript.clone(),
+            task_reader.clone(),
             task_creation.clone(),
             message_send.clone(),
             event_receipts,
@@ -482,47 +515,53 @@ impl AppState {
             task_bindings.clone(),
             adapter_connections.clone(),
             loops.clone(),
-            tasks.clone(),
+            task_reader.clone(),
             recently_sent.clone(),
-            messages.clone(),
-            task_turns.clone(),
+            transcript.clone(),
+            turn_counter.clone(),
             s3.clone(),
             auth_config.clone(),
             s3_config.clone(),
             files.clone(),
-            workspaces.clone(),
-            users.clone(),
+            workspace_resolver.clone(),
+            user_directory.clone(),
         ));
         let external_reply = Arc::new(crate::bindings::reply::ExternalReplyService::new(
             adapters.clone(),
             task_bindings.clone(),
             adapter_connections.clone(),
-            messages.clone(),
-            tasks.clone(),
+            transcript.clone(),
+            task_reader.clone(),
             loops.clone(),
             recently_sent.clone(),
-            task_turns.clone(),
+            turn_counter.clone(),
             outbound_sender,
         ));
 
         Self {
             tasks,
+            task_reader,
             task_creation,
             preflight,
             task_relations,
             task_bindings,
+            binding_directory,
             adapter_connections,
             routing,
             external_reply,
             loops,
             messages,
+            transcript,
             feedback,
             repositories,
             git_host_tokens,
             tags,
+            tag_resolver,
             files,
             users,
+            user_directory,
             provider_tokens,
+            harness_credentials,
             provider_token_auth,
             secret_records,
             secrets,
@@ -530,9 +569,11 @@ impl AppState {
             task_events,
             ingress_outbox,
             task_turns,
+            turn_counter,
             plugins,
             plugin_sync,
             workspaces,
+            workspace_resolver,
             workspace_credentials,
             git_sync,
             loop_sync,
@@ -824,6 +865,18 @@ impl axum::extract::FromRef<AppState> for Arc<dyn TaskBindingDao> {
     }
 }
 
+impl axum::extract::FromRef<AppState> for Arc<dyn BindingProbe> {
+    fn from_ref(state: &AppState) -> Self {
+        state.binding_directory.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn TaskBindings> {
+    fn from_ref(state: &AppState) -> Self {
+        state.binding_directory.clone()
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<LoopDao> {
     fn from_ref(state: &AppState) -> Self {
         state.loops.clone()
@@ -851,6 +904,38 @@ impl axum::extract::FromRef<AppState> for Arc<dyn MessageDao> {
 impl axum::extract::FromRef<AppState> for Arc<dyn UserDao> {
     fn from_ref(state: &AppState) -> Self {
         state.users.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_backend_core::task::TaskReader> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_reader.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_backend_core::task::TranscriptAppend> {
+    fn from_ref(state: &AppState) -> Self {
+        state.transcript.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_backend_core::identity::UserDisplay> {
+    fn from_ref(state: &AppState) -> Self {
+        state.user_directory.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_backend_core::identity::UserResolver> {
+    fn from_ref(state: &AppState) -> Self {
+        state.user_directory.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState>
+    for Arc<dyn moatless_backend_core::identity::ProviderIdentityLink>
+{
+    fn from_ref(state: &AppState) -> Self {
+        state.user_directory.clone()
     }
 }
 

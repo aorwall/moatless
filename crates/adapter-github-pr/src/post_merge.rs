@@ -160,7 +160,7 @@ impl GithubPrInboundRouter {
             .client_for_durable_work(
                 &execution.sender_login,
                 rule,
-                &self.db,
+                self.users.as_ref(),
                 &GitHostRepo::github(&execution.owner, &execution.repo),
             )
             .await?;

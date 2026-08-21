@@ -38,7 +38,8 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use chrono::Utc;
-use moatless_backend_core::sandbox::{SandboxError, classify_grpc_error};
+use moatless_backend_core::sandbox::SandboxError;
+use sandbox_proto::client::classify_grpc_error;
 use serde_json::{Value, json};
 use tracing::{debug, warn};
 
@@ -477,7 +478,7 @@ mod tests {
         let url = std::env::var("T3_UI_RPC_TEST_SANDBOX_GRPC")
             .expect("point T3_UI_RPC_TEST_SANDBOX_GRPC at a Sandbox's gRPC endpoint");
         let client =
-            moatless_backend_core::sandbox::SandboxClient::connect(&url).expect("a client");
+            sandbox_proto::client::SandboxClient::connect(&url).expect("a client");
         let listing = client.list_files(".", true, true).await.expect("a listing");
 
         for (extension, expected) in [(".html", "text/html; charset=utf-8"), (".png", "image/png")]

@@ -194,11 +194,11 @@ mod tests {
     fn a_sandbox_too_old_for_a_method_is_not_a_sandbox_that_is_unreachable() {
         let stale = WorkspaceAccessError::Sandbox(SandboxError::Unsupported {
             operation: "list_git_refs".into(),
-            source: tonic::Status::unimplemented("unknown method"),
+            source: Box::new(tonic::Status::unimplemented("unknown method")),
         });
         let unreachable = WorkspaceAccessError::Sandbox(SandboxError::Grpc {
             operation: "list_git_refs".into(),
-            source: tonic::Status::internal("boom"),
+            source: Box::new(tonic::Status::internal("boom")),
         });
         assert_ne!(stale.message(), unreachable.message());
         assert!(stale.message().contains("Redeploy"), "{}", stale.message());

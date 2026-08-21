@@ -9,6 +9,8 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use async_trait::async_trait;
+use moatless_types::sandbox::SandboxError;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
@@ -768,9 +770,77 @@ impl SandboxClient {
     }
 }
 
+/// Hands out a gRPC client for a task's sandbox.
+///
+/// The seam sits here, beside [`SandboxClient`], because the client is the
+/// thing it returns: a consumer that names this trait already compiles the
+/// generated protocol, and a consumer that does not stays off it.
+#[async_trait]
+pub trait SandboxConnector: Send + Sync {
+    async fn sandbox_client(&self, task_id: &str) -> Result<SandboxClient, SandboxError>;
+}
+
+/// Map a gRPC status onto the shared sandbox vocabulary.
+pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
+    match e.code() {
+        tonic::Code::Unavailable | tonic::Code::DeadlineExceeded | tonic::Code::Cancelled => {
+            SandboxError::NotReady(format!("Sandbox unreachable: {operation}"))
+        }
+        tonic::Code::NotFound => SandboxError::NotFound(e.message().to_string()),
+        tonic::Code::FailedPrecondition | tonic::Code::InvalidArgument => {
+            SandboxError::BadRequest(e.message().to_string())
+        }
+        tonic::Code::Unimplemented => SandboxError::Unsupported {
+            operation: operation.to_string(),
+            source: Box::new(e),
+        },
+        _ => SandboxError::Grpc {
+            operation: operation.to_string(),
+            source: Box::new(e),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classify_unreachable_codes_as_not_ready() {
+        for status in [
+            tonic::Status::unavailable("connection refused"),
+            tonic::Status::deadline_exceeded("deadline"),
+            tonic::Status::cancelled("Timeout expired"),
+        ] {
+            let err = classify_grpc_error(status, "get_file_tree");
+            assert!(matches!(err, SandboxError::NotReady(_)), "got {err:?}");
+        }
+    }
+
+    #[test]
+    fn classify_not_found_and_internal() {
+        assert!(matches!(
+            classify_grpc_error(tonic::Status::not_found("missing"), "read_file"),
+            SandboxError::NotFound(_)
+        ));
+        let err = classify_grpc_error(tonic::Status::internal("boom"), "read_file");
+        assert!(matches!(err, SandboxError::Grpc { .. }), "got {err:?}");
+        let source = std::error::Error::source(&err).expect("tonic status is the source");
+        assert!(source.to_string().contains("boom"));
+    }
+
+    #[test]
+    fn classify_an_unimplemented_method_as_a_sandbox_too_old_to_serve_it() {
+        let err = classify_grpc_error(
+            tonic::Status::unimplemented("unknown service"),
+            "list_git_refs",
+        );
+        assert!(
+            matches!(err, SandboxError::Unsupported { .. }),
+            "got {err:?}"
+        );
+        assert!(err.to_string().contains("list_git_refs"));
+    }
 
     #[test]
     fn join_task_deadline_allows_clone_scale_materialization() {

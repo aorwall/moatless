@@ -8,21 +8,17 @@ use tracing::warn;
 
 use moatless_types::repository::RepositoryProvider as GitHostProvider;
 use moatless_types::access_control::Actor;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::users::UserDao;
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens, PlainGitHost};
 use moatless_identity::secret::models::is_reserved_key;
 use moatless_identity::secret::service::SecretService;
 
-use crate::auto_provision::resolve_primary_repository_id;
 use crate::lifecycle::orchestrator::LifecycleDao;
+use moatless_backend_core::identity::{CommitIdentity, HarnessCredentials};
 use moatless_backend_core::sandbox::CodexCredentials;
-use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::repository::models::Repository;
-use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
-use moatless_workspaces::workspace::error::WorkspaceError;
+use moatless_backend_core::store::StoreError;
+use moatless_backend_core::workspace::{WorkspaceCredentialReader, WorkspaceResolver};
+use moatless_types::repository::Repository;
 
 pub const GIT_USER_NAME: &str = "GIT_USER_NAME";
 pub const GIT_USER_EMAIL: &str = "GIT_USER_EMAIL";
@@ -33,17 +29,17 @@ pub struct TaskCredentialInputs<'a> {
     /// applying the Workspace's run-as override over the task's own owner.
     pub user_id: &'a str,
     pub secrets: Option<&'a Arc<SecretService>>,
-    pub provider_tokens: Option<&'a Arc<dyn ProviderTokenDao>>,
+    pub provider_tokens: Option<&'a Arc<dyn HarnessCredentials>>,
     /// The one way to a git-host token. Supplied once at the composition root,
     /// so this struct threads no credential ports of its own.
     pub git_host_tokens: Option<&'a Arc<GitHostTokens>>,
     /// Persisted repository — supplies the remote URL whose owner and name the
     /// run-as identity's credential is minted against.
     pub repository: Option<&'a Repository>,
-    /// User repository — read to source `GIT_USER_NAME` / `GIT_USER_EMAIL`
-    /// from `users.login` / `users.email`. Bots get both; human users get
-    /// their account email when set (name still resolves via the GitHub API).
-    pub users: Option<&'a Arc<dyn UserDao>>,
+    /// The actor's git author identity — the source of `GIT_USER_NAME` /
+    /// `GIT_USER_EMAIL`. Bots get both; human users get their account email
+    /// when set (name still resolves via the GitHub API).
+    pub users: Option<&'a Arc<dyn CommitIdentity>>,
     /// Codex credential orchestrator used to refresh codex tokens just-in-time
     /// before handing the blob to the sandbox. When `None`, the codex branch
     /// falls back to a raw provider_tokens read.
@@ -206,35 +202,29 @@ pub struct TaskCredentialTargets {
 /// checkout was built from.
 pub async fn resolve_task_credential_targets(
     sandboxes: Option<&Arc<dyn LifecycleDao>>,
-    repositories: Option<&Arc<dyn RepositoryDao>>,
-    workspaces: Option<&Arc<dyn WorkspaceDao>>,
+    workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     task_id: &str,
 ) -> TaskCredentialTargets {
-    let (Some(sandboxes), Some(repositories), Some(workspaces)) =
-        (sandboxes, repositories, workspaces)
-    else {
+    let (Some(sandboxes), Some(workspaces)) = (sandboxes, workspaces) else {
         return TaskCredentialTargets::default();
     };
     let Ok(Some(intent)) = sandboxes.load(task_id).await else {
         return TaskCredentialTargets::default();
     };
-    let Some(repository_id) =
-        resolve_primary_repository_id(workspaces.as_ref(), &intent.workspace_id).await
-    else {
-        return TaskCredentialTargets {
-            repository: None,
-            workspace_id: Some(intent.workspace_id),
-        };
+    let primary = match workspaces.placements(&intent.workspace_id).await {
+        Ok(placements) => placements.into_iter().next(),
+        Err(e) => {
+            warn!(
+                task_id,
+                workspace_id = %intent.workspace_id,
+                error = %e,
+                "Failed to read the workspace's repository placements"
+            );
+            None
+        }
     };
-    // reason: repository lookup for sandbox provisioning is system-wide
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = moatless_types::access_control::ScopeContext::system();
     TaskCredentialTargets {
-        repository: repositories
-            .find_by_id(&repository_id, &sys_ctx)
-            .await
-            .ok()
-            .flatten(),
+        repository: primary.and_then(|placement| placement.repository),
         workspace_id: Some(intent.workspace_id),
     }
 }
@@ -251,7 +241,7 @@ pub async fn resolve_task_credential_targets(
 /// column is an override, and losing it narrows access rather than widening
 /// it.
 pub async fn resolve_task_actor(
-    workspaces: Option<&Arc<dyn WorkspaceDao>>,
+    workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     workspace_id: Option<&str>,
     owner_user_id: &str,
 ) -> Actor {
@@ -259,11 +249,7 @@ pub async fn resolve_task_actor(
     let (Some(workspaces), Some(workspace_id)) = (workspaces, workspace_id) else {
         return owner;
     };
-    // reason: the sandbox acts on behalf of a task whose own authorization
-    // already decided the workspace may be run; there is no viewer here.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = moatless_types::access_control::ScopeContext::system();
-    let run_as = match workspaces.find_by_id(workspace_id, &sys_ctx).await {
+    let run_as = match workspaces.resolve(workspace_id).await {
         Ok(workspace) => workspace.and_then(|workspace| workspace.run_as_user_id),
         Err(e) => {
             warn!(error = %e, workspace_id, "Failed to read the workspace run-as identity");
@@ -283,9 +269,9 @@ pub async fn resolve_task_actor(
 /// the task under a different identity than it was configured with. See
 /// [`WorkspaceCredentialService::resolve_env`].
 pub async fn resolve_workspace_credentials(
-    workspace_credentials: Option<&Arc<WorkspaceCredentialService>>,
+    workspace_credentials: Option<&Arc<dyn WorkspaceCredentialReader>>,
     workspace_id: Option<&str>,
-) -> Result<HashMap<String, String>, WorkspaceError> {
+) -> Result<HashMap<String, String>, StoreError> {
     let (Some(service), Some(workspace_id)) = (workspace_credentials, workspace_id) else {
         return Ok(HashMap::new());
     };
@@ -312,7 +298,7 @@ async fn resolve_scoped_secrets(
 
 async fn fill_provider_tokens(
     credentials: &mut HashMap<String, String>,
-    provider_tokens: Option<&Arc<dyn ProviderTokenDao>>,
+    provider_tokens: Option<&Arc<dyn HarnessCredentials>>,
     user_id: &str,
     credential_sync: Option<&Arc<dyn CodexCredentials>>,
     current_task_id: Option<&str>,
@@ -414,7 +400,7 @@ fn insert_token(
 /// no-DB) — there we walk the same chain via raw DAO reads with no refresh.
 async fn fill_codex(
     credentials: &mut HashMap<String, String>,
-    provider_tokens: &Arc<dyn ProviderTokenDao>,
+    provider_tokens: &Arc<dyn HarnessCredentials>,
     credential_sync: Option<&Arc<dyn CodexCredentials>>,
     user_id: &str,
     current_task_id: Option<&str>,
@@ -443,9 +429,9 @@ async fn fill_codex(
     let scopes = [CodexScope::user(user_id), CodexScope::Global];
 
     for scope in scopes {
-        match provider_tokens.find_codex_blob(&scope).await {
-            Ok(Some(row)) => {
-                credentials.insert(CODEX_AUTH_JSON.to_string(), row.access_token);
+        match provider_tokens.codex_blob(&scope).await {
+            Ok(Some(blob)) => {
+                credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
                 return;
             }
             Ok(None) => continue,
@@ -462,16 +448,16 @@ async fn fill_codex(
 /// way to a git-host token.
 async fn fill_model_provider_tokens(
     credentials: &mut HashMap<String, String>,
-    provider_tokens: &Arc<dyn ProviderTokenDao>,
+    provider_tokens: &Arc<dyn HarnessCredentials>,
     user_id: &str,
 ) {
     for (provider, cred_key) in [("openai", OPENAI_API_KEY)] {
         if credentials.contains_key(cred_key) {
             continue;
         }
-        match provider_tokens.find_provider_token(user_id, provider).await {
-            Ok(Some(row)) => {
-                credentials.insert(cred_key.to_string(), row.access_token);
+        match provider_tokens.provider_token(user_id, provider).await {
+            Ok(Some(token)) => {
+                credentials.insert(cred_key.to_string(), token);
             }
             Ok(None) => {}
             Err(e) => {
@@ -488,9 +474,9 @@ async fn fill_model_provider_tokens(
     {
         return;
     }
-    match provider_tokens.find_provider_token(user_id, "claude").await {
-        Ok(Some(row)) => {
-            credentials.insert(CLAUDE_CODE_OAUTH_TOKEN.to_string(), row.access_token);
+    match provider_tokens.provider_token(user_id, "claude").await {
+        Ok(Some(token)) => {
+            credentials.insert(CLAUDE_CODE_OAUTH_TOKEN.to_string(), token);
         }
         Ok(None) => {}
         Err(e) => {
@@ -514,14 +500,13 @@ async fn fill_model_provider_tokens(
 /// the sandbox, which `configure_git` applies with highest precedence.
 async fn fill_git_identity(
     credentials: &mut HashMap<String, String>,
-    users: Option<&Arc<dyn UserDao>>,
+    users: Option<&Arc<dyn CommitIdentity>>,
     user_id: &str,
 ) {
     let Some(users) = users else { return };
-    let Ok(uuid) = user_id.parse::<uuid::Uuid>() else {
-        return;
-    };
-    let user = match users.get_user(&uuid).await {
+    // An actor that is not a user (the `system` sentinel, a `bot:` value) has
+    // no git identity, and neither does one whose row is gone.
+    let user = match users.git_identity(user_id).await {
         Ok(Some(u)) => u,
         Ok(None) => return,
         Err(e) => {
@@ -620,6 +605,7 @@ mod tests {
 
     // --- preflight trust: which GITHUB_TOKEN sources satisfy provisioning ---
 
+    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
     use moatless_identity::auth::test_support::StubProviderTokens;
     use moatless_identity::secret::test_support::{secret, service_with};
 
@@ -672,10 +658,17 @@ mod tests {
         .and_then(Result::ok)
     }
 
+    /// The stub token store behind the published harness-credential port.
+    fn harness(provider_tokens: &Arc<dyn ProviderTokenDao>) -> Arc<dyn HarnessCredentials> {
+        Arc::new(moatless_identity::ports::HarnessTokens::new(
+            Arc::clone(provider_tokens),
+        ))
+    }
+
     /// Inputs for the whole-chain test, with credentials pinned to the task's
     /// workspace.
     fn workspace_github_inputs<'a>(
-        provider_tokens: &'a Arc<dyn ProviderTokenDao>,
+        provider_tokens: &'a Arc<dyn HarnessCredentials>,
         git_host_tokens: &'a Arc<GitHostTokens>,
         secrets: Option<&'a Arc<SecretService>>,
         repository: &'a Repository,
@@ -696,15 +689,13 @@ mod tests {
 
     // --- the workspace names the identity every task on it acts as ---
 
-    fn workspace_running_as(run_as_user_id: Option<&str>) -> Arc<dyn WorkspaceDao> {
+    fn workspace_running_as(run_as_user_id: Option<&str>) -> Arc<dyn WorkspaceResolver> {
         let run_as = run_as_user_id.map(str::to_string);
-        let mut dao = moatless_workspaces::workspace::dao::MockWorkspaceDao::new();
-        dao.expect_find_by_id().returning(move |id, _| {
-            Ok(Some(moatless_workspaces::workspace::models::Workspace {
+        let mut resolver = moatless_backend_core::workspace::MockWorkspaceResolver::new();
+        resolver.expect_resolve().returning(move |id| {
+            Ok(Some(moatless_backend_core::workspace::ResolvedWorkspace {
                 id: id.to_string(),
                 name: "ws".to_string(),
-                description: None,
-                kind: moatless_types::workspace::WorkspaceKind::Single,
                 docker_image: None,
                 docker_access: None,
                 sandbox_service_account: None,
@@ -712,23 +703,13 @@ mod tests {
                 setup_commands: None,
                 env_vars: None,
                 servers: None,
-                scripts: None,
                 resources: None,
                 network_profile: None,
-                source: moatless_types::workspace::WorkspaceSource::Manual,
-                source_repository_id: None,
-                source_key: None,
-                source_config_path: None,
-                scope: moatless_types::access_control::Scope::User,
-                owner_user_id: None,
                 run_as_user_id: run_as.clone(),
-                created_by: None,
                 deleted: false,
-                created_at: None,
-                updated_at: None,
             }))
         });
-        Arc::new(dao)
+        Arc::new(resolver)
     }
 
     #[tokio::test]
@@ -772,9 +753,10 @@ mod tests {
         let repository = github_repository(moatless_types::access_control::Scope::User);
         let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
         let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
+        let harness = harness(&tokens);
 
         let credentials = resolve_task_credentials(workspace_github_inputs(
-            &tokens,
+            &harness,
             &git_host_tokens,
             None,
             &repository,
@@ -802,8 +784,9 @@ mod tests {
         let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
 
         let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
+        let harness = harness(&tokens);
         let credentials = resolve_task_credentials(workspace_github_inputs(
-            &tokens,
+            &harness,
             &git_host_tokens,
             Some(&secrets),
             &repository,
@@ -981,12 +964,15 @@ mod tests {
         name: Option<&'static str>,
         email: Option<&'static str>,
         is_bot: bool,
-    ) -> Arc<dyn UserDao> {
+    ) -> Arc<dyn CommitIdentity> {
         use moatless_identity::auth::users::MockUserDao;
         let mut mock = MockUserDao::new();
         mock.expect_get_user()
             .returning(move |_| Ok(Some(make_user(login, name, email, is_bot))));
-        Arc::new(mock)
+        Arc::new(moatless_identity::ports::UserDirectory::new(
+            Arc::new(mock),
+            Arc::new(moatless_identity::auth::test_support::StubProviderTokens::default()),
+        ))
     }
 
     #[tokio::test]

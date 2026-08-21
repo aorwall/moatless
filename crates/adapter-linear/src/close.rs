@@ -20,12 +20,11 @@ use tracing::{debug, info, warn};
 use moatless_types::task::TaskStatus;
 use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
-use moatless_core::db::DbPool;
 use moatless_loops::adapters::error::AdapterError;
 use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_tasks::task::closer::{CloseEvent, TaskCloser};
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::webhook_payloads::IssuePayload;
@@ -35,26 +34,20 @@ use super::webhook_payloads::IssuePayload;
 /// Scoped by `rule`, not by Adapter connection: a Binding names the trigger
 /// that created it, and only that trigger's terminal states may close it. The
 /// connection is already implied — the trigger belongs to one.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the five downward ports this close path reads (bindings, task, \
-              config, the closer, plus the db the binding query needs) inverted \
-              out of the single AppState it used to carry; there is no narrower \
-              grouping that is not itself an AppState-shaped bag"
-)]
 pub(super) async fn close_active_bindings_for_issue(
-    db: &DbPool,
     task_bindings: &dyn TaskBindingDao,
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     config: &Config,
     task_closer: &TaskCloser,
     api: &LinearAgentApi,
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
-    let rows =
-        super::subject::bindings_in_scope(db, super::subject::BindingScope::OnIssue(&issue.id))
-            .await?;
+    let rows = super::subject::bindings_in_scope(
+        task_bindings,
+        super::subject::BindingScope::OnIssue(&issue.id),
+    )
+    .await?;
 
     for binding in rows {
         if !binding_is_close_eligible(task_bindings, tasks, rule, issue, &binding).await {
@@ -68,7 +61,7 @@ pub(super) async fn close_active_bindings_for_issue(
 
 async fn binding_is_close_eligible(
     task_bindings: &dyn TaskBindingDao,
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
     binding: &TaskBinding,
@@ -129,7 +122,7 @@ async fn sole_binding_for_task(
 /// runs, so an already-closed Task would get a second comment on every repeated
 /// terminal delivery. Both checks are load-bearing.
 async fn task_can_be_closed(
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     issue: &IssuePayload,
     binding: &TaskBinding,
 ) -> bool {
@@ -138,7 +131,7 @@ async fn task_can_be_closed(
         reason = "Linear issue-close handler runs as background system, no caller identity"
     )]
     let sys = ScopeContext::system();
-    match tasks.find_by_id(&binding.task_id, &sys).await {
+    match tasks.describe(&binding.task_id, &sys).await {
         Ok(Some(task)) if task.status == TaskStatus::Closed => {
             debug!(task_id = %binding.task_id, issue = %issue.identifier, "Task already closed, skipping");
             false
@@ -156,7 +149,7 @@ async fn task_can_be_closed(
 }
 
 async fn close_linear_bound_task(
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     config: &Config,
     task_closer: &TaskCloser,
     api: &LinearAgentApi,
@@ -201,7 +194,7 @@ async fn close_linear_bound_task(
 }
 
 async fn emit_linear_close_response(
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     config: &Config,
     api: &LinearAgentApi,
     issue: &IssuePayload,

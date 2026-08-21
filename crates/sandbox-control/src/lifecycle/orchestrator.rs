@@ -34,6 +34,7 @@ use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::TaskStatus;
 use moatless_types::task::{CheckoutMode, Visibility};
 use moatless_backend_core::sandbox::{SandboxLifecycle, SandboxOpError};
+pub use moatless_backend_core::store::StoreError;
 
 use super::error::LifecycleError;
 use super::events::{self, EventContext, EventFact, FailureDetail, LifecycleEvent};
@@ -131,37 +132,6 @@ pub struct IntentWrite {
     pub stop_reason: Option<SandboxStopReason>,
     pub retention: Option<ArchiveRetention>,
     pub marker: CorrelationMarker,
-}
-
-/// A store-layer failure. Carries a human context and, when the backend
-/// provides one, the underlying source (e.g. a `sqlx::Error`), so the
-/// operation-specific [`LifecycleError`] the orchestrator raises does not
-/// flatten it to an opaque string.
-#[derive(Debug, thiserror::Error)]
-#[error("{context}")]
-pub struct StoreError {
-    pub context: String,
-    #[source]
-    pub source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
-}
-
-impl StoreError {
-    pub fn new(context: impl Into<String>) -> Self {
-        Self {
-            context: context.into(),
-            source: None,
-        }
-    }
-
-    pub fn with_source(
-        context: impl Into<String>,
-        source: impl std::error::Error + Send + Sync + 'static,
-    ) -> Self {
-        Self {
-            context: context.into(),
-            source: Some(Box::new(source)),
-        }
-    }
 }
 
 /// Durable intent persistence + generation allocation.

@@ -8,7 +8,7 @@ use moatless_loops::adapters::models::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
 use std::sync::Arc;
 
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_loops::bindings::dao::TaskBindingDao;
 
 use super::adapter::GithubPrAdapter;
 use super::api::PrInfo;

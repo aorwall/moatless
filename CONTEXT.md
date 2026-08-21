@@ -504,6 +504,77 @@ from Moatless rows. An anti-corruption layer: T3 names appear on the wire, Moatl
 names everywhere behind it; root-crate adapters live under `backend/src/t3code`.
 _Avoid_: leaking T3 vocabulary past this surface.
 
+### Seams & ports
+
+**Port**:
+A narrow trait a domain publishes so a peer crate can name what it offers without
+naming its store. Ports are agent nouns (`SandboxIntentReader`, `UserDisplay`).
+The owning domain implements the port and names it for what it offers, never for
+what a caller does with it. A store — a `*Dao` and its rows — is private to its
+crate.
+_Avoid_: calling a `*Dao` a port, or a port a service.
+
+**Identity ports**:
+The six seams `identity` publishes. **UserDisplay** — how a user is named to a
+human or an external directory (display name, email). **UserResolver** — a user
+reference (the internal uuid or a legacy provider id) resolved to the canonical
+internal id. **CommitIdentity** — the git author identity an actor commits as,
+and whether it holds platform admin. **HarnessCredentials** — the stored access
+tokens an agent harness runs with. **ProviderIdentityLink** — the user behind an
+external provider account, by the provider's id, its handle, or the address it
+reports, plus the link back. **AppCredentials** — the deployment-wide OAuth
+credential an Adapter authenticates its own app with, read and rotated.
+_Note_: `CommitIdentity` reports an id that names no user (the `system`
+sentinel, a `bot:` value) as an error, not as an absent user — the two are
+different facts.
+_Note_: `ProviderIdentityLink` answers from two places, and the distinction is
+real. `user_at` reads the directory link a person establishes; `user_who_connected`
+and `user_with_login` read the account behind a stored credential.
+
+**Workspace ports**:
+The two seams `workspaces` publishes. **WorkspaceResolver** — a Workspace's run
+configuration (`ResolvedWorkspace`), the repositories it places
+(`RepoPlacement`, primary first, each with its repository row resolved), and the
+plugins an identity has turned on (`PluginDelivery`).
+**WorkspaceCredentialReader** — the provider credentials pinned to a Workspace,
+decrypted and keyed by environment variable.
+_Note_: both resolve across owners. The caller's own authorization decided the
+Workspace may be run before it reached the port, so neither takes a Scope.
+
+**Task ports**:
+The four seams `tasks` publishes. **TaskReader** — the Task facts a peer reads
+(`TaskDescriptor`: id, status, name, owner, workspace, who started it), scoped;
+a Task the caller may not read reads as absent. **TranscriptAppend** — what was said on a Task and
+which external events it produced. **TurnCounter** — the Turn a row appended now
+belongs to. **TagResolver** — tag names to tag ids, creating what is missing.
+_Note_: a peer writes a transcript row as a `TranscriptEntry`, never as a
+`TaskMessage`. The two kinds are an **AssistantReply** authored in the backend
+and an **OutboundStub** recording what an Adapter sent.
+
+**Binding ports**:
+The two seams `loops` publishes over the Binding store. **BindingProbe** —
+whether a subject is bound at all, for an Adapter that needs the predicate and
+none of the rows. **TaskBindings** (in `moatless-backend-core`) — the Bindings a
+Task carries, each labelled with the Loop that owns it, and stop-listening; the
+Task band sits below `loops` so its edge goes through `backend-core`.
+_Note_: an Adapter that drives the Binding lifecycle — upserts as well as reads
+and status writes — names `TaskBindingDao` itself. A narrow read port beside a
+store the same crate already holds is a second surface, not a seam.
+
+**Codex blob refresh**:
+How a stale Codex credential is renewed across a seam. The store
+(`ProviderTokenDao::refresh_codex_blob`) owns the row, the advisory lock, the
+compare-and-swap, and the failure marker. **CodexBlobRefresher** is the policy
+half the caller supplies: is this blob stale, and what replaces it.
+_Note_: a lock another replica holds, and a compare-and-swap another writer won,
+both report that writer's value rather than failing.
+
+**Store error**:
+The error every port returns (`StoreError`, in `moatless-backend-core`). It carries
+a human context plus an optional boxed source, so a store driver stays out of a
+caller's dependency list.
+_Avoid_: returning `sqlx::Error` across a crate seam.
+
 ### Words that are never standalone terms
 
 **Source** — always qualified by what it is the source of: Feedback source, Skill

@@ -36,7 +36,7 @@ use moatless_types::access_control::Actor;
 use moatless_identity::extractors::AuthUser;
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_identity::git_host_tokens::GitHostTokens;
-use moatless_tasks::tag::dao::TagDao;
+use moatless_backend_core::task::TagResolver;
 use moatless_types::repository::RepositoryProvider;
 use moatless_workspaces::repository::models::Repository;
 
@@ -47,7 +47,7 @@ use moatless_workspaces::repository::models::Repository;
 pub struct LoopSyncService {
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     loops: Arc<LoopDao>,
-    tags: Arc<dyn TagDao>,
+    tags: Arc<dyn TagResolver>,
     git_host_tokens: Arc<GitHostTokens>,
 }
 
@@ -55,7 +55,7 @@ impl LoopSyncService {
     pub fn new(
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
-        tags: Arc<dyn TagDao>,
+        tags: Arc<dyn TagResolver>,
         git_host_tokens: Arc<GitHostTokens>,
     ) -> Self {
         Self {
@@ -322,13 +322,7 @@ impl LoopSyncService {
 
         // Resolve tag names → ids, creating any that don't exist yet.
         let tag_ids: Vec<String> = match fm.tags.as_deref() {
-            Some(names) if !names.is_empty() => self
-                .tags
-                .find_or_create_tags(names)
-                .await?
-                .into_iter()
-                .map(|t| t.tag_id)
-                .collect(),
+            Some(names) if !names.is_empty() => self.tags.resolve(names).await?,
             _ => Vec::new(),
         };
 

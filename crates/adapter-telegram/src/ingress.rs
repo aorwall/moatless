@@ -14,6 +14,7 @@ use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_loops::adapters::models::SubscriptionMatch;
+use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_core::db::DbPool;
 
 use super::adapter::TelegramAdapter;
@@ -46,6 +47,7 @@ fn ignored(reason: &'static str) -> Outcome {
 /// by answering non-2xx, the poller by holding its offset back.
 pub(super) async fn receive(
     adapter: &TelegramAdapter,
+    users: &dyn ProviderIdentityLink,
     body: &[u8],
     transport: Transport<'_>,
 ) -> Result<Outcome, IngressError> {
@@ -136,7 +138,7 @@ pub(super) async fn receive(
         &NormalizeContext {
             config: &config,
             tg_config: &tg_config,
-            db,
+            users,
             is_private_chat,
         },
     )

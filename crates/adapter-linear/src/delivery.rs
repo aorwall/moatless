@@ -84,10 +84,11 @@ use moatless_loops::adapters::models::AdapterConnection;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_loops::loops::dao::LoopDao;
 use moatless_tasks::message::send::MessageSendService;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_backend_core::identity::AppCredentials;
+use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_tasks::task::closer::TaskCloser;
 use moatless_tasks::task::creation::TaskCreationService;
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
 use moatless_tasks::task::relations::TaskRelationDao;
 use moatless_backend_core::sandbox::SandboxWaker;
 
@@ -126,10 +127,11 @@ pub const NOTIFICATION: &str = "linear.notification";
 pub struct LinearInboundRouter {
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     db: DbPool,
+    app_tokens: Arc<dyn AppCredentials>,
     config: Arc<Config>,
     loops: Arc<LoopDao>,
     task_bindings: Arc<dyn TaskBindingDao>,
-    tasks: Arc<dyn TaskDao>,
+    tasks: Arc<dyn TaskReader>,
     task_creation: Arc<TaskCreationService>,
     task_relations: Arc<dyn TaskRelationDao>,
     message_send: Arc<MessageSendService>,
@@ -151,10 +153,11 @@ impl LinearInboundRouter {
     pub fn new(
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         db: DbPool,
+        app_tokens: Arc<dyn AppCredentials>,
         config: Arc<Config>,
         loops: Arc<LoopDao>,
         task_bindings: Arc<dyn TaskBindingDao>,
-        tasks: Arc<dyn TaskDao>,
+        tasks: Arc<dyn TaskReader>,
         task_creation: Arc<TaskCreationService>,
         task_relations: Arc<dyn TaskRelationDao>,
         message_send: Arc<MessageSendService>,
@@ -166,6 +169,7 @@ impl LinearInboundRouter {
         Self {
             adapter_connections,
             db,
+            app_tokens,
             config,
             loops,
             task_bindings,
@@ -507,7 +511,7 @@ impl LinearInboundRouter {
             // Resolved here rather than above the guard, and best-effort: there is
             // no work left to redo on this record, so a credential failure must not
             // turn a settled no-op into a retry.
-            match super::auth::api_for_connection(&self.db, &self.config, &connection).await {
+            match super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection).await {
                 Ok(api) => {
                     super::sessions::decline_session(
                         &api,
@@ -525,7 +529,7 @@ impl LinearInboundRouter {
             return Ok(());
         }
 
-        let api = super::auth::api_for_connection(&self.db, &self.config, &connection)
+        let api = super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         super::sessions::provision_selected_session_task(
@@ -551,7 +555,7 @@ impl LinearInboundRouter {
         connection: AdapterConnection,
         payload: SessionPromptDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
-        let api = super::auth::api_for_connection(&self.db, &self.config, &connection)
+        let api = super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         super::sessions::handle_session_prompted(
@@ -591,11 +595,10 @@ impl LinearInboundRouter {
             return Ok(());
         }
 
-        let api = super::auth::api_for_connection(&self.db, &self.config, &connection)
+        let api = super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         super::issues::handle_issue_update(
-            &self.db,
             self.task_bindings.as_ref(),
             self.tasks.as_ref(),
             &self.config,
@@ -622,7 +625,7 @@ impl LinearInboundRouter {
         connection: AdapterConnection,
         payload: CommentDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
-        let api = super::auth::api_for_connection(&self.db, &self.config, &connection)
+        let api = super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         super::comments::handle_comment_created(
@@ -662,11 +665,10 @@ impl LinearInboundRouter {
             return Ok(());
         }
 
-        let api = super::auth::api_for_connection(&self.db, &self.config, &connection)
+        let api = super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         super::notifications::handle_issue_status_notification(
-            &self.db,
             self.task_bindings.as_ref(),
             self.tasks.as_ref(),
             &self.config,

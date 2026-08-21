@@ -25,6 +25,7 @@ is never named from here.
 - Every sandbox and server container carries CPU and memory requests + limits
   from `ResourceConfig`; a per-repo override merges per key onto the defaults
   rather than replacing the block.
-- `classify_grpc_error()` (in the control crate) must retain the underlying
-  `tonic::Status` as the error source; the Docker connector surfaces gRPC
-  failures through it rather than stringifying.
+- `classify_grpc_error()` (in `sandbox-proto`, reachable through the control
+  crate's `client` module) must retain the underlying `tonic::Status` as the
+  error source; the Docker connector surfaces gRPC failures through it rather
+  than stringifying.

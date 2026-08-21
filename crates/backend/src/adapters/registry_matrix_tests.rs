@@ -50,6 +50,11 @@ fn registry_with_all_current_adapters() -> Adapters {
         crate::adapters::providers::linear::adapter::LinearAdapter::new(
             &moatless_core::config::Config::test_minimal().linear,
             lazy_pool(),
+            std::sync::Arc::new(moatless_identity::ports::HarnessTokens::new(
+                std::sync::Arc::new(
+                    moatless_identity::auth::test_support::StubProviderTokens::default(),
+                ),
+            )),
         ),
     )
     .register_into(&mut providers);

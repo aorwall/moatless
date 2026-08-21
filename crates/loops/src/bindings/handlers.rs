@@ -13,16 +13,17 @@ use moatless_api_schemas::message::{
 
 use crate::adapters::Adapters;
 use crate::adapters::common::{
-    ensure_task_access_with, load_adapter_connection_for_auth_with, load_loop_for_auth_with,
+    ensure_task_access_only, ensure_task_access_with, load_adapter_connection_for_auth_with,
+    load_loop_for_auth_with,
     task_binding_response,
 };
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::reply::ExternalReplyService;
 use moatless_identity::extractors::AuthUser;
 use crate::loops::dao::LoopDao;
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
 use moatless_adapter_model::models::TaskBinding;
 
 #[utoipa::path(
@@ -32,13 +33,13 @@ use moatless_adapter_model::models::TaskBinding;
     responses((status = 200, description = "Task bindings", body = Vec<TaskBindingResponse>))
 )]
 pub async fn list_task_bindings(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
     State(task_bindings): State<Arc<dyn TaskBindingDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<Vec<TaskBindingResponse>>, AdapterError> {
     let ctx = auth.scope_context();
-    ensure_task_access_with(tasks.as_ref(), &ctx, &task_id).await?;
+    ensure_task_access_only(tasks.as_ref(), &ctx, &task_id).await?;
     let rows = task_bindings.find_by_task_id(&task_id).await?;
     Ok(Json(rows.iter().map(task_binding_response).collect()))
 }
@@ -51,7 +52,7 @@ pub async fn list_task_bindings(
     responses((status = 200, description = "Task binding created", body = TaskBindingResponse))
 )]
 pub async fn create_task_binding(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
     State(task_bindings): State<Arc<dyn TaskBindingDao>>,
     State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
     State(loops): State<Arc<LoopDao>>,
@@ -136,14 +137,14 @@ pub async fn create_task_binding(
     responses((status = 200, description = "Reply sent", body = SendTaskReplyResponse))
 )]
 pub async fn send_task_reply(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
     State(external_reply): State<Arc<ExternalReplyService>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Json(req): Json<SendTaskReplyRequest>,
 ) -> Result<Json<SendTaskReplyResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    ensure_task_access_with(tasks.as_ref(), &ctx, &task_id).await?;
+    ensure_task_access_only(tasks.as_ref(), &ctx, &task_id).await?;
     let response = external_reply
         .send_task_reply(
             &ctx,

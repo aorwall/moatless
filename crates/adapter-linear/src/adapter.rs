@@ -19,7 +19,9 @@ use moatless_loops::adapters::{
     AdapterPostBindingFollowup, Adapters,
 };
 use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
+use moatless_backend_core::identity::AppCredentials;
+use moatless_types::access_control::ScopeContext;
 use moatless_core::db::DbPool;
 
 use super::SUBJECT_KIND_ISSUE;
@@ -36,15 +38,17 @@ pub struct LinearAdapter {
     /// reach. Owned by [`auth`](super::auth), which is the only module that
     /// reads them.
     credentials: LinearCredentials,
-    /// Database pool for looking up workspace tokens.
+    /// Database pool for reading this Adapter's app config.
     db: DbPool,
+    /// The app-level OAuth row this Adapter authenticates with.
+    app_tokens: Arc<dyn AppCredentials>,
     /// Runtime config used to decrypt DB-backed Adapter app secrets.
     config: Option<Arc<moatless_core::config::Config>>,
     /// Task store the post-binding follow-up reads to title the attachment it
     /// links back onto the Linear issue. `None` in test-only constructors that
     /// never drive the follow-up; the composition root injects it through
     /// [`with_tasks`](Self::with_tasks).
-    tasks: Option<Arc<dyn TaskDao>>,
+    tasks: Option<Arc<dyn TaskReader>>,
     /// Ingress ports the webhook route reads through this adapter rather than an
     /// `AppState`. Present on the composition-root instance (see
     /// [`with_ingress_ports`](Self::with_ingress_ports)) and absent on the
@@ -99,11 +103,16 @@ impl LinearAdapter {
     /// builds a `LinearConfig` with `api_base_url` pointed at a loopback stub
     /// and gets an Adapter whose outbound calls never leave the machine,
     /// through the same constructor production calls.
-    pub fn new(config: &moatless_types::adapter::LinearConfig, db: DbPool) -> Self {
+    pub fn new(
+        config: &moatless_types::adapter::LinearConfig,
+        db: DbPool,
+        app_tokens: Arc<dyn AppCredentials>,
+    ) -> Self {
         Self {
             global_webhook_secret: config.webhook_secret.clone(),
             credentials: LinearCredentials::from(config),
             db,
+            app_tokens,
             config: None,
             tasks: None,
             adapter_connections: None,
@@ -112,11 +121,16 @@ impl LinearAdapter {
         }
     }
 
-    pub fn from_db(config: Arc<moatless_core::config::Config>, db: DbPool) -> Self {
+    pub fn from_db(
+        config: Arc<moatless_core::config::Config>,
+        db: DbPool,
+        app_tokens: Arc<dyn AppCredentials>,
+    ) -> Self {
         Self {
             global_webhook_secret: config.linear.webhook_secret.clone(),
             credentials: LinearCredentials::from(&config.linear),
             db,
+            app_tokens,
             config: Some(config),
             tasks: None,
             adapter_connections: None,
@@ -128,7 +142,7 @@ impl LinearAdapter {
     /// Inject the task store the post-binding follow-up needs. The composition
     /// root calls this; test constructors leave it unset because no test drives
     /// the follow-up.
-    pub fn with_tasks(mut self, tasks: Arc<dyn TaskDao>) -> Self {
+    pub fn with_tasks(mut self, tasks: Arc<dyn TaskReader>) -> Self {
         self.tasks = Some(tasks);
         self
     }
@@ -179,8 +193,13 @@ impl LinearAdapter {
     }
 
     /// Build a Linear Agents API client for the given workspace.
+    /// The app-level OAuth credential this Adapter's outbound calls use.
+    pub(crate) fn app_tokens(&self) -> &Arc<dyn AppCredentials> {
+        &self.app_tokens
+    }
+
     pub(crate) fn agent_api_for_org(&self, org_id: &str) -> LinearAgentApi {
-        self.credentials.api_for_org(self.db.clone(), org_id)
+        self.credentials.api_for_org(self.app_tokens.clone(), org_id)
     }
 
     pub(crate) async fn agent_api_for_connection(
@@ -209,7 +228,7 @@ impl LinearAdapter {
             ))
             .into());
         };
-        Ok(LinearCredentials::from(&app).api_for_org(self.db.clone(), org_id))
+        Ok(LinearCredentials::from(&app).api_for_org(self.app_tokens.clone(), org_id))
     }
 
     /// The pool [`auth`](super::auth) reads workspace rows from. Exposed to the
@@ -505,14 +524,19 @@ impl AdapterBindingStatus for LinearAdapter {
     ) -> Option<ExternalStatus> {
         let (issue_id, org_id) = status::binding_subject(binding)?;
 
-        let row = sqlx::query_as::<_, (serde_json::Value,)>(
-            "SELECT transport_config FROM adapter_connections WHERE id = $1",
-        )
-        .bind(&binding.connection_id)
-        .fetch_optional(&self.db)
-        .await;
+        // reason: an Adapter reacting to its own Binding; no caller identity.
+        #[allow(clippy::disallowed_methods)]
+        let sys = ScopeContext::system();
+        let Some(connections) = self.adapter_connections.as_ref() else {
+            warn!(
+                binding_id = %binding.id,
+                "Linear binding status skipped: adapter has no connection port"
+            );
+            return None;
+        };
+        let row = connections.find_by_id(&binding.connection_id, &sys).await;
         let transport_config = match row {
-            Ok(Some((transport_config,))) => transport_config,
+            Ok(Some(connection)) => connection.transport_config,
             Ok(None) => {
                 warn!(
                     binding_id = %binding.id,

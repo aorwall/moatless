@@ -11,9 +11,9 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::loops::dao::LoopDao;
 use crate::loops::sync::LoopSyncService;
-use moatless_identity::auth::users::UserDao;
+use moatless_backend_core::identity::UserResolver;
 use moatless_identity::extractors::UserTokenVerifier;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use crate::bindings::dao::TaskBindingDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
 
 #[derive(OpenApi)]
@@ -47,7 +47,7 @@ pub fn loops_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
     Arc<LoopDao>: FromRef<S>,
-    Arc<dyn UserDao>: FromRef<S>,
+    Arc<dyn UserResolver>: FromRef<S>,
     Arc<dyn TaskBindingDao>: FromRef<S>,
     Arc<dyn RepositoryDao>: FromRef<S>,
     Arc<LoopSyncService>: FromRef<S>,

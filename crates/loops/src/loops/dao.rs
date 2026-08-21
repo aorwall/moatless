@@ -993,6 +993,15 @@ impl LoopDao {
     // Telegram pairing: adapter_config read-modify-write.
     // ---------------------------------------------------------------------
 
+    /// The ids of every Loop `user_id` created. For a peer that keys its own
+    /// rows on `loop_id` and needs the owner filter without reading `loops`.
+    pub async fn ids_created_by(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar("SELECT id FROM loops WHERE created_by = $1")
+            .bind(user_id)
+            .fetch_all(&self.db)
+            .await
+    }
+
     /// Read the `adapter_config` JSON for an adapter-event subscription.
     /// Returns `Ok(None)` when the Loop has no adapter-event source row (the
     /// outer `Option` is the `adapter_config` column, which is itself nullable).
@@ -1570,15 +1579,3 @@ async fn insert_schedule_source(
     Ok(())
 }
 
-/// The tasks-band read port (`task/loop_reader.rs`), implemented here so the
-/// task presenter can resolve a subscription for display without depending on
-/// the whole `LoopDao`. Delegates to the inherent query above.
-#[async_trait::async_trait]
-impl moatless_tasks::task::loop_reader::LoopSubscriptionReader for LoopDao {
-    async fn find_subscription_by_id(
-        &self,
-        id: &str,
-    ) -> Result<Option<SubscriptionMatch>, sqlx::Error> {
-        LoopDao::find_subscription_by_id(self, id).await
-    }
-}

@@ -1,15 +1,19 @@
 //! Slack identity resolution.
 //!
-//! One use case: resolving the inbound sender during normalization. Every
-//! `users` / `user_provider_ids` query the Slack Adapter makes lives here.
+//! One use case: resolving the inbound sender during normalization. `users` and
+//! `user_provider_ids` belong to `identity`; everything here goes through
+//! `ProviderIdentityLink`.
 
 use tracing::warn;
 use uuid::Uuid;
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_core::db::DbPool;
+use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_loops::adapters::error::AdapterError;
 
 use super::api::{SlackApi, SlackUserInfo};
+
+/// `user_provider_ids.provider` for a Slack account.
+const PROVIDER: &str = super::delivery::ADAPTER;
 
 /// What one inbound Slack sender resolved to.
 pub(super) enum SenderIdentity {
@@ -46,7 +50,7 @@ pub(super) enum SenderIdentity {
 /// email, whichever of the two checks found it.
 pub(super) async fn resolve_inbound_sender(
     api: &SlackApi,
-    db: &DbPool,
+    users: &dyn ProviderIdentityLink,
     slack_user_id: &str,
     allow_bot_messages: bool,
     already_bot: bool,
@@ -82,11 +86,11 @@ pub(super) async fn resolve_inbound_sender(
     }
 
     // Provider ID first (fast, and it needs no Slack call), then email.
-    if let Some(user_id) = user_by_slack_id(db, slack_user_id).await? {
+    if let Some(user_id) = user_by_slack_id(users, slack_user_id).await? {
         return Ok(SenderIdentity::Mapped { user_id, handle });
     }
     let mapped = match email {
-        Some(ref email) => user_by_email(db, slack_user_id, email).await?,
+        Some(ref email) => user_by_email(users, slack_user_id, email).await?,
         None => None,
     };
     Ok(match mapped {
@@ -99,50 +103,34 @@ pub(super) async fn resolve_inbound_sender(
     })
 }
 
-/// Look up a local system user by their Slack user ID via `user_provider_ids`.
+/// Look up a local system user by their Slack user ID.
 pub(super) async fn user_by_slack_id(
-    db: &DbPool,
+    users: &dyn ProviderIdentityLink,
     slack_user_id: &str,
 ) -> Result<Option<Uuid>, AdapterError> {
-    let row: Option<(Uuid,)> = sqlx::query_as(
-        r#"SELECT u.id FROM users u
-               JOIN user_provider_ids p ON u.id = p.user_id
-               WHERE p.provider = 'slack' AND p.provider_user_id = $1
-               LIMIT 1"#,
-    )
-    .bind(slack_user_id)
-    .fetch_optional(db)
-    .await
-    .map_err(SharedAdapterError::Db)?;
+    let user = users.user_at(PROVIDER, slack_user_id).await?;
 
-    if let Some((id,)) = row {
+    if let Some(ref user) = user {
         tracing::debug!(
             slack_user = %slack_user_id,
-            user_id = %id,
+            user_id = %user.id,
             "Resolved Slack user via provider_id mapping"
         );
-        Ok(Some(id))
-    } else {
-        Ok(None)
     }
+    Ok(user.map(|user| user.id))
 }
 
 /// Look up a local system user by email, for inbound sender normalization.
 pub(super) async fn user_by_email(
-    db: &DbPool,
+    users: &dyn ProviderIdentityLink,
     identity: &str,
     email: &str,
 ) -> Result<Option<Uuid>, AdapterError> {
-    let row: Option<(Uuid, String)> =
-        sqlx::query_as("SELECT id, login FROM users WHERE email = $1 LIMIT 1")
-            .bind(email)
-            .fetch_optional(db)
-            .await
-            .map_err(SharedAdapterError::Db)?;
+    let user = users.user_by_email(email).await?;
 
-    if let Some((id, login)) = row {
-        tracing::info!(slack_user = %identity, email = %email, user_id = %id, login = %login, "Resolved Slack user to system user");
-        Ok(Some(id))
+    if let Some(user) = user {
+        tracing::info!(slack_user = %identity, email = %email, user_id = %user.id, login = %user.login, "Resolved Slack user to system user");
+        Ok(Some(user.id))
     } else {
         warn!(slack_user = %identity, email = %email, "No system user found for Slack user email");
         Ok(None)
@@ -151,25 +139,20 @@ pub(super) async fn user_by_email(
 
 /// Cache the Slack user ID for future provider-ID lookups. Best-effort: a
 /// failure is logged and the delivery continues.
-pub(super) async fn cache_provider_id(db: &DbPool, user_id: Uuid, slack_user_id: &str) {
-    match sqlx::query(
-        r#"INSERT INTO user_provider_ids (user_id, provider, provider_user_id)
-                   VALUES ($1, 'slack', $2)
-                   ON CONFLICT (user_id, provider) DO NOTHING"#,
-    )
-    .bind(user_id)
-    .bind(slack_user_id)
-    .execute(db)
-    .await
-    {
-        Ok(result) if result.rows_affected() > 0 => {
+pub(super) async fn cache_provider_id(
+    users: &dyn ProviderIdentityLink,
+    user_id: Uuid,
+    slack_user_id: &str,
+) {
+    match users.link(&user_id, PROVIDER, slack_user_id).await {
+        Ok(true) => {
             tracing::info!(
                 user_id = %user_id,
                 slack_user = %slack_user_id,
                 "Cached Slack user ID in user_provider_ids"
             );
         }
-        Ok(_) => {}
+        Ok(false) => {}
         Err(e) => {
             warn!(
                 error = %e,
@@ -214,21 +197,64 @@ pub(super) async fn bot_user_id(api: &SlackApi, configured: Option<&str>) -> Opt
     }
 }
 
+/// An identity port nothing stands behind: reaching it at all panics, which is
+/// how "this path resolves no sender" is asserted for the reasons raised before
+/// the sender lookup.
+#[cfg(test)]
+pub(crate) struct UnreachableUsers;
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl ProviderIdentityLink for UnreachableUsers {
+    async fn user_with_login(
+        &self,
+        _provider: &str,
+        _login: &str,
+    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        panic!("this path must resolve no sender")
+    }
+
+    async fn user_at(
+        &self,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<Option<moatless_backend_core::identity::LinkedUser>, moatless_backend_core::store::StoreError>
+    {
+        panic!("this path must resolve no sender")
+    }
+
+    async fn user_by_email(
+        &self,
+        _email: &str,
+    ) -> Result<Option<moatless_backend_core::identity::LinkedUser>, moatless_backend_core::store::StoreError>
+    {
+        panic!("this path must resolve no sender")
+    }
+
+    async fn user_who_connected(
+        &self,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        panic!("this path must resolve no sender")
+    }
+
+    async fn link(
+        &self,
+        _user_id: &Uuid,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<bool, moatless_backend_core::store::StoreError> {
+        panic!("this path must link no sender")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use moatless_loops::adapters::test_support::ProviderStub;
-    use moatless_core::db::DbPool;
 
     use crate::api::SlackApi;
-    use super::{SenderIdentity, bot_user_id, resolve_inbound_sender};
-
-    fn unreachable_pool() -> DbPool {
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(std::time::Duration::from_millis(10))
-            .connect_lazy("postgres://fake:fake@127.0.0.1:1/fake")
-            .unwrap()
-    }
+    use super::{SenderIdentity, UnreachableUsers, bot_user_id, resolve_inbound_sender};
 
     async fn stub(user: serde_json::Value) -> ProviderStub {
         ProviderStub::start(move |path| match path {
@@ -261,7 +287,7 @@ mod tests {
         let stub = stub(bot("soapbot")).await;
 
         let identity =
-            resolve_inbound_sender(&api(&stub), &unreachable_pool(), "U1BOT", false, false)
+            resolve_inbound_sender(&api(&stub), &UnreachableUsers, "U1BOT", false, false)
                 .await
                 .expect("the bot drop needs no database");
 
@@ -277,7 +303,7 @@ mod tests {
         let stub = stub(bot("ci")).await;
 
         let identity =
-            resolve_inbound_sender(&api(&stub), &unreachable_pool(), "U1BOT", true, false)
+            resolve_inbound_sender(&api(&stub), &UnreachableUsers, "U1BOT", true, false)
                 .await
                 .expect("an allowed bot skips every query");
 
@@ -315,7 +341,7 @@ mod tests {
         }))
         .await;
 
-        let identity = resolve_inbound_sender(&api(&stub), &unreachable_pool(), "U1", true, true)
+        let identity = resolve_inbound_sender(&api(&stub), &UnreachableUsers, "U1", true, true)
             .await
             .expect("an already-flagged bot skips every query");
 
@@ -329,7 +355,7 @@ mod tests {
     async fn a_missing_user_leaves_the_sender_unmapped_with_no_email() {
         let stub = stub(serde_json::json!({"ok": false, "error": "user_not_found"})).await;
 
-        let identity = resolve_inbound_sender(&api(&stub), &unreachable_pool(), "U1", true, true)
+        let identity = resolve_inbound_sender(&api(&stub), &UnreachableUsers, "U1", true, true)
             .await
             .expect("an absent user is not an error");
 
@@ -377,9 +403,23 @@ mod tests {
 
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
+    use std::sync::Arc;
+
+    use moatless_identity::auth::provider_token_dao::PgProviderTokenDao;
+    use moatless_identity::auth::users::PgUserDao;
+    use moatless_identity::ports::UserDirectory;
     use sqlx::PgPool;
 
     use super::{cache_provider_id, user_by_email, user_by_slack_id};
+
+    /// The identity seam over a real pool — what the composition root hands the
+    /// Slack ingress.
+    fn users(pool: &PgPool) -> UserDirectory {
+        UserDirectory::new(
+            Arc::new(PgUserDao(pool.clone())),
+            Arc::new(PgProviderTokenDao(pool.clone())),
+        )
+    }
 
     async fn seed_user(pool: &PgPool, email: &str, slack_user_id: Option<&str>) -> uuid::Uuid {
         let id = uuid::Uuid::new_v4();
@@ -408,24 +448,24 @@ mod db_tests {
 
     #[sqlx::test]
     async fn an_unknown_slack_id_and_an_unknown_email_resolve_to_nothing(pool: PgPool) {
-        assert_eq!(user_by_slack_id(&pool, "U1").await.unwrap(), None);
+        assert_eq!(user_by_slack_id(&users(&pool), "U1").await.unwrap(), None);
         assert_eq!(
-            user_by_email(&pool, "U1", "nobody@example.com")
+            user_by_email(&users(&pool), "U1", "nobody@example.com")
                 .await
                 .unwrap(),
             None
         );
     }
 
-    /// Both queries read `users.id` as the `uuid` the column is, so a sender
+    /// Both lookups read `users.id` as the `uuid` the column is, so a sender
     /// that is mapped resolves instead of failing to decode.
     #[sqlx::test]
     async fn a_found_row_resolves_to_the_user_id(pool: PgPool) {
         let user_id = seed_user(&pool, "alice@example.com", Some("U1")).await;
 
-        assert_eq!(user_by_slack_id(&pool, "U1").await.unwrap(), Some(user_id));
+        assert_eq!(user_by_slack_id(&users(&pool), "U1").await.unwrap(), Some(user_id));
         assert_eq!(
-            user_by_email(&pool, "U1", "alice@example.com")
+            user_by_email(&users(&pool), "U1", "alice@example.com")
                 .await
                 .unwrap(),
             Some(user_id)
@@ -439,7 +479,7 @@ mod db_tests {
     async fn the_cache_write_lands_a_row(pool: PgPool) {
         let user_id = seed_user(&pool, "alice@example.com", None).await;
 
-        cache_provider_id(&pool, user_id, "U1").await;
+        cache_provider_id(&users(&pool), user_id, "U1").await;
 
         let cached: Option<(uuid::Uuid, String)> = sqlx::query_as(
             "SELECT user_id, provider_user_id FROM user_provider_ids WHERE provider = 'slack'",
@@ -448,7 +488,7 @@ mod db_tests {
         .await
         .unwrap();
         assert_eq!(cached, Some((user_id, "U1".to_string())));
-        assert_eq!(user_by_slack_id(&pool, "U1").await.unwrap(), Some(user_id));
+        assert_eq!(user_by_slack_id(&users(&pool), "U1").await.unwrap(), Some(user_id));
     }
 
     /// Best-effort, and it stays that way: a second write of the same pair is a
@@ -457,8 +497,8 @@ mod db_tests {
     async fn a_repeated_cache_write_is_a_no_op(pool: PgPool) {
         let user_id = seed_user(&pool, "alice@example.com", None).await;
 
-        cache_provider_id(&pool, user_id, "U1").await;
-        cache_provider_id(&pool, user_id, "U1").await;
+        cache_provider_id(&users(&pool), user_id, "U1").await;
+        cache_provider_id(&users(&pool), user_id, "U1").await;
 
         let rows: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM user_provider_ids WHERE provider = 'slack'")

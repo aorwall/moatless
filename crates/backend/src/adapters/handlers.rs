@@ -8,7 +8,7 @@ use moatless_api_schemas::adapters::{
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 
 use super::common::{
-    AdapterFilter, adapter_connection_response, ensure_task_access_with, resolve_connection,
+    AdapterFilter, adapter_connection_response, ensure_task_access_only, resolve_connection,
     resolve_scope_for_adapter_create,
 };
 use crate::adapters::AdapterKind;
@@ -158,7 +158,7 @@ pub async fn adapter_send(
     let adapter_kind = req.adapter;
 
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_only(state.task_reader.as_ref(), &ctx, task_id).await?;
     }
 
     let connection = resolve_connection(
@@ -259,7 +259,7 @@ pub async fn send_user_dm(
     let ctx = auth.scope_context();
 
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_only(state.task_reader.as_ref(), &ctx, task_id).await?;
     }
 
     let target = state

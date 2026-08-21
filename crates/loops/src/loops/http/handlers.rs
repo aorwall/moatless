@@ -16,9 +16,9 @@ use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::loops::dao::{AdapterSourceUpdate, LoopDao, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource, UpdateLoopSource as StoreUpdateSource};
 use moatless_types::loops::LoopKind as DomainLoopKind;
 use crate::loops::sync::LoopSyncService;
-use moatless_identity::auth::users::UserDao;
+use moatless_backend_core::identity::UserResolver;
 use moatless_identity::extractors::AuthUser;
-use moatless_tasks::task::binding_dao::{LoopRecentTaskRow, TaskBindingDao};
+use crate::bindings::dao::{LoopRecentTaskRow, TaskBindingDao};
 use moatless_workspaces::repository::dao::RepositoryDao;
 
 fn require_admin(auth: &AuthUser) -> Result<(), AdapterError> {
@@ -41,12 +41,15 @@ fn require_name(name: &str) -> Result<String, AdapterError> {
     Ok(trimmed.to_string())
 }
 
-async fn resolve_run_as_user(users: &dyn UserDao, requested: &str) -> Result<String, AdapterError> {
-    let user = match requested.parse::<uuid::Uuid>() {
-        Ok(id) => users.get_user(&id).await?,
-        Err(_) => users.find_user_by_legacy_id(requested).await?,
-    };
-    user.map(|user| user.id.to_string()).ok_or_else(|| {
+async fn resolve_run_as_user(
+    users: &dyn UserResolver,
+    requested: &str,
+) -> Result<String, AdapterError> {
+    let canonical = users
+        .canonical_id(requested)
+        .await
+        .map_err(|e| SharedAdapterError::Internal(e.to_string()))?;
+    canonical.map(|id| id.to_string()).ok_or_else(|| {
         SharedAdapterError::BadRequest(format!("Run-as user {requested} does not exist")).into()
     })
 }
@@ -147,7 +150,7 @@ pub async fn list_loops(
 )]
 pub async fn create_loop(
     State(loops): State<Arc<LoopDao>>,
-    State(users): State<Arc<dyn UserDao>>,
+    State(users): State<Arc<dyn UserResolver>>,
     State(repositories): State<Arc<dyn RepositoryDao>>,
     State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
     auth: AuthUser,
@@ -577,7 +580,7 @@ async fn updated_loop(
 )]
 pub async fn activate_loop(
     State(loops): State<Arc<LoopDao>>,
-    State(users): State<Arc<dyn UserDao>>,
+    State(users): State<Arc<dyn UserResolver>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Json(req): Json<ActivateLoopRequest>,

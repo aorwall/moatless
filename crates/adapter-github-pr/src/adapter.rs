@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use moatless_core::db::DbPool;
 use moatless_identity::git_host_tokens::GitHostTokens;
 use moatless_loops::adapters::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
@@ -11,7 +10,8 @@ use moatless_loops::adapters::{
     Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent, Adapters,
 };
 use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_loops::bindings::dao::TaskBindingDao;
 
 use super::auth::GithubPrAuth;
 
@@ -34,8 +34,8 @@ pub struct GithubPrAdapter {
     /// and absent on the `#[cfg(test)]` constructors, which reach neither.
     adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
     loops: Option<Arc<LoopDao>>,
-    db: Option<DbPool>,
     task_bindings: Option<Arc<dyn TaskBindingDao>>,
+    users: Option<Arc<dyn ProviderIdentityLink>>,
     adapter_delivery: Option<Arc<AdapterDeliveryStore>>,
 }
 
@@ -81,8 +81,8 @@ impl GithubPrAdapter {
             auth: GithubPrAuth::new(git_host_tokens),
             adapter_connections: None,
             loops: None,
-            db: None,
             task_bindings: None,
+            users: None,
             adapter_delivery: None,
         }
     }
@@ -103,14 +103,14 @@ impl GithubPrAdapter {
         mut self,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
-        db: DbPool,
         task_bindings: Arc<dyn TaskBindingDao>,
+        users: Arc<dyn ProviderIdentityLink>,
         adapter_delivery: Arc<AdapterDeliveryStore>,
     ) -> Self {
         self.adapter_connections = Some(adapter_connections);
         self.loops = Some(loops);
-        self.db = Some(db);
         self.task_bindings = Some(task_bindings);
+        self.users = Some(users);
         self.adapter_delivery = Some(adapter_delivery);
         self
     }
@@ -130,16 +130,18 @@ impl GithubPrAdapter {
         self.loops.as_deref().ok_or_else(|| missing_port("loops"))
     }
 
-    /// The pool, for normalization reads on the ingress path.
-    pub(super) fn require_db(&self) -> Result<&DbPool, AdapterError> {
-        self.db.as_ref().ok_or_else(|| missing_port("db"))
-    }
-
     /// The binding store, for the subscription/binding reads admission plans on.
     pub(super) fn require_task_bindings(&self) -> Result<&Arc<dyn TaskBindingDao>, AdapterError> {
         self.task_bindings
             .as_ref()
             .ok_or_else(|| missing_port("task_bindings"))
+    }
+
+    /// Resolves an inbound GitHub handle to the system user it belongs to.
+    pub(super) fn require_users(&self) -> Result<&dyn ProviderIdentityLink, AdapterError> {
+        self.users
+            .as_deref()
+            .ok_or_else(|| missing_port("users"))
     }
 
     /// The durable delivery store admitted webhook work is handed to.

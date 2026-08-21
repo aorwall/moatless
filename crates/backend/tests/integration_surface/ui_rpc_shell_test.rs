@@ -150,7 +150,7 @@ impl SandboxConnector for NoSandboxes {
     async fn sandbox_client(
         &self,
         task_id: &str,
-    ) -> Result<moatless_backend_core::sandbox::SandboxClient, SandboxError> {
+    ) -> Result<sandbox_proto::client::SandboxClient, SandboxError> {
         Err(SandboxError::NotReady(task_id.to_string()))
     }
 }

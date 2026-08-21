@@ -13,14 +13,12 @@
 //! sites: `issue_id` is a lookup key, and a provisioning path that spelled it
 //! differently would write a Binding nothing could find.
 
-use moatless_core::db::DbPool;
-
 use moatless_loops::adapters::error::AdapterError;
 use moatless_loops::adapters::models::{
-    AdapterConnection, SubscriptionMatch, TaskBinding, TaskBindingRow,
+    AdapterConnection, SubscriptionMatch, TaskBinding,
 };
 use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_loops::bindings::dao::TaskBindingDao;
 
 use super::SUBJECT_KIND_ISSUE;
 use super::webhook_payloads::{AgentSession, IssuePayload};
@@ -33,71 +31,73 @@ pub(super) const SUBJECT_KIND_SESSION: &str = "linear_agent_session";
 /// Which Bindings a lookup is asking for.
 ///
 /// The two shapes differ only in which key they filter on, which is why they
-/// are one query with a parameter rather than two statements: everything else
-/// about them — the thirteen-column list, the adapter, the pending guard — has
-/// to stay in step. It used to be spelled out twice, once inside a function
-/// about closing tasks and once inside one about emitting activities (defect
-/// D5), so a column rename had to find both.
+/// are one lookup with a parameter rather than two: everything else about them
+/// — the adapter, the subject kinds, the pending guard — has to stay in step.
+/// It used to be spelled out twice, once inside a function about closing tasks
+/// and once inside one about emitting activities (defect D5), so a rename had
+/// to find both.
 pub(super) enum BindingScope<'a> {
     /// Every Binding of either subject kind pointing at this issue. Used by the
     /// close path, which must consider a task bound through a session and a
     /// task bound directly to the issue alike.
     OnIssue(&'a str),
-    /// Every agent-session Binding held by this task. Used by the activity
-    /// emitters, which have a task id and need the sessions to emit into.
+    /// Every session Binding of this task. Used by the activity emitters, which
+    /// have a panel to talk to only where a session exists.
     SessionsOfTask(&'a str),
 }
 
-/// Bindings matching `scope`, excluding any still marked pending.
+/// The Bindings `scope` names, in no particular order.
 ///
-/// A pending Binding is one whose provisioning has not finished. Acting on one
-/// — closing its task, emitting into its session — would be acting on a task
-/// that does not exist yet, so the guard is part of the query rather than left
-/// to each caller to remember.
+/// Both shapes skip a Binding its `destination_config` still marks pending: a
+/// provisioning path writes one before the Linear side exists, and neither
+/// caller may act on a subject that does not exist yet, so the guard is part of
+/// this lookup rather than left to each caller to remember.
 ///
 /// Note this deliberately does *not* filter on `active`: the close path needs
 /// to see a Binding in order to decide about it, and the emitters' callers
 /// filter for themselves. Callers that want only live Bindings say so.
 pub(super) async fn bindings_in_scope(
-    db: &DbPool,
+    task_bindings: &dyn TaskBindingDao,
     scope: BindingScope<'_>,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
-    let (kinds, issue_id, task_id) = match scope {
-        BindingScope::OnIssue(issue_id) => (
-            vec![
-                SUBJECT_KIND_SESSION.to_string(),
-                SUBJECT_KIND_ISSUE.to_string(),
-            ],
-            Some(issue_id),
-            None,
-        ),
-        BindingScope::SessionsOfTask(task_id) => {
-            (vec![SUBJECT_KIND_SESSION.to_string()], None, Some(task_id))
+    match scope {
+        BindingScope::OnIssue(issue_id) => {
+            let mut rows = Vec::new();
+            for subject_kind in [SUBJECT_KIND_SESSION, SUBJECT_KIND_ISSUE] {
+                rows.extend(
+                    task_bindings
+                        .find_active_by_destination_field(
+                            ADAPTER,
+                            subject_kind,
+                            "issue_id",
+                            issue_id,
+                        )
+                        .await?,
+                );
+            }
+            Ok(rows)
         }
-    };
+        BindingScope::SessionsOfTask(task_id) => Ok(task_bindings
+            .find_by_task_id(task_id)
+            .await?
+            .into_iter()
+            .filter(|binding| {
+                binding.adapter_kind.as_str() == ADAPTER
+                    && binding.subject_kind == SUBJECT_KIND_SESSION
+                    && !is_pending(binding)
+            })
+            .collect()),
+    }
+}
 
-    // One literal statement, selected by its bound parameters rather than by
-    // string assembly: exactly one of `$3`/`$4` is ever non-null, and the enum
-    // is what guarantees it.
-    let rows = sqlx::query_as::<_, TaskBindingRow>(
-        "SELECT id, task_id, adapter_kind, subject_kind, subject_key, connection_id, \
-                loop_id, destination_config, metadata, last_external_event_id, \
-                origin, created_at, last_event_at \
-         FROM task_bindings \
-         WHERE adapter_kind = $1 \
-           AND subject_kind = ANY($2) \
-           AND ($3::text IS NULL OR destination_config->>'issue_id' = $3) \
-           AND ($4::text IS NULL OR task_id = $4) \
-           AND COALESCE(destination_config->>'pending', 'false') <> 'true'",
-    )
-    .bind(ADAPTER)
-    .bind(&kinds)
-    .bind(issue_id)
-    .bind(task_id)
-    .fetch_all(db)
-    .await
-    .map_err(AdapterError::from)?;
-    Ok(rows.into_iter().map(TaskBinding::from).collect())
+/// Whether a provisioning path wrote this Binding before its Linear subject
+/// existed.
+fn is_pending(binding: &TaskBinding) -> bool {
+    binding
+        .destination_config
+        .get("pending")
+        .and_then(serde_json::Value::as_str)
+        == Some("true")
 }
 
 /// Every active Binding of either subject kind listening to `issue_id`, scoped

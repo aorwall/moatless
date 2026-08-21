@@ -6,15 +6,14 @@
 
 use std::sync::Arc;
 
-use moatless_types::access_control::ScopeContext;
 use tracing::warn;
 
+use moatless_backend_core::workspace::WorkspaceResolver;
 use moatless_types::workspace::ServerConfig;
 use moatless_core::config::Config;
 
 use crate::task::models::Task;
 use crate::task::relations::TaskRelationDao;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 /// Inputs needed to build the append-system-prompt for one task.
 pub struct PromptInputs<'a> {
@@ -140,17 +139,13 @@ Available `moat` commands:
 pub async fn build_for_task(
     task_id: &str,
     task: Option<&Task>,
-    workspaces: Option<&Arc<dyn WorkspaceDao>>,
+    workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     task_relations: Option<&Arc<dyn TaskRelationDao>>,
     config: Option<&Arc<Config>>,
 ) -> String {
-    // reason: prompt assembly runs in the agent's background flow; the
-    // workspace is the task's own configured one.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
     let workspace = match (task, workspaces) {
         (Some(t), Some(ws)) => match t.workspace_id.as_deref() {
-            Some(ws_id) => ws.find_by_id(ws_id, &sys_ctx).await.ok().flatten(),
+            Some(ws_id) => ws.resolve(ws_id).await.ok().flatten(),
             None => None,
         },
         _ => None,

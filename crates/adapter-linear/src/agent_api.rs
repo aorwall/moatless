@@ -21,7 +21,9 @@ use tracing::{info, warn};
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::metrics::record_api_call;
-use moatless_core::db::DbPool;
+use std::sync::Arc;
+
+use moatless_backend_core::identity::{AppCredentials, AppToken};
 
 /// Linear's API host. Every endpoint this client speaks to hangs off it, so
 /// replacing this one value points the whole client — GraphQL and the OAuth
@@ -86,7 +88,9 @@ impl ActivityKind {
 #[derive(Clone)]
 pub struct LinearAgentApi {
     http: Client,
-    db: DbPool,
+    /// The app-level OAuth row this Adapter authenticates with. `provider_tokens`
+    /// belongs to `identity`; this is the seam it publishes over it.
+    tokens: Arc<dyn AppCredentials>,
     /// GraphQL endpoint. A field rather than a constant so tests can drive the
     /// real request path against a local address.
     graphql_url: String,
@@ -110,14 +114,14 @@ impl LinearAgentApi {
     )]
     pub fn new(
         http: Client,
-        db: DbPool,
+        tokens: Arc<dyn AppCredentials>,
         org_id: String,
         oauth_client_id: Option<String>,
         oauth_client_secret: Option<String>,
     ) -> Self {
         Self::with_base_url(
             http,
-            db,
+            tokens,
             org_id,
             oauth_client_id,
             oauth_client_secret,
@@ -133,7 +137,7 @@ impl LinearAgentApi {
     /// `api.linear.app` would be reaching the network from a test.
     pub(crate) fn with_base_url(
         http: Client,
-        db: DbPool,
+        tokens: Arc<dyn AppCredentials>,
         org_id: String,
         oauth_client_id: Option<String>,
         oauth_client_secret: Option<String>,
@@ -142,7 +146,7 @@ impl LinearAgentApi {
         let base = base_url.trim_end_matches('/');
         Self {
             http,
-            db,
+            tokens,
             graphql_url: format!("{base}/graphql"),
             token_url: format!("{base}/oauth/token"),
             org_id,
@@ -159,7 +163,7 @@ impl LinearAgentApi {
     /// per call site: a caller that forgot it would reach `api.linear.app`
     /// from a test that believed it was pointed at a stub.
     pub(crate) fn for_org(
-        db: DbPool,
+        tokens: Arc<dyn AppCredentials>,
         org_id: &str,
         oauth_client_id: Option<&str>,
         oauth_client_secret: Option<&str>,
@@ -167,7 +171,7 @@ impl LinearAgentApi {
     ) -> Self {
         Self::with_base_url(
             default_http_client(),
-            db,
+            tokens,
             org_id.to_string(),
             oauth_client_id.map(str::to_string),
             oauth_client_secret.map(str::to_string),
@@ -178,32 +182,20 @@ impl LinearAgentApi {
     /// Resolve a fresh access token for this organization, refreshing if the
     /// stored token is within `REFRESH_LEEWAY_SECS` of expiry.
     pub async fn resolve_access_token(&self) -> Result<String, AdapterError> {
-        let full = sqlx::query_as::<
-            _,
-            (
-                String,
-                Option<String>,
-                Option<DateTime<Utc>>,
-                Option<serde_json::Value>,
-            ),
-        >(
-            "SELECT access_token, refresh_token, expires_at, metadata \
-             FROM provider_tokens \
-             WHERE provider = $1 AND user_id IS NULL AND team_id IS NULL \
-             LIMIT 1",
-        )
-        .bind(PROVIDER)
-        .fetch_optional(&self.db)
-        .await
-        .map_err(SharedAdapterError::Db)?;
-
-        let (access_token, refresh_token, expires_at, metadata) = full.ok_or_else(|| {
+        let stored = self.tokens.app_token(PROVIDER).await?.ok_or_else(|| {
             SharedAdapterError::AdapterApi(
                 "No Linear OAuth token registered — \
                      run `moat adapters install --adapter linear` first"
                     .to_string(),
             )
         })?;
+        let AppToken {
+            access_token,
+            refresh_token,
+            expires_at,
+            metadata,
+            ..
+        } = stored;
 
         if !needs_refresh(expires_at) {
             return Ok(access_token);
@@ -259,26 +251,18 @@ impl LinearAgentApi {
                 v
             });
 
-        sqlx::query(
-            r#"INSERT INTO provider_tokens (
-                   provider, auth_method, access_token, refresh_token, token_type,
-                   metadata, connected_at, updated_at, scope, owner_user_id, expires_at
-               )
-               VALUES ($1, 'oauth', $2, $3, $4, $5, NOW(), NOW(), 'global', NULL, $6)
-               ON CONFLICT (user_id, provider, team_id) DO UPDATE SET
-                   access_token = $2, refresh_token = $3, token_type = $4,
-                   metadata = $5, auth_method = 'oauth', scope = 'global',
-                   owner_user_id = NULL, updated_at = NOW(), expires_at = $6"#,
-        )
-        .bind(PROVIDER)
-        .bind(&refreshed.access_token)
-        .bind(new_refresh.as_deref())
-        .bind(refreshed.token_type.as_deref())
-        .bind(new_metadata.as_ref())
-        .bind(new_expires_at)
-        .execute(&self.db)
-        .await
-        .map_err(SharedAdapterError::Db)?;
+        self.tokens
+            .store_app_token(
+                PROVIDER,
+                &AppToken {
+                    access_token: refreshed.access_token.clone(),
+                    refresh_token: new_refresh,
+                    token_type: refreshed.token_type.clone(),
+                    expires_at: new_expires_at,
+                    metadata: new_metadata,
+                },
+            )
+            .await?;
 
         Ok(refreshed.access_token)
     }
@@ -292,18 +276,9 @@ impl LinearAgentApi {
     /// — that case is unrecoverable and surfaces to the auth-failure alert,
     /// prompting a re-install.
     async fn force_refresh_access_token(&self) -> Result<String, AdapterError> {
-        let row = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>)>(
-            "SELECT refresh_token, metadata \
-             FROM provider_tokens \
-             WHERE provider = $1 AND user_id IS NULL AND team_id IS NULL \
-             LIMIT 1",
-        )
-        .bind(PROVIDER)
-        .fetch_optional(&self.db)
-        .await
-        .map_err(SharedAdapterError::Db)?;
-
-        let (refresh_token, metadata) = refresh_token_from_row(row)?;
+        let stored = self.tokens.app_token(PROVIDER).await?;
+        let (refresh_token, metadata) =
+            refresh_token_from_row(stored.map(|t| (t.refresh_token, t.metadata)))?;
 
         info!(org_id = %self.org_id, "Force-refreshing Linear OAuth access token after 401");
         let refreshed = self.refresh_tokens(&refresh_token).await?;
@@ -1179,8 +1154,30 @@ mod error_source_tests {
 
     /// A pool that is never connected — `graphql_with_token` takes the token as
     /// an argument, so it never touches the database.
-    fn offline_pool() -> DbPool {
-        DbPool::connect_lazy("postgres://linear:linear@127.0.0.1:1/linear").expect("lazy pool")
+    /// An app-credential port nothing stands behind: these cases assert the
+    /// request path, not the credential read.
+    struct NoAppToken;
+
+    #[async_trait::async_trait]
+    impl AppCredentials for NoAppToken {
+        async fn app_token(
+            &self,
+            _provider: &str,
+        ) -> Result<Option<AppToken>, moatless_backend_core::store::StoreError> {
+            Ok(None)
+        }
+
+        async fn store_app_token(
+            &self,
+            _provider: &str,
+            _token: &AppToken,
+        ) -> Result<(), moatless_backend_core::store::StoreError> {
+            Ok(())
+        }
+    }
+
+    fn offline_pool() -> Arc<dyn AppCredentials> {
+        Arc::new(NoAppToken)
     }
 
     /// A client whose whole API host is `base`, built the way production builds

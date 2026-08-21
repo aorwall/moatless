@@ -32,6 +32,7 @@ db-tests = ["moatless-loops/test-support"]
 workspace = true
 
 [dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
 moatless-loops = { path = "../loops", features = ["test-support"] }
 tokio = { version = "1", features = ["test-util"] }

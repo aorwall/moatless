@@ -184,11 +184,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provision_deps = ports.as_ref().map(|p| {
         moatless_backend::sandbox::lifecycle::ProvisionDeps::new(
             p.lifecycle_store(),
-            p.repositories.clone(),
-            p.provider_tokens.clone(),
-            p.plugins.clone(),
-            p.workspaces.clone(),
-            p.users.clone(),
+            p.workspace_resolver.clone(),
+            p.user_directory.clone(),
         )
     });
     // Build the configured runtime/observer/connector adapter once. The rich
@@ -197,7 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // its one construction site, and the one connector serves both surfaces.
     let sandbox_runtime: Arc<dyn sandbox::lifecycle::SandboxRuntime>;
     let sandbox_observer: Arc<dyn sandbox::status_reader::SandboxStatusReader>;
-    let sandbox_connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>;
+    let sandbox_connector: Arc<dyn sandbox_proto::client::SandboxConnector>;
     let cluster_diagnostics: Arc<dyn moatless_backend_core::sandbox::ClusterDiagnostics>;
     let sandbox_port_publisher: Arc<dyn moatless_backend_core::sandbox::SandboxPortPublisher>;
     let default_sandbox_image: String;
@@ -711,7 +708,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Criticality::Readiness,
                     loops::firing::schedule_runner::ScheduleRunner::new(
                         app_state.loops.clone(),
-                        app_state.tasks.clone(),
+                        app_state.task_reader.clone(),
                         app_state.message_send.clone(),
                         app_state.adapters.clone(),
                         app_state.task_creation.clone(),
@@ -737,6 +734,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Criticality::Optional,
                         adapters::providers::telegram::spawn_telegram_poller(
                             telegram,
+                            app_state.user_directory.clone(),
                             cancel.clone(),
                         ),
                     );
@@ -1011,7 +1009,7 @@ fn spawn_sandbox_reconciler(
 /// enabled. `None` when the reaper is switched off.
 fn spawn_task_reaper(
     app_state: &AppState,
-    connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>,
+    connector: Arc<dyn sandbox_proto::client::SandboxConnector>,
     k8s: sandbox::k8s::client::K8sClient,
     cancel: CancellationToken,
 ) -> Option<tokio::task::JoinHandle<()>> {
@@ -1080,7 +1078,7 @@ fn spawn_codex_refresher(
     .with_lease_duration(lease_duration_secs);
     let leader_guard: Arc<dyn LeaderGuard> = Arc::new(K8sLeaderGuard(election));
     let handle = moatless_backend::credential_sync::refresher::spawn_codex_refresher(
-        app_state.db.clone(),
+        app_state.provider_tokens.clone(),
         Arc::clone(&app_state.credential_sync),
         leader_guard,
         interval,

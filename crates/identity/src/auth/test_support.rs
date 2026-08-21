@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
-use super::provider_token_dao::ProviderTokenDao;
+use super::provider_token_dao::{CodexBlobOutcome, CodexBlobRefresher, ProviderTokenDao};
 use moatless_types::agent::CodexScope;
 
 /// Canned `provider_tokens` rows at each scope. Writes are accepted and
@@ -99,6 +99,50 @@ fn presence(row: &ProviderToken) -> GithubTokenPresence {
 
 #[async_trait]
 impl ProviderTokenDao for StubProviderTokens {
+    async fn find_user_by_provider_login(
+        &self,
+        _provider: &str,
+        _provider_login: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn find_user_by_provider_account(
+        &self,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn find_app_token(&self, _provider: &str) -> Result<Option<ProviderToken>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn upsert_app_token(
+        &self,
+        _provider: &str,
+        _access_token: &str,
+        _refresh_token: Option<&str>,
+        _token_type: Option<&str>,
+        _metadata: Option<&serde_json::Value>,
+        _expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn refresh_codex_blob(
+        &self,
+        _scope: &CodexScope,
+        _refresher: &(dyn CodexBlobRefresher + '_),
+    ) -> Result<Option<CodexBlobOutcome>, sqlx::Error> {
+        Ok(None)
+    }
+
     async fn find_provider_token(
         &self,
         user_id: &str,

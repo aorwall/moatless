@@ -35,7 +35,6 @@ moatless-core = { path = "../core", features = ["openapi"] }
 moatless-identity = { path = "../identity" }
 moatless-s3 = { path = "../s3" }
 moatless-types = { path = "../types", features = ["openapi"] }
-moatless-workspaces = { path = "../workspaces" }
 # Shared gRPC wire vocabulary (proto types) — a floor crate, legal downward.
 sandbox-proto = { path = "../sandbox-proto" }
 
@@ -58,6 +57,12 @@ http-body-util = "0.1"
 # boundary off each lower band's `test-support` gate. Required when the crate is
 # built in isolation (`-p moatless-sandbox-control`); a `--workspace` build masks
 # them through the backend's own dev-dependencies.
+moatless-backend-core = { path = "../backend-core", features = ["test-support"] }
 moatless-core = { path = "../core", features = ["test-support"] }
 moatless-identity = { path = "../identity", features = ["test-support"] }
-moatless-workspaces = { path = "../workspaces", features = ["test-support"] }
+# Test-only. The `db-tests` plan test assembles `ProvisionDeps` straight from a
+# pool, so it names the concrete workspace DAOs; production code here reaches
+# the workspace domain only through `WorkspaceResolver` and
+# `WorkspaceCredentialReader`, so this edge must never appear under
+# `[dependencies]`.
+moatless-workspaces = { path = "../workspaces" }

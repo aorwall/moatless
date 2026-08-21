@@ -9,78 +9,7 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 use serde::Serialize;
 
-pub use moatless_types::sandbox::{AgentStatus, LiveStatus, SandboxStatus, ServerCapabilities, ServerEntry, ServerStatus};
-pub use sandbox_proto::client::{ClientError, SandboxClient, ServerOverride};
-
-/// Which container runtime a sandbox is running on.
-///
-/// The contract classifies a provider failure by runtime instead of naming the
-/// runtime's own error type, so a caller can depend on this contract without
-/// compiling `kube` or `bollard`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderKind {
-    Kubernetes,
-    Docker,
-}
-
-impl std::fmt::Display for ProviderKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Kubernetes => "Kubernetes",
-            Self::Docker => "Docker",
-        })
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum SandboxError {
-    #[error("sandbox not ready: {0}")]
-    NotReady(String),
-    #[error("not found: {0}")]
-    NotFound(String),
-    #[error("bad request: {0}")]
-    BadRequest(String),
-    #[error("unsupported sandbox operation {operation}: {source}")]
-    Unsupported {
-        operation: String,
-        source: tonic::Status,
-    },
-    #[error("sandbox gRPC error in {operation}: {source}")]
-    Grpc {
-        operation: String,
-        source: tonic::Status,
-    },
-    #[error("sandbox client error: {0}")]
-    GrpcClient(String),
-    /// The container runtime under a sandbox failed. `kind` says which runtime,
-    /// and `message` is the description that runtime's boundary already
-    /// rendered — it carries no credential or wire detail, because the boundary
-    /// is the only place that sees them.
-    #[error("{message}")]
-    Provider { kind: ProviderKind, message: String },
-    #[error("{0}")]
-    Other(String),
-}
-
-pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
-    match e.code() {
-        tonic::Code::Unavailable | tonic::Code::DeadlineExceeded | tonic::Code::Cancelled => {
-            SandboxError::NotReady(format!("Sandbox unreachable: {operation}"))
-        }
-        tonic::Code::NotFound => SandboxError::NotFound(e.message().to_string()),
-        tonic::Code::FailedPrecondition | tonic::Code::InvalidArgument => {
-            SandboxError::BadRequest(e.message().to_string())
-        }
-        tonic::Code::Unimplemented => SandboxError::Unsupported {
-            operation: operation.to_string(),
-            source: e,
-        },
-        _ => SandboxError::Grpc {
-            operation: operation.to_string(),
-            source: e,
-        },
-    }
-}
+pub use moatless_types::sandbox::{AgentStatus, LiveStatus, ProviderKind, SandboxError, SandboxStatus, ServerCapabilities, ServerEntry, ServerStatus};
 
 #[derive(Debug, Clone, Copy)]
 pub struct LogOptions {
@@ -194,14 +123,24 @@ pub async fn wake_for_message(waker: &dyn SandboxWaker, task_id: &str) -> Option
     waker.wake(task_id).await.err()
 }
 
+/// Push one rotated credential to a task's running sandbox.
+///
+/// The narrow half of the connector the credential fan-out needs. It is its own
+/// port so the tasks band, which does nothing else with a sandbox client, names
+/// no gRPC type: the sandbox band implements it over the connector.
 #[async_trait]
-pub trait SandboxStopper: Send + Sync {
-    async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxError>;
+pub trait CredentialBroadcast: Send + Sync {
+    async fn refresh_credential(
+        &self,
+        task_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), SandboxError>;
 }
 
 #[async_trait]
-pub trait SandboxConnector: Send + Sync {
-    async fn sandbox_client(&self, task_id: &str) -> Result<SandboxClient, SandboxError>;
+pub trait SandboxStopper: Send + Sync {
+    async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxError>;
 }
 
 /// The sandbox's own HTTP control port.
@@ -297,75 +236,6 @@ pub struct SandboxDiagnosticsEntry {
 pub trait ClusterDiagnostics: Send + Sync {
     async fn list_sandbox_diagnostics(&self) -> Result<Vec<SandboxDiagnosticsEntry>, SandboxError>;
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn classify_unreachable_codes_as_not_ready() {
-        for status in [
-            tonic::Status::unavailable("connection refused"),
-            tonic::Status::deadline_exceeded("deadline"),
-            tonic::Status::cancelled("Timeout expired"),
-        ] {
-            let err = classify_grpc_error(status, "get_file_tree");
-            assert!(matches!(err, SandboxError::NotReady(_)), "got {err:?}");
-        }
-    }
-
-    #[test]
-    fn classify_not_found_and_internal() {
-        assert!(matches!(
-            classify_grpc_error(tonic::Status::not_found("missing"), "read_file"),
-            SandboxError::NotFound(_)
-        ));
-        let err = classify_grpc_error(tonic::Status::internal("boom"), "read_file");
-        assert!(matches!(err, SandboxError::Grpc { .. }), "got {err:?}");
-        let source = std::error::Error::source(&err).expect("tonic status is the source");
-        assert!(source.to_string().contains("boom"));
-    }
-
-    #[test]
-    fn classify_an_unimplemented_method_as_a_sandbox_too_old_to_serve_it() {
-        let err = classify_grpc_error(
-            tonic::Status::unimplemented("unknown service"),
-            "list_git_refs",
-        );
-        assert!(
-            matches!(err, SandboxError::Unsupported { .. }),
-            "got {err:?}"
-        );
-        assert!(err.to_string().contains("list_git_refs"));
-    }
-
-    /// The classification is the machine-readable half; the message is what a
-    /// caller renders or logs, and it reads the same whichever runtime failed.
-    #[test]
-    fn a_provider_failure_renders_its_message_and_keeps_its_kind() {
-        for (kind, message) in [
-            (
-                ProviderKind::Kubernetes,
-                "Kubernetes API error: 404 Not Found",
-            ),
-            (ProviderKind::Docker, "Docker API error during inspect"),
-        ] {
-            let err = SandboxError::Provider {
-                kind,
-                message: message.to_string(),
-            };
-            assert_eq!(err.to_string(), message);
-            assert!(matches!(err, SandboxError::Provider { kind: k, .. } if k == kind));
-        }
-    }
-
-    #[test]
-    fn provider_kinds_name_their_runtime() {
-        assert_eq!(ProviderKind::Kubernetes.to_string(), "Kubernetes");
-        assert_eq!(ProviderKind::Docker.to_string(), "Docker");
-    }
-}
-
 
 /// A lifecycle operation failure, band-clean and reduced to what the task API
 /// surfaces. The sandbox-band implementation pre-classifies each variant from

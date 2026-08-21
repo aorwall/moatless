@@ -12,21 +12,14 @@ use serde_json::json;
 use tracing::{info, warn};
 
 use moatless_types::workspace::{Port, ResourceConfig, ServerConfig};
-use moatless_types::access_control::ScopeContext;
 
 use crate::error::SandboxError;
 use crate::models::{ProvisionRequest, RepoCheckout, RepoConfig, derive_mount_name, sanitize_mount_name};
 use crate::lifecycle::orchestrator::LifecycleDao;
 use crate::preflight::preflight_validate_sandbox_control;
-use moatless_api_schemas::plugin::PluginDelivery;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::users::UserDao;
-use moatless_workspaces::plugin::activation;
-use moatless_workspaces::plugin::dao::PluginDao;
-use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_backend_core::identity::CommitIdentity;
+use moatless_backend_core::workspace::{RepoPlacement, ResolvedWorkspace, WorkspaceResolver};
 use moatless_types::repository::RepositoryProvider;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
-use moatless_workspaces::workspace::models::Workspace;
 
 // Workspace-sourced run-config builders. A task's run-config comes from its
 // workspace (`build_repo_config_from_workspace` and friends); the repository row
@@ -37,7 +30,7 @@ use moatless_workspaces::workspace::models::Workspace;
 /// (`resources`, `network_profile`, `servers`, …). The workspace has no
 /// flattened preview columns, so `preview_config` is `None`; server entries come
 /// from the workspace's `servers` JSONB (data-driven).
-pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
+pub fn build_repo_config_from_workspace(ws: &ResolvedWorkspace) -> RepoConfig {
     let servers = build_server_configs_from_workspace(ws);
     let resources: Option<ResourceConfig> = ws.resources.clone();
     let code_execution = build_code_execution_from_workspace(ws);
@@ -64,7 +57,7 @@ pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
 
 /// Build the server list from a workspace's declared servers, ensuring a
 /// default is elected and every server has a port assigned.
-pub fn build_server_configs_from_workspace(ws: &Workspace) -> Vec<ServerConfig> {
+pub fn build_server_configs_from_workspace(ws: &ResolvedWorkspace) -> Vec<ServerConfig> {
     let mut servers: Vec<ServerConfig> = ws.servers.clone().unwrap_or_default();
 
     // Ensure at least one default among any present servers, then assign ports.
@@ -78,12 +71,12 @@ pub fn build_server_configs_from_workspace(ws: &Workspace) -> Vec<ServerConfig> 
 }
 
 /// The environment variables a workspace declares.
-pub fn parse_env_vars_from_workspace(ws: &Workspace) -> Option<HashMap<String, String>> {
+pub fn parse_env_vars_from_workspace(ws: &ResolvedWorkspace) -> Option<HashMap<String, String>> {
     ws.env_vars.clone()
 }
 
 /// Build the code_execution JSON pass-through from a workspace's run config.
-fn build_code_execution_from_workspace(ws: &Workspace) -> Option<serde_json::Value> {
+fn build_code_execution_from_workspace(ws: &ResolvedWorkspace) -> Option<serde_json::Value> {
     let has_any = ws.setup_commands.is_some() || ws.docker_image.is_some() || ws.env_vars.is_some();
     if !has_any {
         return None;
@@ -155,11 +148,8 @@ fn assign_missing_ports(servers: &mut [ServerConfig]) {
 /// delivery behind GitHub's availability.
 pub async fn build_provision_request(
     sandboxes: &dyn LifecycleDao,
-    repos: &dyn RepositoryDao,
-    _provider_tokens: &dyn ProviderTokenDao,
-    plugins: &dyn PluginDao,
-    workspaces: &dyn WorkspaceDao,
-    users: &dyn UserDao,
+    workspaces: &dyn WorkspaceResolver,
+    users: &dyn CommitIdentity,
     sandbox_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
     // 1. Read the Sandbox row — the whole pod shape, no member task involved.
@@ -171,16 +161,19 @@ pub async fn build_provision_request(
             SandboxError::Internal(format!("Sandbox '{sandbox_id}' not found in database"))
         })?;
 
-    // Resolve which repository this sandbox provisions: its workspace's primary.
-    let repository_id = resolve_primary_repository_id(workspaces, &shape.workspace_id)
-        .await
-        .ok_or_else(|| {
-            SandboxError::BadRequest(format!(
-                "Workspace '{}' has no primary repository; \
-                 refusing to provision sandbox '{sandbox_id}'",
-                shape.workspace_id
-            ))
-        })?;
+    // 2. Every repository the workspace places, primary first, each with its
+    // repository row already resolved. A read failure is transient and
+    // propagates; a placement pointing at a row that is gone is a permanent
+    // misconfiguration, reported below.
+    let placements = workspaces.placements(&shape.workspace_id).await?;
+    let primary = placements.first().ok_or_else(|| {
+        SandboxError::BadRequest(format!(
+            "Workspace '{}' has no primary repository; \
+             refusing to provision sandbox '{sandbox_id}'",
+            shape.workspace_id
+        ))
+    })?;
+    let repository_id = primary.repository_id.clone();
 
     info!(
         sandbox_id = %sandbox_id,
@@ -189,25 +182,11 @@ pub async fn build_provision_request(
         "Auto-provision: sandbox found in DB"
     );
 
-    // 2. Read repository from DB. A missing row is a permanent misconfiguration
-    // (the task references a repository that does not exist) — retrying can't
-    // create it — so it surfaces as a client error, not a transient one. A DB
-    // read error stays `Internal` (transient).
-    // reason: provision plan reads any repository regardless of owner
-    #[allow(clippy::disallowed_methods)]
-    let repo_sys = ScopeContext::system();
-    let repo = repos
-        .find_by_id(&repository_id, &repo_sys)
-        .await
-        .map_err(|source| SandboxError::Database {
-            context: "reading the repository row for provisioning",
-            source,
-        })?
-        .ok_or_else(|| {
-            SandboxError::BadRequest(format!(
-                "Repository '{repository_id}' not found in database"
-            ))
-        })?;
+    let repo = primary.repository.clone().ok_or_else(|| {
+        SandboxError::BadRequest(format!(
+            "Repository '{repository_id}' not found in database"
+        ))
+    })?;
 
     // 3. Control check, before anything is built or scheduled.
     if let Err(e) = preflight_validate_sandbox_control(users, sandbox_id, &shape).await {
@@ -231,24 +210,14 @@ pub async fn build_provision_request(
         .clone()
         .unwrap_or_else(|| "system".to_string());
 
-    // Run-config source: the sandbox's workspace. The repo row is still read
-    // above for the primary checkout's URL/branch/provider, which also feed the
+    // Run-config source: the sandbox's workspace. The primary placement above
+    // supplies the checkout's URL/branch/provider, which also feed the
     // `GIT_CLONE_URL` env.
-    let workspace = workspaces
-        .find_by_id(&shape.workspace_id, &repo_sys)
-        .await
-        .map_err(|source| SandboxError::Database {
-            context: "reading the workspace row for provisioning",
-            source,
-        })?;
+    let workspace = workspaces.resolve(&shape.workspace_id).await?;
 
-    // Every repository the workspace places in the sandbox. The primary is
-    // always first and always present.
-    let placements = resolve_placements(repos, workspaces, sandbox_id, &shape.workspace_id)
-        .await
-        .unwrap_or_default();
+    let resolved = resolve_placements(&placements, sandbox_id, &shape.workspace_id);
     let repo_checkouts = build_repo_checkouts(
-        &placements,
+        &resolved,
         &repository_id,
         &git_clone_url,
         git_branch.as_deref(),
@@ -300,7 +269,7 @@ pub async fn build_provision_request(
         .run_as_user_id
         .as_deref()
         .and_then(|id| uuid::Uuid::parse_str(id).ok());
-    match resolve_plugin_deliveries(plugins, run_as).await {
+    match workspaces.plugin_deliveries(run_as).await {
         Ok(deliveries) if !deliveries.is_empty() => {
             info!(
                 sandbox_id = %sandbox_id,
@@ -367,60 +336,28 @@ struct ResolvedPlacement {
     position: i32,
 }
 
-/// Read the task workspace's repository placements and pair each with its
-/// repository row.
+/// Narrow the workspace's placements to the ones a sandbox can actually check
+/// out.
 ///
-/// Returns `None` when the placements can't be read — provisioning then falls
-/// back to the primary-only checkout list. Individual placements whose
-/// repository row is missing or has no remote URL are dropped with a warning
-/// rather than failing the whole provision: the workspace still has a usable
-/// primary, and a dangling placement is a config problem, not a runtime one.
-async fn resolve_placements(
-    repos: &dyn RepositoryDao,
-    workspaces: &dyn WorkspaceDao,
+/// A placement whose repository row is missing or has no remote URL is dropped
+/// with a warning rather than failing the whole provision: the workspace still
+/// has a usable primary, and a dangling placement is a config problem, not a
+/// runtime one.
+fn resolve_placements(
+    placements: &[RepoPlacement],
     sandbox_id: &str,
     workspace_id: &str,
-) -> Option<Vec<ResolvedPlacement>> {
-    let placements = match workspaces.find_repos(workspace_id).await {
-        Ok(placements) => placements,
-        Err(e) => {
+) -> Vec<ResolvedPlacement> {
+    let mut resolved = Vec::with_capacity(placements.len());
+    for placement in placements {
+        let Some(repo) = placement.repository.as_ref() else {
             warn!(
                 sandbox_id = %sandbox_id,
                 workspace_id,
-                error = %e,
-                "Auto-provision: failed to read workspace repo placements; \
-                 provisioning the primary repo only"
+                repository_id = %placement.repository_id,
+                "Auto-provision: workspace placement references a missing repository; skipping"
             );
-            return None;
-        }
-    };
-
-    // reason: provision plan reads any repository regardless of owner
-    #[allow(clippy::disallowed_methods)]
-    let sys = ScopeContext::system();
-    let mut resolved = Vec::with_capacity(placements.len());
-    for placement in placements {
-        let repo = match repos.find_by_id(&placement.repository_id, &sys).await {
-            Ok(Some(repo)) => repo,
-            Ok(None) => {
-                warn!(
-                    sandbox_id = %sandbox_id,
-                    workspace_id,
-                    repository_id = %placement.repository_id,
-                    "Auto-provision: workspace placement references a missing repository; skipping"
-                );
-                continue;
-            }
-            Err(e) => {
-                warn!(
-                    sandbox_id = %sandbox_id,
-                    workspace_id,
-                    repository_id = %placement.repository_id,
-                    error = %e,
-                    "Auto-provision: failed to read a placement's repository row; skipping"
-                );
-                continue;
-            }
+            continue;
         };
         let clone_url = repo.remote_url.clone().unwrap_or_default();
         if clone_url.is_empty() {
@@ -432,20 +369,20 @@ async fn resolve_placements(
             continue;
         }
         resolved.push(ResolvedPlacement {
-            repository_id: placement.repository_id,
+            repository_id: placement.repository_id.clone(),
             clone_url,
             provider: repo
                 .provider
                 .unwrap_or(RepositoryProvider::Github)
                 .as_str()
                 .to_string(),
-            branch: placement.branch.or(repo.default_branch),
-            mount_name: placement.mount_name,
+            branch: placement.branch.clone().or(repo.default_branch.clone()),
+            mount_name: placement.mount_name.clone(),
             is_primary: placement.is_primary,
             position: placement.position,
         });
     }
-    Some(resolved)
+    resolved
 }
 
 /// Assemble the ordered checkout list the sandbox clones: the primary first,
@@ -535,53 +472,6 @@ fn unique_mount_name(requested: String, used: &HashSet<String>) -> String {
         .unwrap_or(requested)
 }
 
-/// Resolve the repository a Sandbox provisions against: its workspace's primary
-/// placement.
-///
-/// `sandboxes.workspace_id` is NOT NULL and carries a foreign key, so the
-/// workspace always resolves; a workspace with no primary placement is a
-/// configuration the caller reports by name.
-pub(crate) async fn resolve_primary_repository_id(
-    workspaces: &dyn WorkspaceDao,
-    workspace_id: &str,
-) -> Option<String> {
-    match workspaces.find_primary_repo(workspace_id).await {
-        Ok(Some(placement)) => Some(placement.repository_id),
-        Ok(None) => {
-            warn!(
-                workspace_id,
-                "Auto-provision: workspace has no primary repository"
-            );
-            None
-        }
-        Err(e) => {
-            warn!(
-                workspace_id,
-                error = %e,
-                "Auto-provision: failed to resolve workspace primary repo"
-            );
-            None
-        }
-    }
-}
-
-/// What a task's owner gets: their effective plugins, each with the skills the
-/// sandbox is to keep.
-async fn resolve_plugin_deliveries(
-    plugins: &dyn PluginDao,
-    owner_user_id: Option<uuid::Uuid>,
-) -> Result<Vec<PluginDelivery>, sqlx::Error> {
-    Ok(activation::resolve_for_user(plugins, owner_user_id)
-        .await?
-        .into_iter()
-        .map(|(plugin, skill_names)| PluginDelivery {
-            name: plugin.name,
-            git_url: plugin.git_url,
-            skill_names,
-        })
-        .collect())
-}
-
 /// A run-config with only the repo name — used when a task unexpectedly has no
 /// workspace. Provisioning then falls back to global defaults (no servers).
 fn minimal_repo_config(name: &str) -> RepoConfig {
@@ -603,7 +493,7 @@ fn minimal_repo_config(name: &str) -> RepoConfig {
 
 /// Get a workspace's server configs, returning an empty vec on any failure.
 pub async fn get_server_configs_for_workspace(
-    workspaces: &dyn WorkspaceDao,
+    workspaces: &dyn WorkspaceResolver,
     workspace_id: &str,
 ) -> Vec<ServerConfig> {
     match resolve_server_configs(workspaces, workspace_id).await {
@@ -621,14 +511,11 @@ pub async fn get_server_configs_for_workspace(
 /// exists reads as no servers rather than a failure to report on every status
 /// pass — the same answer as a workspace that declares none.
 async fn resolve_server_configs(
-    workspaces: &dyn WorkspaceDao,
+    workspaces: &dyn WorkspaceResolver,
     workspace_id: &str,
 ) -> Result<Vec<ServerConfig>, String> {
-    // reason: server config resolution reads across all workspace owners
-    #[allow(clippy::disallowed_methods)]
-    let sys = ScopeContext::system();
     let Some(ws) = workspaces
-        .find_by_id(workspace_id, &sys)
+        .resolve(workspace_id)
         .await
         .map_err(|e| format!("Failed to fetch workspace {workspace_id}: {e}"))?
     else {

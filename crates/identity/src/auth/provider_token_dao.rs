@@ -7,6 +7,50 @@ use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
 use moatless_types::agent::CodexScope;
 use moatless_core::db::DbPool;
 
+/// What the policy half decided to do with a Codex blob it was handed.
+pub enum CodexBlobRefresh {
+    /// The stored blob is already good. Write nothing.
+    Fresh,
+    /// Replace the blob, and the refresh token beside it when one rotated.
+    Rotated {
+        blob: String,
+        refresh_token: Option<String>,
+    },
+    /// The refresh failed for good. Record `reason` on the row.
+    Permanent { reason: String },
+    /// The refresh failed for now. Keep the stored blob.
+    Transient,
+    /// The stored blob could not be read at all.
+    Unreadable,
+}
+
+/// The policy half of a Codex blob refresh: is this blob stale, and what
+/// replaces it. The store owns the row, the advisory lock, the
+/// compare-and-swap, and the failure marker; the caller owns the staleness rule
+/// and the network call.
+#[async_trait]
+pub trait CodexBlobRefresher: Send + Sync {
+    async fn refresh(&self, blob: &str) -> CodexBlobRefresh;
+}
+
+/// What a [`ProviderTokenDao::refresh_codex_blob`] left on the row.
+pub enum CodexBlobOutcome {
+    /// The stored blob, unchanged — already fresh, a transient failure, or
+    /// another replica held the lock and is doing the work.
+    Unchanged { blob: String },
+    /// The blob was replaced and the new value is persisted.
+    Rotated { blob: String },
+    /// The refresh failed permanently. `reason` is now recorded on the row;
+    /// `was_already_failing` is true when the row already carried the same
+    /// reason, so a caller can log the transition rather than every retry.
+    PermanentFailure {
+        reason: String,
+        was_already_failing: bool,
+    },
+    /// The stored blob could not be read.
+    Unreadable { blob: String },
+}
+
 /// DAO trait for provider token credential resolution.
 ///
 /// Note: `automock` is intentionally omitted — mockall cannot synthesise
@@ -64,6 +108,36 @@ pub trait ProviderTokenDao: Send + Sync {
     /// Delete a provider token for a user.
     async fn delete_token(&self, user_id: &str, provider: &str) -> Result<(), sqlx::Error>;
 
+    /// The user who connected `provider_user_id` at `provider`.
+    async fn find_user_by_provider_account(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> Result<Option<String>, sqlx::Error>;
+
+    /// The same, addressed by the provider's own handle.
+    async fn find_user_by_provider_login(
+        &self,
+        provider: &str,
+        provider_login: &str,
+    ) -> Result<Option<String>, sqlx::Error>;
+
+    // ---- the app-level row: one per provider, no user and no team ----
+
+    /// The deployment-wide OAuth row for `provider`.
+    async fn find_app_token(&self, provider: &str) -> Result<Option<ProviderToken>, sqlx::Error>;
+
+    /// Upsert the deployment-wide OAuth row for `provider`.
+    async fn upsert_app_token(
+        &self,
+        provider: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        token_type: Option<&str>,
+        metadata: Option<&serde_json::Value>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), sqlx::Error>;
+
     // ---- Scope-aware codex methods ----
 
     /// Find the codex `provider_tokens` row addressed by `scope`. Returns the
@@ -88,6 +162,25 @@ pub trait ProviderTokenDao: Send + Sync {
 
     /// Delete the codex row at the requested scope.
     async fn delete_codex_blob(&self, scope: &CodexScope) -> Result<(), sqlx::Error>;
+
+    /// Every codex scope whose row is still healthy — no recorded permanent
+    /// refresh failure. The partial index `idx_provider_tokens_codex_healthy`
+    /// (migration `0059`) backs the predicate, so this stays O(touched rows).
+    async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error>;
+
+    /// Bring the codex row at `scope` up to date, asking `refresher` what to
+    /// write.
+    ///
+    /// One transaction: take a Postgres advisory lock keyed on the scope, read
+    /// the row `FOR UPDATE`, hand the blob to `refresher`, then compare-and-swap
+    /// the answer back. A lock another replica already holds, and a
+    /// compare-and-swap another writer won, both report the value that writer
+    /// left. `None` when no row addresses `scope`.
+    async fn refresh_codex_blob(
+        &self,
+        scope: &CodexScope,
+        refresher: &(dyn CodexBlobRefresher + '_),
+    ) -> Result<Option<CodexBlobOutcome>, sqlx::Error>;
 
     // ---- github rows, addressed by the user who owns them ----
 
@@ -302,6 +395,227 @@ impl ProviderTokenDao for PgProviderTokenDao {
             .execute(&self.0)
             .await?;
         Ok(())
+    }
+
+    async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error> {
+        let rows: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT user_id, scope FROM provider_tokens \
+             WHERE provider = 'codex' \
+               AND metadata->>'refresh_failure' IS NULL",
+        )
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(user_id, scope)| match (scope.as_deref(), user_id) {
+                (Some("user"), Some(user_id)) => Some(CodexScope::user(user_id)),
+                (Some("global"), _) => Some(CodexScope::Global),
+                _ => None,
+            })
+            .collect())
+    }
+
+    async fn find_user_by_provider_account(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT user_id FROM provider_tokens \
+             WHERE provider = $1 AND provider_user_id = $2 \
+             LIMIT 1",
+        )
+        .bind(provider)
+        .bind(provider_user_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn find_user_by_provider_login(
+        &self,
+        provider: &str,
+        provider_login: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT user_id FROM provider_tokens \
+             WHERE provider = $1 AND provider_login = $2 \
+             LIMIT 1",
+        )
+        .bind(provider)
+        .bind(provider_login)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn find_app_token(&self, provider: &str) -> Result<Option<ProviderToken>, sqlx::Error> {
+        sqlx::query_as::<_, ProviderToken>(
+            r#"SELECT COALESCE(user_id, '') AS user_id, provider, access_token, refresh_token,
+                      token_type, auth_method, expires_at, metadata, created_at, updated_at,
+                      provider_user_id, provider_login
+               FROM provider_tokens
+               WHERE provider = $1 AND user_id IS NULL AND team_id IS NULL
+               LIMIT 1"#,
+        )
+        .bind(provider)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn upsert_app_token(
+        &self,
+        provider: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        token_type: Option<&str>,
+        metadata: Option<&serde_json::Value>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO provider_tokens (
+                   provider, auth_method, access_token, refresh_token, token_type,
+                   metadata, connected_at, updated_at, scope, owner_user_id, expires_at
+               )
+               VALUES ($1, 'oauth', $2, $3, $4, $5, NOW(), NOW(), 'global', NULL, $6)
+               ON CONFLICT (user_id, provider, team_id) DO UPDATE SET
+                   access_token = $2, refresh_token = $3, token_type = $4,
+                   metadata = $5, auth_method = 'oauth', scope = 'global',
+                   owner_user_id = NULL, updated_at = NOW(), expires_at = $6"#,
+        )
+        .bind(provider)
+        .bind(access_token)
+        .bind(refresh_token)
+        .bind(token_type)
+        .bind(metadata)
+        .bind(expires_at)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn refresh_codex_blob(
+        &self,
+        scope: &CodexScope,
+        refresher: &(dyn CodexBlobRefresher + '_),
+    ) -> Result<Option<CodexBlobOutcome>, sqlx::Error> {
+        let db = &self.0;
+        let mut tx = db.begin().await?;
+
+        // `pg_try_advisory_xact_lock` releases when the transaction ends. When
+        // another replica already holds it, drop the transaction and read
+        // whatever they end up writing rather than piling up waiters on a slow
+        // refresh. The key embeds the scope kind, so a user named "foo" and a
+        // team named "foo" do not collide.
+        let acquired: bool =
+            sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))")
+                .bind(scope.advisory_id_input())
+                .fetch_one(&mut *tx)
+                .await?;
+
+        let scope_where = scope.where_clause("$1");
+        let scope_bind = scope.bind_value();
+
+        if !acquired {
+            tx.rollback().await?;
+            let read_sql = format!("SELECT access_token FROM provider_tokens WHERE {scope_where}");
+            let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(read_sql))
+                .bind(scope_bind)
+                .fetch_optional(db)
+                .await?;
+            return Ok(row.map(|(blob,)| CodexBlobOutcome::Unchanged { blob }));
+        }
+
+        // Lock the row for the duration of the refresh. Read the recorded
+        // failure reason alongside it so the permanent arm can report whether
+        // this is a transition into the terminal state or a repeat.
+        let lock_sql = format!(
+            "SELECT access_token, metadata->'refresh_failure'->>'reason' AS prev_fail_reason \
+             FROM provider_tokens WHERE {scope_where} FOR UPDATE",
+        );
+        let row: Option<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(lock_sql))
+            .bind(scope_bind)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let Some((stored_blob, prev_fail_reason)) = row else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+
+        match refresher.refresh(&stored_blob).await {
+            CodexBlobRefresh::Fresh | CodexBlobRefresh::Transient => {
+                tx.rollback().await?;
+                Ok(Some(CodexBlobOutcome::Unchanged { blob: stored_blob }))
+            }
+            CodexBlobRefresh::Unreadable => {
+                tx.rollback().await?;
+                Ok(Some(CodexBlobOutcome::Unreadable { blob: stored_blob }))
+            }
+            CodexBlobRefresh::Rotated {
+                blob,
+                refresh_token,
+            } => {
+                // Compare-and-swap: succeed only while the row still holds what
+                // we read. `$1..$3` are the SET params and the CAS check; the
+                // scope predicate binds `$4`.
+                let cas_where = scope.where_clause("$4");
+                let cas_sql = format!(
+                    "UPDATE provider_tokens \
+                     SET access_token = $1, \
+                         refresh_token = COALESCE($2, refresh_token), \
+                         metadata = COALESCE(metadata, '{{}}'::jsonb) - 'refresh_failure', \
+                         updated_at = NOW() \
+                     WHERE {cas_where} AND access_token = $3",
+                );
+                let updated = sqlx::query(AssertSqlSafe(cas_sql))
+                    .bind(&blob)
+                    .bind(refresh_token.as_deref())
+                    .bind(&stored_blob)
+                    .bind(scope_bind)
+                    .execute(&mut *tx)
+                    .await?;
+
+                if updated.rows_affected() == 0 {
+                    // Another writer got there first; commit the empty
+                    // transaction and report their value.
+                    tx.commit().await?;
+                    let read_sql =
+                        format!("SELECT access_token FROM provider_tokens WHERE {scope_where}");
+                    let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(read_sql))
+                        .bind(scope_bind)
+                        .fetch_optional(db)
+                        .await?;
+                    return Ok(row.map(|(blob,)| CodexBlobOutcome::Unchanged { blob }));
+                }
+
+                tx.commit().await?;
+                Ok(Some(CodexBlobOutcome::Rotated { blob }))
+            }
+            CodexBlobRefresh::Permanent { reason } => {
+                let failure = serde_json::json!({
+                    "reason": reason,
+                    "at": chrono::Utc::now().to_rfc3339(),
+                });
+                // SET binds `$1`; the scope predicate shifts to `$2`.
+                let fail_where = scope.where_clause("$2");
+                let fail_sql = format!(
+                    "UPDATE provider_tokens \
+                     SET metadata = jsonb_set(COALESCE(metadata, '{{}}'::jsonb), '{{refresh_failure}}', $1, true), \
+                         updated_at = NOW() \
+                     WHERE {fail_where}",
+                );
+                sqlx::query(AssertSqlSafe(fail_sql))
+                    .bind(&failure)
+                    .bind(scope_bind)
+                    .execute(&mut *tx)
+                    .await?;
+                tx.commit().await?;
+                let was_already_failing = prev_fail_reason.as_deref() == Some(reason.as_str());
+                Ok(Some(CodexBlobOutcome::PermanentFailure {
+                    reason,
+                    was_already_failing,
+                }))
+            }
+        }
     }
 
     async fn find_github_row(&self, user_id: &str) -> Result<Option<ProviderToken>, sqlx::Error> {

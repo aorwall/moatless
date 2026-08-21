@@ -183,8 +183,8 @@ impl GithubPrInstallation {
             .with_ingress_ports(
                 ports.adapter_connections.clone(),
                 ports.loops.clone(),
-                ports.pool.clone(),
                 ports.task_bindings.clone(),
+                ports.user_directory.clone(),
                 ports.adapter_delivery.clone(),
             ),
         );
@@ -199,11 +199,11 @@ impl GithubPrInstallation {
                 state.adapter_connections.clone(),
                 state.loops.clone(),
                 state.task_bindings.clone(),
+                state.user_directory.clone(),
                 state.routing.clone(),
-                state.messages.clone(),
+                state.transcript.clone(),
                 state.task_relations.clone(),
-                state.tasks.clone(),
-                state.db.clone(),
+                state.task_reader.clone(),
                 state.task_creation.clone(),
                 state.message_send.clone(),
                 state.task_closer.clone(),
@@ -224,8 +224,8 @@ struct LinearInstallation {
 impl LinearInstallation {
     fn install(config: Arc<Config>, ports: &Ports, adapters: &mut Adapters) -> Self {
         let adapter = Arc::new(
-            LinearAdapter::from_db(config, ports.pool.clone())
-                .with_tasks(ports.tasks.clone())
+            LinearAdapter::from_db(config, ports.pool.clone(), ports.harness_credentials.clone())
+                .with_tasks(ports.task_reader.clone())
                 .with_ingress_ports(
                     ports.adapter_connections.clone(),
                     ports.loops.clone(),
@@ -245,10 +245,11 @@ impl LinearInstallation {
             crate::adapters::providers::linear::delivery::LinearInboundRouter::new(
                 state.adapter_connections.clone(),
                 state.db.clone(),
+                state.harness_credentials.clone(),
                 state.config.clone(),
                 state.loops.clone(),
                 state.task_bindings.clone(),
-                state.tasks.clone(),
+                state.task_reader.clone(),
                 state.task_creation.clone(),
                 state.task_relations.clone(),
                 state.message_send.clone(),
@@ -267,10 +268,12 @@ impl LinearInstallation {
             Arc::new(
                 crate::adapters::providers::linear::event_subscriber::LinearEventSubscriber::new(
                     state.db.clone(),
+                    state.harness_credentials.clone(),
+                    state.task_bindings.clone(),
                     state.adapter_connections.clone(),
                     state.config.clone(),
-                    state.messages.clone(),
-                    state.tasks.clone(),
+                    state.transcript.clone(),
+                    state.task_reader.clone(),
                     self.active_turns.clone(),
                 ),
             ),

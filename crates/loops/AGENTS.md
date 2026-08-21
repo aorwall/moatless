@@ -4,6 +4,20 @@ The loops band: Adapter vocabulary, durable inbound delivery, bindings, and
 loop sync. It sits below the backend and above the provider crates
 (`adapter-linear`, `adapter-github-pr`, …), which is why both ends can name it.
 
+## Ownership
+
+- **Binding** — the `task_bindings` table, its `TaskBindingDao` store, and
+  `PgTaskBindingDao`, all in `bindings/dao.rs`. This crate owns them; no other
+  crate declares a Binding store.
+- Two seams sit in `bindings/ports.rs` for a crate that does **not** drive the
+  Binding lifecycle: `BindingProbe` (is this subject bound?) and, through
+  `moatless_backend_core::binding::TaskBindings`, the Task band's downward edge.
+  `BindingDirectory` implements both.
+- An Adapter that upserts Bindings as well as reading and writing them
+  (`adapter-github-pr`, `adapter-linear`) names `TaskBindingDao` directly. Do not
+  add a narrow read port for a crate that already holds the store — that leaves
+  two surfaces over one table.
+
 ## Two seams join a provider to the rest of the system
 
 Neither is a match arm, and that is the point: adding a provider adds a module

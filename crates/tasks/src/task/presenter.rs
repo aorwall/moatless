@@ -18,13 +18,11 @@ use super::models::Task;
 use super::relations::{TaskRelation, TaskRelationDao};
 use super::schemas::*;
 use crate::tag::dao::TagDao;
-use crate::task::binding_dao::TaskBindingDao;
-use crate::task::binding_summary::task_binding_summary_from_binding;
+use moatless_backend_core::binding::TaskBindings;
 use crate::task::dao::TaskDao;
-use crate::task::loop_reader::LoopSubscriptionReader;
 use crate::task::models::SandboxIntentView;
 use moatless_api_schemas::bindings::TaskBindingSummary;
-use moatless_identity::auth::users::UserDao;
+use moatless_backend_core::identity::UserDisplay;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 
@@ -36,9 +34,8 @@ pub struct TaskPresenter {
     pub(crate) tags: Arc<dyn TagDao>,
     pub(crate) repositories: Arc<dyn RepositoryDao>,
     pub(crate) workspaces: Arc<dyn WorkspaceDao>,
-    pub(crate) users: Arc<dyn UserDao>,
-    pub(crate) task_bindings: Arc<dyn TaskBindingDao>,
-    pub(crate) loops: Arc<dyn LoopSubscriptionReader>,
+    pub(crate) users: Arc<dyn UserDisplay>,
+    pub(crate) task_bindings: Arc<dyn TaskBindings>,
     pub(crate) task_relations: Arc<dyn TaskRelationDao>,
     pub(crate) tasks: Arc<dyn TaskDao>,
 }
@@ -50,9 +47,8 @@ impl TaskPresenter {
         tags: Arc<dyn TagDao>,
         repositories: Arc<dyn RepositoryDao>,
         workspaces: Arc<dyn WorkspaceDao>,
-        users: Arc<dyn UserDao>,
-        task_bindings: Arc<dyn TaskBindingDao>,
-        loops: Arc<dyn LoopSubscriptionReader>,
+        users: Arc<dyn UserDisplay>,
+        task_bindings: Arc<dyn TaskBindings>,
         task_relations: Arc<dyn TaskRelationDao>,
         tasks: Arc<dyn TaskDao>,
     ) -> Self {
@@ -62,7 +58,6 @@ impl TaskPresenter {
             workspaces,
             users,
             task_bindings,
-            loops,
             task_relations,
             tasks,
         }
@@ -198,13 +193,10 @@ impl TaskPresenter {
             return HashMap::new();
         }
         let uuids: Vec<uuid::Uuid> = user_ids.iter().filter_map(|id| id.parse().ok()).collect();
-        match self.users.get_users_by_ids(&uuids).await {
-            Ok(users) => users
+        match self.users.names(&uuids).await {
+            Ok(names) => names
                 .into_iter()
-                .map(|u| {
-                    let display_name = u.name.unwrap_or(u.login);
-                    (u.id.to_string(), display_name)
-                })
+                .map(|(id, name)| (id.to_string(), name))
                 .collect(),
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to batch resolve user display names");
@@ -273,36 +265,18 @@ impl TaskPresenter {
     /// Resolve a single user's display name.
     async fn resolve_single_user_display_name(&self, user_id: &str) -> Option<String> {
         let uid = user_id.parse::<uuid::Uuid>().ok()?;
-        match self.users.get_user(&uid).await {
-            Ok(Some(user)) => Some(user.name.unwrap_or(user.login)),
-            _ => None,
-        }
+        self.users.name(&uid).await.ok().flatten()
     }
 
     /// Resolve external bindings for a single task (used by `enrich_task`).
     async fn resolve_task_bindings(&self, task_id: &str) -> Vec<TaskBindingSummary> {
-        let bindings = match self.task_bindings.find_by_task_id(task_id).await {
-            Ok(bindings) => bindings,
+        match self.task_bindings.summaries(task_id).await {
+            Ok(summaries) => summaries,
             Err(e) => {
                 tracing::warn!(error = %e, task_id = %task_id, "Failed to resolve task bindings");
-                return vec![];
+                vec![]
             }
-        };
-
-        let mut summaries = Vec::new();
-        for binding in &bindings {
-            let trigger = if let Some(ref loop_id) = binding.loop_id {
-                self.loops
-                    .find_subscription_by_id(loop_id)
-                    .await
-                    .ok()
-                    .flatten()
-            } else {
-                None
-            };
-            summaries.push(task_binding_summary_from_binding(binding, trigger.as_ref()));
         }
-        summaries
     }
 }
 

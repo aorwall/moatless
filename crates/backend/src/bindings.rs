@@ -5,6 +5,6 @@
 //! (never a glob) so the crate census resolves edges through the facade.
 
 pub use moatless_loops::bindings::{
-    dao, footer, handlers, metrics, outbound, recently_sent, recipients, reply, runtime, schemas,
-    status_service,
+    dao, footer, handlers, metrics, outbound, ports, recently_sent, recipients, reply, runtime,
+    schemas, status_service,
 };

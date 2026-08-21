@@ -45,6 +45,11 @@ pub enum AdapterError {
     #[error("Failed to deliver provider message to task")]
     MessageDelivery(#[source] moatless_tasks::message::error::MessageError),
 
+    /// A read or write through a published store seam failed. The port already
+    /// names the operation and carries its own source.
+    #[error(transparent)]
+    Store(#[from] moatless_backend_core::store::StoreError),
+
     /// The band-local adapter vocabulary — the sixteen variants that name
     /// nothing above the adapter-model band.
     #[error(transparent)]
@@ -85,6 +90,16 @@ impl IntoResponse for AdapterError {
             }
             AdapterError::MessageDelivery(e) => {
                 tracing::error!(error = %e, "Failed to deliver provider message to task");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
+            }
+            AdapterError::Store(e) => {
+                tracing::error!(
+                    error = %moatless_core::error::causal_chain(e),
+                    "Store error in adapter handler"
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".to_string(),

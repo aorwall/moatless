@@ -25,7 +25,7 @@ use moatless_types::sandbox::ArchiveRetention;
 use moatless_types::task::TaskRelationType;
 use super::relations::TaskRelationDao;
 use moatless_backend_core::sandbox::SandboxLifecycle;
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_backend_core::binding::TaskBindings;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 
@@ -36,7 +36,7 @@ pub struct TaskCloser {
     pub(crate) task_relations: Arc<dyn TaskRelationDao>,
     pub(crate) config: Arc<Config>,
     pub(crate) sandbox: Arc<dyn SandboxLifecycle>,
-    pub(crate) task_bindings: Arc<dyn TaskBindingDao>,
+    pub(crate) task_bindings: Arc<dyn TaskBindings>,
     pub(crate) events: Option<Arc<dyn EventPublisher>>,
 }
 
@@ -94,7 +94,7 @@ impl TaskCloser {
         task_relations: Arc<dyn TaskRelationDao>,
         config: Arc<Config>,
         sandbox: Arc<dyn SandboxLifecycle>,
-        task_bindings: Arc<dyn TaskBindingDao>,
+        task_bindings: Arc<dyn TaskBindings>,
         events: Option<Arc<dyn EventPublisher>>,
     ) -> Self {
         Self {

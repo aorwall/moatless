@@ -284,7 +284,7 @@ fn metadata_string(metadata: Option<&serde_json::Value>, key: &str) -> Option<St
 mod tests {
     use std::sync::atomic::Ordering;
 
-    use moatless_backend_core::sandbox::{SandboxClient, SandboxConnector, SandboxError};
+    use moatless_backend_core::sandbox::{CredentialBroadcast, SandboxError};
     use tokio::sync::{Mutex, mpsc};
 
     use super::*;
@@ -324,18 +324,23 @@ mod tests {
         }
     }
 
-    struct PersistObservingConnector {
+    struct PersistObservingBroadcast {
         tokens: Arc<StubProviderTokens>,
         observed: mpsc::UnboundedSender<bool>,
     }
 
     #[async_trait]
-    impl SandboxConnector for PersistObservingConnector {
-        async fn sandbox_client(&self, _task_id: &str) -> Result<SandboxClient, SandboxError> {
+    impl CredentialBroadcast for PersistObservingBroadcast {
+        async fn refresh_credential(
+            &self,
+            _task_id: &str,
+            _key: &str,
+            _value: &str,
+        ) -> Result<(), SandboxError> {
             let _ = self
                 .observed
                 .send(self.tokens.writes.load(Ordering::Acquire) > 0);
-            Err(SandboxError::NotReady("test connector".to_string()))
+            Err(SandboxError::NotReady("test broadcast".to_string()))
         }
     }
 
@@ -343,13 +348,13 @@ mod tests {
         tokens: Arc<StubProviderTokens>,
         poll: PollStatus,
         tasks: MockTaskDao,
-        connector: Arc<dyn SandboxConnector>,
+        broadcast: Arc<dyn CredentialBroadcast>,
     ) -> AgentHarnessAccess {
         let provider_tokens: Arc<dyn ProviderTokenDao> = tokens;
         let credentials = Arc::new(CredentialService::new(Arc::clone(&provider_tokens)));
         AgentHarnessAccess::new(
             Arc::clone(&provider_tokens),
-            Arc::new(CredentialSync::new(credentials, Arc::new(tasks), connector)),
+            Arc::new(CredentialSync::new(credentials, Arc::new(tasks), broadcast)),
             Arc::new(CodexOAuthConfig {
                 issuer: "https://auth.example".to_string(),
                 client_id: "client".to_string(),
@@ -365,7 +370,7 @@ mod tests {
     async fn save_persists_before_sandbox_fan_out() {
         let tokens = Arc::new(StubProviderTokens::default());
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let connector = Arc::new(PersistObservingConnector {
+        let broadcast = Arc::new(PersistObservingBroadcast {
             tokens: Arc::clone(&tokens),
             observed: tx,
         });
@@ -373,7 +378,7 @@ mod tests {
         tasks
             .expect_list_open_codex_tasks_for_scope()
             .returning(|_, _, _| Ok(vec!["task-1".to_string()]));
-        let access = access(tokens, PollStatus::Pending, tasks, connector);
+        let access = access(tokens, PollStatus::Pending, tasks, broadcast);
 
         access
             .save(
@@ -386,7 +391,7 @@ mod tests {
         let persisted = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
             .await
             .expect("sandbox fan-out should run")
-            .expect("connector should report the observation");
+            .expect("broadcast should report the observation");
         assert!(persisted, "persistence must precede sandbox fan-out");
     }
 
@@ -398,7 +403,7 @@ mod tests {
                 Arc::clone(&tokens),
                 poll,
                 MockTaskDao::new(),
-                Arc::new(PersistObservingConnector {
+                Arc::new(PersistObservingBroadcast {
                     tokens: Arc::clone(&tokens),
                     observed: mpsc::unbounded_channel().0,
                 }),
@@ -423,7 +428,7 @@ mod tests {
                 id_token_claims: IdTokenClaims::default(),
             },
             tasks,
-            Arc::new(PersistObservingConnector {
+            Arc::new(PersistObservingBroadcast {
                 tokens: Arc::clone(&tokens),
                 observed: mpsc::unbounded_channel().0,
             }),

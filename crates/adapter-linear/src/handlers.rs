@@ -44,6 +44,7 @@ pub async fn linear_webhook(
         linear_provider.require_adapter_connections()?,
         linear_provider.require_loops()?,
         linear_provider.db(),
+        linear_provider.app_tokens(),
         linear_provider.require_config()?,
         linear_provider.require_adapter_delivery()?,
         &linear_provider,

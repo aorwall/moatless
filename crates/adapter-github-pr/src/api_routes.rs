@@ -28,7 +28,8 @@ use moatless_api_schemas::github::{
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use moatless_loops::adapters::common::ensure_task_access_with;
+use moatless_backend_core::task::{ExternalEvent, TaskReader, TranscriptAppend};
+use moatless_loops::adapters::common::ensure_task_access_only;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::footer::FOOTER_MARKER;
 use moatless_loops::adapters::AdapterDestinationBuilder;
@@ -36,8 +37,6 @@ use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_types::access_control::Actor;
 use moatless_identity::extractors::AuthUser;
 use moatless_identity::git_host_repo::GitHostRepo;
-use moatless_tasks::message::dao::MessageDao;
-use moatless_tasks::task::dao::TaskDao;
 
 use super::adapter::GithubPrAdapter;
 use super::api::{GithubPrApi, MAX_COMMENT_LENGTH};
@@ -76,9 +75,9 @@ fn require_provider(
 )]
 pub async fn create_pr(
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
     State(recently_sent): State<Arc<RecentlySent>>,
-    State(messages): State<Arc<dyn MessageDao>>,
+    State(messages): State<Arc<dyn TranscriptAppend>>,
     auth: AuthUser,
     Path((owner, repo)): Path<(String, String)>,
     Json(req): Json<GithubCreatePrRequest>,
@@ -86,7 +85,7 @@ pub async fn create_pr(
     let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
     }
 
     let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
@@ -229,9 +228,9 @@ impl CreatedPr {
 )]
 pub async fn post_comment(
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
     State(recently_sent): State<Arc<RecentlySent>>,
-    State(messages): State<Arc<dyn MessageDao>>,
+    State(messages): State<Arc<dyn TranscriptAppend>>,
     auth: AuthUser,
     Path((owner, repo, number)): Path<(String, String, u64)>,
     Json(req): Json<GithubCommentRequest>,
@@ -239,7 +238,7 @@ pub async fn post_comment(
     let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
     }
 
     let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
@@ -310,9 +309,9 @@ pub async fn post_comment(
 )]
 pub async fn reply_to_review_comment(
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
     State(recently_sent): State<Arc<RecentlySent>>,
-    State(messages): State<Arc<dyn MessageDao>>,
+    State(messages): State<Arc<dyn TranscriptAppend>>,
     auth: AuthUser,
     Path((owner, repo, number, comment_id)): Path<(String, String, u64, u64)>,
     Json(req): Json<GithubReplyRequest>,
@@ -320,7 +319,7 @@ pub async fn reply_to_review_comment(
     let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
     }
 
     let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
@@ -388,14 +387,14 @@ pub async fn reply_to_review_comment(
 )]
 pub async fn bind_pr(
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
     auth: AuthUser,
     Path((owner, repo, number)): Path<(String, String, u64)>,
     Json(req): Json<GithubBindPrRequest>,
 ) -> Result<Json<GithubBindPrResponse>, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
-    ensure_task_access_with(tasks.as_ref(), &ctx, &req.task_id).await?;
+    ensure_task_access_only(tasks.as_ref(), &ctx, &req.task_id).await?;
 
     let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
     let pr = api.get_pr(&owner, &repo, number).await?;
@@ -438,14 +437,14 @@ pub async fn bind_pr(
 /// has to be requested separately. The command that made the change is the one
 /// that calls this, with the response in hand.
 pub async fn record_external_event(
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
     State(recently_sent): State<Arc<RecentlySent>>,
-    State(messages): State<Arc<dyn MessageDao>>,
+    State(messages): State<Arc<dyn TranscriptAppend>>,
     auth: AuthUser,
     Json(req): Json<GithubExternalEventRequest>,
 ) -> Result<Json<GithubExternalEventResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    ensure_task_access_with(tasks.as_ref(), &ctx, &req.task_id).await?;
+    ensure_task_access_only(tasks.as_ref(), &ctx, &req.task_id).await?;
 
     let external_id = match &req.subject {
         GithubExternalEventSubject::ReviewComment(id) => external_id::review_comment(*id),
@@ -497,7 +496,7 @@ fn compose_footer(existing: &str, task_url: &str) -> String {
 /// the replica that did not serve this request.
 async fn note_external_event(
     recently_sent: &RecentlySent,
-    messages: &dyn MessageDao,
+    messages: &dyn TranscriptAppend,
     task_id: &str,
     external_id: &str,
     owner: &str,
@@ -518,13 +517,20 @@ async fn note_external_event(
 /// Best effort: a failure costs one echoed event on a replica that did not
 /// serve this request, and the in-memory note has already landed here.
 async fn record_durable_event(
-    messages: &dyn MessageDao,
+    messages: &dyn TranscriptAppend,
     task_id: &str,
     external_id: &str,
     source_name: Option<&str>,
 ) -> bool {
     match messages
-        .record_external_event(task_id, external_id, ADAPTER_LABEL, source_name)
+        .record_external_event(
+            task_id,
+            &ExternalEvent {
+                external_id: external_id.to_string(),
+                provider: ADAPTER_LABEL.to_string(),
+                source_name: source_name.map(str::to_string),
+            },
+        )
         .await
     {
         Ok(()) => true,
@@ -694,7 +700,7 @@ fn build_pr_body(body: &str, task_url: Option<&str>) -> String {
 /// when a task is associated. The user body is truncated first, reserving room
 /// for the footer so the total stays within `MAX_COMMENT_LENGTH`.
 async fn body_with_task_footer(
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     frontend_url: &str,
     task_id: Option<&str>,
     body: &str,

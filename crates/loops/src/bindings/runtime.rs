@@ -21,11 +21,11 @@ use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::RoutingMode;
 use moatless_types::task::TaskStatus;
 use moatless_types::access_control::ScopeContext;
-use moatless_tasks::message::dao::MessageDao;
+use moatless_backend_core::task::TranscriptAppend;
 use moatless_tasks::message::send::MessageSendService;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use crate::bindings::dao::TaskBindingDao;
 use moatless_tasks::task::creation::{TaskCreationError, TaskCreationService};
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
 use moatless_backend_core::sandbox::{SandboxWaker, wake_for_message};
 
 pub use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT, CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD};
@@ -45,8 +45,8 @@ pub struct RoutingService {
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     loops: Arc<LoopDao>,
     task_bindings: Arc<dyn TaskBindingDao>,
-    messages: Arc<dyn MessageDao>,
-    tasks: Arc<dyn TaskDao>,
+    messages: Arc<dyn TranscriptAppend>,
+    tasks: Arc<dyn TaskReader>,
     task_creation: Arc<TaskCreationService>,
     message_send: Arc<MessageSendService>,
     event_receipts: Arc<dyn EventReceiptDao>,
@@ -77,8 +77,8 @@ impl RoutingService {
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
         task_bindings: Arc<dyn TaskBindingDao>,
-        messages: Arc<dyn MessageDao>,
-        tasks: Arc<dyn TaskDao>,
+        messages: Arc<dyn TranscriptAppend>,
+        tasks: Arc<dyn TaskReader>,
         task_creation: Arc<TaskCreationService>,
         message_send: Arc<MessageSendService>,
         event_receipts: Arc<dyn EventReceiptDao>,
@@ -180,7 +180,7 @@ impl RoutingService {
                 Some(ext_id) => {
                     let candidates = self.external_id_aliases(adapter_label, ext_id);
                     self.messages
-                        .find_task_id_by_any_external_event_id(&candidates)
+                        .find_by_external_event_id(&candidates)
                         .await?
                 }
                 None => None,
@@ -577,7 +577,7 @@ impl RoutingService {
         let candidates = self.external_id_aliases(adapter_label, parent_id);
         Ok(self
             .messages
-            .find_task_id_by_any_external_event_id(&candidates)
+            .find_by_external_event_id(&candidates)
             .await?)
     }
 
@@ -611,7 +611,7 @@ impl RoutingService {
         #[allow(clippy::disallowed_methods)]
         // reason: event routing is a background path with no caller identity
         let sys = ScopeContext::system();
-        match self.tasks.find_by_id(task_id, &sys).await {
+        match self.tasks.describe(task_id, &sys).await {
             Ok(Some(task)) if task.status == TaskStatus::Open => Some(task.task_id),
             _ => None,
         }
@@ -633,7 +633,7 @@ impl RoutingService {
                 if let Some(presentation) = providers.inbound_presentation_by_name(adapter_label) {
                     let mut exclude_ids = self
                         .messages
-                        .get_external_event_ids(&binding.task_id)
+                        .external_event_ids(&binding.task_id)
                         .await
                         .unwrap_or_default();
                     if let Some(ref ext_id) = msg.external_event_id {

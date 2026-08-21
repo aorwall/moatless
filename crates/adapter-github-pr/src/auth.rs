@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tracing::debug;
 
-use moatless_core::db::DbPool;
+use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_types::access_control::Actor;
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
@@ -69,10 +69,10 @@ impl GithubPrAuth {
         &self,
         github_login: &str,
         rule: &SubscriptionMatch,
-        db: &DbPool,
+        users: &dyn ProviderIdentityLink,
         repo: &GitHostRepo,
     ) -> Result<AuthenticatedGithub, AdapterError> {
-        let user_id = resolve_sender_user(github_login, rule, db).await;
+        let user_id = resolve_sender_user(github_login, rule, users).await;
         let api = self.client_for(&Actor::of(&user_id), repo).await?;
         Ok(AuthenticatedGithub { user_id, api })
     }
@@ -185,9 +185,9 @@ fn reaction_actor(binding: &BindingContext) -> Result<Actor, AdapterError> {
 pub(super) async fn resolve_sender_user(
     github_login: &str,
     rule: &SubscriptionMatch,
-    db: &DbPool,
+    users: &dyn ProviderIdentityLink,
 ) -> String {
-    if let Ok(Some(user_id)) = mapped_user(github_login, db).await {
+    if let Ok(Some(user_id)) = users.user_with_login(super::delivery::ADAPTER, github_login).await {
         return user_id;
     }
 
@@ -197,15 +197,6 @@ pub(super) async fn resolve_sender_user(
         "GitHub user not mapped, using rule owner"
     );
     rule.effective_user_id().to_string()
-}
-
-async fn mapped_user(identity: &str, db: &DbPool) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar::<_, String>(
-        "SELECT user_id FROM provider_tokens WHERE provider = 'github' AND provider_login = $1 LIMIT 1",
-    )
-    .bind(identity)
-    .fetch_optional(db)
-    .await
 }
 
 fn outbound_user_id(

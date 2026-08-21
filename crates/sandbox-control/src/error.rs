@@ -67,7 +67,7 @@ pub enum SandboxError {
     Grpc {
         operation: String,
         #[source]
-        source: tonic::Status,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     /// The sandbox answered that it does not serve the method that was called:
@@ -79,7 +79,7 @@ pub enum SandboxError {
     Unsupported {
         operation: String,
         #[source]
-        source: tonic::Status,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     /// The gRPC endpoint for a sandbox could not be built.
@@ -94,6 +94,11 @@ pub enum SandboxError {
         #[source]
         source: sqlx::Error,
     },
+
+    /// A read through a published store seam failed. The port already names
+    /// the read and carries its own source, so this variant adds nothing.
+    #[error(transparent)]
+    Store(#[from] moatless_backend_core::store::StoreError),
 
     /// The authorization check for a sandbox request could not be evaluated.
     #[error("Sandbox authorization check failed")]
@@ -194,6 +199,7 @@ impl SandboxError {
             | Self::JwtError(_)
             | Self::JwtSigning { .. }
             | Self::Database { .. }
+            | Self::Store(_)
             | Self::Authorization(_)
             | Self::Runtime(_)
             | Self::Lifecycle(_)
@@ -287,6 +293,7 @@ impl IntoResponse for SandboxError {
             | Self::Unsupported { .. }
             | Self::GrpcClient(_)
             | Self::Database { .. }
+            | Self::Store(_)
             | Self::Authorization(_)
             | Self::Runtime(_)
             | Self::Lifecycle(_) => {
@@ -388,7 +395,7 @@ mod tests {
         assert!(matches!(
             SandboxError::Unsupported {
                 operation: "list_git_refs".into(),
-                source: tonic::Status::unimplemented("unknown service"),
+                source: Box::new(tonic::Status::unimplemented("unknown service")),
             }
             .into_contract(),
             ContractError::Unsupported { operation, .. } if operation == "list_git_refs"
@@ -396,7 +403,7 @@ mod tests {
         assert!(matches!(
             SandboxError::Grpc {
                 operation: "read_file".into(),
-                source: tonic::Status::internal("boom"),
+                source: Box::new(tonic::Status::internal("boom")),
             }
             .into_contract(),
             ContractError::Grpc { operation, .. } if operation == "read_file"
@@ -537,7 +544,7 @@ mod tests {
             (
                 SandboxError::Grpc {
                     operation: "execute_agent".to_string(),
-                    source: tonic::Status::internal("agent bearer token rejected"),
+                    source: Box::new(tonic::Status::internal("agent bearer token rejected")),
                 },
                 "bearer token",
             ),

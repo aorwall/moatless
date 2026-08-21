@@ -1,17 +1,17 @@
-//! The `task_comment_footer` wrapper: resolves a task's name through the task
-//! DAO, then renders the shared footer. The pure render/parse layer lives in
-//! `moatless_adapter_model::footer`.
+//! The `task_comment_footer` wrapper: resolves a task's name through the
+//! published task seam, then renders the shared footer. The pure render/parse
+//! layer lives in `moatless_adapter_model::footer`.
 
 use moatless_adapter_model::footer::render_footer;
 use moatless_types::access_control::ScopeContext;
 
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
 
 /// Build the footer suffix appended to an outbound comment body, or `None` when
 /// no frontend URL is configured. Loads the task name (best effort) to use as
 /// the link text.
 pub async fn task_comment_footer(
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     frontend_url: &str,
     task_id: &str,
 ) -> Option<String> {
@@ -20,7 +20,7 @@ pub async fn task_comment_footer(
         reason = "footer lookup is a background formatting step with no caller identity"
     )]
     let sys = ScopeContext::system();
-    let name = match tasks.find_by_id(task_id, &sys).await {
+    let name = match tasks.describe(task_id, &sys).await {
         Ok(Some(task)) => task.name,
         Ok(None) => None,
         Err(e) => {

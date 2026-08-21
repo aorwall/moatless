@@ -16,8 +16,8 @@ use moatless_types::adapter::InboundMessage;
 use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{Adapter, BindingDestination};
 use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
-use moatless_core::db::DbPool;
+use moatless_loops::bindings::ports::BindingProbe;
+use moatless_backend_core::identity::ProviderIdentityLink;
 
 use super::adapter::{ResolvedSlackApp, SlackAdapter};
 use super::webhook::{self, Normalization, NormalizeContext};
@@ -106,7 +106,7 @@ fn challenge(payload: &serde_json::Value) -> String {
 async fn resolve(
     adapter_connections: &dyn AdapterConnectionDao,
     loops: &LoopDao,
-    task_bindings: &dyn TaskBindingDao,
+    task_bindings: &dyn BindingProbe,
     adapter: &SlackAdapter,
     payload: &serde_json::Value,
     event_type: &str,
@@ -178,13 +178,13 @@ async fn resolve(
     // A reply in a thread a Binding already tracks bypasses the trigger filter.
     let is_tracked_thread = match thread_ts {
         Some(_) => task_bindings
-            .find_by_subject(
+            .is_bound(
                 adapter.provider_key(),
                 destination.subject_kind,
                 &destination.subject_key,
             )
             .await
-            .is_ok_and(|rows| !rows.is_empty()),
+            .unwrap_or(false),
         None => false,
     };
 
@@ -216,11 +216,12 @@ fn verify(app: &ResolvedSlackApp, request: &WebhookRequest<'_>) -> Result<(), Ad
 
 /// Normalize one payload and apply what it decided, in that order — the
 /// sequence [`receive`] runs, kept in one function so it can be exercised
-/// with an app, a config, and a pool alone — no ingress ports behind it.
+/// with an app, a config, and an identity port alone — no ingress ports behind
+/// it.
 async fn normalize_and_apply(
     app: &ResolvedSlackApp,
     config: &LoopContext,
-    db: &DbPool,
+    users: &dyn ProviderIdentityLink,
     payload: &serde_json::Value,
     is_tracked_thread: bool,
 ) -> Result<Normalization, AdapterError> {
@@ -229,7 +230,7 @@ async fn normalize_and_apply(
         &NormalizeContext {
             config,
             api: &app.api,
-            db,
+            users,
             bot_user_id: app.bot_user_id.as_deref(),
             is_tracked_thread,
         },
@@ -238,7 +239,7 @@ async fn normalize_and_apply(
 
     match &normalization {
         Normalization::Message { effects, .. } | Normalization::Ignored { effects, .. } => {
-            webhook::apply_effects(&app.api, db, effects).await;
+            webhook::apply_effects(&app.api, users, effects).await;
         }
     }
 
@@ -274,8 +275,8 @@ fn admission_event_id(payload: &serde_json::Value, msg: &InboundMessage) -> Stri
 pub(super) async fn receive(
     adapter_connections: &dyn AdapterConnectionDao,
     loops: &LoopDao,
-    task_bindings: &dyn TaskBindingDao,
-    db: &DbPool,
+    task_bindings: &dyn BindingProbe,
+    users: &dyn ProviderIdentityLink,
     adapter_delivery: &AdapterDeliveryStore,
     adapter: &SlackAdapter,
     request: WebhookRequest<'_>,
@@ -330,7 +331,7 @@ pub(super) async fn receive(
     let app = adapter.app(&app_key).await.map_err(IngressError::Ingress)?;
     verify(&app, &request).map_err(IngressError::Ingress)?;
 
-    let normalization = normalize_and_apply(&app, &config, db, &payload, is_tracked_thread)
+    let normalization = normalize_and_apply(&app, &config, users, &payload, is_tracked_thread)
         .await
         .map_err(IngressError::Ingress)?;
 
@@ -398,7 +399,7 @@ mod characterization {
     use moatless_types::adapter::{Audience, InboundMessage};
     use moatless_types::loops::{LoopContext, RoutingMode};
     use moatless_loops::adapters::test_support::ProviderStub;
-    use moatless_core::db::DbPool;
+    use moatless_backend_core::identity::ProviderIdentityLink;
 
     use crate::adapter::SlackAdapter;
     use crate::api::SlackApi;
@@ -479,15 +480,57 @@ mod characterization {
         )
     }
 
-    /// A pool nothing listens behind: reaching it at all is a test failure the
-    /// error message names, which is how "this path performs no query" is
-    /// asserted for the reasons raised before the sender lookup.
-    pub(super) fn unreachable_pool() -> DbPool {
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(std::time::Duration::from_millis(10))
-            .connect_lazy("postgres://fake:fake@127.0.0.1:1/fake")
-            .unwrap()
+    /// An identity port whose every read fails, so a test can assert that the
+    /// sender lookup was reached at all.
+    pub(super) struct FailingUsers;
+
+    #[async_trait::async_trait]
+    impl ProviderIdentityLink for FailingUsers {
+        async fn user_at(
+            &self,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<
+            Option<moatless_backend_core::identity::LinkedUser>,
+            moatless_backend_core::store::StoreError,
+        > {
+            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        }
+
+        async fn user_by_email(
+            &self,
+            _email: &str,
+        ) -> Result<
+            Option<moatless_backend_core::identity::LinkedUser>,
+            moatless_backend_core::store::StoreError,
+        > {
+            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        }
+
+        async fn user_who_connected(
+            &self,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        }
+
+        async fn user_with_login(
+            &self,
+            _provider: &str,
+            _login: &str,
+        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        }
+
+        async fn link(
+            &self,
+            _user_id: &uuid::Uuid,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<bool, moatless_backend_core::store::StoreError> {
+            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        }
     }
 
     pub(super) fn trigger(adapter_config: Option<serde_json::Value>) -> LoopContext {
@@ -527,7 +570,7 @@ mod characterization {
         adapter: &SlackAdapter,
         body: &str,
         config: &LoopContext,
-        db: &DbPool,
+        users: &dyn ProviderIdentityLink,
         is_tracked_thread: bool,
     ) -> Result<Parsed, IngressError> {
         parse_with(
@@ -535,7 +578,7 @@ mod characterization {
             &signed_headers(body),
             body,
             config,
-            db,
+            users,
             is_tracked_thread,
         )
         .await
@@ -547,7 +590,7 @@ mod characterization {
         headers: &HeaderMap,
         body: &str,
         config: &LoopContext,
-        db: &DbPool,
+        users: &dyn ProviderIdentityLink,
         is_tracked_thread: bool,
     ) -> Result<Parsed, IngressError> {
         let payload = parse_body(body.as_bytes())?;
@@ -562,7 +605,7 @@ mod characterization {
         }
 
         Ok(
-            match normalize_and_apply(&app, config, db, &payload, is_tracked_thread)
+            match normalize_and_apply(&app, config, users, &payload, is_tracked_thread)
                 .await
                 .map_err(IngressError::Ingress)?
             {
@@ -629,7 +672,7 @@ mod characterization {
         let body =
             serde_json::json!({"type": "url_verification", "challenge": "abc123"}).to_string();
 
-        let result = parse(&adapter, &body, &trigger(None), &unreachable_pool(), false).await;
+        let result = parse(&adapter, &body, &trigger(None), &crate::auth::UnreachableUsers, false).await;
 
         let Ok(Parsed::Challenge(challenge)) = result else {
             panic!("expected a challenge");
@@ -655,7 +698,7 @@ mod characterization {
                 &headers,
                 &body,
                 &trigger(None),
-                &unreachable_pool(),
+                &crate::auth::UnreachableUsers,
                 false,
             )
             .await,
@@ -682,7 +725,7 @@ mod characterization {
                 &HeaderMap::new(),
                 &body,
                 &trigger(None),
-                &unreachable_pool(),
+                &crate::auth::UnreachableUsers,
                 false,
             )
             .await,
@@ -712,7 +755,7 @@ mod characterization {
                 &headers,
                 &body,
                 &trigger(None),
-                &unreachable_pool(),
+                &crate::auth::UnreachableUsers,
                 false,
             )
             .await,
@@ -742,7 +785,7 @@ mod characterization {
                     &headers,
                     "<html>not json</html>",
                     &trigger(None),
-                    &unreachable_pool(),
+                    &crate::auth::UnreachableUsers,
                     false,
                 )
                 .await,
@@ -853,7 +896,7 @@ mod characterization {
                 &adapter,
                 &body,
                 &trigger(adapter_config),
-                &unreachable_pool(),
+                &crate::auth::UnreachableUsers,
                 is_tracked_thread,
             )
             .await;
@@ -885,7 +928,7 @@ mod characterization {
             &adapter,
             &envelope(message_event()),
             &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-            &unreachable_pool(),
+            &crate::auth::UnreachableUsers,
             false,
         )
         .await;
@@ -910,16 +953,13 @@ mod characterization {
                 &adapter,
                 &envelope(message_event()),
                 &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-                &unreachable_pool(),
+                &FailingUsers,
                 false,
             )
             .await,
         );
 
-        assert!(
-            matches!(error, AdapterError::Shared(SharedAdapterError::Db(_))),
-            "{error:?}"
-        );
+        assert!(matches!(error, AdapterError::Store(_)), "{error:?}");
         assert_eq!(stub.paths(), vec!["/users.info".to_string()]);
     }
 
@@ -953,7 +993,7 @@ mod characterization {
                 "trigger": "all_messages",
                 "allow_bot_messages": true,
             }))),
-            &unreachable_pool(),
+            &crate::auth::UnreachableUsers,
             false,
         )
         .await;
@@ -1052,6 +1092,11 @@ mod tests {
 /// sender mapping onwards.
 #[cfg(all(test, feature = "db-tests"))]
 mod characterization_db {
+    use std::sync::Arc;
+
+    use moatless_identity::auth::provider_token_dao::PgProviderTokenDao;
+    use moatless_identity::auth::users::PgUserDao;
+    use moatless_identity::ports::UserDirectory;
     use sqlx::PgPool;
 
     use moatless_loops::adapters::AdapterKind;
@@ -1062,6 +1107,15 @@ mod characterization_db {
         BOT_USER_ID, OWNER, Parsed, adapter, envelope, human, ignored, message_event, parse,
         slack_stub, trigger,
     };
+
+    /// The identity seam over a real pool — what the composition root hands
+    /// the ingress.
+    fn users(pool: &PgPool) -> UserDirectory {
+        UserDirectory::new(
+            Arc::new(PgUserDao(pool.clone())),
+            Arc::new(PgProviderTokenDao(pool.clone())),
+        )
+    }
 
     fn message(result: Result<Parsed, IngressError>) -> moatless_types::adapter::InboundMessage {
         match result {
@@ -1107,7 +1161,7 @@ mod characterization_db {
             &adapter,
             &envelope(message_event()),
             &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-            &pool,
+            &users(&pool),
             false,
         )
         .await;
@@ -1138,7 +1192,7 @@ mod characterization_db {
             &adapter,
             &envelope(message_event()),
             &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-            &pool,
+            &users(&pool),
             false,
         )
         .await;
@@ -1173,7 +1227,7 @@ mod characterization_db {
                 &adapter,
                 &body,
                 &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-                &pool,
+                &users(&pool),
                 false,
             )
             .await,
@@ -1243,7 +1297,7 @@ mod characterization_db {
                     "trigger": "all_messages",
                     "allow_bot_messages": true,
                 }))),
-                &pool,
+                &users(&pool),
                 false,
             )
             .await,
@@ -1273,11 +1327,11 @@ mod characterization_db {
 
         // `mention_only` is the default, and this message mentions nobody.
         assert_eq!(
-            ignored(parse(&adapter, &body, &trigger(None), &pool, false).await),
+            ignored(parse(&adapter, &body, &trigger(None), &users(&pool), false).await),
             "trigger_filter"
         );
 
-        let message = message(parse(&adapter, &body, &trigger(None), &pool, true).await);
+        let message = message(parse(&adapter, &body, &trigger(None), &users(&pool), true).await);
         assert_eq!(message.user_id, OWNER);
         assert_eq!(
             message.adapter_context["is_bot_mentioned"],
@@ -1298,7 +1352,7 @@ mod characterization_db {
             "thread_ts": "1700000000.000100",
         }));
 
-        let message = message(parse(&adapter, &body, &trigger(None), &pool, false).await);
+        let message = message(parse(&adapter, &body, &trigger(None), &users(&pool), false).await);
         assert_eq!(message.source_id, "D1");
     }
 
@@ -1320,11 +1374,11 @@ mod characterization_db {
 
         let config = trigger(Some(serde_json::json!({"trigger": "all_messages"})));
         assert_eq!(
-            message(parse(&adapter, &with_blocks, &config, &pool, false).await).text,
+            message(parse(&adapter, &with_blocks, &config, &users(&pool), false).await).text,
             "from blocks"
         );
         assert_eq!(
-            message(parse(&adapter, &with_attachments, &config, &pool, false).await).text,
+            message(parse(&adapter, &with_attachments, &config, &users(&pool), false).await).text,
             "from attachments"
         );
     }
@@ -1342,7 +1396,7 @@ mod characterization_db {
                 &adapter,
                 &envelope(message_event()),
                 &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-                &pool,
+                &users(&pool),
                 false,
             )
             .await,
@@ -1369,7 +1423,7 @@ mod characterization_db {
                 &adapter,
                 &envelope(message_event()),
                 &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-                &pool,
+                &users(&pool),
                 false,
             )
             .await,
@@ -1403,7 +1457,7 @@ mod characterization_db {
             &adapter,
             &envelope(message_event()),
             &trigger(Some(serde_json::json!({"trigger": "all_messages"}))),
-            &pool,
+            &users(&pool),
             false,
         )
         .await;

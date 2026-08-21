@@ -12,7 +12,7 @@ use moatless_identity::extractors::UserTokenVerifier;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use moatless_workspaces::repository::dao::RepositoryDao;
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_backend_core::binding::TaskBindings;
 use crate::task::closer::TaskCloser;
 use crate::task::creation::TaskCreationService;
 use moatless_backend_core::sandbox::PreflightPort;
@@ -66,7 +66,7 @@ pub fn task_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
     Arc<dyn TaskDao>: FromRef<S>,
-    Arc<dyn TaskBindingDao>: FromRef<S>,
+    Arc<dyn TaskBindings>: FromRef<S>,
     Arc<dyn TaskRelationDao>: FromRef<S>,
     Arc<dyn TaskTurnDao>: FromRef<S>,
     Arc<dyn MessageDao>: FromRef<S>,

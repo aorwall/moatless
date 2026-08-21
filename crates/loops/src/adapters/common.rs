@@ -17,7 +17,7 @@ pub use crate::adapters::models::parse_adapter_kind;
 use crate::loops::dao::{LoopDao, LoopRecord, LoopSourceRow};
 use moatless_types::loops::{LoopConfigSource, LoopKind};
 use moatless_types::access_control::{ScopeContext, ScopedResource};
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::{TaskDescriptor, TaskReader};
 use moatless_workspaces::repository::dao::RepositoryDao;
 
 #[derive(Debug, Deserialize)]
@@ -235,19 +235,38 @@ pub(crate) async fn load_loop_for_auth_with(
 }
 
 /// Load and authorize a task for the calling user, through the one port it
-/// needs — the `tasks` DAO.
+/// needs — the published [`TaskReader`].
 ///
-/// Uses the scoped `find_by_id(id, ctx)` method; `None` → `NotFound`. Callers
-/// hold the port and pass it directly, so this names no `AppState`.
+/// `None` → `NotFound`: a Task the caller may not read is a Task that is not
+/// there. Callers hold the port and pass it directly, so this names no
+/// `AppState`.
 pub async fn ensure_task_access_with(
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     ctx: &ScopeContext,
     task_id: &str,
-) -> Result<moatless_tasks::task::models::Task, AdapterError> {
+) -> Result<TaskDescriptor, AdapterError> {
     tasks
-        .find_by_id(task_id, ctx)
-        .await?
+        .describe(task_id, ctx)
+        .await
+        .map_err(|e| SharedAdapterError::Internal(e.to_string()))?
         .ok_or_else(|| SharedAdapterError::NotFound(format!("Task {task_id} not found")).into())
+}
+
+/// The same authorization, for a caller that discards the Task.
+pub async fn ensure_task_access_only(
+    tasks: &dyn TaskReader,
+    ctx: &ScopeContext,
+    task_id: &str,
+) -> Result<(), AdapterError> {
+    let allowed = tasks
+        .may_access(task_id, ctx)
+        .await
+        .map_err(|e| SharedAdapterError::Internal(e.to_string()))?;
+    if allowed {
+        Ok(())
+    } else {
+        Err(SharedAdapterError::NotFound(format!("Task {task_id} not found")).into())
+    }
 }
 
 /// Resolve an adapter connection for the caller.

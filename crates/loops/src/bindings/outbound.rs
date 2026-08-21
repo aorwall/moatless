@@ -9,8 +9,6 @@ use moatless_types::adapter::{
     OutboundFile, OutboundPresentation, OutboundReply, TaskOrigin, TaskProvenance,
 };
 use moatless_types::loops::SubscriptionMatch;
-use moatless_identity::auth::users::UserDao;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
 use moatless_types::access_control::ScopeContext;
 use moatless_core::config::S3Config;
 use moatless_types::auth::AuthConfig;
@@ -18,17 +16,17 @@ use moatless_types::auth::AuthConfig;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::{AdapterKind, Adapters};
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::metrics::record_outbound;
 use crate::bindings::recently_sent::RecentlySent;
 use moatless_core::file_storage::dao::FileDao;
 use moatless_s3::S3Storage;
 use crate::loops::dao::LoopDao;
-use moatless_tasks::message::dao::MessageDao;
-use moatless_tasks::message::models::{MessageRole, MessageType, TaskMessage};
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task_activities::mapping::ConversationWrite;
-use moatless_tasks::task_turn::dao::TaskTurnDao;
+use moatless_backend_core::identity::UserDisplay;
+use moatless_backend_core::workspace::WorkspaceResolver;
+use moatless_backend_core::task::{
+    ExternalEvent, TaskReader, TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TurnCounter,
+};
 
 /// Whether this thread has already carried a provenance footer.
 ///
@@ -70,16 +68,16 @@ pub struct OutboundSender {
     task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     loops: Arc<LoopDao>,
-    tasks: Arc<dyn TaskDao>,
+    tasks: Arc<dyn TaskReader>,
     recently_sent: Arc<RecentlySent>,
-    messages: Arc<dyn MessageDao>,
-    task_turns: Arc<dyn TaskTurnDao>,
+    messages: Arc<dyn TranscriptAppend>,
+    task_turns: Arc<dyn TurnCounter>,
     s3: Option<S3Storage>,
     auth_config: Arc<AuthConfig>,
     s3_config: Arc<S3Config>,
     files: Arc<dyn FileDao>,
-    workspaces: Arc<dyn WorkspaceDao>,
-    users: Arc<dyn UserDao>,
+    workspaces: Arc<dyn WorkspaceResolver>,
+    users: Arc<dyn UserDisplay>,
 }
 
 impl OutboundSender {
@@ -91,16 +89,16 @@ impl OutboundSender {
         task_bindings: Arc<dyn TaskBindingDao>,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
-        tasks: Arc<dyn TaskDao>,
+        tasks: Arc<dyn TaskReader>,
         recently_sent: Arc<RecentlySent>,
-        messages: Arc<dyn MessageDao>,
-        task_turns: Arc<dyn TaskTurnDao>,
+        messages: Arc<dyn TranscriptAppend>,
+        task_turns: Arc<dyn TurnCounter>,
         s3: Option<S3Storage>,
         auth_config: Arc<AuthConfig>,
         s3_config: Arc<S3Config>,
         files: Arc<dyn FileDao>,
-        workspaces: Arc<dyn WorkspaceDao>,
-        users: Arc<dyn UserDao>,
+        workspaces: Arc<dyn WorkspaceResolver>,
+        users: Arc<dyn UserDisplay>,
     ) -> Self {
         Self {
             task_bindings,
@@ -200,7 +198,7 @@ impl OutboundSender {
         let sys_author = ScopeContext::system();
         let author_user_id = self
             .tasks
-            .find_by_id(task_id, &sys_author)
+            .describe(task_id, &sys_author)
             .await
             .ok()
             .flatten()
@@ -270,9 +268,11 @@ impl OutboundSender {
                     .messages
                     .set_external_source_metadata(
                         msg_id,
-                        ext_id,
-                        adapter_label,
-                        Some(binding.subject_key.as_str()),
+                        &ExternalEvent {
+                            external_id: ext_id.clone(),
+                            provider: adapter_label.to_string(),
+                            source_name: Some(binding.subject_key.clone()),
+                        },
                     )
                     .await
                 {
@@ -329,7 +329,7 @@ impl OutboundSender {
         )]
         let sys = ScopeContext::system();
 
-        let task = match self.tasks.find_by_id(task_id, &sys).await {
+        let task = match self.tasks.describe(task_id, &sys).await {
             Ok(t) => t,
             Err(e) => {
                 warn!(task_id, error = %e, "Failed to load task for provenance footer");
@@ -339,7 +339,7 @@ impl OutboundSender {
 
         let mut workspace_name = None;
         if let Some(workspace_id) = task.as_ref().and_then(|t| t.workspace_id.as_deref()) {
-            match self.workspaces.find_by_id(workspace_id, &sys).await {
+            match self.workspaces.resolve(workspace_id).await {
                 Ok(Some(w)) => workspace_name = Some(w.name),
                 Ok(None) => {}
                 Err(e) => warn!(task_id, error = %e, "Failed to load workspace for provenance footer"),
@@ -371,8 +371,8 @@ impl OutboundSender {
         let Ok(uuid) = uuid::Uuid::parse_str(raw) else {
             return TaskOrigin::Unknown;
         };
-        match self.users.get_user(&uuid).await {
-            Ok(Some(u)) => TaskOrigin::StartedBy { login: u.login },
+        match self.users.name(&uuid).await {
+            Ok(Some(login)) => TaskOrigin::StartedBy { login },
             Ok(None) => TaskOrigin::Unknown,
             Err(e) => {
                 warn!(error = %e, "Failed to load user for provenance footer");
@@ -407,7 +407,6 @@ impl OutboundSender {
         binding: &TaskBinding,
         adapter_label: &str,
     ) -> Option<String> {
-        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let uuid = uuid::Uuid::new_v4().to_string();
 
         let turn_number = match self.task_turns.latest_turn_number(task_id).await {
@@ -418,25 +417,20 @@ impl OutboundSender {
             }
         };
 
-        let mut msg = TaskMessage::new_user_message(
-            task_id.to_string(),
-            uuid.clone(),
-            text.to_string(),
-            now.clone(),
-        );
-        msg.message_type = MessageType::System;
-        msg.message_role = MessageRole::Assistant;
-        msg.user_type = "assistant".to_string();
-        msg.turn_number = turn_number;
-        msg.external_adapter = Some(adapter_label.to_string());
-        msg.external_source_name = Some(binding.subject_key.clone());
-
         match self
             .messages
-            .append(&msg, &[], &ConversationWrite::default())
+            .append(&TranscriptEntry {
+                task_id: task_id.to_string(),
+                uuid: uuid.clone(),
+                text: text.to_string(),
+                kind: TranscriptEntryKind::OutboundStub,
+                turn_number,
+                external_adapter: Some(adapter_label.to_string()),
+                external_source_name: Some(binding.subject_key.clone()),
+            })
             .await
         {
-            Ok(_) => Some(uuid),
+            Ok(()) => Some(uuid),
             Err(e) => {
                 warn!(task_id, error = %e, "Failed to persist outbound stub message");
                 None

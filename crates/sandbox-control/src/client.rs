@@ -1,12 +1,10 @@
 //! Backend compatibility layer for the sandbox gRPC client.
 //!
 //! The client itself lives in `sandbox-proto`, with the protobuf service it
-//! speaks. The backend keeps only API-schema conversions and backend-local
-//! error classification here.
+//! speaks. The backend keeps only API-schema conversions here.
 
 pub use sandbox_proto::client::*;
 
-use super::error::SandboxError;
 use super::schemas::{
     BackgroundProcess as SchemaBackgroundProcess,
     BackgroundWatchJobInfo as SchemaBackgroundWatchJobInfo,
@@ -56,8 +54,4 @@ impl SchemaScheduledJobInfo {
             kind,
         })
     }
-}
-
-pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
-    moatless_backend_core::sandbox::classify_grpc_error(e, operation).into()
 }

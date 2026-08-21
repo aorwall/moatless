@@ -28,14 +28,14 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 use moatless_loops::adapters::AdapterKind;
-use moatless_loops::adapters::common::{ensure_task_access_with, resolve_connection};
+use moatless_loops::adapters::common::{ensure_task_access_only, resolve_connection};
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
-use moatless_identity::auth::users::UserDao;
+use moatless_backend_core::identity::UserDisplay;
+use moatless_backend_core::task::TaskReader;
 use moatless_loops::bindings::runtime::upsert_binding_into;
 use moatless_identity::extractors::AuthUser;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
-use moatless_tasks::task::dao::TaskDao;
+use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
 
@@ -92,8 +92,8 @@ pub async fn get_issue(
 )]
 pub async fn create_issue(
     State(linear): State<Option<Arc<LinearAdapter>>>,
-    State(tasks): State<Arc<dyn TaskDao>>,
-    State(users): State<Arc<dyn UserDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
+    State(users): State<Arc<dyn UserDisplay>>,
     State(task_bindings): State<Arc<dyn TaskBindingDao>>,
     auth: AuthUser,
     Query(params): Query<LinearConnectionParams>,
@@ -105,7 +105,7 @@ pub async fn create_issue(
         resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
 
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
     }
 
     // Resolve names → UUIDs.
@@ -336,7 +336,7 @@ pub async fn update_issue(
 )]
 pub async fn create_comment(
     State(linear): State<Option<Arc<LinearAdapter>>>,
-    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
     State(task_bindings): State<Arc<dyn TaskBindingDao>>,
     auth: AuthUser,
     Path(id): Path<String>,
@@ -349,7 +349,7 @@ pub async fn create_comment(
         resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
 
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
     }
 
     // commentCreate requires the issue UUID, not the SP-123 identifier.
@@ -780,19 +780,19 @@ async fn resolve_assignee(
 /// file or the email doesn't match a Linear member — never fails issue
 /// creation.
 async fn default_assignee_from_caller(
-    users: &dyn UserDao,
+    users: &dyn UserDisplay,
     api: &LinearAgentApi,
     user_id: &str,
 ) -> Option<String> {
     let Ok(uid) = user_id.parse::<uuid::Uuid>() else {
         return None;
     };
-    let user = match users.get_user(&uid).await {
-        Ok(Some(u)) => u,
+    let email = match users.email(&uid).await {
+        Ok(Some(email)) => email,
         Ok(None) => {
             warn!(
                 user_id,
-                "assignee default: caller not found; leaving issue unassigned"
+                "assignee default: caller has no email; leaving issue unassigned"
             );
             return None;
         }
@@ -800,13 +800,6 @@ async fn default_assignee_from_caller(
             warn!(error = %e, user_id, "assignee default: failed to load caller; leaving issue unassigned");
             return None;
         }
-    };
-    let Some(email) = user.email else {
-        warn!(
-            user_id,
-            "assignee default: caller has no email; leaving issue unassigned"
-        );
-        return None;
     };
     match resolve_user_opt(api, &email).await {
         Ok(Some(u)) => Some(u.id),
@@ -943,7 +936,7 @@ async fn create_issue_binding(
 /// (the issue is already created / commented on).
 pub(crate) async fn attach_moatless_task(
     config: &Config,
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     api: &LinearAgentApi,
     issue: &Value,
     task_id: &str,

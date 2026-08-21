@@ -12,8 +12,9 @@ use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_loops::adapters::metrics::record_webhook;
 use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
-use moatless_core::db::DbPool;
+use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_loops::bindings::ports::BindingProbe;
+
 
 use super::adapter::SlackAdapter;
 use super::ingress::{Received, WebhookRequest};
@@ -28,7 +29,8 @@ use super::ingress::{Received, WebhookRequest};
 #[expect(
     clippy::too_many_arguments,
     reason = "each of the five downward ports the ingress reads (adapter \
-              connections, loops, task bindings, db, adapter delivery) is its \
+              connections, loops, task bindings, identity links, adapter \
+              delivery) is its \
               own `State<Port>` extractor via `FromRef<AppState>`, plus the \
               provider and the two transport facts; grouping the ports back \
               into one extractor would reintroduce the AppState-shaped bag this \
@@ -37,8 +39,8 @@ use super::ingress::{Received, WebhookRequest};
 pub async fn slack_webhook(
     State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
     State(loops): State<Arc<LoopDao>>,
-    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
-    State(db): State<DbPool>,
+    State(task_bindings): State<Arc<dyn BindingProbe>>,
+    State(users): State<Arc<dyn ProviderIdentityLink>>,
     State(adapter_delivery): State<Arc<AdapterDeliveryStore>>,
     State(slack_provider): State<Option<Arc<SlackAdapter>>>,
     headers: HeaderMap,
@@ -57,7 +59,7 @@ pub async fn slack_webhook(
         adapter_connections.as_ref(),
         &loops,
         task_bindings.as_ref(),
-        &db,
+        users.as_ref(),
         &adapter_delivery,
         &slack_provider,
         request,

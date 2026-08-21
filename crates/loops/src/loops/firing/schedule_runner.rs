@@ -20,14 +20,14 @@ use moatless_core::leader::LeaderGuard;
 use moatless_types::agent::AgentMode;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::creation::TaskCreationService;
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
 use moatless_backend_core::sandbox::SandboxWaker;
 
 /// Durable schedule-firing runner: claims due schedules and fires each as an
 /// inbound message, holding the ports it needs rather than the whole `AppState`.
 pub struct ScheduleRunner {
     loops: Arc<LoopDao>,
-    tasks: Arc<dyn TaskDao>,
+    tasks: Arc<dyn TaskReader>,
     message_send: Arc<MessageSendService>,
     adapters: Option<Arc<Adapters>>,
     task_creation: Arc<TaskCreationService>,
@@ -38,7 +38,7 @@ impl ScheduleRunner {
     /// Assemble the runner from the ports it fires schedules through.
     pub fn new(
         loops: Arc<LoopDao>,
-        tasks: Arc<dyn TaskDao>,
+        tasks: Arc<dyn TaskReader>,
         message_send: Arc<MessageSendService>,
         adapters: Option<Arc<Adapters>>,
         task_creation: Arc<TaskCreationService>,
@@ -175,7 +175,7 @@ impl ScheduleRunner {
                 #[allow(clippy::disallowed_methods)]
                 // reason: schedule runner is a background system with no caller identity
                 let sys = ScopeContext::system();
-                match self.tasks.find_by_id(task_id, &sys).await {
+                match self.tasks.describe(task_id, &sys).await {
                     Ok(Some(task)) if task.status == TaskStatus::Open => task.task_id,
                     _ => {
                         is_new_task = true;

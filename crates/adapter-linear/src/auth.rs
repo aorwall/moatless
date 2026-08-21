@@ -25,6 +25,9 @@ use moatless_loops::adapters::models::{AdapterConnection, TaskBinding};
 use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
 use moatless_types::adapter::LinearConfig;
+use std::sync::Arc;
+
+use moatless_backend_core::identity::AppCredentials;
 use moatless_core::db::DbPool;
 
 use super::adapter::LinearAdapter;
@@ -66,9 +69,13 @@ impl From<&moatless_identity::adapter_apps::LinearAppConfig> for LinearCredentia
 
 impl LinearCredentials {
     /// A client for `org_id`. The one place any of these fields is read.
-    pub(super) fn api_for_org(&self, db: DbPool, org_id: &str) -> LinearAgentApi {
+    pub(super) fn api_for_org(
+        &self,
+        tokens: Arc<dyn AppCredentials>,
+        org_id: &str,
+    ) -> LinearAgentApi {
         LinearAgentApi::for_org(
-            db,
+            tokens,
             org_id,
             self.oauth_client_id.as_deref(),
             self.oauth_client_secret.as_deref(),
@@ -79,6 +86,7 @@ impl LinearCredentials {
 
 pub(super) async fn api_for_connection(
     db: &DbPool,
+    tokens: Arc<dyn AppCredentials>,
     config: &Config,
     connection: &AdapterConnection,
 ) -> Result<LinearAgentApi, AdapterError> {
@@ -92,7 +100,7 @@ pub(super) async fn api_for_connection(
         );
     };
     let credentials = LinearCredentials::from(&app);
-    Ok(credentials.api_for_org(db.clone(), &connection.scope_value))
+    Ok(credentials.api_for_org(tokens, &connection.scope_value))
 }
 
 /// A client for the workspace a Binding belongs to.
@@ -104,6 +112,7 @@ pub(super) async fn api_for_connection(
 pub(super) async fn api_for_binding(
     adapter_connections: &dyn AdapterConnectionDao,
     db: &DbPool,
+    tokens: Arc<dyn AppCredentials>,
     config: &Config,
     binding: &TaskBinding,
 ) -> Option<LinearAgentApi> {
@@ -117,7 +126,7 @@ pub(super) async fn api_for_binding(
         .find_by_id(&binding.connection_id, &sys)
         .await;
     match connection {
-        Ok(Some(connection)) => match api_for_connection(db, config, &connection).await {
+        Ok(Some(connection)) => match api_for_connection(db, tokens, config, &connection).await {
             Ok(api) => Some(api),
             Err(e) => {
                 tracing::warn!(
@@ -154,15 +163,11 @@ pub(super) async fn api_for_binding(
 pub(super) async fn api_for_single_workspace(
     adapter: &LinearAdapter,
 ) -> Result<LinearAgentApi, AdapterError> {
-    let db = adapter.db();
-    let rows = sqlx::query_as::<_, (String, serde_json::Value)>(
-        "SELECT external_account_id AS scope_value, transport_config \
-         FROM adapter_connections \
-         WHERE adapter_kind = 'linear' LIMIT 2",
-    )
-    .fetch_all(db)
-    .await
-    .map_err(SharedAdapterError::Db)?;
+    let rows = adapter
+        .require_adapter_connections()?
+        .list_by_provider(super::subject::ADAPTER)
+        .await
+        .map_err(SharedAdapterError::Db)?;
     match rows.len() {
         0 => Err(SharedAdapterError::AdapterNotConfigured(
             "No Linear workspace installed — run the Linear OAuth install first".into(),
@@ -170,7 +175,7 @@ pub(super) async fn api_for_single_workspace(
         .into()),
         1 => {
             adapter
-                .agent_api_for_transport(&rows[0].0, &rows[0].1)
+                .agent_api_for_transport(&rows[0].scope_value, &rows[0].transport_config)
                 .await
         }
         _ => Err(SharedAdapterError::BadRequest(

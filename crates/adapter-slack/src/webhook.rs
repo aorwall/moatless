@@ -14,7 +14,8 @@ use moatless_loops::adapters::models::{AccessDecision, MessageTrigger};
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::AdapterKind;
-use moatless_core::db::DbPool;
+
+use moatless_backend_core::identity::ProviderIdentityLink;
 
 use super::access::enforce_slack_access;
 use super::api::SlackApi;
@@ -25,7 +26,7 @@ use super::config::SlackAdapterConfig;
 pub(super) struct NormalizeContext<'a> {
     pub(super) config: &'a LoopContext,
     pub(super) api: &'a SlackApi,
-    pub(super) db: &'a DbPool,
+    pub(super) users: &'a dyn ProviderIdentityLink,
     pub(super) bot_user_id: Option<&'a str>,
     /// True when the event is a reply in a thread a Binding already tracks,
     /// which bypasses the trigger filter.
@@ -65,7 +66,11 @@ pub(super) enum Effect {
 /// Apply what normalization decided, best-effort and in order: neither effect
 /// can fail a delivery, and a re-delivery repeats both exactly as it repeats
 /// the normalization that produced them.
-pub(super) async fn apply_effects(api: &SlackApi, db: &DbPool, effects: &[Effect]) {
+pub(super) async fn apply_effects(
+    api: &SlackApi,
+    users: &dyn ProviderIdentityLink,
+    effects: &[Effect],
+) {
     for effect in effects {
         match effect {
             Effect::PostNotice {
@@ -78,7 +83,7 @@ pub(super) async fn apply_effects(api: &SlackApi, db: &DbPool, effects: &[Effect
             Effect::CacheProviderId {
                 user_id,
                 slack_user_id,
-            } => auth::cache_provider_id(db, *user_id, slack_user_id).await,
+            } => auth::cache_provider_id(users, *user_id, slack_user_id).await,
         }
     }
 }
@@ -376,7 +381,7 @@ pub(super) async fn normalize(
     // `allow_bot_messages` on — stays flagged as a bot for the rest of the way.
     let (mapped_user, sender_email, sender_handle) = match auth::resolve_inbound_sender(
         ctx.api,
-        ctx.db,
+        ctx.users,
         event.user,
         slack_config.allow_bot_messages,
         is_bot_message,

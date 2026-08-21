@@ -36,17 +36,15 @@ use crate::secrets::{
 };
 use moatless_types::repository::RepositoryProvider as GitHostProvider;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
-use moatless_types::user::UserRole;
-use moatless_identity::auth::users::UserDao;
 use moatless_identity::git_host_repo::GitHostRepo;
 use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
 use crate::lifecycle::orchestrator::SandboxShape;
+use moatless_backend_core::identity::CommitIdentity;
 use moatless_backend_core::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
+use moatless_backend_core::workspace::{WorkspaceCredentialReader, WorkspaceResolver};
 use moatless_types::task::Task;
 use moatless_types::repository::{RepositoryKind, RepositoryProvider};
-use moatless_workspaces::repository::models::Repository;
-use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
+use moatless_types::repository::Repository;
 
 /// The exact set of credential-resolution dependencies the preflight consumes.
 /// Assembled once at the composition root and consumed by `RealPreflight`,
@@ -58,15 +56,15 @@ pub struct PreflightCredentials {
     /// The one way to a git-host token. Replaces the five credential ports
     /// this struct used to thread.
     pub git_host_tokens: Arc<GitHostTokens>,
-    pub users: Arc<dyn UserDao>,
+    pub users: Arc<dyn CommitIdentity>,
     /// Read for the Workspace's run-as identity, which outranks the task's own
     /// owner — see `secrets::resolve_task_actor`.
-    pub workspaces: Arc<dyn WorkspaceDao>,
+    pub workspaces: Arc<dyn WorkspaceResolver>,
     pub credential_sync: Arc<dyn CodexCredentials>,
     /// Provider credentials pinned to the task's Workspace. Read here as well
     /// as at runtime so preflight validates the token the sandbox will actually
     /// be handed, not the one it would have had without the override.
-    pub workspace_credentials: Arc<WorkspaceCredentialService>,
+    pub workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
 }
 
 /// Failure modes for the pre-flight check.
@@ -194,7 +192,7 @@ impl PreflightPort for RealPreflight {
 /// probe, and crash-loops. Evaluating the identical predicate here turns that
 /// into one error before any infrastructure exists.
 pub async fn preflight_validate_task_control(
-    users: &dyn UserDao,
+    users: &dyn CommitIdentity,
     task: &Task,
 ) -> Result<(), PreflightError> {
     let user_id = task.created_by.as_deref().unwrap_or("system");
@@ -207,7 +205,7 @@ pub async fn preflight_validate_task_control(
 /// (`auto_provision::build_provision_request`), so that is the identity checked
 /// here — not `run_as_user_id`, which is what the pod acts as outward.
 pub async fn preflight_validate_sandbox_control(
-    users: &dyn UserDao,
+    users: &dyn CommitIdentity,
     sandbox_id: &str,
     shape: &SandboxShape,
 ) -> Result<(), PreflightError> {
@@ -217,7 +215,7 @@ pub async fn preflight_validate_sandbox_control(
 }
 
 async fn validate_control(
-    users: &dyn UserDao,
+    users: &dyn CommitIdentity,
     task_id: &str,
     user_id: &str,
     resource: &ScopedResource,
@@ -237,13 +235,12 @@ async fn validate_control(
     })
 }
 
-/// Platform-admin lookup, mirroring the gRPC control gate: a non-uuid id (the
-/// `system` sentinel, a `bot:` value) or a failed read is "not admin".
-async fn is_platform_admin(users: &dyn UserDao, user_id: &str) -> bool {
-    let Ok(uuid) = user_id.parse::<uuid::Uuid>() else {
-        return false;
-    };
-    matches!(users.get_user(&uuid).await, Ok(Some(u)) if u.role == UserRole::Admin)
+/// Platform-admin lookup, mirroring the gRPC control gate: an id that names no
+/// user (the `system` sentinel, a `bot:` value) or a failed read is "not
+/// admin". The port keeps those two apart; the control gate deliberately does
+/// not, because neither grants admin.
+async fn is_platform_admin(users: &dyn CommitIdentity, user_id: &str) -> bool {
+    users.is_platform_admin(user_id).await.unwrap_or(false)
 }
 
 /// Verify the GitHub token + repo access before provisioning a sandbox.
@@ -458,13 +455,18 @@ mod tests {
         }
     }
 
-    /// A `UserDao` that reports one role for every lookup.
-    fn users_with_role(role: UserRole) -> moatless_identity::auth::users::MockUserDao {
+    use moatless_types::user::UserRole;
+
+    /// A `CommitIdentity` over a store that reports one role for every lookup.
+    fn users_with_role(role: UserRole) -> moatless_identity::ports::UserDirectory {
         let mut users = moatless_identity::auth::users::MockUserDao::new();
         users
             .expect_get_user()
             .returning(move |id| Ok(Some(user(id, role))));
-        users
+        moatless_identity::ports::UserDirectory::new(
+            Arc::new(users),
+            Arc::new(moatless_identity::auth::test_support::StubProviderTokens::default()),
+        )
     }
 
     /// The bug this gate exists for: a global loop firing as a bot yielded a
@@ -530,8 +532,12 @@ mod tests {
     /// a uuid and so never resolves to an admin.
     #[tokio::test]
     async fn a_creatorless_task_is_rejected() {
-        let mut users = moatless_identity::auth::users::MockUserDao::new();
-        users.expect_get_user().never();
+        let mut store = moatless_identity::auth::users::MockUserDao::new();
+        store.expect_get_user().never();
+        let users = moatless_identity::ports::UserDirectory::new(
+            Arc::new(store),
+            Arc::new(moatless_identity::auth::test_support::StubProviderTokens::default()),
+        );
         let task = task(Scope::User, None, None);
 
         assert!(

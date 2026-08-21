@@ -43,7 +43,7 @@ pub async fn github_webhook(
     match super::ingress::receive(
         github_pr_provider.require_adapter_connections()?,
         github_pr_provider.require_loops()?,
-        github_pr_provider.require_db()?,
+        github_pr_provider.require_users()?,
         github_pr_provider.require_task_bindings()?,
         github_pr_provider.require_adapter_delivery()?,
         &github_pr_provider,

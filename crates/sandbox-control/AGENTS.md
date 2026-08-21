@@ -16,11 +16,19 @@ provider SDK (`kube`/`bollard`) — its error type boxes any provider error behi
 - `SandboxRuntime` (`lifecycle/runtime.rs`) is the provider mutation port. The
   provider crates implement it natively and return `RuntimeOutcome`; provider
   adapters do not publish lifecycle events.
+- The workspace domain is reached only through the ports
+  `moatless-backend-core` declares (`WorkspaceResolver`,
+  `WorkspaceCredentialReader`), and identity only through `CommitIdentity` /
+  `HarnessCredentials`. `moatless-workspaces` is a **dev-dependency** here, for
+  the one `db-tests` plan test that assembles `ProvisionDeps` from a pool. Adding
+  it under `[dependencies]` re-opens the edge these ports exist to close.
 - The read-only seams are split by audience. The T3 contract ports
-  (`SandboxObserver`, `SandboxConnector`, `SandboxIntentReader`,
-  `SandboxStarter`, `SandboxStopper`) are declared once in
-  `moatless-backend-core` (`sandbox` module) so `backend` and `crates/t3code`
-  share one vocabulary; the provider adapters implement them and narrow backend
+  (`SandboxObserver`, `SandboxIntentReader`, `SandboxStarter`,
+  `SandboxStopper`) are declared once in `moatless-backend-core` (`sandbox`
+  module) so `backend` and `crates/t3code` share one vocabulary;
+  `SandboxConnector` is declared in `sandbox-proto` (`client` module) beside the
+  `SandboxClient` it hands out, and this crate re-exports it from
+  `client.rs`. The provider adapters implement them and narrow backend
   types to the contract through the backend's `t3code::projection`.
   `status_reader.rs`'s `SandboxStatusReader` is the rich read (the 13-field
   `SandboxStatusFullResponse`, live status, and log streams) the HTTP routes
@@ -61,8 +69,9 @@ provider SDK (`kube`/`bollard`) — its error type boxes any provider error behi
 - The reconciler is the desired-vs-actual recovery owner. It handles
   woken-ready pending messages, removed-intent orphans, abandoned edges, and
   matching replacement generations.
-- `classify_grpc_error()` must retain the underlying `tonic::Status` as the
-  error source while mapping client-visible status codes.
+- `classify_grpc_error()` (declared in `sandbox-proto`, re-exported from
+  `client.rs`) must retain the underlying `tonic::Status` as the error source
+  while mapping client-visible status codes.
 - Provision-plan construction and expected-image selection stay behind lifecycle
   and the concrete runtime adapters.
 - Provision-plan construction must reject tasks whose sandbox identity cannot

@@ -31,17 +31,12 @@ uuid = { version = "1", features = ["v4", "serde"] }
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 
-moatless-adapter-model = { path = "../adapter-model" }
 moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
 moatless-core = { path = "../core", features = ["openapi"] }
 moatless-identity = { path = "../identity" }
 moatless-types = { path = "../types" }
 moatless-workspaces = { path = "../workspaces" }
-# Shared gRPC wire vocabulary (proto types). The reaper's consumer-owned
-# `AgentStatusPort` returns `sandbox_proto::GetAgentStatusResponse`; a low-band
-# shared crate, so naming it from the tasks band is a legal downward edge.
-sandbox-proto = { path = "../sandbox-proto" }
 
 [features]
 # Exposes the `#[cfg(any(test, feature = "test-support"))]` DAO mocks and the

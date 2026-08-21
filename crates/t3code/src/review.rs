@@ -26,7 +26,8 @@ use super::projection;
 use super::workspace::{self, WorkspaceAccessError};
 use crate::data::T3WorkspaceDao;
 use moatless_api_schemas::repository::{BranchEntry, BranchListResponse};
-use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_grpc_error};
+use moatless_backend_core::sandbox::SandboxError;
+use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 use moatless_types::access_control::ScopeContext;
 use sandbox_proto::{GetGitDiffPreviewResponse, GetGitStatusResponse, ListGitRefsResponse};
 
@@ -1066,14 +1067,14 @@ mod tests {
         assert!(refs_are_quiet(&WorkspaceAccessError::Sandbox(
             SandboxError::Unsupported {
                 operation: "list_git_refs".into(),
-                source: tonic::Status::unimplemented("unknown method"),
+                source: Box::new(tonic::Status::unimplemented("unknown method")),
             }
         )));
 
         assert!(!refs_are_quiet(&WorkspaceAccessError::Sandbox(
             SandboxError::Grpc {
                 operation: "list_git_refs".into(),
-                source: tonic::Status::internal("boom"),
+                source: Box::new(tonic::Status::internal("boom")),
             }
         )));
         assert!(!refs_are_quiet(&WorkspaceAccessError::Database(

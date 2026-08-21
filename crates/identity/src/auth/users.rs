@@ -91,6 +91,15 @@ pub trait UserDao: Send + Sync {
         provider: &str,
         provider_user_id: &str,
     ) -> Result<(), sqlx::Error>;
+    /// Record `provider_user_id` only when the user holds no id at `provider`
+    /// yet. For a caller caching what it just resolved: a link already there was
+    /// established deliberately and outranks a fresh sighting.
+    async fn insert_provider_id_if_absent(
+        &self,
+        user_id: &Uuid,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> Result<bool, sqlx::Error>;
     async fn get_provider_id(
         &self,
         user_id: &Uuid,
@@ -273,6 +282,25 @@ impl UserDao for PgUserDao {
         .execute(&self.0)
         .await?;
         Ok(())
+    }
+
+    async fn insert_provider_id_if_absent(
+        &self,
+        user_id: &Uuid,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"INSERT INTO user_provider_ids (user_id, provider, provider_user_id)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id, provider) DO NOTHING"#,
+        )
+        .bind(user_id)
+        .bind(provider)
+        .bind(provider_user_id)
+        .execute(&self.0)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     async fn get_provider_id(

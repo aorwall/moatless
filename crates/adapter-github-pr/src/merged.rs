@@ -178,7 +178,7 @@ impl GithubPrInboundRouter {
             source_id: rule.source_matcher.clone(),
             thread_id: Some(merged.pr_number.to_string()),
             message_thread_id: merged.pr_number.to_string(),
-            user_id: super::auth::resolve_sender_user(&merged.merged_by, rule, &self.db).await,
+            user_id: super::auth::resolve_sender_user(&merged.merged_by, rule, self.users.as_ref()).await,
             author: moatless_loops::adapters::models::author_handle(&merged.merged_by),
             text: merged_text(merged, &execution.owner, &execution.repo),
             file_ids: vec![],

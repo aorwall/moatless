@@ -25,7 +25,6 @@ use tokio::sync::Mutex;
 use tracing::{debug, info};
 
 use moatless_types::access_control::ScopeContext;
-use moatless_core::db::DbPool;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::provider_tokens::{
@@ -103,9 +102,6 @@ pub struct CredentialService {
     /// purely for serialization. Auto-evicted after the TTL so inactive
     /// users' locks don't accumulate forever.
     locks: moka::future::Cache<(String, String), Arc<Mutex<()>>>,
-    /// PostgreSQL pool for the Codex refresh path (advisory lock + CAS + raw
-    /// `metadata` updates that don't fit the trait DAO).
-    pub(in crate::credentials) db: Option<DbPool>,
     /// Shared HTTP client for the Codex refresh path. Reused so connection
     /// pools are warm across refreshes.
     pub(in crate::credentials) http: Option<Arc<reqwest::Client>>,
@@ -125,7 +121,6 @@ impl CredentialService {
             provider_tokens,
             secrets: None,
             locks,
-            db: None,
             http: None,
         }
     }
@@ -137,13 +132,12 @@ impl CredentialService {
         self
     }
 
-    /// Wire in the Postgres pool + HTTP client used by the Codex refresh path.
+    /// Wire in the HTTP client the Codex refresh path calls OpenAI with.
     ///
-    /// Call sites that don't need Codex refresh (e.g. unit tests) can leave
-    /// these unset; `refresh_codex_locked` then falls back to a raw read.
+    /// Call sites that don't need Codex refresh (e.g. unit tests) can leave it
+    /// unset; `refresh_codex_locked` then falls back to a raw read.
     #[must_use]
-    pub fn with_codex_refresh(mut self, db: DbPool, http: Arc<reqwest::Client>) -> Self {
-        self.db = Some(db);
+    pub fn with_codex_refresh(mut self, http: Arc<reqwest::Client>) -> Self {
         self.http = Some(http);
         self
     }
@@ -286,6 +280,7 @@ impl CredentialService {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use moatless_identity::auth::provider_token_dao::{CodexBlobOutcome, CodexBlobRefresher};
     use moatless_types::agent::CodexScope;
     use moatless_identity::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
     use std::collections::HashMap;
@@ -308,6 +303,50 @@ mod tests {
 
     #[async_trait]
     impl ProviderTokenDao for InMemoryTokens {
+    async fn find_user_by_provider_login(
+        &self,
+        _provider: &str,
+        _provider_login: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn find_user_by_provider_account(
+        &self,
+        _provider: &str,
+        _provider_user_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn find_app_token(&self, _provider: &str) -> Result<Option<ProviderToken>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn upsert_app_token(
+        &self,
+        _provider: &str,
+        _access_token: &str,
+        _refresh_token: Option<&str>,
+        _token_type: Option<&str>,
+        _metadata: Option<&serde_json::Value>,
+        _expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn refresh_codex_blob(
+        &self,
+        _scope: &CodexScope,
+        _refresher: &(dyn CodexBlobRefresher + '_),
+    ) -> Result<Option<CodexBlobOutcome>, sqlx::Error> {
+        Ok(None)
+    }
+
         async fn find_provider_token(
             &self,
             user_id: &str,

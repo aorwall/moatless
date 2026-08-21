@@ -172,7 +172,8 @@ impl From<AdapterError> for AdapterDeliveryFailure {
             AdapterError::RepositoryCredential { .. }
             | AdapterError::UserCredential { .. }
             | AdapterError::TaskCreation(_)
-            | AdapterError::MessageDelivery(_) => Self::retryable(error),
+            | AdapterError::MessageDelivery(_)
+            | AdapterError::Store(_) => Self::retryable(error),
             // Transient: infrastructure, the upstream sender, our own capacity,
             // a message this process synthesized for a condition it could not
             // classify, or a provider we never reached / could not decode —

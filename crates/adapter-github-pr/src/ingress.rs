@@ -9,7 +9,6 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
-use moatless_core::db::DbPool;
 
 use moatless_loops::adapters::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore};
@@ -17,7 +16,8 @@ use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch};
 use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_loops::bindings::dao::TaskBindingDao;
 
 use super::adapter::GithubPrAdapter;
 use super::config::GithubPrRuleConfig;
@@ -61,7 +61,7 @@ fn ingress(e: AdapterError) -> IngressError {
 pub(crate) async fn receive(
     adapter_connections: &dyn AdapterConnectionDao,
     loops: &LoopDao,
-    db: &DbPool,
+    users: &dyn ProviderIdentityLink,
     task_bindings: &Arc<dyn TaskBindingDao>,
     adapter_delivery: &AdapterDeliveryStore,
     github_provider: &GithubPrAdapter,
@@ -210,7 +210,7 @@ pub(crate) async fn receive(
             repo,
             sender_login,
             frontend_url: github_provider.frontend_url(),
-            db,
+            users,
         },
     )
     .await;

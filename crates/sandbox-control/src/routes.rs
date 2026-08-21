@@ -15,7 +15,7 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::status_reader::SandboxStatusReader;
-use moatless_backend_core::sandbox::SandboxConnector;
+use crate::client::SandboxConnector;
 use super::file_handlers;
 use super::handlers;
 use super::lifecycle::Lifecycle;

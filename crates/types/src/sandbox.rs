@@ -402,6 +402,62 @@ pub struct ResourcesEventPayload {
     pub message: String,
 }
 
+/// Which container runtime a sandbox is running on.
+///
+/// The contract classifies a provider failure by runtime instead of naming the
+/// runtime's own error type, so a caller can depend on this contract without
+/// compiling `kube` or `bollard`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderKind {
+    Kubernetes,
+    Docker,
+}
+
+impl fmt::Display for ProviderKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Kubernetes => "Kubernetes",
+            Self::Docker => "Docker",
+        })
+    }
+}
+
+/// A sandbox operation failure, in the vocabulary every band shares.
+///
+/// The two transport variants box their source so this crate names no gRPC
+/// type: a caller either matches the variant or moves `source` into its own
+/// error's `#[source]`, and the underlying status still reaches a log through
+/// the rendered source chain.
+#[derive(Debug, thiserror::Error)]
+pub enum SandboxError {
+    #[error("sandbox not ready: {0}")]
+    NotReady(String),
+    #[error("not found: {0}")]
+    NotFound(String),
+    #[error("bad request: {0}")]
+    BadRequest(String),
+    #[error("unsupported sandbox operation {operation}: {source}")]
+    Unsupported {
+        operation: String,
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    #[error("sandbox gRPC error in {operation}: {source}")]
+    Grpc {
+        operation: String,
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    #[error("sandbox client error: {0}")]
+    GrpcClient(String),
+    /// The container runtime under a sandbox failed. `kind` says which runtime,
+    /// and `message` is the description that runtime's boundary already
+    /// rendered — it carries no credential or wire detail, because the boundary
+    /// is the only place that sees them.
+    #[error("{message}")]
+    Provider { kind: ProviderKind, message: String },
+    #[error("{0}")]
+    Other(String),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,6 +567,48 @@ mod tests {
     fn server_sub_type_try_from() {
         assert_eq!(ServerSubType::try_from("failed"), Ok(ServerSubType::Failed));
         assert!(ServerSubType::try_from("nah").is_err());
+    }
+
+    /// The classification is the machine-readable half; the message is what a
+    /// caller renders or logs, and it reads the same whichever runtime failed.
+    #[test]
+    fn a_provider_failure_renders_its_message_and_keeps_its_kind() {
+        for (kind, message) in [
+            (
+                ProviderKind::Kubernetes,
+                "Kubernetes API error: 404 Not Found",
+            ),
+            (ProviderKind::Docker, "Docker API error during inspect"),
+        ] {
+            let err = SandboxError::Provider {
+                kind,
+                message: message.to_string(),
+            };
+            assert_eq!(err.to_string(), message);
+            assert!(matches!(err, SandboxError::Provider { kind: k, .. } if k == kind));
+        }
+    }
+
+    #[test]
+    fn provider_kinds_name_their_runtime() {
+        assert_eq!(ProviderKind::Kubernetes.to_string(), "Kubernetes");
+        assert_eq!(ProviderKind::Docker.to_string(), "Docker");
+    }
+
+    /// A boxed transport source stays reachable through `Error::source`, which
+    /// is how the underlying status reaches a log.
+    #[test]
+    fn a_transport_failure_keeps_its_source_in_the_chain() {
+        let err = SandboxError::Grpc {
+            operation: "read_file".to_string(),
+            source: Box::new(std::io::Error::other("boom")),
+        };
+        assert!(err.to_string().contains("read_file"));
+        assert_eq!(
+            std::error::Error::source(&err).map(ToString::to_string),
+            Some("boom".to_string()),
+            "the transport status stays on the source chain"
+        );
     }
 }
 

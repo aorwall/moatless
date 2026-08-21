@@ -1005,7 +1005,7 @@ impl SandboxStatusReader for K8sSandboxAdapter {
 }
 
 #[async_trait]
-impl core_sandbox::SandboxConnector for K8sSandboxAdapter {
+impl moatless_sandbox_control::client::SandboxConnector for K8sSandboxAdapter {
     async fn sandbox_client(
         &self,
         task_id: &str,

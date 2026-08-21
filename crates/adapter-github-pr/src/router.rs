@@ -18,17 +18,16 @@
 
 use std::sync::Arc;
 
-use moatless_core::db::DbPool;
 
+use moatless_backend_core::task::{TaskReader, TranscriptAppend};
 use moatless_loops::adapters::dao::AdapterConnectionDao;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::message::dao::MessageDao;
 use moatless_tasks::message::send::MessageSendService;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_tasks::task::closer::TaskCloser;
 use moatless_tasks::task::creation::TaskCreationService;
-use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::relations::TaskRelationDao;
 
 use super::adapter::GithubPrAdapter;
@@ -42,18 +41,17 @@ pub struct GithubPrInboundRouter {
     pub(super) loops: Arc<LoopDao>,
     /// Task↔subject bindings — selection, upsert, sibling guard, cursor bumps.
     pub(super) task_bindings: Arc<dyn TaskBindingDao>,
+    /// Resolves an inbound GitHub handle to the system user it belongs to.
+    pub(super) users: Arc<dyn ProviderIdentityLink>,
     /// Generic fan-out + external-id aliasing.
     pub(super) routing: Arc<RoutingService>,
     /// External-event-id → task lookup for author attachment.
-    pub(super) messages: Arc<dyn MessageDao>,
+    pub(super) messages: Arc<dyn TranscriptAppend>,
     /// Records the related-to relation on review-task spawn.
     pub(super) task_relations: Arc<dyn TaskRelationDao>,
     /// Push-echo dedup — which task claimed a `synchronize` sha.
     /// Task rows — the close pre-check (already-closed / not-found skip).
-    pub(super) tasks: Arc<dyn TaskDao>,
-    /// Sender-user resolution for the synthetic close-notice message, and the
-    /// durable-work credential the merge / post-merge handlers authenticate with.
-    pub(super) db: DbPool,
+    pub(super) tasks: Arc<dyn TaskReader>,
     /// The shared task-creation spine (review-task spawn).
     pub(super) task_creation: Arc<TaskCreationService>,
     /// Delivers the PR-close notice into a bound task's chat.
@@ -77,11 +75,11 @@ impl GithubPrInboundRouter {
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
         task_bindings: Arc<dyn TaskBindingDao>,
+        users: Arc<dyn ProviderIdentityLink>,
         routing: Arc<RoutingService>,
-        messages: Arc<dyn MessageDao>,
+        messages: Arc<dyn TranscriptAppend>,
         task_relations: Arc<dyn TaskRelationDao>,
-        tasks: Arc<dyn TaskDao>,
-        db: DbPool,
+        tasks: Arc<dyn TaskReader>,
         task_creation: Arc<TaskCreationService>,
         message_send: Arc<MessageSendService>,
         task_closer: Arc<TaskCloser>,
@@ -91,11 +89,11 @@ impl GithubPrInboundRouter {
             adapter_connections,
             loops,
             task_bindings,
+            users,
             routing,
             messages,
             task_relations,
             tasks,
-            db,
             task_creation,
             message_send,
             task_closer,

@@ -668,7 +668,7 @@ impl SandboxStatusReader for DockerSandboxAdapter {
 }
 
 #[async_trait]
-impl core_sandbox::SandboxConnector for DockerSandboxAdapter {
+impl moatless_sandbox_control::client::SandboxConnector for DockerSandboxAdapter {
     async fn sandbox_client(
         &self,
         task_id: &str,

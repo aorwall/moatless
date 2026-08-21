@@ -17,7 +17,7 @@ use std::fmt::Write as _;
 use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
 
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
 
 use super::webhook_payloads::{AgentSession, IssuePayload};
 
@@ -83,7 +83,7 @@ fn format_attachment_title(prefix: &str, name: Option<&str>) -> String {
 }
 
 pub(super) async fn task_attachment_title(
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     task_id: &str,
     prefix: &str,
 ) -> String {
@@ -92,7 +92,7 @@ pub(super) async fn task_attachment_title(
         reason = "attachment title fetch is a background formatting step, no caller identity"
     )]
     let sys = ScopeContext::system();
-    match tasks.find_by_id(task_id, &sys).await {
+    match tasks.describe(task_id, &sys).await {
         Ok(Some(task)) => format_attachment_title(prefix, task.name.as_deref()),
         Ok(None) => prefix.to_string(),
         Err(e) => {

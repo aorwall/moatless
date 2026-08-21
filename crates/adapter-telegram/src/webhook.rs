@@ -15,7 +15,7 @@ use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::AccessDecision;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
-use moatless_core::db::DbPool;
+use moatless_backend_core::identity::ProviderIdentityLink;
 
 use super::access::{self, DmDecision, DmSender};
 use super::config::TelegramAdapterConfig;
@@ -24,7 +24,7 @@ use super::config::TelegramAdapterConfig;
 pub(super) struct NormalizeContext<'a> {
     pub(super) config: &'a LoopContext,
     pub(super) tg_config: &'a TelegramAdapterConfig,
-    pub(super) db: &'a DbPool,
+    pub(super) users: &'a dyn ProviderIdentityLink,
     pub(super) is_private_chat: bool,
 }
 
@@ -204,7 +204,7 @@ pub(super) async fn normalize(
 
     // 8. Resolve Telegram user → system user (fall back to config owner for unmapped users)
     let from_id_str = from_id.to_string();
-    let user_id = if let Some(uid) = super::auth::resolve_sender(&from_id_str, ctx.db).await? {
+    let user_id = if let Some(uid) = super::auth::resolve_sender(&from_id_str, ctx.users).await? {
         uid
     } else {
         info!(

@@ -38,6 +38,9 @@
 use tracing::{info, warn};
 
 use moatless_core::config::Config;
+use std::sync::Arc;
+
+use moatless_backend_core::identity::AppCredentials;
 use moatless_core::db::DbPool;
 
 use moatless_loops::adapters::dao::AdapterConnectionDao;
@@ -176,6 +179,7 @@ pub async fn receive(
     adapter_connections: &dyn AdapterConnectionDao,
     loops: &LoopDao,
     db: &DbPool,
+    app_tokens: &Arc<dyn AppCredentials>,
     config: &Config,
     adapter_delivery: &AdapterDeliveryStore,
     provider: &LinearAdapter,
@@ -210,6 +214,7 @@ pub async fn receive(
         adapter_connections,
         loops,
         db,
+        app_tokens,
         config,
         adapter_delivery,
         provider,
@@ -233,6 +238,7 @@ async fn dispatch(
     adapter_connections: &dyn AdapterConnectionDao,
     loops: &LoopDao,
     db: &DbPool,
+    app_tokens: &Arc<dyn AppCredentials>,
     config: &Config,
     adapter_delivery: &AdapterDeliveryStore,
     provider: &LinearAdapter,
@@ -322,11 +328,11 @@ async fn dispatch(
         // terminal activity — close the session here instead. The heartbeat is
         // deliberately skipped: it would only keep the panel `active` before
         // the `error` that immediately follows.
-        decline_sessions(db, config, &connection, &effects).await;
+        decline_sessions(db, app_tokens, config, &connection, &effects).await;
         return Ok(ignored(envelope, reason::NO_SUBSCRIPTION));
     }
 
-    apply(db, config, &connection, &effects).await;
+    apply(db, app_tokens, config, &connection, &effects).await;
 
     let mut kinds = Vec::with_capacity(requests.len());
     for request in requests {
@@ -398,11 +404,17 @@ async fn requirement_met(
 /// Best-effort by construction: an effect is a notice about work that is about
 /// to be admitted, so a failure to post it is logged and the delivery carries
 /// on. Nothing here decides anything.
-async fn apply(db: &DbPool, config: &Config, connection: &AdapterConnection, effects: &[Effect]) {
+async fn apply(
+    db: &DbPool,
+    app_tokens: &Arc<dyn AppCredentials>,
+    config: &Config,
+    connection: &AdapterConnection,
+    effects: &[Effect],
+) {
     if effects.is_empty() {
         return;
     }
-    let api = match super::auth::api_for_connection(db, config, connection).await {
+    let api = match super::auth::api_for_connection(db, app_tokens.clone(), config, connection).await {
         Ok(api) => api,
         Err(e) => {
             warn!(error = %e, "Failed to resolve Linear app config for webhook effect");
@@ -430,6 +442,7 @@ async fn apply(db: &DbPool, config: &Config, connection: &AdapterConnection, eff
 /// failure is logged and the drop carries on.
 async fn decline_sessions(
     db: &DbPool,
+    app_tokens: &Arc<dyn AppCredentials>,
     config: &Config,
     connection: &AdapterConnection,
     effects: &[Effect],
@@ -437,7 +450,7 @@ async fn decline_sessions(
     if effects.is_empty() {
         return;
     }
-    let api = match super::auth::api_for_connection(db, config, connection).await {
+    let api = match super::auth::api_for_connection(db, app_tokens.clone(), config, connection).await {
         Ok(api) => api,
         Err(e) => {
             warn!(error = %e, "Failed to resolve Linear app config to decline session");

@@ -2,8 +2,8 @@
 
 use tracing::{info, warn};
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_core::db::DbPool;
+use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_loops::adapters::error::AdapterError;
 
 /// The system user a Telegram sender is linked to, if any.
 ///
@@ -12,18 +12,13 @@ use moatless_core::db::DbPool;
 /// Bot API call, which is what keeps `webhook::normalize` clientless.
 pub(super) async fn resolve_sender(
     telegram_user_id: &str,
-    db: &DbPool,
+    users: &dyn ProviderIdentityLink,
 ) -> Result<Option<String>, AdapterError> {
-    // Look up by provider_user_id in provider_tokens table
-    let row: Option<(String,)> = sqlx::query_as(
-        "SELECT user_id FROM provider_tokens WHERE provider = 'telegram' AND provider_user_id = $1 LIMIT 1",
-    )
-    .bind(telegram_user_id)
-    .fetch_optional(db)
-    .await
-    .map_err(SharedAdapterError::Db)?;
+    let row = users
+        .user_who_connected(super::delivery::ADAPTER, telegram_user_id)
+        .await?;
 
-    if let Some((user_id,)) = row {
+    if let Some(user_id) = row {
         info!(telegram_user_id = %telegram_user_id, user_id = %user_id, "Resolved Telegram user to system user");
         Ok(Some(user_id))
     } else {

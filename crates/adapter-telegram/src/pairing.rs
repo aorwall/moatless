@@ -133,15 +133,23 @@ pub async fn list_pending(db: &DbPool, loop_id: &str) -> Result<Vec<PairingReque
 /// List all pending pairing requests for loops owned by the given user.
 pub async fn list_pending_for_user(
     db: &DbPool,
+    loops: &LoopDao,
     user_id: &str,
 ) -> Result<Vec<PairingRequest>, AdapterError> {
+    // The owner filter is the Loop domain's fact, so it is asked for rather
+    // than joined: this crate owns `integration_pairing_requests` and nothing
+    // else.
+    let loop_ids = loops
+        .ids_created_by(user_id)
+        .await
+        .map_err(SharedAdapterError::Db)?;
+
     let rows: Vec<PairingRequest> = sqlx::query_as(
-        "SELECT p.* FROM integration_pairing_requests p \
-         JOIN loops t ON t.id = p.loop_id \
-         WHERE t.created_by = $1 AND p.status = 'pending' \
-         ORDER BY p.created_at DESC",
+        "SELECT * FROM integration_pairing_requests \
+         WHERE loop_id = ANY($1) AND status = 'pending' \
+         ORDER BY created_at DESC",
     )
-    .bind(user_id)
+    .bind(&loop_ids)
     .fetch_all(db)
     .await
     .map_err(SharedAdapterError::Db)?;

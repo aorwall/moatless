@@ -16,12 +16,10 @@ use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::bindings::outbound::{self, OutboundSender};
 use crate::bindings::recently_sent::RecentlySent;
 use crate::loops::dao::LoopDao;
-use moatless_tasks::message::dao::MessageDao;
-use moatless_tasks::message::models::{MessageRole, MessageType, TaskMessage};
-use moatless_tasks::task::binding_dao::TaskBindingDao;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_tasks::task_activities::mapping::ConversationWrite;
-use moatless_tasks::task_turn::dao::TaskTurnDao;
+use crate::bindings::dao::TaskBindingDao;
+use moatless_backend_core::task::{
+    ExternalEvent, TaskReader, TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TurnCounter,
+};
 
 /// Reply delivery for external threads, owning the ports its two entry points
 /// read rather than borrowing the whole `AppState`. Composed once and held on
@@ -32,11 +30,11 @@ pub struct ExternalReplyService {
     adapters: Option<Arc<Adapters>>,
     task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
-    messages: Arc<dyn MessageDao>,
-    tasks: Arc<dyn TaskDao>,
+    messages: Arc<dyn TranscriptAppend>,
+    tasks: Arc<dyn TaskReader>,
     loops: Arc<LoopDao>,
     recently_sent: Arc<RecentlySent>,
-    task_turns: Arc<dyn TaskTurnDao>,
+    task_turns: Arc<dyn TurnCounter>,
     outbound: Arc<OutboundSender>,
 }
 
@@ -48,11 +46,11 @@ impl ExternalReplyService {
         adapters: Option<Arc<Adapters>>,
         task_bindings: Arc<dyn TaskBindingDao>,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
-        messages: Arc<dyn MessageDao>,
-        tasks: Arc<dyn TaskDao>,
+        messages: Arc<dyn TranscriptAppend>,
+        tasks: Arc<dyn TaskReader>,
         loops: Arc<LoopDao>,
         recently_sent: Arc<RecentlySent>,
-        task_turns: Arc<dyn TaskTurnDao>,
+        task_turns: Arc<dyn TurnCounter>,
         outbound: Arc<OutboundSender>,
     ) -> Self {
         Self {
@@ -258,9 +256,11 @@ impl ExternalReplyService {
                     .messages
                     .set_external_source_metadata(
                         stub_uuid,
-                        external_id,
-                        adapter.provider_key(),
-                        Some(binding.subject_key.as_str()),
+                        &ExternalEvent {
+                            external_id: external_id.clone(),
+                            provider: adapter.provider_key().to_string(),
+                            source_name: Some(binding.subject_key.clone()),
+                        },
                     )
                     .await
                 {
@@ -322,18 +322,17 @@ impl ExternalReplyService {
         task_id: &str,
         text: &str,
     ) -> Result<(), AdapterError> {
-        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let uuid = uuid::Uuid::new_v4().to_string();
         let turn_number = self.task_turns.latest_turn_number(task_id).await?;
-        let mut msg =
-            TaskMessage::new_user_message(task_id.to_string(), uuid, text.to_string(), now);
-        msg.message_type = MessageType::Assistant;
-        msg.message_role = MessageRole::Assistant;
-        msg.user_type = "assistant".to_string();
-        msg.turn_number = turn_number;
-
         self.messages
-            .append(&msg, &[], &ConversationWrite::default())
+            .append(&TranscriptEntry {
+                task_id: task_id.to_string(),
+                uuid: uuid::Uuid::new_v4().to_string(),
+                text: text.to_string(),
+                kind: TranscriptEntryKind::AssistantReply,
+                turn_number,
+                external_adapter: None,
+                external_source_name: None,
+            })
             .await?;
         Ok(())
     }

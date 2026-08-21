@@ -16,14 +16,13 @@
 use tracing::debug;
 
 use moatless_core::config::Config;
-use moatless_core::db::DbPool;
 
 use moatless_loops::adapters::error::AdapterError;
 use moatless_loops::adapters::models::AdapterConnection;
 use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_tasks::task::closer::TaskCloser;
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
 
 use super::agent_api::LinearAgentApi;
 use super::close::close_active_bindings_for_issue;
@@ -45,9 +44,8 @@ use super::webhook_payloads::AppUserNotificationData;
               single AppState it used to carry"
 )]
 pub(super) async fn handle_issue_status_notification(
-    db: &DbPool,
     task_bindings: &dyn TaskBindingDao,
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     config: &Config,
     task_closer: &TaskCloser,
     loops: &LoopDao,
@@ -86,7 +84,6 @@ pub(super) async fn handle_issue_status_notification(
         && rule_config.terminal_states.iter().any(|s| s == state_kind)
     {
         close_active_bindings_for_issue(
-            db,
             task_bindings,
             tasks,
             config,

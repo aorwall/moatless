@@ -6,51 +6,36 @@
 
 use std::sync::Arc;
 
-use moatless_types::access_control::ScopeContext;
 
 use crate::auto_provision::{build_provision_request, get_server_configs_for_workspace};
 use crate::models::ProvisionRequest;
 use moatless_types::workspace::ServerConfig;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::auth::users::UserDao;
-use moatless_workspaces::plugin::dao::PluginDao;
-use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
+use moatless_backend_core::identity::CommitIdentity;
+use moatless_backend_core::workspace::WorkspaceResolver;
 
 use super::error::RuntimeError;
 use super::orchestrator::{LifecycleDao, TaskIntent};
 use super::runtime::map_sandbox_error;
 
-/// Repositories needed to assemble fresh runtime plans and status config.
-/// `sandboxes` is the sole source of a pod's shape; `users` resolves the
-/// platform-admin flag for the control check every plan is gated on.
+/// The three seams a fresh runtime plan is assembled from. `sandboxes` is the
+/// sole source of a pod's shape, `workspaces` supplies its run configuration
+/// and repository placements, and `users` resolves the platform-admin flag for
+/// the control check every plan is gated on.
 #[derive(Clone)]
 pub struct ProvisionDeps {
     sandboxes: Arc<dyn LifecycleDao>,
-    repos: Arc<dyn RepositoryDao>,
-    provider_tokens: Arc<dyn ProviderTokenDao>,
-    plugins: Arc<dyn PluginDao>,
-    workspaces: Arc<dyn WorkspaceDao>,
-    users: Arc<dyn UserDao>,
+    workspaces: Arc<dyn WorkspaceResolver>,
+    users: Arc<dyn CommitIdentity>,
 }
 
 impl ProvisionDeps {
-    /// Assemble from the composed ports. The composition root is the only place
-    /// a `Pg*Dao` is constructed, so this takes the six ports it needs rather
-    /// than a pool.
     pub fn new(
         sandboxes: Arc<dyn LifecycleDao>,
-        repos: Arc<dyn RepositoryDao>,
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-        plugins: Arc<dyn PluginDao>,
-        workspaces: Arc<dyn WorkspaceDao>,
-        users: Arc<dyn UserDao>,
+        workspaces: Arc<dyn WorkspaceResolver>,
+        users: Arc<dyn CommitIdentity>,
     ) -> Self {
         Self {
             sandboxes,
-            repos,
-            provider_tokens,
-            plugins,
             workspaces,
             users,
         }
@@ -59,9 +44,6 @@ impl ProvisionDeps {
     pub async fn build_request(&self, sandbox_id: &str) -> Result<ProvisionRequest, RuntimeError> {
         build_provision_request(
             self.sandboxes.as_ref(),
-            self.repos.as_ref(),
-            self.provider_tokens.as_ref(),
-            self.plugins.as_ref(),
             self.workspaces.as_ref(),
             self.users.as_ref(),
             sandbox_id,
@@ -87,13 +69,9 @@ impl ProvisionDeps {
         default_image: &str,
     ) -> Result<String, RuntimeError> {
         let workspace_id = self.intent(task_id).await?.workspace_id;
-        // reason: image-config lookup resolves across all workspace owners
-        // (lifecycle system path)
-        #[allow(clippy::disallowed_methods)]
-        let sys = ScopeContext::system();
         let image = self
             .workspaces
-            .find_by_id(&workspace_id, &sys)
+            .resolve(&workspace_id)
             .await
             .map_err(|e| RuntimeError::Infrastructure(format!("read workspace image config: {e}")))?
             .and_then(|workspace| workspace.docker_image)
@@ -124,15 +102,21 @@ mod db_tests {
     fn deps_from_pool(pool: &PgPool) -> ProvisionDeps {
         ProvisionDeps::new(
             Arc::new(crate::lifecycle::PgLifecycleDao::new(pool.clone())),
-            Arc::new(moatless_workspaces::repository::dao::PgRepositoryDao(
-                pool.clone(),
+            Arc::new(moatless_workspaces::ports::WorkspaceProjection::new(
+                Arc::new(moatless_workspaces::workspace::dao::PgWorkspaceDao(
+                    pool.clone(),
+                )),
+                Arc::new(moatless_workspaces::repository::dao::PgRepositoryDao(
+                    pool.clone(),
+                )),
+                Arc::new(moatless_workspaces::plugin::dao::PgPluginDao(pool.clone())),
             )),
-            Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(pool.clone())),
-            Arc::new(moatless_workspaces::plugin::dao::PgPluginDao(pool.clone())),
-            Arc::new(moatless_workspaces::workspace::dao::PgWorkspaceDao(
-                pool.clone(),
+            Arc::new(moatless_identity::ports::UserDirectory::new(
+                Arc::new(moatless_identity::auth::users::PgUserDao(pool.clone())),
+                Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(
+                    pool.clone(),
+                )),
             )),
-            Arc::new(moatless_identity::auth::users::PgUserDao(pool.clone())),
         )
     }
 

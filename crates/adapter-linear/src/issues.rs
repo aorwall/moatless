@@ -21,15 +21,14 @@ use std::fmt::Write as _;
 use tracing::{debug, info, warn};
 
 use moatless_core::config::Config;
-use moatless_core::db::DbPool;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
 use moatless_tasks::message::send::MessageSendService;
-use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_tasks::task::closer::TaskCloser;
 use moatless_tasks::task::creation::TaskCreationService;
-use moatless_tasks::task::dao::TaskDao;
+use moatless_backend_core::task::TaskReader;
 use moatless_types::task::Visibility;
 use moatless_backend_core::sandbox::SandboxWaker;
 
@@ -60,9 +59,8 @@ const ADAPTER_LABEL: &str = "linear";
               are un-bagging"
 )]
 pub(super) async fn handle_issue_update(
-    db: &DbPool,
     task_bindings: &dyn TaskBindingDao,
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     config: &Config,
     task_closer: &TaskCloser,
     sandbox_waker: &dyn SandboxWaker,
@@ -114,7 +112,6 @@ pub(super) async fn handle_issue_update(
         && rule_config.terminal_states.iter().any(|s| s == state_kind)
     {
         close_active_bindings_for_issue(
-            db,
             task_bindings,
             tasks,
             config,
@@ -165,7 +162,7 @@ pub(super) async fn handle_issue_update(
 )]
 async fn create_tasks_for_status_entry(
     task_bindings: &dyn TaskBindingDao,
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     config: &Config,
     linear_active_turns: &ActiveLinearTurns,
     task_creation: &TaskCreationService,
@@ -287,7 +284,7 @@ async fn create_tasks_for_status_entry(
 )]
 async fn provision_issue_task(
     task_bindings: &dyn TaskBindingDao,
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     config: &Config,
     linear_active_turns: &ActiveLinearTurns,
     task_creation: &TaskCreationService,
@@ -699,7 +696,7 @@ pub(super) async fn insert_event_task(
 /// created the issue / posted the comment this links back from.
 pub(super) async fn attach_parent_task_link(
     config: &Config,
-    tasks: &dyn TaskDao,
+    tasks: &dyn TaskReader,
     api: &LinearAgentApi,
     issue_uuid: &str,
     task_id: &str,

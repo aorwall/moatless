@@ -11,7 +11,7 @@ use moatless_types::access_control::{ScopeContext, ScopedResource};
 
 use crate::repository::dao::RepositoryDao;
 use moatless_backend_core::access_control::resolve_scope_for_create;
-use moatless_identity::auth::users::UserDao;
+use moatless_backend_core::identity::UserResolver;
 use moatless_identity::extractors::AuthUser;
 
 use super::dao::{WorkspaceDao, WorkspacePatch};
@@ -153,7 +153,7 @@ fn ensure_privileged_sandbox_fields(
 /// acts with just as much as naming one.
 async fn resolve_run_as_user(
     ctx: &ScopeContext,
-    users: &dyn UserDao,
+    users: &dyn UserResolver,
     requested: Option<&String>,
 ) -> Result<Option<Option<String>>, WorkspaceError> {
     let Some(requested) = requested else {
@@ -170,11 +170,11 @@ async fn resolve_run_as_user(
     if requested.is_empty() {
         return Ok(Some(None));
     }
-    let user = match requested.parse::<uuid::Uuid>() {
-        Ok(id) => users.get_user(&id).await?,
-        Err(_) => users.find_user_by_legacy_id(requested).await?,
-    };
-    user.map(|user| Some(Some(user.id.to_string())))
+    users
+        .canonical_id(requested)
+        .await
+        .map_err(|e| WorkspaceError::Db(sqlx::Error::Protocol(e.to_string())))?
+        .map(|id| Some(Some(id.to_string())))
         .ok_or_else(|| {
             WorkspaceError::BadRequest(format!("Run-as user {requested} does not exist"))
         })
@@ -210,7 +210,7 @@ fn ensure_unique_mount_names(placements: &[WorkspaceRepoInput]) -> Result<(), Wo
 pub async fn create_workspace(
     State(workspaces): State<Arc<dyn WorkspaceDao>>,
     State(repositories): State<Arc<dyn RepositoryDao>>,
-    State(users): State<Arc<dyn UserDao>>,
+    State(users): State<Arc<dyn UserResolver>>,
     auth: AuthUser,
     Json(req): Json<CreateWorkspaceRequest>,
 ) -> Result<(StatusCode, Json<WorkspaceResponse>), WorkspaceError> {
@@ -360,7 +360,7 @@ pub async fn get_workspace(
 )]
 pub async fn update_workspace(
     State(workspaces): State<Arc<dyn WorkspaceDao>>,
-    State(users): State<Arc<dyn UserDao>>,
+    State(users): State<Arc<dyn UserResolver>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,
@@ -478,7 +478,7 @@ pub async fn delete_workspace(
 /// Use `POST /{id}/reset-git` to re-enable git sync.
 pub async fn override_workspace(
     State(workspaces): State<Arc<dyn WorkspaceDao>>,
-    State(users): State<Arc<dyn UserDao>>,
+    State(users): State<Arc<dyn UserResolver>>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,

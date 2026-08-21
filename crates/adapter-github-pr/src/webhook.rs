@@ -12,7 +12,7 @@ use moatless_loops::adapters::AdapterKind;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::SubscriptionMatch;
 use moatless_types::adapter::{Audience, InboundMessage};
-use moatless_core::db::DbPool;
+use moatless_backend_core::identity::ProviderIdentityLink;
 
 use super::config::GithubPrRuleConfig;
 use super::signals::ReviewDecision;
@@ -88,7 +88,7 @@ pub(super) struct NormalizeContext<'a> {
     pub(super) repo: &'a str,
     pub(super) sender_login: &'a str,
     pub(super) frontend_url: &'a str,
-    pub(super) db: &'a DbPool,
+    pub(super) users: &'a dyn ProviderIdentityLink,
 }
 
 /// Normalize one GitHub webhook without persistence, API calls, admission, or routing.
@@ -705,7 +705,7 @@ async fn inbound_message(
     external_event_id: String,
 ) -> InboundMessage {
     let user_id =
-        super::auth::resolve_sender_user(context.sender_login, context.rule, context.db).await;
+        super::auth::resolve_sender_user(context.sender_login, context.rule, context.users).await;
     InboundMessage {
         adapter_kind: AdapterKind::GithubPr,
         source_id: context.rule.source_matcher.clone(),
