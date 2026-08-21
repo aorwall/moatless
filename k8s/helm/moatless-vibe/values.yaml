@@ -428,8 +428,10 @@ storage:
     containerName: ""
     # -- Key prefix in container
     keyPrefix: "uploads"
-  # -- Mount path in sandbox containers
-  sandboxMountPath: "/mnt/uploads"
+  # -- Directory in sandbox containers that attached uploads are written to.
+  # Keep it under the sandbox's WORKSPACE_DIR (/opt/moatless/workspace) so
+  # uploads ride the workspace snapshot and survive a sandbox restart.
+  sandboxMountPath: "/opt/moatless/workspace/uploads"
 
 # Application configuration
 config:

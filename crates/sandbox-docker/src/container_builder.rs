@@ -81,6 +81,12 @@ pub fn build_container_config(
         env.push(format!("GIT_BRANCH={branch}"));
     }
 
+    // Where the sandbox writes a message's attached uploads. Passed explicitly
+    // rather than left to the sandbox's own default because the backend renders
+    // the same value into the prompt's "Saved to:" line: two independent
+    // defaults would let the advertised path and the written path drift apart.
+    env.push(format!("UPLOAD_DIR={}", config.sandbox.file_mount_path));
+
     // Every repository the workspace places in the sandbox, primary first. The
     // GIT_* trio above still describes the primary, so a sandbox image predating
     // multi-repo support keeps cloning it. URLs are passed verbatim like
@@ -708,6 +714,25 @@ mod tests {
         plan.repo_config.docker_image = Some(String::new());
         let cc = build_container_config(&config, "task-1", &plan, None);
         assert_eq!(cc.image.unwrap(), "sandbox:latest");
+    }
+
+    /// The prompt's "Saved to:" line is rendered from `file_mount_path`, so the
+    /// container has to be told the same path rather than falling back to a
+    /// default of its own.
+    #[test]
+    fn container_config_takes_upload_dir_from_file_mount_path() {
+        let mut config = test_config();
+        config.sandbox.file_mount_path = "/opt/moatless/workspace/uploads".into();
+        let plan = test_plan();
+
+        let cc = build_container_config(&config, "task-1", &plan, None);
+
+        let env = cc.env.unwrap();
+        assert!(
+            env.iter()
+                .any(|e| e == "UPLOAD_DIR=/opt/moatless/workspace/uploads"),
+            "expected UPLOAD_DIR from file_mount_path, got: {env:?}"
+        );
     }
 
     #[test]

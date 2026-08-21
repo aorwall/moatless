@@ -368,7 +368,14 @@ pub struct SandboxConfig {
     /// rollout — flip to `false` once every live sandbox holds a task-bound
     /// token. Env `SANDBOX_ACCEPT_CLAIMLESS_TOKENS` (default: true).
     pub accept_claimless_tokens: bool,
-    /// Mount path inside sandbox pods for uploaded files (default: "/mnt/uploads")
+    /// Directory inside sandbox pods that attached uploads are written to
+    /// (env `SANDBOX_FILE_MOUNT_PATH`, default
+    /// `/opt/moatless/workspace/uploads`). It sits under the sandbox's
+    /// `WORKSPACE_DIR` so uploads ride the workspace snapshot and survive a
+    /// restart. This is the single source of truth for the path: the agent
+    /// prompt's "Saved to:" line is rendered from it, and the runtime providers
+    /// pass it to the pod as `UPLOAD_DIR` so the sandbox writes where the prompt
+    /// says.
     pub file_mount_path: String,
     /// Whether the idle sandbox reaper is enabled (default: true)
     pub idle_reaper_enabled: bool,
@@ -818,7 +825,10 @@ impl Config {
                 bootstrap_token_ttl_secs: env_or("SANDBOX_BOOTSTRAP_TOKEN_TTL_SECS", 1800),
                 emit_legacy_user_token_env: env_bool("SANDBOX_EMIT_LEGACY_USER_TOKEN", true),
                 accept_claimless_tokens: env_bool("SANDBOX_ACCEPT_CLAIMLESS_TOKENS", true),
-                file_mount_path: env_str("SANDBOX_FILE_MOUNT_PATH", "/mnt/uploads"),
+                file_mount_path: env_str(
+                    "SANDBOX_FILE_MOUNT_PATH",
+                    "/opt/moatless/workspace/uploads",
+                ),
                 idle_reaper_enabled: env_bool("SANDBOX_IDLE_REAPER_ENABLED", true),
                 cron_scheduler_enabled: env_bool("CRON_SCHEDULER_ENABLED", true),
                 liveness_enabled: env_bool("K8S_SANDBOX_LIVENESS_ENABLED", false),

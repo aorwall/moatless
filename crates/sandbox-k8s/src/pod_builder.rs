@@ -772,6 +772,12 @@ fn build_sandbox_container(
         env.push(env_var("GIT_BRANCH", branch));
     }
 
+    // Where the sandbox writes a message's attached uploads. Passed explicitly
+    // rather than left to the sandbox's own default because the backend renders
+    // the same value into the prompt's "Saved to:" line: two independent
+    // defaults would let the advertised path and the written path drift apart.
+    env.push(env_var("UPLOAD_DIR", &config.sandbox.file_mount_path));
+
     // Git provider (github, gitlab, gitness)
     env.push(env_var("GIT_PROVIDER", &plan.git_provider));
 
@@ -1868,6 +1874,28 @@ mod tests {
         let limits = resources.limits.as_ref().expect("limits set");
         assert_eq!(limits.get("memory").map(|q| q.0.as_str()), Some("8Gi"));
         assert_eq!(limits.get("cpu").map(|q| q.0.as_str()), Some("4"));
+    }
+
+    /// The prompt's "Saved to:" line is rendered from `file_mount_path`, so the
+    /// pod has to be told the same path rather than falling back to a default of
+    /// its own.
+    #[test]
+    fn sandbox_container_takes_upload_dir_from_file_mount_path() {
+        let mut config = test_config();
+        config.sandbox.file_mount_path = "/opt/moatless/workspace/uploads".into();
+        let plan = test_plan();
+
+        let container = build_sandbox_container(&config, "task-1", &plan, None, None).unwrap();
+
+        let env = container.env.as_ref().expect("sandbox container has env");
+        let upload_dir = env
+            .iter()
+            .find(|var| var.name == "UPLOAD_DIR")
+            .expect("UPLOAD_DIR is set on the sandbox container");
+        assert_eq!(
+            upload_dir.value.as_deref(),
+            Some("/opt/moatless/workspace/uploads")
+        );
     }
 
     /// `(cpu_request, memory_request, cpu_limit, memory_limit)` off a container.

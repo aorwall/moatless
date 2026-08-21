@@ -42,7 +42,7 @@ export const SANDBOX_DATA_DIR = '/opt/moatless/data'
  * Upload directory (legacy - files now downloaded via API)
  * @deprecated Files are now downloaded on-demand via backend API
  */
-export const SANDBOX_UPLOAD_DIR = '/mnt/uploads'
+export const SANDBOX_UPLOAD_DIR = '/opt/moatless/workspace/uploads'
 
 /**
  * Downloads directory for files fetched via backend API

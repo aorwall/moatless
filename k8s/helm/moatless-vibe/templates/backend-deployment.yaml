@@ -285,7 +285,7 @@ spec:
             - name: SHARED_STORAGE_PVC_NAME
               value: {{ include "moatless-vibe.fullname" . }}-shared-storage
             {{- end }}
-            - name: SANDBOX_UPLOAD_MOUNT_PATH
+            - name: SANDBOX_FILE_MOUNT_PATH
               value: {{ .Values.storage.sandboxMountPath | quote }}
             # Auth settings
             {{- with .Values.auth.provider }}

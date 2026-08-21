@@ -482,7 +482,7 @@ fn build_values(input: &ValuesInput<'_>) -> serde_json::Value {
                 "keyPrefix": "uploads",
                 "createSharedVolume": false,
             },
-            "sandboxMountPath": "/mnt/uploads",
+            "sandboxMountPath": "/opt/moatless/workspace/uploads",
         });
         values["redis"] = json!({
             "enabled": false,

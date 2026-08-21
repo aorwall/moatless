@@ -30,18 +30,16 @@ const UserContentSchema = z.discriminatedUnion('type', [
 /**
  * File attachment schema for agent execution.
  *
- * Previously used in Kubernetes mode to transfer files via base64 encoding.
- * Now files are accessible via volume mounts at /mnt/uploads/{fileId}.
- *
- * The `data` field is optional for backward compatibility - new implementations
- * should not include it since files are mounted directly.
+ * The sandbox pre-fetches a message's uploads and writes them under
+ * `UPLOAD_DIR` (`/opt/moatless/workspace/uploads/{fileId}`), so the agent reads
+ * them from disk and `data` can be omitted.
  */
 export const FileAttachmentSchema = z.object({
   fileId: z.string(),
   filename: z.string(),
   mimeType: z.string(),
-  /** @deprecated Files are now mounted at /mnt/uploads/{fileId} - no need to transfer data */
-  data: z.string().optional(), // base64 encoded, optional for mounted files
+  /** @deprecated The sandbox writes uploads to `$UPLOAD_DIR/{fileId}` - no need to transfer data */
+  data: z.string().optional(), // base64 encoded, optional for files already on disk
 })
 
 export type FileAttachment = z.infer<typeof FileAttachmentSchema>

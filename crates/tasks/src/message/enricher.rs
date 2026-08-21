@@ -413,9 +413,10 @@ pub async fn build_pending_content_blocks(
 /// Build a content block from a file attachment reference.
 ///
 /// `file_mount_path` is the on-disk directory the sandbox writes uploads to
-/// before invoking the agent (defaults to `/mnt/uploads`). The prompt
-/// advertises the resulting on-disk path so the agent can read the file
-/// directly with no network round-trip.
+/// before invoking the agent (defaults to `/opt/moatless/workspace/uploads`).
+/// The prompt advertises the resulting on-disk path so the agent can read the
+/// file directly with no network round-trip; the sandbox receives the same
+/// value as `UPLOAD_DIR`, so the two cannot disagree.
 async fn build_file_attachment_block(
     files: &dyn FileDao,
     file_id: &str,
@@ -800,13 +801,13 @@ mod tests {
             }))
         });
 
-        let block = build_file_attachment_block(&mock, "abc-123", "/mnt/uploads")
+        let block = build_file_attachment_block(&mock, "abc-123", "/opt/moatless/workspace/uploads")
             .await
             .expect("expected attachment block");
 
         let text = block.text.expect("expected text");
         assert!(
-            text.contains("Saved to: /mnt/uploads/abc-123/report.pdf"),
+            text.contains("Saved to: /opt/moatless/workspace/uploads/abc-123/report.pdf"),
             "unexpected rendered text: {text}"
         );
         assert!(text.contains("Attached file: report.pdf"));
@@ -833,12 +834,12 @@ mod tests {
             }))
         });
 
-        let block = build_file_attachment_block(&mock, "id", "/mnt/uploads/")
+        let block = build_file_attachment_block(&mock, "id", "/opt/moatless/workspace/uploads/")
             .await
             .expect("expected attachment block");
 
         let text = block.text.expect("expected text");
-        assert!(text.contains("/mnt/uploads/id/x.txt"));
-        assert!(!text.contains("/mnt/uploads//"));
+        assert!(text.contains("/opt/moatless/workspace/uploads/id/x.txt"));
+        assert!(!text.contains("/opt/moatless/workspace/uploads//"));
     }
 }

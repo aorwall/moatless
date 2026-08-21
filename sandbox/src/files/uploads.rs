@@ -5,6 +5,10 @@
 //! `UPLOAD_DIR`) in the prompt. This module fetches the bytes via gRPC and
 //! writes them to that path before the agent runs, so the prompt is valid
 //! by the time the agent reads it.
+//!
+//! `UPLOAD_DIR` lives under `WORKSPACE_DIR`, so what is written here rides the
+//! workspace snapshot: a restarted pod restores the bytes with the rest of the
+//! workspace and [`ensure_upload_on_disk`] skips the re-fetch.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -36,8 +40,8 @@ impl From<tonic::Status> for UploadFetchError {
 /// Ensure an uploaded file is on disk under `<upload_dir>/<file_id>/<filename>`.
 ///
 /// Idempotent: if the target directory already contains files we assume a
-/// previous turn (or pod restart with PVC) already wrote them and return
-/// without making the gRPC call.
+/// previous turn wrote them, or a restart restored them with the workspace,
+/// and return without making the gRPC call.
 pub async fn ensure_upload_on_disk(
     backend: &Arc<dyn BackendClient>,
     task_id: &str,

@@ -144,7 +144,12 @@ pub struct Config {
     /// Sandbox-private runtime directory ([`RUNTIME_DIR`]), for credential
     /// material that must not reach repo code or the workspace snapshot.
     pub runtime_dir: String,
-    /// Upload directory
+    /// Where a message's attached uploads are written before the agent runs
+    /// (env `UPLOAD_DIR`, set by the backend from its `file_mount_path` so the
+    /// prompt's "Saved to:" line and this agree). Defaults under
+    /// [`Self::workspace_dir`], which is what makes an upload survive a restart:
+    /// the workspace snapshot covers loose directories, so a restored pod finds
+    /// the bytes already on disk and skips the re-fetch.
     pub upload_dir: String,
     /// Log level
     pub log_level: String,
@@ -383,6 +388,17 @@ fn resolve_agent_type_env() -> Option<String> {
     Some(raw.to_string())
 }
 
+/// Where uploads go when the backend supplied no `UPLOAD_DIR`.
+///
+/// Always inside the workspace: `workspace_sync` archives loose directories
+/// alongside the repos, so an upload written here is restored with the rest of
+/// the workspace instead of being re-fetched — and a path outside it would not
+/// be. Kept a sibling of the repo checkouts, never inside one, so uploads stay
+/// out of the user's `git status`.
+fn default_upload_dir(workspace_dir: &str) -> String {
+    format!("{}/uploads", workspace_dir.trim_end_matches('/'))
+}
+
 fn env_flag_value_enabled(value: &str) -> bool {
     value == "1" || value.eq_ignore_ascii_case("true")
 }
@@ -442,6 +458,8 @@ impl Config {
         );
         let repo_dir = primary_checkout(&repos)
             .map_or_else(|| workspace_dir.clone(), |repo| repo.dir(&workspace_dir));
+        let upload_dir =
+            env::var("UPLOAD_DIR").unwrap_or_else(|_| default_upload_dir(&workspace_dir));
 
         Self {
             port: env::var("PORT")
@@ -472,8 +490,7 @@ impl Config {
 
             runtime_dir: RUNTIME_DIR.to_string(),
 
-            upload_dir: env::var("UPLOAD_DIR")
-                .unwrap_or_else(|_| "/mnt/uploads".to_string()),
+            upload_dir,
 
             log_level: env::var("LOG_LEVEL")
                 .unwrap_or_else(|_| "info".to_string()),
@@ -691,8 +708,8 @@ fn parse_repo_config() -> ParsedRepoConfig {
 mod tests {
     use super::test_support::minimal_config;
     use super::{
-        env_flag_value_enabled, is_safe_mount_name, parse_permission_mode, parse_repo_checkouts,
-        primary_checkout, PermissionMode,
+        default_upload_dir, env_flag_value_enabled, is_safe_mount_name, parse_permission_mode,
+        parse_repo_checkouts, primary_checkout, PermissionMode,
     };
 
     /// Point the persisted-token dir at an empty temp dir so resolution falls
@@ -705,6 +722,19 @@ mod tests {
         // Per-test dir, so one test's persisted token cannot be read by another.
         config.runtime_dir = tmp.path().display().to_string();
         (config, tmp)
+    }
+
+    #[test]
+    fn default_upload_dir_sits_inside_the_workspace() {
+        assert_eq!(
+            default_upload_dir("/opt/moatless/workspace"),
+            "/opt/moatless/workspace/uploads"
+        );
+    }
+
+    #[test]
+    fn default_upload_dir_tolerates_a_trailing_slash() {
+        assert_eq!(default_upload_dir("/ws/"), "/ws/uploads");
     }
 
     #[test]
