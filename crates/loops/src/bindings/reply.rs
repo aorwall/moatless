@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
-use moatless_types::adapter::{OutboundPresentation, OutboundReply};
+use moatless_types::adapter::{OutboundPresentation, OutboundReply, TaskProvenance};
 use moatless_api_schemas::bindings::SendTaskReplyResponse;
 use moatless_api_schemas::message::ReplyToMessageResponse;
 use moatless_types::access_control::ScopeContext;
 
+use crate::adapters::AdapterKind;
 use crate::adapters::Adapters;
 use crate::adapters::common::{
     binding_descriptor, binding_reply_target, ensure_task_access_with,
@@ -64,6 +65,24 @@ impl ExternalReplyService {
             task_turns,
             outbound,
         }
+    }
+
+    /// Provenance for a task the caller is about to post about, for send
+    /// paths that hold a task id but no binding.
+    ///
+    /// The direct-destination handler has a task and needs the same footer the
+    /// reply paths get. It reaches it through this service rather than through
+    /// `OutboundSender`, which the composition root keeps off `AppState`.
+    /// There is no Loop on a direct send, so the origin resolves to the person
+    /// who started the task.
+    pub async fn task_provenance(
+        &self,
+        adapter_kind: AdapterKind,
+        task_id: &str,
+    ) -> Option<TaskProvenance> {
+        self.outbound
+            .maybe_task_provenance(adapter_kind, task_id, None)
+            .await
     }
 
     pub async fn send_task_reply(

@@ -190,12 +190,16 @@ pub async fn adapter_send(
     }
 
     let presentation = checked_presentation(req.presentation, adapter_kind)?;
+    // A destination post is often the only message a reader sees — nobody in
+    // the channel is in a thread that leads anywhere else — so it carries the
+    // same footer a reply does whenever the caller named a task.
+    let provenance = match req.task_id.as_deref() {
+        Some(task_id) => state.external_reply.task_provenance(adapter_kind, task_id).await,
+        None => None,
+    };
     let reply = OutboundReply {
         text: truncate_text(&req.text, provider.max_message_length()),
-        // Direct sends carry no provenance: the DM path has no task, and
-        // reaching the assembler would mean putting `OutboundSender` on
-        // `AppState`, which the composition root deliberately avoids.
-        provenance: None,
+        provenance,
         footer: None,
         author_user_id: None,
         is_error: false,
@@ -304,9 +308,8 @@ pub async fn send_user_dm(
 
     let reply = OutboundReply {
         text: truncate_text(&req.text, send_provider.max_message_length()),
-        // Direct sends carry no provenance: the DM path has no task, and
-        // reaching the assembler would mean putting `OutboundSender` on
-        // `AppState`, which the composition root deliberately avoids.
+        // A DM has no task to point at: this path addresses a person, not a
+        // run. The destination path does carry provenance.
         provenance: None,
         footer: None,
         author_user_id: None,

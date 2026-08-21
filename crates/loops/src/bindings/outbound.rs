@@ -298,9 +298,6 @@ impl OutboundSender {
         Ok((1, vec![]))
     }
 
-    /// The footer that GitHub/Linear comments end with — a link back to the
-    /// moatless task. Other providers don't carry the footer, so this returns
-    /// `None` for them (and when the task can't be resolved).
     /// The provenance footer for adapters that render the task link themselves.
     ///
     /// `None` for the Markdown-comment adapters — they carry the link in
@@ -308,7 +305,10 @@ impl OutboundSender {
     /// configured. Each lookup is best-effort: a failure drops its own segment
     /// rather than the reply, the way `task_comment_footer` already treats a
     /// failed task-name read.
-    pub(crate) async fn maybe_task_provenance(
+    ///
+    /// `rule` names the Loop that fired the task. A direct send has none, so
+    /// the origin falls back to the person who started it.
+    pub async fn maybe_task_provenance(
         &self,
         adapter_kind: AdapterKind,
         task_id: &str,

@@ -206,12 +206,16 @@ impl AdapterDirectDestination for SlackAdapter {
         let workspace_id = self.ensure_workspace_id().await?;
         let (channel, thread_ts) = subject::parse_destination(destination)?;
 
-        let blocks = reply_blocks(message, None);
+        // No `LoopContext` on this path, so the `task_link` toggle is not
+        // readable; the caller decides by setting `provenance` or not.
+        let provenance = message.provenance.as_ref();
+        let text = text::with_task_link(&message.text, provenance);
+        let blocks = reply_blocks(message, provenance);
         let ts = app
             .api
             .post_message_with(PostMessage {
                 channel: &channel,
-                text: &message.text,
+                text: &text,
                 thread_ts: thread_ts.as_deref(),
                 blocks: blocks.as_deref(),
             })
@@ -451,8 +455,8 @@ mod tests {
     }
 
     /// The budget: one `auth.test` (memoized) and one `chat.postMessage`. A
-    /// top-level direct send binds under its own `ts`, and — unlike a reply —
-    /// renders no task link.
+    /// top-level direct send binds under its own `ts` and renders the task
+    /// link, because a channel post is often the only message a reader sees.
     #[tokio::test]
     async fn a_direct_send_costs_one_auth_test_and_one_post() {
         let stub = slack_stub().await;
@@ -483,8 +487,8 @@ mod tests {
         );
         assert_eq!(
             body(&stub.requests()[1])["text"],
-            "hello",
-            "a direct send has never rendered the task link"
+            "hello\n<https://example.test/t/1|View task>",
+            "a direct send renders the task link, like a reply does"
         );
 
         adapter
@@ -607,9 +611,10 @@ mod tests {
         );
     }
 
-    /// A direct send has never rendered the task link, and gains no block for it.
+    /// The footer is rendered again as a block, because Slack stops displaying
+    /// `text` once blocks are present.
     #[tokio::test]
-    async fn a_direct_send_posts_blocks_without_a_task_link_block() {
+    async fn a_direct_send_appends_a_task_link_block() {
         let stub = slack_stub().await;
 
         adapter(&stub)
@@ -630,6 +635,38 @@ mod tests {
                 .find(|r| r.path == "/chat.postMessage")
                 .expect("a message was posted"),
         );
+        assert_eq!(
+            posted["blocks"],
+            serde_json::json!([
+                { "type": "divider" },
+                { "type": "context", "elements": [
+                    { "type": "mrkdwn", "text": "<https://example.test/t/1|View task>" }
+                ]},
+            ])
+        );
+    }
+
+    /// A send with no task named — a DM, or `moat send` without `--task` —
+    /// still posts exactly what it was given.
+    #[tokio::test]
+    async fn a_direct_send_without_provenance_renders_nothing_extra() {
+        let stub = slack_stub().await;
+
+        adapter(&stub)
+            .post_to_destination(
+                "channel:C1",
+                &reply_with_blocks("hi", None, vec![SlackBlock::Divider]),
+            )
+            .await
+            .expect("the stub accepts the post");
+
+        let posted = body(
+            stub.requests()
+                .iter()
+                .find(|r| r.path == "/chat.postMessage")
+                .expect("a message was posted"),
+        );
+        assert_eq!(posted["text"], "hi");
         assert_eq!(posted["blocks"], serde_json::json!([{ "type": "divider" }]));
     }
 
