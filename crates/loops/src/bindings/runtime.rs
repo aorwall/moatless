@@ -246,6 +246,48 @@ impl RoutingService {
             .should_create_binding_task(subscription, &bindings)
             .await?
         {
+            // Reading the bindings above and creating below are two statements,
+            // not one transaction, and the backend runs more than one replica.
+            // Two events for the same subject arriving together therefore both
+            // read no binding and both create — which is not hypothetical: an
+            // @mention reaches Slack's adapter as two events carrying the same
+            // message ts, ~300ms apart, and produced two tasks and two replies.
+            //
+            // The claim is the decision. Exactly one delivery lands the row;
+            // the rest are told to retry, and by then the winner's binding is
+            // there to receive them. A duplicate event is then dropped by the
+            // event-receipt table, and a genuinely different message is
+            // delivered to the task the winner made. Nothing is lost either way.
+            if !self
+                .event_receipts
+                .claim_task_creation(
+                    &subscription.id,
+                    subject_kind,
+                    subject_key,
+                    adapter_label,
+                    msg.external_event_id.as_deref(),
+                )
+                .await?
+            {
+                debug!(
+                    subscription_id = %subscription.id,
+                    subject_key,
+                    provider = adapter_label,
+                    "Lost the task-creation claim for this subject; retrying to reach the winner"
+                );
+                record_inbound(
+                    adapter_label,
+                    "retry",
+                    inbound_reason::CREATION_CLAIMED,
+                    &subscription.id,
+                    &connection.id,
+                );
+                return Err(AdapterError::CreationClaimed {
+                    subject_kind: subject_kind.to_string(),
+                    subject_key: subject_key.to_string(),
+                });
+            }
+
             // The earliest binding for this subject (if any) belongs to the task
             // that originated it — typically a `connected_thread` binding placed
             // when an earlier task produced the resource. We link the new task
@@ -307,6 +349,16 @@ impl RoutingService {
                     .await?;
                     new_task_binding_id = Some(sub.id.clone());
                     bindings.push(sub);
+                    // Point the claim at the task it produced. A later delivery
+                    // that loses the claim can then be told what won it.
+                    self.event_receipts
+                        .record_claimed_task(
+                            &subscription.id,
+                            subject_kind,
+                            subject_key,
+                            &task_id,
+                        )
+                        .await?;
                     info!(task_id = %task_id, subscription_id = %subscription.id, provider = adapter_label, "Created task from provider event");
                 }
                 // Permanent failure (e.g. a bad GitHub token). The service already
@@ -316,11 +368,26 @@ impl RoutingService {
                 // makes sources like Slack redeliver, and every redelivery inserts
                 // another errored row.
                 Err(TaskCreationError::Preflight(reason)) => {
+                    // The claim bought the right to create and no task came of
+                    // it. Hand it back, or every later event for this subject
+                    // loses a claim held by nothing and retries until its
+                    // budget runs out.
+                    self.event_receipts
+                        .release_claim(&subscription.id, subject_kind, subject_key)
+                        .await?;
                     warn!(subscription_id = %subscription.id, provider = adapter_label, reason = %reason, "Skipping task creation from provider event: preflight failed");
                 }
                 // Transient failure (Db / ShortId / RepoNotFound) — propagate so the
                 // source retries, exactly as before this migration.
-                Err(e) => return Err(AdapterError::TaskCreation(e)),
+                Err(e) => {
+                    // Transient, so the sender retries — but the claim must not
+                    // outlive the attempt that took it, or the retry loses to
+                    // itself.
+                    self.event_receipts
+                        .release_claim(&subscription.id, subject_kind, subject_key)
+                        .await?;
+                    return Err(AdapterError::TaskCreation(e));
+                }
             }
         }
 

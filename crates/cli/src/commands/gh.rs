@@ -21,16 +21,22 @@
 //! else's edit.
 //!
 //! Everything else — and any of these with flags the typed parser doesn't
-//! understand (`--fill`, `--body-file`, …) — passes through verbatim to the
-//! local `gh` binary so an agent is never stuck. Typed-path API failures are
+//! understand (`--fill`, `--label`, …) — passes through verbatim to the local
+//! `gh` binary so an agent is never stuck. Typed-path API failures are
 //! reported as errors WITHOUT falling back to raw `gh`, to avoid
 //! double-posting.
+//!
+//! For the intercepted subcommands that fall-through is a *demotion*, not a
+//! neutral passthrough: the call still succeeds and still prints a URL, while
+//! the binding, the footer and the dedup are gone. It is therefore announced
+//! on stderr — see `warn_on_demotion`. `--body-file` used to be one of these
+//! and no longer is: it is the flag a body long enough to need a file arrives
+//! with, so every substantial PR took the untyped path.
 
 use clap::Parser;
 use moatless_api_schemas::github::{
-    GithubBindPrRequest, GithubCommentRequest, GithubExternalEventRequest,
-    GithubExternalEventSubject,
-    GithubCreatePrRequest, GithubReplyRequest,
+    GithubBindPrRequest, GithubCommentRequest, GithubCreatePrRequest, GithubExternalEventRequest,
+    GithubExternalEventSubject, GithubReplyRequest,
 };
 use std::collections::HashSet;
 use std::io::Write;
@@ -45,8 +51,13 @@ use crate::output;
 struct PrCreateArgs {
     #[arg(long, short = 't')]
     title: String,
-    #[arg(long, short = 'b')]
+    #[arg(long, short = 'b', conflicts_with = "body_file")]
     body: Option<String>,
+    /// Read the body from a file, as real `gh` does. Without this the flag is
+    /// unknown to the parser, which demotes the whole call to passthrough and
+    /// silently loses the task binding and the `Moatless task:` footer.
+    #[arg(long = "body-file", short = 'F')]
+    body_file: Option<std::path::PathBuf>,
     /// Head branch. Defaults to the current git branch.
     #[arg(long, short = 'H')]
     head: Option<String>,
@@ -74,8 +85,11 @@ struct PrCreateArgs {
 struct CommentArgs {
     /// PR or issue number.
     number: u64,
-    #[arg(long, short = 'b')]
-    body: String,
+    #[arg(long, short = 'b', required_unless_present = "body_file")]
+    body: Option<String>,
+    /// Read the body from a file, as real `gh` does.
+    #[arg(long = "body-file", short = 'F', conflicts_with = "body")]
+    body_file: Option<std::path::PathBuf>,
     /// `owner/repo` (or a GitHub URL). Inferred from `git remote get-url
     /// origin` when omitted.
     #[arg(long = "repo", short = 'R')]
@@ -98,8 +112,11 @@ struct ReplyArgs {
     pr_number: u64,
     /// Review comment id to reply to.
     comment_id: u64,
-    #[arg(long, short = 'b')]
-    body: String,
+    #[arg(long, short = 'b', required_unless_present = "body_file")]
+    body: Option<String>,
+    /// Read the body from a file, as real `gh` does.
+    #[arg(long = "body-file", short = 'F', conflicts_with = "body")]
+    body_file: Option<std::path::PathBuf>,
     /// `owner/repo` (or a GitHub URL). Inferred from `git remote get-url
     /// origin` when omitted.
     #[arg(long = "repo", short = 'R')]
@@ -158,25 +175,76 @@ pub async fn run(
 /// Classify the invocation: a successfully parsed `pr create` / `pr comment`
 /// / `issue comment` is handled by the typed path; anything else (including
 /// those three with unrecognized flags) returns `None` → passthrough.
+///
+/// Falling through is deliberate — an agent is never stuck on a flag we do not
+/// model — but for these three it is a demotion, not a passthrough: the call
+/// still succeeds and still prints a URL, while the task binding, the
+/// `Moatless task:` footer and webhook echo dedup are all silently gone. That
+/// is not theoretical. A release agent ran `moat gh pr create … --body-file`,
+/// got a PR URL and exit 0, and the PR was never connected to its task; the
+/// comments it posted in the same run were, because `--body` happened to be
+/// modelled. So say so on stderr rather than letting exit 0 speak for it.
 fn parse_typed(args: &[String]) -> Option<TypedInvocation> {
     let first = args.first()?.as_str();
     let second = args.get(1)?.as_str();
     let rest = with_argv0(&args[2..]);
     match (first, second) {
-        ("pr", "create") => PrCreateArgs::try_parse_from(rest)
-            .ok()
+        ("pr", "create") => warn_on_demotion("pr create", PrCreateArgs::try_parse_from(rest))
             .map(TypedInvocation::PrCreate),
-        ("pr", "comment") | ("issue", "comment") => CommentArgs::try_parse_from(rest)
-            .ok()
-            .map(TypedInvocation::Comment),
-        ("pr", "reply") => ReplyArgs::try_parse_from(rest)
-            .ok()
+        ("pr", "comment") | ("issue", "comment") => {
+            warn_on_demotion("pr comment", CommentArgs::try_parse_from(rest))
+                .map(TypedInvocation::Comment)
+        }
+        ("pr", "reply") => warn_on_demotion("pr reply", ReplyArgs::try_parse_from(rest))
             .map(TypedInvocation::PrReply),
         ("stack", _) => match strip_moat_task_flag(args) {
             Ok((args, task)) => Some(TypedInvocation::Stack(StackInvocation { args, task })),
             Err(_) => None,
         },
         _ => None,
+    }
+}
+
+/// Unwrap a typed parse, and name what the demotion costs when it failed.
+///
+/// `--help` and `--version` are not demotions: clap reports them as errors but
+/// the user asked for text, and real `gh` prints better text than we would.
+fn warn_on_demotion<T>(subcommand: &str, parsed: Result<T, clap::Error>) -> Option<T> {
+    match parsed {
+        Ok(v) => Some(v),
+        Err(e) => {
+            use clap::error::ErrorKind;
+            if !matches!(
+                e.kind(),
+                ErrorKind::DisplayHelp
+                    | ErrorKind::DisplayVersion
+                    | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            ) {
+                eprintln!(
+                    "moat gh: falling back to plain `gh` for `{subcommand}` — {}. \
+                     The PR or comment will NOT be bound to the task and will \
+                     carry no `Moatless task:` footer.",
+                    demotion_reason(&e)
+                );
+            }
+            None
+        }
+    }
+}
+
+/// The one line of a clap error worth putting in front of an agent.
+fn demotion_reason(e: &clap::Error) -> String {
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+    if let Some(ContextValue::String(arg)) = e.get(ContextKind::InvalidArg) {
+        return match e.kind() {
+            ErrorKind::UnknownArgument => format!("`{arg}` is not a flag moat understands"),
+            ErrorKind::MissingRequiredArgument => format!("`{arg}` is required"),
+            _ => format!("`{arg}` was rejected"),
+        };
+    }
+    match e.kind() {
+        ErrorKind::MissingRequiredArgument => "a required flag is missing".to_string(),
+        other => format!("{other:?}"),
     }
 }
 
@@ -199,9 +267,10 @@ async fn run_pr_create(
         None => current_git_branch()?,
     };
     let task_id = args.task.or_else(|| cfg.task_id().map(str::to_string));
+    let body = read_body(args.body, args.body_file.as_deref())?;
     let req = GithubCreatePrRequest {
         title: args.title,
-        body: args.body,
+        body,
         head,
         base: args.base,
         draft: if args.draft { Some(true) } else { None },
@@ -232,10 +301,8 @@ async fn run_comment(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (owner, repo) = resolve_repo(args.repo.as_deref())?;
     let task_id = args.task.or_else(|| cfg.task_id().map(str::to_string));
-    let req = GithubCommentRequest {
-        body: args.body,
-        task_id,
-    };
+    let body = required_body(args.body, args.body_file.as_deref())?;
+    let req = GithubCommentRequest { body, task_id };
     let resp = client
         .api()
         .github_post_issue_comment(&owner, &repo, args.number, &req)
@@ -259,10 +326,8 @@ async fn run_pr_reply(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (owner, repo) = resolve_repo(args.repo.as_deref())?;
     let task_id = args.task.or_else(|| cfg.task_id().map(str::to_string));
-    let req = GithubReplyRequest {
-        body: args.body,
-        task_id,
-    };
+    let body = required_body(args.body, args.body_file.as_deref())?;
+    let req = GithubReplyRequest { body, task_id };
     let resp = client
         .api()
         .github_reply_review_comment(&owner, &repo, args.pr_number, args.comment_id, &req)
@@ -350,6 +415,33 @@ fn passthrough(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         .status()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
     std::process::exit(status.code().unwrap_or(1));
+}
+
+/// Resolve `--body` / `--body-file` into the optional body the API takes.
+///
+/// clap has already rejected the case where both are given.
+fn read_body(
+    body: Option<String>,
+    body_file: Option<&std::path::Path>,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    match (body, body_file) {
+        (Some(b), _) => Ok(Some(b)),
+        (None, Some(path)) => {
+            Ok(Some(std::fs::read_to_string(path).map_err(|e| {
+                format!("failed to read --body-file {}: {e}", path.display())
+            })?))
+        }
+        (None, None) => Ok(None),
+    }
+}
+
+/// Same, where the API requires a body. clap guarantees one of the two is
+/// present, so `None` here is unreachable rather than a user error.
+fn required_body(
+    body: Option<String>,
+    body_file: Option<&std::path::Path>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    read_body(body, body_file)?.ok_or_else(|| "no --body or --body-file given".into())
 }
 
 fn gh_command(args: &[String], token: Option<&str>) -> std::process::Command {
@@ -871,7 +963,8 @@ fn parse_api_endpoint(arg: &str) -> Option<ApiCreation> {
 /// reconstructed from the request would be a guess, and a wrong record silently
 /// suppresses somebody else's event.
 fn parse_created_id(text: &str, kind: ApiCreated) -> Option<u64> {
-    if let Ok(serde_json::Value::Object(body)) = serde_json::from_str::<serde_json::Value>(text.trim())
+    if let Ok(serde_json::Value::Object(body)) =
+        serde_json::from_str::<serde_json::Value>(text.trim())
     {
         if let Some(id) = body.get("id").and_then(serde_json::Value::as_u64) {
             return Some(id);
@@ -889,7 +982,6 @@ fn last_id_after(text: &str, anchor: &str) -> Option<u64> {
         .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -925,21 +1017,128 @@ mod tests {
 
     #[test]
     fn pr_create_with_unknown_flag_falls_through() {
-        // `--fill` / `--body-file` are not typed — must go to the real gh.
+        // `--fill` is not typed — must go to the real gh.
         assert_eq!(parse_typed(&argv(&["pr", "create", "--fill"])), None);
+        // Missing required --title also falls through.
+        assert_eq!(parse_typed(&argv(&["pr", "create"])), None);
+    }
+
+    /// Regression: `--body-file` used to demote `pr create` to plain `gh`,
+    /// which opens the PR and returns its URL while binding nothing. A release
+    /// agent hit exactly this — its PR was never connected to the task, while
+    /// the comments it posted in the same run were, because `--body` happened
+    /// to be modelled.
+    #[test]
+    fn pr_create_with_body_file_stays_on_the_typed_path() {
+        let parsed = parse_typed(&argv(&[
+            "pr",
+            "create",
+            "-t",
+            "t",
+            "--body-file",
+            "/tmp/b.md",
+            "--head",
+            "feat/x",
+            "--base",
+            "main",
+        ]));
+        let Some(TypedInvocation::PrCreate(a)) = parsed else {
+            panic!("expected typed pr create, got {parsed:?}");
+        };
+        assert_eq!(
+            a.body_file.as_deref(),
+            Some(std::path::Path::new("/tmp/b.md"))
+        );
+        assert!(a.body.is_none());
+    }
+
+    /// `-F` is what real `gh` spells `--body-file`, so an agent copying a gh
+    /// invocation lands on the typed path too.
+    #[test]
+    fn pr_create_accepts_the_gh_short_body_file_flag() {
+        let parsed = parse_typed(&argv(&["pr", "create", "-t", "t", "-F", "/tmp/b.md"]));
+        assert!(matches!(parsed, Some(TypedInvocation::PrCreate(_))));
+    }
+
+    /// Both spellings at once is a user error, not a demotion — but it still
+    /// falls through, so real gh reports it rather than moat guessing.
+    #[test]
+    fn pr_create_rejects_body_and_body_file_together() {
         assert_eq!(
             parse_typed(&argv(&[
                 "pr",
                 "create",
                 "-t",
                 "t",
+                "-b",
+                "inline",
                 "--body-file",
                 "/tmp/b.md"
             ])),
             None
         );
-        // Missing required --title also falls through.
-        assert_eq!(parse_typed(&argv(&["pr", "create"])), None);
+    }
+
+    /// A comment body may come from a file as well; the same demotion cost
+    /// applied, and the same flag caused it.
+    #[test]
+    fn comment_accepts_body_file() {
+        let parsed = parse_typed(&argv(&["pr", "comment", "42", "--body-file", "/tmp/b.md"]));
+        let Some(TypedInvocation::Comment(a)) = parsed else {
+            panic!("expected typed comment, got {parsed:?}");
+        };
+        assert_eq!(a.number, 42);
+        assert!(a.body.is_none());
+        assert_eq!(
+            a.body_file.as_deref(),
+            Some(std::path::Path::new("/tmp/b.md"))
+        );
+    }
+
+    /// A comment still needs a body from somewhere.
+    #[test]
+    fn comment_without_any_body_falls_through() {
+        assert_eq!(parse_typed(&argv(&["pr", "comment", "42"])), None);
+    }
+
+    #[test]
+    fn body_file_is_read_when_no_inline_body_is_given() {
+        let dir = std::env::temp_dir().join("moat-gh-body-file-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("body.md");
+        std::fs::write(&path, "from a file").unwrap();
+
+        assert_eq!(
+            read_body(None, Some(path.as_path())).unwrap().as_deref(),
+            Some("from a file")
+        );
+        // An inline body wins; clap has already ruled out both being present.
+        assert_eq!(
+            read_body(Some("inline".into()), Some(path.as_path()))
+                .unwrap()
+                .as_deref(),
+            Some("inline")
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A missing file names the path rather than failing as a bare io error —
+    /// the agent needs to know which file it meant.
+    #[test]
+    fn a_missing_body_file_names_the_path() {
+        let err = read_body(None, Some(std::path::Path::new("/nonexistent/body.md")))
+            .expect_err("a missing body file is an error");
+        assert!(
+            err.to_string().contains("/nonexistent/body.md"),
+            "error should name the file, got: {err}"
+        );
+    }
+
+    /// The demotion warning exists so a fall-through is never silent again.
+    /// `--help` is not a demotion: the user asked for text.
+    #[test]
+    fn help_is_not_reported_as_a_demotion() {
+        assert_eq!(parse_typed(&argv(&["pr", "create", "--help"])), None);
     }
 
     #[test]
@@ -949,7 +1148,7 @@ mod tests {
             panic!("expected typed comment, got {parsed:?}");
         };
         assert_eq!(a.number, 42);
-        assert_eq!(a.body, "hi");
+        assert_eq!(a.body.as_deref(), Some("hi"));
 
         assert!(matches!(
             parse_typed(&argv(&["issue", "comment", "7", "-b", "hi", "-R", "o/r"])),
@@ -984,7 +1183,7 @@ mod tests {
         };
         assert_eq!(a.pr_number, 42);
         assert_eq!(a.comment_id, 777);
-        assert_eq!(a.body, "fixed");
+        assert_eq!(a.body.as_deref(), Some("fixed"));
         assert_eq!(a.repo.as_deref(), Some("o/r"));
         assert_eq!(a.task.as_deref(), Some("t_1"));
     }
@@ -1270,13 +1469,11 @@ mod tests {
         assert!(parse_created_id("gh: Not Found (HTTP 404)", ApiCreated::ReviewComment).is_none());
         // The anchor must match the shape — a review submission's response does
         // not name a review comment.
-        assert!(
-            parse_created_id(
-                "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
-                ApiCreated::ReviewComment
-            )
-            .is_none()
-        );
+        assert!(parse_created_id(
+            "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
+            ApiCreated::ReviewComment
+        )
+        .is_none());
     }
 
     #[test]
@@ -1293,8 +1490,11 @@ mod tests {
             "line=1",
         ]))
         .unwrap();
-        let id =
-            parse_created_id(r#"{"id": 987, "pull_request_review_id": 555}"#, created.kind).unwrap();
+        let id = parse_created_id(
+            r#"{"id": 987, "pull_request_review_id": 555}"#,
+            created.kind,
+        )
+        .unwrap();
         assert!(matches!(
             created.kind.event_subject(id),
             GithubExternalEventSubject::ReviewComment(987)

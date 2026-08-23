@@ -45,6 +45,19 @@ pub enum AdapterError {
     #[error("Failed to deliver provider message to task")]
     MessageDelivery(#[source] moatless_tasks::message::error::MessageError),
 
+    /// Another delivery is creating the task for this subject right now.
+    ///
+    /// Not a fault: the claim exists so exactly one of the racing deliveries
+    /// creates, and this is how the others are told. Retrying is the whole
+    /// point — by the next attempt the winner's binding exists and the message
+    /// routes to it, or the event-receipt table drops it as the duplicate it
+    /// is. Carries no source because nothing failed.
+    #[error("Another delivery is creating the task for {subject_kind}:{subject_key}")]
+    CreationClaimed {
+        subject_kind: String,
+        subject_key: String,
+    },
+
     /// A read or write through a published store seam failed. The port already
     /// names the operation and carries its own source.
     #[error(transparent)]
@@ -94,6 +107,12 @@ impl IntoResponse for AdapterError {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".to_string(),
                 )
+            }
+            AdapterError::CreationClaimed { .. } => {
+                // 409 rather than 5xx: the request is well-formed and the
+                // system is behaving. A sender that redelivers on conflict
+                // gets exactly the retry this wants.
+                (StatusCode::CONFLICT, self.to_string())
             }
             AdapterError::Store(e) => {
                 tracing::error!(

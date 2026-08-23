@@ -45,6 +45,10 @@ pub mod inbound_reason {
     pub const SELF_ECHO: &str = "self_echo";
     /// The binding already received this event.
     pub const DUPLICATE_RECEIPT: &str = "duplicate_receipt";
+    /// Another delivery holds the creation claim for this subject, so this one
+    /// retries into the task that claim produces. Expected whenever a sender
+    /// emits one message as two events.
+    pub const CREATION_CLAIMED: &str = "creation_claimed";
     /// The audience named someone else, so this binding holds nothing.
     pub const NOT_IN_AUDIENCE: &str = "not_in_audience";
     /// Every binding on a subject that had some was passed over, so the event

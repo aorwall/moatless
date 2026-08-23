@@ -173,6 +173,10 @@ impl From<AdapterError> for AdapterDeliveryFailure {
             | AdapterError::UserCredential { .. }
             | AdapterError::TaskCreation(_)
             | AdapterError::MessageDelivery(_)
+            // Not a failure at all: another delivery won the creation claim for
+            // this subject. The retry is the mechanism, not a recovery — it is
+            // how this event reaches the task the winner made.
+            | AdapterError::CreationClaimed { .. }
             | AdapterError::Store(_) => Self::retryable(error),
             // Transient: infrastructure, the upstream sender, our own capacity,
             // a message this process synthesized for a condition it could not
