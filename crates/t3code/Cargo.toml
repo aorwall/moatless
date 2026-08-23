@@ -39,6 +39,9 @@ moatless-types = { path = "../types" }
 http-body-util = "0.1"
 mockall = "0.15"
 opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace", "testing"] }
+# `test-util` for paused time: the status poller sleeps on an interval, and a
+# test that waited it out in real seconds would be the slowest one here.
+tokio = { version = "1", features = ["full", "test-util"] }
 tower = { version = "0.5", features = ["util"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

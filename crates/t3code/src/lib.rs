@@ -2050,6 +2050,32 @@ impl ProtocolSession {
                     Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
                 }
             }
+            "sandbox.subscribeStatus" => {
+                let viewer = viewer_scope(identity);
+                let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+                    return vec![failure_exit(
+                        &id,
+                        "sandbox.subscribeStatus requires a threadId",
+                    )];
+                };
+                let task_id = task_id.to_string();
+                // Seed from the same read the poller makes, so the indicator
+                // has a status before the first interval elapses rather than
+                // after it.
+                let seeded = match sandbox::status(&state.sandbox, &viewer, &task_id).await {
+                    Ok(status) => status,
+                    Err(error) => return vec![sandbox_failure_exit(&id, &error, identity)],
+                };
+                let producer = tokio::spawn(sandbox::watch_status(
+                    id.clone(),
+                    state.sandbox.clone(),
+                    viewer,
+                    task_id,
+                    seeded.clone(),
+                    self.frames.clone(),
+                ));
+                self.start_produced_stream(&id, Some(vec![seeded]), producer)
+            }
             "sandbox.listDiagnostics" => match sandbox::list_diagnostics(&state.sandbox).await {
                 Ok(entries) => vec![success_exit(&id, entries)],
                 Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
@@ -2896,6 +2922,10 @@ fn descriptor(config: &UiRpcConfig) -> Value {
             // cannot otherwise tell this server from one that answers
             // `UnsupportedMethodError`.
             "sandboxDiagnostics": true,
+            // Whether `sandbox.subscribeStatus` is understood. Absent, a client
+            // has to poll `sandbox.status` to notice a sandbox that started
+            // after its panel opened, so this is what lets it stop.
+            "sandboxStatusPush": true,
             // Whether `scripts.run` is understood. A workspace's scripts are
             // still listed on the project without this — they are read out of
             // the workspace either way — but a client only shows the control
@@ -3493,11 +3523,12 @@ fn connection_defect(defect: impl Into<String>) -> Value {
 mod tests {
     use super::*;
     use crate::dao::MockConversationDao;
-    use crate::data::{MockT3TaskDao, MockT3WorkspaceDao};
+    use crate::data::{MockT3TaskDao, MockT3WorkspaceDao, TaskView};
     use crate::listing::UiRpcListingHead;
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
-    use moatless_backend_core::sandbox::{LiveStatus, LogOptions, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher, SandboxStatus, SandboxStatusFullResponse, ServerLogStream};
+    use moatless_backend_core::sandbox::{LiveStatus, LogOptions, SandboxDesiredState, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher, SandboxStatus, SandboxStatusFullResponse, ServerLogStream};
+    use moatless_types::task::TaskStatus;
     use moatless_identity::auth::pairing::{PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key};
     use uuid::Uuid;
 
@@ -4134,6 +4165,114 @@ mod tests {
         assert_eq!(sandboxes[0]["containers"][0]["name"], "sandbox");
         assert_eq!(sandboxes[0]["containers"][0]["cpuMillicores"], 100);
         assert_eq!(sandboxes[0]["totalMemoryMb"], 256);
+    }
+
+    /// An observer that reports one fixed status, for the subscribe test below.
+    struct FixedStatus(SandboxStatus);
+
+    #[async_trait]
+    impl SandboxIntentReader for FixedStatus {
+        async fn desired_state(&self, _task_id: &str) -> Result<SandboxDesiredState, SandboxError> {
+            Ok(SandboxDesiredState::Running)
+        }
+    }
+
+    #[async_trait]
+    impl SandboxObserver for FixedStatus {
+        async fn sandbox_status(
+            &self,
+            _task_id: &str,
+            _task_status: TaskStatus,
+            _desired_state: SandboxDesiredState,
+        ) -> Result<SandboxStatusFullResponse, SandboxError> {
+            unreachable!("the lifecycle read uses live_status")
+        }
+
+        async fn live_status(
+            &self,
+            _task_id: &str,
+            _task_status: TaskStatus,
+            _desired_state: SandboxDesiredState,
+        ) -> Result<LiveStatus, SandboxError> {
+            Ok(LiveStatus {
+                sandbox_status: self.0,
+                agent_status: None,
+                sandbox_error: None,
+            })
+        }
+
+        async fn server_logs(
+            &self,
+            _task_id: &str,
+            _server_name: &str,
+            _options: LogOptions,
+        ) -> Result<ServerLogStream, SandboxError> {
+            unreachable!("the lifecycle read reads no logs")
+        }
+    }
+
+    fn state_with_sandbox_status(status: SandboxStatus) -> UiRpcState {
+        let mut state = state();
+        let mut tasks = MockT3TaskDao::new();
+        tasks.expect_find_by_id().returning(|_, _| {
+            Ok(Some(TaskView {
+                status: TaskStatus::Open,
+            }))
+        });
+        state.sandbox.tasks = Arc::new(tasks);
+        state.sandbox.observer = Arc::new(FixedStatus(status));
+        state.sandbox.intent = Arc::new(FixedStatus(status));
+        state
+    }
+
+    /// The subscription seeds before its first poll interval elapses.
+    ///
+    /// Without the seed the indicator would render nothing for the first
+    /// interval on every mount — which is the stale-status bug the push channel
+    /// exists to end, just moved to the start of the stream.
+    #[tokio::test]
+    async fn subscribing_to_a_sandbox_status_answers_before_the_first_poll() {
+        let frame = request("1", "sandbox.subscribeStatus", json!({ "threadId": "task-1" }));
+        let mut session = session();
+        let output = session
+            .handle_json(&frame, &state_with_sandbox_status(SandboxStatus::Ready), &viewer())
+            .await;
+
+        assert_eq!(output.frames[0]["_tag"], "Chunk");
+        assert_eq!(output.frames[0]["values"][0]["sandboxStatus"], "ready");
+    }
+
+    /// A subscription is per-thread, so the thread is not optional. Left to the
+    /// poller this would be a stream that authorizes nothing and never emits.
+    #[tokio::test]
+    async fn subscribing_to_a_sandbox_status_without_a_thread_is_refused() {
+        let frame = request("1", "sandbox.subscribeStatus", json!({}));
+        let mut session = session();
+        let output = session.handle_json(&frame, &state(), &viewer()).await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
+        assert!(
+            output.frames[0]["exit"]["cause"][0]["defect"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("threadId"),
+            "the refusal should name what is missing, got {output:?}"
+        );
+    }
+
+    /// The capability is how a client knows it may stop polling `sandbox.status`.
+    /// A server that serves the subscription but stays quiet about it leaves
+    /// every client on the poll.
+    #[tokio::test]
+    async fn the_descriptor_advertises_the_sandbox_status_push() {
+        let frame = request("1", "server.getConfig", json!({}));
+        let mut session = session();
+        let output = session.handle_json(&frame, &state(), &viewer()).await;
+
+        assert_eq!(
+            output.frames[0]["exit"]["value"]["environment"]["capabilities"]["sandboxStatusPush"],
+            json!(true)
+        );
     }
 
     #[tokio::test]
