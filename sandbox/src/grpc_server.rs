@@ -491,7 +491,7 @@ impl SandboxService for SandboxServiceImpl {
         let (tree, summary) =
             files::tree::get_file_tree_with_changes(root_dir, root_path, req.recursive)
                 .await
-                .map_err(|e| Status::internal(format!("Failed to build file tree: {e}")))?;
+                .map_err(file_error_to_status)?;
 
         Ok(Response::new(GetFileTreeResponse {
             tree: tree.into_iter().map(tree_node_to_proto).collect(),
@@ -574,7 +574,7 @@ impl SandboxService for SandboxServiceImpl {
 
         let files = files::tree::list_files(root_dir, path, req.recursive, req.respect_gitignore)
             .await
-            .map_err(|e| Status::internal(format!("Failed to list files: {e}")))?;
+            .map_err(file_error_to_status)?;
 
         Ok(Response::new(ListFilesResponse { files }))
     }

@@ -8,6 +8,21 @@ use std::collections::HashMap;
 use tokio::fs;
 
 use super::git::{self, GitFileInfo};
+use super::{validate_path, FileError};
+
+/// Resolve a caller-supplied root into a path inside the workspace.
+///
+/// `.` and the empty string mean the workspace root. Everything else goes
+/// through [`validate_path`], which refuses absolute paths and `..` segments.
+/// Joining is not enough on its own: `Path::join` *replaces* the base when its
+/// argument is absolute, so `path=/etc` would otherwise walk the container
+/// filesystem instead of the workspace.
+fn resolve_root(workspace_dir: &str, relative_path: &str) -> Result<std::path::PathBuf, FileError> {
+    if relative_path == "." || relative_path.is_empty() {
+        return Ok(std::path::PathBuf::from(workspace_dir));
+    }
+    validate_path(workspace_dir, relative_path)
+}
 
 /// A node in the file tree (file or directory).
 #[derive(Debug, Clone)]
@@ -64,13 +79,8 @@ pub async fn list_files(
     relative_path: &str,
     recursive: bool,
     respect_gitignore: bool,
-) -> Result<Vec<String>, std::io::Error> {
-    let workspace = std::path::Path::new(workspace_dir);
-    let full_path = if relative_path == "." || relative_path.is_empty() {
-        workspace.to_path_buf()
-    } else {
-        workspace.join(relative_path)
-    };
+) -> Result<Vec<String>, FileError> {
+    let full_path = resolve_root(workspace_dir, relative_path)?;
 
     let base_prefix = if relative_path == "." || relative_path.is_empty() {
         String::new()
@@ -86,11 +96,11 @@ pub async fn list_files(
         // The `ignore` walker is synchronous and reads a `.gitignore` per
         // directory it descends into, so it runs off the async workers — the
         // same boundary `search_files_by_name` puts it behind.
-        return tokio::task::spawn_blocking(move || {
+        return Ok(tokio::task::spawn_blocking(move || {
             walk_respecting_ignores(&full_path, &base_prefix, recursive)
         })
         .await
-        .map_err(|e| std::io::Error::other(format!("list join failed: {e}")))?;
+        .map_err(|e| std::io::Error::other(format!("list join failed: {e}")))??);
     }
 
     let mut files = Vec::new();
@@ -355,7 +365,7 @@ pub async fn get_file_tree_with_changes(
     workspace_dir: &str,
     root_path: &str,
     recursive: bool,
-) -> Result<(Vec<FileTreeNode>, GitSummary), std::io::Error> {
+) -> Result<(Vec<FileTreeNode>, GitSummary), FileError> {
     let all_files = list_files(workspace_dir, root_path, recursive, false).await?;
     let git_diff = git::get_git_diff_detailed(workspace_dir).await;
 
@@ -446,6 +456,55 @@ pub async fn get_file_tree_with_changes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An absolute root must not escape the workspace. `Path::join` replaces
+    /// the base when its argument is absolute, so this listed the container
+    /// filesystem — `path=/etc` enumerated `/etc`, and `/home/<user>` exposed
+    /// the names under `.ssh`.
+    #[tokio::test]
+    async fn listing_refuses_an_absolute_root() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let err = list_files(tmp.path().to_str().unwrap(), "/etc", false, false)
+            .await
+            .expect_err("an absolute root is refused");
+        assert!(matches!(err, FileError::InvalidPath(_)));
+    }
+
+    /// The same escape, spelled with `..` instead.
+    #[tokio::test]
+    async fn listing_refuses_a_parent_traversal() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let err = list_files(tmp.path().to_str().unwrap(), "../..", false, false)
+            .await
+            .expect_err("a parent traversal is refused");
+        assert!(matches!(err, FileError::InvalidPath(_)));
+    }
+
+    /// The tree endpoint walks through `list_files`, so it inherits the same
+    /// refusal rather than needing its own.
+    #[tokio::test]
+    async fn the_tree_refuses_an_absolute_root_too() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let err = get_file_tree_with_changes(tmp.path().to_str().unwrap(), "/etc", false)
+            .await
+            .expect_err("an absolute root is refused");
+        assert!(matches!(err, FileError::InvalidPath(_)));
+    }
+
+    /// The roots real callers pass still work: `.` and `""` mean the workspace
+    /// root, and a relative subdirectory resolves inside it.
+    #[tokio::test]
+    async fn listing_still_accepts_the_workspace_root_and_a_subdirectory() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("sub")).unwrap();
+        std::fs::write(tmp.path().join("sub/a.txt"), "x").unwrap();
+        let root = tmp.path().to_str().unwrap();
+
+        assert!(list_files(root, ".", false, false).await.is_ok());
+        assert!(list_files(root, "", false, false).await.is_ok());
+        let sub = list_files(root, "sub", false, false).await.unwrap();
+        assert_eq!(sub, vec!["sub/a.txt".to_string()]);
+    }
 
     #[test]
     fn build_empty_tree() {
