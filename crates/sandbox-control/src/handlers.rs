@@ -27,6 +27,9 @@ use moatless_identity::extractors::OptionalScope;
 ///
 /// Builds the provision request internally from DB state (task, repository,
 /// credentials). No request body required.
+///
+/// Requires start access: the Sandbox's owner, a platform admin, or any
+/// signed-in caller when the Task is public.
 #[utoipa::path(
     post,
     path = "/api/sandbox/v1/tasks/{task_id}/provision",
@@ -37,6 +40,7 @@ use moatless_identity::extractors::OptionalScope;
     responses(
         (status = 200, description = "Sandbox provisioned successfully", body = ProvisionResponse),
         (status = 400, description = "Task is Closed — start not allowed", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "No start access to the task", body = moatless_api_schemas::error::ErrorBody),
         (status = 409, description = "Another lifecycle operation is in progress", body = moatless_api_schemas::error::ErrorBody),
         (status = 500, description = "Provisioning failed", body = moatless_api_schemas::error::ErrorBody)
     )
@@ -48,7 +52,7 @@ pub async fn provision_handler(
     Path(task_id): Path<String>,
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /provision");
-    authorize_task_control(&state, &scope, &task_id).await?;
+    authorize_task_start(&state, &scope, &task_id).await?;
 
     // Lifecycle owns plan construction, the Running intent, and the start
     // timestamp; the runtime receives a fresh request from DB state.
@@ -782,6 +786,19 @@ pub(super) async fn authorize_task_control(
     Ok(intent)
 }
 
+/// Like [`authorize_task_read`], but additionally requires *start* access:
+/// control, or the public visibility the Task grants. Used only by the
+/// provision (start) path; every other lifecycle action stays control-only.
+pub(super) async fn authorize_task_start(
+    state: &SandboxApiState,
+    scope: &Option<ScopeContext>,
+    task_id: &str,
+) -> Result<TaskIntent, SandboxError> {
+    let intent = authorize_task_read(state, scope, task_id).await?;
+    ensure_can_start(scope, &intent, task_id)?;
+    Ok(intent)
+}
+
 /// Read access to a Sandbox: its own scope/owner pair, or the public visibility
 /// its Task grants — a public Task is collaborative, and its Sandbox view is
 /// part of what it shares.
@@ -801,6 +818,32 @@ fn ensure_can_read(
         return Ok(());
     }
     Err(SandboxError::NotFound(format!("task {task_id}")))
+}
+
+/// Start access to a Sandbox: control, or the public visibility its Task
+/// grants.
+///
+/// A public Task is collaborative, and a stopped Sandbox is what makes that
+/// collaboration unusable — the viewer can read the Task but every file read
+/// fails against a Sandbox that is not running, and only the owner could wake
+/// it. So starting is the one lifecycle action public visibility grants: any
+/// signed-in caller may wake a public Task's Sandbox. Stopping, restarting,
+/// redeploying, removing, and server-config changes stay control-only, because
+/// those take a running Sandbox away from the people sharing it.
+fn ensure_can_start(
+    scope: &Option<ScopeContext>,
+    intent: &TaskIntent,
+    task_id: &str,
+) -> Result<(), SandboxError> {
+    let ctx = scope
+        .as_ref()
+        .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
+    if intent.visibility == Visibility::Public || ctx.can_control(&intent.scoped_resource()) {
+        return Ok(());
+    }
+    Err(SandboxError::Forbidden(format!(
+        "no control access to task {task_id}"
+    )))
 }
 
 /// Control access to a Sandbox. Visibility never grants it.
@@ -896,9 +939,59 @@ mod authz_tests {
     #[test]
     fn read_of_a_public_task_is_allowed() {
         // A public Task is collaborative, and its Sandbox view is part of what
-        // it shares — read only, never control.
+        // it shares — read and start, never the rest of control.
         let public = intent(Scope::User, Some("owner"), Visibility::Public);
         assert!(ensure_can_read(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
+        assert!(matches!(
+            ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1"),
+            Err(SandboxError::Forbidden(_))
+        ));
+    }
+
+    #[test]
+    fn start_of_a_public_task_is_allowed_for_any_signed_in_caller() {
+        // Reading a public Task's files needs a running Sandbox, so a viewer
+        // who may read it may also wake it.
+        let public = intent(Scope::User, Some("owner"), Visibility::Public);
+        assert!(ensure_can_start(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
+    }
+
+    #[test]
+    fn start_of_a_private_task_by_a_stranger_is_forbidden() {
+        // Start widens by visibility only. A private Task is unchanged.
+        assert!(matches!(
+            ensure_can_start(&Some(ctx("stranger", false)), &private(Some("owner")), "task-1"),
+            Err(SandboxError::Forbidden(_))
+        ));
+    }
+
+    #[test]
+    fn start_by_the_owner_and_admin_is_allowed() {
+        assert!(
+            ensure_can_start(&Some(ctx("owner", false)), &private(Some("owner")), "task-1").is_ok()
+        );
+        assert!(
+            ensure_can_start(&Some(ctx("root", true)), &private(Some("other-user")), "task-1").is_ok()
+        );
+    }
+
+    #[test]
+    fn start_without_identity_is_forbidden() {
+        // "Every signed-in user" is the grant — an unauthenticated caller is
+        // still refused, even on a public Task.
+        let public = intent(Scope::User, Some("owner"), Visibility::Public);
+        assert!(matches!(
+            ensure_can_start(&None, &public, "task-1"),
+            Err(SandboxError::Forbidden(_))
+        ));
+    }
+
+    #[test]
+    fn start_never_widens_the_other_lifecycle_actions() {
+        // Stop/restart/redeploy/remove keep taking a shared Sandbox away, so
+        // they stay control-only even on a public Task.
+        let public = intent(Scope::User, Some("owner"), Visibility::Public);
+        assert!(ensure_can_start(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
         assert!(matches!(
             ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1"),
             Err(SandboxError::Forbidden(_))

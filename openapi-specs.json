@@ -471,7 +471,7 @@
           "sandbox"
         ],
         "summary": "Provision a new sandbox for a task.",
-        "description": "Builds the provision request internally from DB state (task, repository,\ncredentials). No request body required.",
+        "description": "Builds the provision request internally from DB state (task, repository,\ncredentials). No request body required.\n\nRequires start access: the Sandbox's owner, a platform admin, or any\nsigned-in caller when the Task is public.",
         "operationId": "provision_handler",
         "parameters": [
           {
@@ -497,6 +497,16 @@
           },
           "400": {
             "description": "Task is Closed — start not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No start access to the task",
             "content": {
               "application/json": {
                 "schema": {

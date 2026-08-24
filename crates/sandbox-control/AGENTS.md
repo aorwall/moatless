@@ -52,9 +52,13 @@ provider SDK (`kube`/`bollard`) — its error type boxes any provider error behi
   act, what the pod looks like — comes off that row. A Sandbox with intent at
   the epoch was never requested, is converged Stopped, and is wakeable.
 - HTTP authorization reads the Sandbox, not the Task: `authorize_task_read` /
-  `authorize_task_control` in `handlers.rs` work from one `TaskIntent`. The one
-  Task-level grant they honour is `visibility = 'public'`, which grants read
-  and never control.
+  `authorize_task_start` / `authorize_task_control` in `handlers.rs` work from
+  one `TaskIntent`. The one Task-level grant they honour is
+  `visibility = 'public'`, which grants read and start, and never the rest of
+  control. Start is separate because reading a public Task's files needs a
+  running Sandbox: any signed-in caller may wake one, but only the owner or an
+  admin may stop, restart, redeploy, remove, or reconfigure its servers —
+  those take a running Sandbox away from the people sharing it.
 - `delete_task` requires successful `lifecycle.remove` before deleting the task
   row (enforced in `moatless-tasks`).
 - Completion facts commit before publication. The backend's
