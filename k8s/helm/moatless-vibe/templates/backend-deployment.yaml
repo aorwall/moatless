@@ -110,6 +110,10 @@ spec:
               value: {{ .Values.kubernetes.sandboxRunAsNonRoot | default false | quote }}
             - name: K8S_SANDBOX_SHARED_DATA_SIZE
               value: {{ .Values.kubernetes.sandboxSharedDataSize | default "2Gi" | quote }}
+            {{- with .Values.kubernetes.sandboxDockerDindSelinuxType }}
+            - name: K8S_SANDBOX_DOCKER_DIND_SELINUX_TYPE
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.kubernetes.sandboxEphemeralStorage }}
             - name: K8S_SANDBOX_EPHEMERAL_STORAGE
               value: {{ . | quote }}

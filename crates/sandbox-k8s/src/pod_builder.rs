@@ -3,7 +3,7 @@
 //! Generates the full Pod spec in Rust code — no YAML template needed.
 //! Server containers are created dynamically from the repo config.
 
-use k8s_openapi::api::core::v1::{Affinity, Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction, HostPathVolumeSource, NodeAffinity, NodeSelectorRequirement, NodeSelectorTerm, PersistentVolumeClaimVolumeSource, Pod, PodSecurityContext, PodSpec, PreferredSchedulingTerm, Probe, ResourceRequirements, SeccompProfile, SecurityContext, TCPSocketAction, Toleration, Volume, VolumeMount};
+use k8s_openapi::api::core::v1::{Affinity, Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction, HostPathVolumeSource, NodeAffinity, NodeSelectorRequirement, NodeSelectorTerm, PersistentVolumeClaimVolumeSource, Pod, PodSecurityContext, PodSpec, PreferredSchedulingTerm, Probe, ResourceRequirements, SELinuxOptions, SeccompProfile, SecurityContext, TCPSocketAction, Toleration, Volume, VolumeMount};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use std::collections::{BTreeMap, HashMap};
@@ -519,7 +519,7 @@ fn build_nvme_setup_container(config: &Config) -> Container {
         image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
         command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
         args: Some(vec![script]),
-        security_context: Some(privileged_security_context()),
+        security_context: Some(privileged_security_context(None)),
         // Modest requests/limits so this short-lived, privileged init container is
         // schedulable and bounded rather than BestEffort.
         resources: Some(ResourceRequirements {
@@ -604,7 +604,9 @@ fn build_dind_container(config: &Config) -> Container {
         // Disable the entrypoint's automatic TLS cert generation so it listens
         // in plaintext on 2375.
         env: Some(vec![env_var("DOCKER_TLS_CERTDIR", "")]),
-        security_context: Some(privileged_security_context()),
+        security_context: Some(privileged_security_context(
+            config.sandbox.docker_dind_selinux_type.as_deref(),
+        )),
         volume_mounts: Some(vec![VolumeMount {
             name: "docker-storage".to_string(),
             mount_path: "/var/lib/docker".to_string(),
@@ -1380,11 +1382,22 @@ fn pod_security_context(config: &Config) -> Option<PodSecurityContext> {
 /// securityContext enables `runAsNonRoot` — otherwise the kubelet would reject
 /// them. Used ONLY by these containers — never by the agent/server containers,
 /// which use [`app_security_context`].
-fn privileged_security_context() -> SecurityContext {
+///
+/// `selinux_type` sets `seLinuxOptions.type`. `privileged: true` does not make a
+/// container unconfined on an SELinux-enforcing node, and the type a confined
+/// container gets may not be allowed to write `security.selinux` xattrs — which
+/// dockerd needs when it unpacks image layers carrying them. Only the `dind`
+/// sidecar passes one, from `sandbox.docker_dind_selinux_type`; `nvme-setup`
+/// writes a fresh filesystem and needs no relabelling.
+fn privileged_security_context(selinux_type: Option<&str>) -> SecurityContext {
     SecurityContext {
         privileged: Some(true),
         run_as_user: Some(0),
         run_as_non_root: Some(false),
+        se_linux_options: selinux_type.map(|type_| SELinuxOptions {
+            type_: Some(type_.to_string()),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }
@@ -1619,6 +1632,7 @@ mod tests {
                 docker_dind_cpu_limit: "2".into(),
                 docker_dind_memory_request: "1Gi".into(),
                 docker_dind_memory_limit: "4Gi".into(),
+                docker_dind_selinux_type: None,
                 egress_proxy_url: None,
                 egress_proxy_profiles: vec![],
                 egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
@@ -3219,6 +3233,88 @@ mod tests {
         assert_eq!(sc.privileged, Some(true));
         assert_eq!(sc.run_as_user, Some(0));
         assert_eq!(sc.run_as_non_root, Some(false));
+    }
+
+    /// `seLinuxOptions` is absent unless a type is configured — naming a type the
+    /// node's policy does not define makes the pod fail to start, so clusters
+    /// that need one opt in.
+    #[test]
+    fn dind_has_no_selinux_options_by_default() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(true);
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let dind = pod
+            .spec
+            .as_ref()
+            .unwrap()
+            .containers
+            .iter()
+            .find(|c| c.name == "dind")
+            .expect("dind sidecar present");
+
+        assert_eq!(
+            dind.security_context
+                .as_ref()
+                .unwrap()
+                .se_linux_options
+                .as_ref(),
+            None
+        );
+    }
+
+    /// A configured type reaches the `dind` sidecar and nothing else: `nvme-setup`
+    /// stays on the runtime default.
+    #[test]
+    fn dind_selinux_type_applies_to_dind_only() {
+        use moatless_core::config::SandboxCacheVolume;
+
+        let mut config = test_config();
+        config.sandbox.docker_dind_selinux_type = Some("super_t".into());
+        config.sandbox.cache_volumes = vec![SandboxCacheVolume {
+            name: "bun".into(),
+            mount_path: "/bun-cache".into(),
+            env: vec![("BUN_INSTALL_CACHE_DIR".into(), "/bun-cache".into())],
+        }];
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(true);
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let spec = pod.spec.as_ref().unwrap();
+
+        let dind = spec
+            .containers
+            .iter()
+            .find(|c| c.name == "dind")
+            .expect("dind sidecar present");
+        assert_eq!(
+            dind.security_context
+                .as_ref()
+                .unwrap()
+                .se_linux_options
+                .as_ref()
+                .unwrap()
+                .type_
+                .as_deref(),
+            Some("super_t")
+        );
+
+        let nvme = spec
+            .init_containers
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|c| c.name == "nvme-setup")
+            .expect("nvme-setup init container present");
+        assert_eq!(
+            nvme.security_context
+                .as_ref()
+                .unwrap()
+                .se_linux_options
+                .as_ref(),
+            None
+        );
     }
 
     /// The `nvme-setup` init container keeps its privileged root context and

@@ -852,6 +852,14 @@ kubernetes:
   # restrict-image-registries policy for initContainers (the ECR-mirrored dind
   # ref). Leave empty to use the backend's built-in default.
   sandboxCacheInitImage: ""
+  # -- SELinux type for the privileged `dind` sidecar's seLinuxOptions, e.g.
+  # `super_t` on Bottlerocket. On an SELinux-enforcing node `privileged: true`
+  # does not make a container unconfined, and a confined type cannot write
+  # `security.selinux` xattrs — so dockerd pulls an image layer carrying them
+  # and then fails to unpack it. Empty leaves the runtime default: naming a type
+  # the node's policy does not define makes the pod fail to start, so this is
+  # opt-in per cluster. Maps to K8S_SANDBOX_DOCKER_DIND_SELINUX_TYPE.
+  sandboxDockerDindSelinuxType: ""
   # -- Janitor that bounds managed node-local hostPath storage growth. It renders
   # only when nodeArchive.enabled is also true, runs on sandbox nodes, and
   # deletes per-task workspace/docker directories older than
