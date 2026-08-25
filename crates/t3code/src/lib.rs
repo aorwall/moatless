@@ -535,6 +535,14 @@ fn router(state: UiRpcState) -> Router {
             "/api/orchestration/threads/{thread_id}",
             get(thread_snapshot_http),
         )
+        .route(
+            "/api/orchestration/scripts/{thread_id}",
+            get(scripts_list_http),
+        )
+        .route(
+            "/api/orchestration/scripts/{thread_id}/{script_id}/run",
+            post(scripts_run_http),
+        )
         .route("/ws", get(websocket_upgrade))
         .with_state(state)
 }
@@ -648,6 +656,48 @@ async fn thread_snapshot_http(
             )
                 .into_response()
         }
+    }
+}
+
+/// A Task's declared Scripts, for a caller outside the RPC/WS surface (`moat
+/// tasks scripts list`) — the same read `scripts.run` resolves a Script id
+/// against.
+async fn scripts_list_http(
+    State(state): State<UiRpcState>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
+    Path(thread_id): Path<String>,
+) -> Response {
+    let viewer = viewer_scope(&identity);
+    match scripts::list(&state.scripts, &viewer, &thread_id).await {
+        Ok(scripts) => {
+            Json(json!({ "scripts": scripts::public_script_list(&scripts) })).into_response()
+        }
+        Err(error) => scripts_error_response(&error),
+    }
+}
+
+/// Start a Task's declared Script from outside the RPC/WS surface (`moat
+/// tasks scripts run`). Same effect as `scripts.run`: execs into a named
+/// terminal session, publishing the Script's port first if it declares one.
+async fn scripts_run_http(
+    State(state): State<UiRpcState>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
+    Path((thread_id, script_id)): Path<(String, String)>,
+) -> Response {
+    let viewer = viewer_scope(&identity);
+    let payload = json!({ "threadId": thread_id, "scriptId": script_id });
+    match scripts::run(
+        &state.scripts,
+        state.conversations.as_ref(),
+        state.sandboxes.as_ref(),
+        &state.terminal,
+        &viewer,
+        &payload,
+    )
+    .await
+    {
+        Ok(result) => Json(result).into_response(),
+        Err(error) => scripts_error_response(&error),
     }
 }
 
@@ -3455,6 +3505,65 @@ fn scripts_failure_exit(
         ScriptsError::Database(cause) => {
             error!(%cause, user_id = %identity.user_id, "scripts.run failed to read the conversation");
             failure_exit(request_id, "Failed to read the conversation.")
+        }
+    }
+}
+
+/// How a failed `scripts.run`/list reaches an HTTP caller (`moat tasks
+/// scripts`) — the same refusal vocabulary as [`scripts_failure_exit`], the
+/// WS twin, as status codes instead of RPC exit shapes.
+fn scripts_error_response(error: &ScriptsError) -> Response {
+    match error {
+        ScriptsError::NotFound => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Conversation not found." })),
+        )
+            .into_response(),
+        ScriptsError::ScriptNotFound(name) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("No script named \"{name}\".") })),
+        )
+            .into_response(),
+        ScriptsError::Malformed(field) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("scripts.run requires {field}") })),
+        )
+            .into_response(),
+        // Typed with a `code`, not just a string: this is the one refusal a
+        // caller can act on (start the sandbox and retry) rather than report.
+        ScriptsError::Port(SandboxError::NotReady(_)) => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "Sandbox not running.", "code": "SANDBOX_NOT_RUNNING" })),
+        )
+            .into_response(),
+        ScriptsError::Port(SandboxError::BadRequest(detail)) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": detail.clone() })),
+        )
+            .into_response(),
+        ScriptsError::Port(cause) => {
+            warn!(%cause, "scripts.run could not publish the port");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": "The script's port could not be published." })),
+            )
+                .into_response()
+        }
+        ScriptsError::Terminal(terminal_error) => {
+            warn!(?terminal_error, "scripts.run's terminal could not be started");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "The script's terminal could not be started." })),
+            )
+                .into_response()
+        }
+        ScriptsError::Database(cause) => {
+            error!(%cause, "scripts.run failed to read the conversation");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Failed to read the conversation." })),
+            )
+                .into_response()
         }
     }
 }

@@ -90,6 +90,42 @@ fn required_str<'a>(payload: &'a Value, field: &'static str) -> Result<&'a str, 
         .ok_or(ScriptsError::Malformed(field))
 }
 
+/// The Scripts a Task's Workspace declares — the same read [`run`] resolves a
+/// Script id against, for a caller that only wants to enumerate them (`moat
+/// tasks scripts list`, over HTTP rather than the RPC/WS surface).
+pub async fn list(
+    state: &ScriptsState,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Vec<ScriptConfig>, ScriptsError> {
+    state
+        .workspaces
+        .scripts_for_task(viewer, task_id)
+        .await?
+        .ok_or(ScriptsError::NotFound)
+}
+
+/// A Script as `moat tasks scripts list` reports it — everything needed to
+/// resolve and describe a Script, minus `env_vars`. That field is carried
+/// across a client rewrite so a rename does not clear it ([`carry_over_env`]),
+/// is never sent to the T3 client either, and stays that way here: a
+/// task-scoped bearer key reads this route without the workspace-level access
+/// a pinned secret would assume.
+pub fn public_script_list(scripts: &[ScriptConfig]) -> Vec<Value> {
+    scripts
+        .iter()
+        .map(|script| {
+            json!({
+                "name": script.name,
+                "label": script.label,
+                "command": script.command,
+                "icon": script.icon,
+                "port": script.port,
+            })
+        })
+        .collect()
+}
+
 /// Start a Script and return the terminal it runs in, plus its preview URL when
 /// it serves a port.
 pub async fn run(

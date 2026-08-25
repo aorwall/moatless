@@ -3,7 +3,8 @@
 use clap::Subcommand;
 use moatless_api_schemas::enums::Scope;
 use moatless_api_schemas::workspace::{
-    CreateWorkspaceRequest, UpdateWorkspaceRequest, WorkspaceRepoInput, WorkspaceResponse,
+    CreateWorkspaceRequest, ScriptConfig, UpdateWorkspaceRequest, WorkspaceRepoInput,
+    WorkspaceResponse,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -147,6 +148,70 @@ pub enum WorkspaceAction {
         #[command(subcommand)]
         action: CredentialAction,
     },
+    /// Declare a workspace's scripts. Each one becomes a Run button in the
+    /// chat header's Project actions group — click it, or run `moat tasks
+    /// scripts run`, and the environment execs the command in a terminal tab
+    /// that opens and attaches automatically so its output is visible live. A
+    /// script with a `--port` also opens a preview tab pointing at it, the
+    /// same live preview a declared server gets. This only edits the
+    /// declaration; nothing runs until `moat tasks scripts run` addresses it
+    /// against a task's sandbox.
+    Scripts {
+        #[command(subcommand)]
+        action: WorkspaceScriptAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum WorkspaceScriptAction {
+    /// List the workspace's declared scripts
+    List { workspace_id: String },
+    /// Declare a new script
+    Add {
+        workspace_id: String,
+        /// Script id — what `moat tasks scripts run` and the wire address it
+        /// by. Must be unique on the workspace
+        name: String,
+        /// The script's shell command. Pass "-" to write a multi-line script
+        /// on stdin instead of the command line — anything that would need
+        /// escaping as a single argument (quotes, &&, a heredoc) belongs there
+        #[arg(long)]
+        command: String,
+        /// Display label, if it should read differently from the id
+        #[arg(long)]
+        label: Option<String>,
+        /// Port the script serves on, 1-65535. Setting this is what makes it
+        /// previewable: as soon as the script starts, the UI publishes the
+        /// port and opens a live preview tab pointing at it automatically —
+        /// no separate server declaration needed
+        #[arg(long)]
+        port: Option<u16>,
+        /// Icon shown next to the script in the Run menu
+        #[arg(long)]
+        icon: Option<String>,
+    },
+    /// Change an existing script's command, port, label, or icon
+    Update {
+        workspace_id: String,
+        name: String,
+        /// Replaces the whole command. Pass "-" to read a multi-line script
+        /// from stdin (see `add --help`)
+        #[arg(long)]
+        command: Option<String>,
+        /// Pass an empty string to clear a previously set label
+        #[arg(long)]
+        label: Option<String>,
+        /// A port from 1-65535. Pass -1 to stop serving a preview and clear a
+        /// previously set port. Use `--port=-1` (with the `=`) — `--port -1`
+        /// is parsed as two separate flags
+        #[arg(long, allow_hyphen_values = true)]
+        port: Option<i32>,
+        /// Pass an empty string to clear a previously set icon
+        #[arg(long)]
+        icon: Option<String>,
+    },
+    /// Remove a declared script
+    Remove { workspace_id: String, name: String },
 }
 
 #[derive(Subcommand)]
@@ -391,8 +456,191 @@ pub async fn run(
         WorkspaceAction::Credentials { action } => {
             run_credentials(client, action, json).await?;
         }
+        WorkspaceAction::Scripts { action } => {
+            run_workspace_scripts(client, action, json).await?;
+        }
     }
     Ok(())
+}
+
+async fn run_workspace_scripts(
+    client: &MoatClient,
+    action: WorkspaceScriptAction,
+    json: bool,
+) -> Result<(), ClientError> {
+    match action {
+        WorkspaceScriptAction::List { workspace_id } => {
+            let ws = client.api().get_workspace(&workspace_id).await?;
+            let scripts = ws.scripts.unwrap_or_default();
+            if json {
+                output::print_json_typed(&scripts);
+            } else if scripts.is_empty() {
+                println!("No scripts declared on workspace {workspace_id}.");
+            } else {
+                format_scripts_list(&scripts);
+            }
+        }
+        WorkspaceScriptAction::Add {
+            workspace_id,
+            name,
+            command,
+            label,
+            port,
+            icon,
+        } => {
+            if let Some(port) = port {
+                validate_port(i32::from(port))?;
+            }
+            let command = read_value(Some(command))?.unwrap_or_default();
+            let mut scripts = client
+                .api()
+                .get_workspace(&workspace_id)
+                .await?
+                .scripts
+                .unwrap_or_default();
+            if scripts.iter().any(|s| s.name == name) {
+                return Err(ClientError::Other(format!(
+                    "A script named \"{name}\" already exists. Use `update` to change it."
+                )));
+            }
+            scripts.push(ScriptConfig {
+                name,
+                label,
+                command,
+                icon,
+                port,
+                env_vars: None,
+            });
+            let updated = replace_scripts(client, &workspace_id, scripts).await?;
+            print_scripts_result(&updated, json);
+        }
+        WorkspaceScriptAction::Update {
+            workspace_id,
+            name,
+            command,
+            label,
+            port,
+            icon,
+        } => {
+            let mut scripts = client
+                .api()
+                .get_workspace(&workspace_id)
+                .await?
+                .scripts
+                .unwrap_or_default();
+            let script = scripts
+                .iter_mut()
+                .find(|s| s.name == name)
+                .ok_or_else(|| not_declared(&workspace_id, &name))?;
+            if let Some(command) = command {
+                script.command = read_value(Some(command))?.unwrap_or_default();
+            }
+            if let Some(label) = label {
+                script.label = (!label.is_empty()).then_some(label);
+            }
+            if let Some(icon) = icon {
+                script.icon = (!icon.is_empty()).then_some(icon);
+            }
+            if let Some(port) = port {
+                script.port = if port < 0 {
+                    None
+                } else {
+                    Some(validate_port(port)?)
+                };
+            }
+            let updated = replace_scripts(client, &workspace_id, scripts).await?;
+            print_scripts_result(&updated, json);
+        }
+        WorkspaceScriptAction::Remove { workspace_id, name } => {
+            let mut scripts = client
+                .api()
+                .get_workspace(&workspace_id)
+                .await?
+                .scripts
+                .unwrap_or_default();
+            let before = scripts.len();
+            scripts.retain(|s| s.name != name);
+            if scripts.len() == before {
+                return Err(not_declared(&workspace_id, &name));
+            }
+            let updated = replace_scripts(client, &workspace_id, scripts).await?;
+            print_scripts_result(&updated, json);
+        }
+    }
+    Ok(())
+}
+
+fn not_declared(workspace_id: &str, name: &str) -> ClientError {
+    ClientError::Other(format!(
+        "No script named \"{name}\". Run `moat workspaces scripts list {workspace_id}` to see what's declared."
+    ))
+}
+
+/// A port in the 1-65535 range `scripts::replace`'s own editor enforces — kept
+/// in sync here so a script declared through this read-modify-write path
+/// cannot store a `0` the T3 UI's editor would refuse.
+fn validate_port(port: i32) -> Result<u16, ClientError> {
+    u16::try_from(port)
+        .ok()
+        .filter(|port| *port != 0)
+        .ok_or_else(|| {
+            ClientError::Other(format!(
+                "`{port}` is not a port. Use 1-65535, or -1 to clear."
+            ))
+        })
+}
+
+/// Replace a workspace's whole Scripts list. `UpdateWorkspaceRequest` patches
+/// only the fields set — every other field stays `None`, so this touches
+/// nothing else about the workspace. A concurrent editor's write in between
+/// the read and this one is lost, same as any other `moat workspaces update`.
+async fn replace_scripts(
+    client: &MoatClient,
+    workspace_id: &str,
+    scripts: Vec<ScriptConfig>,
+) -> Result<WorkspaceResponse, ClientError> {
+    let req = UpdateWorkspaceRequest {
+        scripts: Some(scripts),
+        ..Default::default()
+    };
+    Ok(client.api().update_workspace(workspace_id, &req).await?)
+}
+
+fn print_scripts_result(updated: &WorkspaceResponse, json: bool) {
+    let scripts = updated.scripts.clone().unwrap_or_default();
+    if json {
+        output::print_json_typed(&scripts);
+    } else {
+        format_scripts_list(&scripts);
+    }
+}
+
+/// One line per script; a multi-line command is folded onto one line for the
+/// table (the stored command is untouched — this is display only). Shared
+/// with `moat tasks scripts list`, which renders the same declarations from
+/// the task-scoped read.
+pub(crate) fn format_scripts_list(scripts: &[ScriptConfig]) {
+    let rows: Vec<Vec<String>> = scripts
+        .iter()
+        .map(|s| {
+            vec![
+                s.name.clone(),
+                s.label.clone().unwrap_or_default(),
+                summarize_command(&s.command),
+                s.port.map(|p| p.to_string()).unwrap_or_default(),
+            ]
+        })
+        .collect();
+    output::print_table(&["NAME", "LABEL", "COMMAND", "PORT"], &rows);
+}
+
+fn summarize_command(command: &str) -> String {
+    let one_line = command.replace('\n', " \u{23ce} ");
+    if one_line.chars().count() > 60 {
+        format!("{}...", one_line.chars().take(57).collect::<String>())
+    } else {
+        one_line
+    }
 }
 
 async fn run_credentials(

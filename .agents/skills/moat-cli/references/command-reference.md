@@ -194,6 +194,25 @@ preview URL) and `"envVars"`. It replaces the whole scripts list, like
 moat workspaces update ws_<id> --scripts-json '[{"name":"dev","command":"pnpm dev","port":3000}]'
 ```
 
+For editing one script at a time instead of replacing the whole list, use
+`moat workspaces scripts <action> <workspace-id> [...]`:
+
+| Command | Description |
+|---------|-------------|
+| `moat workspaces scripts list <workspace-id>` | List declared scripts |
+| `moat workspaces scripts add <workspace-id> <name> --command <cmd> [--label ...] [--port ...] [--icon ...]` | Declare a new script |
+| `moat workspaces scripts update <workspace-id> <name> [--command ...] [--label ...] [--port ...] [--icon ...]` | Change an existing script |
+| `moat workspaces scripts remove <workspace-id> <name>` | Remove a declared script |
+
+`--command -` reads a multi-line command from stdin instead of the command
+line, matching `moat api --body -`. `--port` accepts `-1` (as `--port=-1` or
+`--port -1`) to clear a previously set port; `--label`/`--icon` accept an
+empty string to clear.
+
+```bash
+moat workspaces scripts add ws_<id> dev --command "pnpm dev" --port 3000
+```
+
 ---
 
 ## Task Commands
@@ -325,6 +344,22 @@ Stop a running task.
 Close/complete a task.
 
 - **API**: `POST /api/v1/tasks/{task_id}/close`
+
+### `moat tasks scripts <task_id> list|run <name>`
+
+Run a script the task's workspace declares (see `moat workspaces scripts` above)
+against the task's own sandbox. Starts the command in a terminal and, if the
+script declares a port, reports a preview URL. Running the same script twice
+attaches to the already-running one rather than starting a second copy. Unlike
+clicking Run in the T3 UI, this does not start a stopped sandbox for you — run
+`moat tasks start <task_id>` first if the sandbox isn't running.
+
+- **API**: `GET /api/orchestration/scripts/{task_id}`, `POST /api/orchestration/scripts/{task_id}/{name}/run`
+
+```bash
+moat tasks scripts <task-id> list
+moat tasks scripts <task-id> run dev
+```
 
 ### `moat tasks diagnose <task_id>`
 
