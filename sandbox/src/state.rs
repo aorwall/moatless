@@ -334,7 +334,7 @@ impl SandboxState {
                         "Failed to clean isolated checkout after clone failure"
                     );
                 }
-                return Err(e);
+                return Err(e.to_string());
             }
         }
 

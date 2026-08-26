@@ -666,9 +666,18 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
                 }
             }
             Err(e) => {
+                let retryable = e.retryable;
                 let msg = format!("Failed to clone repository: {e}");
                 publish_sandbox_event(state, "RepositoryCloneFailed", &msg, true).await;
-                return Err(InitError::Permanent(msg));
+                // The clone already retried for as long as the failure looked
+                // like the network's or the service's. Still failing that way
+                // means exit 1, so the restart is the outer retry; anything else
+                // is a config error the pod cannot grow out of.
+                return Err(if retryable {
+                    InitError::Transient(msg)
+                } else {
+                    InitError::Permanent(msg)
+                });
             }
         }
     }

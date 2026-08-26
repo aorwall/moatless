@@ -5,8 +5,10 @@
 //! ([`Config::repos`]) clones with the token for its own provider.
 
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use moatless_api_schemas::sandbox::RepoCheckout;
+use tokio::net::TcpStream;
 use tokio::process::Command;
 use tracing::{info, warn};
 
@@ -137,7 +139,8 @@ pub struct CloneSummary {
 /// Every declared repo is required: a workspace names the repos the task's work
 /// spans, so silently starting the agent without one produces work against the
 /// wrong tree. The first failure aborts.
-pub async fn clone_repositories(config: &Config) -> Result<CloneSummary, String> {
+pub async fn clone_repositories(config: &Config) -> Result<CloneSummary, CloneFailure> {
+    let deadline = Instant::now() + CLONE_RETRY_BUDGET;
     let mut summary = CloneSummary {
         cloned: Vec::new(),
         primary_recloned: false,
@@ -153,13 +156,202 @@ pub async fn clone_repositories(config: &Config) -> Result<CloneSummary, String>
             info!(mount = %repo.mount_name, "Repository already cloned, skipping");
             continue;
         }
-        clone_checkout(repo, &dest, &config.git_provider)
-            .await
-            .map_err(|e| format!("{} ({}): {e}", repo.mount_name, repo.clone_url))?;
+        clone_with_retry(repo, &dest, &config.git_provider, deadline).await?;
         summary.cloned.push(repo.mount_name.clone());
         summary.primary_recloned |= repo.is_primary;
     }
     Ok(summary)
+}
+
+/// A failed clone, and whether another attempt could get past it.
+#[derive(Debug)]
+pub struct CloneFailure {
+    message: String,
+    /// Another attempt could get past this: the pod could not reach the host, or
+    /// the service answered for its own outage. The attempt then says nothing
+    /// about whether the repo exists or its credentials are accepted, so init
+    /// retries rather than reporting a permanent config error.
+    pub retryable: bool,
+}
+
+impl std::fmt::Display for CloneFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// Wall-clock ceiling on clone retries, shared by every repo in one pass.
+///
+/// The pod's startup probe kills the container after
+/// `K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6` failed `/health` checks at 5s spacing
+/// — 150s at the default — and the credential fetch ahead of this can spend 90s
+/// of that. A loop outlasting what is left is SIGKILLed mid-backoff and never
+/// reports why it was failing; the container restart is the outer retry.
+const CLONE_RETRY_BUDGET: Duration = Duration::from_secs(45);
+
+/// Longest single backoff between clone attempts.
+const MAX_CLONE_RETRY_DELAY: Duration = Duration::from_secs(8);
+
+/// Ceiling on one reachability probe, so a black-holed host cannot spend the
+/// whole retry budget inside a single connect.
+const HOST_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Clone one repo, retrying for as long as its host is unreachable and
+/// `deadline` allows.
+///
+/// A reachable host means the failure is about the repo or its credentials, so
+/// this returns at once — retrying a 404 only burns the startup budget.
+async fn clone_with_retry(
+    repo: &RepoCheckout,
+    dest: &str,
+    pod_provider: &str,
+    deadline: Instant,
+) -> Result<(), CloneFailure> {
+    let mut delay = Duration::from_secs(2);
+    loop {
+        let error = match clone_checkout(repo, dest, pod_provider).await {
+            Ok(()) => return Ok(()),
+            Err(e) => e,
+        };
+        let message = format!("{} ({}): {error}", repo.mount_name, repo.clone_url);
+
+        if !failure_is_retryable(repo, pod_provider).await {
+            return Err(CloneFailure {
+                message,
+                retryable: false,
+            });
+        }
+
+        // Stop once the next backoff would spend the rest of the budget: sleeping
+        // to the deadline only to start an attempt with no time left is how the
+        // startup probe gets to SIGKILL this mid-clone, taking the error with it.
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining <= delay {
+            return Err(CloneFailure {
+                message,
+                retryable: true,
+            });
+        }
+
+        warn!(
+            mount = %repo.mount_name,
+            error = %error,
+            retry_in_secs = delay.as_secs(),
+            "Clone failed on a condition another attempt could get past — retrying"
+        );
+        // git refuses to clone into a non-empty directory, so whatever the
+        // failed attempt left behind has to go before the next one.
+        clean_workspace_dir(dest).await;
+        tokio::time::sleep(delay).await;
+        delay = (delay * 2).min(MAX_CLONE_RETRY_DELAY);
+    }
+}
+
+/// Whether a failed clone is worth another attempt.
+///
+/// Two measured signals, never git's stderr: the status the service answers for
+/// this repo, and whether the host answers a TCP connect at all.
+async fn failure_is_retryable(repo: &RepoCheckout, pod_provider: &str) -> bool {
+    // A 5xx is the service having its own outage, which a reachable host would
+    // otherwise be read as a verdict on the repo. This can only ever promote a
+    // failure to retryable: a 4xx falls through to the reachability check rather
+    // than deciding by itself, so a provider whose endpoint answers differently
+    // cannot turn a working repo into a permanent config error.
+    if let Some(status) = repo_advertisement_status(repo, pod_provider).await {
+        if status.is_server_error() {
+            return true;
+        }
+    }
+    !host_reachable(&repo.clone_url).await
+}
+
+/// The status the repo's git smart-HTTP endpoint answers with, or `None` when
+/// there is nothing to ask — an SSH remote, or a request that never completed.
+async fn repo_advertisement_status(
+    repo: &RepoCheckout,
+    pod_provider: &str,
+) -> Option<reqwest::StatusCode> {
+    if is_ssh_url(&repo.clone_url) {
+        return None;
+    }
+    let base = repo
+        .clone_url
+        .trim_end_matches('/')
+        .trim_end_matches(".git");
+    let client = reqwest::Client::builder()
+        .timeout(HOST_PROBE_TIMEOUT)
+        .build()
+        .ok()?;
+    let mut request = client.get(format!("{base}/info/refs?service=git-upload-pack"));
+    if let Some(token) = provider_git_token(&repo.provider, pod_provider) {
+        request = request.basic_auth("x-access-token", Some(token));
+    }
+    request.send().await.ok().map(|response| response.status())
+}
+
+/// Whether the pod can currently reach the host `clone_url` points at.
+///
+/// Asks the resolver and the TCP stack directly instead of reading git's stderr:
+/// git exits 128 for every fatal error, and a host that does not resolve or
+/// refuses a connection is why the clone failed whatever it printed.
+///
+/// A URL with no host to probe answers `true` — nothing was learned about the
+/// pod's network, and the clone failure has to stand on its own.
+async fn host_reachable(clone_url: &str) -> bool {
+    let Some((host, port)) = clone_host_port(clone_url) else {
+        return true;
+    };
+    let probe = async {
+        // Every resolved address counts, not just the first: a pod with no IPv6
+        // route reaches a dual-stack host only on the A record it is handed
+        // second, and calling that host unreachable would send a genuine 404
+        // into a crash loop. `HOST_PROBE_TIMEOUT` bounds the walk as a whole.
+        for addr in tokio::net::lookup_host((host.as_str(), port)).await.ok()? {
+            if TcpStream::connect(addr).await.is_ok() {
+                return Some(());
+            }
+        }
+        None
+    };
+    matches!(
+        tokio::time::timeout(HOST_PROBE_TIMEOUT, probe).await,
+        Ok(Some(()))
+    )
+}
+
+/// Host and port to probe for a clone URL: the scheme's default port unless the
+/// URL names its own.
+fn clone_host_port(clone_url: &str) -> Option<(String, u16)> {
+    let (rest, default_port) = if let Some(rest) = clone_url.strip_prefix("https://") {
+        (rest, 443)
+    } else if let Some(rest) = clone_url.strip_prefix("http://") {
+        (rest, 80)
+    } else if let Some(rest) = clone_url.strip_prefix("ssh://") {
+        (rest, 22)
+    } else if let Some(rest) = clone_url.strip_prefix("git+ssh://") {
+        (rest, 22)
+    } else if is_ssh_url(clone_url) {
+        // scp-like `user@host:path`, which carries no scheme.
+        (clone_url, 22)
+    } else {
+        // A local path or anything else with no host of its own.
+        return None;
+    };
+
+    // Cut the path first so a scp-like URL's `:` path separator cannot be read
+    // as a port, then drop any userinfo an injected token left in front.
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    let authority = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    if authority.is_empty() {
+        return None;
+    }
+
+    match authority.rsplit_once(':') {
+        Some((host, port)) if !host.is_empty() => {
+            Some((host.to_string(), port.parse().unwrap_or(default_port)))
+        }
+        _ => Some((authority.to_string(), default_port)),
+    }
 }
 
 /// Clone one repository into `dest`.
@@ -489,6 +681,10 @@ mod tests {
 
     use crate::config::test_support::minimal_config;
 
+    /// A port nothing listens on. Well below the ephemeral range, so a
+    /// concurrently-running test cannot be handed it and make the connect succeed.
+    const DEAD_PORT: u16 = 1;
+
     fn checkout(mount: &str, provider: &str, is_primary: bool) -> RepoCheckout {
         RepoCheckout {
             clone_url: format!("https://{provider}.example/acme/{mount}.git"),
@@ -610,6 +806,208 @@ mod tests {
         );
         // A foreign provider with no token of its own gets nothing.
         assert_eq!(resolve_provider_git_token("gitness", "github", env), None);
+    }
+
+    /// The probe answers from the resolver and the TCP stack, so both verdicts
+    /// are exercised against a real local socket rather than the public network:
+    /// a listener that exists, and a port nothing is bound to.
+    #[tokio::test]
+    async fn probe_reports_reachable_and_unreachable_hosts() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let live = listener.local_addr().unwrap().port();
+        assert!(host_reachable(&format!("https://127.0.0.1:{live}/acme/api.git")).await);
+
+        // Nothing is bound to `DEAD_PORT`, so the connect is refused outright.
+        assert!(!host_reachable(&format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git")).await);
+    }
+
+    /// A host resolving to several addresses is reachable when *any* of them
+    /// connects. On a dual-stack runner `localhost` yields `::1` before
+    /// `127.0.0.1`, and a listener bound only to `127.0.0.1` is reached solely by
+    /// walking past the first address.
+    #[tokio::test]
+    async fn probe_walks_every_resolved_address() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(host_reachable(&format!("https://localhost:{port}/acme/api.git")).await);
+    }
+
+    /// The retry loop must not sleep the budget away and then start an attempt it
+    /// cannot afford — the startup probe SIGKILLs the container mid-clone and the
+    /// error never reaches the termination log.
+    #[tokio::test]
+    async fn retry_stops_before_an_attempt_it_cannot_afford() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = RepoCheckout {
+            clone_url: format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git"),
+            branch: None,
+            provider: "local".to_string(),
+            mount_name: "api".to_string(),
+            is_primary: true,
+        };
+
+        // A budget just over the first backoff: one retry is affordable, a second
+        // is not. The production budget would spend 45s proving the same thing.
+        let budget = Duration::from_secs(3);
+        let started = Instant::now();
+        let err = clone_with_retry(
+            &repo,
+            &tmp.path().join("api").display().to_string(),
+            "local",
+            started + budget,
+        )
+        .await
+        .expect_err("a clone against a dead port must fail");
+
+        assert!(err.retryable);
+        // Returned within the budget rather than overrunning it on a last attempt.
+        assert!(
+            started.elapsed() <= budget,
+            "retry overran its budget: {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// Answer every request with `status`, so a clone failure can be classified
+    /// against a service whose behaviour the test controls.
+    async fn serve_status(status: &'static str) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut discard = [0u8; 1024];
+                let _ = socket.read(&mut discard).await;
+                let response =
+                    format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        port
+    }
+
+    fn repo_at(port: u16) -> RepoCheckout {
+        RepoCheckout {
+            clone_url: format!("http://127.0.0.1:{port}/acme/api.git"),
+            branch: None,
+            provider: "local".to_string(),
+            mount_name: "api".to_string(),
+            is_primary: true,
+        }
+    }
+
+    /// A service answering 5xx is reporting its own outage, not passing a verdict
+    /// on the repo. Reachability alone would call that permanent and kill the
+    /// sandbox for the length of a provider incident.
+    #[tokio::test]
+    async fn service_side_5xx_stays_retryable() {
+        let port = serve_status("503 Service Unavailable").await;
+        assert!(failure_is_retryable(&repo_at(port), "local").await);
+    }
+
+    /// A 4xx never decides on its own — it falls through to reachability — but a
+    /// host that answers leaves the failure the repo's own, and permanent.
+    #[tokio::test]
+    async fn client_error_from_a_reachable_host_is_not_retryable() {
+        let port = serve_status("404 Not Found").await;
+        assert!(!failure_is_retryable(&repo_at(port), "local").await);
+    }
+
+    /// A URL with no host to probe teaches nothing about the pod's network, so
+    /// the clone failure has to stand on its own and stay permanent.
+    #[tokio::test]
+    async fn hostless_url_counts_as_reachable() {
+        assert!(host_reachable("/srv/git/local-repo.git").await);
+    }
+
+    /// The probe targets the port the clone would actually use, and an injected
+    /// token in the URL's userinfo must not be mistaken for the host.
+    #[test]
+    fn clone_urls_resolve_to_the_host_and_port_the_clone_uses() {
+        let port = |url: &str| clone_host_port(url);
+        assert_eq!(
+            port("https://github.com/owner/repo.git"),
+            Some(("github.com".into(), 443))
+        );
+        assert_eq!(
+            port("http://gitlab.internal/owner/repo.git"),
+            Some(("gitlab.internal".into(), 80))
+        );
+        assert_eq!(
+            port("https://gitness.example.com:8443/org/repo.git"),
+            Some(("gitness.example.com".into(), 8443))
+        );
+        // scp-like: the ':' separates a path, not a port.
+        assert_eq!(
+            port("git@github.com:owner/repo.git"),
+            Some(("github.com".into(), 22))
+        );
+        assert_eq!(
+            port("ssh://git@example.com:2222/owner/repo.git"),
+            Some(("example.com".into(), 2222))
+        );
+        // An injected token must not be read as the host.
+        assert_eq!(
+            port("https://x-access-token:ghs_tok@github.com/owner/repo.git"),
+            Some(("github.com".into(), 443))
+        );
+        // Nothing to probe.
+        assert_eq!(port("/srv/git/local-repo.git"), None);
+    }
+
+    /// The incident shape: the host is unreachable and the retry budget is gone,
+    /// so the failure is reported as environmental (exit 1, the restart retries)
+    /// rather than as a permanent config error.
+    #[tokio::test]
+    async fn exhausted_budget_against_an_unreachable_host_stays_retryable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = RepoCheckout {
+            clone_url: format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git"),
+            branch: None,
+            provider: "local".to_string(),
+            mount_name: "api".to_string(),
+            is_primary: true,
+        };
+
+        let err = clone_with_retry(
+            &repo,
+            &tmp.path().join("api").display().to_string(),
+            "local",
+            Instant::now(),
+        )
+        .await
+        .expect_err("a clone against a dead port must fail");
+
+        assert!(err.retryable);
+        assert!(err.to_string().contains("api"), "message was: {err}");
+    }
+
+    /// A repo the pod can reach is judged on the clone itself: no amount of
+    /// retrying makes a missing repository appear, so it must not be reported as
+    /// a network fault.
+    #[tokio::test]
+    async fn reachable_host_reports_the_failure_as_its_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = RepoCheckout {
+            // No host to probe, so the probe cannot excuse the failure.
+            clone_url: tmp.path().join("does-not-exist").display().to_string(),
+            branch: None,
+            provider: "local".to_string(),
+            mount_name: "api".to_string(),
+            is_primary: true,
+        };
+
+        let err = clone_with_retry(
+            &repo,
+            &tmp.path().join("api").display().to_string(),
+            "local",
+            Instant::now() + Duration::from_mins(1),
+        )
+        .await
+        .expect_err("cloning a path that does not exist must fail");
+
+        assert!(!err.retryable);
     }
 
     #[test]

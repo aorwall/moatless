@@ -133,6 +133,7 @@ in the change that found them.
 | A `moat push` commit claim is process-local | `crates/adapter-github-pr/src/api_routes.rs::claim_change`, the `GithubClaimSubject::Commit` arm — `RecentlySent::note_commit` only | When a `pull_request.synchronize` is observed reaching a replica that did not serve the claim; see below |
 | Every member of a shared Sandbox runs the first member's agent harness | `sandbox/src/state.rs::register_task_context` — its three-field config clone leaves `agent_type` and `use_tmux` inherited from the pod, while `spawn_agent` is already called per member and `TaskContext` already holds its own `AgentHandle` | When a shared warm Sandbox needs two harnesses at once; see below |
 | A Task auto-close spares for its sibling Bindings is told nothing about the PR | `crates/adapter-github-pr/src/routing.rs::close_subject`, the `siblings_count > 1` arm | When a Task bound to two pull requests is observed missing the close of one; see below |
+| One clone attempt has no timeout of its own | `sandbox/src/init/git.rs::clone_checkout` — `run_command` awaits `git`/`gh` with no deadline, so `clone_with_retry`'s `CLONE_RETRY_BUDGET` bounds the retries between attempts but not an attempt | When a git host that black-holes rather than refuses is observed overrunning the pod's startup probe — the budget exists so init's own error reaches the termination log instead of a SIGKILL |
 
 **A Task auto-close spares hears neither notice.** `close_subject` walks the
 Bindings its own trigger created, and where the Task carries other Bindings it
