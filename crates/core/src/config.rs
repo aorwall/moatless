@@ -467,21 +467,6 @@ pub struct SandboxConfig {
     /// run as children of dockerd inside this container, so their memory charges
     /// against this limit. Env `K8S_SANDBOX_DOCKER_DIND_MEMORY_LIMIT`.
     pub docker_dind_memory_limit: String,
-    /// SELinux type for the `dind` sidecar's `seLinuxOptions`, e.g. `super_t` on
-    /// Bottlerocket. Unset (the default) leaves the container on whatever type
-    /// the runtime assigns.
-    ///
-    /// On an SELinux-enforcing node, `privileged: true` alone does not make a
-    /// container unconfined. Bottlerocket gives it `control_t`, which cannot
-    /// write `security.selinux` xattrs, so unpacking any image layer that
-    /// carries them fails with `failed to set xattr "security.selinux" …
-    /// permission denied` — the pull succeeds and the extract does not.
-    ///
-    /// The type name is policy-specific and unset by default on purpose: naming
-    /// a type the node's policy does not define makes the pod fail to start, so
-    /// clusters that need one opt in. Env
-    /// `K8S_SANDBOX_DOCKER_DIND_SELINUX_TYPE`.
-    pub docker_dind_selinux_type: Option<String>,
     /// In-cluster egress forward-proxy URL (e.g.
     /// `http://moatless-vibe-egress-proxy.<ns>.svc.cluster.local:3128`). When
     /// set, sandbox pods whose `network_profile` is listed in
@@ -879,7 +864,6 @@ impl Config {
                     "1Gi",
                 ),
                 docker_dind_memory_limit: env_str("K8S_SANDBOX_DOCKER_DIND_MEMORY_LIMIT", "4Gi"),
-                docker_dind_selinux_type: env_opt("K8S_SANDBOX_DOCKER_DIND_SELINUX_TYPE"),
                 egress_proxy_url: env_opt("SANDBOX_EGRESS_PROXY_URL"),
                 egress_proxy_profiles: env_opt("SANDBOX_EGRESS_PROXY_PROFILES")
                     .map(|s| {
@@ -1339,7 +1323,6 @@ impl Config {
                 docker_dind_cpu_limit: "2".into(),
                 docker_dind_memory_request: "1Gi".into(),
                 docker_dind_memory_limit: "4Gi".into(),
-                docker_dind_selinux_type: None,
                 egress_proxy_url: None,
                 egress_proxy_profiles: vec![],
                 egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
