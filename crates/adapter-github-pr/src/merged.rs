@@ -180,6 +180,7 @@ impl GithubPrInboundRouter {
             message_thread_id: merged.pr_number.to_string(),
             user_id: super::auth::resolve_sender_user(&merged.merged_by, rule, self.users.as_ref()).await,
             author: moatless_loops::adapters::models::author_handle(&merged.merged_by),
+            sender_external_id: None,
             text: merged_text(merged, &execution.owner, &execution.repo),
             file_ids: vec![],
             thread_properties: serde_json::json!({

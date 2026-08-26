@@ -129,6 +129,7 @@ impl GithubPrInboundRouter {
             message_thread_id: execution.pr_number.to_string(),
             user_id: authenticated.user_id,
             author: None,
+            sender_external_id: None,
             text: merge_conflict_text(
                 &execution.owner,
                 &execution.repo,

@@ -778,6 +778,7 @@ impl RoutingService {
                             .unwrap_or(config.source_id.as_str()),
                     ),
                     author: msg.author.as_deref(),
+                    sender_id: msg.sender_external_id.as_deref(),
                     source_task_id: None,
                 },
                 false,

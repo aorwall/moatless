@@ -159,6 +159,7 @@ pub(super) async fn handle_comment_created(
                     subject_key: Some(&binding.subject_key),
                     source_name: rule.as_ref().map(|r| r.source_matcher.as_str()),
                     author: author.as_deref(),
+                    sender_id: None,
                     source_task_id: None,
                 },
                 false,

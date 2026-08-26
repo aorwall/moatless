@@ -101,6 +101,9 @@ pub struct ThreadReply {
     pub text: String,
     /// The Slack message timestamp (unique ID).
     pub ts: Option<String>,
+    /// The Slack id of whoever wrote it, so history reads as a conversation
+    /// between named people rather than one anonymous block.
+    pub user: Option<String>,
 }
 
 /// One `chat.postMessage` request.
@@ -340,6 +343,7 @@ impl SlackApi {
             })
             .filter_map(|m| {
                 let ts = m.ts.clone();
+                let user = m.user.clone();
                 // Try blocks first (Block Kit), then attachments (legacy), then text (fallback)
                 let text = m
                     .blocks
@@ -357,7 +361,7 @@ impl SlackApi {
                             .filter(|t| !t.is_empty())
                             .map(|t| super::format::format_slack_text(&t))
                     })?;
-                Some(ThreadReply { text, ts })
+                Some(ThreadReply { text, ts, user })
             })
             .collect();
 

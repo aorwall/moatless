@@ -218,6 +218,7 @@ impl GithubPrInboundRouter {
             message_thread_id: pr_number.to_string(),
             user_id: authenticated.user_id,
             author: None,
+            sender_external_id: None,
             text: post_merge_ci_text(&execution.run, &execution.owner, &execution.repo, pr_number),
             file_ids: vec![],
             thread_properties: serde_json::json!({

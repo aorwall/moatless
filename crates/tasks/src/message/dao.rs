@@ -517,13 +517,14 @@ impl MessageDao for PgMessageDao {
                 agent_mode, model, resume, external_event_id,
                 external_adapter, external_source_name, source_task_id,
                 start_fresh, sent_by, external_subject_key, assistant_usage,
-                tool_response, effort, external_author, skills
+                tool_response, effort, external_author, skills,
+                external_sender_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
                 $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-                $41, $42, $43, $44, $45
+                $41, $42, $43, $44, $45, $46
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -595,6 +596,7 @@ impl MessageDao for PgMessageDao {
         // Deliberately absent from the DO UPDATE SET above: that path is the
         // per-block agent-message merge, and must not blank a user row's skills.
         .bind(&msg.skills)
+        .bind(&msg.external_sender_id)
         .fetch_one(&mut *tx)
         .await?;
 

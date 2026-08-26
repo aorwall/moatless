@@ -198,6 +198,7 @@ impl WebhookAdapter {
                 user_id,
                 // A webhook payload names no external author.
                 author: None,
+                sender_external_id: None,
                 text: payload.text,
                 file_ids: vec![],
                 thread_properties,

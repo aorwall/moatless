@@ -105,6 +105,12 @@ pub struct TaskMessage {
     /// resolved to one: `sent_by` holds that, and on most adapters it is the
     /// subscription's owner rather than whoever actually wrote this.
     pub external_author: Option<String>,
+    /// The raw external id of whoever wrote this — a Slack `U0000000001`. The
+    /// sender label resolves from this rather than `sent_by`, because
+    /// `sent_by` holds the trigger owner when the writer has no Moatless
+    /// mapping. `None` on internal rows and on rows written before the column
+    /// existed.
+    pub external_sender_id: Option<String>,
     pub source_task_id: Option<String>,
     /// User declared the next agent run should NOT resume the prior session.
     /// Distinct from `will_not_resume`, which lives on the result row.
@@ -174,6 +180,7 @@ impl TaskMessage {
             external_subject_key: None,
             external_source_name: None,
             external_author: None,
+            external_sender_id: None,
             source_task_id: None,
             start_fresh: false,
             sent_by: None,

@@ -677,6 +677,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         external_source_name: None,
         external_author: None,
         sent_by: None,
+        external_sender_id: None,
         source_task_id: None,
         start_fresh: false,
     }

@@ -459,6 +459,7 @@ async fn notify_parent_task_of_child_error(
             &[],
             true,
             moatless_types::task::ExternalOrigin {
+                sender_id: None,
                 source_task_id: Some(&event.task_id),
                 ..moatless_types::task::ExternalOrigin::none()
             },
@@ -830,6 +831,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         external_subject_key: None,
         external_source_name: None,
         external_author: None,
+        external_sender_id: None,
         source_task_id: None,
         start_fresh: false,
         sent_by: None,

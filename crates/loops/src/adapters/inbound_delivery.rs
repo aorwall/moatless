@@ -161,6 +161,7 @@ mod tests {
                 message_thread_id: "1700000000.000100".into(),
                 user_id: "user-1".into(),
                 author: Some("@ada".into()),
+                sender_external_id: None,
                 text: "hello".into(),
                 file_ids: vec!["f1".into()],
                 thread_properties: serde_json::json!({ "channel": "C1" }),

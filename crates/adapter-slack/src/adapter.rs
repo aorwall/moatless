@@ -7,8 +7,12 @@ use tokio::sync::OnceCell;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::{Adapter, AdapterKind, AdapterOutboundContent, Adapters};
+use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
+use moatless_identity::auth::users::PgUserDao;
+use moatless_identity::auth::provider_token_dao::PgProviderTokenDao;
+use moatless_identity::ports::UserDirectory;
 
 use super::api::SlackApi;
 
@@ -25,6 +29,11 @@ pub struct SlackAdapter {
     bot_user_id: Option<String>,
     db: Option<DbPool>,
     config: Option<Arc<Config>>,
+    /// The Slack ↔ Moatless links, for the two paths the webhook's own
+    /// `ProviderIdentityLink` never reaches: naming the writers in fetched
+    /// thread history, and resolving an outbound `<@login>`. `None` for an
+    /// adapter built without a pool, where both degrade to raw ids.
+    users: Option<Arc<dyn ProviderIdentityLink>>,
     /// Workspace (team) id memoized after the first `auth.test` call so
     /// direct sends don't ping Slack on every send.
     workspace_id: OnceCell<String>,
@@ -53,6 +62,7 @@ impl SlackAdapter {
             bot_user_id,
             db: None,
             config: None,
+            users: None,
             workspace_id: OnceCell::new(),
         }
     }
@@ -63,6 +73,10 @@ impl SlackAdapter {
             api: SlackApi::new(bot_token),
             signing_secret: config.slack.signing_secret.clone().unwrap_or_default(),
             bot_user_id: config.slack.bot_user_id.clone(),
+            users: Some(Arc::new(UserDirectory::new(
+                Arc::new(PgUserDao(db.clone())),
+                Arc::new(PgProviderTokenDao(db.clone())),
+            ))),
             db: Some(db),
             config: Some(config),
             workspace_id: OnceCell::new(),
@@ -86,8 +100,16 @@ impl SlackAdapter {
             bot_user_id,
             db: None,
             config: None,
+            users: None,
             workspace_id: OnceCell::new(),
         }
+    }
+
+    /// The same, with a directory behind it, for the paths that name people.
+    #[cfg(test)]
+    pub(super) fn with_users(mut self, users: Arc<dyn ProviderIdentityLink>) -> Self {
+        self.users = Some(users);
+        self
     }
 
     pub(super) async fn app(&self, app_key: &str) -> Result<ResolvedSlackApp, AdapterError> {
@@ -136,6 +158,11 @@ impl SlackAdapter {
     /// The bot's own Slack user ID, when it is known.
     pub(super) fn bot_user_id(&self) -> Option<&str> {
         self.bot_user_id.as_deref()
+    }
+
+    /// The Slack ↔ Moatless links, where this adapter was built with a pool.
+    pub(super) fn users(&self) -> Option<&dyn ProviderIdentityLink> {
+        self.users.as_deref()
     }
 }
 

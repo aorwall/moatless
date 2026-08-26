@@ -12,6 +12,7 @@ pub mod error;
 pub mod events;
 pub mod inbound_delivery;
 pub mod ingress;
+pub mod mentions;
 pub mod metrics;
 pub mod self_echo;
 pub mod signature;

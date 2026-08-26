@@ -836,6 +836,7 @@ mod tests {
             created_at: None,
             external_subject_key: None,
             external_author: None,
+            external_sender_id: None,
             source_task_id: None,
             start_fresh: false,
             sent_by: None,

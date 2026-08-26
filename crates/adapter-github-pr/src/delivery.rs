@@ -387,6 +387,7 @@ mod tests {
             message_thread_id: "42".to_string(),
             user_id: "user-1".to_string(),
             author: Some("octocat".to_string()),
+            sender_external_id: None,
             text: "hello".to_string(),
             file_ids: vec![],
             thread_properties: serde_json::json!({

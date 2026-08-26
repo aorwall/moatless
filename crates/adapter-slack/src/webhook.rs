@@ -123,6 +123,16 @@ impl<'a> SlackEvent<'a> {
         })
     }
 
+    /// The writer's own Slack id, where the event names one.
+    ///
+    /// A bot post carries its identity in `bot_id` and leaves `user` absent,
+    /// which `from_payload` reads as `""`. Persisting that would label the
+    /// writer `slack: ` and name nobody, so it resolves to no id at all and the
+    /// header falls back to the handle or is omitted.
+    fn sender_external_id(&self) -> Option<String> {
+        (!self.user.is_empty()).then(|| self.user.to_string())
+    }
+
     /// Resolve the message text. The top-level `text` is empty for app/bot
     /// posts that carry their content in Block Kit `blocks` or legacy
     /// `attachments` (e.g. CI notifiers posting via incoming webhooks).
@@ -301,6 +311,47 @@ fn screen(
     Ok(is_bot_message)
 }
 
+/// Put a name to every Slack id the message text still mentions.
+///
+/// Each id resolves to the Moatless login it is linked to, else to the handle
+/// Slack knows it by, else stays an id. The bot's own id is deliberately left
+/// alone: its system prompt tells it that `<@its_id>` is how it is addressed,
+/// and renaming it there would break that.
+async fn name_mentioned_users(
+    text: &str,
+    ctx: &NormalizeContext<'_>,
+) -> String {
+    let ids = super::format::mentioned_user_ids(text);
+    if ids.is_empty() {
+        return text.to_string();
+    }
+
+    let mut names = std::collections::HashMap::new();
+    for id in ids {
+        if ctx.bot_user_id == Some(id.as_str()) {
+            continue;
+        }
+        match ctx.users.user_at(super::delivery::ADAPTER, &id).await {
+            Ok(Some(user)) => {
+                names.insert(id, user.login);
+                continue;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                warn!(slack_user = %id, error = %e, "Mention lookup failed, leaving the raw id");
+                continue;
+            }
+        }
+        if let Ok(Some(info)) = ctx.api.get_user_info(&id).await {
+            if let Some(handle) = info.handle {
+                names.insert(id, handle);
+            }
+        }
+    }
+
+    super::format::name_mentions(text, &names)
+}
+
 /// The notice an unmapped top-level sender is answered with.
 fn unmapped_sender_notice(email: Option<&str>) -> String {
     match email {
@@ -457,6 +508,10 @@ pub(super) async fn normalize(
         }
     };
 
+    // Last, so an event that never becomes a message spends no lookups on the
+    // people it mentions.
+    let clean_text = name_mentioned_users(&clean_text, ctx).await;
+
     let team_id = payload
         .get("team_id")
         .and_then(serde_json::Value::as_str)
@@ -474,6 +529,9 @@ pub(super) async fn normalize(
             author: sender_handle
                 .as_deref()
                 .and_then(moatless_loops::adapters::models::author_handle),
+            // Always the writer's own Slack id, unlike `user_id` above, which
+            // falls back to the trigger owner when the writer is unmapped.
+            sender_external_id: event.sender_external_id(),
             text: clean_text,
             file_ids: vec![], // TODO: handle file attachments
             thread_properties: serde_json::json!({
@@ -499,7 +557,34 @@ pub(super) async fn normalize(
 
 #[cfg(test)]
 mod tests {
-    use super::is_ignored_message_subtype;
+    use super::{SlackEvent, is_ignored_message_subtype};
+
+    #[test]
+    fn a_writer_with_a_slack_id_is_identified_by_it() {
+        let payload = serde_json::json!({
+            "event": { "type": "message", "user": "U0000000001", "text": "hi" }
+        });
+        let event = SlackEvent::from_payload(&payload).expect("an event");
+        assert_eq!(event.sender_external_id().as_deref(), Some("U0000000001"));
+    }
+
+    /// A bot post allowed through by `allow_bot_messages` names itself in
+    /// `bot_id`, not `user`. An empty id must not be stored as a real sender:
+    /// it would render `<from>slack: </from>`, which names nobody.
+    #[test]
+    fn a_bot_post_with_no_user_field_has_no_sender_id() {
+        let payload = serde_json::json!({
+            "event": {
+                "type": "message",
+                "subtype": "bot_message",
+                "bot_id": "B0DEPLOYBOT",
+                "text": "deploy finished"
+            }
+        });
+        let event = SlackEvent::from_payload(&payload).expect("an event");
+        assert_eq!(event.user, "", "Slack omitted `user` entirely");
+        assert_eq!(event.sender_external_id(), None);
+    }
 
     #[test]
     fn system_message_subtypes_are_ignored() {

@@ -31,6 +31,44 @@ static SPECIAL_MENTION: LazyLock<Regex> =
 static SUBTEAM_MENTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<!subteam\^[A-Z0-9]+(?:\|@?([^>]+))?>").expect("valid regex"));
 
+/// A Slack user id left standing by [`format_slack_text`], which renders
+/// `<@U123>` as `@U123` whenever Slack sends no `|name` half — which is almost
+/// always. The id shape is distinctive enough that ordinary prose does not
+/// match it.
+#[allow(clippy::expect_used)]
+static BARE_USER_ID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"@([UW][A-Z0-9]{6,})\b").expect("valid regex"));
+
+/// Every Slack user id still named in already-formatted text, deduped and in
+/// the order they appear. What the caller resolves before calling
+/// [`name_mentions`].
+pub fn mentioned_user_ids(text: &str) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for capture in BARE_USER_ID.captures_iter(text) {
+        let id = capture[1].to_string();
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    ids
+}
+
+/// Replace each `@U123` with the name `names` gives for it.
+///
+/// An id with no entry is left as it is: an unresolvable mention still tells
+/// the agent that *someone* was named, and inventing a name would be worse than
+/// showing the id.
+pub fn name_mentions(text: &str, names: &std::collections::HashMap<String, String>) -> String {
+    BARE_USER_ID
+        .replace_all(text, |caps: &regex::Captures| {
+            names.get(&caps[1]).map_or_else(
+                || caps[0].to_string(),
+                |name| format!("@{name}"),
+            )
+        })
+        .into_owned()
+}
+
 /// Extract readable text from Slack Block Kit `blocks` array.
 ///
 /// Walks the block structure and pulls text from:
@@ -716,5 +754,40 @@ mod tests {
         assert!(result.contains("First alert"));
         assert!(result.contains("Alert 2"));
         assert!(result.contains("Second alert"));
+    }
+
+    /// `format_slack_text` leaves a mention as `@U…`; these two put a name to
+    /// it, which is the whole reason the agent can tell who was referenced.
+    #[test]
+    fn the_ids_a_message_still_names_are_collected_once_each() {
+        let text = format_slack_text("<@U0000000001> and <@U0MARTIN1> and <@U0000000001>");
+        assert_eq!(text, "@U0000000001 and @U0MARTIN1 and @U0000000001");
+        assert_eq!(
+            mentioned_user_ids(&text),
+            vec!["U0000000001".to_string(), "U0MARTIN1".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_named_id_is_replaced_everywhere_and_an_unnamed_one_is_left_alone() {
+        let mut names = std::collections::HashMap::new();
+        names.insert("U0000000001".to_string(), "aorwall".to_string());
+
+        assert_eq!(
+            name_mentions("@U0000000001 ask @U0MARTIN1, then @U0000000001", &names),
+            "@aorwall ask @U0MARTIN1, then @aorwall",
+            "an id with no name still says someone was named"
+        );
+    }
+
+    /// The id shape is what makes the pass safe to run over prose.
+    #[test]
+    fn ordinary_text_is_not_mistaken_for_a_mention() {
+        for text in ["email ops@host", "see @docs", "@moatless/api-client", "@U2"] {
+            assert!(
+                mentioned_user_ids(text).is_empty(),
+                "`{text}` is not a mention"
+            );
+        }
     }
 }

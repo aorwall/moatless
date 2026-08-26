@@ -478,6 +478,7 @@ impl GithubPrInboundRouter {
             message_thread_id: info.pr_number.to_string(),
             user_id,
             author: moatless_loops::adapters::models::author_handle(&info.sender_login),
+            sender_external_id: None,
             text,
             file_ids: vec![],
             thread_properties: serde_json::json!({
@@ -608,6 +609,7 @@ impl GithubPrInboundRouter {
                     subject_key: Some(&binding.subject_key),
                     source_name: Some(rule.source_matcher.as_str()),
                     author: msg.author.as_deref(),
+                    sender_id: None,
                     source_task_id: None,
                 },
                 false,

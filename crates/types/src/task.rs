@@ -23,6 +23,10 @@ pub struct ExternalOrigin<'a> {
     /// The handle the external system knows the writer by, recorded verbatim
     /// and never resolved to a Moatless identity.
     pub author: Option<&'a str>,
+    /// The writer's own id in the external system — a Slack `U0000000001`.
+    /// What the sender label resolves through, since the Moatless user id on
+    /// the send is the subscription's owner when the writer is unmapped.
+    pub sender_id: Option<&'a str>,
     pub source_task_id: Option<&'a str>,
 }
 
@@ -35,6 +39,7 @@ impl ExternalOrigin<'_> {
             subject_key: None,
             source_name: None,
             author: None,
+            sender_id: None,
             source_task_id: None,
         }
     }

@@ -25,7 +25,7 @@ When someone writes `<@{bot_id}>` they are addressing you directly."
         None => {
             s.push_str(
                 "Your Slack user ID is not configured. \
-Rely on sender labels (`Name (login, Slack: U...): ...`) to tell yourself apart from other participants, \
+Rely on the `<from>` header to tell yourself apart from other participants, \
 and when in doubt stay silent rather than replying to your own prior messages.\n",
             );
         }
@@ -33,10 +33,20 @@ and when in doubt stay silent rather than replying to your own prior messages.\n
 
     s.push_str(
         "\n\
+### Who wrote what
+Every inbound message carries a `<from>...</from>` header naming its writer — \
+`alice (slack: alice.w)` when they have a moatless account, `slack: bob.k` when \
+they do not, and `slack: U04XY9ZQ1MN` when Slack gave up no handle either. \
+Fetched thread history is prefixed the same way, `name: message`. Use it to tell \
+participants apart and to know who you are answering: several people talk in one \
+thread, and only some of them are talking to you.
+
 ### Mentioning users
-Inbound messages carry the sender's moatless login in a `<sent_by>...</sent_by>` \
-header. To @-mention a Slack user in your reply, use their Slack user id with the \
-format `<@U12345>`.
+To address someone, write `<@login>` using their moatless login — it becomes a \
+real Slack mention. A login with no linked Slack account renders as plain text \
+and notifies nobody. A raw Slack id also works, `<@U01ABC2DEFG>`, which is how \
+you mention someone who has no moatless account. Only write a mention when you \
+mean to notify that person; naming someone in passing does not need one.
 
 ### Telling threads apart
 Each inbound message also carries a `<thread>...</thread>` header identifying \
@@ -97,6 +107,33 @@ pub(super) fn with_task_link(text: &str, provenance: Option<&TaskProvenance>) ->
 mod tests {
     use super::{reply_instructions, with_task_link};
     use moatless_types::adapter::{TaskOrigin, TaskProvenance};
+
+    /// The instructions offer a raw Slack id as the way to mention someone
+    /// Moatless does not know. That only works if the id the agent is shown
+    /// passes the check the outbound path applies, so the example is held to
+    /// the same rule the code uses rather than merely looking id-shaped.
+    ///
+    /// `<@login>` is excluded: it is the placeholder for the canonical form,
+    /// which is resolved by lookup and is not meant to be an id.
+    #[test]
+    fn every_literal_id_in_the_instructions_is_one_the_outbound_path_accepts() {
+        let s = reply_instructions(None);
+        let ids: Vec<&str> = s
+            .split("<@")
+            .skip(1)
+            .filter_map(|rest| rest.split_once('>').map(|(id, _)| id))
+            .filter(|id| *id != "login")
+            .collect();
+
+        assert!(!ids.is_empty(), "the instructions demonstrate a raw id");
+        for id in ids {
+            assert!(
+                crate::auth::is_slack_user_id(id),
+                "`<@{id}>` is offered as a mention the agent can write, \
+                 but the outbound path would render it as plain text"
+            );
+        }
+    }
 
     #[test]
     fn reply_instructions_include_identity_with_bot_id() {

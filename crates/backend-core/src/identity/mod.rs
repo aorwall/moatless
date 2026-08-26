@@ -64,6 +64,16 @@ pub trait ProviderIdentityLink: Send + Sync {
     /// The user who holds this address.
     async fn user_by_email(&self, email: &str) -> Result<Option<LinkedUser>, StoreError>;
 
+    /// The id a Moatless `login` is known by at `provider` — the reverse of
+    /// [`Self::user_at`], reading the same link. What an outbound mention
+    /// needs: the agent names a person in Moatless terms, and the Adapter can
+    /// only address them by the provider's own id.
+    async fn provider_id_for_login(
+        &self,
+        provider: &str,
+        login: &str,
+    ) -> Result<Option<String>, StoreError>;
+
     /// The user who connected `provider_user_id` at `provider` by authorizing
     /// an Adapter's app. Distinct from [`Self::user_at`]: that reads the
     /// directory link a person establishes, this reads the account behind a

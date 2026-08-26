@@ -38,6 +38,31 @@ async fn upload_files(api: &SlackApi, channel: &str, thread_ts: &str, message: &
     }
 }
 
+/// The text to post: the reply, its provenance footer, and every `<@…>`
+/// resolved to something Slack can address.
+///
+/// A Moatless login linked to a Slack account becomes that account's mention; a
+/// Slack id is left alone, so anyone in the workspace is reachable whether or
+/// not Moatless knows them; anything else stays plain text and pings nobody.
+async fn outbound_text(
+    adapter: &SlackAdapter,
+    message: &OutboundReply,
+    provenance: Option<&TaskProvenance>,
+) -> String {
+    let text = text::with_task_link(&message.text, provenance);
+    let Some(users) = adapter.users() else {
+        return text;
+    };
+    moatless_loops::adapters::mentions::render_mentions(
+        users,
+        super::delivery::ADAPTER,
+        &text,
+        super::auth::is_slack_user_id,
+        |id| format!("<@{id}>"),
+    )
+    .await
+}
+
 /// The provenance to render, honouring the Loop's `task_link` setting.
 ///
 /// The loops band assembles provenance for every Slack reply; whether it is
@@ -96,7 +121,7 @@ impl AdapterBindingReply for SlackAdapter {
         })?;
 
         let provenance = wanted_provenance(message, config);
-        let text = text::with_task_link(&message.text, provenance);
+        let text = outbound_text(self, message, provenance).await;
         let blocks = reply_blocks(message, provenance);
 
         let ts = app
@@ -163,7 +188,7 @@ impl AdapterBindingReply for SlackAdapter {
         })?;
 
         let provenance = wanted_provenance(message, &config);
-        let text = text::with_task_link(&message.text, provenance);
+        let text = outbound_text(self, message, provenance).await;
         let blocks = reply_blocks(message, provenance);
         let ts = app
             .api
@@ -209,7 +234,7 @@ impl AdapterDirectDestination for SlackAdapter {
         // No `LoopContext` on this path, so the `task_link` toggle is not
         // readable; the caller decides by setting `provenance` or not.
         let provenance = message.provenance.as_ref();
-        let text = text::with_task_link(&message.text, provenance);
+        let text = outbound_text(self, message, provenance).await;
         let blocks = reply_blocks(message, provenance);
         let ts = app
             .api
@@ -829,5 +854,108 @@ mod tests {
 
         let posted = body(&stub.requests()[0]);
         assert_eq!(posted["blocks"].as_array().map(Vec::len), Some(2));
+    }
+
+    /// A directory that links the login `aorwall` to `U0AAQ`, and nobody else.
+    struct LinkedLogins;
+
+    #[async_trait::async_trait]
+    impl moatless_backend_core::identity::ProviderIdentityLink for LinkedLogins {
+        async fn user_at(
+            &self,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<
+            Option<moatless_backend_core::identity::LinkedUser>,
+            moatless_backend_core::store::StoreError,
+        > {
+            Ok(None)
+        }
+        async fn user_by_email(
+            &self,
+            _email: &str,
+        ) -> Result<
+            Option<moatless_backend_core::identity::LinkedUser>,
+            moatless_backend_core::store::StoreError,
+        > {
+            Ok(None)
+        }
+        async fn provider_id_for_login(
+            &self,
+            provider: &str,
+            login: &str,
+        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+            Ok((provider == "slack" && login == "aorwall").then(|| "U0AAQ".to_string()))
+        }
+        async fn user_who_connected(
+            &self,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+            Ok(None)
+        }
+        async fn user_with_login(
+            &self,
+            _provider: &str,
+            _login: &str,
+        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+            Ok(None)
+        }
+        async fn link(
+            &self,
+            _user_id: &uuid::Uuid,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<bool, moatless_backend_core::store::StoreError> {
+            Ok(false)
+        }
+    }
+
+    /// All three mention outcomes, in the request Slack actually receives.
+    #[tokio::test]
+    async fn mentions_are_resolved_in_the_posted_text() {
+        let stub = slack_stub().await;
+
+        adapter(&stub)
+            .with_users(std::sync::Arc::new(LinkedLogins))
+            .post_to_destination(
+                "channel:C1",
+                &reply("<@aorwall> and <@martin> and <@U0NEVERSEEN>", None),
+            )
+            .await
+            .expect("the stub accepts the post");
+
+        let posted = body(
+            stub.requests()
+                .iter()
+                .find(|r| r.path == "/chat.postMessage")
+                .expect("a message was posted"),
+        );
+        assert_eq!(
+            posted["text"],
+            // A linked login pings; an unlinked one names without pinging; a
+            // raw Slack id is passed through so anyone stays reachable.
+            "<@U0AAQ> and @martin and <@U0NEVERSEEN>"
+        );
+    }
+
+    /// Without a directory — an adapter built with no pool — a reply still
+    /// posts, and a mention it cannot resolve is left exactly as written.
+    #[tokio::test]
+    async fn a_send_with_no_directory_posts_the_text_unchanged() {
+        let stub = slack_stub().await;
+
+        adapter(&stub)
+            .post_to_destination("channel:C1", &reply("<@aorwall> take a look", None))
+            .await
+            .expect("the stub accepts the post");
+
+        let posted = body(
+            stub.requests()
+                .iter()
+                .find(|r| r.path == "/chat.postMessage")
+                .expect("a message was posted"),
+        );
+        assert_eq!(posted["text"], "<@aorwall> take a look");
     }
 }

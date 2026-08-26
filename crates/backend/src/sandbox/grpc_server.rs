@@ -971,19 +971,44 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             }
         };
 
-        // Pre-resolve sent_by user logins for *internal* rows. External rows
-        // (those with an `external_event_id`) carry `<message_id>`/`<source>`
-        // headers instead and don't need a sender lookup.
+        // Pre-resolve the logins the headers name. An internal row is keyed by
+        // its `sent_by` user id for `<sent_by>`; an external row is keyed by
+        // the writer's own Adapter id for `<from>`, which is the only field
+        // that names the writer rather than the trigger owner.
         let mut login_cache: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         if let Some(users) = self.handlers.as_ref().map(|h| &h.users) {
-            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
             for row in &pending {
                 if row.external_event_id.is_some() {
+                    let (Some(adapter), Some(sender_id)) = (
+                        row.external_adapter.as_deref(),
+                        row.external_sender_id.as_deref(),
+                    ) else {
+                        continue;
+                    };
+                    let key = moatless_tasks::message::enricher::sender_key(adapter, sender_id);
+                    if !seen.insert(key.clone()) {
+                        continue;
+                    }
+                    match users.find_user_by_provider_id(adapter, sender_id).await {
+                        Ok(Some(user)) => {
+                            login_cache.insert(key, user.login);
+                        }
+                        // Not an error: an unmapped writer is named by their
+                        // Adapter handle instead, which stays true.
+                        Ok(None) => debug!(
+                            adapter, sender_id, "sender is not mapped, <from> names their handle"
+                        ),
+                        Err(e) => warn!(
+                            adapter, sender_id, error = %e,
+                            "sender lookup failed, <from> names their handle"
+                        ),
+                    }
                     continue;
                 }
                 if let Some(uid) = row.sent_by.as_deref() {
-                    if seen.insert(uid) {
+                    if seen.insert(uid.to_string()) {
                         let Ok(uuid) = uid.parse::<uuid::Uuid>() else {
                             continue;
                         };

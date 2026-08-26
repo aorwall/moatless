@@ -285,6 +285,7 @@ pub(super) async fn normalize(
             message_thread_id: msg_thread_id,
             user_id,
             author,
+            sender_external_id: None,
             text: clean_text,
             file_ids: vec![],
             thread_properties,

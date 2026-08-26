@@ -1,8 +1,8 @@
 //! Slack identity resolution.
 //!
-//! One use case: resolving the inbound sender during normalization. `users` and
-//! `user_provider_ids` belong to `identity`; everything here goes through
-//! `ProviderIdentityLink`.
+//! Resolving the inbound sender during normalization, and naming a Slack user
+//! for a reader. `users` and `user_provider_ids` belong to `identity`;
+//! everything here goes through `ProviderIdentityLink`.
 
 use tracing::warn;
 use uuid::Uuid;
@@ -14,6 +14,42 @@ use super::api::{SlackApi, SlackUserInfo};
 
 /// `user_provider_ids.provider` for a Slack account.
 const PROVIDER: &str = super::delivery::ADAPTER;
+
+/// Whether a token is a Slack user id rather than a Moatless login.
+///
+/// What lets an outbound `<@…>` carry either: an id the Adapter can already
+/// address is passed through, so a Slack user Moatless has never seen stays
+/// reachable. Slack ids are uppercase and start `U` or `W`; a Moatless login is
+/// lowercase, so the two do not overlap in practice.
+pub(super) fn is_slack_user_id(token: &str) -> bool {
+    token.len() >= 8
+        && token.starts_with(['U', 'W'])
+        && token[1..]
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+}
+
+/// Name one Slack user for a reader: the Moatless login they are linked to,
+/// else the handle Slack knows them by, else nothing.
+pub(super) async fn name_of(
+    api: &SlackApi,
+    users: &dyn ProviderIdentityLink,
+    slack_user_id: &str,
+) -> Option<String> {
+    match users.user_at(PROVIDER, slack_user_id).await {
+        Ok(Some(user)) => return Some(user.login),
+        Ok(None) => {}
+        Err(e) => {
+            warn!(slack_user = %slack_user_id, error = %e, "Slack user lookup failed");
+            return None;
+        }
+    }
+    api.get_user_info(slack_user_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|info| info.handle)
+}
 
 /// What one inbound Slack sender resolved to.
 pub(super) enum SenderIdentity {
@@ -206,6 +242,14 @@ pub(crate) struct UnreachableUsers;
 #[cfg(test)]
 #[async_trait::async_trait]
 impl ProviderIdentityLink for UnreachableUsers {
+    async fn provider_id_for_login(
+        &self,
+        _provider: &str,
+        _login: &str,
+    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        panic!("this path must resolve no sender")
+    }
+
     async fn user_with_login(
         &self,
         _provider: &str,

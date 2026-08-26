@@ -486,6 +486,14 @@ mod characterization {
 
     #[async_trait::async_trait]
     impl ProviderIdentityLink for FailingUsers {
+        async fn provider_id_for_login(
+            &self,
+            _provider: &str,
+            _login: &str,
+        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        }
+
         async fn user_at(
             &self,
             _provider: &str,
@@ -1031,6 +1039,7 @@ mod tests {
             message_thread_id: "1700000000.000100".into(),
             user_id: "user-1".into(),
             author: None,
+            sender_external_id: None,
             text: "hello".into(),
             file_ids: vec![],
             thread_properties: serde_json::json!({}),

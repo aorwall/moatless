@@ -90,7 +90,7 @@ impl AdapterInboundPresentation for SlackAdapter {
         // Also exclude messages already delivered to the task (e.g. the current
         // message being processed) to avoid duplicates in the context. Match
         // both new prefixed and legacy bare-ts forms.
-        let messages: Vec<&str> = replies
+        let kept: Vec<&super::api::ThreadReply> = replies
             .iter()
             .filter(|r| match (&r.ts, oldest) {
                 (Some(ts), Some(cursor)) => ts.as_str() > cursor,
@@ -103,12 +103,40 @@ impl AdapterInboundPresentation for SlackAdapter {
                 }
                 None => true,
             })
-            .map(|r| r.text.as_str())
             .collect();
 
-        if messages.is_empty() {
+        if kept.is_empty() {
             return Ok(None);
         }
+
+        // Who said what, so a multi-person exchange the agent is catching up on
+        // reads as one. Resolved once per distinct writer in the window.
+        let mut names: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        if let Some(users) = self.users() {
+            for reply in &kept {
+                let Some(user) = reply.user.as_deref().filter(|u| !u.is_empty()) else {
+                    continue;
+                };
+                if names.contains_key(user) {
+                    continue;
+                }
+                if let Some(name) = super::auth::name_of(&app.api, users, user).await {
+                    names.insert(user.to_string(), name);
+                }
+            }
+        }
+
+        let messages: Vec<String> = kept
+            .iter()
+            .map(|r| match r.user.as_deref().filter(|u| !u.is_empty()) {
+                Some(user) => {
+                    let who = names.get(user).map_or(user, String::as_str);
+                    format!("{who}: {}", r.text)
+                }
+                None => r.text.clone(),
+            })
+            .collect();
 
         Ok(Some(messages.join("\n\n---\n\n")))
     }
@@ -202,6 +230,7 @@ mod tests {
             message_thread_id: "1700000000.000100".into(),
             user_id: "user-1".into(),
             author: None,
+            sender_external_id: None,
             text: "hello".into(),
             file_ids: vec![],
             thread_properties: serde_json::json!({}),
@@ -269,7 +298,11 @@ mod tests {
             .await
             .expect("the stub answers");
 
-        assert_eq!(context.as_deref(), Some("after the cursor"));
+        assert_eq!(
+            context.as_deref(),
+            Some("U1: after the cursor"),
+            "no directory here, so the writer is named by the id that still tells them apart"
+        );
         assert_eq!(stub.paths(), vec!["/conversations.replies".to_string()]);
         let query = &stub.requests()[0].query;
         assert!(
@@ -297,7 +330,91 @@ mod tests {
             .await
             .expect("the stub answers");
 
-        assert_eq!(context.as_deref(), Some("after the cursor"));
+        assert_eq!(context.as_deref(), Some("U1: after the cursor"));
+    }
+
+    /// A directory that links `U1` to the login `aorwall`, and nobody else.
+    struct OneLink;
+
+    #[async_trait::async_trait]
+    impl moatless_backend_core::identity::ProviderIdentityLink for OneLink {
+        async fn user_at(
+            &self,
+            _provider: &str,
+            provider_user_id: &str,
+        ) -> Result<
+            Option<moatless_backend_core::identity::LinkedUser>,
+            moatless_backend_core::store::StoreError,
+        > {
+            Ok((provider_user_id == "U1").then(|| {
+                moatless_backend_core::identity::LinkedUser {
+                    id: uuid::Uuid::nil(),
+                    login: "aorwall".to_string(),
+                }
+            }))
+        }
+        async fn user_by_email(
+            &self,
+            _email: &str,
+        ) -> Result<
+            Option<moatless_backend_core::identity::LinkedUser>,
+            moatless_backend_core::store::StoreError,
+        > {
+            Ok(None)
+        }
+        async fn provider_id_for_login(
+            &self,
+            _provider: &str,
+            _login: &str,
+        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+            Ok(None)
+        }
+        async fn user_who_connected(
+            &self,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+            Ok(None)
+        }
+        async fn user_with_login(
+            &self,
+            _provider: &str,
+            _login: &str,
+        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+            Ok(None)
+        }
+        async fn link(
+            &self,
+            _user_id: &uuid::Uuid,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<bool, moatless_backend_core::store::StoreError> {
+            Ok(false)
+        }
+    }
+
+    /// History the agent is catching up on says who wrote each line, in the
+    /// same terms the `<from>` header uses.
+    #[tokio::test]
+    async fn history_names_the_writer_it_can_resolve() {
+        let stub = slack_stub().await;
+
+        let context = adapter(&stub, None)
+            .with_users(std::sync::Arc::new(OneLink))
+            .fetch_context(
+                &binding(serde_json::json!({
+                    "channel": "C1",
+                    "thread_ts": "1700000000.000100",
+                    "last_external_event_id": "1700000000.000300",
+                })),
+                &loop_context(None),
+                50,
+                &["1700000000.000500".to_string()],
+            )
+            .await
+            .expect("the stub answers");
+
+        assert_eq!(context.as_deref(), Some("aorwall: after the cursor"));
     }
 
     #[tokio::test]

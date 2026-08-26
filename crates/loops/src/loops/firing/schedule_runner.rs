@@ -156,6 +156,7 @@ impl ScheduleRunner {
             user_id: run_as_user_id,
             // A schedule fires on its own; no external person authored it.
             author: None,
+            sender_external_id: None,
             text: schedule.message_template.clone(),
             file_ids: vec![],
             thread_properties: serde_json::json!({"schedule_id": schedule.id}),

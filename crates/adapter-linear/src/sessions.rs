@@ -256,6 +256,7 @@ pub(super) async fn handle_session_prompted(
                     // A prompt carries no actor; the session's creator is who this
                     // is attributed to, and the created path records that.
                     author: None,
+                    sender_id: None,
                     source_task_id: None,
                 },
                 false,
@@ -486,6 +487,7 @@ async fn provision_session_task(
                 subject_key: Some(&binding.subject_key),
                 source_name: Some(rule.source_matcher.as_str()),
                 author: creator_handle.as_deref(),
+                sender_id: None,
                 source_task_id: None,
             },
             false,

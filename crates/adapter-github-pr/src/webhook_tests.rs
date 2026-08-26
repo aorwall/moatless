@@ -14,6 +14,14 @@ struct NoUsers;
 
 #[async_trait::async_trait]
 impl ProviderIdentityLink for NoUsers {
+    async fn provider_id_for_login(
+        &self,
+        _provider: &str,
+        _login: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(None)
+    }
+
     async fn user_at(
         &self,
         _provider: &str,

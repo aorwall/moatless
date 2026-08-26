@@ -124,6 +124,15 @@ pub struct InboundMessage {
     /// old build wrote, and that record names no author.
     #[serde(default)]
     pub author: Option<String>,
+    /// The writer's own id in the external system — a Slack `U0000000001`.
+    /// Distinct from `user_id`, which on most adapters is the subscription's
+    /// owner rather than this writer: this one always names whoever wrote the
+    /// message, and is what the sender label resolves through.
+    ///
+    /// `#[serde(default)]` for the same reason as `author`: a record admitted
+    /// by an older build names no sender.
+    #[serde(default)]
+    pub sender_external_id: Option<String>,
     /// Message text content.
     pub text: String,
     /// File attachment IDs (already uploaded to S3).

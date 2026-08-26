@@ -191,6 +191,28 @@ impl ProviderIdentityLink for UserDirectory {
         }))
     }
 
+    async fn provider_id_for_login(
+        &self,
+        provider: &str,
+        login: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let Some(user) = self.users.get_user_by_login(login).await.map_err(|e| {
+            StoreError::with_source(format!("read the user with login {login}"), e)
+        })?
+        else {
+            return Ok(None);
+        };
+        self.users
+            .get_provider_id(&user.id, provider)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(
+                    format!("read the {provider} id for user with login {login}"),
+                    e,
+                )
+            })
+    }
+
     async fn user_who_connected(
         &self,
         provider: &str,

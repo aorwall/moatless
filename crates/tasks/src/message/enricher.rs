@@ -99,6 +99,9 @@ pub struct AgentPromptBuilder<'a> {
     task_model: Option<String>,
     task_resume_session_id: Option<String>,
     task_skills: Vec<String>,
+    /// Logins already resolved for this fetch, under two key shapes that cannot
+    /// collide: a Moatless user id for an internal row's `<sent_by>`, and
+    /// [`sender_key`] for an external row's `<from>`.
     sender_logins: &'a HashMap<String, String>,
 }
 
@@ -282,6 +285,45 @@ pub fn effective_model(
     })
 }
 
+/// The key a resolved sender is cached under. Two Adapters could hand out the
+/// same id string, so the Adapter is part of the identity.
+pub fn sender_key(adapter: &str, sender_external_id: &str) -> String {
+    format!("{adapter}:{sender_external_id}")
+}
+
+/// Who wrote an external row, in the terms the agent can act on.
+///
+/// Resolved from the writer's own external id, never from `sent_by`: an
+/// unmapped writer is attributed to the trigger owner, so `sent_by` would name
+/// the wrong person in exactly the multi-participant thread this exists for.
+/// The handle is what stays true when there is no mapping, so it is what is
+/// shown then — with no login claimed.
+fn sender_label(row: &TaskMessage, sender_logins: &HashMap<String, String>) -> Option<String> {
+    let adapter = row.external_adapter.as_deref().unwrap_or("external");
+    let handle = row.external_author.as_deref();
+    let login = row
+        .external_sender_id
+        .as_deref()
+        .and_then(|id| sender_logins.get(&sender_key(adapter, id)))
+        .map(String::as_str);
+
+    match (login, handle) {
+        // The handle repeats the login: one name is the whole answer.
+        (Some(login), Some(handle)) if login == handle => Some(login.to_string()),
+        (Some(login), Some(handle)) => Some(format!("{login} ({adapter}: {handle})")),
+        (Some(login), None) => Some(login.to_string()),
+        // No mapping. Name the writer in the Adapter's own terms and claim
+        // nothing about who they are in Moatless.
+        (None, Some(handle)) => Some(format!("{adapter}: {handle}")),
+        // Not even a handle — the raw id still tells two writers apart, which
+        // is the least this has to do.
+        (None, None) => row
+            .external_sender_id
+            .as_deref()
+            .map(|id| format!("{adapter}: {id}")),
+    }
+}
+
 fn build_message_header(row: &TaskMessage, login_cache: &HashMap<String, String>) -> String {
     if row.external_event_id.is_some() {
         let mut header = format!("<message_id>{}</message_id>\n", row.uuid);
@@ -290,6 +332,9 @@ fn build_message_header(row: &TaskMessage, login_cache: &HashMap<String, String>
         }
         if let Some(thread) = row.external_subject_key.as_deref() {
             let _ = writeln!(header, "<thread>{thread}</thread>");
+        }
+        if let Some(from) = sender_label(row, login_cache) {
+            let _ = writeln!(header, "<from>{from}</from>");
         }
         header.push('\n');
         return header;
@@ -764,7 +809,86 @@ mod tests {
         assert_eq!(
             deliveries[0].prompt_text,
             "<message_id>msg_abc</message_id>\n<source>slack</source>\n\
-             <thread>T06:C0A:1781593153.718929</thread>\n\nhello"
+             <thread>T06:C0A:1781593153.718929</thread>\n\nhello",
+            "a row with no sender id names nobody rather than naming sent_by"
+        );
+    }
+
+    /// An external row that names a writer.
+    fn slack_row(sender_id: Option<&str>, handle: Option<&str>) -> TaskMessage {
+        let mut message = pending_message(1, "msg_abc", "hello");
+        message.external_event_id = Some("slack:ts:1700".to_string());
+        message.external_adapter = Some("slack".to_string());
+        message.external_sender_id = sender_id.map(str::to_string);
+        message.external_author = handle.map(str::to_string);
+        // The trigger owner an unmapped writer is attributed to. The label must
+        // never reach for it.
+        message.sent_by = Some("u1".to_string());
+        message
+    }
+
+    async fn from_line(row: TaskMessage, cache: &HashMap<String, String>) -> String {
+        let deliveries = prompt_builder(cache, None)
+            .build_pending_deliveries(&[row], &HashMap::new())
+            .await;
+        deliveries[0]
+            .prompt_text
+            .lines()
+            .find(|line| line.starts_with("<from>"))
+            .unwrap_or("")
+            .to_string()
+    }
+
+    /// The whole point of resolving from the writer's own id: `sent_by` here
+    /// resolves to `alice`, the trigger owner, and the label must say `aorwall`.
+    #[tokio::test]
+    async fn a_mapped_writer_is_named_by_login_not_by_the_trigger_owner() {
+        let mut cache = HashMap::new();
+        cache.insert("u1".to_string(), "alice".to_string());
+        cache.insert(sender_key("slack", "U0AAQ"), "aorwall".to_string());
+
+        assert_eq!(
+            from_line(slack_row(Some("U0AAQ"), Some("albertornelius")), &cache).await,
+            "<from>aorwall (slack: albertornelius)</from>"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_handle_that_repeats_the_login_is_not_said_twice() {
+        let mut cache = HashMap::new();
+        cache.insert(sender_key("slack", "U0AAQ"), "aorwall".to_string());
+
+        assert_eq!(
+            from_line(slack_row(Some("U0AAQ"), Some("aorwall")), &cache).await,
+            "<from>aorwall</from>"
+        );
+    }
+
+    /// No mapping, so no login is claimed — the handle is the only true thing.
+    #[tokio::test]
+    async fn an_unmapped_writer_is_named_by_handle_and_claims_no_login() {
+        assert_eq!(
+            from_line(slack_row(Some("U0MARTIN"), Some("martin.k")), &HashMap::new()).await,
+            "<from>slack: martin.k</from>"
+        );
+    }
+
+    /// The `users.info` lookup failed. Two writers must still read as two.
+    #[tokio::test]
+    async fn a_writer_with_no_handle_is_still_told_apart_by_id() {
+        assert_eq!(
+            from_line(slack_row(Some("U0MARTIN"), None), &HashMap::new()).await,
+            "<from>slack: U0MARTIN</from>"
+        );
+    }
+
+    /// Written before the column existed: nothing to resolve, and the handle
+    /// carries it.
+    #[tokio::test]
+    async fn a_pre_migration_row_falls_back_to_its_handle() {
+        assert_eq!(
+            from_line(slack_row(None, Some("martin.k")), &HashMap::new()).await,
+            "<from>slack: martin.k</from>"
         );
     }
 

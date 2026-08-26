@@ -128,6 +128,7 @@ pub async fn send_user_message(
                     &message.contexts,
                     message.resume,
                     moatless_types::task::ExternalOrigin {
+                        sender_id: None,
                         source_task_id: message.source_task_id.as_deref(),
                         ..moatless_types::task::ExternalOrigin::none()
                     },

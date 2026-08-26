@@ -716,6 +716,7 @@ async fn inbound_message(
         message_thread_id: pr_number.to_string(),
         user_id,
         author: moatless_loops::adapters::models::author_handle(context.sender_login),
+        sender_external_id: None,
         text,
         file_ids: vec![],
         thread_properties: serde_json::json!({
