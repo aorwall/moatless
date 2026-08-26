@@ -36,11 +36,13 @@ pub(super) struct Execution {
     pub(super) sender_login: String,
 }
 
+/// Conclusions worth notifying a merged PR's tasks about. `cancelled` is
+/// deliberately absent for the same reason it is in [`super::webhook`]: a run
+/// cancelled by a concurrency group or by hand reports nothing about the merge.
 const NOTIFIABLE_CONCLUSIONS: &[&str] = &[
     "success",
     "failure",
     "timed_out",
-    "cancelled",
     "action_required",
     "startup_failure",
 ];

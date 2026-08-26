@@ -542,8 +542,11 @@ async fn normalize_review(
     )))
 }
 
-const CHECK_RUN_FAILURE_CONCLUSIONS: &[&str] =
-    &["failure", "timed_out", "cancelled", "action_required"];
+/// Conclusions worth waking a task for. `cancelled` is deliberately absent: a
+/// cancelled job is usually collateral — a concurrency group superseding the run
+/// after a new push, or a sibling job failing first — so it says nothing the task
+/// can act on, and one superseded run fires one of these per job.
+const CHECK_RUN_FAILURE_CONCLUSIONS: &[&str] = &["failure", "timed_out", "action_required"];
 const CHECK_RUN_SUMMARY_MAX_LEN: usize = 2000;
 
 async fn normalize_check_run(

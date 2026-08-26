@@ -458,6 +458,56 @@ async fn failed_check_run_preserves_producer_audience_and_external_id() {
 }
 
 #[tokio::test]
+async fn cancelled_check_run_notifies_nobody() {
+    // A superseded run cancels every job in it, and none of them tell the task
+    // anything about its own change.
+    let payload = serde_json::json!({
+        "action": "completed",
+        "sender": {"login": "ci-bot"},
+        "check_run": {
+            "id": 31,
+            "name": "run-tests",
+            "conclusion": "cancelled",
+            "html_url": "https://github.com/soaplabs/repo/runs/31",
+            "head_sha": "abcdef012345",
+            "pull_requests": [{"number": 42}],
+        }
+    });
+    let normalized = normalize_payload("check_run", &payload, &fake_rule()).await;
+    assert!(matches!(
+        normalized.primary,
+        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::NonNotifiableConclusion))
+    ));
+}
+
+#[tokio::test]
+async fn cancelled_post_merge_run_schedules_nothing() {
+    let mut rule = fake_rule();
+    rule.event_filter = serde_json::json!(["post_merge"]);
+    let normalized = normalize_payload(
+        "workflow_run",
+        &serde_json::json!({
+            "action": "completed",
+            "sender": {"login": "alice"},
+            "workflow_run": {
+                "id": 7,
+                "name": "CI",
+                "event": "push",
+                "conclusion": "cancelled",
+                "head_sha": "abc123",
+                "head_branch": "main",
+                "html_url": "https://github.com/soaplabs/repo/actions/runs/7",
+                "pull_requests": []
+            }
+        }),
+        &rule,
+    )
+    .await;
+
+    assert!(normalized.post_merge_candidate.is_none());
+}
+
+#[tokio::test]
 async fn partial_pr_payload_retains_observation_before_documented_no_effect_primary() {
     let payload = serde_json::json!({
         "action": "ready_for_review",
