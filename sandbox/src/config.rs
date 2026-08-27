@@ -29,6 +29,31 @@ pub struct AgentConfig {
     pub timeout: Option<u64>,
     pub model: Option<String>,
     pub system_prompt: Option<String>,
+    /// Whether the repo's root instruction file is inlined into the system
+    /// prompt. `None` means unset, which enables it — see
+    /// [`AgentConfig::frontload_instructions_enabled`].
+    pub frontload_instructions: Option<bool>,
+}
+
+impl AgentConfig {
+    /// Whether to inline repo root instruction files into the system prompt
+    /// rather than only listing their paths.
+    ///
+    /// Defaults to on when unset: a path the agent is told to read is not a
+    /// guarantee it reads one, so the conventions start in context. A repo that
+    /// would rather spend those tokens elsewhere — a large instruction file, or
+    /// one whose rules only matter for a slice of the tree — turns it off and
+    /// gets the path listing back.
+    ///
+    /// Resolved from, in order: the `SANDBOX_FRONTLOAD_REPO_INSTRUCTIONS` env
+    /// var, then REPO_CONFIG (`frontloadInstructions`, top level or nested under
+    /// `agentConfig`), then this default. The env var is the one a repo can set
+    /// per-repo today, via `envVars` in its run-config: those reach this
+    /// container verbatim, whereas REPO_CONFIG is rebuilt upstream from typed
+    /// fields that do not yet carry this flag.
+    pub fn frontload_instructions_enabled(&self) -> bool {
+        self.frontload_instructions.unwrap_or(true)
+    }
 }
 
 /// Code execution configuration from REPO_CONFIG.
@@ -79,6 +104,12 @@ pub struct ServerInfo {
 struct RepoConfigFile {
     #[serde(default)]
     agent_config: Option<RepoAgentConfig>,
+    /// `frontloadInstructions` at the top level — the shape the provisioning
+    /// path emits, which rebuilds this JSON from typed fields and writes flat
+    /// keys (as it does for `systemPrompt`) rather than an `agentConfig` object.
+    /// Takes precedence over the nested spelling.
+    #[serde(default)]
+    frontload_instructions: Option<bool>,
     #[serde(default)]
     code_execution: Option<CodeExecutionConfig>,
     #[serde(default)]
@@ -96,6 +127,10 @@ struct RepoAgentConfig {
     model: Option<String>,
     #[serde(default)]
     system_prompt: Option<String>,
+    /// `frontloadInstructions` — omit to inline the repo's root instruction
+    /// file, `false` to fall back to listing its path.
+    #[serde(default)]
+    frontload_instructions: Option<bool>,
 }
 
 /// Parsed REPO_CONFIG result.
@@ -407,6 +442,19 @@ fn env_flag_enabled(name: &str) -> bool {
     env::var(name).is_ok_and(|v| env_flag_value_enabled(&v))
 }
 
+/// Read a boolean env var as a tri-state override: `None` when unset or empty,
+/// otherwise whether the value is truthy per [`env_flag_value_enabled`].
+///
+/// Distinct from [`env_flag_enabled`], which folds "unset" into `false`. A
+/// setting whose default is *on* needs that distinction: unset has to fall
+/// through to the next source rather than silently turn the feature off.
+fn env_flag_override(name: &str) -> Option<bool> {
+    match env::var(name) {
+        Ok(value) if !value.is_empty() => Some(env_flag_value_enabled(&value)),
+        _ => None,
+    }
+}
+
 impl Config {
     /// Absolute checkout directory of every repository placed in this sandbox,
     /// primary first. A legacy single-repo pod (no `WORKSPACE_REPOS`) falls back
@@ -505,7 +553,15 @@ impl Config {
 
             bootstrap_token: env::var("SANDBOX_BOOTSTRAP_TOKEN").ok(),
 
-            agent_config: parsed.agent_config,
+            // `SANDBOX_FRONTLOAD_REPO_INSTRUCTIONS` outranks REPO_CONFIG. It is
+            // the lever a repo can actually reach today: the provisioning path
+            // rebuilds REPO_CONFIG from typed fields, but per-repo `envVars`
+            // already flow verbatim into this container.
+            agent_config: AgentConfig {
+                frontload_instructions: env_flag_override("SANDBOX_FRONTLOAD_REPO_INSTRUCTIONS")
+                    .or(parsed.agent_config.frontload_instructions),
+                ..parsed.agent_config
+            },
 
             claude_cli_path: env::var("SANDBOX_CLAUDE_EXECUTABLE_PATH")
                 .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),
@@ -653,6 +709,31 @@ pub(crate) mod test_support {
 }
 
 /// Parse REPO_CONFIG JSON env var into server configs, agent config, and setup commands.
+/// Fold the two spellings of REPO_CONFIG's agent settings into one [`AgentConfig`].
+///
+/// `frontloadInstructions` is read from the top level, where the provisioning
+/// path writes it, and falls back to the nested `agentConfig` spelling used by
+/// the entrypoint-compat shape that supplies REPO_CONFIG verbatim. Unset at both
+/// levels leaves `None`, which
+/// [`AgentConfig::frontload_instructions_enabled`] reads as enabled.
+fn resolve_agent_config(
+    agent_config: Option<RepoAgentConfig>,
+    frontload_instructions: Option<bool>,
+) -> AgentConfig {
+    match agent_config {
+        Some(ac) => AgentConfig {
+            timeout: ac.timeout,
+            model: ac.model,
+            system_prompt: ac.system_prompt,
+            frontload_instructions: frontload_instructions.or(ac.frontload_instructions),
+        },
+        None => AgentConfig {
+            frontload_instructions,
+            ..AgentConfig::default()
+        },
+    }
+}
+
 fn parse_repo_config() -> ParsedRepoConfig {
     let raw = match env::var("REPO_CONFIG") {
         Ok(v) if !v.is_empty() => v,
@@ -679,14 +760,8 @@ fn parse_repo_config() -> ParsedRepoConfig {
         }
     };
 
-    let agent_config = match repo_config.agent_config {
-        Some(ac) => AgentConfig {
-            timeout: ac.timeout,
-            model: ac.model,
-            system_prompt: ac.system_prompt,
-        },
-        None => AgentConfig::default(),
-    };
+    let agent_config =
+        resolve_agent_config(repo_config.agent_config, repo_config.frontload_instructions);
 
     let setup_commands = repo_config
         .code_execution
@@ -708,9 +783,94 @@ fn parse_repo_config() -> ParsedRepoConfig {
 mod tests {
     use super::test_support::minimal_config;
     use super::{
-        default_upload_dir, env_flag_value_enabled, is_safe_mount_name, parse_permission_mode,
-        parse_repo_checkouts, primary_checkout, PermissionMode,
+        default_upload_dir, env_flag_override, env_flag_value_enabled, is_safe_mount_name,
+        parse_permission_mode, parse_repo_checkouts, primary_checkout, resolve_agent_config,
+        PermissionMode, RepoConfigFile,
     };
+
+    /// Unset and empty are "no opinion", so a default-on setting falls through
+    /// to the next source instead of being switched off by absence.
+    #[test]
+    fn env_flag_override_is_none_when_unset_or_empty() {
+        // A name no other test touches, so the parallel test runner can't race it.
+        const PROBE: &str = "SANDBOX_TEST_FRONTLOAD_OVERRIDE_PROBE";
+        std::env::remove_var(PROBE);
+        assert_eq!(env_flag_override(PROBE), None);
+
+        std::env::set_var(PROBE, "");
+        assert_eq!(env_flag_override(PROBE), None);
+
+        std::env::set_var(PROBE, "false");
+        assert_eq!(env_flag_override(PROBE), Some(false));
+
+        std::env::set_var(PROBE, "true");
+        assert_eq!(env_flag_override(PROBE), Some(true));
+
+        std::env::set_var(PROBE, "1");
+        assert_eq!(env_flag_override(PROBE), Some(true));
+
+        // Anything not truthy reads as an explicit off, not as "unset".
+        std::env::set_var(PROBE, "0");
+        assert_eq!(env_flag_override(PROBE), Some(false));
+
+        std::env::remove_var(PROBE);
+    }
+
+    fn agent_config_from_json(raw: &str) -> super::AgentConfig {
+        let parsed: RepoConfigFile = serde_json::from_str(raw).expect("valid REPO_CONFIG");
+        resolve_agent_config(parsed.agent_config, parsed.frontload_instructions)
+    }
+
+    /// A REPO_CONFIG that says nothing about frontloading leaves it enabled, so
+    /// a repo gets its instructions in context without opting in.
+    #[test]
+    fn frontloading_is_enabled_when_repo_config_is_silent() {
+        assert!(agent_config_from_json("{}").frontload_instructions_enabled());
+        assert!(
+            agent_config_from_json(r#"{"agentConfig":{"model":"opus"}}"#)
+                .frontload_instructions_enabled()
+        );
+    }
+
+    /// The top-level key is the shape the provisioning path emits.
+    #[test]
+    fn top_level_frontload_instructions_disables_frontloading() {
+        let resolved = agent_config_from_json(r#"{"frontloadInstructions":false}"#);
+        assert!(!resolved.frontload_instructions_enabled());
+    }
+
+    /// The nested spelling still works for REPO_CONFIG supplied verbatim.
+    #[test]
+    fn nested_frontload_instructions_disables_frontloading() {
+        let resolved = agent_config_from_json(r#"{"agentConfig":{"frontloadInstructions":false}}"#);
+        assert!(!resolved.frontload_instructions_enabled());
+    }
+
+    /// Top level wins when the two disagree.
+    #[test]
+    fn top_level_frontload_instructions_overrides_the_nested_spelling() {
+        let resolved = agent_config_from_json(
+            r#"{"frontloadInstructions":true,"agentConfig":{"frontloadInstructions":false}}"#,
+        );
+        assert!(resolved.frontload_instructions_enabled());
+
+        let resolved = agent_config_from_json(
+            r#"{"frontloadInstructions":false,"agentConfig":{"frontloadInstructions":true}}"#,
+        );
+        assert!(!resolved.frontload_instructions_enabled());
+    }
+
+    /// Resolving frontloading must not disturb the other agent settings.
+    #[test]
+    fn resolving_frontloading_preserves_the_other_agent_settings() {
+        let resolved = agent_config_from_json(
+            r#"{"frontloadInstructions":false,"agentConfig":{"timeout":42,"model":"opus","systemPrompt":"hi"}}"#,
+        );
+        assert_eq!(resolved.timeout, Some(42));
+        assert_eq!(resolved.model.as_deref(), Some("opus"));
+        assert_eq!(resolved.system_prompt.as_deref(), Some("hi"));
+        assert!(!resolved.frontload_instructions_enabled());
+    }
 
     /// Point the persisted-token dir at an empty temp dir so resolution falls
     /// through to the env-supplied tokens deterministically.

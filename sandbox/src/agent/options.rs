@@ -363,36 +363,121 @@ fn repo_instruction_filenames(config: &Config) -> [&'static str; 2] {
     }
 }
 
-/// Build the "# Repository Instructions" section: the path of each checked-out
-/// repo's root instruction file, for the agent to read before working in that
-/// repo. The contents are deliberately not included — a multi-repo workspace
-/// would spend most of the prompt on instructions for repos the task never
-/// touches.
+/// Cap on how much of one repo's instruction file is inlined. Generous enough
+/// that a normal `CLAUDE.md` lands whole; the cut only protects the prompt from
+/// a runaway file, and what is dropped is still reachable at the path shown.
+const MAX_INLINED_INSTRUCTIONS_BYTES: usize = 64 * 1024;
+
+/// Build the "# Repository Instructions" section for each checked-out repo's
+/// root instruction file.
 ///
 /// These files are kept out of the agents' on-the-fly memory loading (Claude's
 /// `claudeMdExcludes`, Codex's `project_doc_max_bytes = 0`; both set in `init`),
-/// so this listing is what tells the agent they exist.
+/// so this section is the only thing that puts them in front of the agent.
+///
+/// By default the contents are inlined: being told a path is not the same as
+/// reading it, and an agent that skips the file works without the repo's
+/// conventions. A repo opts out with `agentConfig.frontloadInstructions: false`
+/// in its `.moatless/config.json` — see
+/// [`crate::config::AgentConfig::frontload_instructions_enabled`] — and gets the
+/// path listing instead, which is the cheaper choice for a large file or a multi-repo
+/// workspace whose other repos the task never touches. That config travels with
+/// the primary repo, so in a multi-repo workspace its setting governs the
+/// section as a whole.
 ///
 /// Returns `None` when no checked-out repo has a root instruction file.
 fn build_repo_instructions_section(config: &Config) -> Option<String> {
     let filenames = repo_instruction_filenames(config);
-    let listed: Vec<String> = config
+    let paths: Vec<String> = config
         .repo_dirs()
         .iter()
         .filter_map(|dir| repo_instruction_path(dir, filenames))
-        .map(|path| format!("- `{path}`"))
         .collect();
 
-    if listed.is_empty() {
+    if paths.is_empty() {
         return None;
     }
 
-    Some(format!(
-        "# Repository Instructions\n\n\
+    if !config.agent_config.frontload_instructions_enabled() {
+        let listed: Vec<String> = paths.iter().map(|path| format!("- `{path}`")).collect();
+        return Some(format!(
+            "# Repository Instructions\n\n\
+             Each repository cloned into this workspace carries its own instruction file. \
+             Read the one for a repository before doing anything in it:\n{}",
+            listed.join("\n")
+        ));
+    }
+
+    let mut sections = vec!["# Repository Instructions\n\n\
          Each repository cloned into this workspace carries its own instruction file. \
-         Read the one for a repository before doing anything in it:\n{}",
-        listed.join("\n")
-    ))
+         Each one is inlined below, under the path it came from — these are the \
+         standing rules for that repository, already in front of you, so follow them \
+         when working in it rather than re-reading the file."
+        .to_string()];
+    sections.extend(paths.iter().map(|path| inline_repo_instructions(path)));
+    Some(sections.join("\n\n"))
+}
+
+/// Render one repo instruction file as a section titled by its path.
+///
+/// A file that cannot be read degrades to pointing at it: the agent still learns
+/// the repo has conventions and where they live, which is what the path-listing
+/// mode would have given it anyway.
+fn inline_repo_instructions(path: &str) -> String {
+    match read_capped(path, MAX_INLINED_INSTRUCTIONS_BYTES) {
+        Ok((contents, truncated)) => {
+            let body = contents.trim_end();
+            if truncated {
+                warn!(
+                    path,
+                    limit = MAX_INLINED_INSTRUCTIONS_BYTES,
+                    "Repo instruction file exceeds the inline cap; truncating"
+                );
+                format!("## `{path}`\n\n{body}\n\n_Truncated at {MAX_INLINED_INSTRUCTIONS_BYTES} bytes — read `{path}` for the rest._")
+            } else {
+                format!("## `{path}`\n\n{body}")
+            }
+        }
+        Err(error) => {
+            warn!(path, %error, "Failed to read repo instruction file; pointing at it instead");
+            format!("## `{path}`\n\nThis file could not be read while assembling the prompt. Read it yourself before working in this repository.")
+        }
+    }
+}
+
+/// Read at most `limit` bytes of `path`, stopping there rather than pulling the
+/// whole file into memory first.
+///
+/// The cap has to apply *while* reading, not after. This path is repo-controlled
+/// and [`repo_instruction_path`] resolves through symlinks, so a checkout can
+/// aim `CLAUDE.md` at something enormous or endless (`/dev/zero`). Reading it
+/// whole and trimming afterwards would let a repo decide how much memory and
+/// time prompt assembly spends; a bounded read makes that impossible.
+///
+/// Returns the text and whether the cap cut it short. Bytes are trimmed back to
+/// the last valid UTF-8 boundary, which covers a cut landing mid-character and
+/// also keeps a malformed file from failing the whole section.
+fn read_capped(path: &str, limit: usize) -> std::io::Result<(String, bool)> {
+    use std::io::Read;
+
+    // One byte past the cap is what distinguishes "ends exactly at the cap" from
+    // "there is more we are not showing".
+    let mut buf = Vec::new();
+    std::fs::File::open(path)?
+        .take(limit as u64 + 1)
+        .read_to_end(&mut buf)?;
+
+    let truncated = buf.len() > limit;
+    buf.truncate(limit);
+
+    let valid_up_to = match std::str::from_utf8(&buf) {
+        Ok(_) => buf.len(),
+        Err(error) => error.valid_up_to(),
+    };
+    buf.truncate(valid_up_to);
+
+    // Lossless: the buffer is now exactly the prefix `from_utf8` accepted.
+    Ok((String::from_utf8_lossy(&buf).into_owned(), truncated))
 }
 
 /// The path of a repo's root instruction file: the first of `filenames` that
@@ -1053,10 +1138,10 @@ mod tests {
         }
     }
 
-    /// Each repo's root instruction file is listed by full path, never inlined;
-    /// a repo carrying only the other filename is picked up via the fallback.
+    /// By default each repo's root instruction file is inlined under its path; a
+    /// repo carrying only the other filename is picked up via the fallback.
     #[test]
-    fn repo_instructions_section_lists_each_repos_root_file_by_path() {
+    fn repo_instructions_section_inlines_each_repos_root_file_by_default() {
         let root = tempdir().unwrap();
         let ws = root.path().to_string_lossy().to_string();
         let api_dir = format!("{ws}/api");
@@ -1074,19 +1159,111 @@ mod tests {
         let append = build_prompt_append(&config, &request);
 
         assert!(append.contains("# Repository Instructions"));
-        assert!(append.contains("Read the one for a repository before doing anything in it:"));
-        assert!(append.contains(&format!("- `{api_dir}/CLAUDE.md`")));
-        // Only AGENTS.md exists here, so the fallback name is what gets listed.
-        assert!(append.contains(&format!("- `{web_dir}/AGENTS.md`")));
-        // The files are pointed at, never inlined.
-        assert!(!append.contains("API RULES"));
-        assert!(!append.contains("WEB RULES"));
+        assert!(append.contains(&format!("## `{api_dir}/CLAUDE.md`")));
+        // Only AGENTS.md exists here, so the fallback name is what gets used.
+        assert!(append.contains(&format!("## `{web_dir}/AGENTS.md`")));
+        // The contents are in the prompt, not just the paths.
+        assert!(append.contains("API RULES"));
+        assert!(append.contains("WEB RULES"));
 
         // Order: layout note, then repo instructions, then the backend prompt.
         let layout_idx = append.find("## Workspace layout").unwrap();
         let repo_idx = append.find("# Repository Instructions").unwrap();
         let backend_idx = append.find("BACKEND-PROMPT").unwrap();
         assert!(layout_idx < repo_idx && repo_idx < backend_idx);
+    }
+
+    /// `frontloadInstructions: false` reverts to listing paths, leaving the
+    /// contents out of the prompt.
+    #[test]
+    fn repo_instructions_section_lists_paths_when_frontloading_is_disabled() {
+        let root = tempdir().unwrap();
+        let ws = root.path().to_string_lossy().to_string();
+        let api_dir = format!("{ws}/api");
+        write(&PathBuf::from(&api_dir).join("CLAUDE.md"), "API RULES");
+
+        let mut config = test_config(false);
+        config.workspace_dir = ws;
+        config.repo_dir = api_dir.clone();
+        config.repos = vec![repo("api", true)];
+        config.agent_config.frontload_instructions = Some(false);
+
+        let append = build_prompt_append(&config, &test_request());
+
+        assert!(append.contains("Read the one for a repository before doing anything in it:"));
+        assert!(append.contains(&format!("- `{api_dir}/CLAUDE.md`")));
+        assert!(!append.contains("API RULES"));
+    }
+
+    /// An oversized instruction file is cut at the cap and the agent is told
+    /// where to read the remainder.
+    #[test]
+    fn inlined_repo_instructions_are_truncated_at_the_cap() {
+        let root = tempdir().unwrap();
+        let ws = root.path().to_string_lossy().to_string();
+        let api_dir = format!("{ws}/api");
+        let body = "x".repeat(MAX_INLINED_INSTRUCTIONS_BYTES + 500);
+        write(&PathBuf::from(&api_dir).join("CLAUDE.md"), &body);
+
+        let mut config = test_config(false);
+        config.workspace_dir = ws;
+        config.repo_dir = api_dir.clone();
+        config.repos = vec![repo("api", true)];
+
+        let append = build_prompt_append(&config, &test_request());
+
+        assert!(append.contains("_Truncated at"));
+        assert!(append.contains(&format!("read `{api_dir}/CLAUDE.md` for the rest._")));
+        assert!(append.len() < body.len() + 4096);
+    }
+
+    /// The cap cuts on a UTF-8 boundary, and a file within it is returned whole.
+    #[test]
+    fn read_capped_stops_at_the_limit_without_splitting_a_character() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("CLAUDE.md");
+        write(&path, "ééé"); // 2 bytes each
+        let path = path.to_string_lossy().to_string();
+
+        // An odd limit lands mid-character, so the cut backs off to 2 bytes.
+        let (text, truncated) = read_capped(&path, 3).unwrap();
+        assert_eq!(text, "é");
+        assert!(truncated);
+
+        // Exactly at the limit is not "there is more".
+        let (text, truncated) = read_capped(&path, 6).unwrap();
+        assert_eq!(text, "ééé");
+        assert!(!truncated);
+
+        let (text, truncated) = read_capped(&path, 64).unwrap();
+        assert_eq!(text, "ééé");
+        assert!(!truncated);
+    }
+
+    /// The cap has to bound the read itself. `/dev/zero` never ends, so this
+    /// only terminates if the limit is applied during I/O rather than after —
+    /// the case a repo could reach by symlinking its `CLAUDE.md`.
+    #[cfg(unix)]
+    #[test]
+    fn read_capped_terminates_on_a_non_terminating_file() {
+        let (text, truncated) = read_capped("/dev/zero", 128).unwrap();
+        assert_eq!(text.len(), 128);
+        assert!(truncated);
+    }
+
+    /// An unreadable path degrades to pointing at the file rather than failing
+    /// the whole prompt.
+    #[test]
+    fn inline_repo_instructions_points_at_a_file_it_cannot_read() {
+        let root = tempdir().unwrap();
+        let missing = root
+            .path()
+            .join("nope/CLAUDE.md")
+            .to_string_lossy()
+            .to_string();
+        let section = inline_repo_instructions(&missing);
+        assert!(section.contains(&format!("## `{missing}`")));
+        assert!(section.contains("could not be read"));
     }
 
     /// A repo committing both names is pointed at under the one the running agent
@@ -1106,13 +1283,17 @@ mod tests {
 
         config.agent_type = Some("claude-code".to_string());
         let claude = build_prompt_append(&config, &test_request());
-        assert!(claude.contains(&format!("- `{dir}/CLAUDE.md`")));
-        assert!(!claude.contains(&format!("- `{dir}/AGENTS.md`")));
+        assert!(claude.contains(&format!("## `{dir}/CLAUDE.md`")));
+        assert!(!claude.contains(&format!("## `{dir}/AGENTS.md`")));
+        assert!(claude.contains("CLAUDE COPY"));
+        assert!(!claude.contains("AGENTS COPY"));
 
         config.agent_type = Some("codex".to_string());
         let codex = build_prompt_append(&config, &test_request());
-        assert!(codex.contains(&format!("- `{dir}/AGENTS.md`")));
-        assert!(!codex.contains(&format!("- `{dir}/CLAUDE.md`")));
+        assert!(codex.contains(&format!("## `{dir}/AGENTS.md`")));
+        assert!(!codex.contains(&format!("## `{dir}/CLAUDE.md`")));
+        assert!(codex.contains("AGENTS COPY"));
+        assert!(!codex.contains("CLAUDE COPY"));
     }
 
     /// Claude's transport/model variants are the same harness, and an unset or
