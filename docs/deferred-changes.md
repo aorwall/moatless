@@ -134,6 +134,7 @@ in the change that found them.
 | Every member of a shared Sandbox runs the first member's agent harness | `sandbox/src/state.rs::register_task_context` — its three-field config clone leaves `agent_type` and `use_tmux` inherited from the pod, while `spawn_agent` is already called per member and `TaskContext` already holds its own `AgentHandle` | When a shared warm Sandbox needs two harnesses at once; see below |
 | A Task auto-close spares for its sibling Bindings is told nothing about the PR | `crates/adapter-github-pr/src/routing.rs::close_subject`, the `siblings_count > 1` arm | When a Task bound to two pull requests is observed missing the close of one; see below |
 | One clone attempt has no timeout of its own | `sandbox/src/init/git.rs::clone_checkout` — `run_command` awaits `git`/`gh` with no deadline, so `clone_with_retry`'s `CLONE_RETRY_BUDGET` bounds the retries between attempts but not an attempt | When a git host that black-holes rather than refuses is observed overrunning the pod's startup probe — the budget exists so init's own error reaches the termination log instead of a SIGKILL |
+| The Adapter's own GitHub calls cannot see a Workspace's pinned credential | `crates/adapter-github-pr/src/auth.rs` — `client_for_outbound_reply`, `client_for_reaction`, `client_for_durable_work`, `client_for_live_status` each build an `Actor` from a login or a `TaskBinding` and never call `Actor::on_workspace`; the typed routes in `api_routes.rs` do | When a Workspace pinning a git-host credential is observed failing an event-driven reply or reaction on a repository the acting identity's own token cannot reach; see below |
 
 **A Task auto-close spares hears neither notice.** `close_subject` walks the
 Bindings its own trigger created, and where the Task carries other Bindings it
@@ -147,6 +148,22 @@ those facts — it is a per-Task database read `close_subject` makes at executio
 time. Closing the gap belongs in `close_subject`, which already knows it is
 sparing the Task: deliver the notice before the `continue`, and
 `auto_close_owns` keeps working unchanged.
+
+**The Adapter's own GitHub calls and a pinned credential.** A Workspace that
+pins a git-host credential has it resolved by `GitHostTokens`, which reads the
+Workspace off the `Actor` — so a caller reaches the pinned account only by
+building its Actor with `Actor::on_workspace`. `api_routes.rs` does, through
+`task_workspace`, which is why `moat gh pr create` / `pr comment` / `pr reply`
+present the pinned account. The four `auth.rs` constructors above do not: they
+run on webhook and task-event paths whose Actor comes from a GitHub login or a
+`TaskBinding`, and neither names a Workspace.
+
+Closing it needs a task-to-Workspace read those paths can make, and there is
+none that fits: `TaskReader::describe` takes a `ScopeContext`, which background
+work does not have and must not fabricate — `ScopeContext::system` is fenced off
+in `clippy.toml`. So this is a new port on a published seam plus the
+authorization question of what may read a Task's Workspace outside a request,
+which is why it is not folded into the change that found it.
 
 **Workspace control-filter writes.** `WorkspaceDao`'s `update`, `add_repo`,
 `remove_repo` and `set_primary` all return `bool`, and the trait documents it:

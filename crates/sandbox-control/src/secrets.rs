@@ -25,9 +25,12 @@ pub const GIT_USER_EMAIL: &str = "GIT_USER_EMAIL";
 
 pub struct TaskCredentialInputs<'a> {
     pub task_id: &'a str,
-    /// The identity the task acts as — [`resolve_task_actor`] resolves it,
-    /// applying the Workspace's run-as override over the task's own owner.
-    pub user_id: &'a str,
+    /// The identity the task acts as, and the Workspace it acts on behalf of —
+    /// [`resolve_task_actor`] resolves both, applying the Workspace's run-as
+    /// override over the task's own owner. Taken whole rather than as a user
+    /// id so the git-host token resolved here is the one every other caller
+    /// resolves for this task.
+    pub actor: &'a Actor,
     pub secrets: Option<&'a Arc<SecretService>>,
     pub provider_tokens: Option<&'a Arc<dyn HarnessCredentials>>,
     /// The one way to a git-host token. Supplied once at the composition root,
@@ -61,9 +64,11 @@ pub struct TaskCredentialInputs<'a> {
 /// Priority order (most-specific wins):
 /// 1. Credentials pinned to the task's Workspace. A Workspace credential names
 ///    the account the Workspace runs as, so it outranks whoever started the
-///    task; without that it would not be an override. Git-host tokens are not
-///    among them — a Workspace names the identity it runs as instead, and
-///    `user_id` below already carries it (see [`resolve_task_actor`]).
+///    task; without that it would not be an override. A git-host token among
+///    them reaches the sandbox by this route and is also what
+///    [`GitHostTokens`] resolves for backend-side calls, because the actor
+///    carries the Workspace (see [`resolve_task_actor`]) — so the two agree on
+///    which token the task presents.
 /// 2. The Workspace's own `env_vars`. Same scope as 1 and above every
 ///    per-user source, so the resolved order across scopes is
 ///    workspace > user > global for configuration as well as credentials.
@@ -99,11 +104,11 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
         credentials.entry(key).or_insert(value);
     }
 
-    let actor = Actor::of(input.user_id);
+    let user_id = input.actor.user_id();
     fill_git_host_tokens(
         &mut credentials,
         input.git_host_tokens,
-        &actor,
+        input.actor,
         input.repository,
     )
     .await;
@@ -111,15 +116,15 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     fill_provider_tokens(
         &mut credentials,
         input.provider_tokens,
-        input.user_id,
+        user_id,
         input.credential_sync,
         Some(input.task_id),
     )
     .await;
 
-    fill_git_identity(&mut credentials, input.users, input.user_id).await;
+    fill_git_identity(&mut credentials, input.users, user_id).await;
 
-    let scoped = resolve_scoped_secrets(input.secrets, input.user_id, input.task_id).await;
+    let scoped = resolve_scoped_secrets(input.secrets, user_id, input.task_id).await;
 
     fill_missing_from_scoped(&mut credentials, scoped);
     credentials
@@ -344,9 +349,12 @@ pub fn is_git_auth_key(key: &str) -> bool {
 ///
 /// The Workspace's `run_as_user_id` when it names one, otherwise the identity
 /// the Task is attributed to. A Workspace names the account it runs as, so it
-/// outranks whoever started the Task — the precedence a pinned GitHub
-/// credential used to have, over a subject that is a person instead of a
-/// secret.
+/// outranks whoever started the Task.
+///
+/// The returned Actor carries the Workspace itself, so a credential the
+/// Workspace pins for a git host is the one every call on this Task presents —
+/// see [`Actor::workspace_id`]. That holds whether or not the Workspace row can
+/// be read: the pin is looked up from the id alone.
 ///
 /// A Workspace that cannot be read degrades to the Task's own owner: the
 /// column is an override, and losing it narrows access rather than widening
@@ -356,7 +364,7 @@ pub async fn resolve_task_actor(
     workspace_id: Option<&str>,
     owner_user_id: &str,
 ) -> Actor {
-    let owner = Actor::of(owner_user_id);
+    let owner = Actor::of(owner_user_id).on_workspace(workspace_id);
     let (Some(workspaces), Some(workspace_id)) = (workspaces, workspace_id) else {
         return owner;
     };
@@ -367,7 +375,9 @@ pub async fn resolve_task_actor(
             None
         }
     };
-    Actor::run_as(run_as.as_deref(), Some(owner.clone())).unwrap_or(owner)
+    Actor::run_as(run_as.as_deref(), Some(owner.clone()))
+        .unwrap_or(owner)
+        .on_workspace(Some(workspace_id))
 }
 
 /// Resolve the credentials pinned to a workspace, keyed by environment
@@ -438,10 +448,14 @@ fn task_git_host_repo(repository: Option<&Repository>) -> Option<GitHostRepo> {
 
 /// Resolve the git-host tokens this task's sandbox needs.
 ///
-/// `actor` is the identity the task acts as and is the sole credential
-/// authority: a sandbox gets git-host access only through that identity's own
-/// rows, never the repository's and never another account's. Holding none
-/// leaves the slot empty, and preflight refuses to start the sandbox.
+/// `actor` is the identity the task acts as, and it plus the Workspace it names
+/// are the only credential authorities: a sandbox gets git-host access through
+/// that identity's own rows or its Workspace's pin, never the repository's and
+/// never another account's. Holding none leaves the slot empty, and preflight
+/// refuses to start the sandbox.
+///
+/// Each slot already filled is left alone, so a pin that
+/// [`resolve_task_credentials`] seeded is not resolved twice.
 ///
 /// `GITHUB_TOKEN` is minted against the task's own repository, so it is filled
 /// only for a GitHub-hosted task. `GITLAB_TOKEN` and `GITNESS_TOKEN` are single
@@ -779,6 +793,7 @@ mod tests {
     /// Inputs for the whole-chain test, with credentials pinned to the task's
     /// workspace.
     fn workspace_github_inputs<'a>(
+        actor: &'a Actor,
         provider_tokens: &'a Arc<dyn HarnessCredentials>,
         git_host_tokens: &'a Arc<GitHostTokens>,
         secrets: Option<&'a Arc<SecretService>>,
@@ -787,7 +802,7 @@ mod tests {
     ) -> TaskCredentialInputs<'a> {
         TaskCredentialInputs {
             task_id: "t1",
-            user_id: "u1",
+            actor,
             secrets,
             provider_tokens: Some(provider_tokens),
             git_host_tokens: Some(git_host_tokens),
@@ -918,9 +933,11 @@ mod tests {
         )));
         let repository = github_repository(moatless_types::access_control::Scope::User);
         let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
+        let actor = Actor::of("u1");
         let harness = harness(&tokens);
 
         let mut inputs = workspace_github_inputs(
+            &actor,
             &harness,
             &git_host_tokens,
             None,
@@ -988,6 +1005,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_resolved_actor_carries_the_workspace_whatever_it_runs_as() {
+        // What a pinned git-host credential is found from. Preflight, the
+        // sandbox and every backend-side call resolve their token from this
+        // actor, so losing the workspace here would leave them disagreeing
+        // about which account the task presents.
+        for run_as in [Some("bot"), None] {
+            let workspaces = workspace_running_as(run_as);
+            let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), "starter").await;
+            assert_eq!(actor.workspace_id(), Some("ws_1"), "run_as {run_as:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_workspace_still_names_itself_on_the_actor() {
+        // The pin is looked up from the id alone, so a workspace row that
+        // cannot be read narrows the run-as identity without also dropping the
+        // credential the workspace pins.
+        let actor = resolve_task_actor(None, Some("ws_1"), "starter").await;
+        assert_eq!(actor.user_id(), "starter");
+        assert_eq!(actor.workspace_id(), Some("ws_1"));
+    }
+
+    #[tokio::test]
     async fn a_task_with_no_workspace_acts_as_its_own_owner() {
         let workspaces = workspace_running_as(Some("bot"));
         assert_eq!(
@@ -1012,9 +1052,11 @@ mod tests {
         let repository = github_repository(moatless_types::access_control::Scope::User);
         let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
         let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
+        let actor = Actor::of("u1");
         let harness = harness(&tokens);
 
         let credentials = resolve_task_credentials(workspace_github_inputs(
+            &actor,
             &harness,
             &git_host_tokens,
             None,
@@ -1043,8 +1085,10 @@ mod tests {
         let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
 
         let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
+        let actor = Actor::of("u1");
         let harness = harness(&tokens);
         let credentials = resolve_task_credentials(workspace_github_inputs(
+            &actor,
             &harness,
             &git_host_tokens,
             Some(&secrets),
@@ -1056,8 +1100,78 @@ mod tests {
         assert_eq!(credentials[OPENAI_API_KEY], "sk-workspace");
         assert!(
             !credentials.contains_key(GITHUB_TOKEN),
-            "a workspace pins no git-host token; the user holds no row either"
+            "this workspace pins no GitHub token and the user holds no row either"
         );
+    }
+
+    #[tokio::test]
+    async fn the_seam_resolves_the_pin_for_an_actor_naming_the_workspace() {
+        // The two channels a pinned token reaches a task by — this map, and
+        // `GitHostTokens` for every backend-side call — must not disagree. Here
+        // the map is seeded with nothing, so the token can only have come from
+        // the seam, via the workspace the actor names.
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
+            moatless_identity::auth::test_support::github_row("oauth", "gho_from_user"),
+        )));
+        let repository = github_repository(moatless_types::access_control::Scope::User);
+        let mut pins = moatless_backend_core::workspace::MockWorkspaceCredentialReader::new();
+        pins.expect_resolve_env().returning(|_| {
+            Ok(HashMap::from([(
+                GITHUB_TOKEN.to_string(),
+                "ghp_workspace".to_string(),
+            )]))
+        });
+        let git_host_tokens = Arc::new(
+            GitHostTokens::new(
+                Arc::clone(&tokens),
+                Arc::new(moatless_identity::auth::provider_tokens::MockProviderTokenAuthDao::new()),
+                None,
+                Arc::new(moatless_identity::auth::github::registry::GitHubAppRegistry::default()),
+                Arc::new(service_with(vec![])),
+            )
+            .with_workspace_credentials(Arc::new(pins)),
+        );
+        let actor = Actor::of("u1").on_workspace(Some("ws_1"));
+        let harness = harness(&tokens);
+
+        let credentials = resolve_task_credentials(workspace_github_inputs(
+            &actor,
+            &harness,
+            &git_host_tokens,
+            None,
+            &repository,
+            HashMap::new(),
+        ))
+        .await;
+
+        assert_eq!(credentials[GITHUB_TOKEN], "ghp_workspace");
+    }
+
+    #[tokio::test]
+    async fn a_workspace_pinned_github_token_is_the_one_the_sandbox_receives() {
+        // The pin is the account the workspace names, so it beats the row the
+        // user who started the task holds. `fill_git_host_tokens` must leave
+        // the seeded slot alone rather than resolve over it.
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
+            moatless_identity::auth::test_support::github_row("oauth", "gho_from_user"),
+        )));
+        let repository = github_repository(moatless_types::access_control::Scope::User);
+        let pinned = HashMap::from([(GITHUB_TOKEN.to_string(), "ghp_workspace".to_string())]);
+        let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
+        let actor = Actor::of("u1");
+        let harness = harness(&tokens);
+
+        let credentials = resolve_task_credentials(workspace_github_inputs(
+            &actor,
+            &harness,
+            &git_host_tokens,
+            None,
+            &repository,
+            pinned,
+        ))
+        .await;
+
+        assert_eq!(credentials[GITHUB_TOKEN], "ghp_workspace");
     }
 
     #[tokio::test]

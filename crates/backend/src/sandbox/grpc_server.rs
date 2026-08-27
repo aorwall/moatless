@@ -1256,7 +1256,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         .await;
         let mut credentials = resolve_task_credentials(TaskCredentialInputs {
             task_id: &req.task_id,
-            user_id: actor.user_id(),
+            actor: &actor,
             secrets: handlers.map(|h| &h.secrets),
             provider_tokens: handlers.map(|h| &h.harness_credentials),
             git_host_tokens: handlers.map(|h| &h.git_host_tokens),

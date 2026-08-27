@@ -8,11 +8,12 @@
 //! - `Moatless task: <url>` footer baked into the PR body at creation
 //! - webhook echo dedup (`recently_sent`) for the PR-opened / comment events
 //!
-//! Tokens come from the calling user's own GitHub row and nothing else — the
-//! same rule the sandbox's `GITHUB_TOKEN` follows, so the identity that pushed
-//! the branch is the identity that opens the PR. That is also what lets these
-//! routes reach a repository the task isn't bound to: the caller's own access
-//! is the only thing that decides.
+//! Tokens come from the credential the task's Workspace pins, else the calling
+//! user's own GitHub row, and nothing else — the same rule the sandbox's
+//! `GITHUB_TOKEN` follows, so the identity that pushed the branch is the
+//! identity that opens the PR. That is also what lets these routes reach a
+//! repository the task isn't bound to: the access held by the account those two
+//! rules name is the only thing that decides.
 
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -29,7 +30,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use moatless_backend_core::task::{ExternalEvent, TaskReader, TranscriptAppend};
-use moatless_loops::adapters::common::ensure_task_access_only;
+use moatless_loops::adapters::common::{ensure_task_access_only, ensure_task_access_with};
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::footer::FOOTER_MARKER;
 use moatless_loops::adapters::AdapterDestinationBuilder;
@@ -84,11 +85,16 @@ pub async fn create_pr(
 ) -> Result<Json<GithubCreatePrResponse>, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
-    if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
-    }
+    let workspace_id = task_workspace(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
 
-    let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
+    let api = resolve_github_api(
+        &adapter,
+        &auth.user_id.to_string(),
+        workspace_id.as_deref(),
+        &owner,
+        &repo,
+    )
+    .await?;
 
     let base = match req.base.as_deref() {
         Some(b) => b.to_string(),
@@ -237,11 +243,16 @@ pub async fn post_comment(
 ) -> Result<Json<GithubCommentResponse>, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
-    if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
-    }
+    let workspace_id = task_workspace(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
 
-    let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
+    let api = resolve_github_api(
+        &adapter,
+        &auth.user_id.to_string(),
+        workspace_id.as_deref(),
+        &owner,
+        &repo,
+    )
+    .await?;
 
     let body = body_with_task_footer(
         tasks.as_ref(),
@@ -318,11 +329,16 @@ pub async fn reply_to_review_comment(
 ) -> Result<Json<GithubCommentResponse>, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
-    if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
-    }
+    let workspace_id = task_workspace(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
 
-    let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
+    let api = resolve_github_api(
+        &adapter,
+        &auth.user_id.to_string(),
+        workspace_id.as_deref(),
+        &owner,
+        &repo,
+    )
+    .await?;
 
     let body = body_with_task_footer(
         tasks.as_ref(),
@@ -394,9 +410,16 @@ pub async fn bind_pr(
 ) -> Result<Json<GithubBindPrResponse>, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
-    ensure_task_access_only(tasks.as_ref(), &ctx, &req.task_id).await?;
+    let workspace_id = task_workspace(tasks.as_ref(), &ctx, Some(&req.task_id)).await?;
 
-    let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
+    let api = resolve_github_api(
+        &adapter,
+        &auth.user_id.to_string(),
+        workspace_id.as_deref(),
+        &owner,
+        &repo,
+    )
+    .await?;
     let pr = api.get_pr(&owner, &repo, number).await?;
     let html_url = pr
         .html_url
@@ -541,23 +564,48 @@ async fn record_durable_event(
     }
 }
 
-/// Resolve a GitHub API client from `user_id`'s own GitHub credential, minted
+/// Authorize the caller against the Task and answer the Workspace it runs in.
+///
+/// The same `NotFound`-on-denied rule the routes had before they needed the
+/// Workspace; a route naming no Task authorizes nothing and has no Workspace to
+/// report.
+async fn task_workspace(
+    tasks: &dyn TaskReader,
+    ctx: &moatless_types::access_control::ScopeContext,
+    task_id: Option<&str>,
+) -> Result<Option<String>, AdapterError> {
+    let Some(task_id) = task_id else {
+        return Ok(None);
+    };
+    Ok(ensure_task_access_with(tasks, ctx, task_id)
+        .await?
+        .workspace_id)
+}
+
+/// Resolve a GitHub API client for `user_id` acting on `workspace_id`, minted
 /// against `owner/repo_name`.
 ///
 /// `user_id` is the task's run-as identity — the sandbox's `X-User-Token` JWT
-/// and its `GITHUB_TOKEN` are cut from the same `grant.ctx.user_id`. The
-/// run-as-only rule (own row, no scope walk, no repository or global fallback,
-/// fails closed) lives on `GithubPrAuth::client_for_run_as_user`; this wrapper
-/// just names the provider handle the route reaches it through.
+/// and its `GITHUB_TOKEN` are cut from the same `grant.ctx.user_id`. Naming the
+/// task's Workspace is what makes this route present the same account the
+/// sandbox does: a Workspace that pins a GitHub credential pins it for both.
+/// The credential rule (the Workspace's pin or the identity's own row, no scope
+/// walk, no repository or global fallback, fails closed) lives on
+/// `GithubPrAuth::client_for`; this wrapper just names the provider handle the
+/// route reaches it through.
 async fn resolve_github_api(
     adapter: &GithubPrAdapter,
     user_id: &str,
+    workspace_id: Option<&str>,
     owner: &str,
     repo_name: &str,
 ) -> Result<GithubPrApi, AdapterError> {
     adapter
         .auth()
-        .client_for(&Actor::of(user_id), &GitHostRepo::github(owner, repo_name))
+        .client_for(
+            &Actor::of(user_id).on_workspace(workspace_id),
+            &GitHostRepo::github(owner, repo_name),
+        )
         .await
 }
 
@@ -579,6 +627,7 @@ pub struct DialogPullRequest {
 pub async fn resolve_reference_for_dialog(
     adapter: &GithubPrAdapter,
     user_id: &str,
+    workspace_id: Option<&str>,
     repo_owner: &str,
     repo_name: &str,
     reference: &str,
@@ -588,7 +637,7 @@ pub async fn resolve_reference_for_dialog(
     else {
         return Ok(None);
     };
-    let api = resolve_github_api(adapter, user_id, &owner, &repo).await?;
+    let api = resolve_github_api(adapter, user_id, workspace_id, &owner, &repo).await?;
     let pr = api.get_pr(&owner, &repo, number).await?;
     Ok(Some(to_dialog_pull_request(&pr, &owner, &repo)))
 }
@@ -598,11 +647,12 @@ pub async fn resolve_reference_for_dialog(
 pub async fn find_open_pull_request_for_head(
     adapter: &GithubPrAdapter,
     user_id: &str,
+    workspace_id: Option<&str>,
     owner: &str,
     repo: &str,
     head: &str,
 ) -> Result<Option<DialogPullRequest>, AdapterError> {
-    let api = resolve_github_api(adapter, user_id, owner, repo).await?;
+    let api = resolve_github_api(adapter, user_id, workspace_id, owner, repo).await?;
     Ok(api
         .find_open_pr_for_head(owner, repo, head)
         .await?

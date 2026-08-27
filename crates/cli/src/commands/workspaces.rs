@@ -141,9 +141,11 @@ pub enum WorkspaceAction {
         yes: bool,
     },
     /// Manage provider credentials pinned to a workspace. A workspace
-    /// credential (a GitLab token, say) overrides the run-as user's own, so
-    /// every task on the workspace authenticates with it. GitHub is not one of
-    /// them — set `--run-as-user-id` on the workspace instead.
+    /// credential (a GitHub PAT, say) overrides the run-as user's own, so every
+    /// task on the workspace authenticates with it — the sandbox cloning and
+    /// pushing, and the backend opening pull requests and reading repository
+    /// access. Use it to reach repositories the run-as user's own token cannot,
+    /// such as a repository outside the organisation that token is scoped to.
     Credentials {
         #[command(subcommand)]
         action: CredentialAction,
@@ -221,7 +223,7 @@ pub enum CredentialAction {
     /// Pin a provider credential to a workspace, replacing any current value
     Set {
         workspace_id: String,
-        /// Provider: gitlab, gitness, openai, or anthropic
+        /// Provider: github, gitlab, gitness, openai, or anthropic
         provider: String,
         /// Credential value (use "-" to read from stdin)
         #[arg(long, short = 'v')]
@@ -233,7 +235,7 @@ pub enum CredentialAction {
     /// Remove a pinned credential; the workspace falls back to the run-as user
     Remove {
         workspace_id: String,
-        /// Provider: gitlab, gitness, openai, or anthropic
+        /// Provider: github, gitlab, gitness, openai, or anthropic
         provider: String,
     },
 }

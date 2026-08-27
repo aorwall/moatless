@@ -119,9 +119,13 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
             .as_ref()
             .map(|installations| installations.github_pr())
             .ok_or(PullRequestError::NotFound)?;
+        // The dialog resolves a reference against a Repository the viewer
+        // names, with no Task and so no Workspace whose credential could stand
+        // in for the viewer's own.
         crate::adapters::providers::github_pr::api_routes::resolve_reference_for_dialog(
             &adapter,
             &viewer.user_id,
+            None,
             &owner,
             &repo,
             reference,
@@ -147,6 +151,7 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
         crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
             &adapter,
             &viewer.user_id,
+            None,
             &owner,
             &repo,
             head,
@@ -303,6 +308,7 @@ async fn bind_thread_to_open_pr(
         match crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
             &adapter,
             &viewer.user_id,
+            Some(workspace_id),
             owner,
             repo,
             branch,

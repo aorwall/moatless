@@ -334,19 +334,33 @@ impl ScopeContext {
 ///
 /// There is no way to obtain a git-host token without naming one — see
 /// `moatless_identity::git_host_tokens::GitHostTokens`.
+///
+/// A Workspace may pin the token its work presents to a git host. An Actor
+/// therefore carries the Workspace the call is made on behalf of, when there is
+/// one: the pin outranks the user's own credential, and naming the Workspace
+/// here is what lets every caller resolve the same token from the same seam
+/// rather than each deciding for itself. [`Self::workspace_id`] is `None` for
+/// work no Workspace is behind — a settings check, an interactive request — and
+/// that resolves to the user's own credential.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Actor(String);
+pub struct Actor {
+    user_id: String,
+    workspace_id: Option<String>,
+}
 
 impl Actor {
     /// A user id chosen by a rule this band cannot express.
     pub fn of(user_id: impl Into<String>) -> Self {
-        Self(user_id.into())
+        Self {
+            user_id: user_id.into(),
+            workspace_id: None,
+        }
     }
 
     /// The caller of a request. An admin acts as themselves, never as the
     /// owner of what they are looking at.
     pub fn caller(ctx: &ScopeContext) -> Self {
-        Self(ctx.user_id.clone())
+        Self::of(ctx.user_id.clone())
     }
 
     /// The owner of a scoped resource — a Task, say.
@@ -373,14 +387,31 @@ impl Actor {
             .or(owner)
     }
 
+    /// The same identity, acting on behalf of `workspace_id`.
+    ///
+    /// An empty id is no Workspace, so a caller holding a column that may be
+    /// blank does not have to filter it first.
+    #[must_use]
+    pub fn on_workspace(mut self, workspace_id: Option<&str>) -> Self {
+        self.workspace_id = workspace_id
+            .filter(|id| !id.is_empty())
+            .map(ToOwned::to_owned);
+        self
+    }
+
     pub fn user_id(&self) -> &str {
-        &self.0
+        &self.user_id
+    }
+
+    /// The Workspace whose pinned credentials this call may present, if any.
+    pub fn workspace_id(&self) -> Option<&str> {
+        self.workspace_id.as_deref()
     }
 }
 
 impl std::fmt::Display for Actor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.user_id)
     }
 }
 

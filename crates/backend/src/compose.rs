@@ -212,13 +212,16 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
     ));
     let provider_token_auth: Arc<dyn ProviderTokenAuthDao> =
         Arc::new(PgProviderTokenAuthDao(pool.clone()));
-    let git_host_tokens = Arc::new(GitHostTokens::new(
-        provider_tokens.clone(),
-        provider_token_auth.clone(),
-        github_app_service.clone(),
-        github_apps.clone(),
-        secrets.clone(),
-    ));
+    let git_host_tokens = Arc::new(
+        GitHostTokens::new(
+            provider_tokens.clone(),
+            provider_token_auth.clone(),
+            github_app_service.clone(),
+            github_apps.clone(),
+            secrets.clone(),
+        )
+        .with_workspace_credentials(workspace_credentials.clone()),
+    );
 
     // One PgTaskDao serves the TaskDao port, the E-(b) TaskAccess port, and the
     // published `TaskReader` seam peer crates read.

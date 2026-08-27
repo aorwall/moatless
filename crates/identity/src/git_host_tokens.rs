@@ -9,7 +9,9 @@ use std::sync::Arc;
 
 use tracing::warn;
 
+use moatless_backend_core::workspace::WorkspaceCredentialReader;
 use moatless_types::repository::RepositoryProvider;
+use moatless_types::workspace::WorkspaceCredentialProvider;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 
 use moatless_types::access_control::Actor;
@@ -84,15 +86,18 @@ impl PlainGitHost {
 
 /// The one way to obtain a git-host token.
 ///
-/// Constructed once at the composition root, so the five infrastructure ports
-/// below are supplied in a single place rather than threaded through every
-/// caller.
+/// Constructed once at the composition root, so the infrastructure ports below
+/// are supplied in a single place rather than threaded through every caller.
 pub struct GitHostTokens {
     provider_tokens: Arc<dyn ProviderTokenDao>,
     provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     github_app_service: Option<Arc<GitHubAppService>>,
     github_apps: Arc<GitHubAppRegistry>,
     secrets: Arc<SecretService>,
+    /// The credentials a Workspace pins. `None` in a deployment that wires no
+    /// workspace credential store, which resolves every identity to its own
+    /// credential.
+    workspace_credentials: Option<Arc<dyn WorkspaceCredentialReader>>,
 }
 
 impl GitHostTokens {
@@ -109,37 +114,100 @@ impl GitHostTokens {
             github_app_service,
             github_apps,
             secrets,
+            workspace_credentials: None,
         }
+    }
+
+    /// Wire the store that answers what a Workspace pins.
+    #[must_use]
+    pub fn with_workspace_credentials(
+        mut self,
+        workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
+    ) -> Self {
+        self.workspace_credentials = Some(workspace_credentials);
+        self
     }
 
     /// The token `actor` presents to `repo`'s host right now.
     ///
     /// Callers may rely on these facts:
     ///
-    /// - No scope walk is performed. `actor` is the sole authority: another
-    ///   identity's credential is never tried, at any scope.
+    /// - No scope walk is performed. Only two credentials are ever consulted:
+    ///   the one `actor`'s Workspace pins for the host, and `actor`'s own.
+    ///   Another *identity's* credential is never tried, at any scope.
+    /// - A Workspace pin outranks the identity's own credential, so every call
+    ///   made on behalf of that Workspace presents the account it names. See
+    ///   [`Actor::workspace_id`].
     /// - The returned string is never `SECRET_REF_TOKEN_PLACEHOLDER`,
     ///   `APP_INSTALLATION_TOKEN_PLACEHOLDER`, or empty.
     /// - Freshness is handled here. OAuth rows refresh through
-    ///   [`ensure_fresh_token`]; installation rows mint. Do not cache the
-    ///   returned string.
+    ///   [`ensure_fresh_token`]; installation rows mint. A pinned token is a
+    ///   static secret and is returned as stored. Do not cache the returned
+    ///   string.
     pub async fn token(
         &self,
         actor: &Actor,
         repo: &GitHostRepo,
     ) -> Result<String, GitHostTokenError> {
-        match repo.provider() {
+        let provider = repo.provider();
+        if let Some(pinned) = self.pinned_token(actor, provider).await? {
+            return Ok(pinned);
+        }
+        match provider {
             RepositoryProvider::Github => self.github_token(actor, repo).await,
-            RepositoryProvider::Gitlab => self.host_token(actor, PlainGitHost::Gitlab).await,
-            RepositoryProvider::Gitness => self.host_token(actor, PlainGitHost::Gitness).await,
+            RepositoryProvider::Gitlab => self.stored_host_token(actor, PlainGitHost::Gitlab).await,
+            RepositoryProvider::Gitness => {
+                self.stored_host_token(actor, PlainGitHost::Gitness).await
+            }
         }
     }
 
     /// The token `actor` holds for a host that needs no repository to answer.
     ///
-    /// The same rules as [`Self::token`]: no scope walk, and an absent row is
-    /// [`GitHostTokenError::NoCredential`].
+    /// The same rules as [`Self::token`]: a Workspace pin first, no scope walk,
+    /// and an absent credential is [`GitHostTokenError::NoCredential`].
     pub async fn host_token(
+        &self,
+        actor: &Actor,
+        host: PlainGitHost,
+    ) -> Result<String, GitHostTokenError> {
+        if let Some(pinned) = self.pinned_token(actor, host.provider()).await? {
+            return Ok(pinned);
+        }
+        self.stored_host_token(actor, host).await
+    }
+
+    /// The credential `actor`'s Workspace pins for `provider`, if it pins one.
+    ///
+    /// A Workspace that pins a credential whose value cannot be read is an
+    /// error rather than an absent pin: falling through to the identity's own
+    /// token would make the call as a different account than the Workspace
+    /// names, which is the failure this seam exists to remove.
+    async fn pinned_token(
+        &self,
+        actor: &Actor,
+        provider: RepositoryProvider,
+    ) -> Result<Option<String>, GitHostTokenError> {
+        let (Some(store), Some(workspace_id)) =
+            (self.workspace_credentials.as_ref(), actor.workspace_id())
+        else {
+            return Ok(None);
+        };
+        let env = store.resolve_env(workspace_id).await.map_err(|e| {
+            GitHostTokenError::Broken {
+                actor: actor.clone(),
+                provider,
+                source: AuthError::Config(format!(
+                    "Failed to read the credentials pinned to workspace '{workspace_id}': {e}"
+                )),
+            }
+        })?;
+        let key = WorkspaceCredentialProvider::from(provider).env_key();
+        Ok(env.get(key).filter(|token| !token.is_empty()).cloned())
+    }
+
+    /// The single stored value `actor` holds for a plain host.
+    async fn stored_host_token(
         &self,
         actor: &Actor,
         host: PlainGitHost,
@@ -165,7 +233,18 @@ impl GitHostTokens {
     /// usable on the strength of the App handle alone; every path that actually
     /// reaches GitHub names a repository and goes through [`Self::token`], where
     /// the mint either succeeds or says why not.
+    ///
+    /// A Workspace pin is usable on its own: it is the token every call on that
+    /// Workspace presents, so the identity needs no row of its own behind it.
     pub async fn github_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError> {
+        if self
+            .pinned_token(actor, RepositoryProvider::Github)
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+
         let Some(row) = self
             .provider_tokens
             .find_github_row(actor.user_id())
@@ -349,6 +428,8 @@ pub fn seam_over(provider_tokens: Arc<dyn ProviderTokenDao>) -> Arc<GitHostToken
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
     use crate::auth::provider_tokens::{MockProviderTokenAuthDao, SECRET_REF_TOKEN_PLACEHOLDER};
     use crate::auth::test_support::{StubProviderTokens, github_row};
     use crate::secret::test_support::{secret, service_with};
@@ -531,5 +612,171 @@ mod tests {
             .await
             .expect_err("no GitLab row is not a token");
         assert!(error.to_string().contains("gitlab"), "got {error}");
+    }
+
+    // --- the credential a workspace pins ------------------------------------
+
+    /// A credential store answering one workspace, or failing for every read.
+    struct PinnedCredentials {
+        workspace_id: &'static str,
+        env: HashMap<String, String>,
+        fails: bool,
+    }
+
+    impl PinnedCredentials {
+        fn holding(workspace_id: &'static str, key: &str, value: &str) -> Arc<dyn WorkspaceCredentialReader> {
+            Arc::new(Self {
+                workspace_id,
+                env: HashMap::from([(key.to_string(), value.to_string())]),
+                fails: false,
+            })
+        }
+
+        fn unreadable() -> Arc<dyn WorkspaceCredentialReader> {
+            Arc::new(Self {
+                workspace_id: "ws_1",
+                env: HashMap::new(),
+                fails: true,
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl WorkspaceCredentialReader for PinnedCredentials {
+        async fn resolve_env(
+            &self,
+            workspace_id: &str,
+        ) -> Result<HashMap<String, String>, moatless_backend_core::store::StoreError> {
+            if self.fails {
+                return Err(moatless_backend_core::store::StoreError::new("unreadable"));
+            }
+            Ok(if workspace_id == self.workspace_id {
+                self.env.clone()
+            } else {
+                HashMap::new()
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_workspace_pin_outranks_the_identitys_own_github_row() {
+        // The whole point: the workspace names the account, so a task on it
+        // reaches repositories the user's own token cannot.
+        let seam = tokens(
+            StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_user"))),
+            service_with(vec![]),
+        )
+        .with_workspace_credentials(PinnedCredentials::holding(
+            "ws_1",
+            "GITHUB_TOKEN",
+            "ghp_workspace",
+        ));
+
+        let token = seam
+            .token(&Actor::of("u1").on_workspace(Some("ws_1")), &github_repo())
+            .await
+            .expect("the pin resolves");
+        assert_eq!(token, "ghp_workspace");
+    }
+
+    #[tokio::test]
+    async fn a_workspace_pin_answers_for_an_identity_holding_no_row_at_all() {
+        let seam = tokens(StubProviderTokens::default(), service_with(vec![]))
+            .with_workspace_credentials(PinnedCredentials::holding(
+                "ws_1",
+                "GITHUB_TOKEN",
+                "ghp_workspace",
+            ));
+        let actor = Actor::of("u1").on_workspace(Some("ws_1"));
+
+        assert_eq!(
+            seam.token(&actor, &github_repo()).await.expect("resolves"),
+            "ghp_workspace"
+        );
+        seam.github_is_usable(&actor)
+            .await
+            .expect("a pin is a usable credential on its own");
+    }
+
+    #[tokio::test]
+    async fn an_actor_naming_no_workspace_resolves_its_own_row() {
+        // Work no workspace is behind — a settings check, an interactive
+        // request — must not pick up another workspace's account.
+        let seam = tokens(
+            StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_user"))),
+            service_with(vec![]),
+        )
+        .with_workspace_credentials(PinnedCredentials::holding(
+            "ws_1",
+            "GITHUB_TOKEN",
+            "ghp_workspace",
+        ));
+
+        let token = seam
+            .token(&Actor::of("u1"), &github_repo())
+            .await
+            .expect("the user's own row resolves");
+        assert_eq!(token, "ghp_user");
+    }
+
+    #[tokio::test]
+    async fn a_workspace_pinning_nothing_for_this_host_falls_through_to_the_row() {
+        let seam = tokens(
+            StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_user"))),
+            service_with(vec![]),
+        )
+        .with_workspace_credentials(PinnedCredentials::holding(
+            "ws_1",
+            "OPENAI_API_KEY",
+            "sk-workspace",
+        ));
+
+        let token = seam
+            .token(&Actor::of("u1").on_workspace(Some("ws_1")), &github_repo())
+            .await
+            .expect("a pin for another provider is not a GitHub pin");
+        assert_eq!(token, "ghp_user");
+    }
+
+    #[tokio::test]
+    async fn a_pin_that_cannot_be_read_is_broken_rather_than_the_users_own_token() {
+        // Falling through here would make the call as a different account than
+        // the workspace names — the failure this seam exists to remove.
+        let seam = tokens(
+            StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_user"))),
+            service_with(vec![]),
+        )
+        .with_workspace_credentials(PinnedCredentials::unreadable());
+
+        let error = seam
+            .token(&Actor::of("u1").on_workspace(Some("ws_1")), &github_repo())
+            .await
+            .expect_err("an unreadable pin is not an absent pin");
+        assert!(matches!(error, GitHostTokenError::Broken { .. }), "got {error}");
+    }
+
+    #[tokio::test]
+    async fn a_workspace_pin_governs_gitlab_the_same_way() {
+        let repo = GitHostRepo::parse(RepositoryProvider::Gitlab, "https://gitlab.com/acme/repo")
+            .expect("parses");
+        let seam = tokens(StubProviderTokens::default(), service_with(vec![]))
+            .with_workspace_credentials(PinnedCredentials::holding(
+                "ws_1",
+                "GITLAB_TOKEN",
+                "glpat_workspace",
+            ));
+
+        assert_eq!(
+            seam.token(&Actor::of("u1").on_workspace(Some("ws_1")), &repo)
+                .await
+                .expect("resolves"),
+            "glpat_workspace"
+        );
+        assert_eq!(
+            seam.host_token(&Actor::of("u1").on_workspace(Some("ws_1")), PlainGitHost::Gitlab)
+                .await
+                .expect("the repository-free read resolves the same pin"),
+            "glpat_workspace"
+        );
     }
 }

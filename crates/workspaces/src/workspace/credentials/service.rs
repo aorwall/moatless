@@ -514,6 +514,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_github_credential_resolves_to_the_slot_the_git_host_seam_reads() {
+        // `GitHostTokens` looks the pin up by this env key, so a task on the
+        // workspace opens pull requests as the pinned account as well as
+        // cloning as it.
+        let svc = service(cipher());
+        svc.set(
+            &ctx("owner"),
+            "ws_1",
+            WorkspaceCredentialProvider::Github,
+            "ghp_workspace",
+        )
+        .await
+        .expect("owner may set");
+
+        let env = svc.resolve_env("ws_1").await.expect("resolves");
+        assert_eq!(
+            env.get("GITHUB_TOKEN").map(String::as_str),
+            Some("ghp_workspace")
+        );
+    }
+
+    #[tokio::test]
     async fn several_providers_resolve_to_their_own_slots() {
         let svc = service(cipher());
         let c = ctx("owner");

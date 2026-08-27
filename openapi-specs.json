@@ -18029,6 +18029,7 @@
         "type": "string",
         "description": "A provider whose credential can be pinned to a Workspace.\n\nOnly providers whose sandbox credential is a single static environment\nvariable are here. Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are\nrefreshed and written back against the connected user's own row, so a\nworkspace-level copy of either would go stale with nothing to rotate it.",
         "enum": [
+          "github",
           "gitlab",
           "gitness",
           "openai",

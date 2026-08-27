@@ -12,6 +12,13 @@
 //! seeds its map from these before consulting anything else — see
 //! `sandbox-control`'s `secrets::resolve_task_credentials`.
 //!
+//! A pin for a git host ([`WorkspaceCredentialProvider::GIT_HOSTS`]) governs
+//! backend-side calls too, not just what the sandbox holds: an actor carrying
+//! the Workspace resolves it through
+//! `moatless_identity::git_host_tokens::GitHostTokens`, which is the one way to
+//! a git-host token. Both sides therefore present the same account — the
+//! sandbox cloning and pushing, and the backend opening the pull request.
+//!
 //! Values are envelope-encrypted with the cipher the `secrets` table uses, and
 //! no read path returns one: [`service::WorkspaceCredentialService::resolve_env`]
 //! decrypts for the sandbox, everything else returns metadata.

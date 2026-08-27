@@ -149,6 +149,7 @@ pub struct ScriptConfig {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum WorkspaceCredentialProvider {
+    Github,
     Gitlab,
     Gitness,
     Openai,
@@ -156,10 +157,23 @@ pub enum WorkspaceCredentialProvider {
 }
 
 impl WorkspaceCredentialProvider {
-    pub const ALL: &'static [Self] = &[Self::Gitlab, Self::Gitness, Self::Openai, Self::Anthropic];
+    pub const ALL: &'static [Self] = &[
+        Self::Github,
+        Self::Gitlab,
+        Self::Gitness,
+        Self::Openai,
+        Self::Anthropic,
+    ];
+
+    /// The git hosts among these. A pin for one of them is the token every
+    /// call against that host presents, so it is resolved by
+    /// `moatless_identity::git_host_tokens::GitHostTokens` rather than only
+    /// delivered as an environment variable.
+    pub const GIT_HOSTS: &'static [Self] = &[Self::Github, Self::Gitlab, Self::Gitness];
 
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Github => "github",
             Self::Gitlab => "gitlab",
             Self::Gitness => "gitness",
             Self::Openai => "openai",
@@ -169,6 +183,7 @@ impl WorkspaceCredentialProvider {
 
     pub fn env_key(self) -> &'static str {
         match self {
+            Self::Github => "GITHUB_TOKEN",
             Self::Gitlab => "GITLAB_TOKEN",
             Self::Gitness => "GITNESS_TOKEN",
             Self::Openai => "OPENAI_API_KEY",
@@ -182,6 +197,17 @@ impl WorkspaceCredentialProvider {
             .map(|provider| provider.as_str())
             .collect::<Vec<_>>()
             .join(", ")
+    }
+}
+
+impl From<crate::repository::RepositoryProvider> for WorkspaceCredentialProvider {
+    fn from(provider: crate::repository::RepositoryProvider) -> Self {
+        use crate::repository::RepositoryProvider as Host;
+        match provider {
+            Host::Github => Self::Github,
+            Host::Gitlab => Self::Gitlab,
+            Host::Gitness => Self::Gitness,
+        }
     }
 }
 

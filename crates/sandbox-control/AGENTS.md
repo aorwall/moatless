@@ -70,8 +70,18 @@ provider SDK (`kube`/`bollard`) — its error type boxes any provider error behi
   credential. `resolve_task_credentials` and `fill_missing_from_scoped` both
   re-check at their own merges, so neither a caller assembling
   `workspace_env_vars` from elsewhere nor a scoped `env` secret can reopen it.
-  A Workspace that should act as another git account sets `run_as_user_id`;
-  that is the supported path, and it resolves a real token.
+  A Workspace that should act as another git account has two supported paths,
+  and both resolve a real token: `run_as_user_id` names the identity to act as,
+  and a pinned `workspace_credentials` row names a token directly. A pin is the
+  one that reaches a repository no identity here holds a credential for. Neither
+  is `env_vars`.
+- A pinned git-host credential is resolved by
+  `moatless_identity::git_host_tokens::GitHostTokens`, not only seeded into the
+  sandbox env, so the sandbox and every backend-side call present the same
+  account. What carries it there is the Workspace on the `Actor`
+  (`resolve_task_actor`) — an actor built without it resolves the identity's own
+  credential instead, so a new caller that has a Task in hand must name its
+  Workspace.
 - `Lifecycle` is the sole writer of Sandbox *intent*. Do not add direct provider
   mutation paths from handlers, adapters, reapers, or watchers.
 - Task controls Sandbox. `moatless-tasks` writes the `sandboxes` row when a task
