@@ -17,6 +17,7 @@ use crate::error::SandboxError;
 use crate::models::{ProvisionRequest, RepoCheckout, RepoConfig, derive_mount_name, sanitize_mount_name};
 use crate::lifecycle::orchestrator::LifecycleDao;
 use crate::preflight::preflight_validate_sandbox_control;
+use crate::secrets::is_platform_owned_key;
 use moatless_backend_core::identity::CommitIdentity;
 use moatless_backend_core::workspace::{RepoPlacement, ResolvedWorkspace, WorkspaceResolver};
 use moatless_types::repository::RepositoryProvider;
@@ -70,9 +71,21 @@ pub fn build_server_configs_from_workspace(ws: &ResolvedWorkspace) -> Vec<Server
     servers
 }
 
-/// The environment variables a workspace declares.
+/// The environment variables a workspace declares, less the keys the platform
+/// owns.
+///
+/// The plan's `env_vars` are appended to the container env *after* the
+/// platform's own — `TASK_ID`, the auth tokens, `BACKEND_GRPC_URL` — in both
+/// runtime builders, and a later entry of the same name wins. So this is a
+/// channel a workspace could redefine the pod's identity or its git credential
+/// through, and it filters with the same [`is_platform_owned_key`] the
+/// credential channel does. Neither channel may be the only one that filters:
+/// a pod env is just the process's starting environment and the credential map
+/// overlays it, so each has to hold on its own.
 pub fn parse_env_vars_from_workspace(ws: &ResolvedWorkspace) -> Option<HashMap<String, String>> {
-    ws.env_vars.clone()
+    let mut env_vars = ws.env_vars.clone()?;
+    env_vars.retain(|key, _| !is_platform_owned_key(key));
+    Some(env_vars)
 }
 
 /// Build the code_execution JSON pass-through from a workspace's run config.
@@ -544,6 +557,53 @@ mod tests {
             is_primary,
             position,
         }
+    }
+
+    fn workspace_declaring(env_vars: HashMap<String, String>) -> ResolvedWorkspace {
+        ResolvedWorkspace {
+            id: "ws_1".to_string(),
+            name: "ws".to_string(),
+            docker_image: None,
+            docker_access: None,
+            sandbox_service_account: None,
+            system_prompt: None,
+            setup_commands: None,
+            env_vars: Some(env_vars),
+            servers: None,
+            resources: None,
+            network_profile: None,
+            run_as_user_id: None,
+            deleted: false,
+        }
+    }
+
+    /// The plan's vars are appended after the platform's own in both runtime
+    /// builders and a later entry of the same name wins, so the pod spec has to
+    /// drop these itself — the credential channel's filter never sees them.
+    #[test]
+    fn a_workspace_cannot_reach_the_pod_spec_with_a_platform_owned_key() {
+        let env_vars = parse_env_vars_from_workspace(&workspace_declaring(HashMap::from([
+            ("TASK_ID".to_string(), "not-my-task".to_string()),
+            ("USER_AUTH_TOKEN".to_string(), "forged".to_string()),
+            ("BACKEND_GRPC_URL".to_string(), "http://evil".to_string()),
+            ("GITHUB_TOKEN".to_string(), "ghp_bypass".to_string()),
+            ("GH_TOKEN".to_string(), "ghp_bypass".to_string()),
+            ("GIT_TOKEN".to_string(), "ghp_bypass".to_string()),
+            ("BUILD_PROFILE".to_string(), "release".to_string()),
+        ])))
+        .expect("a workspace that declares vars still yields a map");
+
+        assert_eq!(
+            env_vars,
+            HashMap::from([("BUILD_PROFILE".to_string(), "release".to_string())])
+        );
+    }
+
+    #[test]
+    fn a_workspace_declaring_no_vars_still_yields_none() {
+        let mut ws = workspace_declaring(HashMap::new());
+        ws.env_vars = None;
+        assert!(parse_env_vars_from_workspace(&ws).is_none());
     }
 
     /// A single-repo workspace produces one primary checkout at the URL-derived

@@ -19,7 +19,7 @@ use moatless_types::access_control::ScopeContext;
 use crate::sandbox::event_dedup::Admission;
 use crate::sandbox::jwt;
 use crate::sandbox::lifecycle::orchestrator::LifecycleDao;
-use crate::sandbox::secrets::{TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets, resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials};
+use crate::sandbox::secrets::{TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets, resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials, resolve_workspace_env_vars};
 use crate::sandbox::storage::sandbox_key;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
@@ -1245,6 +1245,15 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             &grant.ctx.user_id,
         )
         .await;
+        // Workspace-scoped configuration travels on this channel too, not just
+        // the pod spec: the pod env is only the process's starting environment
+        // and the per-turn map overlays it, so a workspace var delivered solely
+        // through the plan would lose to a user- or global-scoped secret.
+        let workspace_env_vars = resolve_workspace_env_vars(
+            handlers.map(|h| &h.workspace_resolver),
+            targets.workspace_id.as_deref(),
+        )
+        .await;
         let mut credentials = resolve_task_credentials(TaskCredentialInputs {
             task_id: &req.task_id,
             user_id: actor.user_id(),
@@ -1255,6 +1264,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             users: handlers.map(|h| &h.commit_identity),
             credential_sync: codex_credentials.as_ref(),
             workspace_credentials,
+            workspace_env_vars: workspace_env_vars.clone(),
         })
         .await;
 
@@ -1266,7 +1276,12 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         {
             credentials.insert(CredentialKey::USER_AUTH_TOKEN.to_string(), user_token);
         }
-        let server_env = resolve_server_env(&grant.ctx.user_id, handlers.map(|h| &h.secrets)).await;
+        let server_env = resolve_server_env(
+            &grant.ctx.user_id,
+            handlers.map(|h| &h.secrets),
+            &workspace_env_vars,
+        )
+        .await;
         let ssh_keys =
             resolve_task_ssh_keys(handlers.map(|h| &h.secrets), &grant.ctx.user_id).await;
 

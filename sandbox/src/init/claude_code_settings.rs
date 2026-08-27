@@ -2,6 +2,12 @@
 //!
 //! Writes a known-good settings file at `$CLAUDE_CONFIG_DIR/settings.json`
 //! so every sandbox boots with the same Claude CLI configuration.
+//!
+//! Env-var defaults are not written here. Claude's settings `env` block
+//! outranks the process environment, so a value set in this file could not be
+//! overridden by a scoped value delivered on the credential channel. They live
+//! in [`crate::agent::options::CLAUDE_ENV_DEFAULTS`] instead, applied as a
+//! floor under that channel.
 
 use tokio::fs;
 use tracing::{info, warn};
@@ -31,12 +37,6 @@ pub(super) async fn write_claude_code_settings(
 ) {
     let path = format!("{claude_config_dir}/settings.json");
     let payload = serde_json::json!({
-        "env": {
-            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "300000",
-            "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
-            "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
-            "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
-        },
         "claudeMdExcludes": claude_md_excludes,
     });
 
@@ -52,8 +52,11 @@ mod tests {
 
     use super::{claude_md_excludes, write_claude_code_settings};
 
+    /// Env defaults belong to `agent::options::CLAUDE_ENV_DEFAULTS`, where a
+    /// scoped value can outrank them. A settings `env` block would win over
+    /// that channel, so this file must not carry one.
     #[tokio::test]
-    async fn writes_expected_env_settings() {
+    async fn writes_no_env_block() {
         let tmp = TempDir::new().unwrap();
         let claude_config_dir = tmp.path().join(".claude");
         tokio::fs::create_dir_all(&claude_config_dir).await.unwrap();
@@ -65,17 +68,7 @@ mod tests {
             .unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
 
-        let env = parsed.get("env").and_then(|v| v.as_object()).unwrap();
-        assert_eq!(
-            env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW").unwrap(),
-            "300000"
-        );
-        assert_eq!(
-            env.get("CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING").unwrap(),
-            "1"
-        );
-        assert_eq!(env.get("CLAUDE_CODE_DISABLE_AUTO_MEMORY").unwrap(), "1");
-        assert_eq!(env.get("CLAUDE_CODE_SUBAGENT_MODEL").unwrap(), "sonnet");
+        assert!(parsed.get("env").is_none());
     }
 
     #[tokio::test]
@@ -94,7 +87,7 @@ mod tests {
             .unwrap();
         assert_ne!(contents, "stale");
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
-        assert!(parsed.get("env").is_some());
+        assert!(parsed.get("claudeMdExcludes").is_some());
     }
 
     #[tokio::test]
@@ -125,10 +118,7 @@ mod tests {
 
     #[test]
     fn claude_md_excludes_maps_repo_dirs_to_root_claude_md() {
-        let dirs = vec![
-            "/workspace/api".to_string(),
-            "/workspace/web/".to_string(),
-        ];
+        let dirs = vec!["/workspace/api".to_string(), "/workspace/web/".to_string()];
         assert_eq!(
             claude_md_excludes(&dirs),
             vec![

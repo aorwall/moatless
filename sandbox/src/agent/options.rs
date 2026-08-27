@@ -18,6 +18,49 @@ use crate::events::GrpcEventPublisher;
 use super::agent_state::AgentState;
 use super::permission_handler::InteractivePermissionHandler;
 
+/// Claude CLI environment defaults for a sandbox run.
+///
+/// A floor, not a setting: [`build_options`] applies each one only where the
+/// key is still unset, so a value resolved for the task — a user- or
+/// global-scoped secret, delivered on the credential channel — wins. They are
+/// deliberately not in `settings.json`, whose `env` block would outrank that
+/// channel; see [`crate::init::claude_code_settings`].
+///
+/// What they turn off is what a sandbox pod has no use for: it has no terminal,
+/// no IDE, no human watching, and a pinned CLI version it must not update away
+/// from. `CLAUDE_CODE_DISABLE_TERMINAL_TITLE` also skips the small-model title
+/// request each `claude -p` session would otherwise make.
+pub const CLAUDE_ENV_DEFAULTS: &[(&str, &str)] = &[
+    ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "300000"),
+    ("CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "1"),
+    ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
+    ("CLAUDE_CODE_SUBAGENT_MODEL", "sonnet"),
+    // No telemetry leaves the pod. The first two also stop feature-flag
+    // fetching, which holds every flag at its code default.
+    ("DISABLE_TELEMETRY", "1"),
+    ("DO_NOT_TRACK", "1"),
+    ("DISABLE_ERROR_REPORTING", "1"),
+    ("CLAUDE_CODE_DISABLE_TERMINAL_TITLE", "1"),
+    ("DISABLE_AUTOUPDATER", "1"),
+    ("CLAUDE_CODE_AUTO_CONNECT_IDE", "false"),
+    ("CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL", "1"),
+    ("CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL", "1"),
+    // Tools and commands this runtime cannot reach, or that the `moat` CLI
+    // already covers, kept out of the agent's context.
+    ("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", "1"),
+    ("CLAUDE_CODE_DISABLE_AGENT_VIEW", "1"),
+    ("CLAUDE_CODE_DISABLE_ARTIFACT", "1"),
+    ("CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY", "1"),
+    ("DISABLE_COST_WARNINGS", "1"),
+    ("DISABLE_DOCTOR_COMMAND", "1"),
+    ("DISABLE_EXTRA_USAGE_COMMAND", "1"),
+    ("DISABLE_FEEDBACK_COMMAND", "1"),
+    ("DISABLE_INSTALL_GITHUB_APP_COMMAND", "1"),
+    ("DISABLE_LOGIN_COMMAND", "1"),
+    ("DISABLE_LOGOUT_COMMAND", "1"),
+    ("DISABLE_UPGRADE_COMMAND", "1"),
+];
+
 /// Build ClaudeOptions from config + per-request overrides.
 pub fn build_options(
     config: &Config,
@@ -82,6 +125,16 @@ pub fn build_options(
             .or_insert_with(|| "1".to_string());
         Some(env)
     };
+
+    // Apply the CLI defaults last, and only where the key is still unset, so a
+    // scoped value delivered on the credential channel outranks them.
+    let env = env.map(|mut env| {
+        for (key, value) in CLAUDE_ENV_DEFAULTS {
+            env.entry((*key).to_string())
+                .or_insert_with(|| (*value).to_string());
+        }
+        env
+    });
 
     info!(
         task_id = %config.task_id,
@@ -728,6 +781,43 @@ mod tests {
             None,
         );
         assert_eq!(options.permission_mode, Some(PermissionMode::AcceptEdits));
+    }
+
+    #[test]
+    fn env_defaults_apply_when_the_task_resolves_none() {
+        let options = build_test_options(false);
+        let env = options.env.unwrap();
+        for (key, value) in CLAUDE_ENV_DEFAULTS {
+            assert_eq!(env.get(*key).map(String::as_str), Some(*value), "{key}");
+        }
+    }
+
+    /// The point of the floor: a value resolved for the task outranks the
+    /// default, so an install can re-enable what the sandbox turns off without
+    /// a code change.
+    #[test]
+    fn a_resolved_value_outranks_the_env_default() {
+        let resolved = HashMap::from([
+            ("DISABLE_TELEMETRY".to_string(), "0".to_string()),
+            ("CLAUDE_CODE_SUBAGENT_MODEL".to_string(), "opus".to_string()),
+        ]);
+        let options = build_options(
+            &test_config(false),
+            &test_request(),
+            CancellationToken::new(),
+            Arc::new(AgentState::new()),
+            Some(resolved),
+            None,
+        );
+
+        let env = options.env.unwrap();
+        assert_eq!(env.get("DISABLE_TELEMETRY").map(String::as_str), Some("0"));
+        assert_eq!(
+            env.get("CLAUDE_CODE_SUBAGENT_MODEL").map(String::as_str),
+            Some("opus")
+        );
+        // Untouched keys still get their default.
+        assert_eq!(env.get("DO_NOT_TRACK").map(String::as_str), Some("1"));
     }
 
     #[test]

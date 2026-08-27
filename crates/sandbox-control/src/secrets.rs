@@ -49,6 +49,11 @@ pub struct TaskCredentialInputs<'a> {
     /// [`resolve_workspace_credentials`]. Highest precedence: every other
     /// source below fills only the slots these leave empty.
     pub workspace_credentials: HashMap<String, String>,
+    /// The Workspace's own `env_vars` — plain configuration rather than
+    /// credentials — resolved with [`resolve_workspace_env_vars`]. Workspace
+    /// scope, so they outrank user- and global-scoped secrets; a pinned
+    /// Workspace credential still wins a key they both name.
+    pub workspace_env_vars: HashMap<String, String>,
 }
 
 /// Resolve the credentials a task's sandbox needs.
@@ -59,10 +64,13 @@ pub struct TaskCredentialInputs<'a> {
 ///    task; without that it would not be an override. Git-host tokens are not
 ///    among them — a Workspace names the identity it runs as instead, and
 ///    `user_id` below already carries it (see [`resolve_task_actor`]).
-/// 2. Per-user `provider_tokens` for `user_id`, the identity the task acts as
+/// 2. The Workspace's own `env_vars`. Same scope as 1 and above every
+///    per-user source, so the resolved order across scopes is
+///    workspace > user > global for configuration as well as credentials.
+/// 3. Per-user `provider_tokens` for `user_id`, the identity the task acts as
 ///    (OAuth-managed, e.g. a freshly-issued Codex `auth.json` from the
 ///    device-code flow or a connected GitHub App user-token).
-/// 3. Scoped secrets — the `SecretService` already resolves these with
+/// 4. Scoped secrets — the `SecretService` already resolves these with
 ///    user > global precedence internally; we only fill keys that
 ///    aren't already covered by a `provider_token`.
 ///
@@ -78,6 +86,18 @@ pub struct TaskCredentialInputs<'a> {
 /// one by being added in the wrong place.
 pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMap<String, String> {
     let mut credentials: HashMap<String, String> = input.workspace_credentials;
+    for (key, value) in input.workspace_env_vars {
+        // Guarded here as well as at the resolver, for the same reason
+        // `fill_missing_from_scoped` guards its own merge: this is where a
+        // platform-owned key would take effect, and `fill_git_host_tokens`
+        // below fills only a slot that is still empty — so a git-host key
+        // arriving here would suppress the validated resolver, not just
+        // outrank it.
+        if is_platform_owned_key(&key) {
+            continue;
+        }
+        credentials.entry(key).or_insert(value);
+    }
 
     let actor = Actor::of(input.user_id);
     fill_git_host_tokens(
@@ -131,7 +151,11 @@ fn fill_missing_from_scoped(
     scoped: HashMap<String, String>,
 ) {
     for (key, value) in scoped {
-        if key == GITHUB_TOKEN {
+        // The whole [`is_git_auth_key`] set, not just `GITHUB_TOKEN`: a scoped
+        // `env` secret named `GIT_TOKEN` or `GH_TOKEN` reaches git exactly the
+        // same way, and this guard exists so preflight and runtime delivery
+        // cannot disagree about which token a sandbox holds.
+        if is_git_auth_key(&key) {
             continue;
         }
         credentials.entry(key).or_insert(value);
@@ -163,26 +187,32 @@ pub async fn resolve_task_ssh_keys(
 
 /// Resolve the shared env delivered to every server sidecar.
 ///
-/// Returns the full accessible scope chain (user > global) with
-/// reserved runtime keys filtered out. The agent env is a superset that
-/// additionally includes provider tokens.
+/// The same workspace > user > global order the agent env resolves in, for the
+/// same reason: a sidecar sources `server.env` after the pod environment, so a
+/// workspace var delivered only through the pod spec would lose to a scoped
+/// secret here too. Reserved runtime keys are filtered out. The agent env is a
+/// superset that additionally includes provider tokens.
 pub async fn resolve_server_env(
     user_id: &str,
     secrets: Option<&Arc<SecretService>>,
+    workspace_env_vars: &HashMap<String, String>,
 ) -> HashMap<String, String> {
+    let mut env = workspace_env_vars.clone();
     let Some(secrets) = secrets else {
-        return HashMap::new();
+        return env;
     };
     match secrets.resolve_accessible_plaintext(user_id).await {
-        Ok(mut env) => {
-            env.retain(|key, _| !is_reserved_key(key));
-            env
+        Ok(scoped) => {
+            for (key, value) in scoped {
+                env.entry(key).or_insert(value);
+            }
         }
         Err(e) => {
             warn!(user_id, error = %e, "Failed to resolve server env secrets");
-            HashMap::new()
         }
     }
+    env.retain(|key, _| !is_reserved_key(key));
+    env
 }
 
 /// The two rows a task's credentials are resolved against: the repository whose
@@ -227,6 +257,87 @@ pub async fn resolve_task_credential_targets(
         repository: primary.and_then(|placement| placement.repository),
         workspace_id: Some(intent.workspace_id),
     }
+}
+
+/// Resolve the Workspace's own `env_vars` — the configuration pinned to a
+/// Workspace, as opposed to the credentials [`resolve_workspace_credentials`]
+/// returns.
+///
+/// Platform-owned keys are dropped ([`is_platform_owned_key`]). A Workspace
+/// that cannot be read yields no vars — the same degradation as
+/// [`resolve_task_actor`], narrowing what a task gets rather than widening it.
+pub async fn resolve_workspace_env_vars(
+    workspaces: Option<&Arc<dyn WorkspaceResolver>>,
+    workspace_id: Option<&str>,
+) -> HashMap<String, String> {
+    let (Some(workspaces), Some(workspace_id)) = (workspaces, workspace_id) else {
+        return HashMap::new();
+    };
+    let resolved = match workspaces.resolve(workspace_id).await {
+        Ok(workspace) => workspace.and_then(|workspace| workspace.env_vars),
+        Err(e) => {
+            warn!(error = %e, workspace_id, "Failed to read the workspace env vars");
+            None
+        }
+    };
+    let mut env_vars = resolved.unwrap_or_default();
+    env_vars.retain(|key, _| !is_platform_owned_key(key));
+    env_vars
+}
+
+/// Keys a Workspace's `env_vars` must never define, on any channel that reaches
+/// a pod.
+///
+/// Two families, one rule — the platform names the value, so a Workspace naming
+/// it too would be shadowing rather than configuring:
+///
+/// - Reserved runtime keys (`TASK_ID`, `USER_AUTH_TOKEN`, …): the pod's own
+///   identity and wiring.
+/// - Every key git authentication reaches the sandbox through
+///   ([`is_git_auth_key`]).
+///
+/// A Workspace that legitimately runs as another git account sets
+/// `run_as_user_id` and gets that identity's validated token — see
+/// [`resolve_task_actor`].
+pub fn is_platform_owned_key(key: &str) -> bool {
+    is_reserved_key(key) || is_git_auth_key(key)
+}
+
+/// `GH_TOKEN` and `GIT_TOKEN`: not secret-store keys, so they are not in
+/// `moatless_core::secret_keys`. `init::credentials` derives both inside the
+/// pod from a resolved provider token — `GIT_TOKEN` so `init::git` has one env
+/// var to clone with whatever the pod's provider is, `GH_TOKEN` as the name
+/// `gh` reads. Named here because a Workspace must not be able to supply
+/// either.
+const GH_TOKEN: &str = "GH_TOKEN";
+const GIT_TOKEN: &str = "GIT_TOKEN";
+
+/// Every key that carries git authentication into a sandbox.
+///
+/// All five are minted for the task's run-as identity — the first three by
+/// [`fill_git_host_tokens`], against the task's own repository; the other two
+/// derived from those by `init::credentials` once inside the pod. None is
+/// configuration, and a value a Workspace supplied under one of these names
+/// would be used as the clone/push credential:
+///
+/// - `fill_git_host_tokens` fills only a key that is still unset, so a
+///   Workspace-supplied provider token would not merely outrank the validated
+///   resolver, it would suppress it. Preflight and runtime delivery would then
+///   disagree about which token the sandbox holds.
+/// - `init::credentials` sets `GIT_TOKEN` in the process env only *if* a
+///   provider token resolved (`sandbox/src/init/credentials.rs:190`). With
+///   none, a Workspace `GIT_TOKEN` that arrived in the pod spec is still
+///   sitting there, and `init::git::provider_git_token` and `init::workspace`
+///   read it straight out of the environment.
+/// - `GH_TOKEN` is deliberately never `set_var`'d (`ENV_SET_BLOCKLIST`) so `gh`
+///   authenticates from the refresher-owned `hosts.yml`. `gh` checks the
+///   environment first, so a Workspace `GH_TOKEN` in the pod spec defeats that
+///   outright — it is in the environment from the pod's first process.
+pub fn is_git_auth_key(key: &str) -> bool {
+    matches!(
+        key,
+        GITHUB_TOKEN | GITLAB_TOKEN | GITNESS_TOKEN | GH_TOKEN | GIT_TOKEN
+    )
 }
 
 /// The identity a Task's sandbox acts as on a git host.
@@ -684,12 +795,22 @@ mod tests {
             users: None,
             credential_sync: None,
             workspace_credentials,
+            workspace_env_vars: HashMap::new(),
         }
     }
 
     // --- the workspace names the identity every task on it acts as ---
 
     fn workspace_running_as(run_as_user_id: Option<&str>) -> Arc<dyn WorkspaceResolver> {
+        workspace_resolving_to(run_as_user_id, None)
+    }
+
+    /// A resolver whose single Workspace carries the given run-as identity and
+    /// `env_vars`.
+    fn workspace_resolving_to(
+        run_as_user_id: Option<&str>,
+        env_vars: Option<HashMap<String, String>>,
+    ) -> Arc<dyn WorkspaceResolver> {
         let run_as = run_as_user_id.map(str::to_string);
         let mut resolver = moatless_backend_core::workspace::MockWorkspaceResolver::new();
         resolver.expect_resolve().returning(move |id| {
@@ -701,7 +822,7 @@ mod tests {
                 sandbox_service_account: None,
                 system_prompt: None,
                 setup_commands: None,
-                env_vars: None,
+                env_vars: env_vars.clone(),
                 servers: None,
                 resources: None,
                 network_profile: None,
@@ -710,6 +831,144 @@ mod tests {
             }))
         });
         Arc::new(resolver)
+    }
+
+    // --- workspace > user > global for configuration ---
+
+    #[tokio::test]
+    async fn workspace_env_vars_outrank_a_scoped_secret_of_the_same_key() {
+        let workspaces = workspace_resolving_to(
+            None,
+            Some(HashMap::from([(
+                "GH_PACKAGES_TOKEN".to_string(),
+                "from-workspace".to_string(),
+            )])),
+        );
+        let workspace_env_vars =
+            resolve_workspace_env_vars(Some(&workspaces), Some("ws_1")).await;
+
+        let mut credentials: HashMap<String, String> = HashMap::new();
+        for (key, value) in workspace_env_vars {
+            credentials.entry(key).or_insert(value);
+        }
+        // A user- or global-scoped secret arrives through this path, and fills
+        // only what the workspace left open.
+        fill_missing_from_scoped(
+            &mut credentials,
+            HashMap::from([
+                ("GH_PACKAGES_TOKEN".to_string(), "from-scope".to_string()),
+                ("GRAFANA_TOKEN".to_string(), "from-scope".to_string()),
+            ]),
+        );
+
+        assert_eq!(credentials["GH_PACKAGES_TOKEN"], "from-workspace");
+        assert_eq!(credentials["GRAFANA_TOKEN"], "from-scope");
+    }
+
+    #[tokio::test]
+    async fn a_workspace_cannot_redefine_a_reserved_runtime_key() {
+        let workspaces = workspace_resolving_to(
+            None,
+            Some(HashMap::from([
+                ("TASK_ID".to_string(), "hijacked".to_string()),
+                ("USER_AUTH_TOKEN".to_string(), "hijacked".to_string()),
+                ("CARGO_BUILD_JOBS".to_string(), "4".to_string()),
+            ])),
+        );
+
+        let env_vars = resolve_workspace_env_vars(Some(&workspaces), Some("ws_1")).await;
+
+        assert_eq!(env_vars, HashMap::from([("CARGO_BUILD_JOBS".to_string(), "4".to_string())]));
+    }
+
+    /// `fill_git_host_tokens` fills only a slot that is still empty, so a
+    /// workspace-declared git-host token would not merely outrank the validated
+    /// resolver — it would suppress it, and land in the sandbox as the
+    /// clone/push credential.
+    #[tokio::test]
+    async fn a_workspace_cannot_declare_a_git_host_token_as_plain_config() {
+        let workspaces = workspace_resolving_to(
+            None,
+            Some(HashMap::from([
+                (GITHUB_TOKEN.to_string(), "ghp_bypass".to_string()),
+                (GITLAB_TOKEN.to_string(), "glpat_bypass".to_string()),
+                (GITNESS_TOKEN.to_string(), "gitness_bypass".to_string()),
+                // The two the pod derives rather than resolves: `gh` reads
+                // GH_TOKEN before `hosts.yml`, and init::git clones with
+                // GIT_TOKEN whenever no provider token overwrote it.
+                (GH_TOKEN.to_string(), "ghp_bypass".to_string()),
+                (GIT_TOKEN.to_string(), "ghp_bypass".to_string()),
+                ("CARGO_BUILD_JOBS".to_string(), "4".to_string()),
+            ])),
+        );
+
+        let env_vars = resolve_workspace_env_vars(Some(&workspaces), Some("ws_1")).await;
+
+        assert_eq!(env_vars, HashMap::from([("CARGO_BUILD_JOBS".to_string(), "4".to_string())]));
+    }
+
+    /// And the merge refuses one too, so a caller that assembles
+    /// `workspace_env_vars` from somewhere other than the resolver cannot
+    /// reopen the bypass. The user here holds a real row: without the guard the
+    /// workspace value would occupy the slot before it is ever consulted.
+    #[tokio::test]
+    async fn a_workspace_env_git_host_token_never_suppresses_the_resolver() {
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
+            moatless_identity::auth::test_support::github_row("oauth", "gho_validated"),
+        )));
+        let repository = github_repository(moatless_types::access_control::Scope::User);
+        let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
+        let harness = harness(&tokens);
+
+        let mut inputs = workspace_github_inputs(
+            &harness,
+            &git_host_tokens,
+            None,
+            &repository,
+            HashMap::new(),
+        );
+        inputs.workspace_env_vars = HashMap::from([
+            (GITHUB_TOKEN.to_string(), "ghp_bypass".to_string()),
+            (GH_TOKEN.to_string(), "ghp_bypass".to_string()),
+            (GIT_TOKEN.to_string(), "ghp_bypass".to_string()),
+        ]);
+
+        let credentials = resolve_task_credentials(inputs).await;
+
+        assert_eq!(credentials[GITHUB_TOKEN], "gho_validated");
+        // The pod derives these two from the resolved token; nothing a
+        // workspace supplied may be sitting in the slot when it does.
+        assert!(!credentials.contains_key(GH_TOKEN));
+        assert!(!credentials.contains_key(GIT_TOKEN));
+    }
+
+    /// The same names on the scoped-secret channel. `fill_missing_from_scoped`
+    /// guarded only `GITHUB_TOKEN`, but a scoped `env` secret named `GIT_TOKEN`
+    /// reaches git identically.
+    #[tokio::test]
+    async fn a_scoped_env_secret_cannot_supply_a_git_credential_under_an_alias() {
+        let mut credentials = HashMap::new();
+        fill_missing_from_scoped(
+            &mut credentials,
+            HashMap::from([
+                (GH_TOKEN.to_string(), "ghp_unvalidated".to_string()),
+                (GIT_TOKEN.to_string(), "ghp_unvalidated".to_string()),
+                (OPENAI_API_KEY.to_string(), "sk-fine".to_string()),
+            ]),
+        );
+
+        assert_eq!(
+            credentials,
+            HashMap::from([(OPENAI_API_KEY.to_string(), "sk-fine".to_string())])
+        );
+    }
+
+    #[tokio::test]
+    async fn no_workspace_yields_no_env_vars() {
+        assert!(resolve_workspace_env_vars(None, Some("ws_1")).await.is_empty());
+        let workspaces = workspace_resolving_to(None, None);
+        assert!(resolve_workspace_env_vars(Some(&workspaces), None).await.is_empty());
+        assert!(resolve_workspace_env_vars(Some(&workspaces), Some("ws_1")).await.is_empty());
     }
 
     #[tokio::test]

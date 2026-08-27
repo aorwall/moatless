@@ -41,6 +41,37 @@ provider SDK (`kube`/`bollard`) — its error type boxes any provider error behi
 
 ## Load-Bearing Rules
 
+- Env values resolve **workspace > user > global**, for configuration and
+  credentials alike, on every channel that reaches a pod: the agent env
+  (`secrets::resolve_task_credentials`) and the sidecar env
+  (`secrets::resolve_server_env`). Both express it structurally — seed the map
+  with the workspace's values, then `or_insert` each lower source — so a new
+  source cannot outrank an older one by being added in the wrong place. The
+  pod spec's `env_vars` do not establish that order on their own: a pod's
+  environment is only the starting environment, and both the per-turn agent map
+  and a sidecar's `server.env` overlay it. A workspace value must therefore
+  travel on those channels too, not only in the plan.
+- A Workspace's `env_vars` are configuration, and `secrets::is_platform_owned_key`
+  is what keeps them from becoming something else. Every channel that carries
+  them to a pod filters with it — `secrets::resolve_workspace_env_vars` for the
+  agent and sidecar env, `auto_provision::parse_env_vars_from_workspace` for the
+  pod spec — and each has to, because none of them is downstream of the others.
+  Two families of key: reserved runtime keys
+  (`moatless_identity::secret::models::is_reserved_key`), which the plan's vars
+  would otherwise redefine outright since both runtime builders append them
+  *after* `TASK_ID` and the auth tokens and a later entry of the same name wins;
+  and every git-auth key (`secrets::is_git_auth_key`) — the three provider-token
+  slots plus the `GH_TOKEN`/`GIT_TOKEN` aliases `init::credentials` derives
+  inside the pod. `fill_git_host_tokens` fills a provider slot only when still
+  unset, so a workspace value there would suppress the validated run-as token
+  rather than merely outrank it; and the aliases are read straight from the pod
+  environment (`gh` before `hosts.yml`, `init::git`/`init::workspace` for
+  clone), so a workspace value under either name is used as the clone/push
+  credential. `resolve_task_credentials` and `fill_missing_from_scoped` both
+  re-check at their own merges, so neither a caller assembling
+  `workspace_env_vars` from elsewhere nor a scoped `env` secret can reopen it.
+  A Workspace that should act as another git account sets `run_as_user_id`;
+  that is the supported path, and it resolves a real token.
 - `Lifecycle` is the sole writer of Sandbox *intent*. Do not add direct provider
   mutation paths from handlers, adapters, reapers, or watchers.
 - Task controls Sandbox. `moatless-tasks` writes the `sandboxes` row when a task
