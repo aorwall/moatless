@@ -15,7 +15,10 @@ const JITTER_FACTOR: f64 = 0.2;
 /// The harness reports stable error classes, so retry policy is independent of
 /// Claude/Codex native SDK error shapes and relies on the `MAX_RETRIES` cap.
 pub(crate) fn is_retryable_harness_error(err: &HarnessError) -> bool {
-    matches!(err.class, ErrorClass::RateLimit | ErrorClass::ProcessExit)
+    matches!(
+        err.class,
+        ErrorClass::RateLimit | ErrorClass::ProcessExit | ErrorClass::Connectivity
+    )
 }
 
 /// Compute exponential backoff with jitter for a given attempt (0-indexed).
@@ -41,7 +44,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn retryable_harness_errors_are_rate_limit_and_process_exit() {
+    fn retryable_harness_errors_are_rate_limit_process_exit_and_connectivity() {
         let retryable = HarnessError::new(
             crate::agent::harness::FailureStage::Execution,
             ErrorClass::RateLimit,
@@ -55,6 +58,16 @@ mod tests {
             ErrorClass::ProcessExit,
             crate::agent::harness::SessionImpact::Unknown,
             "process exited",
+        );
+        assert!(is_retryable_harness_error(&retryable));
+
+        // Pod egress recovering (DNS, NAT, proxy) is transient, so the turn is
+        // worth re-running rather than failing the user's message outright.
+        let retryable = HarnessError::new(
+            crate::agent::harness::FailureStage::Execution,
+            ErrorClass::Connectivity,
+            crate::agent::harness::SessionImpact::Intact,
+            "unable to connect to API",
         );
         assert!(is_retryable_harness_error(&retryable));
     }

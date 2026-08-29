@@ -102,11 +102,23 @@ pub(super) fn classify_turn_error(error: &TurnError) -> HarnessError {
             CodexErrorInfo::UsageLimitExceeded
             | CodexErrorInfo::ServerOverloaded
             | CodexErrorInfo::InternalServerError
-            | CodexErrorInfo::HttpConnectionFailed { .. }
-            | CodexErrorInfo::ResponseStreamConnectionFailed { .. }
-            | CodexErrorInfo::ResponseStreamDisconnected { .. }
             | CodexErrorInfo::ResponseTooManyFailedAttempts { .. },
         ) => (ErrorClass::RateLimit, SessionImpact::Intact),
+        // A status code means a server answered, so the failure is the
+        // provider's; its absence means the request never landed and the pod's
+        // own egress is the suspect. Both retry — the class only says which.
+        Some(
+            CodexErrorInfo::HttpConnectionFailed { http_status_code }
+            | CodexErrorInfo::ResponseStreamConnectionFailed { http_status_code }
+            | CodexErrorInfo::ResponseStreamDisconnected { http_status_code },
+        ) => (
+            if http_status_code.is_some() {
+                ErrorClass::RateLimit
+            } else {
+                ErrorClass::Connectivity
+            },
+            SessionImpact::Intact,
+        ),
         Some(CodexErrorInfo::SandboxError) => {
             (ErrorClass::InvalidConfiguration, SessionImpact::Intact)
         }

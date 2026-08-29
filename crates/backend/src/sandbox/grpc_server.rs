@@ -1784,30 +1784,41 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             req.ok,
         );
 
-        if req.ok && req.direction == "upload" {
+        // A failed upload is recorded as well as a successful one. The sandbox
+        // treats it as non-fatal and only warns into its own container log, so
+        // without a durable event a workspace that has stopped reaching S3 is
+        // invisible to `moat events`, `moat tasks diagnose` and the UI — and the
+        // agent goes on being told its working tree survives a restart when it
+        // no longer does.
+        if req.direction == "upload" {
             if let Some(task_events) = self.ingress.as_ref().map(|i| &i.task_events) {
                 let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
                 let event = InsertTaskEvent {
                     event_id: uuid::Uuid::new_v4().to_string(),
                     task_id: req.task_id.clone(),
                     event_type: "sandbox".to_string(),
-                    sub_type: "workspace_synced".to_string(),
-                    is_error: false,
+                    sub_type: if req.ok {
+                        "workspace_synced".to_string()
+                    } else {
+                        "workspace_sync_failed".to_string()
+                    },
+                    is_error: !req.ok,
                     agent_type: None,
                     turn_number: None,
                     payload: serde_json::json!({
                         "direction": req.direction,
                         "bytes": req.bytes.max(0),
                         "durationMs": req.duration_ms.max(0),
-                        "ok": true,
+                        "ok": req.ok,
                     }),
                     timestamp: now,
                 };
                 if let Err(e) = task_events.insert_event(&event).await {
                     warn!(
                         task_id = %req.task_id,
+                        ok = req.ok,
                         error = %e,
-                        "Failed to persist successful workspace sync marker"
+                        "Failed to persist workspace sync marker"
                     );
                 }
             }

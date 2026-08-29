@@ -880,7 +880,7 @@ fn every_named_turn_error_maps_to_its_class_and_impact() {
         ),
         (
             json!({ "responseStreamDisconnected": { "httpStatusCode": null } }),
-            ErrorClass::RateLimit,
+            ErrorClass::Connectivity,
             SessionImpact::Intact,
         ),
         (
@@ -947,6 +947,26 @@ fn every_named_turn_error_maps_to_its_class_and_impact() {
         let classified = classify_turn_error(&error);
         assert_eq!(classified.class, *class, "codexErrorInfo {info}");
         assert_eq!(classified.session_impact, *impact, "codexErrorInfo {info}");
+    }
+}
+
+/// The same three causes carry an optional status code, and it is the only
+/// thing saying whether a server answered. With none, nothing reached the
+/// provider and the pod's egress is the suspect, so the class says connectivity
+/// rather than blaming the provider's capacity.
+#[test]
+fn a_connection_failure_without_a_status_code_is_connectivity() {
+    for name in [
+        "httpConnectionFailed",
+        "responseStreamConnectionFailed",
+        "responseStreamDisconnected",
+    ] {
+        let info = json!({ name: { "httpStatusCode": null } });
+        let classified = classify_turn_error(&turn_error(
+            json!({ "message": "boom", "codexErrorInfo": info }),
+        ));
+        assert_eq!(classified.class, ErrorClass::Connectivity, "{name}");
+        assert_eq!(classified.session_impact, SessionImpact::Intact, "{name}");
     }
 }
 

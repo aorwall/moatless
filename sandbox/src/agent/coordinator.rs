@@ -679,6 +679,7 @@ fn error_reason(class: ErrorClass) -> &'static str {
     match class {
         ErrorClass::Authentication => "authentication",
         ErrorClass::RateLimit => "rate_limit",
+        ErrorClass::Connectivity => "connectivity",
         ErrorClass::UnavailableSession => "unavailable_session",
         ErrorClass::InvalidConfiguration => "invalid_configuration",
         ErrorClass::InvalidInput => "invalid_input",

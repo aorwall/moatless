@@ -124,6 +124,23 @@ fn result_failure(subtype: &str, text: &str) -> HarnessError {
         "credit balance",
     ]) {
         ErrorClass::Authentication
+    } else if matches_any(&[
+        "unable to connect",
+        "could not resolve",
+        "name resolution",
+        "enotfound",
+        "enotimp",
+        "eai_again",
+        "econnrefused",
+        "econnreset",
+        "etimedout",
+        "ehostunreach",
+        "enetunreach",
+        "socket hang up",
+    ]) {
+        // The CLI never reached the provider — the pod's own egress (DNS, NAT,
+        // proxy) is the suspect, so this must not read as a rejected request.
+        ErrorClass::Connectivity
     } else {
         // A completed-but-error result is the CLI rejecting the input (e.g.
         // "Unknown command: ..."), not a process/config failure.

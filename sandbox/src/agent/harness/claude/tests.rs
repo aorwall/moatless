@@ -260,6 +260,46 @@ fn success_with_is_error_is_invalid_input() {
     }
 }
 
+/// The CLI reports an unreachable provider through the same is_error result as a
+/// rejected command, so the text is the only thing separating "your pod has no
+/// egress" from "your input was bad". Classifying these as `InvalidInput` both
+/// mislabels the outage and makes it terminal, since only some classes retry.
+#[test]
+fn unreachable_provider_is_connectivity_not_invalid_input() {
+    for text in [
+        "API Error: Unable to connect to API (ENOTIMP)",
+        "getaddrinfo ENOTFOUND api.anthropic.com",
+        "could not resolve host: api.anthropic.com",
+        "connect ECONNREFUSED 10.0.0.1:443",
+        "socket hang up",
+    ] {
+        let result = ResultMessage::Success(ResultSuccess {
+            uuid: "u".to_string(),
+            session_id: "sess".to_string(),
+            duration_ms: 1,
+            duration_api_ms: 1,
+            is_error: true,
+            num_turns: 1,
+            result: text.to_string(),
+            total_cost_usd: 0.0,
+            usage: usage(),
+            model_usage: std::collections::HashMap::new(),
+            permission_denials: vec![],
+            structured_output: None,
+        });
+        match classify_result(&result) {
+            ProcessTermination::Failed(error) => {
+                assert_eq!(
+                    error.class,
+                    ErrorClass::Connectivity,
+                    "{text:?} should classify as connectivity"
+                );
+            }
+            other => panic!("expected failure for {text:?}, got {other:?}"),
+        }
+    }
+}
+
 /// One model response, with the counts that make up what it left in the window.
 fn responded(prompt: u64, cached: u64, written: u64, subagent: bool) -> AssistantMessage {
     let mut line = assistant_line(Some("msg_1"), text("a"), true);

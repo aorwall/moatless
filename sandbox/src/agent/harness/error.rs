@@ -30,6 +30,12 @@ pub enum ErrorClass {
     Authentication,
     /// The provider rate-limited the request.
     RateLimit,
+    /// The provider could not be reached at all: DNS resolution, TCP connect, or
+    /// TLS failed before any request was served. Distinct from [`Self::RateLimit`]
+    /// (the provider answered) and from [`Self::InvalidInput`] (the request was
+    /// understood and rejected), because the sandbox's own egress is the suspect
+    /// and the condition is usually transient.
+    Connectivity,
     /// A requested Session could not be resumed or was not found.
     UnavailableSession,
     /// Model, mode, or launch configuration was invalid.
