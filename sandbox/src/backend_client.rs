@@ -84,6 +84,10 @@ pub trait BackendClient: Send + Sync {
     /// Fetch the bytes of an uploaded file by `file_id`. Used by the agent
     /// pre-fetch path to land attached files on disk before invoking the
     /// agent. Backend-side scope-checks the file_id against this task.
+    ///
+    /// The bytes arrive as a chunk stream and are reassembled here, so the
+    /// upload's size is bounded by the sandbox's memory rather than by any
+    /// per-message limit on the wire.
     async fn download_upload(
         &self,
         task_id: &str,
@@ -313,14 +317,42 @@ impl BackendClient for BackendGrpcClient {
         task_id: &str,
         file_id: &str,
     ) -> Result<DownloadUploadResponse, tonic::Status> {
+        use futures::StreamExt;
+
         let mut client = self.client.clone();
         let resp = client
-            .download_upload(DownloadUploadRequest {
+            .download_upload_chunked(DownloadUploadRequest {
                 task_id: task_id.to_string(),
                 file_id: file_id.to_string(),
             })
             .await?;
-        Ok(resp.into_inner())
+
+        // The channel's call timeout covers this await — tonic applies it to the
+        // response future, which resolves on the response headers — but not to
+        // the chunk stream below, which is bounded only by the HTTP/2 keep-alive.
+        let mut stream = resp.into_inner();
+        let mut reassembled: Option<DownloadUploadResponse> = None;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            match reassembled {
+                // The first chunk names the file; the rest carry bytes only.
+                None => {
+                    reassembled = Some(DownloadUploadResponse {
+                        data: chunk.data,
+                        filename: chunk.filename,
+                        mime_type: chunk.mime_type,
+                    });
+                }
+                Some(ref mut acc) => acc.data.extend_from_slice(&chunk.data),
+            }
+        }
+
+        // An empty upload is still one chunk, so no chunks at all means the
+        // server never sent the metadata — treat that as a failed download
+        // rather than as an empty file with no name.
+        reassembled.ok_or_else(|| {
+            tonic::Status::internal("DownloadUploadChunked returned an empty stream")
+        })
     }
 
     async fn recover_interrupted_run(

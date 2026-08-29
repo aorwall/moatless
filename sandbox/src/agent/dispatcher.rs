@@ -150,17 +150,21 @@ async fn dispatch_pending_messages_for_context(
 
     // Pre-fetch any attached uploaded files before invoking the agent so the
     // on-disk paths advertised in the prompt are valid by the time the agent
-    // reads them. Best-effort: errors are logged but don't block dispatch.
+    // reads them. A fetch that fails does not block dispatch — the rest of the
+    // message is still worth delivering — but it does get named in the prompt
+    // below, because the "Saved to:" line for that file is now a lie.
     let file_ids = delivery.file_ids.clone();
-    if !file_ids.is_empty() {
+    let failed_uploads = if file_ids.is_empty() {
+        Vec::new()
+    } else {
         fetch_uploads_for_messages(
             &state.backend_client,
             task_id,
             file_ids,
             &state.config.upload_dir,
         )
-        .await;
-    }
+        .await
+    };
 
     let uuids = delivery.message_uuids.clone();
     let text = delivery.prompt_text;
@@ -180,12 +184,19 @@ async fn dispatch_pending_messages_for_context(
     }
 
     // Frontloading turns the requested skills into the prompt's leading preamble.
-    let text = crate::agent::skills::frontload_skills(&state.config, &skills, &text).await;
+    let mut text = crate::agent::skills::frontload_skills(&state.config, &skills, &text).await;
 
     // Every requested skill may have failed to resolve, leaving a skills-only
     // delivery with an empty prompt: nothing to send, so don't open a turn.
     if text.is_empty() {
         return;
+    }
+
+    // After both emptiness gates, so a note about a file nobody will read cannot
+    // be the whole turn; and last in the text, so it sits after the attachment
+    // lines it contradicts.
+    if let Some(note) = crate::files::uploads::failed_upload_note(&failed_uploads) {
+        text.push_str(&note);
     }
 
     info!(

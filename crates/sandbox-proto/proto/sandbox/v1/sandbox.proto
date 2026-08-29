@@ -28,14 +28,24 @@ service BackendSandboxService {
   // refresh, permanently invalidating the credential.
   rpc UpdateCredential(UpdateCredentialRequest) returns (UpdateCredentialResponse);
 
-  // Download a file uploaded via /api/v1/uploads. The sandbox calls this
-  // before invoking the agent so attached files land on disk at the path
-  // the prompt advertises. Auth via gRPC metadata.
-  //
-  // Cap: tonic's default max message size (~16 MiB). Files larger than that
-  // will be rejected with `resource_exhausted`; switch to a server-streaming
-  // RPC if real usage hits the limit.
+  // Download a file uploaded via /api/v1/uploads in a single message. Capped
+  // at tonic's default max message size (4 MiB): a larger file fails the call
+  // with `resource_exhausted`. Served for sandbox pods whose image predates
+  // DownloadUploadChunked and that therefore still call it; a pod that
+  // implements DownloadUploadChunked calls that instead. Auth via gRPC
+  // metadata.
   rpc DownloadUpload(DownloadUploadRequest) returns (DownloadUploadResponse);
+
+  // Download a file uploaded via /api/v1/uploads, streamed chunk by chunk. The
+  // sandbox calls this for every file_id on a pending message before invoking
+  // the agent, so the on-disk path the prompt advertises ("Saved to: …") is
+  // valid by the time the agent reads it. Server-streaming so the file's size
+  // is bounded by nothing on the wire — each message stays well under the
+  // per-message cap regardless of how large the upload is. The sandbox
+  // reassembles the chunks in memory and writes the file once, so a stream
+  // that fails part-way leaves no partial file on disk. Auth via gRPC
+  // metadata.
+  rpc DownloadUploadChunked(DownloadUploadRequest) returns (stream UploadChunk);
 
   // Detect whether the previous agent run for a task was interrupted (the
   // sandbox crashed/restarted before any terminal `agent.completed/error/
@@ -283,6 +293,17 @@ message DownloadUploadRequest {
 }
 
 message DownloadUploadResponse {
+  bytes data = 1;
+  string filename = 2;
+  string mime_type = 3;
+}
+
+// A chunk of an uploaded file's bytes, as served by DownloadUploadChunked.
+// The first chunk of a stream carries `filename` and `mime_type`; later chunks
+// leave both empty and carry only `data`. A zero-byte upload is a single chunk
+// with the metadata and no bytes, so the stream always names the file — an
+// empty stream is a protocol violation, not an empty file.
+message UploadChunk {
   bytes data = 1;
   string filename = 2;
   string mime_type = 3;
