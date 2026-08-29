@@ -9,6 +9,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::dao::RepositoryDao;
 use super::handlers;
+use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::GitSyncService;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::extractors::UserTokenVerifier;
@@ -45,6 +46,7 @@ pub fn repository_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi
 where
     S: Clone + Send + Sync + 'static,
     Arc<dyn RepositoryDao>: FromRef<S>,
+    Arc<dyn WorkspaceDao>: FromRef<S>,
     Arc<GitSyncService>: FromRef<S>,
     Arc<GitHostTokens>: FromRef<S>,
     Arc<dyn ProviderTokenDao>: FromRef<S>,

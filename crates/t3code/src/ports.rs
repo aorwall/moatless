@@ -163,12 +163,16 @@ pub enum BranchListError {
 /// picker lists the primary repository's branches before any Sandbox exists,
 /// the same list the Moatless UI shows, which means calling out to the git host
 /// through the same path Moatless's own `GET /branches` uses.
+///
+/// `workspace_id` names the workspace the picker was opened in, so a repository
+/// only that workspace's pinned credential can reach still lists.
 #[async_trait]
 pub trait RepositoryBranchSource: Send + Sync {
     async fn list_branches(
         &self,
         viewer: &ScopeContext,
         repository_id: &str,
+        workspace_id: Option<&str>,
     ) -> Result<BranchListResponse, BranchListError>;
 }
 

@@ -70,7 +70,18 @@ export const queryKeys = {
     all: () => [...queryKeys.all, 'repositories'] as const,
     list: () => [...queryKeys.repositories.all(), 'list'] as const,
     detail: (repoId: string) => [...queryKeys.repositories.all(), 'detail', repoId] as const,
-    branches: (repoId: string) => [...queryKeys.repositories.all(), 'branches', repoId] as const,
+    // The workspace is part of the key because it selects the credential the
+    // listing is made with: the same repository can answer differently for a
+    // workspace that pins a token and for the viewer alone. Appending it keeps
+    // `branches(repoId)` a prefix, so invalidating a repository still clears
+    // every workspace's listing of it.
+    branches: (repoId: string, workspaceId?: string) =>
+      [
+        ...queryKeys.repositories.all(),
+        'branches',
+        repoId,
+        ...(workspaceId ? [workspaceId] : []),
+      ] as const,
   },
 
   workspaces: {

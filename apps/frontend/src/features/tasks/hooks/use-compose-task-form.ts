@@ -149,6 +149,7 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     onBranchChange,
     true,
     repositoryDetails,
+    workspaceId,
   )
 
   useEffect(() => {

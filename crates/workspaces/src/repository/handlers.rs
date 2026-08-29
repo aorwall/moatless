@@ -1,7 +1,7 @@
 //! Repository HTTP handlers.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 
 use tracing::{debug, info, warn};
@@ -27,6 +27,7 @@ use super::error::RepositoryError;
 use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 use super::models::Repository;
 use super::schemas::*;
+use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::{GitSyncService, SyncForce};
 
 pub(crate) fn validate_non_secret_env_vars(
@@ -432,7 +433,8 @@ pub async fn convert_to_template(
     path = "/api/v1/repositories/{repository_id}/branches",
     tag = "repositories",
     params(
-        ("repository_id" = String, Path, description = "Repository identifier")
+        ("repository_id" = String, Path, description = "Repository identifier"),
+        ListBranchesQuery
     ),
     responses(
         (status = 200, description = "Branch list", body = BranchListResponse),
@@ -443,21 +445,65 @@ pub async fn convert_to_template(
 )]
 pub async fn get_branches(
     State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(workspaces): State<Arc<dyn WorkspaceDao>>,
     State(git_host_tokens): State<Arc<GitHostTokens>>,
     State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
+    Query(query): Query<ListBranchesQuery>,
 ) -> Result<Json<BranchListResponse>, RepositoryError> {
     Ok(Json(
         list_branches(
             &repositories,
+            &workspaces,
             &git_host_tokens,
             &provider_tokens,
             &auth.scope_context(),
             &repository_id,
+            query.workspace_id.as_deref(),
         )
         .await?,
     ))
+}
+
+/// The identity a branch listing presents to the git host.
+///
+/// Naming a workspace lists with the credential pinned to it, which is the only
+/// token that reaches a repository no identity here holds one for. Two gates
+/// bound that: the workspace must be one the caller can read — `find_by_id` is
+/// scope-filtered, so the read is the check — and the repository must be one of
+/// the workspace's own. Without the second, any repository row the caller can
+/// read would borrow the pin, granting the credential reach it was never
+/// pinned for.
+async fn branch_listing_actor(
+    workspaces: &Arc<dyn WorkspaceDao>,
+    ctx: &ScopeContext,
+    repository_id: &str,
+    workspace_id: Option<&str>,
+) -> Result<Actor, RepositoryError> {
+    let caller = Actor::caller(ctx);
+    let Some(workspace_id) = workspace_id.filter(|id| !id.is_empty()) else {
+        return Ok(caller);
+    };
+
+    if workspaces.find_by_id(workspace_id, ctx).await?.is_none() {
+        return Err(RepositoryError::Forbidden(format!(
+            "Workspace {workspace_id} not found or not accessible"
+        )));
+    }
+
+    let attached = workspaces
+        .find_repos(workspace_id)
+        .await?
+        .iter()
+        .any(|placement| placement.repository_id == repository_id);
+    if !attached {
+        return Err(RepositoryError::BadRequest(format!(
+            "Repository {repository_id} is not part of workspace {workspace_id}"
+        )));
+    }
+
+    Ok(caller.on_workspace(Some(workspace_id)))
 }
 
 /// A repository's branches, read from its git host.
@@ -467,12 +513,18 @@ pub async fn get_branches(
 /// provider dispatch live here rather than in the handler. Scope is enforced by
 /// the repository lookup: a `repository_id` the viewer cannot read answers
 /// `NotFound`, the same as one that does not exist.
+///
+/// `workspace_id` names the workspace the listing is made for, and
+/// `branch_listing_actor` is what authorizes it — the gate lives here rather
+/// than in each caller so a new one cannot present a pin it never checked.
 pub async fn list_branches(
     repositories: &Arc<dyn RepositoryDao>,
+    workspaces: &Arc<dyn WorkspaceDao>,
     git_host_tokens: &Arc<GitHostTokens>,
     provider_tokens: &Arc<dyn ProviderTokenDao>,
     ctx: &ScopeContext,
     repository_id: &str,
+    workspace_id: Option<&str>,
 ) -> Result<BranchListResponse, RepositoryError> {
     let repo = repositories
         .find_by_id(repository_id, ctx)
@@ -490,10 +542,13 @@ pub async fn list_branches(
 
     let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
 
-    // The viewer's own credential, on every host. A repository someone else
-    // shared does not lend its owner's access to whoever opens it.
+    // The viewer's own credential on every host, unless they named a workspace
+    // that pins one. A repository someone else shared does not lend its owner's
+    // access to whoever opens it; a workspace's pin is lent to its own
+    // repositories on purpose, because that is the token its Tasks clone with.
+    let actor = branch_listing_actor(workspaces, ctx, repository_id, workspace_id).await?;
     let access_token = git_host_tokens
-        .token(&Actor::caller(ctx), &git_host_repo(provider, remote_url)?)
+        .token(&actor, &git_host_repo(provider, remote_url)?)
         .await
         .map_err(git_host_token_error)?;
 
@@ -1014,6 +1069,128 @@ mod tests {
         let existing = repository(Scope::Global, None);
         let err = preserved_user_scope(&existing)
             .expect_err("ownerless repository needs an explicit future owner-picker");
+        assert!(matches!(err, RepositoryError::BadRequest(_)));
+    }
+
+    // --- branch_listing_actor ----------------------------------------------
+
+    use crate::workspace::dao::MockWorkspaceDao;
+    use moatless_types::workspace::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
+
+    fn ctx() -> ScopeContext {
+        ScopeContext {
+            user_id: "viewer".to_string(),
+            is_admin: false,
+        }
+    }
+
+    fn workspace() -> Workspace {
+        Workspace {
+            id: "ws-1".to_string(),
+            name: "ws".to_string(),
+            description: None,
+            kind: WorkspaceKind::Single,
+            docker_image: None,
+            docker_access: None,
+            sandbox_service_account: None,
+            system_prompt: None,
+            setup_commands: None,
+            env_vars: None,
+            servers: None,
+            scripts: None,
+            resources: None,
+            network_profile: None,
+            source: WorkspaceSource::Manual,
+            source_repository_id: None,
+            source_key: None,
+            source_config_path: None,
+            scope: Scope::User,
+            owner_user_id: Some("viewer".to_string()),
+            run_as_user_id: None,
+            created_by: Some("viewer".to_string()),
+            deleted: false,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    fn placement(repository_id: &str) -> WorkspaceRepo {
+        WorkspaceRepo {
+            id: "wsr-1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            repository_id: repository_id.to_string(),
+            branch: None,
+            mount_name: None,
+            is_primary: true,
+            position: 0,
+            created_at: None,
+        }
+    }
+
+    /// A workspace the caller can read lends its pin to its own repository —
+    /// the actor names the workspace, which is what `GitHostTokens` resolves
+    /// the pinned credential from.
+    #[tokio::test]
+    async fn a_readable_workspace_lends_its_pin_to_its_own_repository() {
+        let mut dao = MockWorkspaceDao::new();
+        dao.expect_find_by_id()
+            .returning(|_, _| Ok(Some(workspace())));
+        dao.expect_find_repos()
+            .returning(|_| Ok(vec![placement("repo-1")]));
+        let workspaces: Arc<dyn WorkspaceDao> = Arc::new(dao);
+
+        let actor = branch_listing_actor(&workspaces, &ctx(), "repo-1", Some("ws-1"))
+            .await
+            .expect("the workspace is readable and holds the repository");
+
+        assert_eq!(actor.workspace_id(), Some("ws-1"));
+        assert_eq!(actor.user_id(), "viewer");
+    }
+
+    /// Naming no workspace lists as the caller's own identity, which is what
+    /// every repository-scoped listing did before a pin could exist.
+    #[tokio::test]
+    async fn naming_no_workspace_lists_as_the_caller() {
+        let workspaces: Arc<dyn WorkspaceDao> = Arc::new(MockWorkspaceDao::new());
+
+        let actor = branch_listing_actor(&workspaces, &ctx(), "repo-1", None)
+            .await
+            .expect("no workspace is not a failure");
+
+        assert_eq!(actor.workspace_id(), None);
+    }
+
+    /// `find_by_id` is scope-filtered, so a workspace the caller cannot read
+    /// answers `None` — and its credential is not theirs to present.
+    #[tokio::test]
+    async fn an_unreadable_workspace_lends_nothing() {
+        let mut dao = MockWorkspaceDao::new();
+        dao.expect_find_by_id().returning(|_, _| Ok(None));
+        let workspaces: Arc<dyn WorkspaceDao> = Arc::new(dao);
+
+        let err = branch_listing_actor(&workspaces, &ctx(), "repo-1", Some("ws-1"))
+            .await
+            .expect_err("a workspace the caller cannot read is not one to act for");
+
+        assert!(matches!(err, RepositoryError::Forbidden(_)));
+    }
+
+    /// The pin reaches the workspace's own repositories and no others. Without
+    /// this, any repository row the caller can read would borrow the credential
+    /// and see branches it was never granted.
+    #[tokio::test]
+    async fn a_repository_outside_the_workspace_cannot_borrow_its_pin() {
+        let mut dao = MockWorkspaceDao::new();
+        dao.expect_find_by_id()
+            .returning(|_, _| Ok(Some(workspace())));
+        dao.expect_find_repos()
+            .returning(|_| Ok(vec![placement("repo-1")]));
+        let workspaces: Arc<dyn WorkspaceDao> = Arc::new(dao);
+
+        let err = branch_listing_actor(&workspaces, &ctx(), "someone-elses-repo", Some("ws-1"))
+            .await
+            .expect_err("a repository the workspace does not hold gets no pin");
+
         assert!(matches!(err, RepositoryError::BadRequest(_)));
     }
 }

@@ -4020,6 +4020,7 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _repository_id: &str,
+            _workspace_id: Option<&str>,
         ) -> Result<moatless_api_schemas::repository::BranchListResponse, ports::BranchListError>
         {
             unreachable!("no test in this file lists a project's branches")

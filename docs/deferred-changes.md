@@ -122,8 +122,8 @@ with its reason, and only shrinks. Two decisions sit outside that file.
 
 ## Correctness
 
-Two defects found by reading, both real, neither urgent enough to have been fixed
-in the change that found them.
+Defects found by reading, each real, none urgent enough to have been fixed in the
+change that found it.
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
@@ -135,6 +135,7 @@ in the change that found them.
 | A Task auto-close spares for its sibling Bindings is told nothing about the PR | `crates/adapter-github-pr/src/routing.rs::close_subject`, the `siblings_count > 1` arm | When a Task bound to two pull requests is observed missing the close of one; see below |
 | One clone attempt has no timeout of its own | `sandbox/src/init/git.rs::clone_checkout` — `run_command` awaits `git`/`gh` with no deadline, so `clone_with_retry`'s `CLONE_RETRY_BUDGET` bounds the retries between attempts but not an attempt | When a git host that black-holes rather than refuses is observed overrunning the pod's startup probe — the budget exists so init's own error reaches the termination log instead of a SIGKILL |
 | The Adapter's own GitHub calls cannot see a Workspace's pinned credential | `crates/adapter-github-pr/src/auth.rs` — `client_for_outbound_reply`, `client_for_reaction`, `client_for_durable_work`, `client_for_live_status` each build an `Actor` from a login or a `TaskBinding` and never call `Actor::on_workspace`; the typed routes in `api_routes.rs` do | When a Workspace pinning a git-host credential is observed failing an event-driven reply or reaction on a repository the acting identity's own token cannot reach; see below |
+| A pinned Gitness branch listing reads its base URL off the caller | `crates/workspaces/src/repository/handlers.rs::list_branches`, the `RepositoryProvider::Gitness` arm — `find_provider_token_full(&ctx.user_id, "gitness")` for `base_url`, while the token beside it may have come from the Workspace pin | When a Workspace pins a Gitness credential; see below |
 
 **A Task auto-close spares hears neither notice.** `close_subject` walks the
 Bindings its own trigger created, and where the Task carries other Bindings it
@@ -164,6 +165,22 @@ work does not have and must not fabricate — `ScopeContext::system` is fenced o
 in `clippy.toml`. So this is a new port on a published seam plus the
 authorization question of what may read a Task's Workspace outside a request,
 which is why it is not folded into the change that found it.
+
+**A pinned Gitness listing and its base URL.** A branch listing resolves its
+token through `GitHostTokens`, which honours a Workspace pin. Gitness needs a
+second value the other hosts do not — the deployment's `base_url` — and
+`list_branches` reads it from `provider_tokens`, keyed on `ctx.user_id`. So the
+token can come from the Workspace and the URL from the caller, and a caller with
+no Gitness row of their own is told *"Gitness base URL not configured"* even
+though the pin holds a working credential.
+
+Nothing pins Gitness today, which is why this is recorded rather than fixed:
+closing it is a decision about where a Gitness deployment's address lives.
+`workspace_credentials` stores one opaque value per `(workspace, provider)` and
+has no metadata column, so either the pin grows one, or the base URL is declared
+on the Repository beside the remote URL it already carries. Both are wider than
+a branch listing, and picking one without a Workspace that pins Gitness would be
+guessing at the shape.
 
 **Workspace control-filter writes.** `WorkspaceDao`'s `update`, `add_repo`,
 `remove_repo` and `set_primary` all return `bool`, and the trait documents it:

@@ -104,6 +104,7 @@ export * from './fileTreeHandlerParams';
 export * from './fileTreeNodeDto';
 export * from './fileTreeResponse';
 export * from './followTaskResponse';
+export * from './getBranchesParams';
 export * from './getIssueParams';
 export * from './getMessagesParams';
 export * from './getMessagesResponse';

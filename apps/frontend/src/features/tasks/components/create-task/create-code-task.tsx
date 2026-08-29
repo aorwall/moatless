@@ -147,6 +147,7 @@ export function CreateCodeTask({
     setBranch,
     true,
     repositoryDetails,
+    workspaceId,
   )
 
   useEffect(() => {

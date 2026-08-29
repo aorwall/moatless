@@ -141,13 +141,19 @@ export function useSyncRepositoryConfig(
   })
 }
 
+/**
+ * A repository's branches, listed on behalf of `workspaceId` when one is given
+ * — that is what reaches a repository only the workspace's pinned credential
+ * can see.
+ */
 export function useBranches(
   repoId: string,
+  workspaceId?: string,
   options?: Omit<UseQueryOptions<BranchListResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.repositories.branches(repoId),
-    queryFn: () => repositoriesApi.getBranches(repoId),
+    queryKey: queryKeys.repositories.branches(repoId, workspaceId),
+    queryFn: () => repositoriesApi.getBranches(repoId, workspaceId),
     enabled: !!repoId,
     staleTime: 60_000, // Cache for 1 minute
     ...options,

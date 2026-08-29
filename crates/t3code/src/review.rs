@@ -378,7 +378,9 @@ pub async fn workspace_branches(
     else {
         return Err(BranchListError::None);
     };
-    let response = branches.list_branches(viewer, &repository_id).await?;
+    let response = branches
+        .list_branches(viewer, &repository_id, Some(workspace_id))
+        .await?;
     Ok(branch_ref_page(&response, request))
 }
 
@@ -855,9 +857,21 @@ mod tests {
 
     use crate::data::MockT3WorkspaceDao;
     use async_trait::async_trait;
+    use std::sync::Mutex;
 
-    /// A branch source that answers with a fixed list, or a fixed failure.
-    struct StubBranches(Result<BranchListResponse, ()>);
+    /// A branch source that answers with a fixed list, or a fixed failure, and
+    /// records the workspace it was asked on behalf of.
+    struct StubBranches(Result<BranchListResponse, ()>, Mutex<Option<String>>);
+
+    impl StubBranches {
+        fn new(answer: Result<BranchListResponse, ()>) -> Self {
+            Self(answer, Mutex::new(None))
+        }
+
+        fn asked_for_workspace(&self) -> Option<String> {
+            self.1.lock().expect("uncontended").clone()
+        }
+    }
 
     #[async_trait]
     impl RepositoryBranchSource for StubBranches {
@@ -865,7 +879,9 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _repository_id: &str,
+            workspace_id: Option<&str>,
         ) -> Result<BranchListResponse, BranchListError> {
+            *self.1.lock().expect("uncontended") = workspace_id.map(str::to_string);
             match &self.0 {
                 Ok(response) => Ok(response.clone()),
                 Err(()) => Err(BranchListError::Unavailable("connect your account".into())),
@@ -901,7 +917,7 @@ mod tests {
     #[tokio::test]
     async fn a_project_root_lists_the_primary_repositorys_branches() {
         let dao = workspaces(Some("repo-1"));
-        let source = StubBranches(Ok(branches(&[("main", true), ("feature", false)])));
+        let source = StubBranches::new(Ok(branches(&[("main", true), ("feature", false)])));
         let page = workspace_branches(
             &dao,
             &source,
@@ -917,13 +933,34 @@ mod tests {
         assert_eq!(page["isRepo"], true);
     }
 
+    /// The listing is made on behalf of the workspace the picker was opened in,
+    /// so a repository only that workspace's pinned credential can reach still
+    /// answers. A picker that asked as the viewer alone would show nothing for
+    /// exactly the repositories the pin exists for.
+    #[tokio::test]
+    async fn the_picker_lists_on_behalf_of_the_workspace_it_was_opened_in() {
+        let dao = workspaces(Some("repo-1"));
+        let source = StubBranches::new(Ok(branches(&[("main", true)])));
+        workspace_branches(
+            &dao,
+            &source,
+            &viewer(),
+            "/moatless/workspaces/ws-1",
+            &project_root(),
+        )
+        .await
+        .expect("a page of branches");
+
+        assert_eq!(source.asked_for_workspace().as_deref(), Some("ws-1"));
+    }
+
     /// A project root the viewer cannot be shown, and a workspace with no
     /// repository, are the same empty answer — never a disclosure that the
     /// workspace exists.
     #[tokio::test]
     async fn a_workspace_the_viewer_cannot_reach_lists_no_branches() {
         let dao = workspaces(None);
-        let source = StubBranches(Ok(branches(&[("main", true)])));
+        let source = StubBranches::new(Ok(branches(&[("main", true)])));
         let result = workspace_branches(
             &dao,
             &source,
@@ -940,7 +977,7 @@ mod tests {
     #[tokio::test]
     async fn an_unavailable_git_host_is_surfaced_not_swallowed() {
         let dao = workspaces(Some("repo-1"));
-        let source = StubBranches(Err(()));
+        let source = StubBranches::new(Err(()));
         let result = workspace_branches(
             &dao,
             &source,

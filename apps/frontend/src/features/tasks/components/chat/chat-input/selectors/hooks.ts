@@ -113,8 +113,9 @@ export function useBranchSelector(
     path?: string | null
     useGitWorktrees?: boolean | null
   },
+  workspaceId?: string,
 ) {
-  const { data, isLoading, error, isError } = useBranches(repositoryId || '', {
+  const { data, isLoading, error, isError } = useBranches(repositoryId || '', workspaceId, {
     enabled: enabled && !!repositoryId,
   })
 

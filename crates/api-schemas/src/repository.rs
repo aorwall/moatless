@@ -73,8 +73,19 @@ pub struct RepositoryResponse {
 }
 
 // =============================================================================
-// BranchListResponse / BranchEntry
+// ListBranchesQuery / BranchListResponse / BranchEntry
 // =============================================================================
+
+/// `GET /api/v1/repositories/{repository_id}/branches` query.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
+#[serde(rename_all = "camelCase")]
+pub struct ListBranchesQuery {
+    /// List on behalf of this workspace, so a repository only the workspace's
+    /// pinned credential can reach still answers. Omitted, the listing is made
+    /// as the caller's own identity.
+    pub workspace_id: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

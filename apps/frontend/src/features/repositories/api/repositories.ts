@@ -45,8 +45,10 @@ export const repositoriesApi = {
     return await unwrapResponse(convertToTemplateHandler(repoId))
   },
 
-  async getBranches(repoId: string): Promise<BranchListResponse> {
-    return await unwrapResponse(getBranchesHandler(repoId))
+  async getBranches(repoId: string, workspaceId?: string): Promise<BranchListResponse> {
+    return await unwrapResponse(
+      getBranchesHandler(repoId, workspaceId ? { workspaceId } : undefined),
+    )
   },
 
   async syncConfig(repoId: string): Promise<SyncConfigResponse> {

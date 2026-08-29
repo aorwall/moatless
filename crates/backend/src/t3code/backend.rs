@@ -53,13 +53,16 @@ impl RepositoryBranchSource for AppStateBranches {
         &self,
         viewer: &ScopeContext,
         repository_id: &str,
+        workspace_id: Option<&str>,
     ) -> Result<moatless_api_schemas::repository::BranchListResponse, BranchListError> {
         list_branches(
             &self.0.repositories,
+            &self.0.workspaces,
             &self.0.git_host_tokens,
             &self.0.provider_tokens,
             viewer,
             repository_id,
+            workspace_id,
         )
         .await
         .map_err(branch_list_error)

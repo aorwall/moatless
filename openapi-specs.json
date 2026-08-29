@@ -4816,6 +4816,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "workspaceId",
+            "in": "query",
+            "description": "List on behalf of this workspace, so a repository only the workspace's\npinned credential can reach still answers. Omitted, the listing is made\nas the caller's own identity.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {

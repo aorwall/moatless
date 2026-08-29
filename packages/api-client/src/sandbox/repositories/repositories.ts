@@ -28,6 +28,7 @@ import type {
   BranchListResponse,
   CreateRepositoryRequest,
   ErrorBody,
+  GetBranchesParams,
   RepositoryResponse,
   SyncConfigResponse,
   UpdateRepositoryRequest
@@ -604,17 +605,26 @@ export type getBranchesResponseError = (getBranchesResponse400 | getBranchesResp
 
 export type getBranchesResponse = (getBranchesResponseSuccess | getBranchesResponseError)
 
-export const getGetBranchesUrl = (repositoryId: string,) => {
+export const getGetBranchesUrl = (repositoryId: string,
+    params?: GetBranchesParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
-  
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/repositories/${repositoryId}/branches`
+  return stringifiedParams.length > 0 ? `/api/v1/repositories/${repositoryId}/branches?${stringifiedParams}` : `/api/v1/repositories/${repositoryId}/branches`
 }
 
-export const getBranches = async (repositoryId: string, options?: RequestInit): Promise<getBranchesResponse> => {
+export const getBranches = async (repositoryId: string,
+    params?: GetBranchesParams, options?: RequestInit): Promise<getBranchesResponse> => {
   
-  return customInstance<getBranchesResponse>(getGetBranchesUrl(repositoryId),
+  return customInstance<getBranchesResponse>(getGetBranchesUrl(repositoryId,params),
   {      
     ...options,
     method: 'GET'
@@ -627,23 +637,25 @@ export const getBranches = async (repositoryId: string, options?: RequestInit): 
 
 
 
-export const getGetBranchesQueryKey = (repositoryId: string,) => {
+export const getGetBranchesQueryKey = (repositoryId: string,
+    params?: GetBranchesParams,) => {
     return [
-    `/api/v1/repositories/${repositoryId}/branches`
+    `/api/v1/repositories/${repositoryId}/branches`, ...(params ? [params] : [])
     ] as const;
     }
 
     
-export const getGetBranchesQueryOptions = <TData = Awaited<ReturnType<typeof getBranches>>, TError = ErrorType<ErrorBody>>(repositoryId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getGetBranchesQueryOptions = <TData = Awaited<ReturnType<typeof getBranches>>, TError = ErrorType<ErrorBody>>(repositoryId: string,
+    params?: GetBranchesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetBranchesQueryKey(repositoryId);
+  const queryKey =  queryOptions?.queryKey ?? getGetBranchesQueryKey(repositoryId,params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBranches>>> = ({ signal }) => getBranches(repositoryId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBranches>>> = ({ signal }) => getBranches(repositoryId,params, { signal, ...requestOptions });
 
       
 
@@ -657,7 +669,8 @@ export type GetBranchesQueryError = ErrorType<ErrorBody>
 
 
 export function useGetBranches<TData = Awaited<ReturnType<typeof getBranches>>, TError = ErrorType<ErrorBody>>(
- repositoryId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>> & Pick<
+ repositoryId: string,
+    params: undefined |  GetBranchesParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof getBranches>>,
           TError,
@@ -667,7 +680,8 @@ export function useGetBranches<TData = Awaited<ReturnType<typeof getBranches>>, 
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useGetBranches<TData = Awaited<ReturnType<typeof getBranches>>, TError = ErrorType<ErrorBody>>(
- repositoryId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>> & Pick<
+ repositoryId: string,
+    params?: GetBranchesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof getBranches>>,
           TError,
@@ -677,7 +691,8 @@ export function useGetBranches<TData = Awaited<ReturnType<typeof getBranches>>, 
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useGetBranches<TData = Awaited<ReturnType<typeof getBranches>>, TError = ErrorType<ErrorBody>>(
- repositoryId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ repositoryId: string,
+    params?: GetBranchesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
@@ -685,11 +700,12 @@ export function useGetBranches<TData = Awaited<ReturnType<typeof getBranches>>, 
  */
 
 export function useGetBranches<TData = Awaited<ReturnType<typeof getBranches>>, TError = ErrorType<ErrorBody>>(
- repositoryId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ repositoryId: string,
+    params?: GetBranchesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getGetBranchesQueryOptions(repositoryId,options)
+  const queryOptions = getGetBranchesQueryOptions(repositoryId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
@@ -700,11 +716,12 @@ export function useGetBranches<TData = Awaited<ReturnType<typeof getBranches>>, 
  * @summary Get branches for a repository.
  */
 export const prefetchGetBranchesQuery = async <TData = Awaited<ReturnType<typeof getBranches>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, repositoryId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ queryClient: QueryClient, repositoryId: string,
+    params?: GetBranchesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getBranches>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getGetBranchesQueryOptions(repositoryId,options)
+  const queryOptions = getGetBranchesQueryOptions(repositoryId,params,options)
 
   await queryClient.prefetchQuery(queryOptions);
 
