@@ -196,7 +196,10 @@ impl<'a> AgentPromptBuilder<'a> {
             }
         }
 
-        if parts.is_empty() {
+        // Skills alone are enough to open a turn: they frontload into a prompt on
+        // the pod, so a start request that carries only skills still runs. Drop the
+        // delivery only when there is neither text nor a skill to activate.
+        if parts.is_empty() && skills.is_empty() {
             tracing::warn!("Pending delivery has no prompt text");
             return Vec::new();
         }
@@ -713,6 +716,36 @@ mod tests {
                 "shadow-dev".to_string()
             ]
         );
+    }
+
+    /// A start request can carry skills and no message text. The skills alone
+    /// open a turn — they frontload into a prompt on the pod — so the delivery
+    /// must survive with an empty prompt rather than being dropped.
+    #[tokio::test]
+    async fn a_skills_only_delivery_survives_with_no_prompt_text() {
+        let rows = vec![pending_message(1, "msg-1", "")];
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries =
+            prompt_builder_with_task_skills(&logins, None, vec!["e2e-testing".to_string()])
+                .build_pending_deliveries(&rows, &contexts)
+                .await;
+        assert_eq!(deliveries.len(), 1);
+        assert!(deliveries[0].prompt_text.is_empty());
+        assert_eq!(deliveries[0].skills, vec!["e2e-testing".to_string()]);
+    }
+
+    /// With neither text nor a skill there is nothing to open a turn with, so the
+    /// delivery is still dropped.
+    #[tokio::test]
+    async fn a_delivery_with_no_text_and_no_skills_is_dropped() {
+        let rows = vec![pending_message(1, "msg-1", "")];
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries = prompt_builder(&logins, None)
+            .build_pending_deliveries(&rows, &contexts)
+            .await;
+        assert!(deliveries.is_empty());
     }
 
     #[test]

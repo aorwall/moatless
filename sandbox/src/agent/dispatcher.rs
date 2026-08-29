@@ -172,13 +172,21 @@ async fn dispatch_pending_messages_for_context(
     let start_fresh = delivery.start_fresh;
     let skills = delivery.skills;
 
-    if text.is_empty() {
+    // A delivery with neither text nor skills has nothing to open a turn with.
+    // Skills alone are enough: they frontload into the prompt below, so a start
+    // request that carries only skills still runs.
+    if text.is_empty() && skills.is_empty() {
         return;
     }
 
-    // After the emptiness gate: a preamble must not turn a delivery with nothing
-    // in it into a real turn.
+    // Frontloading turns the requested skills into the prompt's leading preamble.
     let text = crate::agent::skills::frontload_skills(&state.config, &skills, &text).await;
+
+    // Every requested skill may have failed to resolve, leaving a skills-only
+    // delivery with an empty prompt: nothing to send, so don't open a turn.
+    if text.is_empty() {
+        return;
+    }
 
     info!(
         message_count = uuids.len(),

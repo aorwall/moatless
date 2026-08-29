@@ -290,17 +290,25 @@ pub async fn normalize(
             context: serde_json::json!({ "via": "create_task_request" }),
         }),
         related_to: None,
-        first_message: req.message.clone().map(|text| FirstMessage {
-            text,
-            model: req.model.clone(),
-            agent_mode: req.agent_mode.clone(),
-            effort: req.effort.clone(),
-            file_ids: req.file_ids.clone(),
-            contexts: req.contexts.clone(),
-            sent_by: Some(user_id.to_string()),
-            message_uuid: first_message_uuid,
-            skills: req.skills.clone(),
-        }),
+        // Skills alone are enough to start the agent: they frontload into the
+        // first turn on the pod. So a first message is delivered whenever there is
+        // text or a skill to activate — an empty prompt with skills still opens a
+        // turn, whereas a request with neither leaves the task idle as before.
+        first_message: if req.message.is_some() || !req.skills.is_empty() {
+            Some(FirstMessage {
+                text: req.message.clone().unwrap_or_default(),
+                model: req.model.clone(),
+                agent_mode: req.agent_mode.clone(),
+                effort: req.effort.clone(),
+                file_ids: req.file_ids.clone(),
+                contexts: req.contexts.clone(),
+                sent_by: Some(user_id.to_string()),
+                message_uuid: first_message_uuid,
+                skills: req.skills.clone(),
+            })
+        } else {
+            None
+        },
         task_id,
         provision,
         event_subtype: TaskSubType::Created,
