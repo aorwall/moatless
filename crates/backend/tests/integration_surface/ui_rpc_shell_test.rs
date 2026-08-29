@@ -268,6 +268,9 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         commands: Arc::new(t3code_backend::AppStateCommands(test_app_state(
             pool.clone(),
         ))),
+        attachments: Arc::new(t3code_backend::AppStateAttachments(test_app_state(
+            pool.clone(),
+        ))),
         model_defaults: defaults(),
         frontend_url: "http://localhost:3000".into(),
         otlp_traces_enabled: false,

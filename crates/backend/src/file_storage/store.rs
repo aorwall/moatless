@@ -1,16 +1,18 @@
-//! Persisting one upload: the bytes into S3, the metadata into Postgres.
+//! Persisting one upload: the bytes into S3, the metadata into Postgres, and
+//! the removal that undoes both.
 //!
-//! Two surfaces reach this. The multipart route takes a form field; the T3
+//! Three surfaces reach this. The multipart route takes a form field; the T3
 //! compatibility surface takes an image that arrived inline on a turn, because
-//! that client sends attachment bytes in the command instead of uploading them
-//! first. They differ only in how the bytes got here, so what an upload *is* —
-//! a uuid, an object under the configured prefix, and a metadata row scoped to
-//! its creator — is decided once, and both are readable afterwards through
-//! `GET /api/v1/uploads/{file_id}`.
+//! a client that does not know this server accepts uploads sends attachment
+//! bytes in the command instead; and the T3 attachment-upload route takes a
+//! raw body under an id it minted beforehand. They differ only in how the bytes
+//! got here, so what an upload *is* — a uuid, an object under the configured
+//! prefix, and a metadata row scoped to its creator — is decided once, and all
+//! three are readable afterwards through `GET /api/v1/uploads/{file_id}`.
 
 use moatless_backend_core::access_control::resolve_scope_for_create;
 use moatless_types::access_control::AccessControlError;
-use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
 use moatless_core::config::S3Config;
 
 use super::dao::FileDao;
@@ -23,6 +25,12 @@ pub struct NewUpload {
     pub filename: String,
     pub mime_type: String,
     pub data: Vec<u8>,
+    /// The id to store under, when the caller already handed one out. The T3
+    /// attachment flow mints the id before the bytes move — the client holds it
+    /// while the upload is in flight and names it on the turn afterwards — so
+    /// that id has to be the one the row is written under. `None` mints a fresh
+    /// uuid here, which is what both of the other two surfaces want.
+    pub file_id: Option<String>,
 }
 
 /// Store `upload` and return the metadata row written for it.
@@ -49,7 +57,9 @@ pub async fn store_upload(
             AccessControlError::Forbidden(msg) => FileStorageError::Forbidden(msg),
         })?;
 
-    let file_id = uuid::Uuid::new_v4().to_string();
+    let file_id = upload
+        .file_id
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
     // Read before the bytes are moved into the upload; the row records what was
     // actually stored rather than what the sender said the size was.
@@ -79,4 +89,52 @@ pub async fn store_upload(
     files.insert_metadata(&meta).await?;
 
     Ok(meta)
+}
+
+/// Remove an upload: its object, then its metadata row. Answers whether there
+/// was one to remove.
+///
+/// An id that names nothing is `Ok(false)` rather than an error — the T3
+/// composer deletes an attachment it abandoned without knowing whether the
+/// bytes ever landed, and that is not a failure to report to anyone.
+///
+/// The object goes first. The row is what every other surface reaches an upload
+/// through, so a failure between the two leaves an unreferenced object rather
+/// than a row pointing at bytes that are gone.
+pub async fn delete_upload(
+    s3_storage: Option<&s3::S3Storage>,
+    s3_config: &S3Config,
+    files: &dyn FileDao,
+    viewer: &ScopeContext,
+    file_id: &str,
+) -> Result<bool, FileStorageError> {
+    let s3_client = s3_storage.ok_or(FileStorageError::S3NotConfigured)?;
+    let bucket = s3_config
+        .bucket_name
+        .as_ref()
+        .ok_or(FileStorageError::S3NotConfigured)?;
+
+    let Some(meta) = files.find_by_id(file_id).await? else {
+        return Ok(false);
+    };
+    // The same check the download route makes, so nobody can delete what they
+    // could not have fetched.
+    let resource = ScopedResource::borrowed(
+        meta.scope,
+        meta.owner_user_id.as_deref().or(meta.created_by.as_deref()),
+    );
+    if !viewer.can_read(&resource) {
+        return Err(FileStorageError::Forbidden(format!(
+            "No access to file {file_id}"
+        )));
+    }
+
+    let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
+    s3::delete_object(&s3_client.client, bucket, &s3_key)
+        .await
+        .map_err(FileStorageError::UploadFailed)?;
+
+    files.delete_metadata(file_id).await?;
+
+    Ok(true)
 }

@@ -96,6 +96,18 @@ fn is_exempt(path: &str) -> bool {
         }
     }
 
+    // A T3 chat attachment upload. Not public: the path segment after the
+    // prefix is a short-lived signed token naming the viewer who minted it and
+    // the one attachment it may write, and the route verifies it before
+    // reading a byte (`moatless_t3code::attachments`). Exempt because that
+    // credential is the point — the client uploads with a bare
+    // `xhr.send(file)`, which carries no CSRF header, and a route that fell
+    // back to the ambient session cookie would be the CSRF the header exists to
+    // stop. Mounted only when the T3 compatibility routes are; a 404 otherwise.
+    if path.starts_with("/api/attachments/") {
+        return true;
+    }
+
     // Public endpoints
     matches!(
         path,

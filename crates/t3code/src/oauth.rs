@@ -122,7 +122,9 @@ pub(super) fn required_scope(tag: &str) -> &'static str {
         | "preview.reportStatus"
         | "preview.automationConnect"
         | "preview.automationRespond"
-        | "preview.automationFocusHost" => "orchestration:operate",
+        | "preview.automationFocusHost"
+        | "attachments.createUploadUrl"
+        | "attachments.delete" => "orchestration:operate",
 
         // The diff surface. `review:write` is what gates it in the reference
         // server's map, despite the name — this backend serves it and now says

@@ -506,6 +506,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     app_state.clone(),
                 )),
                 commands: Arc::new(t3code::backend::AppStateCommands(app_state.clone())),
+                attachments: Arc::new(t3code::backend::AppStateAttachments(app_state.clone())),
                 model_defaults: moatless_t3code::AgentModelDefaults {
                     claude_code: config.sandbox.default_model.clone(),
                     codex: config.sandbox.default_codex_model.clone(),

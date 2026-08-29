@@ -248,13 +248,20 @@ const MAX_ATTACHMENTS: usize = 8;
 /// not, not a limit a person meets by pasting a screenshot.
 const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 
-/// The images the composer sent with a turn, decoded.
+/// `ChatAttachmentId`'s length (`contracts/src/orchestration.ts:175`).
+const MAX_ATTACHMENT_ID_CHARS: usize = 128;
+
+/// What the composer sent with a turn.
 ///
-/// T3 has no upload endpoint: each image arrives in the command as a `data:`
-/// URL, so this is where the bytes enter Moatless. The limits the client's own
-/// schema enforces are re-checked here, and the mime type and size are taken
-/// from the payload rather than from the sibling fields declaring them — those
-/// are what the client believes, the bytes are what gets stored.
+/// Two forms arrive here and both are the contract's. An attachment the client
+/// uploaded first is a *reference* — an id and the name, type and size it
+/// already told this server at mint time — and its bytes are already stored. An
+/// attachment from a client that has not read the `attachmentUploads`
+/// capability is *inline*: an image in the command as a `data:` URL, which is
+/// where those bytes enter Moatless. The limits the client's own schema
+/// enforces are re-checked on the inline form, and the mime type and size are
+/// taken from the payload rather than from the sibling fields declaring them —
+/// those are what the client believes, the bytes are what gets stored.
 ///
 /// Anything wrong is a rejection rather than a silent drop: an image that
 /// vanishes on send reads as Moatless having lost it.
@@ -274,13 +281,21 @@ fn attachments(message: &Value) -> Result<Vec<TurnAttachment>, CommandRefusal> {
     sent.iter().map(attachment).collect()
 }
 
-/// One attachment, decoded and named.
+/// One attachment, in whichever form it arrived.
+///
+/// `ChatAttachment` is a union of `image`, `file` and a deliberately open
+/// catch-all for a type this build does not know
+/// (`contracts/src/orchestration.ts:240-244`). The catch-all exists so a newer
+/// client does not make an older reader fail to decode the message; it is not
+/// something this server can store, so it is refused by name rather than
+/// guessed at.
+///
+/// Within the two known members, what tells the forms apart is `dataUrl`: only
+/// the inline member carries one, and only an image may. Everything else names
+/// an upload by id, and the bytes are already in storage.
 fn attachment(sent: &Value) -> Result<TurnAttachment, CommandRefusal> {
-    // `ChatAttachment` is a union whose only member is `image`. A future member
-    // arriving from a newer client is refused by name rather than stored as an
-    // image that is not one.
     let kind = sent.get("type").and_then(Value::as_str).unwrap_or_default();
-    if kind != "image" {
+    if kind != "image" && kind != "file" {
         return Err(CommandRefusal::Rejected {
             message: format!("`{kind}` attachments are not supported."),
         });
@@ -295,12 +310,34 @@ fn attachment(sent: &Value) -> Result<TurnAttachment, CommandRefusal> {
             message: "An attachment must have a name.".to_string(),
         })?;
 
-    let data_url =
-        sent.get("dataUrl")
+    let Some(data_url) = sent.get("dataUrl").and_then(Value::as_str) else {
+        let attachment_id = sent
+            .get("id")
             .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| {
+                !id.is_empty()
+                    && id.len() <= MAX_ATTACHMENT_ID_CHARS
+                    && id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            })
             .ok_or_else(|| CommandRefusal::Rejected {
-                message: format!("Attachment `{filename}` carries no data."),
+                message: format!("Attachment `{filename}` names no upload."),
             })?;
+        return Ok(TurnAttachment::Uploaded {
+            attachment_id: attachment_id.to_string(),
+        });
+    };
+
+    // Only `UploadChatImageAttachment` carries bytes in the command
+    // (`contracts/src/orchestration.ts:246`). A file has to be uploaded first,
+    // which every client that can pick one already knows how to do.
+    if kind != "image" {
+        return Err(CommandRefusal::Rejected {
+            message: format!("Attachment `{filename}` must be uploaded before it is sent."),
+        });
+    }
 
     let (mime_type, bytes) = decode_data_url(data_url).ok_or_else(|| CommandRefusal::Rejected {
         message: format!("Attachment `{filename}` is not a readable image payload."),
@@ -317,7 +354,7 @@ fn attachment(sent: &Value) -> Result<TurnAttachment, CommandRefusal> {
         });
     }
 
-    Ok(TurnAttachment {
+    Ok(TurnAttachment::Inline {
         filename: filename.to_string(),
         mime_type,
         bytes,
@@ -772,9 +809,9 @@ mod tests {
             model: Option<String>,
             agent_mode: Option<String>,
             effort: Option<String>,
-            /// Each attachment as `(filename, mime type, decoded size)` — what
-            /// the turn carried, after the data URLs were read.
-            attachments: Vec<(String, String, usize)>,
+            /// Each attachment as it reached the sink, in the order it was
+            /// sent.
+            attachments: Vec<Attached>,
         },
         CreateThread {
             task_id: String,
@@ -818,6 +855,28 @@ mod tests {
         },
     }
 
+    /// One attachment as the sink received it. An inline one is recorded by
+    /// what its bytes turned out to be — not by what the client declared — and
+    /// an uploaded one by the only thing it carries.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Attached {
+        Inline(String, String, usize),
+        Uploaded(String),
+    }
+
+    impl From<TurnAttachment> for Attached {
+        fn from(attachment: TurnAttachment) -> Self {
+            match attachment {
+                TurnAttachment::Inline {
+                    filename,
+                    mime_type,
+                    bytes,
+                } => Self::Inline(filename, mime_type, bytes.len()),
+                TurnAttachment::Uploaded { attachment_id } => Self::Uploaded(attachment_id),
+            }
+        }
+    }
+
     #[derive(Default)]
     struct RecordingSink(Mutex<Vec<Call>>);
 
@@ -834,11 +893,7 @@ mod tests {
                 model: turn.model,
                 agent_mode: turn.agent_mode.map(|m| m.0),
                 effort: turn.effort,
-                attachments: turn
-                    .attachments
-                    .into_iter()
-                    .map(|a| (a.filename, a.mime_type, a.bytes.len()))
-                    .collect(),
+                attachments: turn.attachments.into_iter().map(Attached::from).collect(),
             });
             Ok(())
         }
@@ -1176,7 +1231,11 @@ mod tests {
         };
         assert_eq!(
             attachments,
-            &vec![("screenshot.png".to_string(), "image/png".to_string(), 70)]
+            &vec![Attached::Inline(
+                "screenshot.png".to_string(),
+                "image/png".to_string(),
+                70
+            )]
         );
     }
 
@@ -1188,8 +1247,79 @@ mod tests {
         let Some(Call::SendTurn { attachments, .. }) = calls.first() else {
             panic!("expected a turn, got {calls:?}");
         };
-        let names: Vec<&str> = attachments.iter().map(|(name, ..)| name.as_str()).collect();
-        assert_eq!(names, vec!["a.png", "b.png"]);
+        assert_eq!(
+            attachments,
+            &vec![
+                Attached::Inline("a.png".to_string(), "image/png".to_string(), 70),
+                Attached::Inline("b.png".to_string(), "image/png".to_string(), 70),
+            ]
+        );
+    }
+
+    /// A composer that has read `attachmentUploads` uploads first and sends a
+    /// reference, for images as well as files. Both members carry no bytes, and
+    /// the id is the only thing this side needs off the wire — the name, type
+    /// and size beside it are the client's copy of what the upload row already
+    /// records.
+    #[tokio::test]
+    async fn an_uploaded_attachment_reaches_the_sink_as_the_id_it_named() {
+        let uploaded = |kind: &str, name: &str, id: &str| {
+            json!({
+                "type": kind,
+                "id": id,
+                "name": name,
+                "mimeType": if kind == "image" { "image/png" } else { "application/pdf" },
+                "sizeBytes": 4096
+            })
+        };
+        let (result, calls) = run(turn_with(json!([
+            uploaded("image", "shot.png", "6b1f7b2e-0000-4000-8000-000000000001"),
+            uploaded("file", "report.pdf", "6b1f7b2e-0000-4000-8000-000000000002"),
+        ])))
+        .await;
+
+        assert!(result.is_ok(), "{result:?}");
+        let Some(Call::SendTurn { attachments, .. }) = calls.first() else {
+            panic!("expected a turn, got {calls:?}");
+        };
+        assert_eq!(
+            attachments,
+            &vec![
+                Attached::Uploaded("6b1f7b2e-0000-4000-8000-000000000001".to_string()),
+                Attached::Uploaded("6b1f7b2e-0000-4000-8000-000000000002".to_string()),
+            ]
+        );
+    }
+
+    /// A file has no inline form — only `UploadChatImageAttachment` carries
+    /// bytes — and an id that is a path is not an id. Both refuse the turn
+    /// rather than reaching the sink with something it would have to guess at.
+    #[tokio::test]
+    async fn a_reference_that_is_not_one_refuses_the_turn() {
+        for attachment in [
+            // A file with bytes in the command. No client sends this; one that
+            // did would be sending a member of a union that does not exist.
+            json!({
+                "type": "file",
+                "name": "notes.txt",
+                "mimeType": "text/plain",
+                "sizeBytes": 5,
+                "dataUrl": "data:text/plain;base64,aGVsbG8="
+            }),
+            // Neither bytes nor an id.
+            json!({ "type": "file", "name": "report.pdf", "mimeType": "application/pdf" }),
+            // Outside `ChatAttachmentId`'s alphabet: an id that could leave the
+            // route it becomes a segment of.
+            json!({ "type": "file", "id": "../secrets", "name": "a.pdf", "mimeType": "application/pdf" }),
+            json!({ "type": "image", "id": "", "name": "a.png", "mimeType": "image/png" }),
+        ] {
+            let (result, calls) = run(turn_with(json!([attachment.clone()]))).await;
+            assert!(
+                matches!(result, Err(CommandRefusal::Rejected { .. })),
+                "expected {attachment} to be rejected, got {result:?}"
+            );
+            assert!(calls.is_empty(), "expected no write for {attachment}");
+        }
     }
 
     /// A turn with nothing attached is byte-identical to one sent before this

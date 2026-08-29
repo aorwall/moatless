@@ -31,6 +31,7 @@ pub mod activity;
 pub mod activity_dao;
 pub mod agent;
 mod assets;
+mod attachments;
 pub mod auth;
 mod commands;
 pub mod dao;
@@ -187,6 +188,13 @@ struct UiRpcConfig {
     /// Whether this deployment exports spans over OTLP — reported to the
     /// client as `observability.otlpTracesEnabled` (see [`server_config`]).
     otlp_traces_enabled: bool,
+    /// Whether attachment uploads can be offered, which is whether a URL can be
+    /// signed for one — see [`attachments`]. Reported as
+    /// `capabilities.attachmentUploads`, and reported honestly: the composer
+    /// stops sending images inline the moment it reads that key, so a
+    /// deployment that could not then take the upload would lose the person
+    /// their attachment rather than fall back.
+    attachment_uploads: bool,
 }
 
 /// One entry of `T3_UI_RPC_ALLOWED_ORIGINS`.
@@ -296,6 +304,9 @@ struct UiRpcState {
     /// Carries out the commands the T3 client dispatches. No longer this
     /// module's only write: a git action reaches a Sandbox through `sandboxes`.
     commands: Arc<dyn ports::ThreadCommandSink>,
+    /// Where a chat attachment's bytes go, for the upload route and for
+    /// `attachments.delete`.
+    attachments: Arc<dyn ports::AttachmentStore>,
     /// In-process fan-out for terminal metadata and events observed through
     /// this backend instance.
     terminal: terminal::TerminalHub,
@@ -356,6 +367,7 @@ pub async fn router_from_env(
         pull_requests,
         source_control_auth,
         commands,
+        attachments,
         otlp_traces_enabled,
         frontend_url,
     } = dependencies;
@@ -370,6 +382,7 @@ pub async fn router_from_env(
             .map(AllowedOrigin::parse)
             .collect(),
         otlp_traces_enabled,
+        attachment_uploads: session_jwt_secret.is_some(),
     };
     config.validate()?;
     info!(
@@ -410,6 +423,7 @@ pub async fn router_from_env(
         pull_requests,
         source_control_auth,
         commands,
+        attachments,
         terminal: terminal::TerminalHub::default(),
     })))
 }
@@ -463,6 +477,9 @@ pub struct UiRpcDependencies {
     pub source_control_auth: Arc<dyn ports::SourceControlAuthSource>,
     /// Carries out the commands the T3 client dispatches.
     pub commands: Arc<dyn ports::ThreadCommandSink>,
+    /// Where a chat attachment's bytes go. Uploads are stored as ordinary
+    /// Moatless uploads, under the id `attachments.createUploadUrl` minted.
+    pub attachments: Arc<dyn ports::AttachmentStore>,
     /// Whether this deployment exports spans over OTLP (an OTLP endpoint is
     /// configured — see `config::OtelConfig`), reported to the client as
     /// `observability.otlpTracesEnabled`.
@@ -529,6 +546,13 @@ fn router(state: UiRpcState) -> Router {
                 assets::ASSET_ROUTE_PREFIX
             ),
             get(assets::serve),
+        )
+        // The token in the path is the credential — see [`attachments`] — so
+        // this one route is exempt from the auth middleware's cookie handling
+        // rather than authenticated by it.
+        .route(
+            &format!("{}/{{token}}", attachments::UPLOAD_ROUTE_PREFIX),
+            post(attachments::receive),
         )
         .route("/api/orchestration/shell", get(shell_snapshot_http))
         .route(
@@ -2499,6 +2523,41 @@ impl ProtocolSession {
                     )],
                 }
             }
+            // Where the composer sends a file before it sends the turn naming
+            // it. The URL carries its own credential and the route serves it
+            // — see [`attachments`] — so nothing about the upload reaches this
+            // socket except the id it will be known by.
+            "attachments.createUploadUrl" => {
+                match attachments::create_upload_url(
+                    identity,
+                    state.session_jwt_secret.as_deref(),
+                    &payload,
+                ) {
+                    Ok(minted) => vec![success_exit(&id, minted)],
+                    Err(attachments::MintError::Invalid(message)) => {
+                        vec![failure_exit(&id, message)]
+                    }
+                    Err(attachments::MintError::NoSigningKey) => vec![typed_failure_exit(
+                        &id,
+                        json!({
+                            "_tag": "AttachmentUploadSigningKeyError",
+                            "cause": "This deployment cannot sign attachment upload URLs."
+                        }),
+                    )],
+                }
+            }
+            "attachments.delete" => {
+                match attachments::delete(
+                    state.attachments.as_ref(),
+                    &viewer_scope(identity),
+                    &payload,
+                )
+                .await
+                {
+                    Ok(()) => vec![success_exit(&id, Value::Null)],
+                    Err(message) => vec![failure_exit(&id, message)],
+                }
+            }
             // Which client is focused decides whether *T3* keeps background
             // work running on its own host. Moatless runs its agents in
             // Sandboxes that no browser tab is attached to, so the report is
@@ -2951,7 +3010,7 @@ fn valid_request_id(id: &str) -> bool {
 }
 
 fn descriptor(config: &UiRpcConfig) -> Value {
-    json!({
+    let mut descriptor = json!({
         "environmentId": config.environment_id,
         "label": T3_ENVIRONMENT_LABEL,
         "platform": {
@@ -2984,7 +3043,30 @@ fn descriptor(config: &UiRpcConfig) -> Value {
             // `UnsupportedMethodError`.
             "workspaceScripts": true
         }
-    })
+    });
+
+    // Both keys are `optionalKey` in the contract, and both are absent rather
+    // than false where uploads cannot be served: a `null` fails the client's
+    // decode of the whole descriptor, which is the one thing it reads before it
+    // can connect at all.
+    //
+    // `attachmentUploads` is what moves the composer off the inline data-URL
+    // path — for images as well as files — so it is reported only where a URL
+    // can actually be signed (see [`attachments`]). The inline path stays
+    // served either way, for the clients that have not read it.
+    if config.attachment_uploads {
+        if let Some(capabilities) = descriptor["capabilities"].as_object_mut() {
+            capabilities.insert("attachmentUploads".into(), json!(true));
+            // What a turn may carry beyond images, and how large. Absent, a
+            // client offers no file picker at all.
+            capabilities.insert(
+                "fileAttachments".into(),
+                json!({ "maxUploadBytes": attachments::MAX_FILE_BYTES }),
+            );
+        }
+    }
+
+    descriptor
 }
 
 fn auth_descriptor(state: &UiRpcState) -> Value {
@@ -3982,6 +4064,61 @@ mod tests {
         }
     }
 
+    /// What reached the attachment store, so the mint, the upload route and
+    /// `attachments.delete` can be asserted without a database or an S3 bucket
+    /// behind them.
+    #[derive(Default)]
+    struct RecordingAttachments {
+        /// Each stored attachment as `(id, filename, mime type, byte count)`.
+        stored: std::sync::Mutex<Vec<(String, String, String, usize)>>,
+        deleted: std::sync::Mutex<Vec<String>>,
+        refuse: Option<ports::AttachmentStoreError>,
+    }
+
+    impl RecordingAttachments {
+        fn refusal(&self) -> Result<(), ports::AttachmentStoreError> {
+            match &self.refuse {
+                None => Ok(()),
+                Some(ports::AttachmentStoreError::Forbidden) => {
+                    Err(ports::AttachmentStoreError::Forbidden)
+                }
+                Some(ports::AttachmentStoreError::Failed(message)) => {
+                    Err(ports::AttachmentStoreError::Failed(message.clone()))
+                }
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ports::AttachmentStore for RecordingAttachments {
+        async fn store(
+            &self,
+            _viewer: &ScopeContext,
+            attachment_id: &str,
+            declared: ports::DeclaredAttachment,
+            bytes: Vec<u8>,
+        ) -> Result<(), ports::AttachmentStoreError> {
+            #[allow(clippy::unwrap_used)]
+            self.stored.lock().unwrap().push((
+                attachment_id.to_string(),
+                declared.filename,
+                declared.mime_type,
+                bytes.len(),
+            ));
+            self.refusal()
+        }
+
+        async fn delete(
+            &self,
+            _viewer: &ScopeContext,
+            attachment_id: &str,
+        ) -> Result<(), ports::AttachmentStoreError> {
+            #[allow(clippy::unwrap_used)]
+            self.deleted.lock().unwrap().push(attachment_id.to_string());
+            self.refusal()
+        }
+    }
+
     /// Nothing in this file dispatches a command that reaches a write; the
     /// command table itself is asserted in `commands.rs` against a recording
     /// sink.
@@ -4073,6 +4210,10 @@ mod tests {
     /// is a stub. What a viewer actually sees is asserted against a real
     /// database in `backend/tests/integration_surface/ui_rpc_shell_test.rs`.
     fn state() -> UiRpcState {
+        state_with_attachments(Arc::new(RecordingAttachments::default()))
+    }
+
+    fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore>) -> UiRpcState {
         let mut workspaces = MockT3WorkspaceDao::new();
         workspaces
             .expect_list_readable_including()
@@ -4110,6 +4251,7 @@ mod tests {
                 environment_id: environment_id(&stub_identity()),
                 allowed_origins: vec![AllowedOrigin::parse("http://localhost:5733")],
                 otlp_traces_enabled: false,
+                attachment_uploads: true,
             }),
             environment: Arc::new(stub_identity()),
             session_cookie_name: Arc::from("moatless_session"),
@@ -4145,6 +4287,7 @@ mod tests {
             pull_requests: Arc::new(NoBoundPullRequests),
             source_control_auth: Arc::new(NoGithubIdentity),
             commands: Arc::new(UnreachableCommands),
+            attachments,
             model_defaults: Arc::new(AgentModelDefaults::default()),
             terminal: terminal::TerminalHub::default(),
         }
@@ -4382,6 +4525,141 @@ mod tests {
             output.frames[0]["exit"]["value"]["environment"]["capabilities"]["sandboxStatusPush"],
             json!(true)
         );
+    }
+
+    /// The two keys the composer reads before it decides how to send a file.
+    /// Reporting `attachmentUploads` moves it off the inline data-URL path for
+    /// images too, so a server that reports one without serving the other
+    /// loses the person their attachment.
+    #[tokio::test]
+    async fn the_descriptor_advertises_both_attachment_capabilities_together() {
+        let frame = request("1", "server.getConfig", json!({}));
+        let mut session = session();
+        let output = session.handle_json(&frame, &state(), &viewer()).await;
+        let capabilities = &output.frames[0]["exit"]["value"]["environment"]["capabilities"];
+
+        assert_eq!(capabilities["attachmentUploads"], json!(true));
+        assert_eq!(
+            capabilities["fileAttachments"],
+            json!({ "maxUploadBytes": 50 * 1024 * 1024 })
+        );
+    }
+
+    /// Both keys are `optionalKey` in the contract, so a deployment that cannot
+    /// sign an upload URL has to omit them rather than answer `false` or
+    /// `null`: the client decodes the whole descriptor before it can connect.
+    #[test]
+    fn a_deployment_that_cannot_sign_an_upload_url_omits_both_keys() {
+        let config = UiRpcConfig {
+            environment_id: "moatless".into(),
+            allowed_origins: vec![AllowedOrigin::parse("https://example.com")],
+            otlp_traces_enabled: false,
+            attachment_uploads: false,
+        };
+        let capabilities = &descriptor(&config)["capabilities"];
+
+        assert!(capabilities.get("attachmentUploads").is_none());
+        assert!(capabilities.get("fileAttachments").is_none());
+    }
+
+    /// What the composer gets back before it moves any bytes: the id it will
+    /// name on the turn, and the URL it will `POST` to.
+    #[tokio::test]
+    async fn create_upload_url_answers_an_id_and_a_url_under_the_upload_prefix() {
+        let frame = request(
+            "1",
+            "attachments.createUploadUrl",
+            json!({ "type": "file", "name": "report.pdf", "mimeType": "application/pdf", "sizeBytes": 2048 }),
+        );
+        let mut session = session();
+        let output = session.handle_json(&frame, &state(), &viewer()).await;
+        let value = &output.frames[0]["exit"]["value"];
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        assert!(value["attachmentId"].as_str().is_some_and(|id| !id.is_empty()));
+        assert!(
+            value["relativeUrl"]
+                .as_str()
+                .is_some_and(|url| url.starts_with("/api/attachments/")),
+            "{value}"
+        );
+        assert!(value["expiresAt"].as_i64().is_some_and(|at| at > 0));
+    }
+
+    /// A payload outside the union never becomes an upload URL. The client's
+    /// own schema refuses these before they are sent, so this is a malformed
+    /// request rather than one of the method's declared outcomes.
+    #[tokio::test]
+    async fn create_upload_url_refuses_a_payload_outside_the_union() {
+        let frame = request(
+            "1",
+            "attachments.createUploadUrl",
+            json!({ "type": "image", "name": "a.tiff", "mimeType": "image/tiff", "sizeBytes": 10 }),
+        );
+        let mut session = session();
+        let output = session.handle_json(&frame, &state(), &viewer()).await;
+
+        assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");
+    }
+
+    /// The composer deletes an attachment it abandoned — a cancel, a retry, a
+    /// discarded draft — without knowing whether the upload ever landed, so
+    /// this succeeds either way and the id is what has to reach the store.
+    #[tokio::test]
+    async fn delete_reaches_the_store_with_the_id_it_was_given() {
+        let attachments = Arc::new(RecordingAttachments::default());
+        let frame = request(
+            "1",
+            "attachments.delete",
+            json!({ "attachmentId": "6b1f7b2e-0000-4000-8000-000000000001" }),
+        );
+        let mut session = session();
+        let output = session
+            .handle_json(&frame, &state_with_attachments(attachments.clone()), &viewer())
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        #[allow(clippy::unwrap_used)]
+        let deleted = attachments.deleted.lock().unwrap().clone();
+        assert_eq!(deleted, vec!["6b1f7b2e-0000-4000-8000-000000000001"]);
+    }
+
+    /// Somebody else's attachment is, from here, one that is not there:
+    /// answering differently would make this a way to ask whether an id exists.
+    #[tokio::test]
+    async fn delete_of_an_attachment_this_viewer_may_not_touch_still_succeeds() {
+        let attachments = Arc::new(RecordingAttachments {
+            refuse: Some(ports::AttachmentStoreError::Forbidden),
+            ..RecordingAttachments::default()
+        });
+        let frame = request("1", "attachments.delete", json!({ "attachmentId": "abc" }));
+        let mut session = session();
+        let output = session
+            .handle_json(&frame, &state_with_attachments(attachments), &viewer())
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+    }
+
+    /// An id that could leave the route it becomes a segment of never reaches
+    /// the store.
+    #[tokio::test]
+    async fn delete_of_something_that_is_not_an_id_never_reaches_the_store() {
+        let attachments = Arc::new(RecordingAttachments::default());
+        let frame = request(
+            "1",
+            "attachments.delete",
+            json!({ "attachmentId": "../secrets" }),
+        );
+        let mut session = session();
+        let output = session
+            .handle_json(&frame, &state_with_attachments(attachments.clone()), &viewer())
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");
+        #[allow(clippy::unwrap_used)]
+        let deleted = attachments.deleted.lock().unwrap().len();
+        assert_eq!(deleted, 0);
     }
 
     #[tokio::test]
@@ -5136,6 +5414,7 @@ mod tests {
             environment_id: "moatless".into(),
             allowed_origins: vec![],
             otlp_traces_enabled: false,
+            attachment_uploads: true,
         };
         assert!(config.validate().is_err());
     }
@@ -5148,6 +5427,7 @@ mod tests {
             environment_id: "moatless".into(),
             allowed_origins: vec![AllowedOrigin::parse("https://example.com")],
             otlp_traces_enabled: false,
+            attachment_uploads: true,
         };
 
         assert_eq!(
@@ -5208,6 +5488,137 @@ mod tests {
                 text(response).await,
                 crate::workspace::WorkspaceAccessError::Unaddressable.message()
             );
+        }
+    }
+
+    /// The upload route, driven the way the composer drives it: mint a URL over
+    /// the socket, then `POST` the raw file to it.
+    mod attachment_uploads {
+        use super::*;
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        /// Mint a URL for an attachment of `size` bytes and return the path to
+        /// `POST` it to.
+        async fn minted_url(state: &UiRpcState, size: usize) -> String {
+            let frame = request(
+                "1",
+                "attachments.createUploadUrl",
+                json!({
+                    "type": "file",
+                    "name": "report.pdf",
+                    "mimeType": "application/pdf",
+                    "sizeBytes": size
+                }),
+            );
+            let mut session = session();
+            let output = session.handle_json(&frame, state, &viewer()).await;
+            output.frames[0]["exit"]["value"]["relativeUrl"]
+                .as_str()
+                .expect("a minted url")
+                .to_string()
+        }
+
+        async fn upload(state: UiRpcState, url: &str, body: Vec<u8>) -> StatusCode {
+            let request = Request::builder()
+                .method("POST")
+                .uri(url)
+                .header("content-type", "application/pdf")
+                .body(Body::from(body))
+                .expect("a request");
+            router(state)
+                .oneshot(request)
+                .await
+                .expect("a response")
+                .status()
+        }
+
+        /// The whole point of the route: bytes in, and the name and type the
+        /// mint declared — not the ones the request carried — stored beside
+        /// them under the id the client is already holding.
+        #[tokio::test]
+        async fn a_body_of_the_declared_size_is_stored_under_the_minted_id() {
+            let attachments = Arc::new(RecordingAttachments::default());
+            let state = state_with_attachments(attachments.clone());
+            let url = minted_url(&state, 8).await;
+            let id = url.rsplit('/').next().unwrap_or_default().to_string();
+
+            assert_eq!(
+                upload(state, &url, vec![7u8; 8]).await,
+                StatusCode::NO_CONTENT
+            );
+            #[allow(clippy::unwrap_used)]
+            let stored = attachments.stored.lock().unwrap().clone();
+            assert_eq!(stored.len(), 1, "{stored:?}");
+            assert_eq!(stored[0].1, "report.pdf");
+            assert_eq!(stored[0].2, "application/pdf");
+            assert_eq!(stored[0].3, 8);
+            // The id is in the token, not in the path — the path *is* the
+            // token — so this asserts the two are the same string.
+            assert!(!id.is_empty());
+            assert!(url.ends_with(&id));
+        }
+
+        /// The boundary, from both sides. A body one byte over its declaration
+        /// is refused and stores nothing; a body of exactly the declared size
+        /// is stored.
+        #[tokio::test]
+        async fn a_body_is_refused_at_the_first_byte_past_its_declaration() {
+            let attachments = Arc::new(RecordingAttachments::default());
+            let state = state_with_attachments(attachments.clone());
+            let url = minted_url(&state, 8).await;
+
+            assert_eq!(
+                upload(state.clone(), &url, vec![7u8; 9]).await,
+                StatusCode::BAD_REQUEST
+            );
+            #[allow(clippy::unwrap_used)]
+            let stored = attachments.stored.lock().unwrap().len();
+            assert_eq!(stored, 0, "an oversize body must not be stored");
+
+            assert_eq!(
+                upload(state, &url, vec![7u8; 8]).await,
+                StatusCode::NO_CONTENT
+            );
+        }
+
+        /// A body that ends short of its declaration is a truncated upload, and
+        /// storing it would reach the agent as a corrupt file.
+        #[tokio::test]
+        async fn a_body_that_ends_short_of_its_declaration_is_refused() {
+            let attachments = Arc::new(RecordingAttachments::default());
+            let state = state_with_attachments(attachments.clone());
+            let url = minted_url(&state, 8).await;
+
+            assert_eq!(
+                upload(state, &url, vec![7u8; 7]).await,
+                StatusCode::BAD_REQUEST
+            );
+            assert_eq!(attachments.stored.lock().expect("no poison").len(), 0);
+        }
+
+        /// The token in the path is the credential. A forged one, an edited one
+        /// and one from another deployment all write nothing — this route is
+        /// exempt from the auth middleware precisely because it authenticates
+        /// itself.
+        #[tokio::test]
+        async fn a_url_this_server_did_not_mint_stores_nothing() {
+            let attachments = Arc::new(RecordingAttachments::default());
+            let state = state_with_attachments(attachments.clone());
+            let minted = minted_url(&state, 8).await;
+
+            for url in [
+                "/api/attachments/not-a-token".to_string(),
+                format!("{minted}x"),
+            ] {
+                assert_eq!(
+                    upload(state.clone(), &url, vec![7u8; 8]).await,
+                    StatusCode::UNAUTHORIZED,
+                    "{url}"
+                );
+            }
+            assert_eq!(attachments.stored.lock().expect("no poison").len(), 0);
         }
     }
 

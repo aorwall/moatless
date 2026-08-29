@@ -52,19 +52,32 @@ impl CommandRefusal {
     }
 }
 
-/// One image the client sent inline with a turn.
+/// One attachment the client sent with a turn, in whichever of the two forms
+/// the contract lets it take.
 ///
-/// T3 has no upload endpoint: the composer puts the bytes in the command as a
-/// base64 data URL and lets the server decide what to call them. So this is the
-/// decoded result — [`commands`](super::commands) has already checked that the
-/// payload parses, is an image, and is within the contract's limits, and the
-/// mime type and size here are what the bytes actually are rather than what the
-/// client declared them to be.
-pub struct TurnAttachment {
-    /// The name the person's file had, for the transcript and the download.
-    pub filename: String,
-    pub mime_type: String,
-    pub bytes: Vec<u8>,
+/// Which form arrives is decided by the `attachmentUploads` capability
+/// [`descriptor`](crate::descriptor) reports. A composer that has read it
+/// uploads the bytes first and names the id on the turn; one that has not — an
+/// older client, or one whose environment config has not loaded yet — puts the
+/// bytes in the command as a base64 data URL. Both keep working, so this is a
+/// union rather than a replacement.
+pub enum TurnAttachment {
+    /// Bytes that came in the command itself. This is the decoded result —
+    /// [`commands`](super::commands) has already checked that the payload
+    /// parses, is an image, and is within the contract's limits, and the mime
+    /// type and size are what the bytes actually are rather than what the
+    /// client declared them to be.
+    Inline {
+        /// The name the person's file had, for the transcript and the download.
+        filename: String,
+        mime_type: String,
+        bytes: Vec<u8>,
+    },
+    /// An upload that already exists, named by the id
+    /// `attachments.createUploadUrl` minted for it. Carries no bytes: what the
+    /// person attached is in storage, and the name, type and size on the wire
+    /// beside this id are the client's copy of what the row already records.
+    Uploaded { attachment_id: String },
 }
 
 /// One turn, as this surface understood it.
@@ -257,6 +270,55 @@ pub trait SourceControlAuthSource: Send + Sync {
     /// The viewer's connected GitHub identity, or `None` when they have no
     /// usable GitHub credential.
     async fn github_identity(&self, viewer: &ScopeContext) -> Option<GithubIdentity>;
+}
+
+/// What `attachments.createUploadUrl` was told the file is, carried through the
+/// minted URL and re-stated here when the bytes arrive.
+///
+/// Not what the client said on the upload request — that request carries no
+/// name at all, and its `Content-Type` is whatever it chose to send. These are
+/// the values this server validated at mint time and signed into the URL.
+pub struct DeclaredAttachment {
+    pub filename: String,
+    pub mime_type: String,
+}
+
+/// Why an attachment's bytes could not be stored or removed.
+#[derive(Debug)]
+pub enum AttachmentStoreError {
+    /// Not this viewer's attachment. Only reachable on delete: the upload route
+    /// stores under an id this server minted for the viewer holding the URL.
+    Forbidden,
+    /// The deployment failed to carry it out. The cause is logged, not sent.
+    Failed(String),
+}
+
+/// Where a chat attachment's bytes live.
+///
+/// The id is minted before the bytes move — [`attachments`](crate::attachments)
+/// hands the client a URL naming it — so storing is `store` under an id this
+/// side chose rather than a create that returns one. `crates/t3code` stays free
+/// of S3 and of the upload metadata table; both are behind this boundary.
+#[async_trait]
+pub trait AttachmentStore: Send + Sync {
+    /// Store `bytes` under `attachment_id`. The length has already been checked
+    /// against what the mint declared.
+    async fn store(
+        &self,
+        viewer: &ScopeContext,
+        attachment_id: &str,
+        declared: DeclaredAttachment,
+        bytes: Vec<u8>,
+    ) -> Result<(), AttachmentStoreError>;
+
+    /// Remove an attachment's bytes and its metadata. An id that names nothing
+    /// is not a failure: the composer deletes an attachment it abandoned
+    /// without knowing whether the upload ever landed.
+    async fn delete(
+        &self,
+        viewer: &ScopeContext,
+        attachment_id: &str,
+    ) -> Result<(), AttachmentStoreError>;
 }
 
 /// Everything a T3 command can ask Moatless to do.

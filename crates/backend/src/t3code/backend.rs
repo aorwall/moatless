@@ -9,9 +9,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use moatless_api_schemas::agent::AgentDescriptor;
-use moatless_types::access_control::ScopeContext;
+use moatless_types::access_control::{ScopeContext, ScopedResource};
 
 use crate::adapters::models::TaskBinding;
+use crate::file_storage::error::FileStorageError;
 use crate::file_storage::store as file_store;
 use crate::message::error::MessageError;
 use crate::message::service as message_service;
@@ -24,10 +25,10 @@ use crate::task::handlers as task_handlers;
 use crate::task::models::TaskStatus;
 use crate::task::service as task_service;
 use moatless_t3code::ports::{
-    AgentCatalogSource, BoundPullRequest, BoundPullRequestSource, BranchListError, CommandRefusal,
-    GithubIdentity, NewThread, PullRequestError, QuestionAnswer, RepositoryBranchSource,
-    ResolvedPullRequest, SourceControlAuthSource, ThreadCommandSink, ThreadMeta, ThreadTurn,
-    TurnAttachment,
+    AgentCatalogSource, AttachmentStore, AttachmentStoreError, BoundPullRequest,
+    BoundPullRequestSource, BranchListError, CommandRefusal, DeclaredAttachment, GithubIdentity,
+    NewThread, PullRequestError, QuestionAnswer, RepositoryBranchSource, ResolvedPullRequest,
+    SourceControlAuthSource, ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment,
 };
 
 pub struct AppStateAgents(pub AppState);
@@ -501,40 +502,170 @@ impl AppStateCommands {
         }
     }
 
-    /// Store a turn's inline images as ordinary Moatless uploads, so they land
-    /// on the paths that already exist: the Sandbox pre-fetch, the prompt block
-    /// naming each file, the Moatless UI, and `GET /api/v1/uploads/{file_id}`.
+    /// The upload ids a turn's attachments name, storing the ones that arrived
+    /// as bytes.
     ///
-    /// A failure refuses the whole turn — a partial store would leave a message
-    /// naming only some of what was attached.
-    async fn store_attachments(
+    /// Both forms end at the same place: a Moatless upload id on the Message,
+    /// which is what the Sandbox pre-fetch, the prompt block naming each file,
+    /// the Moatless UI and `GET /api/v1/uploads/{file_id}` all already read. An
+    /// inline image is stored here because this is where its bytes enter; an
+    /// uploaded attachment is only checked, because storing it again would put
+    /// a second copy of the same file under a second id.
+    ///
+    /// A failure refuses the whole turn — a partial resolution would leave a
+    /// message naming only some of what was attached.
+    async fn resolve_attachments(
         &self,
         viewer: &ScopeContext,
         attachments: &[TurnAttachment],
     ) -> Result<Vec<String>, CommandRefusal> {
         let mut file_ids = Vec::with_capacity(attachments.len());
         for attachment in attachments {
-            let stored = file_store::store_upload(
-                self.0.s3.as_ref(),
-                &self.0.s3_config,
-                self.0.files.as_ref(),
-                viewer,
-                file_store::NewUpload {
-                    filename: attachment.filename.clone(),
-                    mime_type: attachment.mime_type.clone(),
-                    data: attachment.bytes.clone(),
-                },
-            )
-            .await
-            .map_err(|error| {
-                tracing::warn!(%error, filename = %attachment.filename, "T3 attachment could not be stored");
-                CommandRefusal::Failed {
-                    message: format!("Could not store the attachment `{}`.", attachment.filename),
+            match attachment {
+                TurnAttachment::Inline {
+                    filename,
+                    mime_type,
+                    bytes,
+                } => {
+                    let stored = file_store::store_upload(
+                        self.0.s3.as_ref(),
+                        &self.0.s3_config,
+                        self.0.files.as_ref(),
+                        viewer,
+                        file_store::NewUpload {
+                            filename: filename.clone(),
+                            mime_type: mime_type.clone(),
+                            data: bytes.clone(),
+                            file_id: None,
+                        },
+                    )
+                    .await
+                    .map_err(|error| {
+                        tracing::warn!(%error, filename = %filename, "T3 attachment could not be stored");
+                        CommandRefusal::Failed {
+                            message: format!("Could not store the attachment `{filename}`."),
+                        }
+                    })?;
+                    file_ids.push(stored.file_id);
                 }
-            })?;
-            file_ids.push(stored.file_id);
+                TurnAttachment::Uploaded { attachment_id } => {
+                    file_ids.push(self.uploaded_attachment(viewer, attachment_id).await?);
+                }
+            }
         }
         Ok(file_ids)
+    }
+
+    /// The upload an attachment id names, if this viewer may read it.
+    ///
+    /// Checked rather than trusted: the id reaches this server on a turn, and
+    /// nothing about a turn proves the person sending it minted that id. An id
+    /// that names nothing is the same answer as one that names somebody else's
+    /// upload — a turn that could confirm the difference would be a way to ask
+    /// whether an upload exists.
+    async fn uploaded_attachment(
+        &self,
+        viewer: &ScopeContext,
+        attachment_id: &str,
+    ) -> Result<String, CommandRefusal> {
+        let found = self
+            .0
+            .files
+            .find_by_id(attachment_id)
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, attachment_id, "T3 attachment could not be resolved");
+                CommandRefusal::Failed {
+                    message: "Could not reach that attachment.".to_string(),
+                }
+            })?;
+        let unreachable = || CommandRefusal::Rejected {
+            message: "An attachment on this message is no longer available.".to_string(),
+        };
+        let Some(meta) = found else {
+            return Err(unreachable());
+        };
+        let resource = ScopedResource::borrowed(
+            meta.scope,
+            meta.owner_user_id.as_deref().or(meta.created_by.as_deref()),
+        );
+        if !viewer.can_read(&resource) {
+            tracing::warn!(attachment_id, "T3 turn named an attachment its sender cannot read");
+            return Err(unreachable());
+        }
+        Ok(meta.file_id)
+    }
+}
+
+/// Where a T3 chat attachment's bytes go: an ordinary Moatless upload, under
+/// the id `attachments.createUploadUrl` already handed the client.
+pub struct AppStateAttachments(pub AppState);
+
+#[async_trait]
+impl AttachmentStore for AppStateAttachments {
+    async fn store(
+        &self,
+        viewer: &ScopeContext,
+        attachment_id: &str,
+        declared: DeclaredAttachment,
+        bytes: Vec<u8>,
+    ) -> Result<(), AttachmentStoreError> {
+        // A minted URL is good for ten minutes and a client that lost its
+        // connection mid-upload may `POST` it again. Removing what the first
+        // attempt left makes the second one land instead of colliding with it.
+        // Nothing else can be under this id: it is a uuid minted for this
+        // viewer and handed to nobody else.
+        if let Err(error) = file_store::delete_upload(
+            self.0.s3.as_ref(),
+            &self.0.s3_config,
+            self.0.files.as_ref(),
+            viewer,
+            attachment_id,
+        )
+        .await
+        {
+            tracing::debug!(%error, attachment_id, "T3 attachment had nothing to replace");
+        }
+
+        file_store::store_upload(
+            self.0.s3.as_ref(),
+            &self.0.s3_config,
+            self.0.files.as_ref(),
+            viewer,
+            file_store::NewUpload {
+                filename: declared.filename,
+                mime_type: declared.mime_type,
+                data: bytes,
+                file_id: Some(attachment_id.to_string()),
+            },
+        )
+        .await
+        .map(|_| ())
+        .map_err(attachment_store_error)
+    }
+
+    async fn delete(
+        &self,
+        viewer: &ScopeContext,
+        attachment_id: &str,
+    ) -> Result<(), AttachmentStoreError> {
+        file_store::delete_upload(
+            self.0.s3.as_ref(),
+            &self.0.s3_config,
+            self.0.files.as_ref(),
+            viewer,
+            attachment_id,
+        )
+        .await
+        .map(|_| ())
+        .map_err(attachment_store_error)
+    }
+}
+
+fn attachment_store_error(error: FileStorageError) -> AttachmentStoreError {
+    match error {
+        FileStorageError::Forbidden(_) => AttachmentStoreError::Forbidden,
+        other => AttachmentStoreError::Failed(other.to_string()),
     }
 }
 
@@ -556,7 +687,7 @@ impl ThreadCommandSink for AppStateCommands {
         let file_ids = if turn.attachments.is_empty() || self.already_sent(&turn).await {
             Vec::new()
         } else {
-            self.store_attachments(viewer, &turn.attachments).await?
+            self.resolve_attachments(viewer, &turn.attachments).await?
         };
 
         message_service::send_user_message(
@@ -596,7 +727,7 @@ impl ThreadCommandSink for AppStateCommands {
         let branch = thread.branch.clone();
 
         let file_ids = match thread.first_message.as_ref() {
-            Some(first) => self.store_attachments(viewer, &first.attachments).await?,
+            Some(first) => self.resolve_attachments(viewer, &first.attachments).await?,
             None => Vec::new(),
         };
 

@@ -267,14 +267,15 @@ pub(super) struct OriginContext<'a> {
 /// adapter is GitHub-only and its subject key carries the coordinates.
 const GITHUB_PR_ADAPTER: &str = "github_pr";
 
-/// What `ChatImageAttachment` accepts, field for field
-/// (`contracts/src/orchestration.ts:145-165`). An attachment outside any of
-/// these is left out of the projection rather than sent for the client to
-/// refuse — see [`message_attachments`].
+/// What `ChatImageAttachment` and `ChatFileAttachment` accept, field for field
+/// (`contracts/src/orchestration.ts:186-205`). An attachment outside the member
+/// its mime type puts it in is left out of the projection rather than sent for
+/// the client to refuse — see [`message_attachments`].
 const ATTACHMENT_ID_MAX_CHARS: usize = 128;
 const ATTACHMENT_NAME_MAX_CHARS: usize = 255;
 const ATTACHMENT_MIME_MAX_CHARS: usize = 100;
-const ATTACHMENT_MAX_BYTES: i64 = 10 * 1024 * 1024;
+const ATTACHMENT_MAX_IMAGE_BYTES: i64 = 10 * 1024 * 1024;
+const ATTACHMENT_MAX_FILE_BYTES: i64 = 50 * 1024 * 1024;
 
 /// Where one Message came from, or `None` when it came from inside T3.
 ///
@@ -889,13 +890,18 @@ fn message_bubble(
 
 /// The uploads on a Message, as the contract's `ChatAttachment` union.
 ///
-/// That union has one member, `image`, so an upload that is not an image — a
-/// PDF attached from the Moatless UI on the same Task — has no shape to be sent
-/// in and is left out. So is one whose id, name or size falls outside what
-/// `ChatImageAttachment` accepts (`contracts/src/orchestration.ts:158-165`),
-/// because the client decodes the *whole* thread snapshot against that schema:
-/// a single field that fails its check costs the reader the conversation, not
-/// the attachment. Leaving it out costs them one image.
+/// Which member an upload becomes is decided by its mime type: `image/*` is a
+/// `ChatImageAttachment`, everything else — a PDF, an archive, a log — is a
+/// `ChatFileAttachment`. The two differ in more than the tag, so the checks
+/// below are per member: an image may be zero bytes and may not exceed 10 MiB,
+/// a file must be at least one byte and may reach 50 MiB
+/// (`contracts/src/orchestration.ts:186-205`).
+///
+/// An upload outside whichever member it belongs to is left out rather than
+/// sent, because the client decodes the *whole* thread snapshot against that
+/// schema: a single field that fails its check costs the reader the
+/// conversation, not the attachment. Leaving it out costs them one row in one
+/// bubble.
 ///
 /// The agent is unaffected either way — it reads the file off disk from the
 /// path the prompt names, which is decided by the upload and not by this.
@@ -914,11 +920,14 @@ fn message_attachments(message: &TranscriptMessage) -> Vec<Value> {
 
             let data = context.get("data")?;
             let mime_type = data.get("mimeType").and_then(Value::as_str)?;
-            if !mime_type.to_ascii_lowercase().starts_with("image/")
-                || mime_type.len() > ATTACHMENT_MIME_MAX_CHARS
-            {
+            if mime_type.is_empty() || mime_type.len() > ATTACHMENT_MIME_MAX_CHARS {
                 return None;
             }
+            let (kind, sizes) = if mime_type.to_ascii_lowercase().starts_with("image/") {
+                ("image", 0..=ATTACHMENT_MAX_IMAGE_BYTES)
+            } else {
+                ("file", 1..=ATTACHMENT_MAX_FILE_BYTES)
+            };
 
             let name = truncate_on_char_boundary(
                 data.get("filename").and_then(Value::as_str)?.trim(),
@@ -929,12 +938,12 @@ fn message_attachments(message: &TranscriptMessage) -> Vec<Value> {
             }
 
             let size = data.get("size").and_then(Value::as_i64)?;
-            if !(0..=ATTACHMENT_MAX_BYTES).contains(&size) {
+            if !sizes.contains(&size) {
                 return None;
             }
 
             Some(json!({
-                "type": "image",
+                "type": kind,
                 "id": id,
                 "name": name,
                 "mimeType": mime_type,
@@ -2869,19 +2878,58 @@ mod tests {
         );
     }
 
+    /// `ChatFileAttachment` field for field. An upload that is not an image is
+    /// not dropped: it is the other member of the union, and the bubble shows
+    /// it as a file the person can download.
+    #[test]
+    fn an_uploaded_file_becomes_a_file_attachment() {
+        let message = with_files(
+            message(1, MessageType::User, "read this"),
+            vec![a_file_context(
+                "6b1f7b2e-0000-4000-8000-000000000002",
+                "report.pdf",
+                "application/pdf",
+                40 * 1024 * 1024,
+            )],
+        );
+
+        assert_eq!(
+            message_attachments(&message),
+            vec![json!({
+                "type": "file",
+                "id": "6b1f7b2e-0000-4000-8000-000000000002",
+                "name": "report.pdf",
+                "mimeType": "application/pdf",
+                "sizeBytes": 40 * 1024 * 1024
+            })]
+        );
+    }
+
     /// The client decodes the whole snapshot against its schema, so an upload
     /// it would refuse costs the reader the conversation rather than the
-    /// image. Each of these is therefore left out, and the ones beside it are
-    /// not.
+    /// attachment. Each of these is therefore left out, and the ones beside it
+    /// are not.
+    ///
+    /// The two members have different limits, and each is checked against its
+    /// own: an image the size of a permitted file is still too large.
     #[test]
     fn an_upload_the_contract_has_no_shape_for_is_left_out() {
         let message = with_files(
             message(1, MessageType::User, "look at this"),
             vec![
-                // Not an image: `ChatAttachment` has one member.
-                a_file_context("id-a", "report.pdf", "application/pdf", 10),
-                // Past `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES`.
-                a_file_context("id-b", "huge.png", "image/png", ATTACHMENT_MAX_BYTES + 1),
+                // Past `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES`, which a file that
+                // size would clear.
+                a_file_context("id-b", "huge.png", "image/png", ATTACHMENT_MAX_IMAGE_BYTES + 1),
+                // Past `PROVIDER_SEND_TURN_MAX_FILE_BYTES`.
+                a_file_context(
+                    "id-f",
+                    "huge.zip",
+                    "application/zip",
+                    ATTACHMENT_MAX_FILE_BYTES + 1,
+                ),
+                // `ChatFileAttachment` requires at least one byte; the image
+                // member does not, which is why this is the file member's test.
+                a_file_context("id-g", "empty.pdf", "application/pdf", 0),
                 // Outside `ChatAttachmentId`'s alphabet.
                 a_file_context("id c/../d", "ok.png", "image/png", 10),
                 // `TrimmedNonEmptyString`.
@@ -2893,6 +2941,19 @@ mod tests {
         let attachments = message_attachments(&message);
         assert_eq!(attachments.len(), 1, "got {attachments:?}");
         assert_eq!(attachments[0]["name"], "kept.png");
+    }
+
+    /// An image of no bytes is still a `ChatImageAttachment`: only the file
+    /// member sets a minimum, and reading one member's rule onto the other
+    /// would drop something the client would have rendered.
+    #[test]
+    fn an_empty_image_is_still_an_image_attachment() {
+        let message = with_files(
+            message(1, MessageType::User, "look at this"),
+            vec![a_file_context("id-a", "blank.png", "image/png", 0)],
+        );
+
+        assert_eq!(message_attachments(&message).len(), 1);
     }
 
     /// A name past the contract's limit is cut rather than dropped: the person

@@ -226,6 +226,41 @@ async fn message_uuids(pool: &PgPool, task_id: &str) -> Vec<String> {
     .unwrap()
 }
 
+/// The upload ids a person's message carries, in the order they were attached.
+async fn message_file_ids(pool: &PgPool, task_id: &str) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT reference_id
+         FROM task_message_contexts
+         WHERE task_id = $1 AND type = 'file'
+         ORDER BY id",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+/// An upload that already exists, the way one the T3 upload route stored does:
+/// a `User`-scoped row owned by whoever uploaded it. No S3 object behind it —
+/// nothing in this file reads the bytes, only the row that names them.
+async fn seed_upload(pool: &PgPool, owner: &str, filename: &str, mime_type: &str) -> String {
+    let file_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO file_metadata (
+            file_id, filename, mime_type, size, scope, owner_user_id, created_by, uploaded_at
+         ) VALUES ($1, $2, $3, $4, 'user', $5, $5, NOW())",
+    )
+    .bind(&file_id)
+    .bind(filename)
+    .bind(mime_type)
+    .bind(2048_i64)
+    .bind(owner)
+    .execute(pool)
+    .await
+    .unwrap();
+    file_id
+}
+
 /// Whether the lifecycle was asked for a Sandbox. The record is the request,
 /// not the outcome — the test runtime refuses to start anything.
 async fn sandbox_requested(pool: &PgPool, task_id: &str) -> bool {
@@ -305,7 +340,7 @@ async fn a_turn_whose_attachments_cannot_be_stored_is_refused_and_writes_nothing
     seed_task(&pool, "t-attach", USER_1).await;
 
     let mut turn = turn("t-attach", "2f6e5d4c-3b2a-4190-8877-665544332211", "look");
-    turn.attachments = vec![moatless_t3code::ports::TurnAttachment {
+    turn.attachments = vec![moatless_t3code::ports::TurnAttachment::Inline {
         filename: "screenshot.png".into(),
         mime_type: "image/png".into(),
         bytes: vec![0u8; 16],
@@ -320,6 +355,64 @@ async fn a_turn_whose_attachments_cannot_be_stored_is_refused_and_writes_nothing
         "storing failed, which is not the client asking for something impossible"
     );
     assert!(message_uuids(&pool, "t-attach").await.is_empty());
+}
+
+/// An attachment the client uploaded before it sent the turn arrives as an id.
+/// It is already stored, so the send resolves it to the upload it names — no
+/// second copy under a second id — and the Message ends up carrying exactly the
+/// file the person attached.
+#[sqlx::test]
+async fn an_uploaded_attachment_is_resolved_rather_than_stored_again(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-uploaded", USER_1).await;
+    let attachment_id = seed_upload(&pool, USER_1, "report.pdf", "application/pdf").await;
+
+    let mut turn = turn("t-uploaded", "3c7f6e5d-4b3a-42a1-8988-776655443322", "read this");
+    turn.attachments = vec![moatless_t3code::ports::TurnAttachment::Uploaded {
+        attachment_id: attachment_id.clone(),
+    }];
+
+    sink(&pool)
+        .send_turn(&viewer(USER_1), turn)
+        .await
+        .expect("an attachment that is already stored needs no S3");
+
+    assert_eq!(
+        message_file_ids(&pool, "t-uploaded").await,
+        vec![attachment_id]
+    );
+}
+
+/// The id reaches this server on a turn, and nothing about a turn proves the
+/// person sending it minted that id. An upload somebody else owns, and an id
+/// that names nothing, are the same refusal — a turn that could tell them apart
+/// would be a way to ask whether an upload exists.
+#[sqlx::test]
+async fn a_turn_naming_an_attachment_its_sender_cannot_read_is_refused(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-not-mine", USER_1).await;
+    let theirs = seed_upload(&pool, USER_2, "theirs.pdf", "application/pdf").await;
+
+    for attachment_id in [theirs, "6b1f7b2e-0000-4000-8000-00000000ffff".to_string()] {
+        let mut turn = turn(
+            "t-not-mine",
+            "4d8a7b6c-5c4d-43b2-9a99-887766554433",
+            "read this",
+        );
+        turn.attachments = vec![moatless_t3code::ports::TurnAttachment::Uploaded {
+            attachment_id: attachment_id.clone(),
+        }];
+
+        let refusal = sink(&pool)
+            .send_turn(&viewer(USER_1), turn)
+            .await
+            .expect_err("an attachment this sender cannot read is refused");
+        assert!(
+            matches!(refusal, CommandRefusal::Rejected { .. }),
+            "{attachment_id} produced {refusal:?}"
+        );
+    }
+    assert!(message_uuids(&pool, "t-not-mine").await.is_empty());
 }
 
 /// A message id arrives from the client, so it names a row the sender may have

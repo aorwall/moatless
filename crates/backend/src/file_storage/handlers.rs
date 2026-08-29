@@ -80,6 +80,7 @@ pub async fn upload_file(
             filename,
             mime_type: content_type,
             data,
+            file_id: None,
         },
     )
     .await?;
@@ -146,10 +147,112 @@ pub async fn download_file(
         .header(header::CONTENT_TYPE, content_type)
         .header(
             header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{}\"", meta.filename),
+            content_disposition(&meta.filename),
         )
         .body(Body::from(data))
         .expect("valid response with static header names");
 
     Ok(response)
+}
+
+/// `Content-Disposition` for a download, as RFC 6266 wants it.
+///
+/// A filename is whatever the person called their file, and header values are
+/// bytes: a quote or a backslash in one ends the quoted string early, and a
+/// newline splits the response. So the `filename` parameter carries a sanitized
+/// ASCII fallback — every byte outside a conservative allowlist replaced with
+/// `_` — and the real name is carried beside it in the RFC 5987 `filename*`
+/// form, which every current browser prefers and which is percent-encoded and
+/// therefore cannot carry a delimiter at all.
+fn content_disposition(filename: &str) -> String {
+    use std::fmt::Write;
+
+    let mut fallback = String::with_capacity(filename.len());
+    let mut encoded = String::with_capacity(filename.len());
+    for byte in filename.bytes() {
+        match byte {
+            // `attr-char` from RFC 5987, which is what `filename*` may carry
+            // unescaped. Everything else — including the space and every
+            // non-ASCII byte — is percent-encoded.
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'!' | b'#' | b'$' | b'&' | b'+' | b'-'
+            | b'.' | b'^' | b'_' | b'`' | b'|' | b'~' => {
+                encoded.push(byte as char);
+                fallback.push(byte as char);
+            }
+            _ => {
+                let _ = write!(encoded, "%{byte:02X}");
+                // The fallback keeps a space and a few punctuation marks a name
+                // commonly has, and loses everything else to `_`.
+                fallback.push(match byte {
+                    b' ' | b'(' | b')' | b',' | b'=' | b'@' | b'[' | b']' | b'{' | b'}' => {
+                        byte as char
+                    }
+                    _ => '_',
+                });
+            }
+        }
+    }
+    if fallback.is_empty() {
+        fallback.push_str("download");
+    }
+
+    format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::content_disposition;
+
+    /// A name that is already plain survives unchanged in both forms.
+    #[test]
+    fn an_ordinary_name_reaches_both_parameters_intact() {
+        assert_eq!(
+            content_disposition("report.pdf"),
+            "attachment; filename=\"report.pdf\"; filename*=UTF-8''report.pdf"
+        );
+    }
+
+    /// The bytes that would end the quoted string, or the header, or the
+    /// response. None of them may reach either parameter.
+    #[test]
+    fn a_name_cannot_carry_a_delimiter_into_the_header() {
+        let header = content_disposition("a\"; filename=\"evil.exe\r\nX-Evil: 1");
+
+        assert!(!header.contains('"') || header.matches('"').count() == 2, "{header}");
+        assert!(!header.contains('\r') && !header.contains('\n'), "{header}");
+        assert!(!header.contains("evil.exe\r"), "{header}");
+    }
+
+    /// A name nobody wrote in ASCII still arrives whole, in the parameter that
+    /// can carry it.
+    #[test]
+    fn a_non_ascii_name_survives_percent_encoded() {
+        let header = content_disposition("rapport-å.txt");
+
+        assert!(header.contains("filename*=UTF-8''rapport-%C3%A5.txt"), "{header}");
+        assert!(header.contains("filename=\"rapport-__.txt\""), "{header}");
+    }
+
+    /// A name with no ASCII in it at all still gets a fallback, because a
+    /// browser that cannot read `filename*` has to save the file as something.
+    #[test]
+    fn a_name_with_no_ascii_left_still_has_a_fallback() {
+        let header = content_disposition("日本語");
+
+        assert!(header.contains("filename=\"_________\""), "{header}");
+        assert!(
+            header.contains("filename*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E"),
+            "{header}"
+        );
+    }
+
+    /// A name that is nothing at all — the multipart route stores `unnamed`
+    /// rather than an empty string, but a row from anywhere else could.
+    #[test]
+    fn an_empty_name_is_replaced_rather_than_omitted() {
+        assert_eq!(
+            content_disposition(""),
+            "attachment; filename=\"download\"; filename*=UTF-8''"
+        );
+    }
 }

@@ -246,6 +246,24 @@ pub async fn head_object_modified_at(
     }
 }
 
+/// Delete one object. Deleting a key that is not there succeeds, which is what
+/// S3 itself reports and what a caller undoing a half-finished upload wants.
+pub async fn delete_object(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+) -> Result<(), String> {
+    client
+        .delete_object()
+        .bucket(bucket)
+        .key(key)
+        .send()
+        .await
+        .map_err(|e| format!("S3 delete_object failed: {e}"))?;
+
+    Ok(())
+}
+
 /// Delete every object under `prefix` in `bucket`. Returns the count deleted.
 ///
 /// Paginates `list_objects_v2` and deletes each key individually (a task's
