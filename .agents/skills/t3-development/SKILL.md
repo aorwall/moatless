@@ -1,6 +1,6 @@
 ---
 name: t3-development
-description: "Develop and test the T3 Code client against this backend's t3code surface from inside a sandbox — the two-repo workspace where T3's Vite server on :5733 proxies /api and /ws to a shadow moatless-vibe-backend on :8080. Covers the shadow rebuild loop, headless UI-RPC probing with an API key and a WebSocket ticket, and browser verification against the preview URL. Use when working on crates/t3code/** or backend/src/t3code/**, on the T3 side of the Moatless adapter, or when the T3 sidebar renders empty, the socket 403s, or messages never load."
+description: "Develop and test the T3 Code client against this backend's t3code surface from inside a sandbox — the two-repo workspace where T3's Vite server on :5733 proxies /api and /ws to a moatless-vibe-backend on :8080. Covers the shadow rebuild loop, headless UI-RPC probing with an API key and a WebSocket ticket, and end-to-end browser verification with Playwright — against the preview URL when a shadow backend exists, or against the deployed backend through a local Vite on an allow-listed https origin when it does not. Use when working on crates/t3code/** or backend/src/t3code/**, on the T3 side of the Moatless adapter, when verifying a client change in a real browser, or when the T3 sidebar renders empty, the socket 403s, or messages never load."
 ---
 
 # T3 Code against this backend
@@ -94,9 +94,28 @@ one you got before concluding anything.
 
 ## Testing the T3 UI in a browser
 
-**Use the preview URL, never `localhost:5733`.** `T3_UI_RPC_ALLOWED_ORIGINS` is
-synced from the live Deployment, where it is `https://*.preview.moatless.xyz`
-only, so a browser on `http://localhost:5733` gets **403 on the WebSocket
+**Which harness you have decides everything below.** Check before you plan:
+
+```bash
+curl -s --max-time 5 http://localhost:8080/health   # shadow backend, or silence
+kubectl auth can-i get secrets -n moatless          # what the shadow needs to start
+```
+
+| | Shadow backend | Deployed backend only |
+| --- | --- | --- |
+| Backend | `scripts/shadow/up.sh` on `:8080` | `moatless-vibe-backend.moatless.svc.cluster.local:8080` |
+| Browse from | the preview URL | local Vite behind a TLS front door |
+| Backend edits | `rebuild.sh` | not yours — hand them over |
+
+`sync-env.sh` needs `get secrets`. When that is **no** and nothing answers on
+`:8080`, you have the deployed backend only: client-side changes are fully
+verifiable against it, backend changes are not testable here at all. Say so
+rather than reporting a client-side pass as if it covered both.
+
+### Against the shadow: use the preview URL
+
+**Never `localhost:5733`.** `T3_UI_RPC_ALLOWED_ORIGINS` is synced from the live
+Deployment, so a browser on `http://localhost:5733` gets **403 on the WebSocket
 upgrade** and the app renders "No projects yet" — a convincing and entirely false
 empty state. HTTP through the Vite proxy still works, which is what makes the
 trap hard to read.
@@ -108,44 +127,135 @@ https://$TASK_ID--5733.preview.moatless.xyz/
 The user is already authenticated there; hand them the URL rather than
 describing what you saw. Ask before driving a browser yourself.
 
-For a headless check, mint a session cookie and set it on
-`.preview.moatless.xyz`:
+### Against the deployed backend: a local Vite on an allow-listed origin
+
+The Origin allow-list is the whole problem, and it is readable — do not guess:
 
 ```bash
-curl -si -X POST http://localhost:8080/api/v1/auth/api-key/session \
-  -H "Authorization: Bearer $MOATLESS_API_KEY" -H 'Content-Type: application/json' \
-  -d '{}' | grep -oP 'moatless_session=\K[^;]+'
+kubectl get deploy -n moatless moatless-vibe-backend \
+  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="T3_UI_RPC_ALLOWED_ORIGINS")].value}'
+# https://moatless-t3.staging.moatless.xyz,https://*.preview.moatless.xyz
 ```
 
-Chromium **is** already in the image (`docker/Dockerfile.sandbox-base`), but the
-cluster's sandbox cache volume overrides `PLAYWRIGHT_BROWSERS_PATH` to an empty
-node-local mount, so a naive run re-downloads 265 MB and a pinned old Playwright
-then fails on a browser-build mismatch. Point it back at the image and match its
-build:
+Every entry is **https**, and the Moatless session cookie is `Secure`. So the
+browser has to believe it is on one of those names, over TLS, while talking to
+your Vite. Three pieces, no repo edits.
 
-Install it in a scratch directory and run the script from there. Neither repo
-uses npm — t3code is pnpm, this one is bun — so an `npm install` inside either
-checkout leaves an `node_modules` tree and lockfile churn that has nothing to do
-with the change you are verifying.
+Both servers run in the background. Capture each PID as you spawn it and stop
+only those (`t3code/AGENTS.md` rule 1 — this machine runs other dev servers, and
+one of them may already be a `vp dev` you did not start).
+
+```bash
+HOST_NAME=moatless-t3.staging.moatless.xyz
+SKILLS=/opt/moatless/workspace/moatless/.agents/skills/t3-development
+mkdir -p /tmp/pw
+
+# 1. Vite, proxying to the deployed backend, with the name allowed through
+#    Vite's own DNS-rebinding check. `vp dev` lives at the t3code repo root.
+(cd /opt/moatless/workspace/t3code/apps/web && \
+  PORT=5733 HOST=127.0.0.1 \
+  T3CODE_PROXY_TARGET=http://moatless-vibe-backend.moatless.svc.cluster.local:8080 \
+  T3CODE_DEV_ALLOWED_HOSTS=$HOST_NAME \
+  ../../node_modules/.bin/vp dev > /tmp/pw/vite.log 2>&1) &
+VITE_PID=$!
+
+# 2. TLS in front of it — a self-signed cert for that exact name.
+openssl req -x509 -newkey rsa:2048 -nodes -days 5 \
+  -keyout /tmp/pw/key.pem -out /tmp/pw/cert.pem \
+  -subj "/CN=$HOST_NAME" -addext "subjectAltName=DNS:$HOST_NAME"
+node $SKILLS/references/tls-front.mjs --listen 8444 --target 5733 &
+TLS_PID=$!
+
+# 3. Chromium, resolving that name to the front door.
+#    --host-resolver-rules=MAP <host> 127.0.0.1:8444 --ignore-certificate-errors
+
+# …and afterwards:
+kill $TLS_PID $VITE_PID
+```
+
+`vp dev` spawns a worker that **outlives the parent you killed**, so confirm the
+port actually came back before walking away:
+
+```bash
+(exec 3<>/dev/tcp/127.0.0.1/5733) 2>/dev/null && echo "still up" || echo "released"
+ss -H -ltnp 2>/dev/null | grep :5733    # the owner — often blank in a sandbox
+```
+
+If it is still up, rule 1 is the whole game: kill the port's owner from `ss`
+after confirming `/proc/<pid>/cwd` is your `apps/web`. When `ss` cannot see the
+owner — common here, since it only reports processes in your own namespace —
+read `/proc/*/cwd` and `/proc/*/cmdline` directly and confirm the PID is one
+**you** started. Do not `pgrep -f … | kill`: your own agent process carries the
+pattern in its argv and matches, and so does the pre-existing `vp dev` this
+workspace may already be running.
+
+**Do not add `server.https` to `t3code/apps/web/vite.config.ts`.** It is an
+upstream file, so it is a fork delta paid at every merge — for something only a
+test needs. Terminating TLS outside the repo costs nothing and leaves no diff.
+
+`references/browser-check.mjs` does all of it and asserts the result:
+
+```bash
+node $SKILLS/references/browser-check.mjs \
+  --backend http://moatless-vibe-backend.moatless.svc.cluster.local:8080 \
+  --host $HOST_NAME --port 8444
+# app /ws sockets: 1
+# project shown:   soap-tm (backend lists 7)
+# console errors:  0
+# PASS
+```
+
+The first request to a cold Vite takes ~13 s while it transforms the module
+graph. That is not a hang, and it is why the checks below poll rather than sleep.
+
+### Playwright in this image
+
+Install into a scratch directory and run from there. Neither repo uses npm —
+t3code is pnpm, this one is bun — so an `npm install` inside either checkout
+leaves an `node_modules` tree and lockfile churn unrelated to your change.
 
 ```bash
 mkdir -p /tmp/pw && cd /tmp/pw
-npm install --no-save --no-package-lock playwright@latest   # matches the build in the image
-export PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+npm install --no-save --no-package-lock playwright@latest
+ls "${PLAYWRIGHT_BROWSERS_PATH:-/opt/playwright-browsers}"   # chromium-<build>
 ```
 
-The version has to match the **browser build** the image baked, which
-`ls /opt/playwright-browsers` shows as `chromium-<build>`. `@latest` is right
-while the image installs Playwright unpinned; if it errors with *"Executable
-doesn't exist"*, the image was pinned — install the Playwright release that
-ships that build instead. Do not copy a version from a `package.json`:
-`t3code/apps/desktop` pins 1.60.0, which wants a build the image does not have.
+Chromium is already baked into the image (`docker/Dockerfile.sandbox-base`), and
+`PLAYWRIGHT_BROWSERS_PATH` is often already pointing at it — check before
+setting it, and only set it if a run starts re-downloading 265 MB.
 
-Launch with `args: ["--no-sandbox"]`. For headed mode there is a
-`playwright-cli` wrapper on `PATH` that runs under xvfb.
+**Do not try to match Playwright's version to the baked build.** They drift: at
+the time of writing `@latest` is 1.62.1 and wants `chromium_headless_shell-1234`,
+while the image bakes `chromium-1194`, so a default launch dies with *"Executable
+doesn't exist"*. Name the binary instead and the question disappears — any recent
+Playwright drives an older chrome:
 
-A healthy load shows exactly **one** `/ws` socket, zero console errors, and real
-Workspace names in the sidebar.
+```js
+executablePath: "/opt/playwright-browsers/chromium-1194/chrome-linux/chrome"
+```
+
+`browser-check.mjs` discovers that path itself. Launch with
+`args: ["--no-sandbox"]`; for headed mode there is a `playwright-cli` wrapper on
+`PATH` that runs under xvfb.
+
+One more trap for a script kept in this repo: **ESM resolves imports from the
+script's own directory, not the cwd**, so `import { chromium } from "playwright"`
+in `.agents/skills/...` cannot see `/tmp/pw/node_modules` however you invoke it.
+Reach it with `createRequire("/tmp/pw/")("playwright")`.
+
+### What a healthy load looks like
+
+- Exactly **one** app socket, `wss://<host>/ws?...`. Vite's HMR socket is a
+  second, separate `ws://127.0.0.1:5733/?token=…` on the dev origin — match the
+  path so you do not count it as the app's.
+- A project name **the backend actually lists** rendered in the sidebar.
+- Zero console errors.
+
+**"No projects yet" clears on first paint, before any data arrives.** So a check
+that waits for that string to disappear passes against a blank page — which is
+exactly the failure it was written to catch. Assert a real name instead:
+`GET /api/v1/tasks?limit=20`, take the `repositoryName`s, and wait for one of
+them to appear.
 
 ## The rebuild loop
 
@@ -203,10 +313,9 @@ client reads.
 | The payload is right but the UI misreads it | `t3code/apps/web`, `t3code/packages/client-runtime` |
 | Client and server disagree about a shape | `t3code/packages/contracts` is the contract; the Rust side transcribes it by hand |
 
-A task in this workspace is bound to the **t3code** repository, so
-`moat gh pr create` refuses a PR against this repo (*"does not match task
-repository"*). Open moatless-side PRs with the plain `gh` CLI instead, and say
-which repo each PR is against so a reviewer is not hunting in the wrong one.
+`moat gh pr create` infers `-R` from the repository you run it in, so it opens
+PRs against **either** checkout — run it from the one the change lives in. Say
+which repo each PR is against, so a reviewer is not hunting in the wrong one.
 
 Background reading, in order: `CONTEXT.md` (the four colliding terms),
 `t3code/docs/reference/moatless-concept-map.md` §6,
@@ -222,6 +331,10 @@ documents the Docker Compose path, not this one.
 | "Loading messages…" pill never clears | Thread detail is served but `subscribeThread` never emitted `{kind:"synchronized"}`, which `server.getConfig`'s `threadResumeCompletionMarker` promises. |
 | Socket opens, snapshot arrives, then nothing | The feed is polling a fingerprint that did not move — in-place block merges keep the same row id. |
 | Playwright re-downloads browsers | `PLAYWRIGHT_BROWSERS_PATH` override. Set it to `/opt/playwright-browsers`. |
-| Playwright says "Executable doesn't exist" | Browser-build mismatch. Install the Playwright release that ships the `chromium-<build>` in `/opt/playwright-browsers`. |
-| `sync-env.sh` fails | Needs `get deployments` / `get secrets`: `kubectl auth can-i get secrets -n moatless`. |
+| Playwright says "Executable doesn't exist" | Browser-build mismatch, and version-chasing will not fix it. Pass `executablePath` naming the baked `chromium-<build>` binary. |
+| `ERR_MODULE_NOT_FOUND: playwright` from a script in this repo | ESM resolves from the script's directory, not the cwd. `createRequire("/tmp/pw/")("playwright")`. |
+| Browser check passes but the page is blank | It asserted on "No projects yet" being absent, which is true on first paint. Assert a project name the backend lists. |
+| Vite answers "Blocked request. This host is not allowed" | `T3CODE_DEV_ALLOWED_HOSTS` does not include the name you browsed. |
+| WS 403 against the deployed backend | Origin is not on `T3_UI_RPC_ALLOWED_ORIGINS`, or you reached Vite over http. Both entries are https. |
+| `sync-env.sh` fails | Needs `get deployments` / `get secrets`: `kubectl auth can-i get secrets -n moatless`. Without `get secrets` there is no shadow — see the harness table. |
 | T3 edit not showing | HMR runs in the sidecar. `curl -s localhost:5733/ \| head`, then `moat tasks servers $TASK_ID restart web`. |
