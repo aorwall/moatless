@@ -263,6 +263,7 @@ mod tests {
         async fn list_activations_for(
             &self,
             _user_id: Option<uuid::Uuid>,
+            _workspace_id: Option<&str>,
         ) -> Result<Vec<ActivationRow>, sqlx::Error> {
             unimplemented!()
         }
@@ -276,6 +277,7 @@ mod tests {
             _plugin_id: &str,
             _skill_name: Option<String>,
             _user_id: Option<uuid::Uuid>,
+            _workspace_id: Option<&str>,
         ) -> Result<bool, sqlx::Error> {
             unimplemented!()
         }

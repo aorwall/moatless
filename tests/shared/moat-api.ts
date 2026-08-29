@@ -1205,21 +1205,32 @@ export class MoatApi {
     )
   }
 
-  async listPluginActivations(pluginId: string): Promise<ActivationResponse[]> {
+  async listPluginActivations(
+    pluginId: string,
+    workspaceId?: string,
+  ): Promise<ActivationResponse[]> {
+    const qs = workspaceId === undefined ? '' : `?workspaceId=${workspaceId}`
     return this.expect<ActivationResponse[]>(
-      await this.moat.raw('GET', `/api/v1/plugins/${pluginId}/activations`),
+      await this.moat.raw('GET', `/api/v1/plugins/${pluginId}/activations${qs}`),
     )
   }
 
-  async listEffectivePlugins(): Promise<EffectivePluginResponse[]> {
+  /** What resolves for the caller, in a workspace when one is named. */
+  async listEffectivePlugins(workspaceId?: string): Promise<EffectivePluginResponse[]> {
+    const qs = workspaceId === undefined ? '' : `?workspaceId=${workspaceId}`
     return this.expect<EffectivePluginResponse[]>(
-      await this.moat.raw('GET', '/api/v1/plugins/effective'),
+      await this.moat.raw('GET', `/api/v1/plugins/effective${qs}`),
     )
   }
 
   async setPluginActivation(
     pluginId: string,
-    body: { reach: ActivationReach; skillName?: string | null; enabled: boolean },
+    body: {
+      reach: ActivationReach
+      skillName?: string | null
+      workspaceId?: string
+      enabled: boolean
+    },
   ): Promise<void> {
     this.expect(await this.moat.raw('PUT', `/api/v1/plugins/${pluginId}/activation`, body))
   }
@@ -1228,10 +1239,14 @@ export class MoatApi {
     pluginId: string,
     reach: ActivationReach,
     skillName?: string,
+    workspaceId?: string,
   ): Promise<void> {
     const params = new URLSearchParams({ reach })
     if (skillName !== undefined) {
       params.set('skillName', skillName)
+    }
+    if (workspaceId !== undefined) {
+      params.set('workspaceId', workspaceId)
     }
     this.expect(
       await this.moat.raw('DELETE', `/api/v1/plugins/${pluginId}/activation?${params.toString()}`),

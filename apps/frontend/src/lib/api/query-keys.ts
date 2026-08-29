@@ -86,8 +86,10 @@ export const queryKeys = {
   },
 
   skills: () => [...queryKeys.all, 'skills'] as const,
-  skillsForRepository: (repositoryId: string) =>
-    [...queryKeys.skills(), 'repository', repositoryId] as const,
+  // The workspace narrows which plugin skills load, so two workspaces over the
+  // same repository are two different lists.
+  skillsForRepository: (repositoryId: string, workspaceId?: string) =>
+    [...queryKeys.skills(), 'repository', repositoryId, workspaceId ?? null] as const,
 
   claudeCode: {
     all: () => [...queryKeys.all, 'claude-code'] as const,
@@ -137,9 +139,12 @@ export const queryKeys = {
     all: () => [...queryKeys.all, 'plugins'] as const,
     list: () => [...queryKeys.plugins.all(), 'list'] as const,
     skills: (pluginId: string) => [...queryKeys.plugins.all(), pluginId, 'skills'] as const,
-    activations: (pluginId: string) =>
-      [...queryKeys.plugins.all(), pluginId, 'activations'] as const,
-    effective: () => [...queryKeys.plugins.all(), 'effective'] as const,
+    // Both reads resolve differently per workspace, so the workspace is part of
+    // the key rather than something a cached entry can be stale about.
+    activations: (pluginId: string, workspaceId?: string) =>
+      [...queryKeys.plugins.all(), pluginId, 'activations', workspaceId ?? null] as const,
+    effective: (workspaceId?: string) =>
+      [...queryKeys.plugins.all(), 'effective', workspaceId ?? null] as const,
   },
 
   secrets: {

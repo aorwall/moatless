@@ -35,7 +35,7 @@ pub struct PluginSkillResponse {
     pub description: String,
 }
 
-/// Who an activation applies to: everyone, or one person.
+/// Who an activation applies to: everyone, one person, or one Workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +45,11 @@ pub enum ActivationReach {
     /// One person's own setting, which overrides the default. Which person is
     /// carried alongside as `userId`, and is the caller when that is absent.
     Personal,
+    /// One Workspace's setting, which overrides both the default and a
+    /// person's own — so a Workspace can add a skill nobody turned on and
+    /// keep out one that everybody has. Which Workspace is carried alongside
+    /// as `workspaceId`, and is required.
+    Workspace,
 }
 
 /// Turn a plugin, or one skill inside it, on or off.
@@ -63,6 +68,11 @@ pub struct SetActivationRequest {
     /// deployment-wide default instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<Uuid>,
+    /// Which Workspace's record, with `workspace` reach. Required there and
+    /// rejected with any other reach, where it would read as a record scoped
+    /// to that Workspace and write a broader one instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
     pub enabled: bool,
 }
 
@@ -78,6 +88,9 @@ pub struct ActivationResponse {
     /// Whose record this is. Absent for the deployment-wide default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<Uuid>,
+    /// Which Workspace's record this is. Absent for every other reach.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
     pub enabled: bool,
 }
 

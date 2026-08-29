@@ -50,6 +50,18 @@ vi.mock('@/features/repositories/hooks/use-repositories', () => ({
   useRepository: () => ({ data: { id: 'repo-1', name: 'acme-api' } }),
 }))
 
+// The skills panel reads the plugin registry. These tests are about the
+// provenance and save controls around it, so it stands in as an empty registry
+// rather than pulling a QueryClient into every case.
+vi.mock('@/features/plugins/hooks/use-plugins', () => ({
+  usePlugins: () => ({ data: [], isLoading: false, isError: false }),
+  usePluginSkills: () => ({ data: [], isLoading: false, isError: false }),
+  usePluginActivations: () => ({ data: [] }),
+  useEffectivePlugins: () => ({ data: [] }),
+  useSetActivation: () => ({ mutate: vi.fn(), isPending: false }),
+  useClearActivation: () => ({ mutate: vi.fn(), isPending: false }),
+}))
+
 beforeEach(() => {
   updateMutate.mockReset()
   deleteMutate.mockReset()

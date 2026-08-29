@@ -154,6 +154,7 @@ export * from './listFilesHandlerParams';
 export * from './listFilesResponse';
 export * from './listLoopRecentTasksParams';
 export * from './listPluginActivationsParams';
+export * from './listRepositorySkillsParams';
 export * from './listSecretsParams';
 export * from './listSkillsResponse';
 export * from './listTaskConnectionsParams';

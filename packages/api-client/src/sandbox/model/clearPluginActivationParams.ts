@@ -20,4 +20,8 @@ skillName?: string;
  * Whose personal record; omit for your own
  */
 userId?: string;
+/**
+ * Which Workspace's record; required with the workspace reach
+ */
+workspaceId?: string;
 };

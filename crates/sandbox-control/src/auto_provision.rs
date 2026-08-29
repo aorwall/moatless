@@ -274,15 +274,19 @@ pub async fn build_provision_request(
             .insert("AGENT_TYPE".to_string(), agent_type);
     }
 
-    // Resolve the plugins the identity this pod acts as has turned on. A sandbox
-    // with no identifiable run-as identity gets the global defaults and nothing
-    // personal — the column is polymorphic text, so a sentinel like `system` or
-    // a `bot:` value is nobody rather than an error.
+    // Resolve the plugins the identity this pod acts as has turned on, as the
+    // Workspace it runs in narrows them. A sandbox with no identifiable run-as
+    // identity gets the global defaults and nothing personal — the column is
+    // polymorphic text, so a sentinel like `system` or a `bot:` value is nobody
+    // rather than an error.
     let run_as = shape
         .run_as_user_id
         .as_deref()
         .and_then(|id| uuid::Uuid::parse_str(id).ok());
-    match workspaces.plugin_deliveries(run_as).await {
+    match workspaces
+        .plugin_deliveries(run_as, &shape.workspace_id)
+        .await
+    {
         Ok(deliveries) if !deliveries.is_empty() => {
             info!(
                 sandbox_id = %sandbox_id,

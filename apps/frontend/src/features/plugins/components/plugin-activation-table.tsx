@@ -1,12 +1,19 @@
-import type {
-  ActivationResponse,
-  EffectivePluginResponse,
-  PluginSkillResponse,
-} from '@moatless/api-client'
+import type { PluginSkillResponse } from '@moatless/api-client'
 import { ActivationReach } from '@moatless/api-client'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
+import {
+  type ActivationRow,
+  activationRows,
+  CONTROL_WIDTH,
+  CONTROLS,
+  DELIVERED_WIDTH,
+  isDelivered,
+  type Setting,
+  SettingSelect,
+  settingOf,
+} from '@/features/plugins/components/activation-controls'
 import {
   useClearActivation,
   useEffectivePlugins,
@@ -16,63 +23,7 @@ import {
 } from '@/features/plugins/hooks/use-plugins'
 import { Badge } from '@/lib/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/lib/components/ui/select'
 import { getErrorMessage } from '@/lib/utils/error'
-
-/** What one select can say. `unset` means "no record" — not the same as off. */
-const SETTINGS = ['on', 'off', 'unset'] as const
-type Setting = (typeof SETTINGS)[number]
-
-/** One row: the plugin as a whole, or one skill inside it. */
-type Row = {
-  /** `undefined` means the whole plugin. */
-  skillName: string | undefined
-  label: string
-  description: string | undefined
-}
-
-/**
- * The controls block, sized once so the header labels line up with the rows
- * beneath them without a table. Each control is fixed-width and never shrinks —
- * a long skill description wraps in the space left over rather than pushing the
- * controls off the right-hand edge.
- */
-const CONTROLS = 'flex shrink-0 items-center gap-3'
-const CONTROL_WIDTH = 'w-32'
-const DELIVERED_WIDTH = 'w-20'
-
-function settingOf(
-  records: ActivationResponse[],
-  reach: ActivationReach,
-  skillName: string | undefined,
-): Setting {
-  // The wire omits `skillName` for a whole-plugin record; tolerate an explicit
-  // null for the same thing.
-  const record = records.find((r) => r.reach === reach && (r.skillName ?? undefined) === skillName)
-  if (record === undefined) {
-    return 'unset'
-  }
-  return record.enabled ? 'on' : 'off'
-}
-
-function isDelivered(
-  effective: EffectivePluginResponse | undefined,
-  skillName: string | undefined,
-): boolean {
-  if (effective === undefined) {
-    return false
-  }
-  if (skillName === undefined) {
-    return true
-  }
-  return effective.skillNames.includes(skillName)
-}
 
 /**
  * Turn a plugin, or one skill inside it, on and off — for everyone, or just for
@@ -149,14 +100,7 @@ export function PluginActivationTable({
     )
   }
 
-  const rows: Row[] = [
-    { skillName: undefined, label: pluginName, description: 'The whole plugin' },
-    ...skillList.map((skill) => ({
-      skillName: skill.name,
-      label: skill.name,
-      description: skill.description,
-    })),
-  ]
+  const rows: ActivationRow[] = activationRows(pluginName, skillList)
   const applied = records ?? []
   const effective = effectivePlugins?.find((p) => p.pluginId === pluginId)
 
@@ -227,32 +171,5 @@ function ActivationCard({ children }: { children: React.ReactNode }) {
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
-  )
-}
-
-function SettingSelect({
-  label,
-  value,
-  disabled,
-  onChange,
-}: {
-  label: string
-  value: Setting
-  disabled: boolean
-  onChange: (setting: Setting) => void
-}) {
-  return (
-    <Select value={value} disabled={disabled} onValueChange={(v) => onChange(v as Setting)}>
-      {/* The column header is hidden on narrow screens, so the control carries
-          its own accessible name rather than relying on a visible one. */}
-      <SelectTrigger size="sm" aria-label={label} className={`${CONTROL_WIDTH} shrink-0`}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="on">On</SelectItem>
-        <SelectItem value="off">Off</SelectItem>
-        <SelectItem value="unset">Not set</SelectItem>
-      </SelectContent>
-    </Select>
   )
 }

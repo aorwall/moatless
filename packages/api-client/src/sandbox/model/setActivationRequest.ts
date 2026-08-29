@@ -27,4 +27,11 @@ deployment-wide default instead.
    * @nullable
    */
   userId?: string | null;
+  /**
+   * Which Workspace's record, with `workspace` reach. Required there and
+rejected with any other reach, where it would read as a record scoped
+to that Workspace and write a broader one instead.
+   * @nullable
+   */
+  workspaceId?: string | null;
 }

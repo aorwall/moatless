@@ -29,12 +29,15 @@ pub struct PluginSkill {
 
 /// Row from the `plugin_activations` table.
 ///
-/// `user_id: None` means everyone; `skill_name: None` means the whole plugin.
-/// See [`crate::plugin::activation`] for how the two axes combine.
+/// A row names at most one subject: `user_id` is one person's record,
+/// `workspace_id` is one Workspace's, and neither is the deployment-wide
+/// default. `skill_name: None` means the whole plugin. See
+/// [`crate::plugin::activation`] for how the two axes combine.
 #[derive(sqlx::FromRow, Debug, Clone, PartialEq, Eq)]
 pub struct ActivationRow {
     pub plugin_id: String,
     pub skill_name: Option<String>,
     pub user_id: Option<Uuid>,
+    pub workspace_id: Option<String>,
     pub enabled: bool,
 }

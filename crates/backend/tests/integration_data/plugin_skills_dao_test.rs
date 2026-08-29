@@ -177,6 +177,7 @@ async fn one_plugin_holds_at_most_one_global_record(pool: PgPool) {
         plugin_id: "p1".to_string(),
         skill_name: None,
         user_id: None,
+        workspace_id: None,
         enabled: true,
     };
     dao.set_activation(&on).await.expect("turn on");
@@ -187,7 +188,7 @@ async fn one_plugin_holds_at_most_one_global_record(pool: PgPool) {
     .await
     .expect("turn off");
 
-    let rows = dao.list_activations_for(None).await.expect("list");
+    let rows = dao.list_activations_for(None, None).await.expect("list");
     assert_eq!(
         rows,
         vec![ActivationRow {
@@ -211,18 +212,21 @@ async fn resolution_sees_global_records_plus_only_its_own(pool: PgPool) {
             plugin_id: "p1".into(),
             skill_name: None,
             user_id: None,
+            workspace_id: None,
             enabled: true,
         },
         ActivationRow {
             plugin_id: "p1".into(),
             skill_name: None,
             user_id: Some(alice_id),
+            workspace_id: None,
             enabled: false,
         },
         ActivationRow {
             plugin_id: "p1".into(),
             skill_name: None,
             user_id: Some(bob_id),
+            workspace_id: None,
             enabled: false,
         },
     ] {
@@ -230,7 +234,7 @@ async fn resolution_sees_global_records_plus_only_its_own(pool: PgPool) {
     }
 
     let alice = dao
-        .list_activations_for(Some(alice_id))
+        .list_activations_for(Some(alice_id), None)
         .await
         .expect("list");
     assert_eq!(alice.len(), 2, "the global default plus alice's own");
@@ -250,18 +254,19 @@ async fn clearing_a_record_is_not_the_same_as_turning_it_off(pool: PgPool) {
         plugin_id: "p1".into(),
         skill_name: None,
         user_id: Some(alice_id),
+        workspace_id: None,
         enabled: false,
     })
     .await
     .expect("set");
 
     assert!(dao
-        .clear_activation("p1", None, Some(alice_id))
+        .clear_activation("p1", None, Some(alice_id), None)
         .await
         .expect("clear"));
 
     assert!(
-        dao.list_activations_for(Some(alice_id))
+        dao.list_activations_for(Some(alice_id), None)
             .await
             .expect("list")
             .is_empty(),
@@ -269,7 +274,7 @@ async fn clearing_a_record_is_not_the_same_as_turning_it_off(pool: PgPool) {
          them to off"
     );
     assert!(
-        !dao.clear_activation("p1", None, Some(alice_id))
+        !dao.clear_activation("p1", None, Some(alice_id), None)
             .await
             .expect("clear again"),
         "clearing what is not there reports so, rather than pretending"
@@ -285,6 +290,7 @@ async fn a_skill_record_and_a_plugin_record_coexist(pool: PgPool) {
         plugin_id: "p1".into(),
         skill_name: None,
         user_id: None,
+        workspace_id: None,
         enabled: true,
     })
     .await
@@ -293,25 +299,207 @@ async fn a_skill_record_and_a_plugin_record_coexist(pool: PgPool) {
         plugin_id: "p1".into(),
         skill_name: Some("noisy".into()),
         user_id: None,
+        workspace_id: None,
         enabled: false,
     })
     .await
     .expect("skill record");
 
     assert_eq!(
-        dao.list_activations_for(None).await.expect("list").len(),
+        dao.list_activations_for(None, None).await.expect("list").len(),
         2,
         "\"the whole plugin, except this skill\" needs both records to survive"
     );
 
     assert!(dao
-        .clear_activation("p1", Some("noisy".to_string()), None)
+        .clear_activation("p1", Some("noisy".to_string()), None, None)
         .await
         .expect("clear the skill record"));
     assert_eq!(
-        dao.list_activations_for(None).await.expect("list").len(),
+        dao.list_activations_for(None, None).await.expect("list").len(),
         1,
         "clearing the skill record must not take the plugin record with it"
+    );
+}
+
+/// A real workspace row: an activation record's `workspace_id` is a foreign
+/// key, so a Workspace record cannot be written for one that does not exist.
+async fn workspace(pool: &PgPool, id: &str) -> String {
+    sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+        .bind(id)
+        .bind(format!("workspace-{id}"))
+        .execute(pool)
+        .await
+        .expect("insert workspace");
+    id.to_string()
+}
+
+#[sqlx::test]
+async fn a_workspace_record_sits_beside_the_global_and_personal_ones(pool: PgPool) {
+    let dao = PgPluginDao(pool.clone());
+    dao.insert(&plugin("p1")).await.expect("insert plugin");
+    let alice_id = user(&pool, "alice").await;
+    let ws = workspace(&pool, "ws1").await;
+
+    for row in [
+        ActivationRow {
+            plugin_id: "p1".into(),
+            skill_name: None,
+            user_id: None,
+            workspace_id: None,
+            enabled: true,
+        },
+        ActivationRow {
+            plugin_id: "p1".into(),
+            skill_name: None,
+            user_id: Some(alice_id),
+            workspace_id: None,
+            enabled: false,
+        },
+        ActivationRow {
+            plugin_id: "p1".into(),
+            skill_name: None,
+            user_id: None,
+            workspace_id: Some(ws.clone()),
+            enabled: true,
+        },
+    ] {
+        dao.set_activation(&row).await.expect("set");
+    }
+
+    let rows = dao
+        .list_activations_for(Some(alice_id), Some(&ws))
+        .await
+        .expect("list");
+    assert_eq!(
+        rows.len(),
+        3,
+        "a workspace record shares the (plugin, skill) key with the global one \
+         and must not replace it"
+    );
+}
+
+#[sqlx::test]
+async fn one_workspace_does_not_see_another_workspaces_records(pool: PgPool) {
+    let dao = PgPluginDao(pool.clone());
+    dao.insert(&plugin("p1")).await.expect("insert plugin");
+    let mine = workspace(&pool, "ws1").await;
+    let theirs = workspace(&pool, "ws2").await;
+
+    dao.set_activation(&ActivationRow {
+        plugin_id: "p1".into(),
+        skill_name: None,
+        user_id: None,
+        workspace_id: Some(theirs),
+        enabled: false,
+    })
+    .await
+    .expect("set");
+
+    assert!(
+        dao.list_activations_for(None, Some(&mine))
+            .await
+            .expect("list")
+            .is_empty(),
+        "narrowing a plugin in one workspace must not narrow it in every other"
+    );
+}
+
+#[sqlx::test]
+async fn clearing_a_workspace_record_leaves_the_personal_one_alone(pool: PgPool) {
+    let dao = PgPluginDao(pool.clone());
+    dao.insert(&plugin("p1")).await.expect("insert plugin");
+    let alice_id = user(&pool, "alice").await;
+    let ws = workspace(&pool, "ws1").await;
+
+    for row in [
+        ActivationRow {
+            plugin_id: "p1".into(),
+            skill_name: None,
+            user_id: Some(alice_id),
+            workspace_id: None,
+            enabled: true,
+        },
+        ActivationRow {
+            plugin_id: "p1".into(),
+            skill_name: None,
+            user_id: None,
+            workspace_id: Some(ws.clone()),
+            enabled: false,
+        },
+    ] {
+        dao.set_activation(&row).await.expect("set");
+    }
+
+    assert!(dao
+        .clear_activation("p1", None, None, Some(&ws))
+        .await
+        .expect("clear"));
+
+    let rows = dao
+        .list_activations_for(Some(alice_id), Some(&ws))
+        .await
+        .expect("list");
+    assert_eq!(
+        rows.iter().map(|r| r.user_id).collect::<Vec<_>>(),
+        vec![Some(alice_id)],
+        "the two records key apart, so clearing one must not take the other"
+    );
+}
+
+#[sqlx::test]
+async fn a_record_cannot_name_both_a_person_and_a_workspace(pool: PgPool) {
+    let dao = PgPluginDao(pool.clone());
+    dao.insert(&plugin("p1")).await.expect("insert plugin");
+    let alice_id = user(&pool, "alice").await;
+    let ws = workspace(&pool, "ws1").await;
+
+    let both = dao
+        .set_activation(&ActivationRow {
+            plugin_id: "p1".into(),
+            skill_name: None,
+            user_id: Some(alice_id),
+            workspace_id: Some(ws),
+            enabled: true,
+        })
+        .await;
+
+    assert!(
+        both.is_err(),
+        "a row naming two subjects has no place in the precedence order, so \
+         the database refuses it rather than leaving resolution to pick"
+    );
+}
+
+#[sqlx::test]
+async fn deleting_a_workspace_takes_its_activations_with_it(pool: PgPool) {
+    let dao = PgPluginDao(pool.clone());
+    dao.insert(&plugin("p1")).await.expect("insert plugin");
+    let ws = workspace(&pool, "ws1").await;
+
+    dao.set_activation(&ActivationRow {
+        plugin_id: "p1".into(),
+        skill_name: None,
+        user_id: None,
+        workspace_id: Some(ws.clone()),
+        enabled: true,
+    })
+    .await
+    .expect("set");
+
+    sqlx::query("DELETE FROM workspaces WHERE id = $1")
+        .bind(&ws)
+        .execute(&pool)
+        .await
+        .expect("delete workspace");
+
+    assert!(
+        dao.list_activations_for(None, Some(&ws))
+            .await
+            .expect("list")
+            .is_empty(),
+        "records outliving the workspace they narrow would apply to whatever \
+         reused the id"
     );
 }
 
@@ -323,6 +511,7 @@ async fn deleting_a_plugin_takes_its_activations_with_it(pool: PgPool) {
         plugin_id: "p1".into(),
         skill_name: None,
         user_id: None,
+        workspace_id: None,
         enabled: true,
     })
     .await
@@ -330,7 +519,7 @@ async fn deleting_a_plugin_takes_its_activations_with_it(pool: PgPool) {
 
     assert!(dao.delete("p1").await.expect("delete"));
     assert!(
-        dao.list_activations_for(None)
+        dao.list_activations_for(None, None)
             .await
             .expect("list")
             .is_empty(),

@@ -13,6 +13,7 @@ use super::schemas::{
     PluginResponse, PluginSkillResponse, SetActivationRequest,
 };
 use super::sync::PluginSyncService;
+use crate::workspace::dao::WorkspaceDao;
 use moatless_identity::extractors::UserTokenVerifier;
 
 #[derive(OpenApi)]
@@ -49,12 +50,14 @@ pub struct PluginApiDoc;
 /// Generic over the router state `S` so this module names no root type: the
 /// composition root supplies the concrete state at the call site, and each
 /// handler reaches its ports — `Arc<dyn PluginDao>`, `Arc<PluginSyncService>`,
+/// `Arc<dyn WorkspaceDao>` (which Workspace a workspace-reach record may name),
 /// and the `UserTokenVerifier` behind `AuthUser` — through `FromRef<S>`.
 pub fn plugin_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
     Arc<dyn PluginDao>: FromRef<S>,
     Arc<PluginSyncService>: FromRef<S>,
+    Arc<dyn WorkspaceDao>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
 {
     let (router, api) = OpenApiRouter::with_openapi(PluginApiDoc::openapi())

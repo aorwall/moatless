@@ -51,6 +51,12 @@ provider SDK (`kube`/`bollard`) — its error type boxes any provider error behi
   environment is only the starting environment, and both the per-turn agent map
   and a sidecar's `server.env` overlay it. A workspace value must therefore
   travel on those channels too, not only in the plan.
+- Plugin skills resolve in that same order. `auto_provision` passes both the
+  run-as identity and `shape.workspace_id` to `plugin_deliveries`, and
+  `plugin::activation` ranks a Workspace record above a personal one above the
+  global default. Dropping the workspace argument would silently hand a pod the
+  identity's own set — every skill the Workspace excluded, back again — which is
+  why the port takes it as `&str` rather than an `Option`.
 - A Workspace's `env_vars` are configuration, and `secrets::is_platform_owned_key`
   is what keeps them from becoming something else. Every channel that carries
   them to a pod filters with it — `secrets::resolve_workspace_env_vars` for the

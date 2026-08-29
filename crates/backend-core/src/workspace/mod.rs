@@ -71,11 +71,13 @@ pub trait WorkspaceResolver: Send + Sync {
     /// Every repository the Workspace places, primary first.
     async fn placements(&self, workspace_id: &str) -> Result<Vec<RepoPlacement>, StoreError>;
 
-    /// The effective plugins for an identity, each with the skills to keep.
-    /// `None` is nobody in particular and yields the global defaults.
+    /// The effective plugins for an identity working in a Workspace, each with
+    /// the skills to keep. `user_id: None` is nobody in particular and yields
+    /// the global defaults; the Workspace's own records outrank both.
     async fn plugin_deliveries(
         &self,
         user_id: Option<Uuid>,
+        workspace_id: &str,
     ) -> Result<Vec<PluginDelivery>, StoreError>;
 }
 

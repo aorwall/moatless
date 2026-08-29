@@ -4161,7 +4161,7 @@
         "tags": [
           "plugins"
         ],
-        "summary": "What one person actually gets, once global defaults and their own records\nhave been resolved against each other. The caller unless `userId` names\nanother, which is an administrator's call.",
+        "summary": "What one person actually gets, once the global defaults, their own records\nand — when `workspaceId` names one — that Workspace's have been resolved\nagainst each other. The caller unless `userId` names another, which is an\nadministrator's call.",
         "description": "The same read whoever it is asked about: an administrator setting a bot\nuser's records needs to see what those records add up to for the bot, not\nfor themselves, and resolution is the server's to do either way.",
         "operationId": "list_effective_plugins",
         "parameters": [
@@ -4173,6 +4173,15 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "workspaceId",
+            "in": "query",
+            "description": "Which Workspace they are working in; omit for none in particular",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -4192,6 +4201,16 @@
           },
           "403": {
             "description": "Admin required for somebody else's delivery",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such workspace",
             "content": {
               "application/json": {
                 "schema": {
@@ -4264,7 +4283,7 @@
           "plugins"
         ],
         "summary": "Turn a plugin, or one skill inside it, on or off.",
-        "description": "Setting the default for everyone is an administrator's call; setting one's\nown is anybody's, and setting somebody else's — a bot user, which has no way\nto sign in and set its own — is an administrator's again. A personal record\nwins over the global one in both directions, so this same endpoint is how\nsomebody escapes a plugin that arrived by default.",
+        "description": "Setting the default for everyone is an administrator's call; setting one's\nown is anybody's, and setting somebody else's — a bot user, which has no way\nto sign in and set its own — is an administrator's again. Setting a\nWorkspace's is whoever the Workspace resolves for, the same gate that\ngoverns its run configuration.\n\nEach reach wins over the one below it in both directions, so this same\nendpoint is how somebody escapes a plugin that arrived by default, and how a\nWorkspace adds one nobody turned on.",
         "operationId": "set_plugin_activation",
         "parameters": [
           {
@@ -4299,7 +4318,7 @@
             }
           },
           "400": {
-            "description": "A user was named with the everyone reach",
+            "description": "A subject was named with a reach it does not belong to",
             "content": {
               "application/json": {
                 "schema": {
@@ -4309,7 +4328,7 @@
             }
           },
           "403": {
-            "description": "Admin required for the global default or somebody else's record",
+            "description": "Admin required for the global default or somebody else's record; control of the Workspace required for a workspace one",
             "content": {
               "application/json": {
                 "schema": {
@@ -4345,7 +4364,7 @@
           "plugins"
         ],
         "summary": "Remove an activation record.",
-        "description": "Clearing a personal record is not the same as setting it to off: it hands\nthe person back to whatever the global default says.",
+        "description": "Clearing a record is not the same as setting it to off: it hands the subject\nback to whatever the next reach down says.",
         "operationId": "clear_plugin_activation",
         "parameters": [
           {
@@ -4384,6 +4403,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "workspaceId",
+            "in": "query",
+            "description": "Which Workspace's record; required with the workspace reach",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4391,7 +4419,7 @@
             "description": "Cleared"
           },
           "400": {
-            "description": "A user was named with the everyone reach",
+            "description": "A subject was named with a reach it does not belong to",
             "content": {
               "application/json": {
                 "schema": {
@@ -4401,7 +4429,7 @@
             }
           },
           "403": {
-            "description": "Admin required for the global default or somebody else's record",
+            "description": "Admin required for the global default or somebody else's record; control of the Workspace required for a workspace one",
             "content": {
               "application/json": {
                 "schema": {
@@ -4438,7 +4466,7 @@
         "tags": [
           "plugins"
         ],
-        "summary": "The activation records that bear on one person for one plugin: every global\nrecord plus theirs, and nobody else's. The person is the caller unless\n`userId` names another, which is an administrator's call.",
+        "summary": "The activation records that bear on one person for one plugin: every global\nrecord plus theirs, and nobody else's — plus one Workspace's when `workspaceId`\nnames one. The person is the caller unless `userId` names another, which is\nan administrator's call.",
         "description": "This is the read half of the two write endpoints below. Without it a control\ncan show what somebody *gets* but not which record put it there, so \"turn\noff my personal override\" and \"the default is already off\" look identical.",
         "operationId": "list_plugin_activations",
         "parameters": [
@@ -4460,6 +4488,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "workspaceId",
+            "in": "query",
+            "description": "Also include this Workspace's records",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4478,6 +4515,16 @@
           },
           "403": {
             "description": "Admin required for somebody else's records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such workspace",
             "content": {
               "application/json": {
                 "schema": {
@@ -4873,7 +4920,7 @@
           "skills"
         ],
         "summary": "List all skills discovered for a repository.",
-        "description": "Returns skills from the workspace repo's own `.claude/skills/` directory\nplus the plugin skills the caller's own activation records turn on,\ndeduplicated by name (workspace shadows plugin, first plugin wins on\nplugin-vs-plugin clash).\n\nThe plugin half is per-caller: this is the same list that will be delivered\ninto that caller's sandbox, so two people can see different skills for the\nsame repository.",
+        "description": "Returns skills from the workspace repo's own `.claude/skills/` directory\nplus the plugin skills the caller's own activation records turn on,\ndeduplicated by name (workspace shadows plugin, first plugin wins on\nplugin-vs-plugin clash).\n\nThe plugin half is per-caller: this is the same list that will be delivered\ninto that caller's sandbox, so two people can see different skills for the\nsame repository.\n\n`workspaceId` narrows the plugin half by that Workspace's own activation\nrecords, which outrank both the global default and the caller's own. Pass\nthe Workspace the task runs in and the list is what its agent will have;\nomit it and the list is what the caller gets anywhere.",
         "operationId": "list_repository_skills",
         "parameters": [
           {
@@ -4881,6 +4928,15 @@
             "in": "path",
             "description": "Repository identifier",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspaceId",
+            "in": "query",
+            "description": "Narrow to what loads in this Workspace",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -4898,7 +4954,7 @@
             }
           },
           "404": {
-            "description": "Repository not found",
+            "description": "Repository or workspace not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -8761,10 +8817,11 @@
       },
       "ActivationReach": {
         "type": "string",
-        "description": "Who an activation applies to: everyone, or one person.",
+        "description": "Who an activation applies to: everyone, one person, or one Workspace.",
         "enum": [
           "everyone",
-          "personal"
+          "personal",
+          "workspace"
         ]
       },
       "ActivationResponse": {
@@ -8798,6 +8855,13 @@
             ],
             "format": "uuid",
             "description": "Whose record this is. Absent for the deployment-wide default."
+          },
+          "workspaceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Which Workspace's record this is. Absent for every other reach."
           }
         }
       },
@@ -15189,6 +15253,13 @@
             ],
             "format": "uuid",
             "description": "Whose record, with `personal` reach: the caller's own when omitted, and\nsomebody else's only for an administrator — which is how a bot user,\nwho never signs in to set its own, gets one. Rejected with `everyone`,\nwhere naming a person would read as a record for them and write the\ndeployment-wide default instead."
+          },
+          "workspaceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Which Workspace's record, with `workspace` reach. Required there and\nrejected with any other reach, where it would read as a record scoped\nto that Workspace and write a broader one instead."
           }
         }
       },

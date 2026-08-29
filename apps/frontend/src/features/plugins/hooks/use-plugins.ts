@@ -39,14 +39,18 @@ export function usePluginSkills(
   })
 }
 
-/** The activation records that apply to this user for one plugin. */
+/**
+ * The activation records that apply to this user for one plugin, and to the
+ * named workspace when there is one.
+ */
 export function usePluginActivations(
   pluginId: string,
+  workspaceId?: string,
   options?: Omit<UseQueryOptions<ActivationResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.plugins.activations(pluginId),
-    queryFn: () => pluginsApi.listPluginActivations(pluginId),
+    queryKey: queryKeys.plugins.activations(pluginId, workspaceId),
+    queryFn: () => pluginsApi.listPluginActivations(pluginId, workspaceId),
     enabled: !!pluginId,
     ...options,
   })
@@ -80,13 +84,17 @@ export function useDeletePlugin(options?: UseMutationOptions<void, Error, string
   })
 }
 
-/** What this user receives, after global defaults and their own records resolve. */
+/**
+ * What this user receives, after the global defaults, their own records and —
+ * when a workspace is named — that workspace's resolve against each other.
+ */
 export function useEffectivePlugins(
+  workspaceId?: string,
   options?: Omit<UseQueryOptions<EffectivePluginResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.plugins.effective(),
-    queryFn: () => pluginsApi.listEffectivePlugins(),
+    queryKey: queryKeys.plugins.effective(workspaceId),
+    queryFn: () => pluginsApi.listEffectivePlugins(workspaceId),
     ...options,
   })
 }

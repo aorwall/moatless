@@ -16,6 +16,8 @@ pub enum Reach {
     Everyone,
     /// Just you, overriding the default.
     Personal,
+    /// One workspace, overriding both. Needs `--workspace`.
+    Workspace,
 }
 
 impl From<Reach> for ActivationReach {
@@ -23,6 +25,7 @@ impl From<Reach> for ActivationReach {
         match r {
             Reach::Everyone => ActivationReach::Everyone,
             Reach::Personal => ActivationReach::Personal,
+            Reach::Workspace => ActivationReach::Workspace,
         }
     }
 }
@@ -50,6 +53,9 @@ pub enum PluginAction {
         /// Omit to mean the whole plugin
         #[arg(long)]
         skill: Option<String>,
+        /// Which workspace, with `--reach workspace`
+        #[arg(long)]
+        workspace: Option<String>,
     },
     /// Turn a plugin, or one skill inside it, off
     Disable {
@@ -59,8 +65,11 @@ pub enum PluginAction {
         /// Omit to mean the whole plugin
         #[arg(long)]
         skill: Option<String>,
+        /// Which workspace, with `--reach workspace`
+        #[arg(long)]
+        workspace: Option<String>,
     },
-    /// Remove a record, handing it back to whatever the default says
+    /// Remove a record, handing it back to whatever the next reach down says
     Clear {
         plugin_id: String,
         #[arg(long, value_enum)]
@@ -68,9 +77,16 @@ pub enum PluginAction {
         /// Omit to mean the whole-plugin record
         #[arg(long)]
         skill: Option<String>,
+        /// Which workspace, with `--reach workspace`
+        #[arg(long)]
+        workspace: Option<String>,
     },
     /// What you actually get, once defaults and your own records resolve
-    Effective,
+    Effective {
+        /// Resolve as it would be in this workspace
+        #[arg(long)]
+        workspace: Option<String>,
+    },
 }
 
 pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Result<(), ClientError> {
@@ -112,29 +128,40 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
             plugin_id,
             reach,
             skill,
+            workspace,
         } => {
-            set_activation(client, &plugin_id, reach, skill, true, json).await?;
+            set_activation(client, &plugin_id, reach, skill, workspace, true, json).await?;
         }
         PluginAction::Disable {
             plugin_id,
             reach,
             skill,
+            workspace,
         } => {
-            set_activation(client, &plugin_id, reach, skill, false, json).await?;
+            set_activation(client, &plugin_id, reach, skill, workspace, false, json).await?;
         }
         PluginAction::Clear {
             plugin_id,
             reach,
             skill,
+            workspace,
         } => {
             client
                 .api()
-                .clear_plugin_activation(&plugin_id, reach.into(), skill.as_deref())
+                .clear_plugin_activation(
+                    &plugin_id,
+                    reach.into(),
+                    skill.as_deref(),
+                    workspace.as_deref(),
+                )
                 .await?;
             println!("Activation record cleared.");
         }
-        PluginAction::Effective => {
-            let plugins = client.api().list_effective_plugins().await?;
+        PluginAction::Effective { workspace } => {
+            let plugins = client
+                .api()
+                .list_effective_plugins(workspace.as_deref())
+                .await?;
             if json {
                 output::print_json_typed(&plugins);
             } else {
@@ -155,11 +182,13 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn set_activation(
     client: &MoatClient,
     plugin_id: &str,
     reach: Reach,
     skill_name: Option<String>,
+    workspace_id: Option<String>,
     enabled: bool,
     json: bool,
 ) -> Result<(), ClientError> {
@@ -169,6 +198,7 @@ async fn set_activation(
         // Always the caller's own record: the command line has no way to name
         // another user, and `--reach personal` reads as "me" here.
         user_id: None,
+        workspace_id,
         enabled,
     };
     let stored = client.api().set_plugin_activation(plugin_id, &req).await?;

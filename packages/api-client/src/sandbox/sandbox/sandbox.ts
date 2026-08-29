@@ -945,6 +945,9 @@ export const prefetchLiveStatusHandlerQuery = async <TData = Awaited<ReturnType<
 /**
  * Builds the provision request internally from DB state (task, repository,
 credentials). No request body required.
+
+Requires start access: the Sandbox's owner, a platform admin, or any
+signed-in caller when the Task is public.
  * @summary Provision a new sandbox for a task.
  */
 export type provisionHandlerResponse200 = {
@@ -955,6 +958,11 @@ export type provisionHandlerResponse200 = {
 export type provisionHandlerResponse400 = {
   data: ErrorBody
   status: 400
+}
+
+export type provisionHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
 }
 
 export type provisionHandlerResponse409 = {
@@ -970,7 +978,7 @@ export type provisionHandlerResponse500 = {
 export type provisionHandlerResponseSuccess = (provisionHandlerResponse200) & {
   headers: Headers;
 };
-export type provisionHandlerResponseError = (provisionHandlerResponse400 | provisionHandlerResponse409 | provisionHandlerResponse500) & {
+export type provisionHandlerResponseError = (provisionHandlerResponse400 | provisionHandlerResponse403 | provisionHandlerResponse409 | provisionHandlerResponse500) & {
   headers: Headers;
 };
 

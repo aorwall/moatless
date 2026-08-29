@@ -278,9 +278,10 @@ export const useCreatePlugin = <TError = ErrorType<ErrorBody>,
  * The same read whoever it is asked about: an administrator setting a bot
 user's records needs to see what those records add up to for the bot, not
 for themselves, and resolution is the server's to do either way.
- * @summary What one person actually gets, once global defaults and their own records
-have been resolved against each other. The caller unless `userId` names
-another, which is an administrator's call.
+ * @summary What one person actually gets, once the global defaults, their own records
+and — when `workspaceId` names one — that Workspace's have been resolved
+against each other. The caller unless `userId` names another, which is an
+administrator's call.
  */
 export type listEffectivePluginsResponse200 = {
   data: EffectivePluginResponse[]
@@ -292,6 +293,11 @@ export type listEffectivePluginsResponse403 = {
   status: 403
 }
 
+export type listEffectivePluginsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
 export type listEffectivePluginsResponse500 = {
   data: ErrorBody
   status: 500
@@ -300,7 +306,7 @@ export type listEffectivePluginsResponse500 = {
 export type listEffectivePluginsResponseSuccess = (listEffectivePluginsResponse200) & {
   headers: Headers;
 };
-export type listEffectivePluginsResponseError = (listEffectivePluginsResponse403 | listEffectivePluginsResponse500) & {
+export type listEffectivePluginsResponseError = (listEffectivePluginsResponse403 | listEffectivePluginsResponse404 | listEffectivePluginsResponse500) & {
   headers: Headers;
 };
 
@@ -390,9 +396,10 @@ export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEf
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
- * @summary What one person actually gets, once global defaults and their own records
-have been resolved against each other. The caller unless `userId` names
-another, which is an administrator's call.
+ * @summary What one person actually gets, once the global defaults, their own records
+and — when `workspaceId` names one — that Workspace's have been resolved
+against each other. The caller unless `userId` names another, which is an
+administrator's call.
  */
 
 export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
@@ -408,9 +415,10 @@ export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEf
 }
 
 /**
- * @summary What one person actually gets, once global defaults and their own records
-have been resolved against each other. The caller unless `userId` names
-another, which is an administrator's call.
+ * @summary What one person actually gets, once the global defaults, their own records
+and — when `workspaceId` names one — that Workspace's have been resolved
+against each other. The caller unless `userId` names another, which is an
+administrator's call.
  */
 export const prefetchListEffectivePluginsQuery = async <TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, params?: ListEffectivePluginsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -522,9 +530,13 @@ export const useDeletePlugin = <TError = ErrorType<ErrorBody>,
     /**
  * Setting the default for everyone is an administrator's call; setting one's
 own is anybody's, and setting somebody else's — a bot user, which has no way
-to sign in and set its own — is an administrator's again. A personal record
-wins over the global one in both directions, so this same endpoint is how
-somebody escapes a plugin that arrived by default.
+to sign in and set its own — is an administrator's again. Setting a
+Workspace's is whoever the Workspace resolves for, the same gate that
+governs its run configuration.
+
+Each reach wins over the one below it in both directions, so this same
+endpoint is how somebody escapes a plugin that arrived by default, and how a
+Workspace adds one nobody turned on.
  * @summary Turn a plugin, or one skill inside it, on or off.
  */
 export type setPluginActivationResponse200 = {
@@ -630,8 +642,8 @@ export const useSetPluginActivation = <TError = ErrorType<ErrorBody>,
       return useMutation(getSetPluginActivationMutationOptions(options), queryClient);
     }
     /**
- * Clearing a personal record is not the same as setting it to off: it hands
-the person back to whatever the global default says.
+ * Clearing a record is not the same as setting it to off: it hands the subject
+back to whatever the next reach down says.
  * @summary Remove an activation record.
  */
 export type clearPluginActivationResponse204 = {
@@ -748,8 +760,9 @@ export const useClearPluginActivation = <TError = ErrorType<ErrorBody>,
 can show what somebody *gets* but not which record put it there, so "turn
 off my personal override" and "the default is already off" look identical.
  * @summary The activation records that bear on one person for one plugin: every global
-record plus theirs, and nobody else's. The person is the caller unless
-`userId` names another, which is an administrator's call.
+record plus theirs, and nobody else's — plus one Workspace's when `workspaceId`
+names one. The person is the caller unless `userId` names another, which is
+an administrator's call.
  */
 export type listPluginActivationsResponse200 = {
   data: ActivationResponse[]
@@ -761,6 +774,11 @@ export type listPluginActivationsResponse403 = {
   status: 403
 }
 
+export type listPluginActivationsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
 export type listPluginActivationsResponse500 = {
   data: ErrorBody
   status: 500
@@ -769,7 +787,7 @@ export type listPluginActivationsResponse500 = {
 export type listPluginActivationsResponseSuccess = (listPluginActivationsResponse200) & {
   headers: Headers;
 };
-export type listPluginActivationsResponseError = (listPluginActivationsResponse403 | listPluginActivationsResponse500) & {
+export type listPluginActivationsResponseError = (listPluginActivationsResponse403 | listPluginActivationsResponse404 | listPluginActivationsResponse500) & {
   headers: Headers;
 };
 
@@ -867,8 +885,9 @@ export function useListPluginActivations<TData = Awaited<ReturnType<typeof listP
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
  * @summary The activation records that bear on one person for one plugin: every global
-record plus theirs, and nobody else's. The person is the caller unless
-`userId` names another, which is an administrator's call.
+record plus theirs, and nobody else's — plus one Workspace's when `workspaceId`
+names one. The person is the caller unless `userId` names another, which is
+an administrator's call.
  */
 
 export function useListPluginActivations<TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
@@ -886,8 +905,9 @@ export function useListPluginActivations<TData = Awaited<ReturnType<typeof listP
 
 /**
  * @summary The activation records that bear on one person for one plugin: every global
-record plus theirs, and nobody else's. The person is the caller unless
-`userId` names another, which is an administrator's call.
+record plus theirs, and nobody else's — plus one Workspace's when `workspaceId`
+names one. The person is the caller unless `userId` names another, which is
+an administrator's call.
  */
 export const prefetchListPluginActivationsQuery = async <TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, id: string,

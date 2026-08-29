@@ -22,6 +22,7 @@ import type {
 
 import type {
   ErrorBody,
+  ListRepositorySkillsParams,
   ListSkillsResponse
 } from '.././model';
 
@@ -46,6 +47,11 @@ plugin-vs-plugin clash).
 The plugin half is per-caller: this is the same list that will be delivered
 into that caller's sandbox, so two people can see different skills for the
 same repository.
+
+`workspaceId` narrows the plugin half by that Workspace's own activation
+records, which outrank both the global default and the caller's own. Pass
+the Workspace the task runs in and the list is what its agent will have;
+omit it and the list is what the caller gets anywhere.
  * @summary List all skills discovered for a repository.
  */
 export type listRepositorySkillsResponse200 = {
@@ -72,17 +78,26 @@ export type listRepositorySkillsResponseError = (listRepositorySkillsResponse404
 
 export type listRepositorySkillsResponse = (listRepositorySkillsResponseSuccess | listRepositorySkillsResponseError)
 
-export const getListRepositorySkillsUrl = (repositoryId: string,) => {
+export const getListRepositorySkillsUrl = (repositoryId: string,
+    params?: ListRepositorySkillsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
-  
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/repositories/${repositoryId}/skills`
+  return stringifiedParams.length > 0 ? `/api/v1/repositories/${repositoryId}/skills?${stringifiedParams}` : `/api/v1/repositories/${repositoryId}/skills`
 }
 
-export const listRepositorySkills = async (repositoryId: string, options?: RequestInit): Promise<listRepositorySkillsResponse> => {
+export const listRepositorySkills = async (repositoryId: string,
+    params?: ListRepositorySkillsParams, options?: RequestInit): Promise<listRepositorySkillsResponse> => {
   
-  return customInstance<listRepositorySkillsResponse>(getListRepositorySkillsUrl(repositoryId),
+  return customInstance<listRepositorySkillsResponse>(getListRepositorySkillsUrl(repositoryId,params),
   {      
     ...options,
     method: 'GET'
@@ -95,23 +110,25 @@ export const listRepositorySkills = async (repositoryId: string, options?: Reque
 
 
 
-export const getListRepositorySkillsQueryKey = (repositoryId: string,) => {
+export const getListRepositorySkillsQueryKey = (repositoryId: string,
+    params?: ListRepositorySkillsParams,) => {
     return [
-    `/api/v1/repositories/${repositoryId}/skills`
+    `/api/v1/repositories/${repositoryId}/skills`, ...(params ? [params] : [])
     ] as const;
     }
 
     
-export const getListRepositorySkillsQueryOptions = <TData = Awaited<ReturnType<typeof listRepositorySkills>>, TError = ErrorType<ErrorBody>>(repositoryId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListRepositorySkillsQueryOptions = <TData = Awaited<ReturnType<typeof listRepositorySkills>>, TError = ErrorType<ErrorBody>>(repositoryId: string,
+    params?: ListRepositorySkillsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListRepositorySkillsQueryKey(repositoryId);
+  const queryKey =  queryOptions?.queryKey ?? getListRepositorySkillsQueryKey(repositoryId,params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRepositorySkills>>> = ({ signal }) => listRepositorySkills(repositoryId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRepositorySkills>>> = ({ signal }) => listRepositorySkills(repositoryId,params, { signal, ...requestOptions });
 
       
 
@@ -125,7 +142,8 @@ export type ListRepositorySkillsQueryError = ErrorType<ErrorBody>
 
 
 export function useListRepositorySkills<TData = Awaited<ReturnType<typeof listRepositorySkills>>, TError = ErrorType<ErrorBody>>(
- repositoryId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>> & Pick<
+ repositoryId: string,
+    params: undefined |  ListRepositorySkillsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listRepositorySkills>>,
           TError,
@@ -135,7 +153,8 @@ export function useListRepositorySkills<TData = Awaited<ReturnType<typeof listRe
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useListRepositorySkills<TData = Awaited<ReturnType<typeof listRepositorySkills>>, TError = ErrorType<ErrorBody>>(
- repositoryId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>> & Pick<
+ repositoryId: string,
+    params?: ListRepositorySkillsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listRepositorySkills>>,
           TError,
@@ -145,7 +164,8 @@ export function useListRepositorySkills<TData = Awaited<ReturnType<typeof listRe
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useListRepositorySkills<TData = Awaited<ReturnType<typeof listRepositorySkills>>, TError = ErrorType<ErrorBody>>(
- repositoryId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ repositoryId: string,
+    params?: ListRepositorySkillsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
@@ -153,11 +173,12 @@ export function useListRepositorySkills<TData = Awaited<ReturnType<typeof listRe
  */
 
 export function useListRepositorySkills<TData = Awaited<ReturnType<typeof listRepositorySkills>>, TError = ErrorType<ErrorBody>>(
- repositoryId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ repositoryId: string,
+    params?: ListRepositorySkillsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getListRepositorySkillsQueryOptions(repositoryId,options)
+  const queryOptions = getListRepositorySkillsQueryOptions(repositoryId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
@@ -168,11 +189,12 @@ export function useListRepositorySkills<TData = Awaited<ReturnType<typeof listRe
  * @summary List all skills discovered for a repository.
  */
 export const prefetchListRepositorySkillsQuery = async <TData = Awaited<ReturnType<typeof listRepositorySkills>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, repositoryId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ queryClient: QueryClient, repositoryId: string,
+    params?: ListRepositorySkillsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepositorySkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getListRepositorySkillsQueryOptions(repositoryId,options)
+  const queryOptions = getListRepositorySkillsQueryOptions(repositoryId,params,options)
 
   await queryClient.prefetchQuery(queryOptions);
 

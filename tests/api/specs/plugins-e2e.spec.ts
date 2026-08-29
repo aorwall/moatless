@@ -2,9 +2,10 @@
  * Chain: Plugins E2E
  *
  * Verifies the full plugin flow: register a plugin, sync its skills, turn it on
- * for everyone, escape it with a personal record, put it back, then provision a
- * sandbox and verify the agent has access to the plugin's skill — and only to
- * the skills that were picked.
+ * for everyone, escape it with a personal record, put it back, narrow it in one
+ * workspace and put that back too, then provision a sandbox and verify the
+ * agent has access to the plugin's skill — and only to the skills that were
+ * picked.
  *
  * Uses: https://github.com/amekala/adspirer-mcp-plugin.git
  * Which contains skill: ad-campaign-best-practices
@@ -13,6 +14,7 @@
  *
  * Chain:
  *   PLUGIN-01 -> PLUGIN-01.1 -> PLUGIN-02 -> PLUGIN-03 -> PLUGIN-04 -> PLUGIN-04.1 ->
+ *   PLUGIN-05 -> PLUGIN-05.1 -> PLUGIN-05.2 ->
  *   TASK-01 -> SANDBOX-01 -> SANDBOX-01.1 -> AGENT-01 -> AGENT-01.1 -> CLEANUP
  */
 
@@ -39,6 +41,7 @@ test.describe('Chain: Plugins E2E', () => {
   const ctx = new ChainContext()
   const events = chainEvents()
   let pluginId: string
+  let workspaceId: string
 
   test.beforeAll(async ({ api }) => {
     const repo = await api.ensureTemplateRepository()
@@ -50,6 +53,9 @@ test.describe('Chain: Plugins E2E', () => {
     // Deleting the plugin cascades its skills and activation records away.
     if (pluginId) {
       await api.deletePlugin(pluginId).catch(() => {})
+    }
+    if (workspaceId) {
+      await api.deleteWorkspace(workspaceId).catch(() => {})
     }
     // Stop + delete task
     await discardTask(api, ctx.taskId)
@@ -152,6 +158,57 @@ test.describe('Chain: Plugins E2E', () => {
 
     const effective = await api.listEffectivePlugins()
     expect(effective.find((p) => p.pluginId === pluginId)).toBeDefined()
+  })
+
+  // --- PLUGIN-05: A workspace narrows what loads in it ----------------------
+
+  test('PLUGIN-05: A workspace record keeps a globally-on plugin out of it', async ({ api }) => {
+    const ws = await api.createWorkspace({
+      name: 'plugin-scoped-workspace',
+      repos: [{ repositoryId: ctx.repositoryId!, isPrimary: true }],
+    })
+    workspaceId = ws.id
+
+    await api.setPluginActivation(pluginId, {
+      reach: 'workspace',
+      workspaceId,
+      enabled: false,
+    })
+
+    const here = await api.listEffectivePlugins(workspaceId)
+    expect(
+      here.find((p) => p.pluginId === pluginId),
+      'the workspace record must outrank the global default',
+    ).toBeUndefined()
+
+    const elsewhere = await api.listEffectivePlugins()
+    expect(
+      elsewhere.find((p) => p.pluginId === pluginId),
+      'narrowing one workspace must not follow the caller out of it',
+    ).toBeDefined()
+  })
+
+  test('PLUGIN-05.1: A personal record cannot re-admit what the workspace excluded', async ({
+    api,
+  }) => {
+    await api.setPluginActivation(pluginId, { reach: 'personal', enabled: true })
+
+    const here = await api.listEffectivePlugins(workspaceId)
+    expect(here.find((p) => p.pluginId === pluginId)).toBeUndefined()
+
+    await api.clearPluginActivation(pluginId, 'personal')
+  })
+
+  test('PLUGIN-05.2: Clearing the workspace record hands it back to the default', async ({
+    api,
+  }) => {
+    await api.clearPluginActivation(pluginId, 'workspace', undefined, workspaceId)
+
+    const records = await api.listPluginActivations(pluginId, workspaceId)
+    expect(records.every((r) => r.reach === 'everyone')).toBe(true)
+
+    const here = await api.listEffectivePlugins(workspaceId)
+    expect(here.find((p) => p.pluginId === pluginId)).toBeDefined()
   })
 
   // --- TASK-01: Create task asking agent about the skill ---------------------

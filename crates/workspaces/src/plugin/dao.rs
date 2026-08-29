@@ -31,25 +31,29 @@ pub trait PluginDao: Send + Sync {
     /// out per plugin.
     async fn list_all_skills(&self) -> Result<Vec<PluginSkill>, sqlx::Error>;
 
-    /// The records resolution needs for one person: every global record plus
-    /// that person's own, and nobody else's. `None` asks for the global records
-    /// alone — what a task with no identifiable owner resolves against.
+    /// The records resolution needs for one person in one Workspace: every
+    /// global record, plus that person's own, plus that Workspace's, and
+    /// nobody else's. `None` for either asks for the records that do not
+    /// depend on it — `(None, None)` is the global records alone, what a task
+    /// with no identifiable owner resolves against.
     async fn list_activations_for(
         &self,
         user_id: Option<Uuid>,
+        workspace_id: Option<&str>,
     ) -> Result<Vec<ActivationRow>, sqlx::Error>;
 
     /// Set one activation record, replacing whatever it said before.
     async fn set_activation(&self, row: &ActivationRow) -> Result<(), sqlx::Error>;
 
-    /// Remove one activation record. Clearing a personal record hands the
-    /// person back to whatever the global default says, which is not the same
-    /// as setting it to off.
+    /// Remove one activation record. Clearing a personal or Workspace record
+    /// hands it back to whatever the next reach down says, which is not the
+    /// same as setting it to off.
     async fn clear_activation(
         &self,
         plugin_id: &str,
         skill_name: Option<String>,
         user_id: Option<Uuid>,
+        workspace_id: Option<&str>,
     ) -> Result<bool, sqlx::Error>;
 }
 
@@ -142,27 +146,35 @@ impl PluginDao for PgPluginDao {
     async fn list_activations_for(
         &self,
         user_id: Option<Uuid>,
+        workspace_id: Option<&str>,
     ) -> Result<Vec<ActivationRow>, sqlx::Error> {
+        // Three subjects, each admitted on its own terms: the global records
+        // always, the named person's own, the named Workspace's. A row belongs
+        // to exactly one of them, so these cannot overlap.
         sqlx::query_as::<_, ActivationRow>(
-            r#"SELECT plugin_id, skill_name, user_id, enabled
+            r#"SELECT plugin_id, skill_name, user_id, workspace_id, enabled
                FROM plugin_activations
-               WHERE user_id IS NULL OR user_id = $1"#,
+               WHERE (user_id IS NULL AND workspace_id IS NULL)
+                  OR user_id = $1
+                  OR workspace_id = $2"#,
         )
         .bind(user_id)
+        .bind(workspace_id)
         .fetch_all(&self.0)
         .await
     }
 
     async fn set_activation(&self, row: &ActivationRow) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"INSERT INTO plugin_activations (plugin_id, skill_name, user_id, enabled)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (plugin_id, skill_name, user_id)
+            r#"INSERT INTO plugin_activations (plugin_id, skill_name, user_id, workspace_id, enabled)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (plugin_id, skill_name, user_id, workspace_id)
                DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()"#,
         )
         .bind(&row.plugin_id)
         .bind(&row.skill_name)
         .bind(row.user_id)
+        .bind(&row.workspace_id)
         .bind(row.enabled)
         .execute(&self.0)
         .await?;
@@ -174,6 +186,7 @@ impl PluginDao for PgPluginDao {
         plugin_id: &str,
         skill_name: Option<String>,
         user_id: Option<Uuid>,
+        workspace_id: Option<&str>,
     ) -> Result<bool, sqlx::Error> {
         // `IS NOT DISTINCT FROM` so a NULL argument matches the NULL row —
         // plain `=` would never match the global or whole-plugin records.
@@ -181,11 +194,13 @@ impl PluginDao for PgPluginDao {
             r#"DELETE FROM plugin_activations
                WHERE plugin_id = $1
                  AND skill_name IS NOT DISTINCT FROM $2
-                 AND user_id IS NOT DISTINCT FROM $3"#,
+                 AND user_id IS NOT DISTINCT FROM $3
+                 AND workspace_id IS NOT DISTINCT FROM $4"#,
         )
         .bind(plugin_id)
         .bind(&skill_name)
         .bind(user_id)
+        .bind(workspace_id)
         .execute(&self.0)
         .await?;
         Ok(result.rows_affected() > 0)

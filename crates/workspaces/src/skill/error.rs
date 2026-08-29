@@ -10,6 +10,9 @@ pub enum SkillError {
     #[error("Repository not found: {0}")]
     RepositoryNotFound(String),
 
+    #[error("Workspace not found: {0}")]
+    WorkspaceNotFound(String),
+
     #[error("Authentication required to fetch {git_url}")]
     AuthRequired { git_url: String },
 
@@ -36,7 +39,9 @@ pub enum SkillError {
 impl IntoResponse for SkillError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            SkillError::RepositoryNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
+            SkillError::RepositoryNotFound(_) | SkillError::WorkspaceNotFound(_) => {
+                (StatusCode::NOT_FOUND, self.to_string())
+            }
             SkillError::AuthRequired { git_url } => {
                 tracing::warn!(git_url = %git_url, "Skill fetch blocked by authentication");
                 (StatusCode::BAD_GATEWAY, self.to_string())

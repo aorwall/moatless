@@ -120,8 +120,9 @@ impl WorkspaceResolver for WorkspaceProjection {
     async fn plugin_deliveries(
         &self,
         user_id: Option<Uuid>,
+        workspace_id: &str,
     ) -> Result<Vec<PluginDelivery>, StoreError> {
-        let resolved = activation::resolve_for_user(self.plugins.as_ref(), user_id)
+        let resolved = activation::resolve_for(self.plugins.as_ref(), user_id, Some(workspace_id))
             .await
             .map_err(|e| StoreError::with_source("resolve plugin activations", e))?;
         Ok(resolved

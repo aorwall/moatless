@@ -8,10 +8,6 @@
 
 /**
  * Where a node-local sandbox volume is backed.
-
-Mirrors `moatless_backend_core::run_config::StorageMedium`. The wire crate
-stays free of backend dependencies, so the pair is kept in step by the
-round-trip test in `moatless-workspaces`.
  */
 export type StorageMedium = typeof StorageMedium[keyof typeof StorageMedium];
 

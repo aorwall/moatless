@@ -5,6 +5,10 @@
 //! TTL, keyed `workspace:{repository_id}` — they belong to a repository the
 //! caller already has access to, and there is nothing durable to attach them
 //! to. Plugin skills are stored records; see [`crate::plugin::sync`].
+//!
+//! Two senses of "workspace" meet here. [`SkillSource::Workspace`] is a skill
+//! committed in the repository's own tree; a `workspace_id` is the Workspace
+//! entity a task runs in, and narrows only the plugin half.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -22,6 +26,7 @@ use crate::plugin::dao::PluginDao;
 use crate::plugin::models::Plugin;
 use crate::plugin::sync::PluginSyncService;
 use crate::repository::dao::RepositoryDao;
+use crate::workspace::dao::WorkspaceDao;
 use moatless_types::repository::RepositoryKind;
 use crate::repository::models::Repository;
 use moatless_types::access_control::Actor;
@@ -32,6 +37,7 @@ use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
 /// Orchestrates skill discovery across workspace + plugins.
 pub struct SkillService {
     repositories: Arc<dyn RepositoryDao>,
+    workspaces: Arc<dyn WorkspaceDao>,
     plugins: Arc<dyn PluginDao>,
     git_host_tokens: Arc<GitHostTokens>,
     fetcher: Arc<dyn SkillFetcher>,
@@ -40,8 +46,10 @@ pub struct SkillService {
 }
 
 impl SkillService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         repositories: Arc<dyn RepositoryDao>,
+        workspaces: Arc<dyn WorkspaceDao>,
         plugins: Arc<dyn PluginDao>,
         git_host_tokens: Arc<GitHostTokens>,
         fetcher: Arc<dyn SkillFetcher>,
@@ -54,6 +62,7 @@ impl SkillService {
             .build();
         Self {
             repositories,
+            workspaces,
             plugins,
             git_host_tokens,
             fetcher,
@@ -71,10 +80,14 @@ impl SkillService {
     ///
     /// The plugin half is per-caller, not per-repository — two people looking
     /// at the same repository can legitimately see different skills, because
-    /// that is what will arrive in their respective sandboxes.
+    /// that is what will arrive in their respective sandboxes. `workspace_id`
+    /// narrows it the same way the sandbox will: pass the Workspace the task
+    /// runs in and the list matches what the agent gets, omit it and the list
+    /// is what that person gets anywhere.
     pub async fn list_for_repository(
         &self,
         repository_id: &str,
+        workspace_id: Option<&str>,
         auth: &AuthUser,
     ) -> Result<Vec<SkillResponse>, SkillError> {
         let ctx = auth.scope_context();
@@ -86,13 +99,26 @@ impl SkillService {
             .await?
             .ok_or_else(|| SkillError::RepositoryNotFound(repository_id.to_string()))?;
 
+        // A Workspace the caller cannot resolve is refused rather than ignored:
+        // silently dropping it would list skills that are not the ones the task
+        // will run with.
+        if let Some(id) = workspace_id {
+            self.workspaces
+                .find_by_id(id, &ctx)
+                .await?
+                .ok_or_else(|| SkillError::WorkspaceNotFound(id.to_string()))?;
+        }
+
         let workspace = self.workspace_skills(&repo, auth).await?;
 
-        // Whatever this caller's activation records give them, in stable order
-        // from the DAO.
-        let resolved =
-            crate::plugin::activation::resolve_for_user(self.plugins.as_ref(), Some(auth.user_id))
-                .await?;
+        // Whatever this caller's activation records give them in this
+        // Workspace, in stable order from the DAO.
+        let resolved = crate::plugin::activation::resolve_for(
+            self.plugins.as_ref(),
+            Some(auth.user_id),
+            workspace_id,
+        )
+        .await?;
         let mut from_plugins: Vec<(Vec<Skill>, Vec<String>)> = Vec::with_capacity(resolved.len());
         for (plugin, picked) in resolved {
             from_plugins.push((self.plugin_skills(&actor, &plugin).await?, picked));

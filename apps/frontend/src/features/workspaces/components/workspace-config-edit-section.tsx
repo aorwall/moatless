@@ -32,6 +32,7 @@ import { Button } from '@/lib/components/ui/button'
 import { getErrorMessage } from '@/lib/utils/error'
 import { WorkspaceGitSourceBanner } from './workspace-git-source-banner'
 import { WorkspaceReposPanel } from './workspace-repos-panel'
+import { WorkspaceSkillsPanel } from './workspace-skills-panel'
 
 interface WorkspaceConfigEditSectionProps {
   workspaceId: string
@@ -251,6 +252,12 @@ export function WorkspaceConfigEditSection({
         onUpdateField={updateField}
         disabled={readOnly}
       />
+
+      {/* Skill records live in their own table and save on change, so they are
+          outside the form's save/discard cycle. Git sync does not describe them
+          either, which is why a git-synced workspace can still set them — only
+          a deleted one cannot. */}
+      <WorkspaceSkillsPanel workspaceId={workspaceId} readOnly={isDeleted} />
 
       {!isDeleted && (
         <div className="flex justify-between gap-3 border-t pt-6">

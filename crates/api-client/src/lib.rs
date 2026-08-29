@@ -1115,8 +1115,13 @@ impl ApiClient {
     /// GET /api/v1/plugins/effective
     pub async fn list_effective_plugins(
         &self,
+        workspace_id: Option<&str>,
     ) -> Result<Vec<moatless_api_schemas::plugin::EffectivePluginResponse>, ApiError> {
-        self.get("/api/v1/plugins/effective").await
+        let qs = match workspace_id {
+            Some(id) => format!("?workspaceId={id}"),
+            None => String::new(),
+        };
+        self.get(&format!("/api/v1/plugins/effective{qs}")).await
     }
 
     /// PUT /api/v1/plugins/{id}/activation
@@ -1135,17 +1140,22 @@ impl ApiClient {
         plugin_id: &str,
         reach: moatless_api_schemas::plugin::ActivationReach,
         skill_name: Option<&str>,
+        workspace_id: Option<&str>,
     ) -> Result<(), ApiError> {
         let reach = match reach {
             moatless_api_schemas::plugin::ActivationReach::Everyone => "everyone",
             moatless_api_schemas::plugin::ActivationReach::Personal => "personal",
+            moatless_api_schemas::plugin::ActivationReach::Workspace => "workspace",
         };
-        let path = match skill_name {
-            Some(skill) => {
-                format!("/api/v1/plugins/{plugin_id}/activation?reach={reach}&skillName={skill}")
-            }
-            None => format!("/api/v1/plugins/{plugin_id}/activation?reach={reach}"),
-        };
+        let skill_qs = skill_name
+            .map(|skill| format!("&skillName={skill}"))
+            .unwrap_or_default();
+        let workspace_qs = workspace_id
+            .map(|id| format!("&workspaceId={id}"))
+            .unwrap_or_default();
+        let path = format!(
+            "/api/v1/plugins/{plugin_id}/activation?reach={reach}{skill_qs}{workspace_qs}"
+        );
         self.delete_request(&path).await
     }
 

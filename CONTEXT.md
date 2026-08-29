@@ -312,7 +312,7 @@ same agent through the same list and `SkillSource` (`crates/api-schemas/src/skil
 is already on the wire:
 
 - **Plugin skill** — sourced from a registered Plugin. Delivered to whoever the
-  Activations say, across every Repository.
+  Activations say, in whichever Workspaces they do not exclude it from.
 - **Repository skill** — sourced from one Repository's own `.claude/skills` and
   `.agents/skills` trees, which are listed and merged; a skill exposed in both
   (typically a `.claude/skills` symlink into `.agents/skills`) resolves to one
@@ -325,8 +325,9 @@ is already on the wire:
 shadow a Plugin skill of the same name, and among plugins the first in DAO order
 wins. The plugin half is per-caller, not per-repository — two people looking at
 the same Repository can see different Skills, because that is what will reach
-their respective sandboxes. "Skill" unqualified means either; write the qualifier
-whenever the source is what makes the sentence true.
+their respective sandboxes — and `?workspaceId=` narrows it further to what that
+Workspace loads. "Skill" unqualified means either; write the qualifier whenever
+the source is what makes the sentence true.
 
 A Skill reaches an agent as a name, never as text on the wire. `task_messages.skills`
 carries what one send activates, `tasks.skills` what every fresh agent session on
@@ -342,10 +343,24 @@ it when the surrounding rename debt is paid.
 
 **Activation**:
 One record in `plugin_activations` saying a Plugin, or one Skill inside it, is on
-or off — for everyone (`user_id IS NULL`, admins only) or for one person. A
-personal record beats a global one in both directions; clearing it hands the
-person back to the default, which is not the same as setting it off. Nothing is
-delivered without a record.
+or off, for one of three **reaches** — everyone (no subject column, admins only),
+one person (`user_id`), or one Workspace (`workspace_id`). A row names at most one
+subject; the `plugin_activations_one_subject` constraint is what makes that true.
+Each reach beats the one below it in both directions — Workspace, then personal,
+then everyone, the same order run configuration and credentials resolve in — so a
+Workspace can add a Skill nobody turned on and keep out one everybody has, and a
+person cannot re-admit what their Workspace excluded. Clearing a record hands the
+subject back to the next reach down, which is not the same as setting it off.
+Nothing is delivered without a record.
+
+Writing one takes the reach's own authority: an admin for everyone's, your own or
+an admin acting for you for a person's, and control of that one Workspace — its
+owner, or an admin — for a Workspace's. Control and not read, because a global
+Workspace reads to everybody signed in while its records decide what loads for
+everybody working in it.
+
+Only Plugin Skills have Activations. A Repository's own Skills always load in
+work on that Repository; there is no record that withholds them.
 
 An Activation decides whether a Plugin Skill is *available* at all. It is not what
 puts a Skill into a turn — that is the `skills` list above, and the pod's

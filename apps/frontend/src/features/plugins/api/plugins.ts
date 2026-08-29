@@ -28,9 +28,17 @@ export const pluginsApi = {
     return await unwrapResponse(listPluginSkillsHandler(pluginId))
   },
 
-  /** The records that bear on this user: the global ones plus their own. */
-  async listPluginActivations(pluginId: string): Promise<ActivationResponse[]> {
-    return await unwrapResponse(listPluginActivationsHandler(pluginId))
+  /**
+   * The records that bear on this user: the global ones plus their own, plus
+   * the named workspace's when there is one.
+   */
+  async listPluginActivations(
+    pluginId: string,
+    workspaceId?: string,
+  ): Promise<ActivationResponse[]> {
+    return await unwrapResponse(
+      listPluginActivationsHandler(pluginId, workspaceId === undefined ? {} : { workspaceId }),
+    )
   },
 
   async createPlugin(request: CreatePluginRequest): Promise<PluginResponse> {
@@ -41,9 +49,14 @@ export const pluginsApi = {
     await unwrapResponse(deletePluginHandler(pluginId))
   },
 
-  /** What the calling user actually receives, once global and personal records resolve. */
-  async listEffectivePlugins(): Promise<EffectivePluginResponse[]> {
-    return await unwrapResponse(listEffectivePluginsHandler())
+  /**
+   * What the calling user actually receives, once the global, personal and
+   * workspace records resolve against each other.
+   */
+  async listEffectivePlugins(workspaceId?: string): Promise<EffectivePluginResponse[]> {
+    return await unwrapResponse(
+      listEffectivePluginsHandler(workspaceId === undefined ? {} : { workspaceId }),
+    )
   },
 
   async setActivation(
@@ -53,7 +66,7 @@ export const pluginsApi = {
     return await unwrapResponse(setPluginActivationHandler(pluginId, request))
   },
 
-  /** Not the same as turning it off — this hands the user back to the global default. */
+  /** Not the same as turning it off — this hands the subject back to the next reach down. */
   async clearActivation(pluginId: string, params: ClearPluginActivationParams): Promise<void> {
     await unwrapResponse(clearPluginActivationHandler(pluginId, params))
   },

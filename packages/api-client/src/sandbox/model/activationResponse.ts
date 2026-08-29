@@ -21,4 +21,9 @@ export interface ActivationResponse {
    * @nullable
    */
   userId?: string | null;
+  /**
+   * Which Workspace's record this is. Absent for every other reach.
+   * @nullable
+   */
+  workspaceId?: string | null;
 }

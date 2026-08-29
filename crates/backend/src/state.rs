@@ -417,6 +417,7 @@ impl AppState {
         ));
         let skills = Arc::new(SkillService::new(
             repositories.clone(),
+            workspaces.clone(),
             plugins.clone(),
             git_host_tokens.clone(),
             skill_fetcher,

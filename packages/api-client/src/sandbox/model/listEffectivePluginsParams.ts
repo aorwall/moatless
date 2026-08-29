@@ -11,4 +11,8 @@ export type ListEffectivePluginsParams = {
  * Whose delivery; omit for your own
  */
 userId?: string;
+/**
+ * Which Workspace they are working in; omit for none in particular
+ */
+workspaceId?: string;
 };

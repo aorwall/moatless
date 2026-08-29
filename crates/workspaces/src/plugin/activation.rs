@@ -15,6 +15,11 @@ pub enum Reach {
     Everyone,
     /// One person, overriding whatever the default says.
     Personal,
+    /// One Workspace, overriding both. A Workspace states what the work done
+    /// in it needs, so it outranks a preference somebody carries between
+    /// workspaces — the same order run configuration and credentials resolve
+    /// in, `workspace > user > global`.
+    Workspace,
 }
 
 /// One stored activation record.
@@ -45,11 +50,14 @@ pub struct ResolvedPlugin {
 }
 
 /// Precedence, most specific first. A personal record beats a global one at
-/// every level, so somebody can turn off what was turned on for everyone; and
-/// within one reach a skill record beats the plugin record, so "the whole
-/// plugin except this one skill" is expressible.
+/// every level, so somebody can turn off what was turned on for everyone; a
+/// Workspace record beats both, so what a Workspace excludes stays excluded
+/// for whoever works in it. Within one reach a skill record beats the plugin
+/// record, so "the whole plugin except this one skill" is expressible.
 fn precedence(reach: Reach, skill_specific: bool) -> u8 {
     match (reach, skill_specific) {
+        (Reach::Workspace, true) => 6,
+        (Reach::Workspace, false) => 5,
         (Reach::Personal, true) => 4,
         (Reach::Personal, false) => 3,
         (Reach::Everyone, true) => 2,
@@ -57,10 +65,11 @@ fn precedence(reach: Reach, skill_specific: bool) -> u8 {
     }
 }
 
-/// Resolve what one person gets.
+/// Resolve what one person gets in one Workspace.
 ///
 /// `activations` must already be narrowed to the global records plus that one
-/// person's own; this function does not know who anybody is.
+/// person's own plus that one Workspace's; this function does not know who
+/// anybody is or where they are working.
 pub fn resolve(plugins: &[PluginSkills], activations: &[Activation]) -> Vec<ResolvedPlugin> {
     let mut resolved = Vec::new();
 
@@ -141,11 +150,7 @@ pub fn resolve_rows(
         .map(|r| Activation {
             plugin_id: r.plugin_id.clone(),
             skill_name: r.skill_name.clone(),
-            reach: if r.user_id.is_some() {
-                Reach::Personal
-            } else {
-                Reach::Everyone
-            },
+            reach: reach_of(r),
             enabled: r.enabled,
         })
         .collect();
@@ -153,8 +158,22 @@ pub fn resolve_rows(
     resolve(&plugin_skills, &activations)
 }
 
-/// Read what one person gets, straight out of the database. `None` is nobody in
-/// particular — the global defaults and nothing personal.
+/// Which reach a stored row speaks with. A row carries at most one subject —
+/// the `plugin_activations_one_subject` constraint is what makes that true —
+/// so reading it is a matter of which column is filled in.
+pub fn reach_of(row: &crate::plugin::models::ActivationRow) -> Reach {
+    if row.workspace_id.is_some() {
+        Reach::Workspace
+    } else if row.user_id.is_some() {
+        Reach::Personal
+    } else {
+        Reach::Everyone
+    }
+}
+
+/// Read what one person gets in one Workspace, straight out of the database.
+/// `user_id: None` is nobody in particular — the global defaults and nothing
+/// personal; `workspace_id: None` is no Workspace in particular.
 ///
 /// The single place this read happens. The effective-plugins endpoint, the
 /// repository skill list and task provisioning all go through it, so what
@@ -164,9 +183,10 @@ pub fn resolve_rows(
 /// current state, so what arrives is never stale. Only the stored skill *names*
 /// used to decide could be, and a plugin-level record already covers skills
 /// added since it was written.
-pub async fn resolve_for_user(
+pub async fn resolve_for(
     plugins: &dyn crate::plugin::dao::PluginDao,
     user_id: Option<uuid::Uuid>,
+    workspace_id: Option<&str>,
 ) -> Result<Vec<(crate::plugin::models::Plugin, Vec<String>)>, sqlx::Error> {
     let registered = plugins.list_all().await?;
     if registered.is_empty() {
@@ -174,7 +194,7 @@ pub async fn resolve_for_user(
     }
 
     let skills = plugins.list_all_skills().await?;
-    let rows = plugins.list_activations_for(user_id).await?;
+    let rows = plugins.list_activations_for(user_id, workspace_id).await?;
 
     Ok(resolve_rows(&registered, &skills, &rows)
         .into_iter()
@@ -355,6 +375,112 @@ mod tests {
         assert_eq!(names(&resolved, "p1"), vec!["a"]);
     }
 
+    // ---- Workspace reach ----
+
+    #[test]
+    fn a_workspace_record_switches_a_global_one_off() {
+        let resolved = resolve(
+            &[plugin("p1", &["a", "b"])],
+            &[
+                act("p1", None, Reach::Everyone, true),
+                act("p1", None, Reach::Workspace, false),
+            ],
+        );
+        assert!(
+            resolved.is_empty(),
+            "a workspace has to be able to keep a plugin out of the work done in it"
+        );
+    }
+
+    #[test]
+    fn a_workspace_record_switches_a_global_one_on() {
+        let resolved = resolve(
+            &[plugin("p1", &["a"])],
+            &[
+                act("p1", None, Reach::Everyone, false),
+                act("p1", None, Reach::Workspace, true),
+            ],
+        );
+        assert_eq!(
+            names(&resolved, "p1"),
+            vec!["a"],
+            "adding a skill nobody turned on globally is half of what a \
+             workspace record is for"
+        );
+    }
+
+    #[test]
+    fn a_workspace_record_beats_a_personal_one() {
+        let excluded = resolve(
+            &[plugin("p1", &["a"])],
+            &[
+                act("p1", None, Reach::Personal, true),
+                act("p1", None, Reach::Workspace, false),
+            ],
+        );
+        assert!(
+            excluded.is_empty(),
+            "a personal record must not re-admit what the workspace excluded"
+        );
+
+        let added = resolve(
+            &[plugin("p1", &["a"])],
+            &[
+                act("p1", None, Reach::Personal, false),
+                act("p1", None, Reach::Workspace, true),
+            ],
+        );
+        assert_eq!(
+            names(&added, "p1"),
+            vec!["a"],
+            "workspace wins in both directions, not just off"
+        );
+    }
+
+    #[test]
+    fn a_workspace_skill_record_carves_one_skill_out_of_a_global_plugin() {
+        let resolved = resolve(
+            &[plugin("p1", &["a", "b", "c"])],
+            &[
+                act("p1", None, Reach::Everyone, true),
+                act("p1", Some("b"), Reach::Workspace, false),
+            ],
+        );
+        assert_eq!(names(&resolved, "p1"), vec!["a", "c"]);
+    }
+
+    #[test]
+    fn a_personal_skill_record_beats_a_workspace_plugin_record() {
+        let resolved = resolve(
+            &[plugin("p1", &["a", "b"])],
+            &[
+                act("p1", None, Reach::Workspace, true),
+                act("p1", Some("b"), Reach::Personal, false),
+            ],
+        );
+        assert_eq!(
+            names(&resolved, "p1"),
+            vec!["a", "b"],
+            "a blanket workspace record outranks a personal one however \
+             specific it is: what the workspace turned on stays on"
+        );
+    }
+
+    #[test]
+    fn a_workspace_record_changes_nothing_where_it_does_not_apply() {
+        // The same plugin resolved with no workspace records in play — what
+        // somebody gets outside that workspace.
+        let elsewhere = resolve(
+            &[plugin("p1", &["a"])],
+            &[act("p1", None, Reach::Everyone, true)],
+        );
+        assert_eq!(
+            names(&elsewhere, "p1"),
+            vec!["a"],
+            "narrowing a plugin in one workspace must not follow somebody out of it"
+        );
+    }
+
     #[test]
     fn a_skill_added_by_a_later_sync_is_covered_by_the_plugin_record() {
         let resolved = resolve(
@@ -368,5 +494,23 @@ mod tests {
             "\"turn this plugin on\" means the plugin, not the skills it had \
              on the day somebody said so"
         );
+    }
+
+    #[test]
+    fn a_row_reaches_by_whichever_subject_column_it_fills_in() {
+        let row = |user_id, workspace_id: Option<&str>| crate::plugin::models::ActivationRow {
+            plugin_id: "p1".to_string(),
+            skill_name: None,
+            user_id,
+            workspace_id: workspace_id.map(str::to_string),
+            enabled: true,
+        };
+
+        assert_eq!(reach_of(&row(None, None)), Reach::Everyone);
+        assert_eq!(
+            reach_of(&row(Some(uuid::Uuid::from_u128(1)), None)),
+            Reach::Personal
+        );
+        assert_eq!(reach_of(&row(None, Some("ws1"))), Reach::Workspace);
     }
 }

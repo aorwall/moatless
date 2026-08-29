@@ -98,10 +98,16 @@ export function ChatInputSection({
   const isTaskRunning = sandboxStatus?.agentStatus === 'running'
 
   // Fetch repo-scoped skills for the task's repository (workspace +
-  // linked plugin repos). Surfaces in the "/" autocomplete dropdown.
-  const { data: repoSkills = [], error: skillsError } = useRepositorySkills(task?.repositoryId, {
-    enabled: !!task?.repositoryId && !!taskId && !isTaskRunning && envStatus === 'ready',
-  })
+  // linked plugin repos), narrowed by the workspace the task runs in so the
+  // dropdown offers what its agent will actually have. Surfaces in the "/"
+  // autocomplete dropdown.
+  const { data: repoSkills = [], error: skillsError } = useRepositorySkills(
+    task?.repositoryId,
+    task?.workspaceId ?? undefined,
+    {
+      enabled: !!task?.repositoryId && !!taskId && !isTaskRunning && envStatus === 'ready',
+    },
+  )
 
   useEffect(() => {
     if (skillsError) {

@@ -61,7 +61,7 @@ export type exchangeApiKeyHandlerResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type exchangeApiKeyHandlerResponseSuccess = (exchangeApiKeyHandlerResponse200) & {
   headers: Headers;
 };
@@ -74,19 +74,19 @@ export type exchangeApiKeyHandlerResponse = (exchangeApiKeyHandlerResponseSucces
 export const getExchangeApiKeyHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/api-key/session`
 }
 
 export const exchangeApiKeyHandler = async ( options?: RequestInit): Promise<exchangeApiKeyHandlerResponse> => {
-
+  
   return customInstance<exchangeApiKeyHandlerResponse>(getExchangeApiKeyHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -104,24 +104,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof exchangeApiKeyHandler>>, void> = () => {
-
+          
 
           return  exchangeApiKeyHandler(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type ExchangeApiKeyHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof exchangeApiKeyHandler>>>
-
+    
     export type ExchangeApiKeyHandlerMutationError = ErrorType<ErrorBody>
 
     /**
@@ -149,7 +149,7 @@ export type logoutHandlerResponse302 = {
   data: void
   status: 302
 }
-
+    
 export type logoutHandlerResponseSuccess = (logoutHandlerResponse200) & {
   headers: Headers;
 };
@@ -162,19 +162,19 @@ export type logoutHandlerResponse = (logoutHandlerResponseSuccess | logoutHandle
 export const getLogoutHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/logout`
 }
 
 export const logoutHandler = async ( options?: RequestInit): Promise<logoutHandlerResponse> => {
-
+  
   return customInstance<logoutHandlerResponse>(getLogoutHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -192,24 +192,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof logoutHandler>>, void> = () => {
-
+          
 
           return  logoutHandler(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type LogoutHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof logoutHandler>>>
-
+    
     export type LogoutHandlerMutationError = ErrorType<void>
 
     /**
@@ -232,7 +232,7 @@ export type logoutAllHandlerResponse200 = {
   data: MessageResponse
   status: 200
 }
-
+    
 export type logoutAllHandlerResponseSuccess = (logoutAllHandlerResponse200) & {
   headers: Headers;
 };
@@ -243,19 +243,19 @@ export type logoutAllHandlerResponse = (logoutAllHandlerResponseSuccess)
 export const getLogoutAllHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/logout-all`
 }
 
 export const logoutAllHandler = async ( options?: RequestInit): Promise<logoutAllHandlerResponse> => {
-
+  
   return customInstance<logoutAllHandlerResponse>(getLogoutAllHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -273,24 +273,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof logoutAllHandler>>, void> = () => {
-
+          
 
           return  logoutAllHandler(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type LogoutAllHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof logoutAllHandler>>>
-
+    
     export type LogoutAllHandlerMutationError = ErrorType<unknown>
 
     /**
@@ -318,7 +318,7 @@ export type meHandlerResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type meHandlerResponseSuccess = (meHandlerResponse200) & {
   headers: Headers;
 };
@@ -331,19 +331,19 @@ export type meHandlerResponse = (meHandlerResponseSuccess | meHandlerResponseErr
 export const getMeHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/me`
 }
 
 export const meHandler = async ( options?: RequestInit): Promise<meHandlerResponse> => {
-
+  
   return customInstance<meHandlerResponse>(getMeHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -357,7 +357,7 @@ export const getMeHandlerQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getMeHandlerQueryOptions = <TData = Awaited<ReturnType<typeof meHandler>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -365,13 +365,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getMeHandlerQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof meHandler>>> = ({ signal }) => meHandler({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -410,7 +410,7 @@ export function useMeHandler<TData = Awaited<ReturnType<typeof meHandler>>, TErr
 
 export function useMeHandler<TData = Awaited<ReturnType<typeof meHandler>>, TError = ErrorType<ErrorBody>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getMeHandlerQueryOptions(options)
@@ -454,7 +454,7 @@ export type updateMeHandlerResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type updateMeHandlerResponseSuccess = (updateMeHandlerResponse200) & {
   headers: Headers;
 };
@@ -467,15 +467,15 @@ export type updateMeHandlerResponse = (updateMeHandlerResponseSuccess | updateMe
 export const getUpdateMeHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/me`
 }
 
 export const updateMeHandler = async (updateUserRequest: UpdateUserRequest, options?: RequestInit): Promise<updateMeHandlerResponse> => {
-
+  
   return customInstance<updateMeHandlerResponse>(getUpdateMeHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -498,7 +498,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateMeHandler>>, {data: UpdateUserRequest}> = (props) => {
@@ -509,7 +509,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -540,7 +540,7 @@ export type authModeHandlerResponse200 = {
   data: AuthModeResponse
   status: 200
 }
-
+    
 export type authModeHandlerResponseSuccess = (authModeHandlerResponse200) & {
   headers: Headers;
 };
@@ -551,19 +551,19 @@ export type authModeHandlerResponse = (authModeHandlerResponseSuccess)
 export const getAuthModeHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/mode`
 }
 
 export const authModeHandler = async ( options?: RequestInit): Promise<authModeHandlerResponse> => {
-
+  
   return customInstance<authModeHandlerResponse>(getAuthModeHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -577,7 +577,7 @@ export const getAuthModeHandlerQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getAuthModeHandlerQueryOptions = <TData = Awaited<ReturnType<typeof authModeHandler>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof authModeHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -585,13 +585,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getAuthModeHandlerQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof authModeHandler>>> = ({ signal }) => authModeHandler({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof authModeHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -630,7 +630,7 @@ export function useAuthModeHandler<TData = Awaited<ReturnType<typeof authModeHan
 
 export function useAuthModeHandler<TData = Awaited<ReturnType<typeof authModeHandler>>, TError = ErrorType<unknown>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof authModeHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getAuthModeHandlerQueryOptions(options)
@@ -672,7 +672,7 @@ export type createPairingCodeHandlerResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type createPairingCodeHandlerResponseSuccess = (createPairingCodeHandlerResponse201) & {
   headers: Headers;
 };
@@ -685,15 +685,15 @@ export type createPairingCodeHandlerResponse = (createPairingCodeHandlerResponse
 export const getCreatePairingCodeHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/pairing-codes`
 }
 
 export const createPairingCodeHandler = async (createPairingCodeRequest: CreatePairingCodeRequest, options?: RequestInit): Promise<createPairingCodeHandlerResponse> => {
-
+  
   return customInstance<createPairingCodeHandlerResponse>(getCreatePairingCodeHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -716,7 +716,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPairingCodeHandler>>, {data: CreatePairingCodeRequest}> = (props) => {
@@ -727,7 +727,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -771,7 +771,7 @@ export type changePasswordHandlerResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type changePasswordHandlerResponseSuccess = (changePasswordHandlerResponse200) & {
   headers: Headers;
 };
@@ -784,15 +784,15 @@ export type changePasswordHandlerResponse = (changePasswordHandlerResponseSucces
 export const getChangePasswordHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/password`
 }
 
 export const changePasswordHandler = async (changePasswordRequest: ChangePasswordRequest, options?: RequestInit): Promise<changePasswordHandlerResponse> => {
-
+  
   return customInstance<changePasswordHandlerResponse>(getChangePasswordHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -815,7 +815,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof changePasswordHandler>>, {data: ChangePasswordRequest}> = (props) => {
@@ -826,7 +826,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -870,7 +870,7 @@ export type passwordLoginHandlerResponse429 = {
   data: ErrorBody
   status: 429
 }
-
+    
 export type passwordLoginHandlerResponseSuccess = (passwordLoginHandlerResponse200) & {
   headers: Headers;
 };
@@ -883,15 +883,15 @@ export type passwordLoginHandlerResponse = (passwordLoginHandlerResponseSuccess 
 export const getPasswordLoginHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/password/login`
 }
 
 export const passwordLoginHandler = async (passwordLoginRequest: PasswordLoginRequest, options?: RequestInit): Promise<passwordLoginHandlerResponse> => {
-
+  
   return customInstance<passwordLoginHandlerResponse>(getPasswordLoginHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -914,7 +914,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof passwordLoginHandler>>, {data: PasswordLoginRequest}> = (props) => {
@@ -925,7 +925,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -962,7 +962,7 @@ export type exchangeTokenHandlerResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type exchangeTokenHandlerResponseSuccess = (exchangeTokenHandlerResponse200) & {
   headers: Headers;
 };
@@ -975,19 +975,19 @@ export type exchangeTokenHandlerResponse = (exchangeTokenHandlerResponseSuccess 
 export const getExchangeTokenHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/token/session`
 }
 
 export const exchangeTokenHandler = async ( options?: RequestInit): Promise<exchangeTokenHandlerResponse> => {
-
+  
   return customInstance<exchangeTokenHandlerResponse>(getExchangeTokenHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -1005,24 +1005,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof exchangeTokenHandler>>, void> = () => {
-
+          
 
           return  exchangeTokenHandler(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type ExchangeTokenHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof exchangeTokenHandler>>>
-
+    
     export type ExchangeTokenHandlerMutationError = ErrorType<ErrorBody>
 
     /**
@@ -1057,7 +1057,7 @@ export type verifyHandlerResponse403 = {
   data: ErrorBody
   status: 403
 }
-
+    
 export type verifyHandlerResponseSuccess = (verifyHandlerResponse200) & {
   headers: Headers;
 };
@@ -1070,19 +1070,19 @@ export type verifyHandlerResponse = (verifyHandlerResponseSuccess | verifyHandle
 export const getVerifyHandlerUrl = () => {
 
 
-
+  
 
   return `/api/v1/auth/verify`
 }
 
 export const verifyHandler = async ( options?: RequestInit): Promise<verifyHandlerResponse> => {
-
+  
   return customInstance<verifyHandlerResponse>(getVerifyHandlerUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -1096,7 +1096,7 @@ export const getVerifyHandlerQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getVerifyHandlerQueryOptions = <TData = Awaited<ReturnType<typeof verifyHandler>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -1104,13 +1104,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getVerifyHandlerQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof verifyHandler>>> = ({ signal }) => verifyHandler({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -1149,7 +1149,7 @@ export function useVerifyHandler<TData = Awaited<ReturnType<typeof verifyHandler
 
 export function useVerifyHandler<TData = Awaited<ReturnType<typeof verifyHandler>>, TError = ErrorType<ErrorBody>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getVerifyHandlerQueryOptions(options)

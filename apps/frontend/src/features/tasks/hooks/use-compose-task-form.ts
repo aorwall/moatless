@@ -79,7 +79,8 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
   const { data: workspaceDetails } = useWorkspace(workspaceId, { enabled: !!workspaceId })
   const primaryRepoId = workspaceDetails?.repos.find((r) => r.isPrimary)?.repositoryId ?? undefined
 
-  const { data: skills = [], error: skillsError } = useRepositorySkills(primaryRepoId)
+  // Narrowed by the workspace: what is offered here is what the task will get.
+  const { data: skills = [], error: skillsError } = useRepositorySkills(primaryRepoId, workspaceId)
 
   useEffect(() => {
     if (skillsError) {
