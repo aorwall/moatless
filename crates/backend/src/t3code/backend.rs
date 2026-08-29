@@ -19,7 +19,7 @@ use crate::message::service as message_service;
 use crate::repository::error::RepositoryError;
 use crate::repository::handlers::list_branches;
 use crate::state::AppState;
-use crate::task::dao::TaskPatch;
+use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::error::TaskError;
 use crate::task::handlers as task_handlers;
 use crate::task::models::TaskStatus;
@@ -426,6 +426,18 @@ fn pull_request_url(subject_key: &str, number: u64) -> String {
 
 pub struct AppStateCommands(pub AppState);
 
+/// A turn's attachments as upload ids, and which of those this call stored.
+struct ResolvedAttachments {
+    /// Every id the Message will name, in the order they were attached.
+    file_ids: Vec<String>,
+    /// The subset stored here from inline bytes, and so the only ids a failed
+    /// command may take back. An `Uploaded` id was put there by the client
+    /// through `attachments.createUploadUrl`; the client still holds it and
+    /// re-sends it on a retry, so deleting it would break the retry it exists
+    /// for.
+    stored_here: Vec<String>,
+}
+
 impl AppStateCommands {
     pub fn new(state: AppState) -> Arc<Self> {
         Arc::new(Self(state))
@@ -516,50 +528,60 @@ impl AppStateCommands {
     /// a second copy of the same file under a second id.
     ///
     /// A failure refuses the whole turn — a partial resolution would leave a
-    /// message naming only some of what was attached.
+    /// message naming only some of what was attached — and takes back the
+    /// inline bytes it had already stored.
     async fn resolve_attachments(
         &self,
         viewer: &ScopeContext,
         attachments: &[TurnAttachment],
-    ) -> Result<Vec<String>, CommandRefusal> {
-        let mut file_ids = Vec::with_capacity(attachments.len());
+    ) -> Result<ResolvedAttachments, CommandRefusal> {
+        let mut resolved = ResolvedAttachments {
+            file_ids: Vec::with_capacity(attachments.len()),
+            stored_here: Vec::new(),
+        };
         for attachment in attachments {
-            match attachment {
+            let outcome = match attachment {
                 TurnAttachment::Inline {
                     filename,
                     mime_type,
                     bytes,
-                } => {
-                    let stored = file_store::store_upload(
-                        self.0.s3.as_ref(),
-                        &self.0.s3_config,
-                        self.0.files.as_ref(),
-                        viewer,
-                        file_store::NewUpload {
-                            filename: filename.clone(),
-                            mime_type: mime_type.clone(),
-                            data: bytes.clone(),
-                            file_id: None,
-                        },
-                    )
-                    .await
-                    .map_err(|error| {
-                        tracing::warn!(%error, filename = %filename, "T3 attachment could not be stored");
-                        CommandRefusal::Failed {
-                            message: format!("Could not store the attachment `{filename}`."),
-                        }
-                    })?;
-                    file_ids.push(stored.file_id);
-                }
+                } => file_store::store_upload(
+                    self.0.s3.as_ref(),
+                    &self.0.s3_config,
+                    self.0.files.as_ref(),
+                    viewer,
+                    file_store::NewUpload {
+                        filename: filename.clone(),
+                        mime_type: mime_type.clone(),
+                        data: bytes.clone(),
+                        file_id: None,
+                    },
+                )
+                .await
+                .map_err(|error| {
+                    tracing::warn!(%error, filename = %filename, "T3 attachment could not be stored");
+                    CommandRefusal::Failed {
+                        message: format!("Could not store the attachment `{filename}`."),
+                    }
+                })
+                .map(|stored| {
+                    resolved.stored_here.push(stored.file_id.clone());
+                    stored.file_id
+                }),
                 TurnAttachment::Uploaded {
                     attachment_id,
                     kind,
-                } => {
-                    file_ids.push(self.uploaded_attachment(viewer, attachment_id, *kind).await?);
+                } => self.uploaded_attachment(viewer, attachment_id, *kind).await,
+            };
+            match outcome {
+                Ok(file_id) => resolved.file_ids.push(file_id),
+                Err(refusal) => {
+                    self.discard_attachments(viewer, &resolved.stored_here).await;
+                    return Err(refusal);
                 }
             }
         }
-        Ok(file_ids)
+        Ok(resolved)
     }
 
     /// The upload an attachment id names, if this viewer may read it.
@@ -623,6 +645,40 @@ impl AppStateCommands {
             });
         }
         Ok(meta.file_id)
+    }
+
+    /// Take back inline uploads a command that failed left behind.
+    ///
+    /// Only ever passed [`ResolvedAttachments::stored_here`]: the bytes reach
+    /// S3 before the Message that would name them exists, so a command that is
+    /// refused afterwards leaves objects nothing references and no route
+    /// reaches.
+    ///
+    /// That is also why this needs no
+    /// [`AppStateAttachments::is_on_a_message`] check, which
+    /// `attachments.delete` and a re-`POST` both make. Those act on an id the
+    /// client chose, at a time when a turn may already have been sent under it.
+    /// These ids were minted inside the command that is now failing, and the
+    /// command failing is precisely what means no Message was written — so no
+    /// `task_message_contexts` row can name one.
+    ///
+    /// Best-effort by design: the caller is already returning a refusal, and a
+    /// store that cannot be undone is a leak to notice in the logs rather than
+    /// a second failure to put in front of the person retrying.
+    async fn discard_attachments(&self, viewer: &ScopeContext, file_ids: &[String]) {
+        for file_id in file_ids {
+            if let Err(error) = file_store::delete_upload(
+                self.0.s3.as_ref(),
+                &self.0.s3_config,
+                self.0.files.as_ref(),
+                viewer,
+                file_id,
+            )
+            .await
+            {
+                tracing::warn!(%error, file_id, "T3 attachment outlived the command it was sent with");
+            }
+        }
     }
 }
 
@@ -765,7 +821,9 @@ impl ThreadCommandSink for AppStateCommands {
         let file_ids = if turn.attachments.is_empty() || self.already_sent(&turn).await {
             Vec::new()
         } else {
-            self.resolve_attachments(viewer, &turn.attachments).await?
+            self.resolve_attachments(viewer, &turn.attachments)
+                .await?
+                .file_ids
         };
 
         message_service::send_user_message(
@@ -795,6 +853,12 @@ impl ThreadCommandSink for AppStateCommands {
         viewer: &ScopeContext,
         thread: NewThread,
     ) -> Result<(), CommandRefusal> {
+        // Before anything is stored: the id arrives from the client and may
+        // still be held by a creation that failed, and the attachments below go
+        // to S3 under a file id no Message would ever name if the create is
+        // refused here.
+        free_thread_id(self.0.tasks.as_ref(), viewer, &thread.task_id).await?;
+
         // The transport is not selectable from T3, so a thread created there
         // runs the first catalog agent of the kind the person picked.
         let agent_type = default_agent_for(&thread.instance);
@@ -804,9 +868,12 @@ impl ThreadCommandSink for AppStateCommands {
         let workspace_id = thread.workspace_id.clone();
         let branch = thread.branch.clone();
 
-        let file_ids = match thread.first_message.as_ref() {
+        let attachments = match thread.first_message.as_ref() {
             Some(first) => self.resolve_attachments(viewer, &first.attachments).await?,
-            None => Vec::new(),
+            None => ResolvedAttachments {
+                file_ids: Vec::new(),
+                stored_here: Vec::new(),
+            },
         };
 
         let request = moatless_api_schemas::task::CreateTaskRequest {
@@ -826,7 +893,7 @@ impl ThreadCommandSink for AppStateCommands {
                 .and_then(|m| m.agent_mode.clone()),
             effort: thread.first_message.as_ref().and_then(|m| m.effort.clone()),
             contexts: vec![],
-            file_ids,
+            file_ids: attachments.file_ids.clone(),
             parent_task_id: None,
             headless: Some(false),
             // T3 has no skill picker of its own.
@@ -842,7 +909,12 @@ impl ThreadCommandSink for AppStateCommands {
         // minted, so that id has to be the one persisted.
         intent.first_message_uuid = thread.first_message.map(|m| m.message_uuid);
 
-        let new_task = task_service::normalize(
+        // A create that fails writes no Message, so nothing will ever name the
+        // inline bytes stored above — including the preflight failure this
+        // thread id is being retried after, which would otherwise leave one
+        // unreachable object per retry. Only what this call stored is taken
+        // back; an uploaded attachment is the client's and outlives the retry.
+        let new_task = match task_service::normalize(
             self.0.workspaces.as_ref(),
             self.0.repositories.as_ref(),
             &self.0.credential_sync,
@@ -852,15 +924,24 @@ impl ThreadCommandSink for AppStateCommands {
             intent,
         )
         .await
-        .map_err(|e| create_refusal(&thread.task_id, e))?;
-        task_service::create_task(
+        {
+            Ok(new_task) => new_task,
+            Err(e) => {
+                self.discard_attachments(viewer, &attachments.stored_here).await;
+                return Err(create_refusal(&thread.task_id, e));
+            }
+        };
+        if let Err(e) = task_service::create_task(
             &self.0.task_creation,
             self.0.message_send.clone(),
             new_task,
             |_| async { serde_json::Value::Null },
         )
         .await
-        .map_err(|e| create_refusal(&thread.task_id, e))?;
+        {
+            self.discard_attachments(viewer, &attachments.stored_here).await;
+            return Err(create_refusal(&thread.task_id, e));
+        }
 
         // The PR-prepared thread flow drops the pull-request reference before
         // `thread.create` (ChatView.tsx), so the head branch is the only signal
@@ -1063,6 +1144,70 @@ fn send_refusal(task_id: &str, error: MessageError) -> CommandRefusal {
     }
 }
 
+/// Make the id a `thread.create` names available, or say why it is not.
+///
+/// T3's client mints the thread id and Moatless persists it verbatim, so an id
+/// can arrive already taken by the Task a failed creation left behind: a
+/// preflight failure persists the row as `Error` and *then* returns the error.
+/// The client cannot escape that on its own — it rotates a draft id only on a
+/// `thread.deleted` event, which this server never emits, and `thread.delete`
+/// is refused — so without this the retry hits the unique index on
+/// `tasks.task_id` and the draft is dead for as long as the person keeps it.
+///
+/// Only that incarnation is cleared, and the delete re-checks the condition in
+/// its own `WHERE`: an id held by a Task that is alive or has a conversation in
+/// it is refused, so `thread.create` never becomes a way to discard a thread.
+/// The ownership check here is what keeps the refusal for somebody else's id
+/// indistinguishable from an id this viewer may not read.
+async fn free_thread_id(
+    tasks: &dyn TaskDao,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<(), CommandRefusal> {
+    let existing = tasks.find_by_id(task_id, viewer).await.map_err(|error| {
+        tracing::warn!(%error, task_id, "T3 thread create could not read the id it was given");
+        CommandRefusal::Failed {
+            message: "The thread could not be created.".to_string(),
+        }
+    })?;
+    // Free, or held by a Task this viewer cannot read. In the second case the
+    // unique index refuses the create, which is the same answer without
+    // confirming that the id is taken.
+    let Some(existing) = existing else {
+        return Ok(());
+    };
+
+    if !viewer.can_control(&ScopedResource::borrowed(
+        existing.scope,
+        existing
+            .owner_user_id
+            .as_deref()
+            .or(existing.created_by.as_deref()),
+    )) {
+        return Err(CommandRefusal::NotWritable {
+            task_id: task_id.to_string(),
+        });
+    }
+
+    let reclaimed = tasks
+        .delete_errored_empty_task(task_id, viewer)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, task_id, "T3 thread create could not reclaim a failed bootstrap");
+            CommandRefusal::Failed {
+                message: "The thread could not be created.".to_string(),
+            }
+        })?;
+    if !reclaimed {
+        return Err(CommandRefusal::Rejected {
+            message: "That thread already exists.".to_string(),
+        });
+    }
+
+    tracing::info!(task_id, "T3 thread create reclaimed a failed bootstrap's id");
+    Ok(())
+}
+
 fn create_refusal(task_id: &str, error: TaskError) -> CommandRefusal {
     match error {
         TaskError::NotFound(_) | TaskError::Forbidden(_) => CommandRefusal::NotWritable {
@@ -1137,5 +1282,126 @@ mod tests {
             provider_said_no,
             PullRequestError::Unavailable(message) if message == "PR is locked"
         ));
+    }
+
+    mod thread_ids {
+        use super::*;
+        use crate::task::dao::MockTaskDao;
+        use crate::task::models::Task;
+        use moatless_types::access_control::Scope;
+
+        const DRAFT: &str = "thread-minted-by-the-client";
+
+        fn viewer() -> ScopeContext {
+            ScopeContext {
+                user_id: "u-1".to_string(),
+                is_admin: false,
+            }
+        }
+
+        fn thread_of(owner: &str, status: TaskStatus) -> Task {
+            Task {
+                task_id: DRAFT.to_string(),
+                short_id: None,
+                created_at: chrono::Utc::now(),
+                last_message_at: chrono::Utc::now(),
+                agent_type: moatless_types::agent::AgentType(
+                    moatless_types::agent::AgentType::CLAUDE_CODE.to_string(),
+                ),
+                repository_id: "repo-1".to_string(),
+                status,
+                total_cost_usd: 0.0,
+                site_url: None,
+                template_id: None,
+                vibe: None,
+                name: None,
+                description: None,
+                site_id: None,
+                site_provider: None,
+                branch: None,
+                model: None,
+                created_by: Some(owner.to_string()),
+                visibility: moatless_types::task::Visibility::Private,
+                scope: Scope::User,
+                owner_user_id: Some(owner.to_string()),
+                updated_at: None,
+                append_system_prompt: None,
+                headless: false,
+                ttl_minutes: 0,
+                inactive_ttl_days: 0,
+                loop_id: None,
+                workspace_id: None,
+                sandbox_id: None,
+                checkout_mode: None,
+                skills: Vec::new(),
+            }
+        }
+
+        fn holding(existing: Option<Task>) -> MockTaskDao {
+            let mut tasks = MockTaskDao::new();
+            tasks
+                .expect_find_by_id()
+                .returning(move |_, _| Ok(existing.clone()));
+            tasks
+        }
+
+        /// The ordinary create: nothing holds the id, so nothing is deleted on
+        /// the way to it.
+        #[tokio::test]
+        async fn an_unused_id_is_taken_without_a_delete() {
+            let mut tasks = holding(None);
+            tasks.expect_delete_errored_empty_task().never();
+
+            free_thread_id(&tasks, &viewer(), DRAFT).await.unwrap();
+        }
+
+        /// The bug this exists for: the first send failed at preflight, which
+        /// left the row as `Error`, and the client re-sends the same draft id.
+        /// Refusing that retry leaves the draft dead for good, because nothing
+        /// on the client rotates the id.
+        #[tokio::test]
+        async fn a_failed_bootstrap_can_be_retried_under_the_same_id() {
+            let mut tasks = holding(Some(thread_of("u-1", TaskStatus::Error)));
+            tasks
+                .expect_delete_errored_empty_task()
+                .withf(|task_id, ctx| task_id == DRAFT && ctx.user_id == "u-1")
+                .times(1)
+                .returning(|_, _| Ok(true));
+
+            free_thread_id(&tasks, &viewer(), DRAFT).await.unwrap();
+        }
+
+        /// A thread that exists and works is not something a create may take
+        /// over. The DAO answers `false` for it — the row is not `Error`, or it
+        /// has messages — and that is a refusal, not a second incarnation.
+        #[tokio::test]
+        async fn a_live_thread_still_refuses_a_second_create() {
+            let mut tasks = holding(Some(thread_of("u-1", TaskStatus::Open)));
+            tasks
+                .expect_delete_errored_empty_task()
+                .times(1)
+                .returning(|_, _| Ok(false));
+
+            let refusal = free_thread_id(&tasks, &viewer(), DRAFT).await.unwrap_err();
+            assert!(matches!(
+                refusal,
+                CommandRefusal::Rejected { message } if message == "That thread already exists."
+            ));
+        }
+
+        /// Somebody else's errored thread is readable when it is public, and it
+        /// is still not this viewer's id to reuse. The refusal is the one that
+        /// says nothing about what is there, and no delete is attempted.
+        #[tokio::test]
+        async fn another_users_errored_thread_is_not_reusable() {
+            let mut tasks = holding(Some(thread_of("u-2", TaskStatus::Error)));
+            tasks.expect_delete_errored_empty_task().never();
+
+            let refusal = free_thread_id(&tasks, &viewer(), DRAFT).await.unwrap_err();
+            assert!(matches!(
+                refusal,
+                CommandRefusal::NotWritable { task_id } if task_id == DRAFT
+            ));
+        }
     }
 }

@@ -109,6 +109,31 @@ pub trait TaskDao: Send + Sync {
         &self,
         task_id: &str,
     ) -> Result<bool, sqlx::Error>;
+    /// Free the id of a Task that errored before anything was said in it, and
+    /// report whether there was one.
+    ///
+    /// The whole condition rides in the statement's `WHERE`, so what is removed
+    /// is decided at the database rather than by a read the caller took
+    /// earlier: the row must be `Error`, carry no messages, and be one `ctx`
+    /// controls. A live Task, a Task with a conversation, and somebody else's
+    /// Task are all left untouched and reported as `false`.
+    ///
+    /// This is the compensation `create` cannot run for itself: a preflight
+    /// failure persists the row as `Error` and *then* returns the error, so the
+    /// id stays taken by a Task that never became usable. A caller that owns
+    /// the id it creates under — the T3 compatibility surface, whose client
+    /// mints the thread id and re-sends the same one — otherwise hits the
+    /// unique index on `tasks.task_id` on every retry.
+    ///
+    /// Everything projected under the id goes with the row (activities, events,
+    /// follows, read receipts, and the Sandbox row when no other Task is left
+    /// on it), because the id is about to name a different incarnation and a
+    /// surviving row would be read as belonging to it.
+    async fn delete_errored_empty_task(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error>;
     /// Resolve the workspace a task row will use before inserting it. Callers
     /// that need to validate against that workspace before the task row exists
     /// must use this instead of relying on `insert_task`'s returned value.
@@ -472,6 +497,92 @@ impl TaskDao for PgTaskDao {
         }
         tx.commit().await?;
         Ok(did_delete)
+    }
+
+    async fn delete_errored_empty_task(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error> {
+        // `status`, the empty conversation and the control rule are all in this
+        // one `WHERE`, so a Task that became usable between the caller's read
+        // and this call is not deleted by a decision that has gone stale.
+        let ctrl = ctx.control_filter("", 2);
+        let sql = format!(
+            "DELETE FROM tasks \
+             WHERE task_id = $1 AND status = $4 AND {} \
+               AND NOT EXISTS (SELECT 1 FROM task_messages WHERE task_id = $1) \
+             RETURNING task_id, sandbox_id",
+            ctrl.sql()
+        );
+        let mut tx = self.0.begin().await?;
+        let deleted: Option<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(sql))
+            .bind(task_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .bind(TaskStatus::Error.as_str())
+            .fetch_optional(&mut *tx)
+            .await?;
+        let Some((deleted_task_id, sandbox_id)) = deleted else {
+            tx.commit().await?;
+            return Ok(false);
+        };
+
+        // The Sandbox this Task was created with — never one it joined, since a
+        // join failure deletes the Task instead of leaving it errored. Guarded
+        // by the same last-member rule as `delete_task` anyway, so a shared
+        // Sandbox reached by some other route keeps its row.
+        if let Some(sandbox_id) = sandbox_id {
+            let sandbox_exists: Option<String> = sqlx::query_scalar(
+                "SELECT sandbox_id FROM sandboxes WHERE sandbox_id = $1 FOR UPDATE",
+            )
+            .bind(&sandbox_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if sandbox_exists.is_some() {
+                let has_remaining_members: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tasks WHERE sandbox_id = $1)")
+                        .bind(&sandbox_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                if !has_remaining_members {
+                    sqlx::query("DELETE FROM sandboxes WHERE sandbox_id = $1")
+                        .bind(&sandbox_id)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
+        }
+
+        // The failed incarnation's trail. `task_activities` is the one that
+        // would be visible: a preflight failure publishes a Sandbox error
+        // event, which is recorded as an activity, and the conversation the
+        // retry opens is read from that table.
+        sqlx::query("DELETE FROM task_activities WHERE task_id = $1")
+            .bind(&deleted_task_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM task_events WHERE task_id = $1")
+            .bind(&deleted_task_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM task_tags WHERE task_id = $1")
+            .bind(&deleted_task_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM task_follows WHERE task_id = $1")
+            .bind(&deleted_task_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM task_read_receipts WHERE task_id = $1")
+            .bind(&deleted_task_id)
+            .execute(&mut *tx)
+            .await?;
+
+        moatless_backend_core::change_feed::listing::record_change(&mut tx, &deleted_task_id)
+            .await?;
+        tx.commit().await?;
+        Ok(true)
     }
 
     async fn resolve_workspace_id(
@@ -1637,5 +1748,119 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(remaining_member_sandbox.as_deref(), Some("t1"));
+    }
+
+    async fn seed_message(pool: &PgPool, task_id: &str) {
+        sqlx::query(
+            r#"INSERT INTO task_messages (task_id, uuid, message_type, user_type,
+                                          timestamp, message_role)
+               VALUES ($1, $2, 'user', 'human', NOW()::text, 'user')"#,
+        )
+        .bind(task_id)
+        .bind(format!("{task_id}-m1"))
+        .execute(pool)
+        .await
+        .expect("seed message");
+    }
+
+    async fn seed_activity(pool: &PgPool, task_id: &str) {
+        sqlx::query(
+            r#"INSERT INTO task_activities (activity_id, task_id, position, kind, status,
+                                            summary, is_error)
+               VALUES ($1 || '-a1', $1, 1, 'sandbox_error', 'failed',
+                       'preflight failed', true)"#,
+        )
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .expect("seed activity");
+    }
+
+    async fn task_exists(pool: &PgPool, task_id: &str) -> bool {
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM tasks WHERE task_id = $1)")
+            .bind(task_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    /// The retry the T3 draft makes under the id its first send wedged. Without
+    /// this the row stays and every retry fails the unique index.
+    #[sqlx::test]
+    async fn delete_errored_empty_task_frees_a_failed_bootstrap(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "error").await;
+        seed_activity(&pool, "t1").await;
+        let dao = PgTaskDao(pool.clone());
+
+        assert!(
+            dao.delete_errored_empty_task("t1", &owner_ctx())
+                .await
+                .unwrap()
+        );
+
+        assert!(!task_exists(&pool, "t1").await);
+        let sandbox_count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM sandboxes WHERE sandbox_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(sandbox_count, 0);
+        // The failed incarnation's error activity would otherwise open the
+        // conversation the retry creates.
+        let activity_count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM task_activities WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(activity_count, 0);
+    }
+
+    /// An errored task somebody has already talked to is a conversation, not a
+    /// bootstrap that never happened.
+    #[sqlx::test]
+    async fn delete_errored_empty_task_keeps_an_errored_task_with_messages(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "error").await;
+        seed_message(&pool, "t1").await;
+        let dao = PgTaskDao(pool.clone());
+
+        assert!(
+            !dao.delete_errored_empty_task("t1", &owner_ctx())
+                .await
+                .unwrap()
+        );
+        assert!(task_exists(&pool, "t1").await);
+    }
+
+    /// A live thread is never taken over by a create that names its id.
+    #[sqlx::test]
+    async fn delete_errored_empty_task_keeps_a_live_task(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        let dao = PgTaskDao(pool.clone());
+
+        assert!(
+            !dao.delete_errored_empty_task("t1", &owner_ctx())
+                .await
+                .unwrap()
+        );
+        assert!(task_exists(&pool, "t1").await);
+    }
+
+    /// The control rule rides in the statement, so an id somebody else's failed
+    /// bootstrap holds is not reusable even when the caller can read the row.
+    #[sqlx::test]
+    async fn delete_errored_empty_task_keeps_another_users_task(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "error").await;
+        let stranger = ScopeContext {
+            user_id: "user-2".to_string(),
+            is_admin: false,
+        };
+        let dao = PgTaskDao(pool.clone());
+
+        assert!(
+            !dao.delete_errored_empty_task("t1", &stranger)
+                .await
+                .unwrap()
+        );
+        assert!(task_exists(&pool, "t1").await);
     }
 }

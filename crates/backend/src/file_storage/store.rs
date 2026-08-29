@@ -86,7 +86,16 @@ pub async fn store_upload(
         uploaded_at: chrono::Utc::now(),
     };
 
-    files.insert_metadata(&meta).await?;
+    // The object is already in S3 and its id has not been returned to anyone,
+    // so a failed row would leave bytes no caller can name and none of them can
+    // clean up. Undo the put before surfacing the error, and report the row
+    // failure rather than the compensation's.
+    if let Err(error) = files.insert_metadata(&meta).await {
+        if let Err(cleanup) = s3::delete_object(&s3_client.client, bucket, &s3_key).await {
+            tracing::warn!(%cleanup, file_id = %meta.file_id, "Upload object outlived the row that failed");
+        }
+        return Err(error.into());
+    }
 
     Ok(meta)
 }
