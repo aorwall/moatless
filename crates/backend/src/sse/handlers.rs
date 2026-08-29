@@ -8,11 +8,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_stream::stream;
+use axum::Json;
 use axum::body::Body;
 use axum::extract::{FromRequestParts, Path, Query, State};
 use axum::http::request::Parts;
 use axum::response::Response;
-use axum::Json;
 use futures::stream::StreamExt;
 use serde::Deserialize;
 use tokio::sync::broadcast;
@@ -21,11 +21,11 @@ use tracing::{debug, warn};
 use moatless_types::access_control::ScopeContext;
 
 use crate::auth::identity::AuthIdentity;
-use moatless_types::user::UserRole;
 use crate::extractors::AuthUser;
 use crate::task::dao::TaskDao;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_event::models::TaskEvent;
+use moatless_types::user::UserRole;
 
 use super::routes::SseState;
 
@@ -245,12 +245,11 @@ pub(crate) async fn task_events_handler(
 
     let repo = task_events;
 
-    // Preserve the previous XRANGE semantics: default 500, capped at 2000,
-    // oldest-first. `list_events` orders by id ASC with the same LIMIT.
+    // Page size: default 500, capped at 2000.
     let limit = i64::try_from(query.limit.unwrap_or(500).min(2000)).unwrap_or(500);
 
     // Comma-separated `types` filter maps to a SQL `type = ANY($types)` filter
-    // in `list_events` (an empty/absent filter returns all types).
+    // in `list_recent_events` (an empty/absent filter returns all types).
     let event_types: Option<Vec<String>> = query
         .types
         .map(|t| {
@@ -261,7 +260,13 @@ pub(crate) async fn task_events_handler(
         })
         .filter(|v| !v.is_empty());
 
-    let rows = match repo.list_events(&task_id, &event_types, limit, 0).await {
+    // Newest-first selection, returned oldest-first: `limit` truncates the head
+    // of the log, so a long-running task's page tracks its tail instead of
+    // freezing on the window it opened with.
+    let rows = match repo
+        .list_recent_events(&task_id, &event_types, limit, 0)
+        .await
+    {
         Ok(rows) => rows,
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Failed to read task events from Postgres");
@@ -301,6 +306,10 @@ fn event_row_to_json(row: TaskEvent) -> serde_json::Value {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use moatless_tasks::task::dao::MockTaskDao;
+    use moatless_tasks::task_event::dao::MockTaskEventDao;
+    use moatless_types::access_control::Scope;
+    use moatless_types::task::{Task, TaskStatus, Visibility};
     use serde_json::json;
 
     fn sample_row() -> TaskEvent {
@@ -354,5 +363,111 @@ mod tests {
         assert_eq!(obj["subType"], json!("ready"));
         assert_eq!(obj["isError"], json!(false));
         assert!(obj.contains_key("payload"));
+    }
+
+    /// The task the scoped read hands back — the handler only cares that it
+    /// resolves, so every field beyond the id is filler.
+    fn task_fixture() -> Task {
+        Task {
+            task_id: "task-1".to_string(),
+            short_id: None,
+            created_at: Utc::now(),
+            last_message_at: Utc::now(),
+            agent_type: moatless_types::agent::AgentType("claude-code".to_string()),
+            repository_id: "repo-1".to_string(),
+            status: TaskStatus::Open,
+            total_cost_usd: 0.0,
+            site_url: None,
+            template_id: None,
+            vibe: None,
+            name: None,
+            description: None,
+            site_id: None,
+            site_provider: None,
+            branch: None,
+            model: None,
+            created_by: None,
+            visibility: Visibility::Private,
+            scope: Scope::User,
+            owner_user_id: None,
+            updated_at: None,
+            append_system_prompt: None,
+            headless: false,
+            ttl_minutes: 0,
+            inactive_ttl_days: 0,
+            loop_id: None,
+            workspace_id: None,
+            sandbox_id: None,
+            checkout_mode: None,
+            skills: Vec::new(),
+        }
+    }
+
+    /// Task repo whose scoped `find_by_id` lets the caller through.
+    fn tasks_allowing_access() -> Arc<dyn TaskDao> {
+        let mut tasks = MockTaskDao::new();
+        tasks
+            .expect_find_by_id()
+            .returning(|_, _| Ok(Some(task_fixture())));
+        Arc::new(tasks)
+    }
+
+    /// `count` events named `evt-1..evt-count`, oldest first — a task's log.
+    fn event_log(count: i64) -> Vec<TaskEvent> {
+        (1..=count)
+            .map(|id| TaskEvent {
+                id,
+                event_id: format!("evt-{id}"),
+                ..sample_row()
+            })
+            .collect()
+    }
+
+    fn auth_user() -> AuthUser {
+        AuthUser {
+            user_id: uuid::Uuid::new_v4(),
+            login: "reader".to_string(),
+            role: Some("user".to_string()),
+            provider: Some("local".to_string()),
+            group_id: None,
+            task_id: None,
+            is_agent_context: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn serves_the_newest_events_when_the_log_is_longer_than_the_limit() {
+        let mut events = MockTaskEventDao::new();
+        // Stands in for the DAO's contract: the newest `limit` rows, handed back
+        // oldest-first. A handler reading from the start of the log instead
+        // would have to ask for something this double does not answer.
+        events
+            .expect_list_recent_events()
+            .withf(|task_id, types, limit, offset| {
+                task_id == "task-1" && types.is_none() && *limit == 2 && *offset == 0
+            })
+            .returning(|_, _, limit, _| {
+                let log = event_log(5);
+                let skip = log.len().saturating_sub(usize::try_from(limit).unwrap());
+                Ok(log.into_iter().skip(skip).collect())
+            });
+
+        let Json(body) = task_events_handler(
+            State(tasks_allowing_access()),
+            State(Arc::new(events) as Arc<dyn TaskEventDao>),
+            auth_user(),
+            Path("task-1".to_string()),
+            Query(TaskEventsQuery {
+                types: None,
+                limit: Some(2),
+            }),
+        )
+        .await;
+
+        let ids: Vec<&str> = body
+            .iter()
+            .map(|e| e["eventId"].as_str().expect("eventId"))
+            .collect();
+        assert_eq!(ids, ["evt-4", "evt-5"]);
     }
 }

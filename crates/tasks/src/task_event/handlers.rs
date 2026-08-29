@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 
 use super::dao::TaskEventDao;
 use super::error::TaskEventError;
 use super::schemas::*;
-use moatless_identity::extractors::AuthUser;
 use crate::task::dao::TaskDao;
+use moatless_identity::extractors::AuthUser;
 
 /// List persisted events for a task.
 #[utoipa::path(
@@ -49,9 +49,9 @@ pub async fn list_task_events(
     });
 
     // Newest-first selection, returned oldest-first: the UI's Events tab and
-    // `moat events` both want the tail of a task's history, and `list_events`
-    // would hand back the oldest `limit` rows — so a long-running task showed a
-    // window frozen near its start.
+    // `moat events` both want the tail of a task's history, so `limit` has to
+    // truncate the oldest rows — truncating the newest ones showed a
+    // long-running task a window frozen near its start.
     let events = task_events
         .list_recent_events(&task_id, &event_types, limit, offset)
         .await?;
