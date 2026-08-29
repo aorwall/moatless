@@ -37,8 +37,8 @@ use base64::Engine;
 
 use super::dao::{Conversation, ConversationDao};
 use super::ports::{
-    AgentCatalogSource, CommandRefusal, NewThread, QuestionAnswer, ThreadCommandSink, ThreadMeta,
-    ThreadTurn, TurnAttachment,
+    AgentCatalogSource, AttachmentKind, CommandRefusal, NewThread, QuestionAnswer,
+    ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment,
 };
 use super::providers;
 use crate::agent::catalog;
@@ -327,6 +327,11 @@ fn attachment(sent: &Value) -> Result<TurnAttachment, CommandRefusal> {
             })?;
         return Ok(TurnAttachment::Uploaded {
             attachment_id: attachment_id.to_string(),
+            kind: if kind == "image" {
+                AttachmentKind::Image
+            } else {
+                AttachmentKind::File
+            },
         });
     };
 
@@ -861,7 +866,7 @@ mod tests {
     #[derive(Debug, PartialEq, Eq)]
     enum Attached {
         Inline(String, String, usize),
-        Uploaded(String),
+        Uploaded(String, AttachmentKind),
     }
 
     impl From<TurnAttachment> for Attached {
@@ -872,7 +877,10 @@ mod tests {
                     mime_type,
                     bytes,
                 } => Self::Inline(filename, mime_type, bytes.len()),
-                TurnAttachment::Uploaded { attachment_id } => Self::Uploaded(attachment_id),
+                TurnAttachment::Uploaded {
+                    attachment_id,
+                    kind,
+                } => Self::Uploaded(attachment_id, kind),
             }
         }
     }
@@ -1261,6 +1269,10 @@ mod tests {
     /// the id is the only thing this side needs off the wire — the name, type
     /// and size beside it are the client's copy of what the upload row already
     /// records.
+    ///
+    /// The member travels with the id. An id is not a provenance, so the
+    /// resolver has to measure the stored row against the member it was claimed
+    /// under, and it can only do that if this side says which one that was.
     #[tokio::test]
     async fn an_uploaded_attachment_reaches_the_sink_as_the_id_it_named() {
         let uploaded = |kind: &str, name: &str, id: &str| {
@@ -1285,8 +1297,14 @@ mod tests {
         assert_eq!(
             attachments,
             &vec![
-                Attached::Uploaded("6b1f7b2e-0000-4000-8000-000000000001".to_string()),
-                Attached::Uploaded("6b1f7b2e-0000-4000-8000-000000000002".to_string()),
+                Attached::Uploaded(
+                    "6b1f7b2e-0000-4000-8000-000000000001".to_string(),
+                    AttachmentKind::Image
+                ),
+                Attached::Uploaded(
+                    "6b1f7b2e-0000-4000-8000-000000000002".to_string(),
+                    AttachmentKind::File
+                ),
             ]
         );
     }

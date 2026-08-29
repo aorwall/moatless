@@ -101,6 +101,13 @@ pub async fn store_upload(
 /// The object goes first. The row is what every other surface reaches an upload
 /// through, so a failure between the two leaves an unreferenced object rather
 /// than a row pointing at bytes that are gone.
+///
+/// Access is all this checks. Whether anything still points at the upload is a
+/// question about the caller's own domain, not about file storage: the T3
+/// attachment store asks it in
+/// `crate::t3code::backend::AppStateAttachments::is_on_a_message` before it
+/// deletes or replaces anything, so a sent attachment is not collected as an
+/// abandoned one.
 pub async fn delete_upload(
     s3_storage: Option<&s3::S3Storage>,
     s3_config: &S3Config,

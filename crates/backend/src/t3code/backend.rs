@@ -25,7 +25,7 @@ use crate::task::handlers as task_handlers;
 use crate::task::models::TaskStatus;
 use crate::task::service as task_service;
 use moatless_t3code::ports::{
-    AgentCatalogSource, AttachmentStore, AttachmentStoreError, BoundPullRequest,
+    AgentCatalogSource, AttachmentKind, AttachmentStore, AttachmentStoreError, BoundPullRequest,
     BoundPullRequestSource, BranchListError, CommandRefusal, DeclaredAttachment, GithubIdentity,
     NewThread, PullRequestError, QuestionAnswer, RepositoryBranchSource, ResolvedPullRequest,
     SourceControlAuthSource, ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment,
@@ -551,8 +551,11 @@ impl AppStateCommands {
                     })?;
                     file_ids.push(stored.file_id);
                 }
-                TurnAttachment::Uploaded { attachment_id } => {
-                    file_ids.push(self.uploaded_attachment(viewer, attachment_id).await?);
+                TurnAttachment::Uploaded {
+                    attachment_id,
+                    kind,
+                } => {
+                    file_ids.push(self.uploaded_attachment(viewer, attachment_id, *kind).await?);
                 }
             }
         }
@@ -570,6 +573,7 @@ impl AppStateCommands {
         &self,
         viewer: &ScopeContext,
         attachment_id: &str,
+        kind: AttachmentKind,
     ) -> Result<String, CommandRefusal> {
         let found = self
             .0
@@ -596,6 +600,28 @@ impl AppStateCommands {
             tracing::warn!(attachment_id, "T3 turn named an attachment its sender cannot read");
             return Err(unreachable());
         }
+        // Read access is not provenance. Moatless's own multipart route stores
+        // files this viewer can read and knows nothing about T3's union, so
+        // without this the mime and size limits would hold only for uploads
+        // that actually came through the mint. It also keeps the turn agreeing
+        // with the projection, which drops an attachment outside these bounds:
+        // storing one would show the person a message whose attachment the
+        // agent saw and their client never renders.
+        if !kind.accepts(&meta.mime_type, meta.size) {
+            tracing::warn!(
+                attachment_id,
+                mime_type = %meta.mime_type,
+                size = meta.size,
+                ?kind,
+                "T3 turn named an attachment outside the member it claimed"
+            );
+            return Err(CommandRefusal::Rejected {
+                message: format!(
+                    "Attachment `{}` is not something that can be sent here.",
+                    meta.filename
+                ),
+            });
+        }
         Ok(meta.file_id)
     }
 }
@@ -603,6 +629,32 @@ impl AppStateCommands {
 /// Where a T3 chat attachment's bytes go: an ordinary Moatless upload, under
 /// the id `attachments.createUploadUrl` already handed the client.
 pub struct AppStateAttachments(pub AppState);
+
+impl AppStateAttachments {
+    /// Whether a sent message already carries this upload.
+    ///
+    /// The check lives here rather than in [`file_store::delete_upload`]: that
+    /// helper is generic file storage and knows nothing about messages, while
+    /// the rule — an attachment stops being the composer's draft the moment a
+    /// turn names it — is this surface's.
+    async fn is_on_a_message(&self, attachment_id: &str) -> Result<bool, AttachmentStoreError> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1 FROM task_message_contexts
+                WHERE reference_id = $1 AND type = 'file'
+             )",
+        )
+        .bind(attachment_id)
+        .fetch_one(&self.0.db)
+        .await
+        .map_err(|error| {
+            // Not knowing is not permission to delete: a read that failed is
+            // reported as a failure rather than assumed to mean "unreferenced".
+            tracing::warn!(%error, attachment_id, "Could not tell whether a T3 attachment is in use");
+            AttachmentStoreError::Failed(error.to_string())
+        })
+    }
+}
 
 #[async_trait]
 impl AttachmentStore for AppStateAttachments {
@@ -613,6 +665,16 @@ impl AttachmentStore for AppStateAttachments {
         declared: DeclaredAttachment,
         bytes: Vec<u8>,
     ) -> Result<(), AttachmentStoreError> {
+        // Once a turn carries this id, the bytes are what the transcript, the
+        // download route and the Sandbox pre-fetch all point at, and replacing
+        // them would change an attachment that has already been sent and read.
+        // A retry cannot reach this: sending the turn required the first upload
+        // to have finished.
+        if self.is_on_a_message(attachment_id).await? {
+            tracing::warn!(attachment_id, "Refused to replace a T3 attachment already on a message");
+            return Err(AttachmentStoreError::Forbidden);
+        }
+
         // A minted URL is good for ten minutes and a client that lost its
         // connection mid-upload may `POST` it again. Removing what the first
         // attempt left makes the second one land instead of colliding with it.
@@ -652,6 +714,19 @@ impl AttachmentStore for AppStateAttachments {
         viewer: &ScopeContext,
         attachment_id: &str,
     ) -> Result<(), AttachmentStoreError> {
+        // `attachments.delete` means "I abandoned this upload". An upload a
+        // message names was not abandoned, so there is no orphan to collect and
+        // the request rests on a premise that is no longer true. Deleting
+        // anyway would strip an attachment off a sent message and leave the
+        // transcript, the download and the Sandbox pre-fetch pointing at bytes
+        // that are gone. Reported as success because the client's intent —
+        // leave nothing dangling — holds either way, and a failure here is not
+        // something the person could act on.
+        if self.is_on_a_message(attachment_id).await? {
+            tracing::debug!(attachment_id, "Kept a T3 attachment that a message names");
+            return Ok(());
+        }
+
         file_store::delete_upload(
             self.0.s3.as_ref(),
             &self.0.s3_config,

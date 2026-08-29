@@ -77,7 +77,48 @@ pub enum TurnAttachment {
     /// `attachments.createUploadUrl` minted for it. Carries no bytes: what the
     /// person attached is in storage, and the name, type and size on the wire
     /// beside this id are the client's copy of what the row already records.
-    Uploaded { attachment_id: String },
+    ///
+    /// An id on a turn is only an id. Nothing about it proves it came from a
+    /// mint, so `kind` is the member the client claims it under and the
+    /// resolver checks the stored row against it — see
+    /// [`AttachmentKind::accepts`].
+    Uploaded {
+        attachment_id: String,
+        kind: AttachmentKind,
+    },
+}
+
+/// Which member of the attachment union a turn claims an upload under.
+///
+/// The two differ in what they accept, so which one is claimed decides which
+/// limits the stored file has to satisfy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachmentKind {
+    Image,
+    File,
+}
+
+impl AttachmentKind {
+    /// Whether a stored upload could have been minted under this member.
+    ///
+    /// A turn names an upload by id, and an id is not a provenance: the same
+    /// viewer can put a file in storage through Moatless's own multipart route,
+    /// which has no notion of T3's union, and then name it here. Resolving it
+    /// on read access alone would let that file reach the agent one byte or one
+    /// mime type past what `attachments.createUploadUrl` would ever have signed
+    /// for. So the row is measured against the member it is claimed under, with
+    /// the same numbers the mint uses.
+    #[must_use]
+    pub fn accepts(self, mime_type: &str, size_bytes: i64) -> bool {
+        let mime_type = mime_type.trim().to_ascii_lowercase();
+        match self {
+            Self::Image => {
+                crate::attachments::SUPPORTED_IMAGE_MIME_TYPES.contains(&mime_type.as_str())
+                    && (1..=crate::attachments::MAX_IMAGE_BYTES).contains(&size_bytes)
+            }
+            Self::File => (1..=crate::attachments::MAX_FILE_BYTES).contains(&size_bytes),
+        }
+    }
 }
 
 /// One turn, as this surface understood it.
@@ -378,4 +419,67 @@ pub trait ThreadCommandSink: Send + Sync {
         viewer: &ScopeContext,
         answer: QuestionAnswer,
     ) -> Result<(), CommandRefusal>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AttachmentKind;
+    use crate::attachments::{MAX_FILE_BYTES, MAX_IMAGE_BYTES};
+
+    /// The member decides the ceiling, and the boundary is where a limit is
+    /// either right or off by one. An image is held to the image maximum even
+    /// though a file that size would be accepted.
+    #[test]
+    fn each_member_accepts_up_to_its_own_maximum() {
+        assert!(AttachmentKind::Image.accepts("image/png", MAX_IMAGE_BYTES));
+        assert!(!AttachmentKind::Image.accepts("image/png", MAX_IMAGE_BYTES + 1));
+        assert!(AttachmentKind::File.accepts("application/pdf", MAX_FILE_BYTES));
+        assert!(!AttachmentKind::File.accepts("application/pdf", MAX_FILE_BYTES + 1));
+        assert!(!AttachmentKind::Image.accepts("image/png", MAX_FILE_BYTES));
+    }
+
+    /// The contract's minimum is one byte on both members, so a row recording
+    /// an empty or negative size is not something either member can carry.
+    #[test]
+    fn neither_member_accepts_an_upload_with_no_bytes() {
+        assert!(!AttachmentKind::Image.accepts("image/png", 0));
+        assert!(!AttachmentKind::File.accepts("application/pdf", 0));
+        assert!(!AttachmentKind::File.accepts("application/pdf", -1));
+    }
+
+    /// An image is restricted to the four types the mint would have signed for.
+    /// A file takes any type — that is the whole difference between the members
+    /// — so the check on a file is a size check alone.
+    #[test]
+    fn only_an_image_is_restricted_by_type() {
+        for mime in ["image/gif", "image/jpeg", "image/png", "image/webp"] {
+            assert!(AttachmentKind::Image.accepts(mime, 1024), "{mime}");
+        }
+        // Not one the union names, however plausibly image-shaped.
+        assert!(!AttachmentKind::Image.accepts("image/svg+xml", 1024));
+        assert!(!AttachmentKind::Image.accepts("application/pdf", 1024));
+        assert!(AttachmentKind::File.accepts("application/octet-stream", 1024));
+        assert!(AttachmentKind::File.accepts("image/svg+xml", 1024));
+    }
+
+    /// The mint lets the file member carry any type up to 50 MiB, image types
+    /// included, so a large PNG sent as a file is something the contract allows
+    /// and this side accepts. `projection::message_attachments` picks the member
+    /// an attachment fits for the same reason — if it read the member off the
+    /// mime type instead, this upload would be stored and read by the agent and
+    /// then missing from the thread.
+    #[test]
+    fn the_file_member_takes_an_image_too_large_to_be_one() {
+        assert!(AttachmentKind::File.accepts("image/png", MAX_IMAGE_BYTES + 1));
+        assert!(AttachmentKind::File.accepts("image/png", MAX_FILE_BYTES));
+        assert!(!AttachmentKind::File.accepts("image/png", MAX_FILE_BYTES + 1));
+    }
+
+    /// What a row records is what some other route stored, and mime types are
+    /// not case-normalised on the way in everywhere.
+    #[test]
+    fn a_stored_type_is_matched_however_it_was_cased() {
+        assert!(AttachmentKind::Image.accepts("IMAGE/PNG", 1024));
+        assert!(AttachmentKind::Image.accepts("  image/png  ", 1024));
+    }
 }

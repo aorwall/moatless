@@ -24,14 +24,15 @@ use std::sync::Arc;
 use chrono::{DateTime, Duration, Utc};
 use moatless_t3code::dao::PgConversationDao;
 use moatless_t3code::ports::{
-    CommandRefusal, NewThread, ThreadCommandSink, ThreadMeta, ThreadTurn,
+    AttachmentKind, AttachmentStore, CommandRefusal, NewThread, ThreadCommandSink, ThreadMeta,
+    ThreadTurn,
 };
 use moatless_t3code::{thread_snapshot, AgentModelDefaults, Deployment};
 use moatless_backend::agent::catalog;
 use moatless_backend::repository::dao as repository_dao;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::{AgentMode, AgentType};
-use moatless_backend::t3code::backend::AppStateCommands;
+use moatless_backend::t3code::backend::{AppStateAttachments, AppStateCommands};
 use moatless_backend::task::dao::{PgTaskDao, TaskDao};
 use moatless_backend::task::models::{TaskStatus, Visibility};
 use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
@@ -244,6 +245,18 @@ async fn message_file_ids(pool: &PgPool, task_id: &str) -> Vec<String> {
 /// a `User`-scoped row owned by whoever uploaded it. No S3 object behind it —
 /// nothing in this file reads the bytes, only the row that names them.
 async fn seed_upload(pool: &PgPool, owner: &str, filename: &str, mime_type: &str) -> String {
+    seed_upload_sized(pool, owner, filename, mime_type, 2048).await
+}
+
+/// The same, at a size the caller cares about — what a member's ceiling is
+/// measured against.
+async fn seed_upload_sized(
+    pool: &PgPool,
+    owner: &str,
+    filename: &str,
+    mime_type: &str,
+    size: i64,
+) -> String {
     let file_id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO file_metadata (
@@ -253,12 +266,22 @@ async fn seed_upload(pool: &PgPool, owner: &str, filename: &str, mime_type: &str
     .bind(&file_id)
     .bind(filename)
     .bind(mime_type)
-    .bind(2048_i64)
+    .bind(size)
     .bind(owner)
     .execute(pool)
     .await
     .unwrap();
     file_id
+}
+
+/// Whether the upload row is still there. `attachments.delete` and a re-POST
+/// both remove it, so this is how a test sees that one of them did not.
+async fn upload_exists(pool: &PgPool, file_id: &str) -> bool {
+    sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM file_metadata WHERE file_id = $1)")
+        .bind(file_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 /// Whether the lifecycle was asked for a Sandbox. The record is the request,
@@ -370,6 +393,7 @@ async fn an_uploaded_attachment_is_resolved_rather_than_stored_again(pool: PgPoo
     let mut turn = turn("t-uploaded", "3c7f6e5d-4b3a-42a1-8988-776655443322", "read this");
     turn.attachments = vec![moatless_t3code::ports::TurnAttachment::Uploaded {
         attachment_id: attachment_id.clone(),
+        kind: AttachmentKind::File,
     }];
 
     sink(&pool)
@@ -401,6 +425,7 @@ async fn a_turn_naming_an_attachment_its_sender_cannot_read_is_refused(pool: PgP
         );
         turn.attachments = vec![moatless_t3code::ports::TurnAttachment::Uploaded {
             attachment_id: attachment_id.clone(),
+            kind: AttachmentKind::File,
         }];
 
         let refusal = sink(&pool)
@@ -413,6 +438,131 @@ async fn a_turn_naming_an_attachment_its_sender_cannot_read_is_refused(pool: PgP
         );
     }
     assert!(message_uuids(&pool, "t-not-mine").await.is_empty());
+}
+
+/// An id on a turn is not proof it came from `attachments.createUploadUrl`.
+/// Moatless's own multipart route stores files this viewer can read and knows
+/// nothing about T3's union, so an upload past the member's ceiling — or under
+/// the wrong member entirely — is refused rather than resolved. Otherwise the
+/// caps would bind only the clients that already respect them, and the turn
+/// would disagree with the projection, which drops the same attachment on the
+/// way back out.
+#[sqlx::test]
+async fn a_turn_naming_an_upload_outside_its_member_is_refused(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-oversize", USER_1).await;
+
+    let too_big =
+        seed_upload_sized(&pool, USER_1, "huge.bin", "application/octet-stream", 50 * 1024 * 1024 + 1)
+            .await;
+    let not_an_image = seed_upload(&pool, USER_1, "report.pdf", "application/pdf").await;
+    let too_big_for_an_image =
+        seed_upload_sized(&pool, USER_1, "huge.png", "image/png", 10 * 1024 * 1024 + 1).await;
+
+    for (attachment_id, kind) in [
+        (too_big, AttachmentKind::File),
+        (not_an_image, AttachmentKind::Image),
+        (too_big_for_an_image, AttachmentKind::Image),
+    ] {
+        let mut turn = turn(
+            "t-oversize",
+            "5e9b8a7c-6d5e-44c3-8b00-998877665544",
+            "read this",
+        );
+        turn.attachments = vec![moatless_t3code::ports::TurnAttachment::Uploaded {
+            attachment_id: attachment_id.clone(),
+            kind,
+        }];
+
+        let refusal = sink(&pool)
+            .send_turn(&viewer(USER_1), turn)
+            .await
+            .expect_err("an upload outside its member is refused");
+        assert!(
+            matches!(refusal, CommandRefusal::Rejected { .. }),
+            "{attachment_id} produced {refusal:?}"
+        );
+    }
+    assert!(message_uuids(&pool, "t-oversize").await.is_empty());
+}
+
+/// `attachments.delete` means "I abandoned this upload". Once a turn carries
+/// the id, the upload is what the transcript, the download route and the
+/// Sandbox pre-fetch all point at, so collecting it as an orphan would strip an
+/// attachment off a message that was already sent and read. The composer
+/// deletes whenever it clears a draft and cannot know which state the server is
+/// in, so this is reported as success and the bytes are kept.
+#[sqlx::test]
+async fn an_attachment_a_message_carries_is_kept_when_the_composer_deletes_it(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-keep", USER_1).await;
+    let attachment_id = seed_upload(&pool, USER_1, "report.pdf", "application/pdf").await;
+
+    let mut turn = turn("t-keep", "7a6b5c4d-8e9f-4012-8a3b-4c5d6e7f8091", "read this");
+    turn.attachments = vec![moatless_t3code::ports::TurnAttachment::Uploaded {
+        attachment_id: attachment_id.clone(),
+        kind: AttachmentKind::File,
+    }];
+    sink(&pool)
+        .send_turn(&viewer(USER_1), turn)
+        .await
+        .expect("the turn is accepted");
+
+    let attachments = AppStateAttachments(test_app_state(pool.clone()));
+    attachments
+        .delete(&viewer(USER_1), &attachment_id)
+        .await
+        .expect("deleting a sent attachment is not an error the person can act on");
+
+    assert!(
+        upload_exists(&pool, &attachment_id).await,
+        "the message still names this upload, so it is not an orphan to collect"
+    );
+}
+
+/// The other half of the same rule: a re-`POST` of a still-valid upload URL
+/// replaces the bytes, and a mint is good for ten minutes. Doing that after the
+/// turn has been sent would change an attachment the agent has already read,
+/// leaving the transcript describing bytes nobody can see. A genuine retry
+/// cannot reach this — sending the turn required the first upload to finish.
+#[sqlx::test]
+async fn an_attachment_a_message_carries_cannot_be_replaced(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-no-replace", USER_1).await;
+    let attachment_id = seed_upload(&pool, USER_1, "report.pdf", "application/pdf").await;
+
+    let mut turn = turn(
+        "t-no-replace",
+        "8b7c6d5e-9f01-4123-8b4c-5d6e7f809122",
+        "read this",
+    );
+    turn.attachments = vec![moatless_t3code::ports::TurnAttachment::Uploaded {
+        attachment_id: attachment_id.clone(),
+        kind: AttachmentKind::File,
+    }];
+    sink(&pool)
+        .send_turn(&viewer(USER_1), turn)
+        .await
+        .expect("the turn is accepted");
+
+    let attachments = AppStateAttachments(test_app_state(pool.clone()));
+    let refused = attachments
+        .store(
+            &viewer(USER_1),
+            &attachment_id,
+            moatless_t3code::ports::DeclaredAttachment {
+                filename: "swapped.pdf".to_string(),
+                mime_type: "application/pdf".to_string(),
+            },
+            vec![0u8; 16],
+        )
+        .await
+        .expect_err("replacing a sent attachment is refused");
+    assert!(matches!(
+        refused,
+        moatless_t3code::ports::AttachmentStoreError::Forbidden
+    ));
+    assert!(upload_exists(&pool, &attachment_id).await);
 }
 
 /// A message id arrives from the client, so it names a row the sender may have

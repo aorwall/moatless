@@ -54,7 +54,7 @@ use crate::ports::{AttachmentStore, AttachmentStoreError, DeclaredAttachment};
 pub(crate) const UPLOAD_ROUTE_PREFIX: &str = "/api/attachments";
 
 /// `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES` (`contracts/src/orchestration.ts:158`).
-const MAX_IMAGE_BYTES: i64 = 10 * 1024 * 1024;
+pub(crate) const MAX_IMAGE_BYTES: i64 = 10 * 1024 * 1024;
 
 /// `PROVIDER_SEND_TURN_MAX_FILE_BYTES` (`contracts/src/orchestration.ts:159`),
 /// and the ceiling this deployment reports as
@@ -64,7 +64,7 @@ pub(crate) const MAX_FILE_BYTES: i64 = 50 * 1024 * 1024;
 /// `PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES`
 /// (`contracts/src/orchestration.ts:160-165`). An `image` upload is restricted
 /// to these; a `file` upload takes any type.
-const SUPPORTED_IMAGE_MIME_TYPES: [&str; 4] =
+pub(crate) const SUPPORTED_IMAGE_MIME_TYPES: [&str; 4] =
     ["image/gif", "image/jpeg", "image/png", "image/webp"];
 
 /// `TrimmedNonEmptyString.check(isMaxLength(255))` on the attachment's name.

@@ -268,14 +268,18 @@ pub(super) struct OriginContext<'a> {
 const GITHUB_PR_ADAPTER: &str = "github_pr";
 
 /// What `ChatImageAttachment` and `ChatFileAttachment` accept, field for field
-/// (`contracts/src/orchestration.ts:186-205`). An attachment outside the member
-/// its mime type puts it in is left out of the projection rather than sent for
-/// the client to refuse — see [`message_attachments`].
+/// (`contracts/src/orchestration.ts:186-205`). An attachment is projected as
+/// whichever member it fits, and one that fits neither is left out rather than
+/// sent for the client to refuse — see [`message_attachments`].
 const ATTACHMENT_ID_MAX_CHARS: usize = 128;
 const ATTACHMENT_NAME_MAX_CHARS: usize = 255;
 const ATTACHMENT_MIME_MAX_CHARS: usize = 100;
-const ATTACHMENT_MAX_IMAGE_BYTES: i64 = 10 * 1024 * 1024;
-const ATTACHMENT_MAX_FILE_BYTES: i64 = 50 * 1024 * 1024;
+/// The same ceilings the mint signs for and the resolver measures a referenced
+/// upload against, so what this surface accepts and what it projects back
+/// cannot drift apart.
+use crate::attachments::MAX_FILE_BYTES as ATTACHMENT_MAX_FILE_BYTES;
+use crate::attachments::MAX_IMAGE_BYTES as ATTACHMENT_MAX_IMAGE_BYTES;
+use crate::attachments::SUPPORTED_IMAGE_MIME_TYPES;
 
 /// Where one Message came from, or `None` when it came from inside T3.
 ///
@@ -890,18 +894,22 @@ fn message_bubble(
 
 /// The uploads on a Message, as the contract's `ChatAttachment` union.
 ///
-/// Which member an upload becomes is decided by its mime type: `image/*` is a
-/// `ChatImageAttachment`, everything else — a PDF, an archive, a log — is a
-/// `ChatFileAttachment`. The two differ in more than the tag, so the checks
-/// below are per member: an image may be zero bytes and may not exceed 10 MiB,
-/// a file must be at least one byte and may reach 50 MiB
-/// (`contracts/src/orchestration.ts:186-205`).
+/// Which member an upload becomes is decided by which one it *fits*, not by
+/// what its mime type looks like. A `ChatImageAttachment` is one of the four
+/// types the image member names — gif, jpeg, png, webp — at up to 10 MiB, and
+/// may be zero bytes; a `ChatFileAttachment` takes any type at one byte to
+/// 50 MiB (`contracts/src/orchestration.ts:186-205`). So an upload the image
+/// member cannot hold, because it is an SVG or because it is 20 MiB, is a file
+/// rather than nothing: the mint accepts both under `type: "file"`, and the
+/// file member is exactly the shape the contract has for them.
 ///
-/// An upload outside whichever member it belongs to is left out rather than
-/// sent, because the client decodes the *whole* thread snapshot against that
-/// schema: a single field that fails its check costs the reader the
-/// conversation, not the attachment. Leaving it out costs them one row in one
-/// bubble.
+/// An upload past *both* members is left out rather than sent, because the
+/// client decodes the *whole* thread snapshot against that schema: a single
+/// field that fails its check costs the reader the conversation, not the
+/// attachment. Leaving it out costs them one row in one bubble. Reading the
+/// member off the mime type alone got this wrong in both directions at once —
+/// dropping a large image the agent had already read, and sending an image
+/// member for a type the client has no shape for.
 ///
 /// The agent is unaffected either way — it reads the file off disk from the
 /// path the prompt names, which is decided by the upload and not by this.
@@ -923,12 +931,6 @@ fn message_attachments(message: &TranscriptMessage) -> Vec<Value> {
             if mime_type.is_empty() || mime_type.len() > ATTACHMENT_MIME_MAX_CHARS {
                 return None;
             }
-            let (kind, sizes) = if mime_type.to_ascii_lowercase().starts_with("image/") {
-                ("image", 0..=ATTACHMENT_MAX_IMAGE_BYTES)
-            } else {
-                ("file", 1..=ATTACHMENT_MAX_FILE_BYTES)
-            };
-
             let name = truncate_on_char_boundary(
                 data.get("filename").and_then(Value::as_str)?.trim(),
                 ATTACHMENT_NAME_MAX_CHARS,
@@ -938,9 +940,27 @@ fn message_attachments(message: &TranscriptMessage) -> Vec<Value> {
             }
 
             let size = data.get("size").and_then(Value::as_i64)?;
-            if !sizes.contains(&size) {
+            // The member is whichever one the attachment fits, not the one its
+            // mime type suggests, and fitting the image member takes more than
+            // an `image/` prefix: the contract names four types, so an SVG or
+            // an AVIF is a file however image-like it reads. The file member
+            // carries any type up to 50 MiB, which is what both of those cases
+            // land in — a 20 MiB PNG sent as a file, and a 1 KiB SVG.
+            //
+            // Getting this wrong in either direction costs the whole
+            // conversation rather than the attachment: too strict and an upload
+            // the mint accepted goes missing after the agent has read it, too
+            // loose and the client is sent an image member it has no shape for.
+            let lowered = mime_type.to_ascii_lowercase();
+            let kind = if SUPPORTED_IMAGE_MIME_TYPES.contains(&lowered.as_str())
+                && (0..=ATTACHMENT_MAX_IMAGE_BYTES).contains(&size)
+            {
+                "image"
+            } else if (1..=ATTACHMENT_MAX_FILE_BYTES).contains(&size) {
+                "file"
+            } else {
                 return None;
-            }
+            };
 
             Some(json!({
                 "type": kind,
@@ -2905,21 +2925,96 @@ mod tests {
         );
     }
 
+    /// The image member is four mime types, not a prefix. An SVG is a valid
+    /// file attachment — the mint takes any type under that member — and
+    /// sending it back as a `ChatImageAttachment` would hand the client an
+    /// image it has no shape for. It decodes the snapshot in one piece, so that
+    /// costs the reader the conversation rather than the attachment.
+    ///
+    /// The inline data-URL path accepts any `image/*` too, so this is not only
+    /// about what the file member lets through.
+    #[test]
+    fn an_image_type_the_member_does_not_name_comes_back_as_a_file() {
+        for mime in ["image/svg+xml", "image/avif", "image/tiff"] {
+            let message = with_files(
+                message(1, MessageType::User, "look"),
+                vec![a_file_context("id-a", "drawing", mime, 1024)],
+            );
+
+            let attachments = message_attachments(&message);
+            assert_eq!(attachments.len(), 1, "{mime}: got {attachments:?}");
+            assert_eq!(attachments[0]["type"], "file", "{mime}");
+            assert_eq!(attachments[0]["mimeType"], mime);
+        }
+
+        // The four the contract does name still come back as images.
+        for mime in ["image/gif", "image/jpeg", "image/png", "image/webp"] {
+            let message = with_files(
+                message(1, MessageType::User, "look"),
+                vec![a_file_context("id-a", "shot", mime, 1024)],
+            );
+            assert_eq!(message_attachments(&message)[0]["type"], "image", "{mime}");
+        }
+    }
+
+    /// An image type is not by itself the image member. The mint lets a `file`
+    /// carry any type up to 50 MiB, so a large PNG sent as a file is something
+    /// the contract allows — and reading the member off the mime type alone
+    /// dropped it, after it had been stored and read by the agent. It comes back
+    /// out as the member it fits.
+    #[test]
+    fn a_large_image_type_comes_back_as_the_file_member() {
+        let message = with_files(
+            message(1, MessageType::User, "look at this"),
+            vec![a_file_context(
+                "id-b",
+                "huge.png",
+                "image/png",
+                ATTACHMENT_MAX_IMAGE_BYTES + 1,
+            )],
+        );
+
+        let attachments = message_attachments(&message);
+        assert_eq!(attachments.len(), 1, "got {attachments:?}");
+        assert_eq!(attachments[0]["type"], "file");
+        assert_eq!(attachments[0]["mimeType"], "image/png");
+        assert_eq!(attachments[0]["sizeBytes"], ATTACHMENT_MAX_IMAGE_BYTES + 1);
+    }
+
+    /// The boundary between the two members, for one mime type that could be
+    /// either. At the image ceiling it is still an image; one byte past it is a
+    /// file rather than nothing.
+    #[test]
+    fn an_image_becomes_a_file_at_the_byte_it_outgrows_the_image_member() {
+        let projected = |size| {
+            let message = with_files(
+                message(1, MessageType::User, "look"),
+                vec![a_file_context("id-b", "shot.png", "image/png", size)],
+            );
+            message_attachments(&message)
+                .first()
+                .map(|attachment| attachment["type"].as_str().unwrap_or_default().to_string())
+        };
+
+        assert_eq!(projected(ATTACHMENT_MAX_IMAGE_BYTES).as_deref(), Some("image"));
+        assert_eq!(
+            projected(ATTACHMENT_MAX_IMAGE_BYTES + 1).as_deref(),
+            Some("file")
+        );
+        assert_eq!(projected(ATTACHMENT_MAX_FILE_BYTES).as_deref(), Some("file"));
+        // Past both members, so there is no shape left to send it in.
+        assert_eq!(projected(ATTACHMENT_MAX_FILE_BYTES + 1), None);
+    }
+
     /// The client decodes the whole snapshot against its schema, so an upload
     /// it would refuse costs the reader the conversation rather than the
     /// attachment. Each of these is therefore left out, and the ones beside it
-    /// are not.
-    ///
-    /// The two members have different limits, and each is checked against its
-    /// own: an image the size of a permitted file is still too large.
+    /// are not — an upload past both members has no shape left to send it in.
     #[test]
     fn an_upload_the_contract_has_no_shape_for_is_left_out() {
         let message = with_files(
             message(1, MessageType::User, "look at this"),
             vec![
-                // Past `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES`, which a file that
-                // size would clear.
-                a_file_context("id-b", "huge.png", "image/png", ATTACHMENT_MAX_IMAGE_BYTES + 1),
                 // Past `PROVIDER_SEND_TURN_MAX_FILE_BYTES`.
                 a_file_context(
                     "id-f",
