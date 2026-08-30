@@ -11,7 +11,8 @@ use tracing::{info, warn};
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
-use crate::adapters::{AdapterDestinationBuilder, AdapterKind};
+use moatless_types::adapter::AdapterKind;
+use crate::adapters::AdapterDestinationBuilder;
 use crate::loops::ports::LoopReader;
 use crate::bindings::dao::TaskBindingDao;
 

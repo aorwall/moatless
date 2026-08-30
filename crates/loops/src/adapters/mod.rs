@@ -29,8 +29,6 @@ pub mod test_support;
 mod capabilities;
 mod registry;
 
-pub use moatless_types::adapter::{AdapterKind, BindingDestination, DestinationPostResult};
-
 pub use registry::Adapters;
 
 pub use capabilities::{

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::common;
 use axum::extract::FromRef;
 
-use moatless_backend::adapters::AdapterKind;
+use moatless_types::adapter::AdapterKind;
 use moatless_backend::adapters::providers::github_pr::adapter::GithubPrAdapter;
 use moatless_backend::adapters::providers::linear::adapter::LinearAdapter;
 use moatless_backend::adapters::providers::slack::adapter::SlackAdapter;

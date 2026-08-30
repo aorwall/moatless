@@ -8,12 +8,12 @@ use tracing::warn;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{
-    BindingContext, OutboundPresentation, OutboundReply, SlackBlock, SlackText, TaskProvenance,
+    BindingContext, DestinationPostResult, OutboundPresentation, OutboundReply, SlackBlock,
+    SlackText, TaskProvenance,
 };
 use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{
     AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
-    DestinationPostResult,
 };
 
 use super::adapter::SlackAdapter;

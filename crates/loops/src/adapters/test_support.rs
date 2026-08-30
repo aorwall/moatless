@@ -231,10 +231,10 @@ pub async fn response_snapshot(response: axum::response::Response) -> (StatusCod
 /// `outbound_for_direct_*`, and `post_binding_followup` are already `pub` (they
 /// have cross-crate production callers), so the test names them directly.
 pub mod registry {
+    use moatless_types::adapter::AdapterKind;
+
     use super::super::error::AdapterError;
-    use super::super::{
-        AdapterBindingReply, AdapterKind, AdapterMessageReply, AdapterReactions, Adapters,
-    };
+    use super::super::{AdapterBindingReply, AdapterMessageReply, AdapterReactions, Adapters};
 
     pub fn reactions(
         adapters: &Adapters,

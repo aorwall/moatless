@@ -4,11 +4,10 @@ use std::fmt::Write;
 
 use moatless_loops::adapters::error::AdapterError;
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
-use moatless_types::adapter::{BindingContext, OutboundReply};
+use moatless_types::adapter::{BindingContext, DestinationPostResult, OutboundReply};
 use moatless_types::loops::{LoopContext, RoutingMode};
 use moatless_loops::adapters::{
     AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
-    DestinationPostResult,
 };
 
 use super::adapter::TelegramAdapter;

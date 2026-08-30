@@ -526,7 +526,7 @@ mod db_tests {
     use sqlx::PgPool;
 
     use moatless_types::adapter::Audience;
-    use moatless_loops::adapters::AdapterKind;
+    use moatless_types::adapter::AdapterKind;
 
     use super::super::test_support::OWNER;
     use super::*;

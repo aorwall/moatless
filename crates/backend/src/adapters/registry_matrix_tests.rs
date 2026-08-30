@@ -15,7 +15,9 @@ use std::sync::Arc;
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::test_support::registry as ts;
-use crate::adapters::{AdapterKind, Adapters};
+use moatless_types::adapter::AdapterKind;
+
+use crate::adapters::Adapters;
 use moatless_identity::auth::test_support::StubProviderTokens;
 
 fn registry_with_all_current_adapters() -> Adapters {

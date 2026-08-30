@@ -144,10 +144,10 @@ impl AdapterInboundPresentation for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::adapter::{Audience, BindingContext, InboundMessage};
+    use moatless_types::adapter::{AdapterKind, Audience, BindingContext, InboundMessage};
     use moatless_types::loops::{LoopContext, RoutingMode};
     use moatless_loops::adapters::test_support::ProviderStub;
-    use moatless_loops::adapters::{AdapterInboundPresentation, AdapterKind};
+    use moatless_loops::adapters::AdapterInboundPresentation;
     use moatless_types::access_control::Scope;
 
     use crate::adapter::SlackAdapter;

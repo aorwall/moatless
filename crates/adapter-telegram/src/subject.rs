@@ -6,7 +6,8 @@
 //! where it stops being one.
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::{AdapterDestinationBuilder, BindingDestination};
+use moatless_types::adapter::BindingDestination;
+use moatless_loops::adapters::AdapterDestinationBuilder;
 
 use super::adapter::TelegramAdapter;
 

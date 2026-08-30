@@ -532,7 +532,7 @@ mod tests {
         TaskBinding {
             id: id.to_string(),
             task_id: "task_1".to_string(),
-            adapter_kind: crate::adapters::common::parse_adapter_kind(provider),
+            adapter_kind: moatless_adapter_model::models::parse_adapter_kind(provider),
             subject_kind: subject_kind.to_string(),
             subject_key: subject_key.to_string(),
             connection_id: "conn_1".to_string(),

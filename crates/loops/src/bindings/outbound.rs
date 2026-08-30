@@ -6,7 +6,7 @@ use tracing::warn;
 
 use moatless_adapter_model::models::TaskBinding;
 use moatless_types::adapter::{
-    OutboundFile, OutboundPresentation, OutboundReply, TaskOrigin, TaskProvenance,
+    AdapterKind, OutboundFile, OutboundPresentation, OutboundReply, TaskOrigin, TaskProvenance,
 };
 use moatless_types::loops::SubscriptionMatch;
 use moatless_types::access_control::ScopeContext;
@@ -15,7 +15,7 @@ use moatless_types::auth::AuthConfig;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::{AdapterKind, Adapters};
+use crate::adapters::Adapters;
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::metrics::record_outbound;
 use crate::bindings::recently_sent::RecentlySent;
@@ -532,7 +532,7 @@ mod tests {
         TaskBinding {
             id: "tb_1".into(),
             task_id: "task-1".into(),
-            adapter_kind: crate::adapters::AdapterKind::Telegram,
+            adapter_kind: moatless_types::adapter::AdapterKind::Telegram,
             subject_kind: "thread".into(),
             subject_key: "subject-1".into(),
             connection_id: "conn-1".into(),

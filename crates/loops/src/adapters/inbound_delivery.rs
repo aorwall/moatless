@@ -143,7 +143,7 @@ pub fn inbound_delivery_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::AdapterKind;
+    use moatless_types::adapter::AdapterKind;
     use moatless_types::adapter::{Audience, InboundMessage};
 
     fn payload() -> InboundDeliveryPayload {

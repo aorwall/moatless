@@ -11,9 +11,6 @@ use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
 use moatless_backend_core::access_control::{ResolvedScope, ensure_can_use_repository, resolve_scope_for_create};
-// `parse_adapter_kind` now lives in `moatless-adapter-model`; re-exported so the
-// handler-support callers here and in `loops`/`task` keep their path unchanged.
-pub use moatless_adapter_model::models::parse_adapter_kind;
 use crate::loops::dao::{LoopDao, LoopRecord, LoopSourceRow};
 use moatless_types::loops::{LoopConfigSource, LoopKind};
 use moatless_types::access_control::{ScopeContext, ScopedResource};

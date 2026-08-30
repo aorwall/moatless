@@ -8,7 +8,7 @@ use std::fmt::Write;
 
 use tracing::{debug, info, warn};
 
-use moatless_loops::adapters::AdapterKind;
+use moatless_types::adapter::AdapterKind;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::SubscriptionMatch;
 use moatless_types::adapter::{Audience, InboundMessage};

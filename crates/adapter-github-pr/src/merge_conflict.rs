@@ -3,7 +3,7 @@
 use moatless_types::repository::GitHostRepo;
 use tracing::{debug, info, warn};
 
-use moatless_loops::adapters::AdapterKind;
+use moatless_types::adapter::AdapterKind;
 use moatless_loops::adapters::error::AdapterError;
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
 use moatless_types::adapter::{Audience, InboundMessage};

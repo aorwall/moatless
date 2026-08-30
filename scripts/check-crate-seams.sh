@@ -2,7 +2,7 @@
 #
 # The seam is the only way across a crate boundary.
 #
-# Two invariants, both about what one crate is allowed to know about another:
+# Three invariants, all about what one crate is allowed to know about another:
 #
 #   1. **A store stays private to its crate.** A `*Dao` — the trait, its `Pg*`
 #      implementation, or a mock of it — belongs to the crate that owns the
@@ -16,7 +16,22 @@
 #      root that wires the pool, has a reason to. `optional = true` does not
 #      count: the driver is behind a feature, which is the point.
 #
-# Both are grep-level checks, not a Rust parser, but the source scan tokenizes
+#   3. **The Adapter facade re-exports nothing that belongs to another crate.**
+#      `crates/loops/src/adapters/` is where every provider looks, which is why
+#      a `pub use` of a lower crate's item there is expensive: it gives one type
+#      two paths, and the longer one wins by sitting closer to the caller. The
+#      rule is stated in crates/loops/AGENTS.md — "one path to a type is the
+#      point". A re-export that is on its way out is listed below with the
+#      condition that removes it, the way a `*Dao` pair is listed with its
+#      reason; the list only shrinks.
+#
+#      This invariant carries a self-test. A re-export ban that stops matching
+#      is indistinguishable from a facade with nothing to report, so the scan
+#      runs against a synthetic fixture written to trip it, on every invocation,
+#      and fails if it does not fire. An inert gate is the one change a ratchet
+#      cannot protect.
+#
+# All are grep-level checks, not a Rust parser, but the source scan tokenizes
 # enough that a reference cannot hide in a comment, a string, or a test module.
 # `crates/backend` is the composition root and is exempt from (1) for the same
 # reason `check-dao-composition-root.sh` exempts `compose.rs`: assembling every
@@ -99,6 +114,46 @@ read -r -d '' SCAN <<'PERL' || true
       }
 PERL
 
+# ── Facade re-exports on their way out ───────────────────────────────────────
+# `<file-relative-to-crates/loops/src/adapters> <re-exported crate>`. Each entry
+# names the change that deletes it; the list only shrinks. An entry with no
+# condition is a second path nobody chose, not an exception.
+read -r -d '' ALLOWED_REEXPORTS <<'REEXPORTS' || true
+# `SharedAdapterError` and `ProviderDecodeError` are named from `adapter-model`
+# through this facade so the provider error paths spell one `error::` prefix
+# while `AdapterError` still lives here. Removed by the Adapter contract move —
+# when `AdapterError` and its renderer relocate to `moatless-adapter-model`, the
+# whole error module is named from there and this re-export has nothing to
+# forward. Stated in crates/loops/AGENTS.md.
+error.rs          moatless_adapter_model
+REEXPORTS
+
+# The re-export scan, hoisted so the real facade and the self-test fixture run
+# the same code. A `pub use` names its crate on the same line even when the
+# braced group that follows spans several lines, so a line match sees every form.
+read -r -d '' REEXPORT_SCAN <<'PERL' || true
+
+      my $src = $_;
+      # Blank strings and comments, preserving newlines so line numbers hold.
+      $src =~ s{
+          r(\#*)".*?"\g{1}
+        | b?"(?:\\.|[^"\\])*"
+        | //[^\n]*
+        | /\*.*?\*/
+      }{ " " . ("\n" x (($& =~ tr/\n//))) }gexs;
+      my $n = 0;
+      for my $l (split /\n/, $src, -1) {
+        $n++;
+        print "$ARGV:$n:$1\n"
+          if $l =~ /^\s*pub\s+use\s+(moatless_[a-z_]+)\b/;
+      }
+PERL
+
+scan_reexports() {
+  find "$1" -name '*.rs' -print0 2>/dev/null \
+    | xargs -0 -r perl -0777 -ne "$REEXPORT_SCAN"
+}
+
 fail=0
 
 # ── 1. Cross-crate `*Dao` references ─────────────────────────────────────────
@@ -144,16 +199,54 @@ for manifest in crates/*/Cargo.toml; do
   fi
 done
 
+# ── 3. Re-exports published by the Adapter facade ────────────────────────────
+FACADE="crates/loops/src/adapters"
+
+while IFS= read -r hit; do
+  [ -n "$hit" ] || continue
+  file="${hit%%:*}"
+  rest="${hit#*:}"
+  line="${rest%%:*}"
+  reexported="${rest#*:}"
+  rel="${file#"$FACADE"/}"
+
+  allowed=0
+  while read -r afile acrate; do
+    case "$afile" in ''|'#'*) continue ;; esac
+    [ "$afile" = "$rel" ] && [ "$acrate" = "$reexported" ] && allowed=1 && break
+  done <<< "$ALLOWED_REEXPORTS"
+
+  if [ "$allowed" -eq 0 ]; then
+    echo "FAIL $file:$line — the Adapter facade re-exports $reexported, giving that"
+    echo "     item a second path. Name the owning crate directly at each use site."
+    fail=1
+  fi
+done < <(scan_reexports "$FACADE")
+
+# The self-test. A ban that stopped matching is indistinguishable from a facade
+# with nothing to report, so prove the scan fires before trusting its silence.
+fixture="$(mktemp -d)"
+trap 'rm -rf "$fixture"' EXIT
+printf 'pub use moatless_adapter_model::error::SharedAdapterError;\n' > "$fixture/facade.rs"
+if [ -z "$(scan_reexports "$fixture")" ]; then
+  echo "FAIL scripts/check-crate-seams.sh — the re-export scan found nothing in a"
+  echo "     fixture written to trip it. The check is inert; repair it before"
+  echo "     trusting any run that reported this invariant clean."
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo
   echo "A crate reached past a published seam."
   echo
   echo "Either use the port the owning crate publishes, or — if the edge is"
-  echo "deliberate — add the pair to ALLOWED_DAOS above with the reason, and"
-  echo "state that reason in the owning crate's AGENTS.md. The list is the"
-  echo "documentation; an entry without a reason is a bypass."
+  echo "deliberate — add the pair to ALLOWED_DAOS (a store) or ALLOWED_REEXPORTS"
+  echo "(a facade re-export) above with the reason, and state that reason in the"
+  echo "owning crate's AGENTS.md. The list is the documentation; an entry without"
+  echo "a reason is a bypass."
   exit 1
 fi
 
-echo "OK: no crate names another crate's store outside the documented set, and no"
-echo "crate that owns a table-free surface declares sqlx."
+echo "OK: no crate names another crate's store outside the documented set, no"
+echo "crate that owns a table-free surface declares sqlx, and the Adapter facade"
+echo "re-exports nothing outside the shrinking set."

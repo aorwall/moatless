@@ -17,11 +17,12 @@ use tracing::{debug, warn};
 
 use moatless_loops::adapters::delivery::Admission;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::{Audience, BindingContext, InboundMessage, OutboundReply};
+use moatless_types::adapter::{
+    AdapterKind, Audience, BindingContext, InboundMessage, OutboundReply,
+};
 use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{
-    Adapter, AdapterBindingReply, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
-    Adapters,
+    Adapter, AdapterBindingReply, AdapterMessageReply, AdapterOutboundContent, Adapters,
 };
 
 /// Inbound webhook payload.

@@ -27,7 +27,7 @@ use moatless_api_schemas::linear::{
 use serde_json::{Value, json};
 use tracing::warn;
 
-use moatless_loops::adapters::AdapterKind;
+use moatless_types::adapter::AdapterKind;
 use moatless_loops::adapters::common::{ensure_task_access_only, resolve_connection};
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};

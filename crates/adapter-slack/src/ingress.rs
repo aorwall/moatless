@@ -12,9 +12,9 @@ use moatless_loops::adapters::error::AdapterError;
 use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
-use moatless_types::adapter::InboundMessage;
+use moatless_types::adapter::{BindingDestination, InboundMessage};
 use moatless_types::loops::LoopContext;
-use moatless_loops::adapters::{Adapter, BindingDestination};
+use moatless_loops::adapters::Adapter;
 use moatless_loops::loops::ports::LoopReader;
 use moatless_loops::bindings::ports::BindingProbe;
 use moatless_backend_core::identity::ProviderIdentityLink;
@@ -394,7 +394,7 @@ mod characterization {
     use moatless_types::access_control::Scope;
     use sha2::Sha256;
 
-    use moatless_loops::adapters::AdapterKind;
+    use moatless_types::adapter::AdapterKind;
     use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
     use moatless_types::adapter::{Audience, InboundMessage};
     use moatless_types::loops::{LoopContext, RoutingMode};
@@ -1026,7 +1026,7 @@ mod characterization {
 
 #[cfg(test)]
 mod tests {
-    use moatless_loops::adapters::AdapterKind;
+    use moatless_types::adapter::AdapterKind;
     use moatless_types::adapter::{Audience, InboundMessage};
 
     use super::admission_event_id;
@@ -1108,7 +1108,7 @@ mod characterization_db {
     use moatless_identity::ports::UserDirectory;
     use sqlx::PgPool;
 
-    use moatless_loops::adapters::AdapterKind;
+    use moatless_types::adapter::AdapterKind;
     use moatless_types::adapter::Audience;
 
     use super::IngressError;

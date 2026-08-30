@@ -6,7 +6,7 @@ use moatless_api_schemas::bindings::SendTaskReplyResponse;
 use moatless_api_schemas::message::ReplyToMessageResponse;
 use moatless_types::access_control::ScopeContext;
 
-use crate::adapters::AdapterKind;
+use moatless_types::adapter::AdapterKind;
 use crate::adapters::Adapters;
 use crate::adapters::common::{
     binding_descriptor, binding_reply_target, ensure_task_access_with,

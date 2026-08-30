@@ -366,7 +366,7 @@ pub(super) fn log_admission(
 
 #[cfg(test)]
 mod tests {
-    use moatless_loops::adapters::AdapterKind;
+    use moatless_types::adapter::AdapterKind;
     use moatless_types::adapter::Audience;
 
     use super::*;

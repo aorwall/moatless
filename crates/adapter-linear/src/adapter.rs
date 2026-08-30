@@ -11,11 +11,13 @@ use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
-use moatless_types::adapter::{BindingContext, ExternalStatus, InboundMessage, OutboundReply};
+use moatless_types::adapter::{
+    AdapterKind, BindingContext, ExternalStatus, InboundMessage, OutboundReply,
+};
 use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
-    AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
+    AdapterInboundPresentation, AdapterMessageReply, AdapterOutboundContent,
     AdapterPostBindingFollowup, Adapters,
 };
 use moatless_loops::loops::ports::LoopReader;
@@ -376,7 +378,7 @@ impl AdapterDirectDestination for LinearAdapter {
         &self,
         destination: &str,
         message: &OutboundReply,
-    ) -> Result<moatless_loops::adapters::DestinationPostResult, AdapterError> {
+    ) -> Result<moatless_types::adapter::DestinationPostResult, AdapterError> {
         let id_or_key = destination.strip_prefix("issue:").unwrap_or(destination);
         if id_or_key.is_empty() {
             return Err(SharedAdapterError::BadRequest(
@@ -421,7 +423,7 @@ impl AdapterDirectDestination for LinearAdapter {
             destination_config["url"] = serde_json::Value::String(u);
         }
 
-        Ok(moatless_loops::adapters::DestinationPostResult {
+        Ok(moatless_types::adapter::DestinationPostResult {
             message_external_id: super::external_id::comment(&comment_id),
             subject_kind: SUBJECT_KIND_ISSUE,
             subject_key: issue_uuid,

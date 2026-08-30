@@ -8,7 +8,7 @@ use tracing::{debug, info, warn};
 use moatless_types::task::TaskStatus;
 use moatless_types::access_control::ScopeContext;
 use moatless_loops::adapters::AdapterInboundPresentation;
-use moatless_loops::adapters::AdapterKind;
+use moatless_types::adapter::AdapterKind;
 use moatless_loops::adapters::error::AdapterError;
 use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, CONNECTED_THREAD_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{Audience, InboundMessage};

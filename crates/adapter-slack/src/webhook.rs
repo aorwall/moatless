@@ -13,7 +13,7 @@ use moatless_loops::adapters::error::AdapterError;
 use moatless_adapter_model::models::{AccessDecision, MessageTrigger};
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
-use moatless_loops::adapters::AdapterKind;
+use moatless_types::adapter::AdapterKind;
 
 use moatless_backend_core::identity::ProviderIdentityLink;
 

@@ -9,9 +9,9 @@ use tracing::{debug, error, info, warn};
 
 use crate::adapters::common::next_fire_at;
 use moatless_adapter_model::models::{LoopSpawnConfig, Schedule};
-use moatless_types::adapter::{Audience, InboundMessage};
+use moatless_types::adapter::{AdapterKind, Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
-use crate::adapters::{AdapterInboundPresentation, AdapterKind, Adapters};
+use crate::adapters::{AdapterInboundPresentation, Adapters};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::metrics::record_schedule_firing;
 use moatless_types::task::TaskStatus;

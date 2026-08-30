@@ -35,7 +35,17 @@ the shared error half (`error`), the footer render/parse layer (`footer`), the
 HMAC webhook check (`signature`), the ingress counters (`metrics`), and the
 stored-app seam (`apps`). Name it directly — `moatless_adapter_model::…` — from
 this crate and from every provider crate. Do not re-export it through
-`crate::adapters`; one path to a type is the point.
+`crate::adapters`; one path to a type is the point. The shared Adapter
+vocabulary that lives one crate lower — `AdapterKind`, `BindingDestination`,
+`DestinationPostResult` in `moatless-types` — follows the same rule: name it
+from `moatless_types::adapter`, not through this facade.
+
+`scripts/check-crate-seams.sh` enforces this: a `pub use` of another crate's
+item anywhere under `src/adapters/` fails unless it is listed in that script's
+`ALLOWED_REEXPORTS` with the change that removes it. One re-export is listed —
+`error.rs` forwards `SharedAdapterError` and `ProviderDecodeError` from
+`adapter-model` while `AdapterError` still lives here; it goes when the Adapter
+contract (`AdapterError` and its renderer) relocates to `adapter-model`.
 
 `AdapterConnectionDao` returns `StoreError`, and the Postgres store behind it
 sits under the crate's `postgres` feature. A crate that only reads connections

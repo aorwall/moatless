@@ -5,8 +5,9 @@ use std::sync::Arc;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_types::adapter::AdapterKind;
 use moatless_loops::adapters::{
-    Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent, Adapters,
+    Adapter, AdapterInboundPresentation, AdapterOutboundContent, Adapters,
 };
 use moatless_loops::loops::ports::LoopReader;
 use moatless_adapter_model::apps::AdapterAppReader;

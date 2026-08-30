@@ -4,8 +4,8 @@
 //! `thread:` string, a reaction target — is read here and nowhere else.
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::BindingContext;
-use moatless_loops::adapters::{AdapterDestinationBuilder, BindingDestination};
+use moatless_types::adapter::{BindingContext, BindingDestination};
+use moatless_loops::adapters::AdapterDestinationBuilder;
 
 use super::adapter::SlackAdapter;
 

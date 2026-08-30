@@ -6,6 +6,11 @@
 //! namespace is re-exported from the crate so the provider and server bands keep
 //! naming `crate::adapters::…` unchanged. Explicit named re-exports (never a
 //! glob) so the crate census resolves edges through the facade.
+//!
+//! Only the Adapter core is re-exported here. The shared Adapter vocabulary
+//! (`AdapterKind`, `BindingDestination`, `DestinationPostResult`) is defined in
+//! `moatless-types` and is named from there directly — routing it through two
+//! facades would give one type three paths.
 
 pub mod handlers;
 pub mod providers;
@@ -13,10 +18,10 @@ pub mod routes;
 
 pub use moatless_loops::adapters::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,
-    AdapterDirectDestination, AdapterDirectMessage, AdapterInboundPresentation, AdapterKind,
+    AdapterDirectDestination, AdapterDirectMessage, AdapterInboundPresentation,
     AdapterMessageReply, AdapterOutboundContent, AdapterPostBindingFollowup, AdapterReactions,
-    Adapters, BindingDestination, DestinationPostResult, common, delivery, error, events,
-    inbound_delivery, ingress, self_echo, subject_events,
+    Adapters, common, delivery, error, events, inbound_delivery, ingress, self_echo,
+    subject_events,
 };
 
 /// Loopback stubs for Adapter HTTP clients, re-exported from the crate under the
