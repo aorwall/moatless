@@ -34,7 +34,6 @@ utoipa-axum = "0.2"
 moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
 moatless-core = { path = "../core", features = ["openapi"] }
-moatless-identity = { path = "../identity" }
 moatless-types = { path = "../types" }
 moatless-workspaces = { path = "../workspaces" }
 
@@ -58,6 +57,10 @@ workspace = true
 
 [dev-dependencies]
 async-trait = "0.1"
+# Test-only: the credential-sync tests build the concrete provider-token store
+# behind the `CodexScopeReader` port. Production code here names no identity
+# type, so this edge must never appear under `[dependencies]`.
+moatless-identity = { path = "../identity" }
 http-body-util = "0.1"
 mockall = "0.15"
 tokio-test = "0.4"

@@ -1,7 +1,7 @@
 //! GitHub webhook HMAC-SHA256 signature verification.
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::signature::verify_hmac_sha256;
+use moatless_adapter_model::signature::verify_hmac_sha256;
 
 /// Verify the GitHub webhook signature.
 ///
@@ -15,7 +15,7 @@ pub(super) fn verify_signature(
     let expected_hex = signature_header
         .strip_prefix("sha256=")
         .ok_or(SharedAdapterError::SignatureInvalid)?;
-    verify_hmac_sha256(secret, body, expected_hex)
+    verify_hmac_sha256(secret, body, expected_hex).map_err(Into::into)
 }
 
 #[cfg(test)]

@@ -8,6 +8,8 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use moatless_types::access_control::ScopeContext;
+use moatless_types::workspace::Workspace;
 use uuid::Uuid;
 
 pub use moatless_api_schemas::plugin::PluginDelivery;
@@ -79,6 +81,22 @@ pub trait WorkspaceResolver: Send + Sync {
         user_id: Option<Uuid>,
         workspace_id: &str,
     ) -> Result<Vec<PluginDelivery>, StoreError>;
+
+    /// Display name per Workspace id. Ids with no Workspace are absent from
+    /// the map. Resolves across owners, like the rest of this port.
+    async fn names(&self, workspace_ids: &[String])
+    -> Result<HashMap<String, String>, StoreError>;
+
+    /// The Workspace `ctx` may see, or `None` when there is none to show.
+    ///
+    /// Scoped, unlike the rest of this port: it answers a request a person just
+    /// made, so a Workspace the caller may not see reads exactly as one that
+    /// does not exist.
+    async fn describe(
+        &self,
+        ctx: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Option<Workspace>, StoreError>;
 }
 
 /// The provider credentials pinned to a Workspace, decrypted and keyed by
@@ -93,4 +111,37 @@ pub trait WorkspaceResolver: Send + Sync {
 pub trait WorkspaceCredentialReader: Send + Sync {
     async fn resolve_env(&self, workspace_id: &str)
     -> Result<HashMap<String, String>, StoreError>;
+}
+
+/// The repository facts a peer band reads: one repository, or a batch of names.
+///
+/// [`Self::describe`] is scoped — it answers `None` for a repository the caller
+/// may not be shown, exactly as one that does not exist. [`Self::names`] is not:
+/// a caller batching names already holds ids it read through a scoped path, and
+/// a name is not a fact worth a second walk.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait RepositoryReader: Send + Sync {
+    /// The repository `ctx` may see, or `None` when there is none to show.
+    async fn describe(
+        &self,
+        ctx: &ScopeContext,
+        repository_id: &str,
+    ) -> Result<Option<Repository>, StoreError>;
+
+    /// Display name per repository id. Ids with no repository are absent.
+    async fn names(&self, repository_ids: &[String])
+    -> Result<HashMap<String, String>, StoreError>;
+}
+
+/// The Workspace every Task belongs to, created on demand.
+///
+/// A Task names a Workspace or it names a repository. In the second case the
+/// repository's deterministic shadow Workspace is what the Task is persisted
+/// against, so every creation path stores a `workspace_id`. Idempotent: the
+/// same repository always yields the same Workspace id.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait WorkspaceProvisioner: Send + Sync {
+    async fn ensure_shadow(&self, repository_id: &str) -> Result<String, StoreError>;
 }

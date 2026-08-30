@@ -8,7 +8,7 @@
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use crate::error::SharedAdapterError;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -21,7 +21,7 @@ pub fn verify_hmac_sha256(
     secret: &str,
     payload: &[u8],
     expected_hex: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), SharedAdapterError> {
     let expected = hex::decode(expected_hex).map_err(|_| SharedAdapterError::SignatureInvalid)?;
 
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
@@ -29,7 +29,7 @@ pub fn verify_hmac_sha256(
     mac.update(payload);
 
     mac.verify_slice(&expected)
-        .map_err(|_| SharedAdapterError::SignatureInvalid.into())
+        .map_err(|_| SharedAdapterError::SignatureInvalid)
 }
 
 #[cfg(test)]

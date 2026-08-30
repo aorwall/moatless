@@ -42,9 +42,9 @@ use moatless_types::workspace::{ResourceConfig, ServerConfig};
 use moatless_types::access_control::ScopeContext;
 use moatless_core::db::DbPool;
 use moatless_types::access_control::Actor;
-use moatless_identity::extractors::AuthUser;
-use moatless_identity::git_host_repo::GitHostRepo;
-use moatless_identity::git_host_tokens::GitHostTokens;
+use moatless_core::http_auth::AuthUser;
+use moatless_types::repository::GitHostRepo;
+use moatless_backend_core::identity::GitHostTokenIssuer;
 
 // =============================================================================
 // `.moatless/` file schemas
@@ -219,7 +219,7 @@ pub struct GitSyncService {
     db: DbPool,
     workspaces: Arc<dyn WorkspaceDao>,
     repositories: Arc<dyn RepositoryDao>,
-    git_host_tokens: Arc<GitHostTokens>,
+    git_host_tokens: Arc<dyn GitHostTokenIssuer>,
 }
 
 impl GitSyncService {
@@ -227,7 +227,7 @@ impl GitSyncService {
         db: DbPool,
         workspaces: Arc<dyn WorkspaceDao>,
         repositories: Arc<dyn RepositoryDao>,
-        git_host_tokens: Arc<GitHostTokens>,
+        git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     ) -> Self {
         Self {
             db,

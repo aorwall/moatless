@@ -5,8 +5,8 @@ use axum::extract::{Path, Query, State};
 
 use std::sync::Arc;
 
+use moatless_core::http_auth::AuthUser;
 use moatless_types::access_control::{Actor, ScopedResource};
-use moatless_identity::extractors::AuthUser;
 
 use super::activation;
 use super::dao::PluginDao;

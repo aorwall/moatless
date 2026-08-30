@@ -12,7 +12,12 @@
 //! `SandboxError` (with its axum `IntoResponse`), the contract returns the
 //! runtime contract's.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
+
+use crate::convergence::SandboxObservedStatus;
+use crate::fleet::ObserveError;
 use futures::stream::BoxStream;
 
 use super::access::LogOptions;
@@ -49,4 +54,18 @@ pub trait SandboxStatusReader: Send + Sync {
         server_name: &str,
         options: LogOptions,
     ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError>;
+}
+
+/// Confirm a Task's status authoritatively via the observer's live-status read.
+pub async fn confirm(
+    observer: &Arc<dyn SandboxStatusReader>,
+    task_id: &str,
+    task_status: TaskStatus,
+    desired_state: SandboxDesiredState,
+) -> Result<SandboxObservedStatus, ObserveError> {
+    let live = observer
+        .live_status(task_id, task_status, desired_state)
+        .await
+        .map_err(|e| ObserveError::with_source("confirm live status", e))?;
+    Ok(SandboxObservedStatus::from_display(live.sandbox_status))
 }

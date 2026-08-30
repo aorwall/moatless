@@ -3,12 +3,14 @@
 //! Loops and the Adapters read a Task to decide what to do with it and write
 //! back what they said. Neither needs the `tasks`, `task_messages`,
 //! `task_turns`, or `task_tags` rows, so what crosses is the projection each
-//! one reads and the entry each one writes. `moatless-tasks` implements all
-//! four ports.
+//! one reads and the entry each one writes. `moatless-tasks` implements every
+//! port here.
 
 use async_trait::async_trait;
 
 use moatless_types::access_control::ScopeContext;
+use moatless_types::agent::AgentType;
+use moatless_types::task::{RelatedTask, Visibility};
 pub use moatless_types::task::TaskStatus;
 
 use crate::store::StoreError;
@@ -163,4 +165,150 @@ pub trait TurnCounter: Send + Sync {
 pub trait TagResolver: Send + Sync {
     /// Ids for `names`, creating any tag that does not exist yet.
     async fn resolve(&self, names: &[String]) -> Result<Vec<String>, StoreError>;
+}
+
+/// A Task a Loop asks the task band to open.
+///
+/// The provider path's shape, not the whole creation surface: every Task
+/// opened this way is headless, provisions a sandbox, and publishes an `Open`
+/// event, so none of those is a field. What varies is the Loop's configuration
+/// and what the firing event carried.
+#[derive(Debug, Clone)]
+pub struct NewTask {
+    pub repository_id: String,
+    pub agent_type: AgentType,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    /// The identity the Task is attributed to.
+    pub created_by: Option<String>,
+    pub visibility: Visibility,
+    /// The Loop that fired.
+    pub loop_id: String,
+    pub append_system_prompt: Option<String>,
+    pub ttl_minutes: i32,
+    pub inactive_ttl_days: i32,
+    pub tag_ids: Vec<String>,
+    pub skills: Vec<String>,
+    /// A peer Task to link this one to once it exists.
+    pub related_to: Option<RelatedTask>,
+    /// Merged into the Task's own creation event. The task band forwards it
+    /// untouched.
+    pub event_metadata: serde_json::Value,
+}
+
+/// What became of the sandbox a freshly-opened Task asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxProvision {
+    Started,
+    Failed,
+}
+
+/// A Task that now exists.
+#[derive(Debug, Clone)]
+pub struct TaskOpened {
+    pub task_id: String,
+    pub provision: SandboxProvision,
+}
+
+/// Why a Task could not be opened.
+///
+/// [`Self::Refused`] is the preflight answer — the identity the Task would run
+/// as cannot reach what it needs — and is the one variant a caller reports to a
+/// person rather than logging.
+#[derive(Debug, thiserror::Error)]
+pub enum TaskOpenError {
+    #[error("repository {0} not found")]
+    RepoNotFound(String),
+    #[error("{0}")]
+    BadRequest(String),
+    #[error("{0}")]
+    Refused(String),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Opening a Task from the provider path.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait TaskOpener: Send + Sync {
+    async fn open(&self, req: NewTask) -> Result<TaskOpened, TaskOpenError>;
+}
+
+/// Where a turn came from, as the Task's transcript records it.
+///
+/// `event_id` is what dedup keys on: a provider that re-delivers, or an echo of
+/// what this product just sent outward, must not become a second turn.
+#[derive(Debug, Clone, Default)]
+pub struct TurnOrigin {
+    pub event_id: Option<String>,
+    pub adapter: Option<String>,
+    pub subject_key: Option<String>,
+    pub source_name: Option<String>,
+    /// The handle the external system knows the writer by, recorded verbatim
+    /// and never resolved to a Moatless identity.
+    pub author: Option<String>,
+    /// The writer's own id in the external system — a Slack `U0000000001`.
+    /// What the sender label resolves through, since the Moatless user id on
+    /// the send is the subscription's owner when the writer is unmapped.
+    pub sender_id: Option<String>,
+}
+
+/// A turn arriving from outside the product, addressed to a Task that exists.
+///
+/// One struct rather than a parameter list: every field below is set
+/// per-provider, and the flow it feeds already carried
+/// `#[allow(clippy::too_many_arguments)]`.
+#[derive(Debug, Clone)]
+pub struct InboundTurn {
+    pub task_id: String,
+    pub text: String,
+    pub file_ids: Vec<String>,
+    /// Continue the agent's current session rather than starting fresh.
+    pub resume: bool,
+    pub origin: TurnOrigin,
+    /// The identity the turn is attributed to, when the Adapter resolved one.
+    pub sent_by: Option<String>,
+    /// Skills the sandbox activates for this turn.
+    pub skills: Vec<String>,
+}
+
+/// Accepting a turn onto an existing Task.
+///
+/// Distinct from [`TranscriptAppend`], which writes one row and runs no flow: a
+/// turn accepted here is deduplicated, persisted, and handed to the agent.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait MessageAcceptor: Send + Sync {
+    /// A turn a provider already deduplicated away, and a Task that is closed,
+    /// are both `Ok(())` with nothing written — there is no queue to join.
+    async fn accept(&self, turn: InboundTurn) -> Result<(), StoreError>;
+}
+
+/// Why a provider closed a Task, and what its `Closed` event carries.
+///
+/// The task band does not read `payload`: the provider owns its shape and the
+/// event stream forwards it verbatim.
+#[derive(Debug, Clone)]
+pub struct CloseReason {
+    pub actor: String,
+    pub payload: serde_json::Value,
+}
+
+/// Closing a Task from the provider path.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait TaskFinisher: Send + Sync {
+    /// Close `task_id` as the system. A Task that does not exist and a Task the
+    /// caller may not control answer alike, so a close never discloses that a
+    /// Task is there.
+    async fn close(&self, task_id: &str, reason: CloseReason) -> Result<(), StoreError>;
+}
+
+/// Recording that one Task relates to another.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait RelationRecorder: Send + Sync {
+    /// Best-effort: a relation that cannot be written is logged, never raised.
+    /// The Task it would have labelled is already there and usable.
+    async fn record_related_to(&self, from_task_id: &str, related: &RelatedTask);
 }

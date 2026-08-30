@@ -11,8 +11,8 @@ use async_trait::async_trait;
 use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 
-use crate::adapters::models::TaskBinding;
 use crate::file_storage::error::FileStorageError;
+use moatless_adapter_model::models::TaskBinding;
 use crate::file_storage::store as file_store;
 use crate::message::error::MessageError;
 use crate::message::service as message_service;
@@ -37,8 +37,8 @@ pub struct AppStateAgents(pub AppState);
 impl AgentCatalogSource for AppStateAgents {
     async fn list(&self, viewer: &ScopeContext) -> Vec<AgentDescriptor> {
         crate::agent::service::list_agents(
-            self.0.secret_records.as_ref(),
-            self.0.provider_tokens.as_ref(),
+            self.0.secrets.as_ref(),
+            self.0.harness_credentials.as_ref(),
             viewer,
         )
         .await
@@ -81,7 +81,10 @@ fn branch_list_error(error: RepositoryError) -> BranchListError {
         RepositoryError::BadRequest(message)
         | RepositoryError::ProviderError(message)
         | RepositoryError::Conflict(message) => BranchListError::Unavailable(message),
-        RepositoryError::Db(error) => BranchListError::Failed(error),
+        RepositoryError::Db(error) => BranchListError::Failed(
+            moatless_backend_core::store::StoreError::with_source("list repository branches", error),
+        ),
+        RepositoryError::Store(error) => BranchListError::Failed(error),
     }
 }
 
@@ -218,7 +221,7 @@ impl AppStateBoundPullRequests {
             .map_err(|error| PullRequestError::Failed(error.to_string()))?
             .ok_or(PullRequestError::NotFound)?;
         let remote_url = repository.remote_url.ok_or(PullRequestError::NotFound)?;
-        moatless_identity::git_host_repo::GitHostRepo::parse(
+        moatless_types::repository::GitHostRepo::parse(
             moatless_types::repository::RepositoryProvider::Github,
             &remote_url,
         )
@@ -237,7 +240,7 @@ impl AppStateBoundPullRequests {
 fn pull_request_error(error: crate::adapters::error::AdapterError) -> PullRequestError {
     use crate::adapters::error::{AdapterError, SharedAdapterError};
     match error {
-        AdapterError::UserCredential { .. } => PullRequestError::Unavailable(
+        AdapterError::UpstreamCredential { .. } => PullRequestError::Unavailable(
             "Connect a GitHub account to resolve pull requests.".to_string(),
         ),
         AdapterError::Shared(SharedAdapterError::AdapterApi(message)) => {
@@ -294,7 +297,7 @@ async fn bind_thread_to_open_pr(
     else {
         return;
     };
-    let Some(parsed) = moatless_identity::git_host_repo::GitHostRepo::parse(
+    let Some(parsed) = moatless_types::repository::GitHostRepo::parse(
         moatless_types::repository::RepositoryProvider::Github,
         &remote_url,
     ) else {
@@ -915,8 +918,8 @@ impl ThreadCommandSink for AppStateCommands {
         // unreachable object per retry. Only what this call stored is taken
         // back; an uploaded attachment is the client's and outlives the retry.
         let new_task = match task_service::normalize(
-            self.0.workspaces.as_ref(),
-            self.0.repositories.as_ref(),
+            self.0.workspace_resolver.as_ref(),
+            self.0.repository_reader.as_ref(),
             &self.0.credential_sync,
             &self.0.config,
             viewer,
@@ -1266,10 +1269,10 @@ mod tests {
     fn the_two_recognised_adapter_errors_stay_actionable() {
         use crate::adapters::error::{AdapterError, SharedAdapterError};
 
-        let missing_credential = pull_request_error(AdapterError::UserCredential {
-            user_id: "u-1".into(),
-            source: crate::auth::error::AuthError::Forbidden,
-        });
+        let missing_credential = pull_request_error(AdapterError::upstream_credential(
+            "resolve the GitHub token for user u-1",
+            crate::auth::error::AuthError::Forbidden,
+        ));
         assert!(matches!(
             missing_credential,
             PullRequestError::Unavailable(message)

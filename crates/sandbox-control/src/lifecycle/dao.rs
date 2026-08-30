@@ -21,7 +21,7 @@ use super::orchestrator::{
     IntentWrite, LifecycleDao, ReconcileCandidate, SandboxMember, SandboxShape, StoreError,
     TaskIntent,
 };
-use super::types::{
+use moatless_sandbox_runtime::types::{
     ArchiveRetention, CorrelationMarker, IntentEffect, OperationGeneration, OperationKind,
 };
 

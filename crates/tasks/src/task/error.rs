@@ -20,6 +20,11 @@ pub enum TaskError {
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
 
+    /// A published store seam failed. Distinct from [`Self::Db`] only in where
+    /// the failure was raised; both are an internal error to a caller.
+    #[error("{0}")]
+    Store(#[from] moatless_backend_core::store::StoreError),
+
     #[error("Internal error: {0}")]
     Internal(String),
 
@@ -64,6 +69,16 @@ impl IntoResponse for TaskError {
             TaskError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             TaskError::Db(e) => {
                 tracing::error!(error = %e, "Database error in task handler");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
+            }
+            TaskError::Store(e) => {
+                tracing::error!(
+                    error = %moatless_core::error::causal_chain(e),
+                    "Store error in task handler"
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".to_string(),

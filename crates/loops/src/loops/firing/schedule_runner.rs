@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::adapters::common::next_fire_at;
-use crate::adapters::models::{LoopSpawnConfig, Schedule};
+use moatless_adapter_model::models::{LoopSpawnConfig, Schedule};
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
 use crate::adapters::{AdapterInboundPresentation, AdapterKind, Adapters};
@@ -17,9 +17,9 @@ use crate::loops::firing::metrics::record_schedule_firing;
 use moatless_types::task::TaskStatus;
 use moatless_types::access_control::ScopeContext;
 use moatless_core::leader::LeaderGuard;
-use moatless_types::agent::AgentMode;
-use moatless_tasks::message::send::MessageSendService;
-use moatless_tasks::task::creation::TaskCreationService;
+use moatless_backend_core::task::{
+    InboundTurn, MessageAcceptor, SandboxProvision, TaskOpenError, TaskOpener, TurnOrigin,
+};
 use moatless_backend_core::task::TaskReader;
 use moatless_backend_core::sandbox::SandboxWaker;
 
@@ -28,9 +28,9 @@ use moatless_backend_core::sandbox::SandboxWaker;
 pub struct ScheduleRunner {
     loops: Arc<LoopDao>,
     tasks: Arc<dyn TaskReader>,
-    message_send: Arc<MessageSendService>,
+    message_send: Arc<dyn MessageAcceptor>,
     adapters: Option<Arc<Adapters>>,
-    task_creation: Arc<TaskCreationService>,
+    task_creation: Arc<dyn TaskOpener>,
     sandbox_waker: Arc<dyn SandboxWaker>,
 }
 
@@ -39,9 +39,9 @@ impl ScheduleRunner {
     pub fn new(
         loops: Arc<LoopDao>,
         tasks: Arc<dyn TaskReader>,
-        message_send: Arc<MessageSendService>,
+        message_send: Arc<dyn MessageAcceptor>,
         adapters: Option<Arc<Adapters>>,
-        task_creation: Arc<TaskCreationService>,
+        task_creation: Arc<dyn TaskOpener>,
         sandbox_waker: Arc<dyn SandboxWaker>,
     ) -> Self {
         Self {
@@ -197,26 +197,20 @@ impl ScheduleRunner {
         }
 
         self.message_send
-            .send_message_flow(
-                &task_id,
-                &schedule.message_template,
-                None,
-                Option::<&AgentMode>::None,
-                None,
-                &[],
-                &[],
-                true,
-                moatless_types::task::ExternalOrigin {
-                    event_id: msg.external_event_id.as_deref(),
-                    adapter: Some("scheduled"),
-                    source_name: Some(&schedule.id),
-                    ..moatless_types::task::ExternalOrigin::none()
+            .accept(InboundTurn {
+                task_id: task_id.clone(),
+                text: schedule.message_template.clone(),
+                file_ids: Vec::new(),
+                resume: true,
+                origin: TurnOrigin {
+                    event_id: msg.external_event_id.clone(),
+                    adapter: Some("scheduled".to_string()),
+                    source_name: Some(schedule.id.clone()),
+                    ..TurnOrigin::default()
                 },
-                false,
-                None,
-                &config.skills,
-                None,
-            )
+                sent_by: None,
+                skills: config.skills.clone(),
+            })
             .await?;
 
         if !is_new_task {
@@ -241,7 +235,7 @@ impl ScheduleRunner {
             .and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind))
             .and_then(AdapterInboundPresentation::reply_instructions);
         let outcome = match crate::loops::firing::inbound::create_task_for_external_message(
-            &self.task_creation,
+            self.task_creation.as_ref(),
             config,
             msg,
             None,
@@ -256,7 +250,7 @@ impl ScheduleRunner {
             // transient blip in the generic `execution_failed` counter; the per-tick
             // cron retry is inherent and left to Loop auto-disable (a separate
             // ticket).
-            Err(e @ moatless_tasks::task::creation::TaskCreationError::Preflight(_)) => {
+            Err(e @ TaskOpenError::Refused(_)) => {
                 warn!(loop_id = %config.id, error = %e, "Scheduled task preflight failed");
                 record_schedule_firing("error", "preflight_failed", &config.id);
                 return Err(Box::new(e));
@@ -264,11 +258,11 @@ impl ScheduleRunner {
             Err(e) => return Err(Box::new(e)),
         };
 
-        if outcome.provision == moatless_tasks::task::creation::ProvisionOutcome::Failed {
+        if outcome.provision == SandboxProvision::Failed {
             record_schedule_firing("error", "provision_failed", &config.id);
         }
 
-        Ok(outcome.task.task_id)
+        Ok(outcome.task_id)
     }
 }
 

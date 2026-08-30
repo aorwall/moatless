@@ -36,7 +36,7 @@ use tracing::{debug, warn};
 
 use super::error::SkillError;
 use moatless_types::repository::RepositoryProvider;
-use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_types::repository::GitHostRepo;
 
 /// Raw SKILL.md content plus its enclosing directory name, so callers can
 /// parse frontmatter themselves and fall back to the directory name when

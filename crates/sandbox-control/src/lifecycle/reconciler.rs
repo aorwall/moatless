@@ -22,83 +22,15 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tracing::{debug, info, warn};
 
-use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
-use moatless_types::task::TaskStatus;
+use moatless_types::sandbox::SandboxStopReason;
+
+use moatless_sandbox_runtime::fleet::{FleetObserver, RuntimeObservation};
 
 use super::attempt::AttemptBudget;
-use super::convergence::{ReconcileAction, SandboxObservedStatus};
+use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus};
 use super::orchestrator::{Lifecycle, LifecycleDao, SandboxMember, WallClock};
 use super::reconcile::{ReconcileInput, decide};
-use super::types::{ArchiveRetention, OperationGeneration};
-
-/// Runtime observation paired with the lifecycle generation stamped on the
-/// currently observed pod/container. Legacy resources have no generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RuntimeObservation {
-    pub status: SandboxObservedStatus,
-    pub generation: Option<OperationGeneration>,
-}
-
-impl RuntimeObservation {
-    pub fn new(status: SandboxObservedStatus, generation: Option<OperationGeneration>) -> Self {
-        Self { status, generation }
-    }
-}
-
-impl From<SandboxObservedStatus> for RuntimeObservation {
-    fn from(status: SandboxObservedStatus) -> Self {
-        Self::new(status, None)
-    }
-}
-
-/// A runtime-status read failed. The reconciler logs and skips the Task this
-/// tick rather than acting on missing observation. Keeps the underlying source
-/// (a K8s/Docker observation error) so fleet-LIST debugging retains the chain.
-#[derive(Debug, thiserror::Error)]
-#[error("{context}")]
-pub struct ObserveError {
-    pub context: String,
-    #[source]
-    pub source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
-}
-
-impl ObserveError {
-    pub fn new(context: impl Into<String>) -> Self {
-        Self {
-            context: context.into(),
-            source: None,
-        }
-    }
-
-    pub fn with_source(
-        context: impl Into<String>,
-        source: impl std::error::Error + Send + Sync + 'static,
-    ) -> Self {
-        Self {
-            context: context.into(),
-            source: Some(Box::new(source)),
-        }
-    }
-}
-
-/// The reconciler's runtime-status source, batch-first.
-#[async_trait]
-pub trait FleetObserver: Send + Sync {
-    /// One label-selector LIST per tick: coarse observed status for every Task
-    /// with live resources. Tasks absent from the map have no resources and are
-    /// treated as [`SandboxObservedStatus::Absent`].
-    async fn observe_fleet(&self) -> Result<HashMap<String, RuntimeObservation>, ObserveError>;
-
-    /// Authoritative per-Task status, read to confirm a divergence before acting
-    /// so the reconciler never drives an operation off stale coarse data. The
-    /// intent fields are the ones the observer's live-status projection needs.
-    async fn observe(
-        &self,
-        task_id: &str,
-        task_status: TaskStatus,
-        desired_state: SandboxDesiredState,
-    ) -> Result<RuntimeObservation, ObserveError>;
-}
+use moatless_sandbox_runtime::types::ArchiveRetention;
 
 /// Delivers a pending-message wake to an already-Ready sandbox over gRPC.
 ///
@@ -519,9 +451,9 @@ impl Reconciler {
         if let Some(marker) = intent.marker {
             let replacement_ready = observed.status == SandboxObservedStatus::Ready
                 && observed.generation == Some(marker.generation);
-            let ack = super::marker::acknowledge(
+            let ack = moatless_sandbox_runtime::marker::acknowledge(
                 &marker,
-                super::marker::AckContext {
+                moatless_sandbox_runtime::marker::AckContext {
                     observed: observed.status,
                     replacement_ready,
                     ..Default::default()
@@ -535,7 +467,7 @@ impl Reconciler {
             }
 
             if marker.kind.is_edge() {
-                if !super::marker::is_stale(&marker, now, super::marker::EDGE_ABANDON_AFTER) {
+                if !moatless_sandbox_runtime::marker::is_stale(&marker, now, moatless_sandbox_runtime::marker::EDGE_ABANDON_AFTER) {
                     // Caller-owned edges are never replayed. Give the fresh
                     // replacement time to appear before level recovery acts.
                     return;
@@ -671,7 +603,7 @@ impl Reconciler {
             .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
 
         if let Some(g) = generation {
-            retry.budget.begin(super::types::OperationGeneration(g));
+            retry.budget.begin(moatless_sandbox_runtime::types::OperationGeneration(g));
         }
 
         // Backing off between transient retries.
@@ -700,7 +632,7 @@ impl Reconciler {
         &self,
         task_id: &str,
         action: ReconcileAction,
-        result: Result<super::outcome::LifecycleOutcome, super::error::LifecycleError>,
+        result: Result<moatless_sandbox_runtime::outcome::LifecycleOutcome, super::error::LifecycleError>,
         now: DateTime<Utc>,
     ) -> Option<String> {
         let mut guard = self
@@ -790,7 +722,7 @@ mod tests {
 
     use super::super::events::LifecycleEvent;
     use super::super::orchestrator::{IntentWrite, StoreError, TaskIntent};
-    use super::super::types::IntentEffect;
+    use moatless_sandbox_runtime::types::{IntentEffect, OperationGeneration};
 
     struct MemberStore {
         members: Result<Vec<SandboxMember>, StoreError>,
@@ -1134,10 +1066,14 @@ mod db_tests {
     use super::super::orchestrator::{
         AgentStopPort, IntentWrite, LifecycleEventSink, SystemWallClock,
     };
-    use super::super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
+    use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
     use super::super::test_support::{seed_bare_task, seed_task_with as seed};
-    use super::super::types::{CorrelationMarker, OperationGeneration};
-    use super::super::types::{ObservedStatus, OperationKind};
+    use moatless_sandbox_runtime::fleet::ObserveError;
+    use moatless_sandbox_runtime::types::{
+        CorrelationMarker, ObservedStatus, OperationGeneration, OperationKind,
+    };
+    use moatless_types::sandbox::SandboxDesiredState;
+    use moatless_types::task::TaskStatus;
 
     // ---- Recording ports ----
 
@@ -1179,10 +1115,10 @@ mod db_tests {
             &self,
             _t: &str,
             _c: RuntimeOperationContext,
-        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
             self.calls.lock().unwrap().ensure += 1;
             if self.fail_ensure {
-                return Err(super::super::error::RuntimeError::Infrastructure(
+                return Err(moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(
                     "boom".into(),
                 ));
             }
@@ -1192,7 +1128,7 @@ mod db_tests {
             &self,
             _t: &str,
             _c: RuntimeOperationContext,
-        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
             self.calls.lock().unwrap().stop += 1;
             Ok(RuntimeOutcome::applied(ObservedStatus::Stopped))
         }
@@ -1200,14 +1136,14 @@ mod db_tests {
             &self,
             _t: &str,
             _c: RuntimeOperationContext,
-        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
             Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
         }
         async fn redeploy(
             &self,
             _t: &str,
             _c: RuntimeOperationContext,
-        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
             Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
         }
         async fn remove(
@@ -1215,7 +1151,7 @@ mod db_tests {
             _t: &str,
             _r: ArchiveRetention,
             _c: RuntimeOperationContext,
-        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
             self.calls.lock().unwrap().remove += 1;
             Ok(RuntimeOutcome::applied(ObservedStatus::Removed))
         }
@@ -1224,7 +1160,7 @@ mod db_tests {
             _t: &str,
             _rescue_upload_url: Option<&str>,
             _c: RuntimeOperationContext,
-        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
             // The reconciler never drives the cold transition — it converges
             // desired vs. actual, and a reclaimed Task's desired state does not
             // change.
@@ -1249,7 +1185,7 @@ mod db_tests {
             _task_id: &str,
             _generation: OperationGeneration,
             _observed: ObservedStatus,
-            _diagnostics: &super::super::outcome::Diagnostics,
+            _diagnostics: &moatless_sandbox_runtime::outcome::Diagnostics,
         ) {
         }
     }

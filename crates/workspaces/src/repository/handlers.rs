@@ -16,10 +16,10 @@ use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_core::db::DbPool;
 use moatless_types::access_control::Actor;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::extractors::AuthUser;
-use moatless_identity::git_host_repo::GitHostRepo;
-use moatless_identity::git_host_tokens::GitHostTokens;
-use moatless_identity::secret::models::looks_like_secret_key;
+use moatless_core::http_auth::AuthUser;
+use moatless_types::repository::GitHostRepo;
+use moatless_backend_core::identity::GitHostTokenIssuer;
+use moatless_core::secret_keys::looks_like_secret_key;
 
 use super::access::git_host_token_error;
 use super::dao::{RepositoryDao, RepositoryPatch};
@@ -446,7 +446,7 @@ pub async fn convert_to_template(
 pub async fn get_branches(
     State(repositories): State<Arc<dyn RepositoryDao>>,
     State(workspaces): State<Arc<dyn WorkspaceDao>>,
-    State(git_host_tokens): State<Arc<GitHostTokens>>,
+    State(git_host_tokens): State<Arc<dyn GitHostTokenIssuer>>,
     State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
@@ -520,7 +520,7 @@ async fn branch_listing_actor(
 pub async fn list_branches(
     repositories: &Arc<dyn RepositoryDao>,
     workspaces: &Arc<dyn WorkspaceDao>,
-    git_host_tokens: &Arc<GitHostTokens>,
+    git_host_tokens: &Arc<dyn GitHostTokenIssuer>,
     provider_tokens: &Arc<dyn ProviderTokenDao>,
     ctx: &ScopeContext,
     repository_id: &str,

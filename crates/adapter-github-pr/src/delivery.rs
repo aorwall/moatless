@@ -74,7 +74,7 @@ use moatless_loops::adapters::delivery::{
     register_typed_delivery,
 };
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch};
+use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
 use moatless_types::adapter::InboundMessage;
 
 use super::router::GithubPrInboundRouter;
@@ -165,7 +165,7 @@ impl DeliveryContext {
             .adapter_connections
             .find_by_id(&self.connection_id, &sys_ctx)
             .await
-            .map_err(|e| AdapterDeliveryFailure::retryable(SharedAdapterError::Db(e)))?
+            .map_err(AdapterDeliveryFailure::retryable)?
             .ok_or_else(|| {
                 // The tenant's connection was deleted after the webhook was
                 // accepted. No retry can bring it back.
@@ -177,9 +177,9 @@ impl DeliveryContext {
         let trigger = match self.loop_id.as_deref() {
             Some(id) => router
                 .loops
-                .find_runnable_subscription_by_id(id)
+                .runnable_subscription(id)
                 .await
-                .map_err(|e| AdapterDeliveryFailure::retryable(SharedAdapterError::Db(e)))?,
+                .map_err(AdapterDeliveryFailure::retryable)?,
             None => None,
         };
         Ok((connection, trigger))

@@ -31,8 +31,8 @@ uuid = { version = "1", features = ["v4", "v5", "serde"] }
 
 moatless-api-schemas = { path = "../api-schemas" }
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
+moatless-core = { path = "../core" }
 moatless-identity = { path = "../identity" }
-moatless-tasks = { path = "../tasks" }
 moatless-types = { path = "../types" }
 
 [dev-dependencies]

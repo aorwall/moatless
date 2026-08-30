@@ -19,12 +19,12 @@ use super::service;
 use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::task::TaskStatus;
 use moatless_types::workspace::ServerConfig;
-use moatless_sandbox_control::client::SandboxConnector;
+use moatless_sandbox_runtime::client::SandboxConnector;
 use moatless_core::config::Config;
-use moatless_sandbox_control::live_status::{AgentStatus, LiveStatus, derive_live_status};
-use moatless_sandbox_control::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
-use moatless_sandbox_control::models::*;
-use moatless_sandbox_control::schemas::*;
+use moatless_sandbox_runtime::live_status::{AgentStatus, LiveStatus, derive_live_status};
+use moatless_sandbox_runtime::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
+use moatless_sandbox_runtime::models::*;
+use moatless_sandbox_runtime::schemas::*;
 
 /// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
 /// live background processes.
@@ -106,7 +106,7 @@ impl StatusResolver {
                         url,
                         error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
                         detail: container
-                            .and_then(moatless_sandbox_control::models::ContainerObservedStatus::detail_reason),
+                            .and_then(moatless_sandbox_runtime::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
                     })
@@ -179,7 +179,7 @@ impl StatusResolver {
                         url,
                         error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
                         detail: container
-                            .and_then(moatless_sandbox_control::models::ContainerObservedStatus::detail_reason),
+                            .and_then(moatless_sandbox_runtime::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
                     })

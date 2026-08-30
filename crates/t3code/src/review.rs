@@ -374,7 +374,12 @@ pub async fn workspace_branches(
     let Some(repository_id) = workspaces
         .primary_repository(viewer, workspace_id)
         .await
-        .map_err(BranchListError::Failed)?
+        .map_err(|e| {
+            BranchListError::Failed(moatless_backend_core::store::StoreError::with_source(
+                format!("read the primary repository of workspace {workspace_id}"),
+                e,
+            ))
+        })?
     else {
         return Err(BranchListError::None);
     };

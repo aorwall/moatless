@@ -9,12 +9,12 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use utoipa::IntoParams;
 
-use super::client::classify_grpc_error;
-use super::error::SandboxError;
+use moatless_sandbox_runtime::client::classify_grpc_error;
+use moatless_sandbox_runtime::error::SandboxError;
 use super::handlers::{authorize_task_control, authorize_task_read};
 use super::routes::SandboxApiState;
-use super::schemas::*;
-use moatless_identity::extractors::OptionalScope;
+use moatless_sandbox_runtime::schemas::*;
+use moatless_core::http_auth::OptionalScope;
 
 /// Query parameters for the file tree endpoint.
 #[derive(Debug, Deserialize, IntoParams)]

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::adapter_installations::AdapterInstallations;
 use crate::adapters::Adapters;
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::self_echo::SelfEchoFilter;
 use crate::agent_harness_access::{AgentHarnessAccess, ProviderCodexDeviceLogin};
@@ -65,7 +65,7 @@ use moatless_types::secret::SecretsConfig;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 use moatless_identity::git_host_access::{GitHostAccess, ProviderGitHostTokenValidator};
-use moatless_identity::git_host_tokens::GitHostTokens;
+use moatless_backend_core::identity::GitHostTokenIssuer;
 
 /// Shared application state for task/message/agent/file routes.
 ///
@@ -162,6 +162,8 @@ pub struct AppState {
     /// reassembling the credential handles and validator per request.
     pub preflight: Arc<dyn PreflightPort>,
     pub task_relations: Arc<dyn TaskRelationDao>,
+    /// The one relation a provider records, over the same store.
+    pub relation_recorder: Arc<dyn moatless_backend_core::task::RelationRecorder>,
     /// Task↔external-subject bindings (`task_bindings`) — the return channel a
     /// task replies on. The store itself, for the Adapters that drive the
     /// binding lifecycle (upsert plus reads plus status writes).
@@ -191,12 +193,13 @@ pub struct AppState {
     pub transcript: Arc<moatless_tasks::ports::Transcript>,
     pub feedback: Arc<dyn FeedbackDao>,
     pub repositories: Arc<dyn RepositoryDao>,
+    pub repository_reader: Arc<dyn moatless_backend_core::workspace::RepositoryReader>,
     /// The workspace, placement, and plugin stores behind the
     /// `WorkspaceResolver` port.
     pub workspace_resolver: Arc<moatless_workspaces::ports::WorkspaceProjection>,
     /// The one way to obtain a git-host token: a named identity and a
     /// repository, with no scope walk.
-    pub git_host_tokens: Arc<GitHostTokens>,
+    pub git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     pub tags: Arc<dyn TagDao>,
     /// The `tags` table behind the published `TagResolver` seam.
     pub tag_resolver: Arc<moatless_tasks::ports::TagCatalog>,
@@ -208,6 +211,9 @@ pub struct AppState {
     pub provider_tokens: Arc<dyn ProviderTokenDao>,
     /// The `provider_tokens` table behind the `HarnessCredentials` port.
     pub harness_credentials: Arc<moatless_identity::ports::HarnessTokens>,
+    /// The `adapter_apps` tables behind the `AdapterAppReader` port an Adapter
+    /// resolves its provider credentials through.
+    pub adapter_apps: Arc<dyn moatless_adapter_model::apps::AdapterAppReader>,
     pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     pub secret_records: Arc<dyn SecretDao>,
     pub secrets: Arc<SecretService>,
@@ -296,6 +302,7 @@ impl AppState {
             transcript,
             feedback,
             repositories,
+            repository_reader,
             workspaces,
             workspace_resolver,
             workspace_credentials,
@@ -313,6 +320,7 @@ impl AppState {
             user_directory,
             provider_tokens,
             harness_credentials,
+            adapter_apps,
             provider_token_auth,
             secret_records,
             secrets,
@@ -322,6 +330,10 @@ impl AppState {
             token_verifier,
             ..
         } = ports.clone();
+
+        // The concrete issuer is built once in `compose`; every consumer below
+        // takes the port.
+        let git_host_tokens: Arc<dyn GitHostTokenIssuer> = git_host_tokens;
 
         let adapters = adapter_installations
             .as_ref()
@@ -381,8 +393,8 @@ impl AppState {
 
         let task_presenter = Arc::new(TaskPresenter::new(
             tags.clone(),
-            repositories.clone(),
-            workspaces.clone(),
+            repository_reader.clone(),
+            workspace_resolver.clone(),
             user_directory.clone(),
             binding_directory.clone(),
             task_relations.clone(),
@@ -447,7 +459,7 @@ impl AppState {
             tasks.clone(),
             tags.clone(),
             task_relations.clone(),
-            repositories.clone(),
+            repository_reader.clone(),
             events.clone(),
             lifecycle.clone(),
             sandbox_joiner,
@@ -544,6 +556,9 @@ impl AppState {
             task_reader,
             task_creation,
             preflight,
+            relation_recorder: Arc::new(moatless_tasks::ports::TaskRelations::new(
+                task_relations.clone(),
+            )),
             task_relations,
             task_bindings,
             binding_directory,
@@ -555,6 +570,7 @@ impl AppState {
             transcript,
             feedback,
             repositories,
+            repository_reader,
             git_host_tokens,
             tags,
             tag_resolver,
@@ -563,6 +579,7 @@ impl AppState {
             user_directory,
             provider_tokens,
             harness_credentials,
+            adapter_apps,
             provider_token_auth,
             secret_records,
             secrets,
@@ -710,6 +727,22 @@ impl axum::extract::FromRef<AppState> for Arc<dyn RepositoryDao> {
     }
 }
 
+impl axum::extract::FromRef<AppState>
+    for Arc<dyn moatless_backend_core::workspace::RepositoryReader>
+{
+    fn from_ref(state: &AppState) -> Self {
+        state.repository_reader.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState>
+    for Arc<dyn moatless_backend_core::workspace::WorkspaceResolver>
+{
+    fn from_ref(state: &AppState) -> Self {
+        state.workspace_resolver.clone()
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<GitSyncService> {
     fn from_ref(state: &AppState) -> Self {
         state.git_sync.clone()
@@ -722,7 +755,7 @@ impl axum::extract::FromRef<AppState> for Arc<LoopSyncService> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<GitHostTokens> {
+impl axum::extract::FromRef<AppState> for Arc<dyn GitHostTokenIssuer> {
     fn from_ref(state: &AppState) -> Self {
         state.git_host_tokens.clone()
     }
@@ -779,6 +812,28 @@ impl axum::extract::FromRef<AppState> for Arc<dyn ProviderTokenDao> {
 impl axum::extract::FromRef<AppState> for Arc<dyn SecretDao> {
     fn from_ref(state: &AppState) -> Self {
         state.secret_records.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_backend_core::identity::SecretCatalog> {
+    fn from_ref(state: &AppState) -> Self {
+        state.secrets.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState>
+    for Arc<dyn moatless_backend_core::identity::SecretResolver>
+{
+    fn from_ref(state: &AppState) -> Self {
+        state.secrets.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState>
+    for Arc<dyn moatless_backend_core::identity::HarnessCredentials>
+{
+    fn from_ref(state: &AppState) -> Self {
+        state.harness_credentials.clone()
     }
 }
 
@@ -879,6 +934,14 @@ impl axum::extract::FromRef<AppState> for Arc<dyn TaskBindings> {
 }
 
 impl axum::extract::FromRef<AppState> for Arc<LoopDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.loops.clone()
+    }
+}
+
+/// The Subscription reads an Adapter's webhook route makes. Coerced from the
+/// one `LoopDao` rather than held as a second field.
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_loops::loops::ports::LoopReader> {
     fn from_ref(state: &AppState) -> Self {
         state.loops.clone()
     }

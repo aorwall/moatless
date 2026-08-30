@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{BindingContext, OutboundReply};
 use moatless_types::loops::{LoopContext, RoutingMode};
 use moatless_loops::adapters::{
@@ -41,7 +41,7 @@ impl AdapterBindingReply for TelegramAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let destination = TelegramDestination::from_thread_context(&thread.destination_config)?;
-        let api = self.app_api(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+        let api = self.app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
 
         api.send_message(
             destination.chat_id(),
@@ -62,7 +62,7 @@ impl AdapterBindingReply for TelegramAdapter {
     ) -> Result<Option<String>, AdapterError> {
         let thread = moatless_adapter_model::models::binding_context(binding);
         let app_key =
-            moatless_identity::adapter_apps::app_key_from_transport_config(&connection.transport_config);
+            moatless_adapter_model::apps::app_key_from_transport_config(&connection.transport_config);
         let api = self.app_api(app_key).await?;
         let _config = rule.map_or_else(
             || LoopContext {
@@ -121,7 +121,7 @@ impl AdapterMessageReply for TelegramAdapter {
         let destination =
             TelegramDestination::from_destination_config(&binding.destination_config)?;
         let app_key =
-            moatless_identity::adapter_apps::app_key_from_transport_config(&connection.transport_config);
+            moatless_adapter_model::apps::app_key_from_transport_config(&connection.transport_config);
         let api = self.app_api(app_key).await?;
 
         let new_id = api
@@ -144,7 +144,7 @@ impl AdapterDirectDestination for TelegramAdapter {
         message: &OutboundReply,
     ) -> Result<DestinationPostResult, AdapterError> {
         let chat_id = parse_direct_destination(destination)?;
-        let api = self.app_api(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+        let api = self.app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
 
         let message_id = api
             .send_message_returning_id(chat_id, &with_task_link(message), None, None)

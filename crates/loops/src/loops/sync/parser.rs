@@ -1,6 +1,6 @@
 //! `LOOP.md` frontmatter + body parser.
 //!
-//! Mirrors [`moatless_workspaces::skill::scanner`] but keeps the markdown body after the
+//! Mirrors the workspace band's skill scanner but keeps the markdown body after the
 //! closing `---` as the loop's prompt. Individual parse failures are returned
 //! as an `Err` reason so one malformed file doesn't tank the whole sync — and
 //! so the author is told which field is wrong instead of "malformed".

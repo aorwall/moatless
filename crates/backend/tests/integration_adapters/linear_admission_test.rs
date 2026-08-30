@@ -353,7 +353,7 @@ async fn a_delivery_whose_admission_failed_is_admitted_when_it_is_sent_again(poo
         .await
         .expect_err("a delivery that was not recorded must not be acknowledged");
     assert!(
-        matches!(refused, AdapterError::Shared(SharedAdapterError::Db(_))),
+        matches!(refused, AdapterError::Shared(SharedAdapterError::Store(_))),
         "the store failed, so the backend is unwell rather than the delivery malformed: \
          {refused:?}"
     );

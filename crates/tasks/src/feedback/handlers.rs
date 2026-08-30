@@ -7,7 +7,7 @@ use axum::extract::{Path, State};
 use chrono::Utc;
 
 use crate::task::dao::TaskDao;
-use moatless_identity::extractors::AuthUser;
+use moatless_core::http_auth::AuthUser;
 
 use super::dao::FeedbackDao;
 use super::error::{FeedbackError, UnknownFeedbackDiscriminant};

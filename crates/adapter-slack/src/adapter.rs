@@ -7,19 +7,40 @@ use tokio::sync::OnceCell;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::{Adapter, AdapterKind, AdapterOutboundContent, Adapters};
+use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_core::config::Config;
-use moatless_core::db::DbPool;
-use moatless_identity::auth::users::PgUserDao;
-use moatless_identity::auth::provider_token_dao::PgProviderTokenDao;
-use moatless_identity::ports::UserDirectory;
 
 use super::api::SlackApi;
 
+/// One Slack app, in the shape this Adapter works in. The stored app is a bag
+/// of secrets and settings; what Slack needs out of it is a bot client, the
+/// secret that signs its webhooks, and the id it must not answer itself as.
 pub(super) struct ResolvedSlackApp {
     pub(super) api: SlackApi,
     pub(super) signing_secret: String,
     pub(super) bot_user_id: Option<String>,
+}
+
+impl TryFrom<AdapterAppSecrets> for ResolvedSlackApp {
+    type Error = AdapterError;
+
+    fn try_from(app: AdapterAppSecrets) -> Result<Self, Self::Error> {
+        let (Some(bot_token), Some(signing_secret)) =
+            (app.secret("bot_token"), app.secret("signing_secret"))
+        else {
+            return Err(SharedAdapterError::AdapterApi(format!(
+                "Slack Adapter app '{}' is missing required secrets",
+                app.app_key
+            ))
+            .into());
+        };
+        Ok(Self {
+            api: SlackApi::new(&bot_token),
+            signing_secret,
+            bot_user_id: app.setting("bot_user_id"),
+        })
+    }
 }
 
 /// Slack adapter.
@@ -27,12 +48,13 @@ pub struct SlackAdapter {
     api: SlackApi,
     signing_secret: String,
     bot_user_id: Option<String>,
-    db: Option<DbPool>,
-    config: Option<Arc<Config>>,
+    /// The stored Slack apps, when this Adapter was built over a database.
+    /// `None` leaves every read on the three fields above.
+    apps: Option<Arc<dyn AdapterAppReader>>,
     /// The Slack ↔ Moatless links, for the two paths the webhook's own
     /// `ProviderIdentityLink` never reaches: naming the writers in fetched
     /// thread history, and resolving an outbound `<@login>`. `None` for an
-    /// adapter built without a pool, where both degrade to raw ids.
+    /// adapter built without a directory, where both degrade to raw ids.
     users: Option<Arc<dyn ProviderIdentityLink>>,
     /// Workspace (team) id memoized after the first `auth.test` call so
     /// direct sends don't ping Slack on every send.
@@ -60,25 +82,24 @@ impl SlackAdapter {
             api: SlackApi::new(bot_token),
             signing_secret: signing_secret.to_string(),
             bot_user_id,
-            db: None,
-            config: None,
+            apps: None,
             users: None,
             workspace_id: OnceCell::new(),
         }
     }
 
-    pub fn from_db(config: Arc<Config>, db: DbPool) -> Self {
+    pub fn from_db(
+        config: &Config,
+        apps: Arc<dyn AdapterAppReader>,
+        users: Arc<dyn ProviderIdentityLink>,
+    ) -> Self {
         let bot_token = config.slack.bot_token.as_deref().unwrap_or("");
         Self {
             api: SlackApi::new(bot_token),
             signing_secret: config.slack.signing_secret.clone().unwrap_or_default(),
             bot_user_id: config.slack.bot_user_id.clone(),
-            users: Some(Arc::new(UserDirectory::new(
-                Arc::new(PgUserDao(db.clone())),
-                Arc::new(PgProviderTokenDao(db.clone())),
-            ))),
-            db: Some(db),
-            config: Some(config),
+            apps: Some(apps),
+            users: Some(users),
             workspace_id: OnceCell::new(),
         }
     }
@@ -98,8 +119,7 @@ impl SlackAdapter {
             api,
             signing_secret: signing_secret.to_string(),
             bot_user_id,
-            db: None,
-            config: None,
+            apps: None,
             users: None,
             workspace_id: OnceCell::new(),
         }
@@ -113,30 +133,19 @@ impl SlackAdapter {
     }
 
     pub(super) async fn app(&self, app_key: &str) -> Result<ResolvedSlackApp, AdapterError> {
-        let Some(db) = &self.db else {
+        let Some(apps) = &self.apps else {
             return Ok(ResolvedSlackApp {
                 api: self.api.clone(),
                 signing_secret: self.signing_secret.clone(),
                 bot_user_id: self.bot_user_id.clone(),
             });
         };
-        let config = self
-            .config
-            .as_deref()
-            .ok_or_else(|| SharedAdapterError::Internal("Slack Adapter missing config".into()))?;
-        let Some(app) = moatless_identity::adapter_apps::slack_app_config(db, config, app_key)
-            .await
-            .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?
-        else {
+        let Some(app) = apps.app("slack", app_key).await? else {
             return Err(
                 SharedAdapterError::AdapterNotConfigured(format!("slack app '{app_key}'")).into(),
             );
         };
-        Ok(ResolvedSlackApp {
-            api: SlackApi::new(&app.bot_token),
-            signing_secret: app.signing_secret,
-            bot_user_id: app.bot_user_id,
-        })
+        ResolvedSlackApp::try_from(app)
     }
 
     /// Return the default Slack workspace (team) ID, calling `auth.test` once
@@ -144,7 +153,7 @@ impl SlackAdapter {
     pub(super) async fn ensure_workspace_id(&self) -> Result<String, AdapterError> {
         self.workspace_id
             .get_or_try_init(|| async {
-                let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+                let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
                 let info = app.api.auth_test().await?;
                 info.team_id.ok_or_else(|| {
                     SharedAdapterError::AdapterApi("Slack auth.test returned no team_id".into())

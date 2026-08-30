@@ -1,6 +1,6 @@
 //! Carrying a git-host token failure into this band's error.
 
-use moatless_identity::git_host_tokens::GitHostTokenError;
+use moatless_backend_core::identity::GitHostTokenError;
 
 use super::error::RepositoryError;
 
@@ -13,6 +13,6 @@ pub fn git_host_token_error(error: GitHostTokenError) -> RepositoryError {
         GitHostTokenError::NoCredential { .. } => RepositoryError::BadRequest(error.to_string()),
         GitHostTokenError::Forbidden { .. } => RepositoryError::Forbidden(error.to_string()),
         GitHostTokenError::Broken { .. } => RepositoryError::ProviderError(error.to_string()),
-        GitHostTokenError::Database(e) => RepositoryError::Db(e),
+        GitHostTokenError::Store(e) => RepositoryError::Store(e),
     }
 }

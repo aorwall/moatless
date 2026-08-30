@@ -12,7 +12,7 @@ use moatless_types::access_control::{ScopeContext, ScopedResource};
 use crate::repository::dao::RepositoryDao;
 use moatless_backend_core::access_control::resolve_scope_for_create;
 use moatless_backend_core::identity::UserResolver;
-use moatless_identity::extractors::AuthUser;
+use moatless_core::http_auth::AuthUser;
 
 use super::dao::{WorkspaceDao, WorkspacePatch};
 use super::error::WorkspaceError;

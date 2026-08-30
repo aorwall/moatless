@@ -2,7 +2,7 @@
 //!
 //! Cardinality: sender × kind × outcome, where both sender and kind are
 //! compile-time constants supplied at the admission call site — a bounded
-//! vocabulary, matching the note in [`crate::adapters::metrics`].
+//! vocabulary, matching the note in [`moatless_adapter_model::metrics`].
 
 use super::store::Backlog;
 

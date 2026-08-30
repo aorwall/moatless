@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
-use moatless_identity::git_host_tokens::GitHostTokens;
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_backend_core::identity::GitHostTokenIssuer;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::{
     Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent, Adapters,
 };
-use moatless_loops::loops::dao::LoopDao;
+use moatless_loops::loops::ports::LoopReader;
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_loops::bindings::dao::TaskBindingDao;
 
@@ -33,7 +33,7 @@ pub struct GithubPrAdapter {
     /// present on the composition-root instance (see [`Self::with_ingress_ports`])
     /// and absent on the `#[cfg(test)]` constructors, which reach neither.
     adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
-    loops: Option<Arc<LoopDao>>,
+    loops: Option<Arc<dyn LoopReader>>,
     task_bindings: Option<Arc<dyn TaskBindingDao>>,
     users: Option<Arc<dyn ProviderIdentityLink>>,
     adapter_delivery: Option<Arc<AdapterDeliveryStore>>,
@@ -45,13 +45,13 @@ fn missing_port(name: &str) -> AdapterError {
     SharedAdapterError::Internal(format!("GitHub PR adapter missing {name} port")).into()
 }
 
-/// The three owned DAO handles [`GithubPrAdapter::require_binding_ports`] hands
-/// the typed-API bind path for a [`moatless_loops::loops::firing::listen::Connector`] —
-/// the connection store, the Loop store, and the binding store. A transient
-/// return shape destructured at the call site, not a stored bundle.
+/// The three owned handles [`GithubPrAdapter::require_binding_ports`] hands the
+/// typed-API bind path for a [`moatless_loops::loops::firing::listen::Connector`] —
+/// the connection store, the Subscription reads, and the binding store. A
+/// transient return shape destructured at the call site, not a stored bundle.
 type BindingPorts = (
     Arc<dyn AdapterConnectionDao>,
-    Arc<LoopDao>,
+    Arc<dyn LoopReader>,
     Arc<dyn TaskBindingDao>,
 );
 
@@ -73,7 +73,7 @@ impl GithubPrAdapter {
     pub fn new(
         global_webhook_secret: Option<String>,
         frontend_url: String,
-        git_host_tokens: Arc<GitHostTokens>,
+        git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     ) -> Self {
         Self {
             global_webhook_secret,
@@ -102,7 +102,7 @@ impl GithubPrAdapter {
     pub fn with_ingress_ports(
         mut self,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
-        loops: Arc<LoopDao>,
+        loops: Arc<dyn LoopReader>,
         task_bindings: Arc<dyn TaskBindingDao>,
         users: Arc<dyn ProviderIdentityLink>,
         adapter_delivery: Arc<AdapterDeliveryStore>,
@@ -125,8 +125,8 @@ impl GithubPrAdapter {
             .ok_or_else(|| missing_port("adapter_connections"))
     }
 
-    /// The Loop store, for subscription resolution during admission.
-    pub(super) fn require_loops(&self) -> Result<&LoopDao, AdapterError> {
+    /// The Subscription reads, for subscription resolution during admission.
+    pub(super) fn require_loops(&self) -> Result<&dyn LoopReader, AdapterError> {
         self.loops.as_deref().ok_or_else(|| missing_port("loops"))
     }
 
@@ -151,9 +151,9 @@ impl GithubPrAdapter {
             .ok_or_else(|| missing_port("adapter_delivery"))
     }
 
-    /// The three DAOs the typed-API bind path hands to a
+    /// The three ports the typed-API bind path hands to a
     /// [`moatless_loops::loops::firing::listen::Connector`], as owned `Arc`s — the
-    /// connection store, the Loop store, and the binding store. `Connector::new`
+    /// connection store, the Subscription reads, and the binding store. `Connector::new`
     /// takes them by value, so this clones rather than borrowing (unlike the
     /// ingress accessors above, which lend `receive` its borrows). `Err` only if
     /// this adapter was built without ingress ports (a test constructor).

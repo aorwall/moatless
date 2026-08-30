@@ -12,7 +12,7 @@ use crate::common;
 use chrono::{DateTime, Duration, Utc};
 use moatless_types::access_control::ScopeContext;
 use moatless_backend::task::dao::{
-    self as task_dao, PgTaskDao, TaskDao, TaskFilter, TaskPatch,
+    self as task_dao, TaskDao, TaskFilter, TaskPatch,
 };
 use moatless_backend::task::models::{TaskStatus, Visibility};
 use sqlx::PgPool;
@@ -203,7 +203,7 @@ async fn list_tasks_exclude_status_filter(pool: PgPool) {
         parent_task_id: None,
         followed_by: None,
     };
-    let (rows, total) = PgTaskDao(pool).list_tasks(&filter).await.unwrap();
+    let (rows, total) = moatless_backend::task::dao::store_over(&pool).list_tasks(&filter).await.unwrap();
 
     assert_eq!(total, 2);
     let ids: Vec<&str> = rows.iter().map(|r| r.task_id.as_str()).collect();
@@ -352,7 +352,7 @@ async fn follow_unfollow_and_list_followed(pool: PgPool) {
     row.visibility = Visibility::Public;
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    let repo = PgTaskDao(pool.clone());
+    let repo = moatless_backend::task::dao::store_over(&pool);
 
     // Initially the follower follows nothing.
     let followed = repo
@@ -435,7 +435,7 @@ async fn unfollow_removes_settlement_and_snooze_with_the_follow_row(pool: PgPool
     row.visibility = Visibility::Public;
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    let repo = PgTaskDao(pool.clone());
+    let repo = moatless_backend::task::dao::store_over(&pool);
     repo.follow_task(follower, "task-state-delete")
         .await
         .unwrap();
@@ -469,7 +469,7 @@ async fn refollow_after_settle_and_unfollow_starts_with_null_state(pool: PgPool)
     row.visibility = Visibility::Public;
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    let repo = PgTaskDao(pool.clone());
+    let repo = moatless_backend::task::dao::store_over(&pool);
     repo.follow_task(follower, "task-state-refollow")
         .await
         .unwrap();
@@ -548,7 +548,7 @@ async fn list_tasks_multiple_tags_contribute_one_row_and_one_count(pool: PgPool)
         .unwrap();
     tag_task(&pool, "task-many-tags", &["bug", "urgent", "backend"]).await;
 
-    let repo = PgTaskDao(pool.clone());
+    let repo = moatless_backend::task::dao::store_over(&pool);
 
     // Unfiltered: the three tags must not fan the task out into three counted
     // rows — two tasks exist, so the total is two.
@@ -589,7 +589,7 @@ async fn list_tasks_offset_past_end_returns_empty_page_with_true_total(pool: PgP
     // Tags on one task would inflate a join-fanned count.
     tag_task(&pool, "task-off-0", &["bug", "urgent"]).await;
 
-    let repo = PgTaskDao(pool.clone());
+    let repo = moatless_backend::task::dao::store_over(&pool);
 
     // Offset exactly at the end.
     let filter = TaskFilter {
@@ -658,7 +658,7 @@ async fn list_tasks_acl_predicate_constrains_page_and_total(pool: PgPool) {
         .await
         .unwrap();
 
-    let repo = PgTaskDao(pool.clone());
+    let repo = moatless_backend::task::dao::store_over(&pool);
 
     let (rows, total) = repo.list_tasks(&base_filter(other)).await.unwrap();
     let ids: Vec<&str> = rows.iter().map(|r| r.task_id.as_str()).collect();
@@ -720,7 +720,7 @@ async fn list_tasks_parent_relation_filter_counts_tagged_child_once(pool: PgPool
             .unwrap();
     }
 
-    let repo = PgTaskDao(pool.clone());
+    let repo = moatless_backend::task::dao::store_over(&pool);
 
     let filter = TaskFilter {
         parent_task_id: Some("task-parent".to_string()),
@@ -762,7 +762,7 @@ async fn list_tasks_followed_by_and_status_filters_count_tagged_task_once(pool: 
     tag_task(&pool, "task-followed-open", &["bug", "urgent", "backend"]).await;
     tag_task(&pool, "task-followed-closed", &["bug", "urgent"]).await;
 
-    let repo = PgTaskDao(pool.clone());
+    let repo = moatless_backend::task::dao::store_over(&pool);
     for id in ["task-followed-open", "task-followed-closed"] {
         repo.follow_task(user, id).await.unwrap();
     }

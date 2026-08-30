@@ -30,7 +30,7 @@ use tracing::{info, warn};
 use super::client::K8sClient;
 use super::naming::sanitize_k8s_name;
 use moatless_core::config::Config;
-use moatless_sandbox_control::lifecycle::RuntimeError;
+use moatless_sandbox_runtime::runtime::RuntimeError;
 
 /// Where the claim is mounted. The same path a sandbox pod uses, so
 /// `WORKSPACE_DIR` needs no rewriting.

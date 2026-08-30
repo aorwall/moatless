@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use sandbox_proto::AgentStopSource;
 
 use moatless_types::sandbox::SandboxStopReason;
-use crate::client::SandboxConnector;
+use moatless_sandbox_runtime::client::SandboxConnector;
 
 use super::orchestrator::AgentStopPort;
 

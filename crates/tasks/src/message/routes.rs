@@ -7,7 +7,7 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
-use moatless_identity::extractors::UserTokenVerifier;
+use moatless_core::http_auth::UserTokenVerifier;
 use moatless_core::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;

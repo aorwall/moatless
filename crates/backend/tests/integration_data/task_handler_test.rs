@@ -14,7 +14,7 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 use moatless_backend::repository::dao as repository_dao;
-use moatless_backend::task::dao::{self as task_dao, PgTaskDao, TaskDao, TaskPatch};
+use moatless_backend::task::dao::{self as task_dao, TaskDao, TaskPatch};
 use moatless_backend::task::models::TaskStatus;
 use moatless_backend::task::relations::{
     PgTaskRelationDao, TaskRelation, TaskRelationDao, TaskRelationType,
@@ -212,7 +212,7 @@ async fn delete_task_handler(pool: PgPool) {
 
 /// Set an existing task to `Closed` (mirrors the close handler's DB effect).
 async fn set_closed(pool: &PgPool, task_id: &str) {
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(pool)
         .update_task(
             task_id,
             &TaskPatch {

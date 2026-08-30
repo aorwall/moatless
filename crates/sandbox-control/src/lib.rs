@@ -2,10 +2,14 @@
 // workspace `deny`/`warn`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Sandbox-control band (band 6): the provider-agnostic half of the sandbox
-//! module — durable lifecycle intent and orchestration, the gRPC ingress
-//! service, preflight, secrets, JWT, status reads, notification, and the
-//! resource-quantity parsers the providers share.
+//! Sandbox-control band (band 6): the orchestrator that drives a sandbox
+//! runtime — durable lifecycle intent, the reconciler and watcher, the gRPC
+//! ingress service, preflight, secrets, JWT, and the HTTP surface over them.
+//!
+//! What a runtime *implements* — the mutation and observation contract — and
+//! the machinery every runtime reuses live a band below, in
+//! `moatless-sandbox-runtime`. This crate depends on it and re-exports nothing
+//! from it: a caller that wants the contract names that crate.
 //!
 //! The two container runtimes (`sandbox-k8s`, `sandbox-docker`) live a band
 //! above and depend downward on this crate; nothing here names `kube` or
@@ -18,23 +22,13 @@
 //! state `S` with `FromRef<S>` bounds, so this crate names no concrete
 //! `AppState` — the `FromRef` impls live in the backend.
 
-pub mod access;
 pub mod auto_provision;
-pub mod client;
-pub mod error;
 pub mod event_dedup;
 pub mod file_handlers;
 pub mod handlers;
 pub mod jwt;
 pub mod lifecycle;
-pub mod live_status;
-pub mod metrics;
-pub mod models;
 pub mod notify;
 pub mod preflight;
 pub mod routes;
-pub mod schemas;
 pub mod secrets;
-pub mod server_runner;
-pub mod status_reader;
-pub mod storage;

@@ -139,7 +139,7 @@ pub async fn delete_sandbox_service(k8s: &K8sClient, task_id: &str) -> Result<()
 pub async fn wait_for_sandbox_service_deleted(
     k8s: &K8sClient,
     task_id: &str,
-) -> Result<(), moatless_sandbox_control::error::SandboxError> {
+) -> Result<(), moatless_sandbox_runtime::error::SandboxError> {
     let services: Api<Service> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let service_name = generate_service_name(task_id);
     super::wait::wait_absent(

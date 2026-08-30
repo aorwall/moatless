@@ -1,6 +1,6 @@
 use moatless_types::sandbox::{SandboxStatus, ServerSubType};
 
-use moatless_sandbox_control::lifecycle::classify::ObservedTransition;
+use moatless_sandbox_runtime::classify::ObservedTransition;
 
 use super::pod_watcher::PodObservedState;
 
@@ -459,7 +459,7 @@ mod tests {
     use crate::pod_status::test_helpers::{
         pod_with_phase_and_containers, running_container, terminated_container, waiting_container,
     };
-    use moatless_sandbox_control::lifecycle::runtime::OPERATION_GENERATION_LABEL;
+    use moatless_sandbox_runtime::runtime::OPERATION_GENERATION_LABEL;
 
     fn plan_for(current: &PodObservedState) -> ObservationPlan {
         PodObservationPolicy::evaluate(None, current, ObservationContext::default())
@@ -1005,7 +1005,7 @@ mod tests {
         let state = super::super::pod_watcher::extract_pod_observed_state(&pod, "pod-1", "task-1");
         assert_eq!(
             state.operation_generation,
-            Some(moatless_sandbox_control::lifecycle::OperationGeneration(12))
+            Some(moatless_sandbox_runtime::types::OperationGeneration(12))
         );
     }
 }

@@ -20,11 +20,11 @@ use tracing::{debug, warn};
 
 use moatless_types::access_control::ScopeContext;
 
-use crate::auth::identity::AuthIdentity;
 use crate::extractors::AuthUser;
 use crate::task::dao::TaskDao;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_event::models::TaskEvent;
+use moatless_types::auth::AuthIdentity;
 use moatless_types::user::UserRole;
 
 use super::routes::SseState;

@@ -33,7 +33,7 @@ use moatless_backend::adapters::providers::linear::delivery;
 use moatless_backend::adapters::providers::linear::ingress::{
     IngressError, Outcome, Rejection, reason, receive,
 };
-use moatless_backend::adapters::models::SubscriptionMatch;
+use moatless_adapter_model::models::SubscriptionMatch;
 use moatless_types::loops::RoutingMode;
 use moatless_backend::adapters::test_support::ProviderStub;
 use moatless_backend::repository::dao as repository_dao;
@@ -102,11 +102,10 @@ async fn deliver_signed_bytes(
         .linear();
     receive(
         state.adapter_connections.as_ref(),
-        &state.loops,
-        &state.db,
+        state.loops.as_ref(),
         &(state.harness_credentials.clone()
             as std::sync::Arc<dyn moatless_backend_core::identity::AppCredentials>),
-        &state.config,
+        state.adapter_apps.as_ref(),
         &state.adapter_delivery,
         &linear_adapter,
         &signature,
@@ -604,11 +603,10 @@ async fn a_bad_signature_is_an_ingress_rejection_naming_its_event_type(pool: PgP
         .linear();
     let rejection = receive(
         state.adapter_connections.as_ref(),
-        &state.loops,
-        &state.db,
+        state.loops.as_ref(),
         &(state.harness_credentials.clone()
             as std::sync::Arc<dyn moatless_backend_core::identity::AppCredentials>),
-        &state.config,
+        state.adapter_apps.as_ref(),
         &state.adapter_delivery,
         &linear_adapter,
         "00ff",

@@ -10,7 +10,7 @@ use tracing::{debug, warn};
 use super::error::RepositoryError;
 use moatless_types::repository::RepositoryProvider;
 use moatless_types::repository::RepositoryProvider as GitHostProvider;
-use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_types::repository::GitHostRepo;
 
 /// Fetch a repository file's raw contents via the provider API.
 ///

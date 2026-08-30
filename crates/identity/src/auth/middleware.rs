@@ -19,12 +19,12 @@ use super::api_key::validate_key_cached;
 use super::api_keys::ApiKeyDao;
 use super::cache::AuthCache;
 use super::cookie::{CSRF_COOKIE_NAME, get_all_cookie_values, get_cookie_value};
-use super::identity::{AuthIdentity, AuthMethod};
+use moatless_types::auth::{AuthIdentity, AuthMethod};
 use super::jwt;
 use super::session;
 use super::sessions::SessionDao;
 use super::users::UserDao;
-use crate::extractors::UserTokenVerifier;
+use moatless_core::http_auth::UserTokenVerifier;
 use moatless_core::config::Config;
 use moatless_api_schemas::error::ErrorBody;
 

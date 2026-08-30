@@ -39,7 +39,6 @@ reader outside that program can see them.
 | Credential broadcast fan-out reaches `tasks` | `credentials::CredentialService::store` auto-invokes `broadcast_to_scope` | Step 10c, and it must land with the fan-out test that does not exist |
 | `sync_config`'s body spans two bands | `repository/handlers.rs::sync_repo_config` runs a loop sync and a workspace sync | Step 10g, as a server-band composition |
 | The error-type knot | `error.rs` split, 7c's registry inversion, 8b's remainder, 8d's error half | One knot, one entry condition, recorded in the plan |
-| `AuthUser` placement | `extractors.rs::AuthUser` — Step 5's open question, recorded as 8g | Recorded in the plan |
 | `SetupRequirementCheck` is a single-implementation trait | `setup/evaluator.rs::SetupRequirementCheck` — `checks()` returns `vec![Box::new(GithubTokenRequirement)]`; recorded as 8h | When it earns a second implementation, or is collapsed into `evaluate_setup` |
 | `moatless-api-schemas` is one crate for every domain | `crates/api-schemas/src/` — 15 crates depend on it, and each consumer already has a `<domain>/schemas.rs` that is one `pub use moatless_api_schemas::<domain>::*;` | When seven or eight more crates is an accepted cost. It is the single largest rebuild-cost edge in the workspace and the split itself is mechanical; the crate count is the decision |
 
@@ -71,8 +70,9 @@ assertions that pin it are in `.plans/backend-ports-and-crates.md` under Step 5.
 `moatless-types` holds the shared type definitions. Its `lib.rs` states the rule
 that admits a type: pure data, named by three or more crates other than its
 owner, and neither its body nor its impls name a foreign crate. The crate depends
-on `serde`, `serde_json`, `chrono`, `thiserror`, `tracing`, and optionally
-`utoipa`, and on nothing else — no `sqlx`, no `axum`, no `reqwest`, no `redis`.
+on `serde`, `serde_json`, `chrono`, `thiserror`, `tracing`, `url`, `uuid`, and
+optionally `utoipa`, and on nothing else — no `sqlx`, no `axum`, no `reqwest`,
+no `redis`.
 That last constraint is what keeps a change to a transport crate from rebuilding
 everything above it.
 
@@ -82,9 +82,7 @@ one body reaches a transport crate, so moving it would put that crate in
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
-| `SharedAdapterError` names two transports | `crates/adapter-model/src/error.rs::SharedAdapterError` — `Db(#[from] sqlx::Error)` and `Body(#[from] reqwest::Error)` | When the transport-level variants are split off the domain error, so the domain half names no transport |
-| `GitHostRepo` parses URLs with `reqwest` | `crates/identity/src/git_host_repo.rs::GitHostRepo` — `reqwest::Url::parse` in its own body | When URL parsing moves to the caller, or to a parser that is not a HTTP client |
-| `GitHostTokenError` names the store | `crates/identity/src/git_host_tokens.rs::GitHostTokenError` — `Database(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
+| `SharedAdapterError` names a transport | `crates/adapter-model/src/error.rs::SharedAdapterError` — `ProviderDecodeError::Body(#[from] reqwest::Error)` and the two `reqwest`-carrying provider variants | When the transport-level variants are split off the domain error, so the domain half names no transport |
 | `AdmitError` names the store | `crates/loops/src/adapters/delivery/models.rs::AdmitError` — `Store(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
 | `TaskCreationError` names the store | `crates/tasks/src/task/creation.rs::TaskCreationError` — `Db(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
 | `CredentialError` names the store | `crates/workspaces/src/credentials/error.rs::CredentialError` — `Database(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
@@ -92,7 +90,7 @@ one body reaches a transport crate, so moving it would put that crate in
 A type named by only one or two crates other than its owner is that subsystem's
 vocabulary and stays with the subsystem — `sandbox-control`'s lifecycle types go
 to `sandbox-k8s` and `sandbox-docker` and nowhere else. Row types stay with their
-DAO for the same reason the six above stay put: a `sqlx::FromRow` derive is a
+DAO for the same reason the four above stay put: a `sqlx::FromRow` derive is a
 persistence detail, not a shared definition.
 
 ## Domain models still carrying a persistence shape
@@ -106,7 +104,7 @@ one field named. The fix is known in every case; what stops it is stated.
 | A Message's agent mode is read through an accessor | `crates/tasks/src/message/models.rs::TaskMessage::agent_mode_raw` and `TaskMessage::agent_mode` | When `TaskMessage` needs a row twin for another reason — the sqlx derive cannot decode `Option<AgentMode>` (the orphan rule blocks `impl TryFrom<Option<String>> for Option<AgentMode>`), so today the fix costs a fifty-field mapping for one field |
 | A Binding's origin is an open string | `crates/types/src/adapter.rs::TaskBinding::origin`, against `ADAPTER_EVENT_BINDING_ORIGIN` and its two siblings in `crates/adapter-model/src/models.rs` | When the legal set is settled: the three declared constants are not the whole set — `bindings/handlers.rs` writes `"api"` and the Linear delivery tests write `"provider_event"` |
 | A Binding's `subject_kind` and a connection's `connection_kind` are open strings | `crates/types/src/adapter.rs::TaskBinding::subject_kind`, `AdapterConnection::connection_kind` | Same as `origin`: each Adapter declares its own values and no enumeration exists |
-| `User` and `TeamMember` cannot reach `moatless-types` | `crates/identity/src/auth/users.rs::User`, `crates/identity/src/team/models.rs::TeamMember` — both key on `uuid::Uuid` | When `uuid` is admitted to the `moatless-types` dependency list. It is pure data in the same class as `chrono`, so this is a decision about the closed list, not a technical block |
+| `User` and `TeamMember` are not in `moatless-types` | `crates/identity/src/auth/users.rs::User`, `crates/identity/src/team/models.rs::TeamMember` — both key on `uuid::Uuid` | `uuid` is now on the list, so the block is gone. Move each one when a third crate outside `identity` names it |
 
 ## Table ownership
 
@@ -117,7 +115,7 @@ with its reason, and only shrinks. Two decisions sit outside that file.
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
-| `t3code` reads fifteen tables it does not own | `crates/t3code/src/lib.rs` — 43 statements across `tasks`, `task_messages`, `task_turns`, `task_activities`, `task_follows`, `task_bindings`, `task_message_usage`, `task_message_contexts`, `workspaces`, `workspace_repos`, `users`, and the four listing/conversation change-feed tables. It behaves like a read model over the Task and Workspace tables and nothing says so; the script excludes the crate for that reason | When the T3 contract next changes shape, or when one of these reads has to become a write. Either outcome forces the choice the exclusion defers: declare it a read-only projection in `crates/t3code/AGENTS.md`, or route it through the ports |
+| `t3code` reads fifteen tables it does not own | `crates/t3code/src/lib.rs` — 43 statements across `tasks`, `task_messages`, `task_turns`, `task_activities`, `task_follows`, `task_bindings`, `task_message_usage`, `task_message_contexts`, `workspaces`, `workspace_repos`, `users`, and the four listing/conversation change-feed tables. It is now declared a read-only projection in `crates/t3code/AGENTS.md`, which is what the table-ownership exclusion rests on | When one of these reads has to become a write, or the T3 contract changes shape. Either breaks the declaration and forces the reads through the ports |
 | `adapter-telegram/pairing.rs` is mostly unreachable | `crates/adapter-telegram/src/pairing.rs` — `find_by_code`, `list_pending`, `list_pending_for_user`, `approve_request`, `prune_expired` are `pub` with no caller anywhere in the workspace; only `upsert_pairing_request` is reached (from `ingress.rs`) | When the Telegram pairing flow is next worked on. Deleting them now would be a behaviour question dressed as a cleanup — nothing says whether the flow is unfinished or abandoned |
 
 ## Correctness

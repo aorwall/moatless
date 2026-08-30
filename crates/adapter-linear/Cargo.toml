@@ -11,7 +11,6 @@ chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.13", features = ["json", "rustls"], default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt"] }
 tracing = "0.1"
@@ -22,7 +21,6 @@ moatless-adapter-model = { path = "../adapter-model" }
 moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
 moatless-core = { path = "../core" }
-moatless-identity = { path = "../identity" }
 moatless-loops = { path = "../loops" }
 moatless-tasks = { path = "../tasks" }
 moatless-types = { path = "../types" }

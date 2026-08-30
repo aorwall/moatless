@@ -1,6 +1,6 @@
 //! Typed view of GitHub PR subscription-loop fields used by the webhook parser.
 
-use moatless_loops::adapters::models::SubscriptionMatch;
+use moatless_adapter_model::models::SubscriptionMatch;
 
 /// Senders ignored by default when `adapter_config.ignored_senders` is not
 /// set. `linear-code[bot]` is Linear's GitHub App: their servers post

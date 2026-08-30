@@ -6,7 +6,7 @@
 
 pub use moatless_identity::auth::{
     api_key, api_keys, cache, codex_auth_json, credentials, error, github,
-    identity, jwt, middleware, models, pairing, password, provider_token_dao, provider_tokens,
+    jwt, middleware, models, pairing, password, provider_token_dao, provider_tokens,
     routes, sessions, test_user, users, Authentication, AuthenticationPorts,
 };
 

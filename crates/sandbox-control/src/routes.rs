@@ -14,8 +14,8 @@ use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use super::status_reader::SandboxStatusReader;
-use crate::client::SandboxConnector;
+use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
+use moatless_sandbox_runtime::client::SandboxConnector;
 use super::file_handlers;
 use super::handlers;
 use super::lifecycle::Lifecycle;

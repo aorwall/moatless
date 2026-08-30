@@ -1,7 +1,7 @@
 //! Slack HMAC-SHA256 webhook signature verification.
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::signature::verify_hmac_sha256;
+use moatless_adapter_model::signature::verify_hmac_sha256;
 
 /// Verify the Slack request signature.
 ///
@@ -27,7 +27,7 @@ pub fn verify_signature(
         .ok_or(SharedAdapterError::SignatureInvalid)?;
     let sig_basestring = format!("v0:{timestamp}:{}", String::from_utf8_lossy(body));
 
-    verify_hmac_sha256(signing_secret, sig_basestring.as_bytes(), expected_hex)
+    verify_hmac_sha256(signing_secret, sig_basestring.as_bytes(), expected_hex).map_err(Into::into)
 }
 
 #[cfg(test)]

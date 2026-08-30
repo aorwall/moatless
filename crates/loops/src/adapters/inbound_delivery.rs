@@ -21,7 +21,7 @@ use crate::adapters::delivery::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryRequest,
 };
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::metrics::record_webhook;
+use moatless_adapter_model::metrics::record_webhook;
 use moatless_types::adapter::InboundDeliveryPayload;
 use crate::bindings::runtime::RoutingService;
 
@@ -243,12 +243,15 @@ mod tests {
 
     #[test]
     fn a_backend_failure_is_retried_and_keeps_its_cause() {
-        let failure = AdapterDeliveryFailure::from(AdapterError::from(SharedAdapterError::Db(
-            sqlx::Error::PoolTimedOut,
-        )));
+        let failure = AdapterDeliveryFailure::from(AdapterError::from(
+            SharedAdapterError::Store(moatless_backend_core::store::StoreError::with_source(
+                "read the connection",
+                sqlx::Error::PoolTimedOut,
+            )),
+        ));
         assert!(matches!(failure, AdapterDeliveryFailure::Retryable(_)));
         let source = std::error::Error::source(&failure).expect("the routing error is retained");
-        assert!(source.to_string().contains("Database error"));
+        assert!(source.to_string().contains("read the connection"));
 
         let failure = AdapterDeliveryFailure::from(AdapterError::from(
             SharedAdapterError::Internal("sandbox refused".into()),

@@ -23,11 +23,11 @@ use tracing::{debug, info, warn};
 use moatless_core::config::Config;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
-use moatless_tasks::message::send::MessageSendService;
+use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
+use moatless_backend_core::task::{InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_tasks::task::closer::TaskCloser;
-use moatless_tasks::task::creation::TaskCreationService;
+use moatless_backend_core::task::TaskFinisher;
+use moatless_backend_core::task::TaskOpener;
 use moatless_backend_core::task::TaskReader;
 use moatless_types::task::Visibility;
 use moatless_backend_core::sandbox::SandboxWaker;
@@ -62,11 +62,11 @@ pub(super) async fn handle_issue_update(
     task_bindings: &dyn TaskBindingDao,
     tasks: &dyn TaskReader,
     config: &Config,
-    task_closer: &TaskCloser,
+    task_closer: &dyn TaskFinisher,
     sandbox_waker: &dyn SandboxWaker,
     linear_active_turns: &ActiveLinearTurns,
-    task_creation: &TaskCreationService,
-    message_send: &MessageSendService,
+    task_creation: &dyn TaskOpener,
+    message_send: &dyn MessageAcceptor,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[SubscriptionMatch],
@@ -165,8 +165,8 @@ async fn create_tasks_for_status_entry(
     tasks: &dyn TaskReader,
     config: &Config,
     linear_active_turns: &ActiveLinearTurns,
-    task_creation: &TaskCreationService,
-    message_send: &MessageSendService,
+    task_creation: &dyn TaskOpener,
+    message_send: &dyn MessageAcceptor,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[SubscriptionMatch],
@@ -287,8 +287,8 @@ async fn provision_issue_task(
     tasks: &dyn TaskReader,
     config: &Config,
     linear_active_turns: &ActiveLinearTurns,
-    task_creation: &TaskCreationService,
-    message_send: &MessageSendService,
+    task_creation: &dyn TaskOpener,
+    message_send: &dyn MessageAcceptor,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rule: &SubscriptionMatch,
@@ -375,29 +375,22 @@ async fn provision_issue_task(
     let inbound_text = super::text::build_issue_inbound_text(issue);
     let external_event_id = super::external_id::issue_created(&issue.id);
     if let Err(e) = message_send
-        .send_message_flow(
-            &task_id,
-            &inbound_text,
-            None,
-            None,
-            None,
-            &[],
-            &[],
-            false,
-            moatless_types::task::ExternalOrigin {
-                event_id: Some(&external_event_id),
-                adapter: Some(ADAPTER_LABEL),
-                subject_key: Some(&binding.subject_key),
-                source_name: Some(rule.source_matcher.as_str()),
+        .accept(InboundTurn {
+            task_id: task_id.clone(),
+            text: inbound_text.clone(),
+            file_ids: Vec::new(),
+            resume: false,
+            origin: TurnOrigin {
+                event_id: Some(external_event_id.clone()),
+                adapter: Some(ADAPTER_LABEL.to_string()),
+                subject_key: Some(binding.subject_key.clone()),
+                source_name: Some(rule.source_matcher.clone()),
                 author: None,
                 sender_id: None,
-                source_task_id: None,
             },
-            false,
-            None,
-            &[],
-            None,
-        )
+            sent_by: None,
+            skills: Vec::new(),
+        })
         .await
     {
         warn!(
@@ -551,7 +544,7 @@ async fn persist_issue_status(
 /// Best-effort: failures are logged so the close path still runs.
 async fn notify_bindings_of_state_change(
     task_bindings: &dyn TaskBindingDao,
-    message_send: &MessageSendService,
+    message_send: &dyn MessageAcceptor,
     sandbox_waker: &dyn SandboxWaker,
     connection: &AdapterConnection,
     issue: &IssuePayload,
@@ -591,29 +584,20 @@ async fn notify_bindings_of_state_change(
 
     for binding in bindings {
         if let Err(e) = message_send
-            .send_message_flow(
-                &binding.task_id,
-                &body,
-                None,
-                None,
-                None,
-                &[],
-                &[],
-                true,
-                moatless_types::task::ExternalOrigin {
-                    event_id: Some(&external_event_id),
-                    adapter: Some(ADAPTER_LABEL),
-                    subject_key: Some(&binding.subject_key),
-                    source_name: None,
-                    author: None,
-                    sender_id: None,
-                    source_task_id: None,
+            .accept(InboundTurn {
+                task_id: binding.task_id.clone(),
+                text: body.clone(),
+                file_ids: Vec::new(),
+                resume: true,
+                origin: TurnOrigin {
+                    event_id: Some(external_event_id.clone()),
+                    adapter: Some(ADAPTER_LABEL.to_string()),
+                    subject_key: Some(binding.subject_key.clone()),
+                    ..TurnOrigin::default()
                 },
-                false,
-                None,
-                &[],
-                None,
-            )
+                sent_by: None,
+                skills: Vec::new(),
+            })
             .await
         {
             warn!(
@@ -641,7 +625,7 @@ async fn notify_bindings_of_state_change(
 /// event. Returns the new task id. Callers own subsequent provisioning,
 /// binding, and inbound-message delivery.
 pub(super) async fn insert_event_task(
-    task_creation: &TaskCreationService,
+    task_creation: &dyn TaskOpener,
     rule: &SubscriptionMatch,
     identifier: &str,
     title: &str,
@@ -683,13 +667,13 @@ pub(super) async fn insert_event_task(
     )
     .await
     .map_err(|e| match e {
-        moatless_tasks::task::creation::TaskCreationError::Preflight(msg) => {
+        moatless_backend_core::task::TaskOpenError::Refused(msg) => {
             SharedAdapterError::AccessDenied(msg).into()
         }
-        other => AdapterError::TaskCreation(other),
+        other => AdapterError::task_handoff("open a task from a provider event", other),
     })?;
 
-    Ok(outcome.task.task_id)
+    Ok(outcome.task_id)
 }
 
 /// Attach the moatless task URL to a Linear issue as a "source" pill, titled

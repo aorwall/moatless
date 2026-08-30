@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
 use moatless_backend::message::dao::{MessageDao, PgMessageDao};
-use moatless_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
+use moatless_backend::task::dao::{TaskDao, TaskPatch};
 use moatless_backend::task::models::{TaskStatus, Visibility};
 use moatless_backend::task_activities::mapping::ConversationWrite;
 use moatless_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
@@ -676,7 +676,7 @@ struct Mutation {
 
 /// A Task already in the deployment, owned by the user the mutations run as.
 async fn seed_subject(pool: &PgPool, subject: &str) {
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(pool)
         .insert_task(&make_task_row(subject, USER_1))
         .await
         .unwrap();
@@ -713,7 +713,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             run: |pool, subject| {
                 Box::pin(async move {
                     let row = make_task_row(&format!("{subject}-new"), USER_1);
-                    PgTaskDao(pool).insert_task(&row).await.unwrap();
+                    moatless_backend::task::dao::store_over(&pool).insert_task(&row).await.unwrap();
                 })
             },
         },
@@ -734,7 +734,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
                         ttl_minutes: Some(120),
                         ..TaskPatch::default()
                     };
-                    PgTaskDao(pool)
+                    moatless_backend::task::dao::store_over(&pool)
                         .update_task(&subject, &patch, &owner())
                         .await
                         .unwrap();
@@ -747,7 +747,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: HOLD_TASK_ROW,
             run: |pool, subject| {
                 Box::pin(async move {
-                    PgTaskDao(pool)
+                    moatless_backend::task::dao::store_over(&pool)
                         .update_status_if_not_closed(&subject, TaskStatus::Closed, &owner())
                         .await
                         .unwrap();
@@ -761,7 +761,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             run: |pool, subject| {
                 Box::pin(async move {
                     assert!(
-                        PgTaskDao(pool)
+                        moatless_backend::task::dao::store_over(&pool)
                             .delete_task(&subject, &owner())
                             .await
                             .unwrap()
@@ -822,7 +822,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: "INSERT INTO task_follows (user_id, task_id) VALUES ('user-x', $1)",
             run: |pool, subject| {
                 Box::pin(async move {
-                    PgTaskDao(pool)
+                    moatless_backend::task::dao::store_over(&pool)
                         .follow_task("user-x", &subject)
                         .await
                         .unwrap();
@@ -837,7 +837,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: "SELECT task_id FROM task_follows WHERE task_id = $1 FOR UPDATE",
             run: |pool, subject| {
                 Box::pin(async move {
-                    PgTaskDao(pool)
+                    moatless_backend::task::dao::store_over(&pool)
                         .unfollow_task(USER_1, &subject)
                         .await
                         .unwrap();

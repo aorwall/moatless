@@ -8,13 +8,14 @@ use tracing::warn;
 
 use moatless_types::repository::RepositoryProvider as GitHostProvider;
 use moatless_types::access_control::Actor;
-use moatless_identity::git_host_repo::GitHostRepo;
-use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens, PlainGitHost};
-use moatless_identity::secret::models::is_reserved_key;
-use moatless_identity::secret::service::SecretService;
+use moatless_types::repository::GitHostRepo;
+use moatless_core::secret_keys::is_reserved_key;
 
 use crate::lifecycle::orchestrator::LifecycleDao;
-use moatless_backend_core::identity::{CommitIdentity, HarnessCredentials};
+use moatless_backend_core::identity::{
+    CommitIdentity, GitHostTokenError, GitHostTokenIssuer, HarnessCredentials, PlainGitHost,
+    SecretResolver,
+};
 use moatless_backend_core::sandbox::CodexCredentials;
 use moatless_backend_core::store::StoreError;
 use moatless_backend_core::workspace::{WorkspaceCredentialReader, WorkspaceResolver};
@@ -31,11 +32,11 @@ pub struct TaskCredentialInputs<'a> {
     /// id so the git-host token resolved here is the one every other caller
     /// resolves for this task.
     pub actor: &'a Actor,
-    pub secrets: Option<&'a Arc<SecretService>>,
+    pub secrets: Option<&'a Arc<dyn SecretResolver>>,
     pub provider_tokens: Option<&'a Arc<dyn HarnessCredentials>>,
     /// The one way to a git-host token. Supplied once at the composition root,
     /// so this struct threads no credential ports of its own.
-    pub git_host_tokens: Option<&'a Arc<GitHostTokens>>,
+    pub git_host_tokens: Option<&'a Arc<dyn GitHostTokenIssuer>>,
     /// Persisted repository — supplies the remote URL whose owner and name the
     /// run-as identity's credential is minted against.
     pub repository: Option<&'a Repository>,
@@ -66,7 +67,7 @@ pub struct TaskCredentialInputs<'a> {
 ///    the account the Workspace runs as, so it outranks whoever started the
 ///    task; without that it would not be an override. A git-host token among
 ///    them reaches the sandbox by this route and is also what
-///    [`GitHostTokens`] resolves for backend-side calls, because the actor
+///    [`GitHostTokenIssuer`] resolves for backend-side calls, because the actor
 ///    carries the Workspace (see [`resolve_task_actor`]) — so the two agree on
 ///    which token the task presents.
 /// 2. The Workspace's own `env_vars`. Same scope as 1 and above every
@@ -75,7 +76,7 @@ pub struct TaskCredentialInputs<'a> {
 /// 3. Per-user `provider_tokens` for `user_id`, the identity the task acts as
 ///    (OAuth-managed, e.g. a freshly-issued Codex `auth.json` from the
 ///    device-code flow or a connected GitHub App user-token).
-/// 4. Scoped secrets — the `SecretService` already resolves these with
+/// 4. Scoped secrets — `SecretResolver` already resolves these with
 ///    user > global precedence internally; we only fill keys that
 ///    aren't already covered by a `provider_token`.
 ///
@@ -137,7 +138,7 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
 /// identity — see [`resolve_task_actor`], which is where a Workspace's
 /// override is applied.
 pub async fn resolve_task_github_token(
-    git_host_tokens: Option<&Arc<GitHostTokens>>,
+    git_host_tokens: Option<&Arc<dyn GitHostTokenIssuer>>,
     actor: &Actor,
     repository: Option<&Repository>,
 ) -> Option<Result<String, GitHostTokenError>> {
@@ -175,13 +176,13 @@ fn fill_missing_from_scoped(
 /// dedicated channel so they are never exposed as environment variables to the
 /// agent. Returns a `secret key name → private key` map.
 pub async fn resolve_task_ssh_keys(
-    secrets: Option<&Arc<SecretService>>,
+    secrets: Option<&Arc<dyn SecretResolver>>,
     user_id: &str,
 ) -> HashMap<String, String> {
     let Some(secrets) = secrets else {
         return HashMap::new();
     };
-    match secrets.resolve_accessible_ssh_keys(user_id).await {
+    match secrets.ssh_keys(user_id).await {
         Ok(keys) => keys,
         Err(e) => {
             warn!(user_id, error = %e, "Failed to resolve ssh key secrets");
@@ -199,14 +200,14 @@ pub async fn resolve_task_ssh_keys(
 /// superset that additionally includes provider tokens.
 pub async fn resolve_server_env(
     user_id: &str,
-    secrets: Option<&Arc<SecretService>>,
+    secrets: Option<&Arc<dyn SecretResolver>>,
     workspace_env_vars: &HashMap<String, String>,
 ) -> HashMap<String, String> {
     let mut env = workspace_env_vars.clone();
     let Some(secrets) = secrets else {
         return env;
     };
-    match secrets.resolve_accessible_plaintext(user_id).await {
+    match secrets.plaintext(user_id).await {
         Ok(scoped) => {
             for (key, value) in scoped {
                 env.entry(key).or_insert(value);
@@ -400,7 +401,7 @@ pub async fn resolve_workspace_credentials(
 }
 
 async fn resolve_scoped_secrets(
-    secrets: Option<&Arc<SecretService>>,
+    secrets: Option<&Arc<dyn SecretResolver>>,
     user_id: &str,
     task_id: &str,
 ) -> HashMap<String, String> {
@@ -408,7 +409,7 @@ async fn resolve_scoped_secrets(
         return HashMap::new();
     };
 
-    match secrets.resolve_accessible_plaintext(user_id).await {
+    match secrets.plaintext(user_id).await {
         Ok(credentials) => credentials,
         Err(e) => {
             warn!(task_id, error = %e, "Failed to resolve scoped secrets");
@@ -463,7 +464,7 @@ fn task_git_host_repo(repository: Option<&Repository>) -> Option<GitHostRepo> {
 /// workspace may mount repositories from more than one host.
 async fn fill_git_host_tokens(
     credentials: &mut HashMap<String, String>,
-    git_host_tokens: Option<&Arc<GitHostTokens>>,
+    git_host_tokens: Option<&Arc<dyn GitHostTokenIssuer>>,
     actor: &Actor,
     repository: Option<&Repository>,
 ) {
@@ -569,8 +570,8 @@ async fn fill_codex(
 
 /// Resolve the model credentials this task's sandbox needs.
 ///
-/// Git hosts are not here: they go through `GitHostTokens`, which is the one
-/// way to a git-host token.
+/// Git hosts are not here: they go through `GitHostTokenIssuer`, which is the
+/// one way to a git-host token.
 async fn fill_model_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: &Arc<dyn HarnessCredentials>,
@@ -660,7 +661,6 @@ async fn fill_git_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_identity::auth::provider_tokens::AUTH_METHOD_SECRET_REF;
 
     #[test]
     fn provider_token_value_wins_over_scoped_secret_with_same_key() {
@@ -728,11 +728,16 @@ mod tests {
         assert_eq!(credentials[GITHUB_TOKEN], "ghs_x");
     }
 
-    // --- preflight trust: which GITHUB_TOKEN sources satisfy provisioning ---
+    // --- preflight trust: what the sandbox receives for GITHUB_TOKEN ---
+    //
+    // Which stored row or secret an identity's token comes from is the
+    // issuer's question, asserted where the issuer lives. What is asserted
+    // here is the flattening around it: a failure leaves the slot empty, and a
+    // pinned Workspace credential outranks every other source.
 
-    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-    use moatless_identity::auth::test_support::StubProviderTokens;
-    use moatless_identity::secret::test_support::{secret, service_with};
+    use moatless_backend_core::identity::{
+        MockCommitIdentity, MockGitHostTokenIssuer, MockHarnessCredentials, MockSecretResolver,
+    };
 
     fn github_repository(scope: moatless_types::access_control::Scope) -> Repository {
         Repository {
@@ -752,42 +757,48 @@ mod tests {
         }
     }
 
-    /// A seam with no App registry and no OAuth refresh wired — the shape a
-    /// deployment without a GitHub App has.
-    fn seam(
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-        secrets: SecretService,
-    ) -> Arc<GitHostTokens> {
-        Arc::new(GitHostTokens::new(
-            provider_tokens,
-            Arc::new(moatless_identity::auth::provider_tokens::MockProviderTokenAuthDao::new()),
-            None,
-            Arc::new(moatless_identity::auth::github::registry::GitHubAppRegistry::default()),
-            Arc::new(secrets),
-        ))
+    fn no_credential(actor: &Actor, provider: GitHostProvider) -> GitHostTokenError {
+        GitHostTokenError::NoCredential {
+            actor: actor.clone(),
+            provider,
+        }
     }
 
-    /// The `GITHUB_TOKEN` the sandbox would receive, flattened the way
-    /// `fill_git_host_tokens` flattens it: any failure leaves the slot empty.
-    async fn sandbox_github_token(
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-        secrets: SecretService,
-        repository: &Repository,
-    ) -> Option<String> {
-        resolve_task_github_token(
-            Some(&seam(provider_tokens, secrets)),
-            &Actor::of("u1"),
-            Some(repository),
-        )
-        .await
-        .and_then(Result::ok)
+    /// An issuer that answers `github` with `token` and holds nothing for the
+    /// plain hosts.
+    fn issuer(token: Option<&'static str>) -> Arc<dyn GitHostTokenIssuer> {
+        let mut issuer = MockGitHostTokenIssuer::new();
+        issuer.expect_token().returning(move |actor, repo| {
+            token
+                .map(str::to_string)
+                .ok_or_else(|| no_credential(actor, repo.provider()))
+        });
+        issuer
+            .expect_host_token()
+            .returning(|actor, host| Err(no_credential(actor, host.provider())));
+        Arc::new(issuer)
     }
 
-    /// The stub token store behind the published harness-credential port.
-    fn harness(provider_tokens: &Arc<dyn ProviderTokenDao>) -> Arc<dyn HarnessCredentials> {
-        Arc::new(moatless_identity::ports::HarnessTokens::new(
-            Arc::clone(provider_tokens),
-        ))
+    /// A harness-credential port holding nothing, so a model credential can
+    /// only come from a pinned Workspace value or the secret store.
+    fn no_provider_tokens() -> Arc<dyn HarnessCredentials> {
+        let mut tokens = MockHarnessCredentials::new();
+        tokens.expect_provider_token().returning(|_, _| Ok(None));
+        tokens.expect_codex_blob().returning(|_| Ok(None));
+        Arc::new(tokens)
+    }
+
+    fn secrets_holding(entries: &[(&str, &str)]) -> Arc<dyn SecretResolver> {
+        let resolved: HashMap<String, String> = entries
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        let mut secrets = MockSecretResolver::new();
+        secrets
+            .expect_plaintext()
+            .returning(move |_| Ok(resolved.clone()));
+        secrets.expect_ssh_keys().returning(|_| Ok(HashMap::new()));
+        Arc::new(secrets)
     }
 
     /// Inputs for the whole-chain test, with credentials pinned to the task's
@@ -795,8 +806,8 @@ mod tests {
     fn workspace_github_inputs<'a>(
         actor: &'a Actor,
         provider_tokens: &'a Arc<dyn HarnessCredentials>,
-        git_host_tokens: &'a Arc<GitHostTokens>,
-        secrets: Option<&'a Arc<SecretService>>,
+        git_host_tokens: &'a Arc<dyn GitHostTokenIssuer>,
+        secrets: Option<&'a Arc<dyn SecretResolver>>,
         repository: &'a Repository,
         workspace_credentials: HashMap<String, String>,
     ) -> TaskCredentialInputs<'a> {
@@ -928,17 +939,14 @@ mod tests {
     /// workspace value would occupy the slot before it is ever consulted.
     #[tokio::test]
     async fn a_workspace_env_git_host_token_never_suppresses_the_resolver() {
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
-            moatless_identity::auth::test_support::github_row("oauth", "gho_validated"),
-        )));
         let repository = github_repository(moatless_types::access_control::Scope::User);
-        let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
         let actor = Actor::of("u1");
-        let harness = harness(&tokens);
+        let provider_tokens = no_provider_tokens();
+        let git_host_tokens = issuer(Some("gho_validated"));
 
         let mut inputs = workspace_github_inputs(
             &actor,
-            &harness,
+            &provider_tokens,
             &git_host_tokens,
             None,
             &repository,
@@ -1046,19 +1054,14 @@ mod tests {
 
     #[tokio::test]
     async fn a_workspace_credential_for_another_provider_leaves_github_alone() {
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
-            moatless_identity::auth::test_support::github_row("oauth", "gho_from_user"),
-        )));
         let repository = github_repository(moatless_types::access_control::Scope::User);
         let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
-        let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
         let actor = Actor::of("u1");
-        let harness = harness(&tokens);
 
         let credentials = resolve_task_credentials(workspace_github_inputs(
             &actor,
-            &harness,
-            &git_host_tokens,
+            &no_provider_tokens(),
+            &issuer(Some("gho_from_user")),
             None,
             &repository,
             pinned,
@@ -1073,24 +1076,15 @@ mod tests {
         // End to end through `resolve_task_credentials`: the workspace value
         // must beat the user's provider_token *and* the scoped secret that
         // would otherwise fill the same slot.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(None));
-        let secrets = Arc::new(service_with(vec![secret(
-            "user",
-            Some("u1"),
-            "env",
-            OPENAI_API_KEY,
-            "sk-from-secret",
-        )]));
         let repository = github_repository(moatless_types::access_control::Scope::User);
         let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
+        let secrets = secrets_holding(&[(OPENAI_API_KEY, "sk-from-secret")]);
 
-        let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
         let actor = Actor::of("u1");
-        let harness = harness(&tokens);
         let credentials = resolve_task_credentials(workspace_github_inputs(
             &actor,
-            &harness,
-            &git_host_tokens,
+            &no_provider_tokens(),
+            &issuer(None),
             Some(&secrets),
             &repository,
             pinned,
@@ -1100,43 +1094,34 @@ mod tests {
         assert_eq!(credentials[OPENAI_API_KEY], "sk-workspace");
         assert!(
             !credentials.contains_key(GITHUB_TOKEN),
-            "this workspace pins no GitHub token and the user holds no row either"
+            "a workspace pins no git-host token; the issuer holds none either"
         );
     }
 
     #[tokio::test]
-    async fn the_seam_resolves_the_pin_for_an_actor_naming_the_workspace() {
-        // The two channels a pinned token reaches a task by — this map, and
-        // `GitHostTokens` for every backend-side call — must not disagree. Here
-        // the map is seeded with nothing, so the token can only have come from
-        // the seam, via the workspace the actor names.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
-            moatless_identity::auth::test_support::github_row("oauth", "gho_from_user"),
-        )));
+    async fn the_issuer_is_asked_on_behalf_of_the_workspace_the_actor_names() {
+        // The two channels a pinned token reaches a task by — the pinned map,
+        // and the issuer for every backend-side call — must not disagree, and
+        // the issuer can only resolve a pin from the Workspace on the actor.
+        // `TaskCredentialInputs` therefore takes the actor whole; this asserts
+        // the Workspace survives the trip. Nothing seeds the map here, so the
+        // token can only have come from the issuer.
         let repository = github_repository(moatless_types::access_control::Scope::User);
-        let mut pins = moatless_backend_core::workspace::MockWorkspaceCredentialReader::new();
-        pins.expect_resolve_env().returning(|_| {
-            Ok(HashMap::from([(
-                GITHUB_TOKEN.to_string(),
-                "ghp_workspace".to_string(),
-            )]))
+        let mut mock = MockGitHostTokenIssuer::new();
+        mock.expect_token().returning(|actor, repo| {
+            match actor.workspace_id() {
+                Some("ws_1") => Ok("ghp_workspace".to_string()),
+                _ => Err(no_credential(actor, repo.provider())),
+            }
         });
-        let git_host_tokens = Arc::new(
-            GitHostTokens::new(
-                Arc::clone(&tokens),
-                Arc::new(moatless_identity::auth::provider_tokens::MockProviderTokenAuthDao::new()),
-                None,
-                Arc::new(moatless_identity::auth::github::registry::GitHubAppRegistry::default()),
-                Arc::new(service_with(vec![])),
-            )
-            .with_workspace_credentials(Arc::new(pins)),
-        );
+        mock.expect_host_token()
+            .returning(|actor, host| Err(no_credential(actor, host.provider())));
+        let git_host_tokens: Arc<dyn GitHostTokenIssuer> = Arc::new(mock);
         let actor = Actor::of("u1").on_workspace(Some("ws_1"));
-        let harness = harness(&tokens);
 
         let credentials = resolve_task_credentials(workspace_github_inputs(
             &actor,
-            &harness,
+            &no_provider_tokens(),
             &git_host_tokens,
             None,
             &repository,
@@ -1149,22 +1134,18 @@ mod tests {
 
     #[tokio::test]
     async fn a_workspace_pinned_github_token_is_the_one_the_sandbox_receives() {
-        // The pin is the account the workspace names, so it beats the row the
-        // user who started the task holds. `fill_git_host_tokens` must leave
-        // the seeded slot alone rather than resolve over it.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
-            moatless_identity::auth::test_support::github_row("oauth", "gho_from_user"),
-        )));
+        // The pin is the account the workspace names, so it beats whatever the
+        // issuer would answer for the identity that started the task.
+        // `fill_git_host_tokens` must leave the seeded slot alone rather than
+        // resolve over it.
         let repository = github_repository(moatless_types::access_control::Scope::User);
         let pinned = HashMap::from([(GITHUB_TOKEN.to_string(), "ghp_workspace".to_string())]);
-        let git_host_tokens = seam(Arc::clone(&tokens), service_with(vec![]));
         let actor = Actor::of("u1");
-        let harness = harness(&tokens);
 
         let credentials = resolve_task_credentials(workspace_github_inputs(
             &actor,
-            &harness,
-            &git_host_tokens,
+            &no_provider_tokens(),
+            &issuer(Some("gho_from_user")),
             None,
             &repository,
             pinned,
@@ -1185,167 +1166,59 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn standalone_provider_token_secret_cannot_bypass_repository_scope() {
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(None));
-        let secrets = service_with(vec![secret(
-            "user",
-            Some("u1"),
-            "provider_token",
-            GITHUB_TOKEN,
-            "ghp_validated",
-        )]);
-
+    async fn an_identity_with_no_git_host_credential_gets_an_empty_slot() {
+        // `fill_git_host_tokens` flattens every failure the issuer reports: the
+        // sandbox starts without the variable rather than with somebody else's
+        // token. Preflight is where the absence becomes a refusal.
         let repository = github_repository(moatless_types::access_control::Scope::User);
-        let token = sandbox_github_token(tokens, secrets, &repository).await;
+        let token = resolve_task_github_token(
+            Some(&issuer(None)),
+            &Actor::of("u1"),
+            Some(&repository),
+        )
+        .await
+        .and_then(Result::ok);
         assert_eq!(token, None);
     }
 
     #[tokio::test]
-    async fn env_kind_secret_cannot_bypass_repository_scope() {
-        // A plain `env` GITHUB_TOKEN is never injected into a repository
-        // sandbox, so preflight and runtime delivery cannot disagree.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(None));
-        let secrets = service_with(vec![secret(
-            "user",
-            Some("u1"),
-            "env",
-            GITHUB_TOKEN,
-            "ghp_unvalidated",
-        )]);
-
+    async fn a_scoped_secret_never_fills_the_git_host_slot() {
+        // A `GITHUB_TOKEN` sitting in the secret store must not reach the
+        // sandbox: the issuer is the one way to a git-host token, and it holds
+        // nothing for this identity.
         let repository = github_repository(moatless_types::access_control::Scope::User);
-        let token = sandbox_github_token(tokens, secrets, &repository).await;
-        assert_eq!(token, None);
+        let secrets = secrets_holding(&[(GITHUB_TOKEN, "ghp_unvalidated")]);
+        let actor = Actor::of("u1");
+
+        let credentials = resolve_task_credentials(workspace_github_inputs(
+            &actor,
+            &no_provider_tokens(),
+            &issuer(None),
+            Some(&secrets),
+            &repository,
+            HashMap::new(),
+        ))
+        .await;
+        assert!(!credentials.contains_key(GITHUB_TOKEN));
     }
 
-    #[tokio::test]
-    async fn provider_tokens_row_still_wins_over_the_secret() {
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
-            moatless_identity::auth::test_support::github_row("oauth", "gho_from_row"),
-        )));
-        let secrets = service_with(vec![secret(
-            "user",
-            Some("u1"),
-            "provider_token",
-            GITHUB_TOKEN,
-            "ghp_from_secret",
-        )]);
-
-        let repository = github_repository(moatless_types::access_control::Scope::User);
-        let token = sandbox_github_token(tokens, secrets, &repository).await;
-        assert_eq!(token, Some("gho_from_row".to_string()));
-    }
-
-    #[tokio::test]
-    async fn run_as_user_row_wins_over_a_global_scoped_repository() {
-        // A trigger's run_as_user owns the credential: their own row is used
-        // even though the repository is Global-scoped and a global binding
-        // exists. Without this the sandbox silently ran as the global App.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(
-            StubProviderTokens::with_user_row(Some(
-                moatless_identity::auth::test_support::github_row("oauth", "gho_run_as_user"),
-            ))
-            .with_global_row(moatless_identity::auth::test_support::github_row(
-                "oauth",
-                "gho_global_binding",
-            )),
-        );
-
-        let repository = github_repository(moatless_types::access_control::Scope::Global);
-        let token = sandbox_github_token(tokens, service_with(vec![]), &repository).await;
-        assert_eq!(token, Some("gho_run_as_user".to_string()));
-    }
-
-    #[tokio::test]
-    async fn a_run_as_user_with_no_row_never_reaches_the_global_token() {
-        // The sandbox's run-as user holds nothing, so the slot stays empty even
-        // with a global row sitting there. Preflight turns this into a
-        // NoGithubToken naming the user rather than starting the sandbox.
-        let tokens: Arc<dyn ProviderTokenDao> =
-            Arc::new(StubProviderTokens::with_user_row(None).with_global_row(
-                moatless_identity::auth::test_support::github_row("oauth", "gho_global_binding"),
-            ));
-
-        let repository = github_repository(moatless_types::access_control::Scope::Global);
-        let token = sandbox_github_token(tokens, service_with(vec![]), &repository).await;
-        assert_eq!(token, None);
-    }
-
-    #[tokio::test]
-    async fn secret_ref_row_resolves_via_the_secret_not_the_sentinel() {
-        // No App registry wired: the fallback dispatch still has to honour
-        // `secret_ref`, or the sandbox would receive the sentinel string.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
-            moatless_identity::auth::test_support::github_row(
-                AUTH_METHOD_SECRET_REF,
-                moatless_identity::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
-            ),
-        )));
-        let secrets = service_with(vec![secret(
-            "user",
-            Some("u1"),
-            "provider_token",
-            GITHUB_TOKEN,
-            "ghp_from_secret",
-        )]);
-
-        let repository = github_repository(moatless_types::access_control::Scope::User);
-        let token = sandbox_github_token(tokens, secrets, &repository).await;
-        assert_eq!(token, Some("ghp_from_secret".to_string()));
-    }
-
-    // --- GITHUB_TOKEN exact repository scope ---
-
-    #[tokio::test]
-    async fn global_github_token_does_not_backstop_user_scope() {
-        let tokens: Arc<dyn ProviderTokenDao> =
-            Arc::new(StubProviderTokens::default().with_global_row(
-                moatless_identity::auth::test_support::github_row("manual", "ghp_org"),
-            ));
-
-        let repository = github_repository(moatless_types::access_control::Scope::User);
-        let token = sandbox_github_token(tokens, service_with(vec![]), &repository).await;
-        assert_eq!(token, None);
-    }
-
-    fn make_user(
-        login: &str,
-        name: Option<&str>,
-        email: Option<&str>,
-        is_bot: bool,
-    ) -> moatless_identity::auth::users::User {
-        use chrono::{DateTime, Utc};
-        let epoch = DateTime::<Utc>::from_timestamp(0, 0).expect("valid epoch");
-        moatless_identity::auth::users::User {
-            id: uuid::Uuid::from_u128(1),
-            provider_user_id: None,
-            login: login.to_string(),
-            email: email.map(str::to_string),
-            name: name.map(str::to_string),
-            avatar_url: None,
-            provider: "github".to_string(),
-            role: moatless_types::user::UserRole::User,
-            created_at: epoch,
-            last_login_at: epoch,
-            settings: serde_json::Value::Null,
-            is_bot,
-        }
-    }
-
+    /// A `CommitIdentity` reporting one git author identity for every lookup.
     fn users_returning(
         login: &'static str,
         name: Option<&'static str>,
         email: Option<&'static str>,
         is_bot: bool,
     ) -> Arc<dyn CommitIdentity> {
-        use moatless_identity::auth::users::MockUserDao;
-        let mut mock = MockUserDao::new();
-        mock.expect_get_user()
-            .returning(move |_| Ok(Some(make_user(login, name, email, is_bot))));
-        Arc::new(moatless_identity::ports::UserDirectory::new(
-            Arc::new(mock),
-            Arc::new(moatless_identity::auth::test_support::StubProviderTokens::default()),
-        ))
+        let mut users = MockCommitIdentity::new();
+        users.expect_git_identity().returning(move |_| {
+            Ok(Some(moatless_backend_core::identity::GitIdentity {
+                is_bot,
+                login: login.to_string(),
+                name: name.map(str::to_string),
+                email: email.map(str::to_string),
+            }))
+        });
+        Arc::new(users)
     }
 
     #[tokio::test]
@@ -1360,12 +1233,7 @@ mod tests {
         );
 
         let mut credentials = HashMap::new();
-        fill_git_identity(
-            &mut credentials,
-            Some(&users),
-            &uuid::Uuid::from_u128(1).to_string(),
-        )
-        .await;
+        fill_git_identity(&mut credentials, Some(&users), "u1").await;
 
         assert_eq!(
             credentials.get(GIT_USER_NAME).map(String::as_str),
@@ -1389,12 +1257,7 @@ mod tests {
         );
 
         let mut credentials = HashMap::new();
-        fill_git_identity(
-            &mut credentials,
-            Some(&users),
-            &uuid::Uuid::from_u128(1).to_string(),
-        )
-        .await;
+        fill_git_identity(&mut credentials, Some(&users), "u1").await;
 
         assert_eq!(
             credentials.get(GIT_USER_EMAIL).map(String::as_str),
@@ -1413,12 +1276,7 @@ mod tests {
         let users = users_returning("alice", None, None, /* is_bot */ false);
 
         let mut credentials = HashMap::new();
-        fill_git_identity(
-            &mut credentials,
-            Some(&users),
-            &uuid::Uuid::from_u128(1).to_string(),
-        )
-        .await;
+        fill_git_identity(&mut credentials, Some(&users), "u1").await;
 
         assert!(!credentials.contains_key(GIT_USER_EMAIL));
         assert!(!credentials.contains_key(GIT_USER_NAME));
@@ -1435,12 +1293,7 @@ mod tests {
         );
 
         let mut credentials = HashMap::new();
-        fill_git_identity(
-            &mut credentials,
-            Some(&users),
-            &uuid::Uuid::from_u128(1).to_string(),
-        )
-        .await;
+        fill_git_identity(&mut credentials, Some(&users), "u1").await;
 
         assert_eq!(
             credentials.get(GIT_USER_NAME).map(String::as_str),

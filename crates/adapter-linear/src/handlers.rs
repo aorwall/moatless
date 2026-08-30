@@ -15,7 +15,7 @@ use axum::http::{HeaderMap, StatusCode};
 use tracing::warn;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::metrics::record_webhook;
+use moatless_adapter_model::metrics::record_webhook;
 
 use super::adapter::LinearAdapter;
 use super::ingress::{IngressError, Outcome};
@@ -43,9 +43,8 @@ pub async fn linear_webhook(
     match super::ingress::receive(
         linear_provider.require_adapter_connections()?,
         linear_provider.require_loops()?,
-        linear_provider.db(),
         linear_provider.app_tokens(),
-        linear_provider.require_config()?,
+        linear_provider.require_apps()?,
         linear_provider.require_adapter_delivery()?,
         &linear_provider,
         signature,

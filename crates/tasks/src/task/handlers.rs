@@ -26,9 +26,8 @@ use crate::task_turn::dao::TaskTurnDao;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
-use moatless_identity::extractors::AuthUser;
-use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
+use moatless_core::http_auth::AuthUser;
+use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_workspaces::workspace::git_sync::GitSyncService;
 
 use moatless_backend_core::binding::TaskBindings;
@@ -58,8 +57,8 @@ use super::service;
     reason = "seven ports, all forwarded: this handler is the outermost caller of a two-stage service pipeline — four to service::normalize, two to service::create_task, one to the presenter closure. Unlike the service-layer create_task this was split out of, there is no caller above a handler to hoist them to, so the width cannot move anywhere it would be narrower."
 )]
 pub async fn create_task(
-    State(workspaces): State<Arc<dyn WorkspaceDao>>,
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(workspaces): State<Arc<dyn WorkspaceResolver>>,
+    State(repositories): State<Arc<dyn RepositoryReader>>,
     State(credential_sync): State<Arc<CredentialSync>>,
     State(config): State<Arc<Config>>,
     State(task_creation): State<Arc<TaskCreationService>>,
@@ -825,7 +824,7 @@ pub async fn reopen_task_for(
 )]
 pub async fn start_task(
     State(tasks): State<Arc<dyn TaskDao>>,
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<dyn RepositoryReader>>,
     State(preflight): State<Arc<dyn PreflightPort>>,
     State(events): State<Option<Arc<dyn EventPublisher>>>,
     State(sandbox): State<Arc<dyn SandboxLifecycle>>,
@@ -855,7 +854,7 @@ pub async fn start_task(
     // sandbox resources are created. On failure: mark Error, publish a
     // sandbox.error event, and return 400.
     let repo = repositories
-        .find_by_id(&row.repository_id, &auth.scope_context())
+        .describe(&auth.scope_context(), &row.repository_id)
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
 

@@ -1,82 +1,21 @@
-//! Classifiable lifecycle and runtime errors.
+//! The typed error surface of every lifecycle operation.
 //!
 //! Errors are **classifiable, not stringly**: the reconciler's attempt cap and
 //! the schedule runner's failure metrics need error classes, and HTTP callers
 //! map strict failures to a response while background callers log best-effort.
+//! The class vocabulary and the runtime seam's own failure live with that seam,
+//! in `moatless_sandbox_runtime::runtime`.
 
 use thiserror::Error;
 
 use moatless_types::task::TaskStatus;
 
-use super::types::OperationKind;
-
-/// Coarse error class driving retry policy.
-///
-/// The reconciler retries only *transient* classes (runtime/infra) under its
-/// attempt cap and never *permanent* ones (the Closed guard).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ErrorClass {
-    /// Transient infrastructure/runtime failure — safe to retry with backoff.
-    Transient,
-    /// Permanent failure — retrying cannot help (bad plan, Closed guard,
-    /// missing task). The reconciler must not spin on these.
-    Permanent,
-    /// Per-Task lock contention — not a failure of the operation itself;
-    /// resolved by serialization, not by the attempt cap.
-    Contention,
-}
-
-impl ErrorClass {
-    pub fn is_transient(self) -> bool {
-        matches!(self, Self::Transient)
-    }
-}
-
-/// Failure raised by a [`super::runtime::SandboxRuntime`] mutation.
-///
-/// **Failure diagnostics belong here**, never on the success
-/// [`super::runtime::RuntimeOutcome`]. Adapters have no event publisher; they
-/// surface everything through this type and lifecycle republishes it.
-#[derive(Debug, Error)]
-pub enum RuntimeError {
-    /// A transient infrastructure failure (API timeout, conflict, network).
-    #[error("runtime infrastructure error: {0}")]
-    Infrastructure(String),
-
-    /// The runtime rejected the request permanently (e.g. an unbuildable
-    /// plan). Retrying cannot help.
-    #[error("runtime rejected the request: {0}")]
-    Rejected(String),
-
-    /// A delete was accepted but the resource did not reach observed absence
-    /// within the wait bound. Strict removal treats accepted-but-not-absent as
-    /// **not** success, so this is the failure a stuck deletion surfaces.
-    #[error("resource still present after deletion was accepted: {0}")]
-    NotAbsent(String),
-}
-
-impl RuntimeError {
-    pub fn class(&self) -> ErrorClass {
-        match self {
-            // A stuck-but-accepted deletion is retriable — the reconciler
-            // re-drives remove and re-awaits absence.
-            Self::Infrastructure(_) | Self::NotAbsent(_) => ErrorClass::Transient,
-            Self::Rejected(_) => ErrorClass::Permanent,
-        }
-    }
-
-    /// Bounded cause slug published as the `Error` fact's `lifecycle_event`.
-    /// Bounded because it becomes a UI label key and a log correlation field.
-    pub fn cause(&self) -> &'static str {
-        match self {
-            Self::Infrastructure(_) => "runtime_infrastructure",
-            Self::Rejected(_) => "runtime_rejected",
-            Self::NotAbsent(_) => "runtime_not_absent",
-        }
-    }
-}
+use moatless_sandbox_runtime::error::SandboxError;
+use moatless_sandbox_runtime::runtime::{ErrorClass, RuntimeError};
+use moatless_sandbox_runtime::types::OperationKind;
 
 /// The typed error surface of every [`super::Lifecycle`] operation.
+
 #[derive(Debug, Error)]
 pub enum LifecycleError {
     /// The task row does not exist. Permanent.
@@ -185,6 +124,26 @@ impl LifecycleError {
             Self::CompletionCommit { .. } => "completion_commit",
             Self::OperationInProgress { .. } => "operation_in_progress",
             Self::Interrupted { .. } => "interrupted",
+        }
+    }
+}
+
+
+/// How a lifecycle failure reaches an HTTP caller. Three map to a client-visible
+/// status; everything else keeps the whole chain behind a 500.
+impl From<LifecycleError> for SandboxError {
+    fn from(value: LifecycleError) -> Self {
+        match &value {
+            LifecycleError::TaskNotFound(id) => Self::NotFound(id.clone()),
+            // The Closed guard rejected the operation — a client state error.
+            LifecycleError::NotAllowed { .. } => Self::BadRequest(value.to_string()),
+            // Another operation holds the per-Task lock — a client-visible
+            // conflict (409), matching the task API.
+            LifecycleError::OperationInProgress { .. } => Self::Conflict(value.to_string()),
+            // Everything else is an internal failure: keep the lifecycle error
+            // itself so the response boundary can log the whole chain,
+            // including the `RuntimeError` a failed effect carries.
+            _ => Self::Lifecycle(Box::new(value)),
         }
     }
 }

@@ -10,12 +10,12 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
 
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore};
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
-use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch};
-use moatless_loops::loops::dao::LoopDao;
+use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
+use moatless_loops::loops::ports::LoopReader;
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_loops::bindings::dao::TaskBindingDao;
 
@@ -60,7 +60,7 @@ fn ingress(e: AdapterError) -> IngressError {
 /// Verify, normalize, plan, and durably admit one GitHub webhook.
 pub(crate) async fn receive(
     adapter_connections: &dyn AdapterConnectionDao,
-    loops: &LoopDao,
+    loops: &dyn LoopReader,
     users: &dyn ProviderIdentityLink,
     task_bindings: &Arc<dyn TaskBindingDao>,
     adapter_delivery: &AdapterDeliveryStore,
@@ -366,7 +366,7 @@ pub(crate) async fn receive(
 /// matches; only trigger-created Task behavior requires the real Subscription.
 async fn resolve_provider_event(
     adapter_connections: &dyn AdapterConnectionDao,
-    loops: &LoopDao,
+    loops: &dyn LoopReader,
     org: &str,
     repo_full_name: &str,
 ) -> Result<Option<(AdapterConnection, Option<SubscriptionMatch>)>, AdapterError> {
@@ -378,7 +378,7 @@ async fn resolve_provider_event(
     };
 
     let rule = loops
-        .find_subscription_by_source_matcher(super::delivery::ADAPTER, repo_full_name)
+        .subscription_for_source(super::delivery::ADAPTER, repo_full_name)
         .await?
         .filter(|rule| {
             let same_connection = rule.connection_id == connection.id;

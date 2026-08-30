@@ -11,7 +11,7 @@ use tracing::{info, warn};
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
-use moatless_loops::adapters::metrics::record_webhook;
+use moatless_adapter_model::metrics::record_webhook;
 
 use super::adapter::TelegramAdapter;
 use super::ingress::{self, Transport};

@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use tracing::warn;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{
     BindingContext, OutboundPresentation, OutboundReply, SlackBlock, SlackText, TaskProvenance,
 };
@@ -111,7 +111,7 @@ impl AdapterBindingReply for SlackAdapter {
         config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
         let coordinates = subject::thread_coordinates(&thread.destination_config);
         let channel = coordinates.channel.ok_or_else(|| {
             SharedAdapterError::Internal("No channel in thread properties".into())
@@ -147,7 +147,7 @@ impl AdapterBindingReply for SlackAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let app_key =
-            moatless_identity::adapter_apps::app_key_from_transport_config(&_connection.transport_config);
+            moatless_adapter_model::apps::app_key_from_transport_config(&_connection.transport_config);
         let app = self.app(app_key).await?;
         let thread = moatless_adapter_model::models::binding_context(binding);
         let config = rule.map_or_else(
@@ -227,7 +227,7 @@ impl AdapterDirectDestination for SlackAdapter {
         destination: &str,
         message: &OutboundReply,
     ) -> Result<DestinationPostResult, AdapterError> {
-        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
         let workspace_id = self.ensure_workspace_id().await?;
         let (channel, thread_ts) = subject::parse_destination(destination)?;
 
@@ -274,7 +274,7 @@ impl AdapterDirectMessage for SlackAdapter {
     /// Slack has to ask its API for the DM channel that pairs the bot with the
     /// user before anything can be posted there.
     async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
-        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
         let dm_channel = app.api.open_dm(provider_user_id).await?;
         Ok(Some(format!("dm:{dm_channel}")))
     }

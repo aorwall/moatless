@@ -2,10 +2,10 @@
 //!
 //! [`SharedAdapterError`] is the band-local half of the adapter error space:
 //! the variants that name nothing above the adapter-model band, carrying only
-//! `String`, unit, `sqlx::Error`, `reqwest::Error`, `serde_json::Error`, or
+//! `String`, unit, `StoreError`, `reqwest::Error`, `serde_json::Error`, or
 //! `Vec<ReplyTarget>`. It has no `IntoResponse`; the HTTP renderer
 //! lives with the backend `AdapterError` that wraps this and adds the
-//! up-naming credential/task/message variants.
+//! two cross-band variants.
 
 /// One outbound destination a caller can select explicitly.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,8 +52,10 @@ pub enum SharedAdapterError {
     #[error("Signature verification failed")]
     SignatureInvalid,
 
-    #[error("Database error: {0}")]
-    Db(#[from] sqlx::Error),
+    /// A read or write through the connection store failed. The store already
+    /// names the operation and carries its own source.
+    #[error(transparent)]
+    Store(#[from] moatless_types::store::StoreError),
 
     /// The provider answered and rejected the call — a non-success status, or
     /// an `ok: false` / `errors` payload. Synthesized from the provider's own

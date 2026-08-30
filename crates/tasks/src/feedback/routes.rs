@@ -8,7 +8,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::dao::FeedbackDao;
 use super::handlers;
-use moatless_identity::extractors::UserTokenVerifier;
+use moatless_core::http_auth::UserTokenVerifier;
 use crate::task::dao::TaskDao;
 
 #[derive(OpenApi)]

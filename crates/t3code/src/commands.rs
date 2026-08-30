@@ -45,7 +45,7 @@ use crate::agent::catalog;
 use crate::data::T3WorkspaceDao;
 use crate::scripts::{self, ScriptsWriteError};
 use moatless_types::agent::AgentMode;
-use moatless_tasks::task_activities::mapping;
+use moatless_backend_core::activity as mapping;
 
 /// What the surface needs in order to answer a command.
 pub struct CommandContext<'a> {

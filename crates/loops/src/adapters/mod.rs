@@ -13,9 +13,7 @@ pub mod events;
 pub mod inbound_delivery;
 pub mod ingress;
 pub mod mentions;
-pub mod metrics;
 pub mod self_echo;
-pub mod signature;
 pub mod subject_events;
 /// Loopback stubs for Adapter HTTP clients.
 ///
@@ -33,13 +31,6 @@ mod registry;
 
 pub use moatless_types::adapter::{AdapterKind, BindingDestination, DestinationPostResult};
 
-// Adapter domain types, `adapter_connections` persistence, and the pure footer
-// render/parse layer live in the `moatless-adapter-model` crate. This re-export
-// lets the call sites in `adapters` and the providers keep naming them through
-// `crate::adapters::{models, dao, footer}`. `bindings` names the crate directly.
-// The footer's DAO-loading wrapper `task_comment_footer` is not here — it lives
-// in `bindings::footer`, where the port belongs.
-pub use moatless_adapter_model::{dao, footer, models};
 pub use registry::Adapters;
 
 pub use capabilities::{

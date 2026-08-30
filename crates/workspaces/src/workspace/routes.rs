@@ -13,7 +13,7 @@ use super::git_sync::GitSyncService;
 use super::handlers;
 use crate::repository::dao::RepositoryDao;
 use moatless_backend_core::identity::UserResolver;
-use moatless_identity::extractors::UserTokenVerifier;
+use moatless_core::http_auth::UserTokenVerifier;
 
 #[derive(OpenApi)]
 #[openapi(

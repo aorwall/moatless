@@ -36,9 +36,7 @@ use moatless_types::message::{MessageRole, MessageType};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::TaskStatus;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
-use moatless_tasks::task_activities::dao as activities;
-use moatless_tasks::task_activities::dao::Activity;
-use moatless_tasks::task_activities::mapping::{PLAN_TOOL, QUESTION_TOOL};
+use moatless_backend_core::activity::{Activity, ActivitySource, PLAN_TOOL, QUESTION_TOOL};
 
 /// One Task, with the derived values a sidebar row is assembled from.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -472,7 +470,17 @@ pub trait ConversationDao: Send + Sync {
 #[derive(Clone)]
 pub struct PgConversationDao {
     pool: UiRpcDbPool,
+    /// The Task band's activity rows. This crate projects them; it does not own
+    /// the table, so it reads them through the published seam.
+    activities: Arc<dyn ActivitySource>,
     full_listing: Arc<Semaphore>,
+}
+
+/// A published-seam read that failed, in the `sqlx::Error` the T3 DAO trait
+/// returns. The whole chain is kept as the protocol text so the response
+/// boundary logs what actually failed.
+fn store_read(error: moatless_backend_core::store::StoreError) -> sqlx::Error {
+    sqlx::Error::Protocol(moatless_core::error::causal_chain(&error))
 }
 
 const FULL_LISTING_CONCURRENCY: usize = 1;
@@ -601,7 +609,7 @@ const LISTING_DURATION: &str = "moatless_ui_shell_listing_duration_seconds";
 const LISTING_REJECTIONS: &str = "moatless_ui_shell_listing_rejections_total";
 
 impl PgConversationDao {
-    pub fn new(pool: UiRpcDbPool) -> Self {
+    pub fn new(pool: UiRpcDbPool, activities: Arc<dyn ActivitySource>) -> Self {
         metrics::describe_histogram!(
             LISTING_DURATION,
             "Full T3 shell listing duration by outcome"
@@ -612,6 +620,7 @@ impl PgConversationDao {
         );
         Self {
             pool,
+            activities,
             full_listing: Arc::new(Semaphore::new(FULL_LISTING_CONCURRENCY)),
         }
     }
@@ -1177,8 +1186,11 @@ impl ConversationDao for PgConversationDao {
         task_id: &str,
         tool_use_id: &str,
     ) -> Result<Option<InteractiveCall>, sqlx::Error> {
-        Ok(activities::find_tool_call(&self.pool, task_id, tool_use_id)
-            .await?
+        Ok(self
+            .activities
+            .tool_call(task_id, tool_use_id)
+            .await
+            .map_err(store_read)?
             .map(|activity| InteractiveCall {
                 settled: activity.is_settled(),
                 tool_name: activity.summary.clone(),
@@ -1248,12 +1260,14 @@ impl ConversationDao for PgConversationDao {
         // are exactly what the cap must not drop. `None` — an empty
         // conversation, or one whose newest rows predate `created_at` — reads
         // the activities whole, which for an empty conversation is none.
-        let activities = activities::for_task_since(
-            &self.pool,
-            task_id,
-            messages.first().and_then(|message| message.created_at),
-        )
-        .await?;
+        let activities = self
+            .activities
+            .since(
+                task_id,
+                messages.first().and_then(|message| message.created_at),
+            )
+            .await
+            .map_err(store_read)?;
 
         let settled_requests =
             activity_dao::settled_requests(&self.pool, task_id, &activities).await?;
@@ -1354,8 +1368,17 @@ impl ConversationDao for PgConversationDao {
         // tools — and those activities are the whole of what it changed. The
         // activities named directly by their own id — the ones on no Message —
         // join the same set by a primary-key lookup.
-        let mut activities = activities::for_messages(&self.pool, task_id, uuids).await?;
-        activities.extend(activities::for_activity_ids(&self.pool, task_id, activity_ids).await?);
+        let mut activities = self
+            .activities
+            .for_messages(task_id, uuids)
+            .await
+            .map_err(store_read)?;
+        activities.extend(
+            self.activities
+                .for_ids(task_id, activity_ids)
+                .await
+                .map_err(store_read)?,
+        );
         let settled_requests =
             activity_dao::settled_requests(&self.pool, task_id, &activities).await?;
         let subagent_usage = activity_dao::subagent_usage(&self.pool, task_id, &activities).await?;

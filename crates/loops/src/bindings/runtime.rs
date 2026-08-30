@@ -8,7 +8,7 @@ use tracing::{debug, info, warn};
 
 use crate::adapters::AdapterInboundPresentation;
 use crate::adapters::Adapters;
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryFailure;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::bindings::metrics::{inbound_reason, record_inbound};
@@ -22,9 +22,10 @@ use moatless_types::loops::RoutingMode;
 use moatless_types::task::TaskStatus;
 use moatless_types::access_control::ScopeContext;
 use moatless_backend_core::task::TranscriptAppend;
-use moatless_tasks::message::send::MessageSendService;
+use crate::loops::ports::LoopReader;
+use moatless_backend_core::task::MessageAcceptor;
 use crate::bindings::dao::TaskBindingDao;
-use moatless_tasks::task::creation::{TaskCreationError, TaskCreationService};
+use moatless_backend_core::task::{InboundTurn, TaskOpenError, TaskOpener, TurnOrigin};
 use moatless_backend_core::task::TaskReader;
 use moatless_backend_core::sandbox::{SandboxWaker, wake_for_message};
 
@@ -47,8 +48,8 @@ pub struct RoutingService {
     task_bindings: Arc<dyn TaskBindingDao>,
     messages: Arc<dyn TranscriptAppend>,
     tasks: Arc<dyn TaskReader>,
-    task_creation: Arc<TaskCreationService>,
-    message_send: Arc<MessageSendService>,
+    task_creation: Arc<dyn TaskOpener>,
+    message_send: Arc<dyn MessageAcceptor>,
     event_receipts: Arc<dyn EventReceiptDao>,
     sandbox_waker: Arc<dyn SandboxWaker>,
     adapters: Option<Arc<Adapters>>,
@@ -79,8 +80,8 @@ impl RoutingService {
         task_bindings: Arc<dyn TaskBindingDao>,
         messages: Arc<dyn TranscriptAppend>,
         tasks: Arc<dyn TaskReader>,
-        task_creation: Arc<TaskCreationService>,
-        message_send: Arc<MessageSendService>,
+        task_creation: Arc<dyn TaskOpener>,
+        message_send: Arc<dyn MessageAcceptor>,
         event_receipts: Arc<dyn EventReceiptDao>,
         sandbox_waker: Arc<dyn SandboxWaker>,
         adapters: Option<Arc<Adapters>>,
@@ -316,7 +317,7 @@ impl RoutingService {
             // The creation service records the `related_to` relation and provisions
             // the sandbox as part of the owned sequence.
             match inbound::create_task_for_external_message(
-                &self.task_creation,
+                self.task_creation.as_ref(),
                 &config,
                 &msg,
                 related,
@@ -325,7 +326,7 @@ impl RoutingService {
             .await
             {
                 Ok(outcome) => {
-                    let task_id = outcome.task.task_id;
+                    let task_id = outcome.task_id;
                     if subscription.routing_mode == RoutingMode::Ongoing {
                         self.loops
                             .set_ongoing_task(&subscription.id, &task_id)
@@ -367,7 +368,7 @@ impl RoutingService {
                 // to existing-binding delivery and return `Ok` — returning a 5xx here
                 // makes sources like Slack redeliver, and every redelivery inserts
                 // another errored row.
-                Err(TaskCreationError::Preflight(reason)) => {
+                Err(TaskOpenError::Refused(reason)) => {
                     // The claim bought the right to create and no task came of
                     // it. Hand it back, or every later event for this subject
                     // loses a claim held by nothing and retries until its
@@ -386,7 +387,10 @@ impl RoutingService {
                     self.event_receipts
                         .release_claim(&subscription.id, subject_kind, subject_key)
                         .await?;
-                    return Err(AdapterError::TaskCreation(e));
+                    return Err(AdapterError::task_handoff(
+                        "open a task from a provider event",
+                        e,
+                    ));
                 }
             }
         }
@@ -755,42 +759,37 @@ impl RoutingService {
         }
 
         self.message_send
-            .send_message_flow(
-                &binding.task_id,
-                &message_text,
-                None,
-                None,
-                None,
-                &msg.file_ids,
-                &[],
-                true,
-                moatless_types::task::ExternalOrigin {
-                    event_id: msg.external_event_id.as_deref(),
-                    adapter: Some(adapter_label),
-                    subject_key: Some(&binding.subject_key),
+            .accept(InboundTurn {
+                task_id: binding.task_id.clone(),
+                text: message_text,
+                file_ids: msg.file_ids.clone(),
+                resume: true,
+                origin: TurnOrigin {
+                    event_id: msg.external_event_id.clone(),
+                    adapter: Some(adapter_label.to_string()),
+                    subject_key: Some(binding.subject_key.clone()),
                     // The source's own name where the subscription carries one, else the
                     // matcher that identified it — a repository full name, a channel id.
                     // A label a reader recognises beats no label at all.
                     source_name: Some(
                         config
                             .source_name
-                            .as_deref()
-                            .unwrap_or(config.source_id.as_str()),
+                            .clone()
+                            .unwrap_or_else(|| config.source_id.clone()),
                     ),
-                    author: msg.author.as_deref(),
-                    sender_id: msg.sender_external_id.as_deref(),
-                    source_task_id: None,
+                    author: msg.author.clone(),
+                    sender_id: msg.sender_external_id.clone(),
                 },
-                false,
-                Some(msg.user_id.as_str()),
+                sent_by: Some(msg.user_id.clone()),
                 // A `routing_mode: ongoing` Loop fires into a task that is already
                 // open, so the delivery resumes and the task's own skills are held
                 // back. The Loop still means them for every firing; send them here.
-                &config.skills,
-                None,
-            )
+                skills: config.skills.clone(),
+            })
             .await
-            .map_err(AdapterError::MessageDelivery)?;
+            .map_err(|e| {
+                AdapterError::task_handoff("deliver a provider turn to a task", e)
+            })?;
 
         let repo = self.task_bindings.clone();
         if let Some(ref ext_id) = msg.external_event_id {
@@ -811,7 +810,7 @@ impl RoutingService {
 
 pub async fn resolve_chat_provider_event(
     adapter_connections: &dyn AdapterConnectionDao,
-    loops: &LoopDao,
+    loops: &dyn LoopReader,
     provider: &str,
     scope_value: &str,
     source_id: &str,
@@ -835,10 +834,10 @@ pub async fn resolve_chat_provider_event(
 
     let subscription_repo = loops;
     let subscription = subscription_repo
-        .find_subscription_by_source_matcher(provider, source_id)
+        .subscription_for_source(provider, source_id)
         .await?
         .or(subscription_repo
-            .find_subscription_wildcard(provider)
+            .wildcard_subscription(provider)
             .await?);
     let Some(subscription) = subscription else {
         record_inbound(
@@ -1025,44 +1024,19 @@ mod error_source_tests {
     use crate::adapters::test_support::{response_snapshot, source_chain};
 
     /// These assert *reachability* of the causal error, not the depth of the
-    /// chain. Depth is a property of how the wrapped type declares its own
-    /// variants — `TaskCreationError::Db` is `#[error(transparent)]` and so
-    /// collapses into a single link, while `MessageError::Db` has its own
-    /// `Display` and adds one. Neither type belongs to this module, so pinning
-    /// a link count here would make these tests fail on an unrelated change to
-    /// a `#[error(...)]` attribute elsewhere. What the ticket requires is that
-    /// the cause survives `Error::source` while the HTTP body stays redacted.
+    /// chain. `TaskHandoff` boxes its source, so what has to keep working is
+    /// reaching the cause through `Error::source` while the HTTP body stays
+    /// redacted.
     #[tokio::test]
-    async fn task_creation_keeps_its_cause_and_redacts() {
-        let err = AdapterError::TaskCreation(
-            moatless_tasks::task::creation::TaskCreationError::Db(sqlx::Error::PoolClosed),
-        );
-
-        assert!(
-            err.source()
-                .and_then(|s| s.downcast_ref::<moatless_tasks::task::creation::TaskCreationError>())
-                .is_some()
-        );
-        let chain = source_chain(&err);
-        assert!(
-            chain.iter().any(|link| link.contains("closed pool")),
-            "sqlx cause must stay reachable: {chain:?}"
-        );
-
-        let (status, body) = response_snapshot(err.into_response()).await;
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(body, r#"{"error":"Internal server error"}"#);
-    }
-
-    #[tokio::test]
-    async fn message_delivery_keeps_its_cause_and_redacts() {
-        let err = AdapterError::MessageDelivery(moatless_tasks::message::error::MessageError::Db(
+    async fn a_task_handoff_failure_keeps_its_cause_and_redacts() {
+        let err = AdapterError::task_handoff(
+            "open a task from a provider event",
             sqlx::Error::PoolClosed,
-        ));
+        );
 
         assert!(
             err.source()
-                .and_then(|s| s.downcast_ref::<moatless_tasks::message::error::MessageError>())
+                .and_then(|s| s.downcast_ref::<sqlx::Error>())
                 .is_some()
         );
         let chain = source_chain(&err);

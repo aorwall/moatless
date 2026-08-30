@@ -32,9 +32,10 @@ utoipa-axum = "0.2"
 moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
 moatless-core = { path = "../core", features = ["openapi"] }
-moatless-identity = { path = "../identity" }
 moatless-s3 = { path = "../s3" }
 moatless-types = { path = "../types", features = ["openapi"] }
+# What a runtime implements and the machinery it reuses — the band below.
+moatless-sandbox-runtime = { path = "../sandbox-runtime" }
 # Shared gRPC wire vocabulary (proto types) — a floor crate, legal downward.
 sandbox-proto = { path = "../sandbox-proto" }
 
@@ -45,7 +46,6 @@ sandbox-proto = { path = "../sandbox-proto" }
 # compile; no shipping build enables it.
 db-tests = [
     "moatless-core/test-support",
-    "moatless-identity/test-support",
 ]
 
 [lints]
@@ -59,7 +59,7 @@ http-body-util = "0.1"
 # them through the backend's own dev-dependencies.
 moatless-backend-core = { path = "../backend-core", features = ["test-support"] }
 moatless-core = { path = "../core", features = ["test-support"] }
-moatless-identity = { path = "../identity", features = ["test-support"] }
+moatless-sandbox-runtime = { path = "../sandbox-runtime", features = ["test-support"] }
 # Test-only. The `db-tests` plan test assembles `ProvisionDeps` straight from a
 # pool, so it names the concrete workspace DAOs; production code here reaches
 # the workspace domain only through `WorkspaceResolver` and

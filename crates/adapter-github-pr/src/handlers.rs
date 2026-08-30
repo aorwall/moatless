@@ -7,7 +7,7 @@ use tracing::warn;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
-use moatless_loops::adapters::metrics::record_webhook;
+use moatless_adapter_model::metrics::record_webhook;
 
 use super::adapter::GithubPrAdapter;
 use super::ingress::WebhookRequest;

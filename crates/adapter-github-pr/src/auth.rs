@@ -6,10 +6,10 @@ use tracing::debug;
 
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_types::access_control::Actor;
-use moatless_identity::git_host_repo::GitHostRepo;
-use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
+use moatless_types::repository::GitHostRepo;
+use moatless_backend_core::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::models::{SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::BindingContext;
 
 use super::api::GithubPrApi;
@@ -17,7 +17,7 @@ use super::api::GithubPrApi;
 pub(super) struct GithubPrAuth {
     /// The one way to a git-host token. This Adapter holds no credential of its
     /// own: every use case below names an identity and a repository.
-    git_host_tokens: Arc<GitHostTokens>,
+    git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     /// REST root every client below is built against, when a test injected one.
     ///
     /// Unlike Slack and Telegram there is no single client to hand in: a token
@@ -34,7 +34,7 @@ pub(super) struct AuthenticatedGithub {
 }
 
 impl GithubPrAuth {
-    pub(super) fn new(git_host_tokens: Arc<GitHostTokens>) -> Self {
+    pub(super) fn new(git_host_tokens: Arc<dyn GitHostTokenIssuer>) -> Self {
         Self {
             git_host_tokens,
             #[cfg(test)]
@@ -138,7 +138,7 @@ impl GithubPrAuth {
 /// those have three different remedies.
 fn adapter_error(actor: &Actor, source: GitHostTokenError) -> AdapterError {
     match source {
-        GitHostTokenError::Database(e) => AdapterError::from(SharedAdapterError::AdapterApi(
+        GitHostTokenError::Store(e) => AdapterError::from(SharedAdapterError::AdapterApi(
             format!("GitHub token lookup failed for {actor}: {e}"),
         )),
         other => SharedAdapterError::AdapterApi(other.to_string()).into(),

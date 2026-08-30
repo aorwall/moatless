@@ -8,9 +8,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
 use super::schemas::{AgentDescriptor, AgentModel, ListAgentsResponse};
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::extractors::UserTokenVerifier;
-use moatless_identity::secret::dao::SecretDao;
+use moatless_backend_core::identity::{HarnessCredentials, SecretCatalog};
+use moatless_core::http_auth::UserTokenVerifier;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -31,8 +30,8 @@ pub fn agent_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
-    Arc<dyn SecretDao>: FromRef<S>,
-    Arc<dyn ProviderTokenDao>: FromRef<S>,
+    Arc<dyn SecretCatalog>: FromRef<S>,
+    Arc<dyn HarnessCredentials>: FromRef<S>,
 {
     let (router, api) = OpenApiRouter::with_openapi(AgentApiDoc::openapi())
         .routes(routes!(handlers::list_agents_handler))

@@ -5,6 +5,10 @@
 //! the migration both go through it, so the two cannot drift into two different
 //! answers for the same block.
 
+pub use moatless_backend_core::activity::{
+    ActivityKind, ActivityStatus, PLAN_APPROVE, PLAN_QUESTION, PLAN_REJECT, PLAN_TOOL,
+    QUESTION_TOOL, item_type, result_text,
+};
 use moatless_types::sandbox::SandboxEventPayload;
 use serde_json::{Map, Value, json};
 
@@ -95,111 +99,6 @@ pub struct ToolOutcome {
     /// transport reported none.
     pub typed_result: Option<Value>,
     pub is_error: bool,
-}
-
-/// The closed set. A value outside it is a bug, not an extension point.
-///
-/// It grows by a code change that fails to compile, never by a migration —
-/// which is also why every read narrows to the known kinds in SQL (see
-/// `dao::known_kinds`): a row written by a newer backend is skipped rather than
-/// failing the decode of the whole conversation around it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActivityKind {
-    ToolCall,
-    Thinking,
-    SandboxStatus,
-    /// A Sandbox stall the run recovers from — a slow startup, blocked
-    /// scheduling, an eviction. The severity between an ordinary status and a
-    /// fatal error, and the one the T3 work log colours amber.
-    SandboxWarning,
-    SandboxError,
-    /// The agent handed the conversation back to a person: an `AskUserQuestion`,
-    /// or the synthetic approve/reject question in front of a proposed plan.
-    UserInputRequested,
-    /// That question answered — the row that closes the panel the one above
-    /// opened.
-    UserInputResolved,
-    /// The plan the agent is working through, whole, as of this update.
-    PlanUpdated,
-    /// What the harness reported about its own context window.
-    ContextWindowUpdated,
-}
-
-impl ActivityKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::ToolCall => "tool_call",
-            Self::Thinking => "thinking",
-            Self::SandboxStatus => "sandbox_status",
-            Self::SandboxWarning => "sandbox_warning",
-            Self::SandboxError => "sandbox_error",
-            Self::UserInputRequested => "user_input_requested",
-            Self::UserInputResolved => "user_input_resolved",
-            Self::PlanUpdated => "plan_updated",
-            Self::ContextWindowUpdated => "context_window_updated",
-        }
-    }
-
-    /// Every value, so a test can assert the SQL narrowing names all of them.
-    pub const ALL: &'static [Self] = &[
-        Self::ToolCall,
-        Self::Thinking,
-        Self::SandboxStatus,
-        Self::SandboxWarning,
-        Self::SandboxError,
-        Self::UserInputRequested,
-        Self::UserInputResolved,
-        Self::PlanUpdated,
-        Self::ContextWindowUpdated,
-    ];
-}
-
-impl std::str::FromStr for ActivityKind {
-    type Err = String;
-
-    fn from_str(raw: &str) -> Result<Self, Self::Err> {
-        match raw {
-            "tool_call" => Ok(Self::ToolCall),
-            "thinking" => Ok(Self::Thinking),
-            "sandbox_status" => Ok(Self::SandboxStatus),
-            "sandbox_warning" => Ok(Self::SandboxWarning),
-            "sandbox_error" => Ok(Self::SandboxError),
-            "user_input_requested" => Ok(Self::UserInputRequested),
-            "user_input_resolved" => Ok(Self::UserInputResolved),
-            "plan_updated" => Ok(Self::PlanUpdated),
-            "context_window_updated" => Ok(Self::ContextWindowUpdated),
-            other => Err(format!("unknown activity kind: {other:?}")),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActivityStatus {
-    InProgress,
-    Completed,
-    Failed,
-}
-
-impl ActivityStatus {
-    /// How the column stores it.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::InProgress => "in_progress",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-        }
-    }
-
-    /// How the T3 contract spells it. Two spellings because the column is this
-    /// codebase's vocabulary and the payload is the client's — `projection.rs`
-    /// has always written `inProgress` into the payload it sends.
-    pub fn wire(self) -> &'static str {
-        match self {
-            Self::InProgress => "inProgress",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-        }
-    }
 }
 
 /// Everything one Message's content array changes, in one value.
@@ -424,11 +323,6 @@ fn joined_row(
     })
 }
 
-/// The tool calls that hand the conversation back to a person. Keep in sync with
-/// `message::dao::INTERACTIVE_TOOLS`, which is the same pair asked about from
-/// the write side.
-pub const QUESTION_TOOL: &str = "AskUserQuestion";
-pub const PLAN_TOOL: &str = "ExitPlanMode";
 /// The plan trackers. `TodoWrite` is the Claude CLI's; `codex.todo_list` is what
 /// the Codex transport's `turn/plan/updated` notification is normalised into.
 const TODO_TOOL: &str = "TodoWrite";
@@ -497,16 +391,6 @@ fn asked_question(index: usize, question: &Value) -> Option<Value> {
         "options": options,
     }))
 }
-
-/// The question in front of a proposed plan.
-///
-/// A plan proposal parks the run on a call only an answer releases, and the
-/// answer panel is the one surface that can send one. So the plan is *asked*
-/// rather than merely shown: the card renders the plan, this renders the two
-/// things a person can do about it.
-pub const PLAN_QUESTION: &str = "Approve this plan?";
-pub const PLAN_APPROVE: &str = "Approve";
-pub const PLAN_REJECT: &str = "Reject";
 
 fn plan_question() -> Value {
     json!({
@@ -901,35 +785,6 @@ fn activity_id(context: BlockContext<'_>) -> String {
 /// at [`EVENTS_PER_CHANGE`](super::models::EVENTS_PER_CHANGE) anyway.
 fn ordinal(context: BlockContext<'_>) -> i32 {
     i32::try_from(context.block_index).unwrap_or(i32::MAX)
-}
-
-/// Which of the contract's closed set of tool shapes a Moatless tool call is.
-///
-/// The set names how the client *renders* a call, so only the two shapes with a
-/// dedicated renderer are worth claiming. Guessing from a free-text tool name is
-/// how a search tool ends up rendered as a file diff.
-pub fn item_type(tool_name: &str) -> &'static str {
-    match tool_name {
-        "Bash" | "BashOutput" => "command_execution",
-        "Edit" | "Write" | "NotebookEdit" => "file_change",
-        _ => "dynamic_tool_call",
-    }
-}
-
-/// A tool result's visible output.
-///
-/// The block's `content` is a string for most tools and a list of content blocks
-/// for the ones that return structured output; only the first text block of the
-/// latter is shown, which is what the work log has room for.
-pub fn result_text(result: &Value) -> Option<&str> {
-    if let Some(text) = result.as_str() {
-        return Some(text);
-    }
-    result
-        .as_array()?
-        .iter()
-        .find(|part| part.get("type").and_then(Value::as_str) == Some("text"))
-        .and_then(|part| part.get("text").and_then(Value::as_str))
 }
 
 /// Tool output long enough to be a file rather than a preview.

@@ -85,7 +85,7 @@ pub fn spawn_telegram_poller(
         info!("Telegram poller started");
 
         let api = match telegram_provider
-            .app_api(moatless_identity::adapter_apps::DEFAULT_APP_KEY)
+            .app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY)
             .await
         {
             Ok(api) => api,
@@ -108,7 +108,7 @@ pub fn spawn_telegram_poller(
 
         loop {
             let api = match telegram_provider
-                .app_api(moatless_identity::adapter_apps::DEFAULT_APP_KEY)
+                .app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY)
                 .await
             {
                 Ok(api) => api,
@@ -284,7 +284,11 @@ mod tests {
             AdmitError::AtCapacity { limit: 100 }
         )));
         assert!(is_worth_redelivering(&IngressError::Ingress(
-            SharedAdapterError::Db(sqlx::Error::PoolTimedOut).into()
+            SharedAdapterError::Store(moatless_types::store::StoreError::with_source(
+                "read the connection",
+                sqlx::Error::PoolTimedOut,
+            ))
+            .into()
         )));
         assert!(is_worth_redelivering(&IngressError::Ingress(
             SharedAdapterError::Internal("sandbox refused".into()).into()

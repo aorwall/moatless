@@ -530,7 +530,7 @@ crate.
 _Avoid_: calling a `*Dao` a port, or a port a service.
 
 **Identity ports**:
-The six seams `identity` publishes. **UserDisplay** — how a user is named to a
+The ten seams `identity` publishes. **UserDisplay** — how a user is named to a
 human or an external directory (display name, email). **UserResolver** — a user
 reference (the internal uuid or a legacy provider id) resolved to the canonical
 internal id. **CommitIdentity** — the git author identity an actor commits as,
@@ -539,6 +539,19 @@ tokens an agent harness runs with. **ProviderIdentityLink** — the user behind 
 external provider account, by the provider's id, its handle, or the address it
 reports, plus the link back. **AppCredentials** — the deployment-wide OAuth
 credential an Adapter authenticates its own app with, read and rotated.
+**SecretResolver** — the secret values an identity can reach, in two channels
+because they are delivered differently: env-style values, and ssh keys written
+to `~/.ssh`. **SecretCatalog** — which secrets exist for a caller, by name
+alone, with nothing decrypted. **CodexScopeReader** — the Codex scopes a
+background refresh should sweep. **GitHostTokenIssuer** — the one way to a
+git-host token: an `Actor` — the identity the call is made as — plus either a
+repository, or a **PlainGitHost** (a host whose credential is one stored value
+and needs no repository). GitHub is absent from `PlainGitHost` by construction:
+its token is minted through the App resolved from the repository's owner.
+_Note_: each secret read walks `user > global` and marks the records it used, so
+the audit trail is part of the read.
+_Note_: `GitHostTokenIssuer` never falls back. When an `Actor` holds no usable
+credential the answer is `NoCredential`, not another identity's token.
 _Note_: `CommitIdentity` reports an id that names no user (the `system`
 sentinel, a `bot:` value) as an error, not as an absent user — the two are
 different facts.
@@ -547,24 +560,62 @@ real. `user_at` reads the directory link a person establishes; `user_who_connect
 and `user_with_login` read the account behind a stored credential.
 
 **Workspace ports**:
-The two seams `workspaces` publishes. **WorkspaceResolver** — a Workspace's run
+The four seams `workspaces` publishes. **WorkspaceResolver** — a Workspace's run
 configuration (`ResolvedWorkspace`), the repositories it places
-(`RepoPlacement`, primary first, each with its repository row resolved), and the
-plugins an identity has turned on (`PluginDelivery`).
+(`RepoPlacement`, primary first, each with its repository row resolved), the
+plugins an identity has turned on (`PluginDelivery`), Workspace names by id, and
+one whole Workspace as a caller may see it.
 **WorkspaceCredentialReader** — the provider credentials pinned to a Workspace,
-decrypted and keyed by environment variable.
-_Note_: both resolve across owners. The caller's own authorization decided the
-Workspace may be run before it reached the port, so neither takes a Scope.
+decrypted and keyed by environment variable. **RepositoryReader** — one
+repository as a caller may see it, and display names by id.
+**WorkspaceProvisioner** — the deterministic shadow Workspace a repository owns,
+created on demand, so every Task creation path stores a `workspace_id`.
+_Note_: `WorkspaceResolver` and `WorkspaceCredentialReader` resolve across
+owners. The caller's own authorization decided the Workspace may be run before
+it reached the port, so neither takes a Scope. The two `describe` reads are the
+exception — `WorkspaceResolver::describe` and `RepositoryReader::describe`. Each
+answers a request a person just made, so each takes a Scope and answers a row the
+caller may not see exactly as one that does not exist.
 
 **Task ports**:
-The four seams `tasks` publishes. **TaskReader** — the Task facts a peer reads
+The eight seams `tasks` publishes. **TaskReader** — the Task facts a peer reads
 (`TaskDescriptor`: id, status, name, owner, workspace, who started it), scoped;
 a Task the caller may not read reads as absent. **TranscriptAppend** — what was said on a Task and
 which external events it produced. **TurnCounter** — the Turn a row appended now
 belongs to. **TagResolver** — tag names to tag ids, creating what is missing.
+**TaskOpener** — opening a Task from the provider path: a **NewTask** in, a
+**TaskOpened** (its id, and whether its sandbox started) or a **TaskOpenError**
+out. **MessageAcceptor** — a turn arriving from outside the product for a Task
+that exists, as one **InboundTurn** value. **TaskFinisher** — closing a Task
+from the provider path, with a **CloseReason** the task band forwards without
+reading. **RelationRecorder** — recording that one Task relates to another.
+_Note_: `TaskOpener` is the provider-path entry, not a wrapper over the whole of
+task creation. The backend's own HTTP path keeps calling the inherent method,
+which is generic over two closures and therefore not dyn-safe.
+_Note_: `MessageAcceptor` is distinct from `TranscriptAppend`, which writes one
+row and runs no flow. A turn accepted here is deduplicated, persisted, and
+handed to the agent.
+_Note_: `TaskFinisher::close` answers alike for a Task that does not exist and a
+Task the caller may not control, so a close never discloses that a Task is there.
 _Note_: a peer writes a transcript row as a `TranscriptEntry`, never as a
 `TaskMessage`. The two kinds are an **AssistantReply** authored in the backend
 and an **OutboundStub** recording what an Adapter sent.
+
+**Activity ports**:
+The seam the Task band publishes over what an agent did inside a Task. An
+**Activity** is one recorded step — a tool call, a status line, a degraded
+Sandbox, a question handed back to a person, that question answered, the plan,
+or a context-window report. **ActivityKind** is that closed set: it grows by a
+code change, never by a migration, and a row of an unknown kind is skipped
+rather than failing the conversation around it. **ActivityStatus** is how far a
+call got. **ActivityView** is the read-side meaning of one row, which a client
+adapter translates into its own wire shape instead of re-reading the storage
+rules. **ActivitySource** is the port: the tail since a cursor, the rows one
+batch of Messages produced, the rows a set of ids names, and the single call a
+`tool_use_id` names.
+_Note_: the vocabulary lives in `moatless-backend-core`, below both the crate
+that stores the rows and the read models that project them, so a projection
+reads activities without naming the Task crate.
 
 **Binding ports**:
 The two seams `loops` publishes over the Binding store. **BindingProbe** —
@@ -576,6 +627,24 @@ _Note_: an Adapter that drives the Binding lifecycle — upserts as well as read
 and status writes — names `TaskBindingDao` itself. A narrow read port beside a
 store the same crate already holds is a second surface, not a seam.
 
+**Loop ports**:
+The seam `loops` publishes over the Loop store. **LoopReader** — the
+Subscriptions an inbound provider event is matched against: by id, by an
+Adapter's source matcher, or the Adapter's wildcard. An Adapter never writes a
+Subscription and never reads a Schedule, a receipt, or a Loop's config rows.
+_Note_: a Subscription read by id answers whatever its state, because a Binding
+whose Subscription was deleted keeps working. `None` means "no Subscription
+context", never "stop".
+
+**Adapter app ports**:
+The seam the Adapter kernel publishes over the stored deployment-wide app rows.
+**AdapterAppReader** — the enabled app of one kind under one `app_key`, as an
+**AdapterAppSecrets**: the app key, the decrypted secrets by name, and the
+non-secret settings. Each Adapter reads the fields it needs out of that value
+into its own shape, so the crate that stores the rows names no provider.
+_Note_: `DEFAULT_APP_KEY` is the app a connection gets when its transport config
+names none.
+
 **Codex blob refresh**:
 How a stale Codex credential is renewed across a seam. The store
 (`ProviderTokenDao::refresh_codex_blob`) owns the row, the advisory lock, the
@@ -585,7 +654,8 @@ _Note_: a lock another replica holds, and a compare-and-swap another writer won,
 both report that writer's value rather than failing.
 
 **Store error**:
-The error every port returns (`StoreError`, in `moatless-backend-core`). It carries
+The error every port returns (`StoreError`, in `moatless-types`, re-exported by
+`moatless_backend_core::store`). It carries
 a human context plus an optional boxed source, so a store driver stays out of a
 caller's dependency list.
 _Avoid_: returning `sqlx::Error` across a crate seam.

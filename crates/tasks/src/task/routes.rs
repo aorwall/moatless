@@ -8,10 +8,10 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
 use crate::credential_sync::CredentialSync;
-use moatless_identity::extractors::UserTokenVerifier;
+use moatless_core::http_auth::UserTokenVerifier;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
-use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_backend_core::binding::TaskBindings;
 use crate::task::closer::TaskCloser;
 use crate::task::creation::TaskCreationService;
@@ -21,7 +21,6 @@ use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelationDao;
 use moatless_backend_core::sandbox::SandboxLifecycle;
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
 use moatless_workspaces::workspace::git_sync::GitSyncService;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
@@ -71,8 +70,8 @@ where
     Arc<dyn TaskTurnDao>: FromRef<S>,
     Arc<dyn MessageDao>: FromRef<S>,
     Arc<dyn TagDao>: FromRef<S>,
-    Arc<dyn RepositoryDao>: FromRef<S>,
-    Arc<dyn WorkspaceDao>: FromRef<S>,
+    Arc<dyn RepositoryReader>: FromRef<S>,
+    Arc<dyn WorkspaceResolver>: FromRef<S>,
     Arc<dyn SandboxLifecycle>: FromRef<S>,
     Arc<dyn PreflightPort>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,

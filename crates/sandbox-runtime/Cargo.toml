@@ -1,0 +1,44 @@
+[package]
+name = "moatless-sandbox-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "What a Moatless sandbox runtime implements and the machinery every runtime reuses: the mutation and observation contract, the gRPC client, status reads, storage plans, and the resource parsers"
+
+[dependencies]
+async-trait = "0.1"
+axum = { version = "0.8", features = ["macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+# JWT verification errors reach the response boundary here, as they do in the
+# bands that mint them.
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+# Counter/histogram instrumentation for provision/restart durations.
+metrics = "0.24"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+# gRPC status types on the client side of the sandbox ingress service.
+tonic = "0.14"
+tracing = "0.1"
+utoipa = { version = "5", features = ["axum_extras"] }
+
+moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
+moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
+moatless-core = { path = "../core", features = ["openapi"] }
+moatless-types = { path = "../types", features = ["openapi"] }
+# Shared gRPC wire vocabulary (proto types) — a floor crate, legal downward.
+sandbox-proto = { path = "../sandbox-proto" }
+
+[features]
+# Exposes the recording-adapter builders this crate's own tests use to the
+# orchestrator band's tests. `cfg(test)` does not fire across a crate boundary.
+# The `test,` disjunct stays FIRST at each site so the census scores the item as
+# test-context. No shipping build enables it.
+test-support = []
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+http-body-util = "0.1"

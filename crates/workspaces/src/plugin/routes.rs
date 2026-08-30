@@ -14,7 +14,7 @@ use super::schemas::{
 };
 use super::sync::PluginSyncService;
 use crate::workspace::dao::WorkspaceDao;
-use moatless_identity::extractors::UserTokenVerifier;
+use moatless_core::http_auth::UserTokenVerifier;
 
 #[derive(OpenApi)]
 #[openapi(

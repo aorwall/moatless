@@ -9,7 +9,10 @@
 //! Lifted out of `moatless-backend::adapters` so the binding and adapter
 //! layers can name these types without pulling in the whole backend.
 
+pub mod apps;
 pub mod dao;
 pub mod error;
 pub mod footer;
+pub mod metrics;
 pub mod models;
+pub mod signature;

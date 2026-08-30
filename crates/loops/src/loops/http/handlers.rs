@@ -11,15 +11,15 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::adapters::common::{LoopFilter, ensure_repository_exists, load_adapter_connection_for_auth_with, load_loop_for_auth_with, loop_response, next_fire_at, parse_adapter_kind, resolve_scope_for_adapter_create};
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::loops::dao::{AdapterSourceUpdate, LoopDao, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource, UpdateLoopSource as StoreUpdateSource};
 use moatless_types::loops::LoopKind as DomainLoopKind;
 use crate::loops::sync::LoopSyncService;
 use moatless_backend_core::identity::UserResolver;
-use moatless_identity::extractors::AuthUser;
+use moatless_core::http_auth::AuthUser;
 use crate::bindings::dao::{LoopRecentTaskRow, TaskBindingDao};
-use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_backend_core::workspace::RepositoryReader;
 
 fn require_admin(auth: &AuthUser) -> Result<(), AdapterError> {
     if auth.role.as_deref() == Some("admin") {
@@ -151,7 +151,7 @@ pub async fn list_loops(
 pub async fn create_loop(
     State(loops): State<Arc<LoopDao>>,
     State(users): State<Arc<dyn UserResolver>>,
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<dyn RepositoryReader>>,
     State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
     auth: AuthUser,
     Json(req): Json<CreateLoopRequest>,
@@ -302,7 +302,7 @@ pub async fn create_loop(
 )]
 pub async fn update_loop(
     State(loops): State<Arc<LoopDao>>,
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<dyn RepositoryReader>>,
     State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
     auth: AuthUser,
     Path(id): Path<String>,
@@ -665,7 +665,7 @@ pub async fn override_loop(
 )]
 pub async fn reset_git_loop(
     State(loops): State<Arc<LoopDao>>,
-    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repositories): State<Arc<dyn RepositoryReader>>,
     State(loop_sync): State<Arc<LoopSyncService>>,
     auth: AuthUser,
     Path(id): Path<String>,
@@ -686,7 +686,7 @@ pub async fn reset_git_loop(
             SharedAdapterError::BadRequest("Loop has no Git source key".to_string())
         })?;
     let repository = repositories
-        .find_by_id(repository_id, &ctx)
+        .describe(&ctx, repository_id)
         .await?
         .ok_or_else(|| {
             SharedAdapterError::NotFound(format!("Repository {repository_id} not found"))

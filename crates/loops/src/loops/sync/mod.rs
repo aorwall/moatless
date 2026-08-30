@@ -28,17 +28,17 @@ use self::fetcher::{GitHubLoopFetcher, LoopFetcher};
 use self::models::{LoopFrontmatter, ParsedLoop};
 pub use self::parser::parse_loop;
 use crate::adapters::common::next_fire_at;
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_types::loops::RoutingMode;
 use crate::loops::dao::{LoopDao, ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
 use moatless_types::repository::RepositoryProvider as GitHostProvider;
 use moatless_types::access_control::Actor;
-use moatless_identity::extractors::AuthUser;
-use moatless_identity::git_host_repo::GitHostRepo;
-use moatless_identity::git_host_tokens::GitHostTokens;
+use moatless_core::http_auth::AuthUser;
+use moatless_types::repository::GitHostRepo;
+use moatless_backend_core::identity::GitHostTokenIssuer;
 use moatless_backend_core::task::TagResolver;
 use moatless_types::repository::RepositoryProvider;
-use moatless_workspaces::repository::models::Repository;
+use moatless_types::repository::Repository;
 
 /// Reconciles a repository's committed loop declarations into the loop tables.
 ///
@@ -48,7 +48,7 @@ pub struct LoopSyncService {
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     loops: Arc<LoopDao>,
     tags: Arc<dyn TagResolver>,
-    git_host_tokens: Arc<GitHostTokens>,
+    git_host_tokens: Arc<dyn GitHostTokenIssuer>,
 }
 
 impl LoopSyncService {
@@ -56,7 +56,7 @@ impl LoopSyncService {
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
         tags: Arc<dyn TagResolver>,
-        git_host_tokens: Arc<GitHostTokens>,
+        git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     ) -> Self {
         Self {
             adapter_connections,

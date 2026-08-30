@@ -13,7 +13,7 @@ use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
-use moatless_loops::adapters::models::SubscriptionMatch;
+use moatless_adapter_model::models::SubscriptionMatch;
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_core::db::DbPool;
 
@@ -127,7 +127,7 @@ pub(super) async fn receive(
     let tg_config = TelegramAdapterConfig::from_config(&config);
     let db = adapter.require_db().map_err(IngressError::Ingress)?;
     let api = adapter
-        .app_api(moatless_identity::adapter_apps::app_key_from_transport_config(
+        .app_api(moatless_adapter_model::apps::app_key_from_transport_config(
             &connection.transport_config,
         ))
         .await
@@ -348,7 +348,11 @@ mod tests {
             IngressError::Unidentifiable(message) if message == "Missing message_id"
         ));
         assert!(matches!(
-            classify_normalization(SharedAdapterError::Db(sqlx::Error::PoolTimedOut).into()),
+            classify_normalization(SharedAdapterError::Store(moatless_types::store::StoreError::with_source(
+                "read the connection",
+                sqlx::Error::PoolTimedOut,
+            ))
+            .into()),
             IngressError::Ingress(_)
         ));
     }

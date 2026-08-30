@@ -107,7 +107,7 @@ impl RuntimeEffect {
 
 /// The status an operation reports as its immediate outcome.
 ///
-/// Distinct from [`crate::lifecycle::convergence::SandboxObservedStatus`]:
+/// Distinct from [`crate::convergence::SandboxObservedStatus`]:
 /// this is the small "what did this call end at" projection returned to the
 /// caller. Adapters legitimately differ — Docker completes transitions
 /// synchronously and reports `Ready`; Kubernetes returns `Starting` and
@@ -195,7 +195,7 @@ impl fmt::Display for OperationGeneration {
 /// The marker outlives the adapter call — Kubernetes returns `Starting` before
 /// readiness and Docker events arrive asynchronously, so clearing on return
 /// would misclassify late events. Acknowledgement is the reconciler's job and
-/// is per operation class (see [`crate::lifecycle::marker`]).
+/// is per operation class (see [`crate::marker`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CorrelationMarker {
     pub kind: OperationKind,

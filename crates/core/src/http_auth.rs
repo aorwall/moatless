@@ -1,5 +1,8 @@
 //! Request extractors for authentication.
 //!
+//! Axum plumbing over two consumer-declared ports, so a crate that mounts
+//! routes gets the extractors without naming the identity band.
+//!
 //! Two auth paths (tried in order):
 //! 1. **AuthIdentity extension**: set by auth middleware after validating a
 //!    session cookie or API key.
@@ -18,9 +21,9 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
 
-use crate::auth::identity::{AuthIdentity, AuthMethod};
-use moatless_types::user::UserRole;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::auth::{AuthIdentity, AuthMethod};
+use moatless_types::user::UserRole;
 
 /// Verifies a sandbox-issued `X-User-Token` JWT.
 ///
@@ -54,9 +57,9 @@ pub enum TokenVerifyError {
 /// Whether the authenticated caller may reach a task's preview URL — the one
 /// authorization bit the ForwardAuth session gate needs.
 ///
-/// Declared consumer-side (identity) so `verify_handler` holds this bool port
-/// rather than a `TaskDao`: the implementation over `TaskDao` lives in the tasks
-/// band, behind this port, which is why the gate costs identity no `task` import.
+/// Declared here beside the extractors so the ForwardAuth handler holds this
+/// bool port rather than a `TaskDao`: the implementation over `TaskDao` lives in
+/// the tasks band, behind this port.
 #[async_trait]
 pub trait TaskAccess: Send + Sync {
     /// True iff the task exists and `ctx` is allowed to see it. Fail-closed: an

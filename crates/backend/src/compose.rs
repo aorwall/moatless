@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use crate::adapter_apps::dao::{AdapterAppDao, PgAdapterAppDao};
-use crate::adapters::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
+use moatless_adapter_model::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::auth::api_keys::{ApiKeyDao, PgApiKeyDao};
 use crate::auth::github::registry::GitHubAppRegistry;
@@ -31,12 +31,13 @@ use crate::message::dao::{MessageDao, PgMessageDao};
 use crate::plugin::dao::{PgPluginDao, PluginDao};
 use crate::repository::dao::{PgRepositoryDao, RepositoryDao};
 use crate::sandbox::lifecycle::orchestrator::LifecycleDao;
-use crate::sandbox::lifecycle::runtime::SandboxRuntime;
 use crate::sandbox::lifecycle::{
-    FleetObserver, GrpcAgentStop, GrpcWorkspaceSync, Lifecycle, MemberRegistryPort, NotifyPort,
-    OutboxEventSink, PgLifecycleDao, PgLifecycleLock, ProvisionDeps, Reconciler, ReconcilerConfig,
-    ReconcilerDeps, S3WorkspaceArchive, SystemWallClock,
+    GrpcAgentStop, GrpcWorkspaceSync, Lifecycle, MemberRegistryPort, NotifyPort, OutboxEventSink,
+    PgLifecycleDao, PgLifecycleLock, ProvisionDeps, Reconciler, ReconcilerConfig, ReconcilerDeps,
+    S3WorkspaceArchive, SystemWallClock,
 };
+use moatless_sandbox_runtime::fleet::FleetObserver;
+use moatless_sandbox_runtime::runtime::SandboxRuntime;
 use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
 use crate::secret::dao::{PgSecretDao, SecretDao};
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher, SecretService};
@@ -90,6 +91,8 @@ pub struct Ports {
     pub messages: Arc<dyn MessageDao>,
     pub feedback: Arc<dyn FeedbackDao>,
     pub repositories: Arc<dyn RepositoryDao>,
+    /// The narrowed read the task and loop bands take, over the same store.
+    pub repository_reader: Arc<dyn moatless_backend_core::workspace::RepositoryReader>,
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
     /// The `tasks` table behind the published `TaskReader` seam.
     pub task_reader: Arc<moatless_tasks::ports::TaskProjection>,
@@ -131,6 +134,9 @@ pub struct Ports {
     pub user_directory: Arc<moatless_identity::ports::UserDirectory>,
     /// The `provider_tokens` table behind the `HarnessCredentials` port.
     pub harness_credentials: Arc<moatless_identity::ports::HarnessTokens>,
+    /// The `adapter_apps` tables behind the `AdapterAppReader` port an Adapter
+    /// resolves its provider credentials through.
+    pub adapter_apps: Arc<dyn moatless_adapter_model::apps::AdapterAppReader>,
     /// Local password credentials (`user_credentials`).
     pub user_credentials: Arc<dyn UserCredentialDao>,
     pub sessions: Arc<dyn SessionDao>,
@@ -189,6 +195,9 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
     ));
 
     let repositories: Arc<dyn RepositoryDao> = Arc::new(PgRepositoryDao(pool.clone()));
+    let repository_reader: Arc<dyn moatless_backend_core::workspace::RepositoryReader> = Arc::new(
+        moatless_workspaces::ports::RepositoryProjection::new(repositories.clone()),
+    );
     let plugins: Arc<dyn PluginDao> = Arc::new(PgPluginDao(pool.clone()));
     let workspace_resolver = Arc::new(moatless_workspaces::ports::WorkspaceProjection::new(
         workspaces.clone(),
@@ -225,7 +234,10 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
 
     // One PgTaskDao serves the TaskDao port, the E-(b) TaskAccess port, and the
     // published `TaskReader` seam peer crates read.
-    let task_dao = Arc::new(PgTaskDao(pool.clone()));
+    let task_dao = Arc::new(PgTaskDao::new(
+        pool.clone(),
+        Arc::new(moatless_workspaces::ports::ShadowWorkspaces::new(pool.clone())),
+    ));
     let task_reader = Arc::new(moatless_tasks::ports::TaskProjection::new(task_dao.clone()));
 
     let messages: Arc<dyn MessageDao> = Arc::new(PgMessageDao(pool.clone()));
@@ -263,6 +275,7 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
         transcript,
         feedback: Arc::new(PgFeedbackDao(pool.clone())),
         repositories,
+        repository_reader,
         workspaces,
         workspace_resolver,
         workspace_credentials,
@@ -283,6 +296,10 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
             provider_tokens.clone(),
         )),
         harness_credentials,
+        adapter_apps: Arc::new(moatless_identity::ports::AdapterApps::new(
+            pool.clone(),
+            Arc::new(config.clone()),
+        )),
         user_credentials: Arc::new(PgUserCredentialDao(pool.clone())),
         sessions: Arc::new(PgSessionDao(pool.clone())),
         api_keys,
@@ -300,7 +317,10 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
         github_app_service,
         git_host_tokens,
 
-        ui_rpc_conversations: Arc::new(moatless_t3code::dao::PgConversationDao::new(pool.clone())),
+        ui_rpc_conversations: Arc::new(moatless_t3code::dao::PgConversationDao::new(
+            pool.clone(),
+            Arc::new(moatless_tasks::ports::Activities::new(pool.clone())),
+        )),
 
         lifecycle_store: Arc::new(PgLifecycleDao::new(pool.clone())),
 

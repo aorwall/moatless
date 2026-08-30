@@ -83,7 +83,7 @@ pub fn describe_sandbox_metrics() {
 }
 
 /// Record one cold-transition attempt.
-pub(crate) fn record_storage_reclaim(outcome: &'static str) {
+pub fn record_storage_reclaim(outcome: &'static str) {
     metrics::counter!(STORAGE_RECLAIM_TOTAL, "outcome" => outcome).increment(1);
 }
 

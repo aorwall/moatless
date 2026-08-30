@@ -4,17 +4,16 @@ use std::collections::HashSet;
 
 use super::catalog::{catalog, AgentEntry};
 use super::schemas::{AgentDescriptor, AgentModel};
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::secret::dao::SecretDao;
+use moatless_backend_core::identity::{HarnessCredentials, SecretCatalog};
 use moatless_types::access_control::ScopeContext;
 
 /// Materialize the full catalog with `installed` populated per the given scope.
 pub async fn list_agents(
-    secret_records: &dyn SecretDao,
-    provider_tokens: &dyn ProviderTokenDao,
+    secrets: &dyn SecretCatalog,
+    provider_tokens: &dyn HarnessCredentials,
     ctx: &ScopeContext,
 ) -> Vec<AgentDescriptor> {
-    let present_keys = collect_credential_keys(secret_records, ctx).await;
+    let present_keys = collect_credential_keys(secrets, ctx).await;
     let present_providers = collect_provider_token_providers(provider_tokens, ctx).await;
 
     catalog()
@@ -61,15 +60,15 @@ fn build_descriptor(
 /// Collect the set of credential keys visible to the caller across:
 ///   - Global / User scoped secrets (metadata only).
 async fn collect_credential_keys(
-    secret_records: &dyn SecretDao,
+    secrets: &dyn SecretCatalog,
     ctx: &ScopeContext,
 ) -> HashSet<String> {
     let mut keys: HashSet<String> = HashSet::new();
 
     // The access filter already limits this to global secrets plus the
     // caller's own user-scoped ones.
-    match secret_records.list(ctx, None).await {
-        Ok(records) => keys.extend(records.into_iter().map(|r| r.key)),
+    match secrets.list(ctx).await {
+        Ok(present) => keys.extend(present),
         Err(e) => {
             tracing::warn!(
                 error = %e,
@@ -84,7 +83,7 @@ async fn collect_credential_keys(
 
 /// Collect the set of provider-token provider names visible to the caller.
 async fn collect_provider_token_providers(
-    provider_tokens: &dyn ProviderTokenDao,
+    provider_tokens: &dyn HarnessCredentials,
     ctx: &ScopeContext,
 ) -> HashSet<String> {
     let mut providers: HashSet<String> = HashSet::new();
@@ -96,7 +95,7 @@ async fn collect_provider_token_providers(
 
     for provider in &relevant {
         match provider_tokens
-            .find_provider_token(&ctx.user_id, provider)
+            .provider_token(&ctx.user_id, provider)
             .await
         {
             Ok(Some(_)) => {

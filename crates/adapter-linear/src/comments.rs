@@ -22,11 +22,11 @@ use tracing::{debug, info, warn};
 use moatless_core::config::Config;
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{AdapterConnection, TaskBinding};
+use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
 use moatless_types::adapter::Audience;
 use moatless_loops::bindings::runtime::RoutingService;
-use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::message::send::MessageSendService;
+use moatless_loops::loops::ports::LoopReader;
+use moatless_backend_core::task::{InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_backend_core::sandbox::SandboxWaker;
 
@@ -65,8 +65,8 @@ pub(super) async fn handle_comment_created(
     config: &Config,
     routing: &RoutingService,
     task_bindings: &dyn TaskBindingDao,
-    loops: &LoopDao,
-    message_send: &MessageSendService,
+    loops: &dyn LoopReader,
+    message_send: &dyn MessageAcceptor,
     sandbox_waker: &dyn SandboxWaker,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
@@ -84,7 +84,7 @@ pub(super) async fn handle_comment_created(
     // task that authored it. The footer is visible content — nothing to strip,
     // so the body is forwarded unchanged.
     let author_task_id =
-        moatless_loops::adapters::footer::parse_task_id_from_body(&config.auth.frontend_url, &comment.body);
+        moatless_adapter_model::footer::parse_task_id_from_body(&config.auth.frontend_url, &comment.body);
     let forwarded_body = comment.body.as_str();
 
     let audience = comment_audience(comment);
@@ -144,29 +144,22 @@ pub(super) async fn handle_comment_created(
 
         let external_event_id = super::external_id::comment(&comment.id);
         if let Err(e) = message_send
-            .send_message_flow(
-                &binding.task_id,
-                forwarded_body,
-                None,
-                None,
-                None,
-                &[],
-                &[],
-                true,
-                moatless_types::task::ExternalOrigin {
-                    event_id: Some(&external_event_id),
-                    adapter: Some(ADAPTER_LABEL),
-                    subject_key: Some(&binding.subject_key),
-                    source_name: rule.as_ref().map(|r| r.source_matcher.as_str()),
-                    author: author.as_deref(),
+            .accept(InboundTurn {
+                task_id: binding.task_id.clone(),
+                text: forwarded_body.to_string(),
+                file_ids: Vec::new(),
+                resume: true,
+                origin: TurnOrigin {
+                    event_id: Some(external_event_id.clone()),
+                    adapter: Some(ADAPTER_LABEL.to_string()),
+                    subject_key: Some(binding.subject_key.clone()),
+                    source_name: rule.as_ref().map(|r| r.source_matcher.clone()),
+                    author: author.clone(),
                     sender_id: None,
-                    source_task_id: None,
                 },
-                false,
-                comment.user.as_ref().map(|u| u.id.as_str()),
-                &[],
-                None,
-            )
+                sent_by: comment.user.as_ref().map(|u| u.id.clone()),
+                skills: Vec::new(),
+            })
             .await
         {
             warn!(
@@ -261,7 +254,7 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
+    use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
     use crate::subject::SUBJECT_KIND_SESSION as SUBJECT_KIND;
 
     // ---- Comment routing -------------------------------------------------
@@ -335,7 +328,7 @@ mod tests {
         linear_binding(
             task_id,
             crate::SUBJECT_KIND_ISSUE,
-            moatless_loops::adapters::models::TASK_OWNED_BINDING_ORIGIN,
+            moatless_adapter_model::models::TASK_OWNED_BINDING_ORIGIN,
         )
     }
 

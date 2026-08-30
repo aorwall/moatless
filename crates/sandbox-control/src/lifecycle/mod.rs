@@ -34,30 +34,27 @@
 //! (event derivation), and [`attempt`] (attempt cap + backoff).
 
 // Decision modules driven by the desired-state reconciler (wired in `main`).
-// `convergence`, `reconciler`, `classify`, `watcher`, `observe`, `orchestrator`,
-// `outcome`, `runtime`, and `types` are `pub` (not `pub(crate)`) because the
-// band-7 provider crates (`sandbox-k8s`, `sandbox-docker`, still in the backend)
-// reach specific items in them across the facade — the pub-widening the carve
-// pays. Widening the module only exposes its `pub` items; the rest stay
+// `reconciler`, `watcher`, `observe`, `orchestrator` and `error` are `pub` (not
+// `pub(crate)`) because the band-7 provider crates (`sandbox-k8s`,
+// `sandbox-docker`) reach specific items in them across the crate boundary.
+// Widening the module only exposes its `pub` items; the rest stay
 // `pub(crate)`, so a lifecycle mutation still cannot bypass `Lifecycle`.
+//
+// The four decision modules a runtime also reads — `convergence`, `classify`,
+// `marker`, `types` — and the runtime seam itself live in
+// `moatless-sandbox-runtime`.
 pub(crate) mod attempt;
-pub mod convergence;
 pub(crate) mod reconcile;
 pub mod reconciler;
 pub(crate) mod wake;
 
 // Watcher four-case classification and reconciler-owned marker acknowledgement.
-pub mod classify;
-pub(crate) mod marker;
 pub mod watcher;
 
-pub(crate) mod error;
+pub mod error;
 pub(crate) mod events;
 pub mod orchestrator;
-pub mod outcome;
 pub(crate) mod plan;
-pub mod runtime;
-pub mod types;
 
 // Infrastructure adapters implementing the ports, `pub(crate)` and constructed
 // by `AppState` when it builds the `Lifecycle` handle.
@@ -80,26 +77,21 @@ pub(crate) mod test_support;
 // ---- Curated surface ----
 //
 // `pub` is the deep module's cross-crate contract: the `Lifecycle` handle, its
-// typed outcomes/errors, and the reconciler surface `main` assembles. Everything
-// the module is merely built *over* — the ports, the runtime seam, and the
-// correlation internals — is `pub(crate)`; no caller outside this crate names it.
+// typed error, and the reconciler surface `main` assembles. Everything the
+// module is merely built *over* — the ports and the correlation internals — is
+// `pub(crate)`; no caller outside this crate names it. The outcome a caller
+// reads back is `moatless_sandbox_runtime::outcome::LifecycleOutcome`, named
+// from that crate.
 
-pub use error::{ErrorClass, LifecycleError, RuntimeError};
+pub use error::LifecycleError;
 pub use orchestrator::{Lifecycle, TaskIntent};
-pub use outcome::{Diagnostics, LifecycleOutcome};
-pub use runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
-pub use types::{
-    ArchiveRetention, IntentEffect, ObservedStatus, OperationGeneration, OperationKind,
-    RuntimeEffect,
-};
 
 // The desired-state reconciler and its gRPC notifier, assembled by
 // `compose::Ports::build_reconciler` and spawned by `main`. The provider
 // fleet-observer adapters live in `sandbox::k8s` and `sandbox::docker`.
 pub use observe::{GrpcMemberRegistry, GrpcNotify};
 pub use reconciler::{
-    FleetObserver, MemberRegistryPort, NotifyPort, Reconciler, ReconcilerConfig, ReconcilerDeps,
-    RuntimeObservation,
+    MemberRegistryPort, NotifyPort, Reconciler, ReconcilerConfig, ReconcilerDeps,
 };
 
 // The system clock and concrete port adapters the composition root assembles

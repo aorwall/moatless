@@ -23,7 +23,7 @@ use moatless_backend::event_handler::agent_handlers::{
 use moatless_backend::message::dao as message_dao;
 use moatless_backend::message::models::{MessageRole, MessageType};
 use moatless_backend::repository::dao as repository_dao;
-use moatless_backend::task::dao::{self as task_dao, PgTaskDao, TaskDao, TaskPatch};
+use moatless_backend::task::dao::{self as task_dao, TaskDao, TaskPatch};
 use moatless_backend::task::models::TaskStatus;
 use moatless_backend::task::relations::{
     PgTaskRelationDao, TaskRelation, TaskRelationDao, TaskRelationType,
@@ -40,7 +40,7 @@ async fn seed_with_status(pool: &PgPool, task_id: &str, status: TaskStatus) {
     let task = make_task_row(task_id, "user-1");
     task_dao::insert_task(pool, &task).await.unwrap();
     if status != TaskStatus::Open {
-        PgTaskDao(pool.clone())
+        moatless_backend::task::dao::store_over(pool)
             .update_task(
                 task_id,
                 &TaskPatch {
@@ -120,7 +120,7 @@ fn terminal_event(
 #[sqlx::test]
 async fn update_status_if_not_closed_noop_on_closed(pool: PgPool) {
     seed_with_status(&pool, "task-closed", TaskStatus::Closed).await;
-    let repo = PgTaskDao(pool.clone());
+    let repo = moatless_backend::task::dao::store_over(&pool);
 
     let changed = repo
         .update_status_if_not_closed("task-closed", TaskStatus::Open, &user_scope("user-1"))
@@ -133,7 +133,7 @@ async fn update_status_if_not_closed_noop_on_closed(pool: PgPool) {
 
 #[sqlx::test]
 async fn update_status_if_not_closed_flips_open_and_error(pool: PgPool) {
-    let repo = PgTaskDao(pool.clone());
+    let repo = moatless_backend::task::dao::store_over(&pool);
 
     // Open → Open still matches the predicate (status <> 'closed').
     seed_with_status(&pool, "task-open", TaskStatus::Open).await;
@@ -145,7 +145,7 @@ async fn update_status_if_not_closed_flips_open_and_error(pool: PgPool) {
     assert_eq!(status_of(&pool, "task-open").await, TaskStatus::Open);
 
     // Error → Open flips (preserves the start_task-from-Error path).
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .update_task(
             "task-open",
             &TaskPatch {

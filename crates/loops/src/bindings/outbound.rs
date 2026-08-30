@@ -13,7 +13,7 @@ use moatless_types::access_control::ScopeContext;
 use moatless_core::config::S3Config;
 use moatless_types::auth::AuthConfig;
 
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::{AdapterKind, Adapters};
 use crate::bindings::dao::TaskBindingDao;

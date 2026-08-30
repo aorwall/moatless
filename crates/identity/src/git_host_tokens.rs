@@ -7,12 +7,17 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use tracing::warn;
 
+use moatless_backend_core::identity::{
+    GitHostTokenError, GitHostTokenIssuer, PlainGitHost,
+};
+use moatless_backend_core::store::StoreError;
 use moatless_backend_core::workspace::WorkspaceCredentialReader;
-use moatless_types::repository::RepositoryProvider;
 use moatless_types::workspace::WorkspaceCredentialProvider;
 use moatless_core::secret_keys::GITHUB_TOKEN;
+use moatless_types::repository::RepositoryProvider;
 
 use moatless_types::access_control::Actor;
 use crate::auth::error::AuthError;
@@ -24,65 +29,10 @@ use crate::auth::provider_tokens::{
     AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF, ProviderTokenAuthDao,
 };
 use crate::auth::token_refresh::ensure_fresh_token;
-use crate::git_host_repo::GitHostRepo;
+use moatless_types::repository::GitHostRepo;
 use moatless_types::secret::SecretKind;
 use crate::secret::service::SecretService;
 use moatless_types::access_control::Scope;
-
-/// Why an identity has no usable token for a repository.
-///
-/// [`Self::NoCredential`] is the only "not connected" answer. A dangling
-/// `secret_ref`, an unknown App key or an unusable stored key is
-/// [`Self::Broken`] — collapsing the two would send a caller down an anonymous
-/// path instead of surfacing breakage.
-#[derive(Debug, thiserror::Error)]
-pub enum GitHostTokenError {
-    #[error("{actor} has not connected {provider}")]
-    NoCredential {
-        actor: Actor,
-        provider: RepositoryProvider,
-    },
-
-    #[error("{actor}'s {} credential cannot reach {repo}", repo.provider())]
-    Forbidden {
-        actor: Actor,
-        repo: GitHostRepo,
-        #[source]
-        source: AuthError,
-    },
-
-    #[error("{actor}'s {provider} credential is unusable: {source}")]
-    Broken {
-        actor: Actor,
-        provider: RepositoryProvider,
-        #[source]
-        source: AuthError,
-    },
-
-    #[error(transparent)]
-    Database(#[from] sqlx::Error),
-}
-
-/// A git host whose credential is a single stored value, readable without
-/// naming a repository.
-///
-/// GitHub is absent by construction: an installation token is minted through
-/// the App, resolved from the repo's owner, so there is no stored GitHub token
-/// and [`GitHostTokens::token`] is the only way to one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlainGitHost {
-    Gitlab,
-    Gitness,
-}
-
-impl PlainGitHost {
-    fn provider(self) -> RepositoryProvider {
-        match self {
-            Self::Gitlab => RepositoryProvider::Gitlab,
-            Self::Gitness => RepositoryProvider::Gitness,
-        }
-    }
-}
 
 /// The one way to obtain a git-host token.
 ///
@@ -128,55 +78,6 @@ impl GitHostTokens {
         self
     }
 
-    /// The token `actor` presents to `repo`'s host right now.
-    ///
-    /// Callers may rely on these facts:
-    ///
-    /// - No scope walk is performed. Only two credentials are ever consulted:
-    ///   the one `actor`'s Workspace pins for the host, and `actor`'s own.
-    ///   Another *identity's* credential is never tried, at any scope.
-    /// - A Workspace pin outranks the identity's own credential, so every call
-    ///   made on behalf of that Workspace presents the account it names. See
-    ///   [`Actor::workspace_id`].
-    /// - The returned string is never `SECRET_REF_TOKEN_PLACEHOLDER`,
-    ///   `APP_INSTALLATION_TOKEN_PLACEHOLDER`, or empty.
-    /// - Freshness is handled here. OAuth rows refresh through
-    ///   [`ensure_fresh_token`]; installation rows mint. A pinned token is a
-    ///   static secret and is returned as stored. Do not cache the returned
-    ///   string.
-    pub async fn token(
-        &self,
-        actor: &Actor,
-        repo: &GitHostRepo,
-    ) -> Result<String, GitHostTokenError> {
-        let provider = repo.provider();
-        if let Some(pinned) = self.pinned_token(actor, provider).await? {
-            return Ok(pinned);
-        }
-        match provider {
-            RepositoryProvider::Github => self.github_token(actor, repo).await,
-            RepositoryProvider::Gitlab => self.stored_host_token(actor, PlainGitHost::Gitlab).await,
-            RepositoryProvider::Gitness => {
-                self.stored_host_token(actor, PlainGitHost::Gitness).await
-            }
-        }
-    }
-
-    /// The token `actor` holds for a host that needs no repository to answer.
-    ///
-    /// The same rules as [`Self::token`]: a Workspace pin first, no scope walk,
-    /// and an absent credential is [`GitHostTokenError::NoCredential`].
-    pub async fn host_token(
-        &self,
-        actor: &Actor,
-        host: PlainGitHost,
-    ) -> Result<String, GitHostTokenError> {
-        if let Some(pinned) = self.pinned_token(actor, host.provider()).await? {
-            return Ok(pinned);
-        }
-        self.stored_host_token(actor, host).await
-    }
-
     /// The credential `actor`'s Workspace pins for `provider`, if it pins one.
     ///
     /// A Workspace that pins a credential whose value cannot be read is an
@@ -197,9 +98,9 @@ impl GitHostTokens {
             GitHostTokenError::Broken {
                 actor: actor.clone(),
                 provider,
-                source: AuthError::Config(format!(
+                source: Box::new(AuthError::Config(format!(
                     "Failed to read the credentials pinned to workspace '{workspace_id}': {e}"
-                )),
+                ))),
             }
         })?;
         let key = WorkspaceCredentialProvider::from(provider).env_key();
@@ -215,7 +116,10 @@ impl GitHostTokens {
         let provider = host.provider();
         self.provider_tokens
             .find_provider_token(actor.user_id(), provider.as_str())
-            .await?
+            .await
+            .map_err(|e| {
+                StoreError::with_source(format!("read the {provider} token for {actor}"), e)
+            })?
             .map(|row| row.access_token)
             .filter(|token| !token.is_empty())
             .ok_or_else(|| GitHostTokenError::NoCredential {
@@ -231,8 +135,9 @@ impl GitHostTokens {
     /// token to return, because minting needs an owner to resolve the
     /// installation, which only a repository names. Such a row is reported
     /// usable on the strength of the App handle alone; every path that actually
-    /// reaches GitHub names a repository and goes through [`Self::token`], where
-    /// the mint either succeeds or says why not.
+    /// reaches GitHub names a repository and goes through
+    /// [`GitHostTokenIssuer::token`], where the mint either succeeds or says
+    /// why not.
     ///
     /// A Workspace pin is usable on its own: it is the token every call on that
     /// Workspace presents, so the identity needs no row of its own behind it.
@@ -248,7 +153,8 @@ impl GitHostTokens {
         let Some(row) = self
             .provider_tokens
             .find_github_row(actor.user_id())
-            .await?
+            .await
+            .map_err(|e| StoreError::with_source(format!("read {actor}'s GitHub row"), e))?
         else {
             return Err(GitHostTokenError::NoCredential {
                 actor: actor.clone(),
@@ -269,7 +175,7 @@ impl GitHostTokens {
         checked.map_err(|source| GitHostTokenError::Broken {
             actor: actor.clone(),
             provider: RepositoryProvider::Github,
-            source,
+            source: Box::new(source),
         })
     }
 
@@ -282,7 +188,8 @@ impl GitHostTokens {
         let Some(row) = self
             .provider_tokens
             .find_github_row(actor.user_id())
-            .await?
+            .await
+            .map_err(|e| StoreError::with_source(format!("read {actor}'s GitHub row"), e))?
         else {
             return Err(GitHostTokenError::NoCredential {
                 actor: actor.clone(),
@@ -396,14 +303,14 @@ fn classify(actor: &Actor, repo: &GitHostRepo, source: AuthError) -> GitHostToke
     if out_of_reach {
         return GitHostTokenError::Forbidden {
             actor: actor.clone(),
-            repo: repo.clone(),
-            source,
+            repo: Box::new(repo.clone()),
+            source: Box::new(source),
         };
     }
     GitHostTokenError::Broken {
         actor: actor.clone(),
         provider: repo.provider(),
-        source,
+        source: Box::new(source),
     }
 }
 
@@ -415,7 +322,7 @@ fn classify(actor: &Actor, repo: &GitHostRepo, source: AuthError) -> GitHostToke
 // `test` stays first so the census keeps scoring this fake as test-context; the
 // feature exposes it to other crates' tests (see Cargo.toml `test-support`).
 #[cfg(any(test, feature = "test-support"))]
-pub fn seam_over(provider_tokens: Arc<dyn ProviderTokenDao>) -> Arc<GitHostTokens> {
+pub fn seam_over(provider_tokens: Arc<dyn ProviderTokenDao>) -> Arc<dyn GitHostTokenIssuer> {
     Arc::new(GitHostTokens::new(
         provider_tokens,
         Arc::new(crate::auth::provider_tokens::MockProviderTokenAuthDao::new()),
@@ -423,6 +330,38 @@ pub fn seam_over(provider_tokens: Arc<dyn ProviderTokenDao>) -> Arc<GitHostToken
         Arc::new(GitHubAppRegistry::default()),
         Arc::new(crate::secret::test_support::service_with(vec![])),
     ))
+}
+
+
+/// Freshness is handled here: OAuth rows refresh through [`ensure_fresh_token`]
+/// and installation rows mint, so a returned token is usable now and must not
+/// be cached.
+#[async_trait]
+impl GitHostTokenIssuer for GitHostTokens {
+    async fn token(&self, actor: &Actor, repo: &GitHostRepo) -> Result<String, GitHostTokenError> {
+        let provider = repo.provider();
+        if let Some(pinned) = self.pinned_token(actor, provider).await? {
+            return Ok(pinned);
+        }
+        match provider {
+            RepositoryProvider::Github => self.github_token(actor, repo).await,
+            RepositoryProvider::Gitlab => self.stored_host_token(actor, PlainGitHost::Gitlab).await,
+            RepositoryProvider::Gitness => {
+                self.stored_host_token(actor, PlainGitHost::Gitness).await
+            }
+        }
+    }
+
+    async fn host_token(
+        &self,
+        actor: &Actor,
+        host: PlainGitHost,
+    ) -> Result<String, GitHostTokenError> {
+        if let Some(pinned) = self.pinned_token(actor, host.provider()).await? {
+            return Ok(pinned);
+        }
+        self.stored_host_token(actor, host).await
+    }
 }
 
 #[cfg(test)]
@@ -585,6 +524,74 @@ mod tests {
             error.to_string().contains("unknown GitHub App key"),
             "got {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_provider_token_secret_alone_is_not_a_credential() {
+        // The identity holds a validated PAT in the secret store but no
+        // `provider_tokens` row. There is no credential: a secret is reachable
+        // only through the reference row that names it.
+        let secrets = service_with(vec![secret(
+            "user",
+            Some("u1"),
+            "provider_token",
+            "GITHUB_TOKEN",
+            "ghp_validated",
+        )]);
+        let error = resolve(None, secrets)
+            .await
+            .expect_err("a secret with no row is not a credential");
+        assert!(
+            matches!(error, GitHostTokenError::NoCredential { .. }),
+            "got {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_env_secret_alone_is_not_a_credential() {
+        let secrets = service_with(vec![secret(
+            "user",
+            Some("u1"),
+            "env",
+            "GITHUB_TOKEN",
+            "ghp_unvalidated",
+        )]);
+        let error = resolve(None, secrets)
+            .await
+            .expect_err("an env secret with no row is not a credential");
+        assert!(
+            matches!(error, GitHostTokenError::NoCredential { .. }),
+            "got {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stored_row_outranks_a_secret_under_the_same_key() {
+        let secrets = service_with(vec![secret(
+            "user",
+            Some("u1"),
+            "provider_token",
+            "GITHUB_TOKEN",
+            "ghp_from_secret",
+        )]);
+        let token = resolve(Some(github_row("oauth", "gho_from_row")), secrets)
+            .await
+            .expect("the row resolves");
+        assert_eq!(token, "gho_from_row");
+    }
+
+    #[tokio::test]
+    async fn the_actors_own_row_wins_over_a_global_one() {
+        // A run-as identity owns its credential: its own row is used even
+        // though a global row exists. Without this the sandbox silently ran as
+        // the global App.
+        let stub = StubProviderTokens::with_user_row(Some(github_row("oauth", "gho_run_as_user")))
+            .with_global_row(github_row("oauth", "gho_global_binding"));
+        let token = tokens(stub, service_with(vec![]))
+            .token(&Actor::of("u1"), &github_repo())
+            .await
+            .expect("the actor's own row resolves");
+        assert_eq!(token, "gho_run_as_user");
     }
 
     #[tokio::test]

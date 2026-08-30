@@ -21,7 +21,6 @@ utoipa = { version = "5", features = ["axum_extras"] }
 moatless-adapter-model = { path = "../adapter-model" }
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
 moatless-core = { path = "../core" }
-moatless-identity = { path = "../identity" }
 moatless-loops = { path = "../loops" }
 moatless-types = { path = "../types" }
 

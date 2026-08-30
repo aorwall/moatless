@@ -13,8 +13,8 @@ use tracing::{info, warn};
 
 use moatless_types::workspace::{Port, ResourceConfig, ServerConfig};
 
-use crate::error::SandboxError;
-use crate::models::{ProvisionRequest, RepoCheckout, RepoConfig, derive_mount_name, sanitize_mount_name};
+use moatless_sandbox_runtime::error::SandboxError;
+use moatless_sandbox_runtime::models::{ProvisionRequest, RepoCheckout, RepoConfig, derive_mount_name, sanitize_mount_name};
 use crate::lifecycle::orchestrator::LifecycleDao;
 use crate::preflight::preflight_validate_sandbox_control;
 use crate::secrets::is_platform_owned_key;
@@ -323,7 +323,7 @@ pub async fn build_provision_request(
     // the workspace volume, so a rebuilt pod finds them already in place; there
     // is no copy here to replay.
 
-    let plan = crate::models::ProvisionPlan {
+    let plan = moatless_sandbox_runtime::models::ProvisionPlan {
         repo_config,
         git_clone_url,
         git_branch,

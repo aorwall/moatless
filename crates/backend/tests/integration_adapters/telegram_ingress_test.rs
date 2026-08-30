@@ -31,7 +31,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Utc;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-use moatless_backend::adapters::models::SubscriptionMatch;
+use moatless_adapter_model::models::SubscriptionMatch;
 use moatless_types::loops::RoutingMode;
 use moatless_backend::adapters::routes::adapter_router;
 use moatless_backend::repository::dao as repository_dao;

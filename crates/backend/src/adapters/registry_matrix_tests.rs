@@ -16,15 +16,7 @@ use std::sync::Arc;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::test_support::registry as ts;
 use crate::adapters::{AdapterKind, Adapters};
-use moatless_core::db::DbPool;
 use moatless_identity::auth::test_support::StubProviderTokens;
-use sqlx::postgres::PgPoolOptions;
-
-fn lazy_pool() -> DbPool {
-    PgPoolOptions::new()
-        .connect_lazy("postgres://postgres:postgres@localhost/moatless_test")
-        .expect("lazy pool")
-}
 
 fn registry_with_all_current_adapters() -> Adapters {
     let mut providers = Adapters::new();
@@ -49,7 +41,6 @@ fn registry_with_all_current_adapters() -> Adapters {
     Arc::new(
         crate::adapters::providers::linear::adapter::LinearAdapter::new(
             &moatless_core::config::Config::test_minimal().linear,
-            lazy_pool(),
             std::sync::Arc::new(moatless_identity::ports::HarnessTokens::new(
                 std::sync::Arc::new(
                     moatless_identity::auth::test_support::StubProviderTokens::default(),

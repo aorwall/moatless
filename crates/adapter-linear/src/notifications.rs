@@ -18,10 +18,10 @@ use tracing::debug;
 use moatless_core::config::Config;
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::AdapterConnection;
-use moatless_loops::loops::dao::LoopDao;
+use moatless_adapter_model::models::AdapterConnection;
+use moatless_loops::loops::ports::LoopReader;
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_tasks::task::closer::TaskCloser;
+use moatless_backend_core::task::TaskFinisher;
 use moatless_backend_core::task::TaskReader;
 
 use super::agent_api::LinearAgentApi;
@@ -47,8 +47,8 @@ pub(super) async fn handle_issue_status_notification(
     task_bindings: &dyn TaskBindingDao,
     tasks: &dyn TaskReader,
     config: &Config,
-    task_closer: &TaskCloser,
-    loops: &LoopDao,
+    task_closer: &dyn TaskFinisher,
+    loops: &dyn LoopReader,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     notif: &AppUserNotificationData,

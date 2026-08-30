@@ -41,7 +41,7 @@ use moatless_types::task::RelatedTask;
 use crate::task::schemas::MessageContextInput;
 use moatless_core::events::EventPublisher;
 use moatless_types::agent::{AgentMode, AgentType};
-use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_backend_core::workspace::RepositoryReader;
 use moatless_workspaces::repository::models::Repository;
 
 /// Normalised task-creation input. Every call path (HTTP handler, loops,
@@ -166,6 +166,10 @@ pub enum TaskCreationError {
     ShortId,
     #[error(transparent)]
     Db(#[from] sqlx::Error),
+    /// A published store seam failed. Distinct from [`Self::Db`] only in where
+    /// the failure was raised.
+    #[error(transparent)]
+    Store(#[from] moatless_backend_core::store::StoreError),
 }
 
 impl From<TaskCreationError> for TaskError {
@@ -182,6 +186,7 @@ impl From<TaskCreationError> for TaskError {
                 TaskError::Internal("Failed to generate unique short ID".to_string())
             }
             TaskCreationError::Db(e) => TaskError::Db(e),
+            TaskCreationError::Store(e) => TaskError::Store(e),
         }
     }
 }
@@ -193,7 +198,7 @@ pub struct TaskCreationService {
     tasks: Arc<dyn TaskDao>,
     tags: Arc<dyn TagDao>,
     relations: Arc<dyn TaskRelationDao>,
-    repositories: Arc<dyn RepositoryDao>,
+    repositories: Arc<dyn RepositoryReader>,
     events: Option<Arc<dyn EventPublisher>>,
     starter: Arc<dyn SandboxStarter>,
     joiner: Arc<dyn SandboxJoiner>,
@@ -209,7 +214,7 @@ impl TaskCreationService {
         tasks: Arc<dyn TaskDao>,
         tags: Arc<dyn TagDao>,
         relations: Arc<dyn TaskRelationDao>,
-        repositories: Arc<dyn RepositoryDao>,
+        repositories: Arc<dyn RepositoryReader>,
         events: Option<Arc<dyn EventPublisher>>,
         starter: Arc<dyn SandboxStarter>,
         joiner: Arc<dyn SandboxJoiner>,
@@ -313,7 +318,7 @@ impl TaskCreationService {
             #[allow(clippy::disallowed_methods)]
             let sys_ctx = ScopeContext::system();
             self.repositories
-                .find_by_id(&req.repository_id, &sys_ctx)
+                .describe(&sys_ctx, &req.repository_id)
                 .await?
                 .ok_or_else(|| TaskCreationError::RepoNotFound(req.repository_id.clone()))?
         };
@@ -513,7 +518,7 @@ mod tests {
         MockPreflightPort, MockSandboxJoiner, PreflightRejection, SandboxError,
     };
     use moatless_core::events::test_support::RecordingPublisher;
-    use moatless_workspaces::repository::dao::MockRepositoryDao;
+    use moatless_backend_core::workspace::MockRepositoryReader;
     use moatless_types::repository::RepositoryKind;
     use moatless_types::task::CheckoutMode;
     use moatless_workspaces::repository::models::Repository;
@@ -602,9 +607,9 @@ mod tests {
     ) -> TaskCreationService {
         let tags = MockTagDao::new();
         let relations = MockTaskRelationDao::new();
-        let mut repos = MockRepositoryDao::new();
+        let mut repos = MockRepositoryReader::new();
         repos
-            .expect_find_by_id()
+            .expect_describe()
             .returning(|_, _| Ok(Some(sample_repo())));
         TaskCreationService::new(
             Arc::new(tasks),

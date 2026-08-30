@@ -3,7 +3,7 @@
 //! Verifies `X-Webhook-Signature` header using `HMAC-SHA256(secret, body)`.
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::signature::verify_hmac_sha256;
+use moatless_adapter_model::signature::verify_hmac_sha256;
 
 /// Verify the webhook request signature.
 ///
@@ -17,7 +17,7 @@ pub fn verify_signature(
     let expected_hex = expected_signature
         .strip_prefix("sha256=")
         .ok_or(SharedAdapterError::SignatureInvalid)?;
-    verify_hmac_sha256(secret, body, expected_hex)
+    verify_hmac_sha256(secret, body, expected_hex).map_err(Into::into)
 }
 
 #[cfg(test)]

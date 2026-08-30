@@ -1,7 +1,7 @@
 //! Adapter capability interfaces and shared capability value types.
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{BindingContext, ExternalStatus, InboundMessage, OutboundReply};
 use moatless_types::loops::LoopContext;
 

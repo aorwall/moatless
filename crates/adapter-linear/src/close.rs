@@ -21,9 +21,9 @@ use moatless_types::task::TaskStatus;
 use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_tasks::task::closer::{CloseEvent, TaskCloser};
+use moatless_backend_core::task::{CloseReason, TaskFinisher};
 use moatless_backend_core::task::TaskReader;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
@@ -38,7 +38,7 @@ pub(super) async fn close_active_bindings_for_issue(
     task_bindings: &dyn TaskBindingDao,
     tasks: &dyn TaskReader,
     config: &Config,
-    task_closer: &TaskCloser,
+    task_closer: &dyn TaskFinisher,
     api: &LinearAgentApi,
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
@@ -151,7 +151,7 @@ async fn task_can_be_closed(
 async fn close_linear_bound_task(
     tasks: &dyn TaskReader,
     config: &Config,
-    task_closer: &TaskCloser,
+    task_closer: &dyn TaskFinisher,
     api: &LinearAgentApi,
     issue: &IssuePayload,
     binding: &TaskBinding,
@@ -160,28 +160,19 @@ async fn close_linear_bound_task(
     // `task_can_be_closed`.
     emit_linear_close_response(tasks, config, api, issue, binding).await;
 
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "Linear issue-close handler runs as background system, no caller identity"
-    )]
-    let sys = ScopeContext::system();
-
-    // Terminate through the shared closer: it persists `Closed`, removes the
-    // sandbox, deactivates the bindings, and publishes the event. Only the
-    // enriched close event is this Adapter's — the `"claude-code"` actor and the
-    // `{reason, issue_identifier, state_name}` payload the UI renders.
-    let close_event = CloseEvent::enriched(
-        "claude-code",
-        serde_json::json!({
+    // Terminate through the task band's own finisher: it persists `Closed`,
+    // removes the sandbox, deactivates the bindings, and publishes the event.
+    // Only the close reason is this Adapter's — the `"claude-code"` actor and
+    // the `{reason, issue_identifier, state_name}` payload the UI renders.
+    let close_reason = CloseReason {
+        actor: "claude-code".to_string(),
+        payload: serde_json::json!({
             "reason": "linear_state_terminal",
             "issue_identifier": issue.identifier,
             "state_name": issue.state_name(),
         }),
-    );
-    if let Err(e) = task_closer
-        .close_with_event(&sys, &binding.task_id, &close_event)
-        .await
-    {
+    };
+    if let Err(e) = task_closer.close(&binding.task_id, close_reason).await {
         warn!(task_id = %binding.task_id, error = %e, "Failed to close task on Linear close");
         return;
     }

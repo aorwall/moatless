@@ -30,16 +30,16 @@ use crate::workspace::dao::WorkspaceDao;
 use moatless_types::repository::RepositoryKind;
 use crate::repository::models::Repository;
 use moatless_types::access_control::Actor;
-use moatless_identity::extractors::AuthUser;
-use moatless_identity::git_host_repo::GitHostRepo;
-use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
+use moatless_core::http_auth::AuthUser;
+use moatless_types::repository::GitHostRepo;
+use moatless_backend_core::identity::{GitHostTokenError, GitHostTokenIssuer};
 
 /// Orchestrates skill discovery across workspace + plugins.
 pub struct SkillService {
     repositories: Arc<dyn RepositoryDao>,
     workspaces: Arc<dyn WorkspaceDao>,
     plugins: Arc<dyn PluginDao>,
-    git_host_tokens: Arc<GitHostTokens>,
+    git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     fetcher: Arc<dyn SkillFetcher>,
     plugin_sync: Arc<PluginSyncService>,
     cache: Cache<String, Arc<Vec<Skill>>>,
@@ -51,7 +51,7 @@ impl SkillService {
         repositories: Arc<dyn RepositoryDao>,
         workspaces: Arc<dyn WorkspaceDao>,
         plugins: Arc<dyn PluginDao>,
-        git_host_tokens: Arc<GitHostTokens>,
+        git_host_tokens: Arc<dyn GitHostTokenIssuer>,
         fetcher: Arc<dyn SkillFetcher>,
         plugin_sync: Arc<PluginSyncService>,
         ttl: Duration,
@@ -212,7 +212,6 @@ impl SkillService {
         match self.git_host_tokens.token(actor, &host_repo).await {
             Ok(token) => Ok(Some(token)),
             Err(GitHostTokenError::NoCredential { .. }) => Ok(None),
-            Err(GitHostTokenError::Database(e)) => Err(SkillError::Db(e)),
             Err(e) => Err(SkillError::RepositoryToken(
                 crate::repository::access::git_host_token_error(e),
             )),

@@ -27,13 +27,13 @@
 
 use std::sync::Arc;
 
+use moatless_adapter_model::apps::AdapterAppReader;
 use moatless_core::config::Config;
-use moatless_core::db::DbPool;
 use moatless_backend_core::identity::AppCredentials;
 use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_types::agent::AgentSubType;
 use moatless_types::sandbox::SandboxStatus;
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::events::{TaskEventSubscriber, TaskEventSubscribers};
 use moatless_backend_core::task::{TaskReader, TranscriptAppend};
 use moatless_tasks::agent_event::{AgentEvent, EventKey};
@@ -46,11 +46,11 @@ use super::activity::{
 
 /// The ports the Linear event reaction reads.
 pub struct LinearEventSubscriber {
-    db: DbPool,
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     config: Arc<Config>,
+    apps: Arc<dyn AdapterAppReader>,
     messages: Arc<dyn TranscriptAppend>,
     tasks: Arc<dyn TaskReader>,
     active_turns: Arc<ActiveLinearTurns>,
@@ -63,21 +63,21 @@ impl LinearEventSubscriber {
                   it used to hold; grouping them back would reintroduce that bag"
     )]
     pub fn new(
-        db: DbPool,
         app_tokens: Arc<dyn AppCredentials>,
         task_bindings: Arc<dyn TaskBindingDao>,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         config: Arc<Config>,
+        apps: Arc<dyn AdapterAppReader>,
         messages: Arc<dyn TranscriptAppend>,
         tasks: Arc<dyn TaskReader>,
         active_turns: Arc<ActiveLinearTurns>,
     ) -> Self {
         Self {
-            db,
             app_tokens,
             task_bindings,
             adapter_connections,
             config,
+            apps,
             messages,
             tasks,
             active_turns,
@@ -118,22 +118,20 @@ impl LinearEventSubscriber {
         // looked up against the persisted tool_use row for the tool's name.
         if role == "user" {
             tokio::spawn(notify_linear_tool_results(
-                self.db.clone(),
-            self.app_tokens.clone(),
-            self.task_bindings.clone(),
+                self.app_tokens.clone(),
+                self.task_bindings.clone(),
                 self.adapter_connections.clone(),
-                self.config.clone(),
+                self.apps.clone(),
                 self.messages.clone(),
                 event.task_id.clone(),
                 message,
             ));
         } else {
             tokio::spawn(notify_linear_message_activities(
-                self.db.clone(),
-            self.app_tokens.clone(),
-            self.task_bindings.clone(),
+                self.app_tokens.clone(),
+                self.task_bindings.clone(),
                 self.adapter_connections.clone(),
-                self.config.clone(),
+                self.apps.clone(),
                 event.task_id.clone(),
                 message,
             ));
@@ -233,11 +231,10 @@ impl LinearEventSubscriber {
     /// status replaces the previous one in Linear's UI instead of piling up.
     fn spawn_action(&self, task_id: &str, action: &str, parameter: &str) {
         tokio::spawn(notify_linear_action(
-            self.db.clone(),
             self.app_tokens.clone(),
             self.task_bindings.clone(),
             self.adapter_connections.clone(),
-            self.config.clone(),
+            self.apps.clone(),
             task_id.to_string(),
             action.to_string(),
             parameter.to_string(),
@@ -248,11 +245,10 @@ impl LinearEventSubscriber {
 
     fn spawn_status(&self, task_id: &str, kind: ActivityKind, body: String) {
         tokio::spawn(notify_linear_status(
-            self.db.clone(),
             self.app_tokens.clone(),
             self.task_bindings.clone(),
             self.adapter_connections.clone(),
-            self.config.clone(),
+            self.apps.clone(),
             task_id.to_string(),
             kind,
             body,

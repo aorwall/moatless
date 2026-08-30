@@ -10,12 +10,11 @@ use moatless_types::access_control::ScopeContext;
 use moatless_loops::adapters::AdapterInboundPresentation;
 use moatless_loops::adapters::AdapterKind;
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, CONNECTED_THREAD_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, CONNECTED_THREAD_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::RoutingMode;
 use moatless_loops::bindings::metrics::{inbound_reason, record_inbound};
-use moatless_tasks::task::closer::CloseEvent;
-use moatless_tasks::task::creation::TaskCreationError;
+use moatless_backend_core::task::{CloseReason, InboundTurn, TaskOpenError, TurnOrigin};
 use moatless_types::task::Visibility;
 
 use super::router::GithubPrInboundRouter;
@@ -225,12 +224,7 @@ impl GithubPrInboundRouter {
                 match self.create_provider_event_task(rule, &msg).await {
                     Ok(task_id) => {
                         if let Some(ref r) = related {
-                            moatless_tasks::task::relations::record_related_to(
-                                self.task_relations.as_ref(),
-                                &task_id,
-                                r,
-                            )
-                            .await;
+                            self.task_relations.record_related_to(&task_id, r).await;
                         }
 
                         let binding = self
@@ -259,7 +253,7 @@ impl GithubPrInboundRouter {
                     // error event, so degrade — log and skip the new-task
                     // binding/delivery, then fall through to existing-binding
                     // delivery below.
-                    Err(TaskCreationError::Preflight(reason)) => {
+                    Err(TaskOpenError::Refused(reason)) => {
                         warn!(
                             subscription_id = %rule.id,
                             subject_key = %subject_key,
@@ -271,7 +265,10 @@ impl GithubPrInboundRouter {
                     // so the webhook 5xx's and GitHub redelivers, rather than
                     // silently dropping the PR event.
                     Err(other) => {
-                        return Err(AdapterError::TaskCreation(other));
+                        return Err(AdapterError::task_handoff(
+                            "open a task from a provider event",
+                            other,
+                        ));
                     }
                 }
             } else if rule.is_none() {
@@ -417,15 +414,11 @@ impl GithubPrInboundRouter {
             // on this router; only the enriched close event is github_pr's, so we
             // carry it: the "claude-code" actor and the `{reason, pr_number}`
             // payload the UI renders, byte for byte what the inline close emitted.
-            let close_event = CloseEvent::enriched(
-                "claude-code",
-                serde_json::json!({ "reason": "pr_closed", "pr_number": pr_number }),
-            );
-            if let Err(e) = self
-                .task_closer
-                .close_with_event(&sys, task_id, &close_event)
-                .await
-            {
+            let close_reason = CloseReason {
+                actor: "claude-code".to_string(),
+                payload: serde_json::json!({ "reason": "pr_closed", "pr_number": pr_number }),
+            };
+            if let Err(e) = self.task_closer.close(task_id, close_reason).await {
                 warn!(task_id = %task_id, error = %e, "Failed to close task on PR close");
                 continue;
             }
@@ -477,7 +470,7 @@ impl GithubPrInboundRouter {
             thread_id: None, // skip thread-context fetch (matches `opened`)
             message_thread_id: info.pr_number.to_string(),
             user_id,
-            author: moatless_loops::adapters::models::author_handle(&info.sender_login),
+            author: moatless_adapter_model::models::author_handle(&info.sender_login),
             sender_external_id: None,
             text,
             file_ids: vec![],
@@ -526,14 +519,14 @@ impl GithubPrInboundRouter {
     }
 
     /// Translate a GitHub PR provider event into a [`NewTaskRequest`] and hand it to
-    /// the shared [`TaskCreationService`]. The service owns short-id generation,
+    /// the task band's own opener. It owns short-id generation,
     /// preflight, insert, tags, provision, and the task event; this function only
     /// maps the subscription + inbound message onto the normalised request.
     ///
     /// The binding upsert and first-message delivery stay with the caller
     /// ([`route_event`]), so no first message is passed here.
     ///
-    /// Returns the raw [`TaskCreationError`] so the caller can distinguish a
+    /// Returns the raw [`TaskOpenError`] so the caller can distinguish a
     /// permanent failure (`Preflight` — a bad token that a webhook redelivery
     /// can't fix) from a transient one (a DB blip, short-id exhaustion) that
     /// should surface as a 5xx so GitHub retries.
@@ -541,7 +534,7 @@ impl GithubPrInboundRouter {
         &self,
         rule: &SubscriptionMatch,
         msg: &InboundMessage,
-    ) -> Result<String, TaskCreationError> {
+    ) -> Result<String, TaskOpenError> {
         // Compose the shared spine's single task-creation entry point. The only
         // GitHub-specific inputs are the `PR_ORIGIN_CONTEXT` prelude, public
         // visibility (so PR collaborators can open the task), and the
@@ -557,7 +550,7 @@ impl GithubPrInboundRouter {
             .as_ref()
             .and_then(|adapter| adapter.reply_instructions());
         let outcome = moatless_loops::loops::firing::inbound::create_task_from_loop(
-            &self.task_creation,
+            self.task_creation.as_ref(),
             &config,
             moatless_loops::loops::firing::inbound::CreateTaskParams {
                 name: rule.task_name.clone(),
@@ -574,7 +567,7 @@ impl GithubPrInboundRouter {
         )
         .await?;
 
-        let task_id = outcome.task.task_id;
+        let task_id = outcome.task_id;
         info!(task_id = %task_id, subscription_id = %rule.id, "Created task from GitHub PR provider event");
         Ok(task_id)
     }
@@ -594,32 +587,25 @@ impl GithubPrInboundRouter {
         msg: &InboundMessage,
     ) -> Result<(), AdapterError> {
         self.message_send
-            .send_message_flow(
-                &binding.task_id,
-                &msg.text,
-                None,
-                None,
-                None,
-                &msg.file_ids,
-                &[],
-                false,
-                moatless_types::task::ExternalOrigin {
-                    event_id: msg.external_event_id.as_deref(),
-                    adapter: Some(ADAPTER_LABEL),
-                    subject_key: Some(&binding.subject_key),
-                    source_name: Some(rule.source_matcher.as_str()),
-                    author: msg.author.as_deref(),
+            .accept(InboundTurn {
+                task_id: binding.task_id.clone(),
+                text: msg.text.clone(),
+                file_ids: msg.file_ids.clone(),
+                resume: false,
+                origin: TurnOrigin {
+                    event_id: msg.external_event_id.clone(),
+                    adapter: Some(ADAPTER_LABEL.to_string()),
+                    subject_key: Some(binding.subject_key.clone()),
+                    source_name: Some(rule.source_matcher.clone()),
+                    author: msg.author.clone(),
                     sender_id: None,
-                    source_task_id: None,
                 },
-                false,
-                Some(msg.user_id.as_str()),
-                &[],
-                None,
-            )
+                sent_by: Some(msg.user_id.clone()),
+                skills: Vec::new(),
+            })
             .await
             // Logged once at the transport boundary by `AdapterError::into_response`.
-            .map_err(AdapterError::MessageDelivery)?;
+            .map_err(|e| AdapterError::task_handoff("deliver a provider turn to a task", e))?;
 
         let binding_repo = self.task_bindings.clone();
         if let Some(ref ext_id) = msg.external_event_id {
@@ -647,7 +633,7 @@ mod tests {
     use moatless_types::adapter::AdapterKind;
     use chrono::Utc;
     use moatless_types::access_control::Scope;
-    use moatless_loops::adapters::models::AdapterConnection;
+    use moatless_adapter_model::models::AdapterConnection;
 
     use super::delivery_only_rule;
 

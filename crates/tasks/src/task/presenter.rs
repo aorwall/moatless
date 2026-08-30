@@ -23,8 +23,7 @@ use crate::task::dao::TaskDao;
 use crate::task::models::SandboxIntentView;
 use moatless_api_schemas::bindings::TaskBindingSummary;
 use moatless_backend_core::identity::UserDisplay;
-use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
+use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 
 /// The eight ports a task response is assembled from, held together because a
 /// `TaskResponse` has eight independent sources and `enrich_task` reads all of
@@ -32,8 +31,8 @@ use moatless_workspaces::workspace::dao::WorkspaceDao;
 /// Assembled once at the composition root; all fields are cheap `Arc` clones.
 pub struct TaskPresenter {
     pub(crate) tags: Arc<dyn TagDao>,
-    pub(crate) repositories: Arc<dyn RepositoryDao>,
-    pub(crate) workspaces: Arc<dyn WorkspaceDao>,
+    pub(crate) repositories: Arc<dyn RepositoryReader>,
+    pub(crate) workspaces: Arc<dyn WorkspaceResolver>,
     pub(crate) users: Arc<dyn UserDisplay>,
     pub(crate) task_bindings: Arc<dyn TaskBindings>,
     pub(crate) task_relations: Arc<dyn TaskRelationDao>,
@@ -45,8 +44,8 @@ impl TaskPresenter {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tags: Arc<dyn TagDao>,
-        repositories: Arc<dyn RepositoryDao>,
-        workspaces: Arc<dyn WorkspaceDao>,
+        repositories: Arc<dyn RepositoryReader>,
+        workspaces: Arc<dyn WorkspaceResolver>,
         users: Arc<dyn UserDisplay>,
         task_bindings: Arc<dyn TaskBindings>,
         task_relations: Arc<dyn TaskRelationDao>,
@@ -82,7 +81,7 @@ impl TaskPresenter {
         let sys_ctx = ScopeContext::system();
         let repo_name = self
             .repositories
-            .find_by_id(&row.repository_id, &sys_ctx)
+            .describe(&sys_ctx, &row.repository_id)
             .await?
             .map(|r| r.name);
 
@@ -91,15 +90,13 @@ impl TaskPresenter {
         let workspace_name = match &row.workspace_id {
             Some(wid) => self
                 .workspaces
-                .find_names_by_ids(std::slice::from_ref(wid))
+                .names(std::slice::from_ref(wid))
                 .await
                 .unwrap_or_else(|e| {
                     tracing::warn!(error = %e, workspace_id = %wid, "Failed to resolve workspace name");
-                    Vec::new()
+                    HashMap::new()
                 })
-                .into_iter()
-                .next()
-                .map(|(_, name)| name),
+                .remove(wid),
             None => None,
         };
 
@@ -210,8 +207,8 @@ impl TaskPresenter {
         if repo_ids.is_empty() {
             return HashMap::new();
         }
-        match self.repositories.find_names_by_ids(repo_ids).await {
-            Ok(pairs) => pairs.into_iter().collect(),
+        match self.repositories.names(repo_ids).await {
+            Ok(names) => names,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to batch resolve repository names");
                 HashMap::new()
@@ -227,8 +224,8 @@ impl TaskPresenter {
         if workspace_ids.is_empty() {
             return HashMap::new();
         }
-        match self.workspaces.find_names_by_ids(workspace_ids).await {
-            Ok(pairs) => pairs.into_iter().collect(),
+        match self.workspaces.names(workspace_ids).await {
+            Ok(names) => names,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to batch resolve workspace names");
                 HashMap::new()

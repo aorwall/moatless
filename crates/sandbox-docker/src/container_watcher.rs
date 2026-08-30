@@ -18,8 +18,8 @@ use super::container_builder::{
     CREATED_BY_LABEL, CREATED_BY_VALUE, SANDBOX_SERVICE, SERVICE_LABEL,
 };
 use moatless_core::events::EventPublisher;
-use moatless_sandbox_control::lifecycle::classify::ObservedTransition;
-use moatless_sandbox_control::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
+use moatless_sandbox_runtime::classify::ObservedTransition;
+use moatless_sandbox_runtime::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
 use moatless_sandbox_control::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
 use moatless_sandbox_control::lifecycle::Lifecycle;
 

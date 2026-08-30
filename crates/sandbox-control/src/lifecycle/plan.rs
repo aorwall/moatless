@@ -8,14 +8,14 @@ use std::sync::Arc;
 
 
 use crate::auto_provision::{build_provision_request, get_server_configs_for_workspace};
-use crate::models::ProvisionRequest;
+use moatless_sandbox_runtime::models::ProvisionRequest;
 use moatless_types::workspace::ServerConfig;
 use moatless_backend_core::identity::CommitIdentity;
 use moatless_backend_core::workspace::WorkspaceResolver;
 
-use super::error::RuntimeError;
+use moatless_sandbox_runtime::runtime::RuntimeError;
 use super::orchestrator::{LifecycleDao, TaskIntent};
-use super::runtime::map_sandbox_error;
+use moatless_sandbox_runtime::runtime::map_sandbox_error;
 
 /// The three seams a fresh runtime plan is assembled from. `sandboxes` is the
 /// sole source of a pod's shape, `workspaces` supplies its run configuration
@@ -92,7 +92,7 @@ impl ProvisionDeps {
 
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
-    use super::super::error::ErrorClass;
+    use moatless_sandbox_runtime::runtime::ErrorClass;
     use super::super::test_support::seed_task_with;
     use super::*;
     use sqlx::PgPool;
@@ -111,13 +111,17 @@ mod db_tests {
                 )),
                 Arc::new(moatless_workspaces::plugin::dao::PgPluginDao(pool.clone())),
             )),
-            Arc::new(moatless_identity::ports::UserDirectory::new(
-                Arc::new(moatless_identity::auth::users::PgUserDao(pool.clone())),
-                Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(
-                    pool.clone(),
-                )),
-            )),
+            // The seeded task is user-scoped and owned by its creator, so the
+            // control gate never reaches for the platform-admin flag.
+            Arc::new(non_admin()),
         )
+    }
+
+    /// A `CommitIdentity` that grants nobody platform admin.
+    fn non_admin() -> moatless_backend_core::identity::MockCommitIdentity {
+        let mut users = moatless_backend_core::identity::MockCommitIdentity::new();
+        users.expect_is_platform_admin().returning(|_| Ok(false));
+        users
     }
 
     #[sqlx::test]

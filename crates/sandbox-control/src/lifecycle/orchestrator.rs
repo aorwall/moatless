@@ -28,7 +28,7 @@ use tracing::Instrument;
 
 use moatless_backend_core::sandbox as core_sandbox;
 
-use crate::error::SandboxError;
+use moatless_sandbox_runtime::error::SandboxError;
 use moatless_types::access_control::{Scope, ScopedResource};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::TaskStatus;
@@ -38,9 +38,9 @@ pub use moatless_backend_core::store::StoreError;
 
 use super::error::LifecycleError;
 use super::events::{self, EventContext, EventFact, FailureDetail, LifecycleEvent};
-use super::outcome::LifecycleOutcome;
-use super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
-use super::types::{
+use moatless_sandbox_runtime::outcome::LifecycleOutcome;
+use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
+use moatless_sandbox_runtime::types::{
     ArchiveRetention, CorrelationMarker, IntentEffect, ObservedStatus, OperationGeneration,
     OperationKind, RuntimeEffect,
 };
@@ -266,7 +266,7 @@ pub trait LifecycleEventSink: Send + Sync {
         task_id: &str,
         generation: OperationGeneration,
         observed: ObservedStatus,
-        diagnostics: &super::outcome::Diagnostics,
+        diagnostics: &moatless_sandbox_runtime::outcome::Diagnostics,
     );
 }
 
@@ -392,7 +392,7 @@ impl Lifecycle {
     pub async fn expected_sandbox_image(&self, task_id: &str) -> Result<String, LifecycleError> {
         let plan = self.plan.as_ref().ok_or_else(|| LifecycleError::Runtime {
             task_id: task_id.to_string(),
-            source: super::error::RuntimeError::Infrastructure(
+            source: moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(
                 "sandbox plan knowledge unavailable".to_string(),
             ),
         })?;
@@ -401,7 +401,7 @@ impl Lifecycle {
                 .as_deref()
                 .ok_or_else(|| LifecycleError::Runtime {
                     task_id: task_id.to_string(),
-                    source: super::error::RuntimeError::Infrastructure(
+                    source: moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(
                         "default sandbox image unavailable".to_string(),
                     ),
                 })?;
@@ -419,17 +419,17 @@ impl Lifecycle {
     pub(crate) async fn classify_observation(
         &self,
         task_id: &str,
-        observation: super::classify::Observation,
-    ) -> Result<super::classify::ClassificationResult, LifecycleError> {
+        observation: moatless_sandbox_runtime::classify::Observation,
+    ) -> Result<moatless_sandbox_runtime::classify::ClassificationResult, LifecycleError> {
         let intent = self.require_intent(task_id).await?;
         let suppression_active = intent.marker.is_some_and(|marker| {
-            super::marker::edge_suppression_active(
+            moatless_sandbox_runtime::marker::edge_suppression_active(
                 &marker,
                 self.clock.now(),
-                super::marker::EDGE_SUPPRESSION_STALE_AFTER,
+                moatless_sandbox_runtime::marker::EDGE_SUPPRESSION_STALE_AFTER,
             )
         });
-        Ok(super::classify::classify_with_correlation(
+        Ok(moatless_sandbox_runtime::classify::classify_with_correlation(
             observation,
             intent.desired_state,
             intent.marker,
@@ -659,14 +659,14 @@ impl Lifecycle {
         if intent.desired_state != SandboxDesiredState::Stopped
             || intent.status == TaskStatus::Closed
         {
-            crate::metrics::record_storage_reclaim("skipped");
+            moatless_sandbox_runtime::metrics::record_storage_reclaim("skipped");
             return Ok(Self::reclaim_noop());
         }
 
         // No archive port means no S3, which means the volume is the only copy
         // — there is nothing to reclaim toward.
         let Some(archive) = self.workspace_archive.clone() else {
-            crate::metrics::record_storage_reclaim("skipped");
+            moatless_sandbox_runtime::metrics::record_storage_reclaim("skipped");
             return Ok(Self::reclaim_noop());
         };
 
@@ -679,7 +679,7 @@ impl Lifecycle {
         let archived_at = match archive.archived_at(&task_id).await {
             Ok(at) => at,
             Err(reason) => {
-                crate::metrics::record_storage_reclaim("blocked");
+                moatless_sandbox_runtime::metrics::record_storage_reclaim("blocked");
                 return Err(LifecycleError::ArchiveUnproven { task_id, reason });
             }
         };
@@ -698,7 +698,7 @@ impl Lifecycle {
                 match archive.presign_upload(&task_id).await {
                     Ok(url) => Some(url),
                     Err(reason) => {
-                        crate::metrics::record_storage_reclaim("blocked");
+                        moatless_sandbox_runtime::metrics::record_storage_reclaim("blocked");
                         return Err(LifecycleError::ArchiveUnproven { task_id, reason });
                     }
                 }
@@ -716,7 +716,7 @@ impl Lifecycle {
             .await
         {
             Ok(outcome) => {
-                crate::metrics::record_storage_reclaim(match (outcome.effect, rescuing) {
+                moatless_sandbox_runtime::metrics::record_storage_reclaim(match (outcome.effect, rescuing) {
                     // Nothing was there to reclaim — a task cooled by an earlier
                     // pass, or one that never had a volume.
                     (RuntimeEffect::NoOp, _) => "skipped",
@@ -739,7 +739,7 @@ impl Lifecycle {
             Err(source) => {
                 // The runtime is strict about absence, so a failure here leaves
                 // the volume — the next cycle retries against the same intent.
-                crate::metrics::record_storage_reclaim("blocked");
+                moatless_sandbox_runtime::metrics::record_storage_reclaim("blocked");
                 Err(LifecycleError::Runtime { task_id, source })
             }
         }
@@ -1076,7 +1076,7 @@ impl Lifecycle {
         task_id: &str,
         sandbox_id: &str,
         run: OperationRun,
-        runtime_result: Result<RuntimeOutcome, super::error::RuntimeError>,
+        runtime_result: Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError>,
     ) -> Result<LifecycleOutcome, LifecycleError> {
         let runtime_outcome = match runtime_result {
             Ok(outcome) => outcome,
@@ -1250,7 +1250,7 @@ impl Lifecycle {
             "edge_abandoned",
             format!(
                 "no replacement observed within {}s; the operation was abandoned",
-                super::marker::EDGE_ABANDON_AFTER.as_secs()
+                moatless_sandbox_runtime::marker::EDGE_ABANDON_AFTER.as_secs()
             ),
         );
         let event = events::error_event(task_id, generation, failure);
@@ -1380,7 +1380,7 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    use crate::lifecycle::error::RuntimeError;
+    use moatless_sandbox_runtime::runtime::RuntimeError;
     use chrono::TimeZone;
 
     // ---- In-memory / recording doubles ----
@@ -1656,7 +1656,7 @@ mod tests {
 
     struct RecordingEvents {
         published: Mutex<Vec<LifecycleEvent>>,
-        diagnostics: Mutex<Vec<super::super::outcome::Diagnostics>>,
+        diagnostics: Mutex<Vec<moatless_sandbox_runtime::outcome::Diagnostics>>,
     }
     impl RecordingEvents {
         fn new() -> Arc<Self> {
@@ -1693,7 +1693,7 @@ mod tests {
             _task_id: &str,
             _generation: OperationGeneration,
             _observed: ObservedStatus,
-            diagnostics: &super::super::outcome::Diagnostics,
+            diagnostics: &moatless_sandbox_runtime::outcome::Diagnostics,
         ) {
             self.diagnostics
                 .lock()
@@ -2390,7 +2390,7 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_success_diagnostics_are_republished_by_lifecycle() {
-        use super::super::outcome::{DegradationWarning, Diagnostics, ServerFailure};
+        use moatless_sandbox_runtime::outcome::{DegradationWarning, Diagnostics, ServerFailure};
 
         let h = harness(open_stopped());
         let diagnostics = Diagnostics {

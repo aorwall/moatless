@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 use tracing::{info, warn};
 
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use crate::adapters::{AdapterDestinationBuilder, AdapterKind};
-use crate::loops::dao::LoopDao;
+use crate::loops::ports::LoopReader;
 use crate::bindings::dao::TaskBindingDao;
 
 /// Wires a task to an external Adapter subject: resolves the connection and
@@ -20,9 +20,9 @@ use crate::bindings::dao::TaskBindingDao;
 ///
 /// Holds the four ports this module reads as typed fields — the GitHub PR
 /// destination builder (`github_destination`), the adapter-connection DAO
-/// (`adapter_connections`), the Loop DAO (`loops`), and the task-binding DAO
-/// (`task_bindings`). Read ports through those fields; this module no longer
-/// names `AppState`.
+/// (`adapter_connections`), the Subscription reads (`loops`), and the
+/// task-binding DAO (`task_bindings`). Read ports through those fields; this
+/// module no longer names `AppState`.
 ///
 /// `github_destination` is the *concrete* GitHub PR
 /// [`AdapterDestinationBuilder`], not the adapter registry. A registry field
@@ -39,7 +39,7 @@ use crate::bindings::dao::TaskBindingDao;
 pub struct Connector {
     github_destination: Option<Arc<dyn AdapterDestinationBuilder>>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
-    loops: Arc<LoopDao>,
+    loops: Arc<dyn LoopReader>,
     task_bindings: Arc<dyn TaskBindingDao>,
 }
 
@@ -47,7 +47,7 @@ impl Connector {
     pub fn new(
         github_destination: Option<Arc<dyn AdapterDestinationBuilder>>,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
-        loops: Arc<LoopDao>,
+        loops: Arc<dyn LoopReader>,
         task_bindings: Arc<dyn TaskBindingDao>,
     ) -> Self {
         Self {
@@ -233,11 +233,11 @@ impl Connector {
             .trigger_source_matcher_from_existing_thread(source_id, thread_properties)?;
         let subscription_repo = self.loops.clone();
         let mut subscription = subscription_repo
-            .find_subscription_by_source_matcher(adapter_key, &source_matcher)
+            .subscription_for_source(adapter_key, &source_matcher)
             .await?;
         if subscription.is_none() && adapter_destination.allow_wildcard_trigger_fallback() {
             subscription = subscription_repo
-                .find_subscription_wildcard(adapter_key)
+                .wildcard_subscription(adapter_key)
                 .await?;
         }
 

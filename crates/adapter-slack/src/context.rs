@@ -69,7 +69,7 @@ impl AdapterInboundPresentation for SlackAdapter {
             .and_then(|v| v.as_str());
         let oldest = oldest_raw.map(|s| s.strip_prefix("slack:ts:").unwrap_or(s));
 
-        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
         let replies = app
             .api
             .get_thread_replies(

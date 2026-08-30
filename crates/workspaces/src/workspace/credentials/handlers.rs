@@ -10,7 +10,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 
-use moatless_identity::extractors::AuthUser;
+use moatless_core::http_auth::AuthUser;
 
 use super::models::WorkspaceCredentialMetadata;
 use super::service::WorkspaceCredentialService;

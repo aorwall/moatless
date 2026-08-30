@@ -238,7 +238,7 @@ pub fn is_token_near_expiry(token: &str, secret: &str, threshold_secs: u64) -> b
 }
 
 /// Verifies `X-User-Token` JWTs against the process token secret, satisfying
-/// the consumer-declared [`moatless_identity::extractors::UserTokenVerifier`] port. Keeps
+/// the consumer-declared [`moatless_core::http_auth::UserTokenVerifier`] port. Keeps
 /// the `sandbox::jwt` dependency behind the port so the auth extractors do not
 /// name this module.
 pub struct JwtUserTokenVerifier {
@@ -251,21 +251,21 @@ impl JwtUserTokenVerifier {
     }
 }
 
-impl moatless_identity::extractors::UserTokenVerifier for JwtUserTokenVerifier {
+impl moatless_core::http_auth::UserTokenVerifier for JwtUserTokenVerifier {
     fn verify_user_token(
         &self,
         token: &str,
     ) -> Result<
-        moatless_identity::extractors::VerifiedUserToken,
-        moatless_identity::extractors::TokenVerifyError,
+        moatless_core::http_auth::VerifiedUserToken,
+        moatless_core::http_auth::TokenVerifyError,
     > {
         let secret = self
             .secret
             .as_deref()
-            .ok_or(moatless_identity::extractors::TokenVerifyError::NotConfigured)?;
+            .ok_or(moatless_core::http_auth::TokenVerifyError::NotConfigured)?;
         let claims = verify_user_auth_token(token, secret)
-            .map_err(|e| moatless_identity::extractors::TokenVerifyError::Invalid(e.to_string()))?;
-        Ok(moatless_identity::extractors::VerifiedUserToken {
+            .map_err(|e| moatless_core::http_auth::TokenVerifyError::Invalid(e.to_string()))?;
+        Ok(moatless_core::http_auth::VerifiedUserToken {
             user_id: claims.user_id,
             login: claims.login,
         })
@@ -351,7 +351,7 @@ mod tests {
 
     #[test]
     fn port_maps_outcomes_to_the_extractor_error() {
-        use moatless_identity::extractors::{TokenVerifyError, UserTokenVerifier};
+        use moatless_core::http_auth::{TokenVerifyError, UserTokenVerifier};
 
         // No configured secret -> NotConfigured.
         let unconfigured = JwtUserTokenVerifier::new(None);

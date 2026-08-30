@@ -38,15 +38,13 @@ uuid = { version = "1", features = ["v4", "v5", "serde"] }
 # Percent-encoding for outbound provider URLs.
 urlencoding = "2"
 
-moatless-adapter-model = { path = "../adapter-model" }
+moatless-adapter-model = { path = "../adapter-model", features = ["postgres"] }
 moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
 moatless-core = { path = "../core", features = ["openapi"] }
-moatless-identity = { path = "../identity" }
 moatless-s3 = { path = "../s3" }
 moatless-tasks = { path = "../tasks" }
 moatless-types = { path = "../types" }
-moatless-workspaces = { path = "../workspaces" }
 # Mock doubles of the published binding seams, for the Adapter crates' tests.
 # `cfg(test)` does not fire across a crate boundary, so the ports carry
 # `#[cfg_attr(feature = "test-support", mockall::automock)]` instead.
@@ -72,6 +70,13 @@ tokio-test = "0.4"
 # Test-support fakes/seeders reached across crate boundaries by this crate's own
 # tests (Config::test_minimal, auth::test_support::StubProviderTokens, etc.).
 moatless-core = { path = "../core", features = ["test-support"] }
+# Test-only: this crate's tests build the concrete identity stores behind the
+# ports it reads. Production code here names no identity type, so this edge must
+# never appear under `[dependencies]`.
 moatless-identity = { path = "../identity", features = ["test-support"] }
 moatless-tasks = { path = "../tasks", features = ["test-support"] }
+# Test-only: this crate's tests seed workspace rows. Production code here names
+# no workspace type — it reads the workspace domain through the ports
+# `moatless-backend-core` declares — so this edge must never appear under
+# `[dependencies]`.
 moatless-workspaces = { path = "../workspaces", features = ["test-support"] }

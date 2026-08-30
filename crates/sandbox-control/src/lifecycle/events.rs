@@ -15,8 +15,8 @@ use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 
 use moatless_types::sandbox::SandboxStopReason;
 
-use super::outcome::LifecycleOutcome;
-use super::types::{ObservedStatus, OperationGeneration, OperationKind};
+use moatless_sandbox_runtime::outcome::LifecycleOutcome;
+use moatless_sandbox_runtime::types::{ObservedStatus, OperationGeneration, OperationKind};
 
 /// The deterministic fact an event records for an operation generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +72,7 @@ impl EventFact {
 /// explains itself instead of reading "Sandbox operation failed".
 ///
 /// Adapters have no event publisher — they surface everything through
-/// [`RuntimeError`](super::error::RuntimeError), and this is where lifecycle
+/// [`RuntimeError`](moatless_sandbox_runtime::runtime::RuntimeError), and this is where lifecycle
 /// republishes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FailureDetail {
@@ -357,8 +357,8 @@ pub fn recovery_exhausted_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lifecycle::outcome::LifecycleOutcome;
-    use crate::lifecycle::types::{IntentEffect, RuntimeEffect};
+    use moatless_sandbox_runtime::outcome::LifecycleOutcome;
+    use moatless_sandbox_runtime::types::{IntentEffect, RuntimeEffect};
 
     fn gen(n: i64) -> OperationGeneration {
         OperationGeneration(n)

@@ -36,9 +36,8 @@ use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_types::agent::AgentType;
-use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_types::repository::RepositoryKind;
-use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 /// A create request plus the two things only an internal caller supplies.
 pub struct CreateTaskIntent {
@@ -168,8 +167,8 @@ pub async fn stop_task(
 /// calls and hands the [`NewTaskRequest`] on. A caller that needs the resolved
 /// request without creating anything stops here.
 pub async fn normalize(
-    workspaces: &dyn WorkspaceDao,
-    repositories: &dyn RepositoryDao,
+    workspaces: &dyn WorkspaceResolver,
+    repositories: &dyn RepositoryReader,
     credential_sync: &CredentialSync,
     config: &Config,
     scope_ctx: &ScopeContext,
@@ -192,7 +191,7 @@ pub async fn normalize(
     let workspace = match req.workspace_id.as_deref() {
         Some(workspace_id) => {
             let workspace = workspaces
-                .find_by_id(workspace_id, scope_ctx)
+                .describe(scope_ctx, workspace_id)
                 .await?
                 .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?;
             if workspace.deleted {
@@ -208,8 +207,10 @@ pub async fn normalize(
     let repository_id = match &workspace {
         Some(ws) => {
             workspaces
-                .find_primary_repo(&ws.id)
+                .placements(&ws.id)
                 .await?
+                .into_iter()
+                .next()
                 .ok_or_else(|| {
                     TaskError::BadRequest(format!("Workspace {} has no primary repository", ws.id))
                 })?
@@ -222,7 +223,7 @@ pub async fn normalize(
 
     // Validate repository exists and is usable by this caller.
     let repo = repositories
-        .find_by_id(&repository_id, scope_ctx)
+        .describe(scope_ctx, &repository_id)
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(repository_id.clone()))?;
     ensure_can_use_repository(

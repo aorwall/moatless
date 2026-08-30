@@ -36,8 +36,8 @@ use crate::secrets::{
 };
 use moatless_types::repository::RepositoryProvider as GitHostProvider;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
-use moatless_identity::git_host_repo::GitHostRepo;
-use moatless_identity::git_host_tokens::{GitHostTokenError, GitHostTokens};
+use moatless_types::repository::GitHostRepo;
+use moatless_backend_core::identity::{GitHostTokenError, GitHostTokenIssuer};
 use crate::lifecycle::orchestrator::SandboxShape;
 use moatless_backend_core::identity::CommitIdentity;
 use moatless_backend_core::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
@@ -55,7 +55,7 @@ use moatless_types::repository::Repository;
 pub struct PreflightCredentials {
     /// The one way to a git-host token. Replaces the five credential ports
     /// this struct used to thread.
-    pub git_host_tokens: Arc<GitHostTokens>,
+    pub git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     pub users: Arc<dyn CommitIdentity>,
     /// Read for the Workspace's run-as identity, which outranks the task's own
     /// owner — see `secrets::resolve_task_actor`.
@@ -438,35 +438,27 @@ mod tests {
         }
     }
 
-    fn user(id: &uuid::Uuid, role: UserRole) -> moatless_identity::auth::users::User {
-        moatless_identity::auth::users::User {
-            id: *id,
-            provider_user_id: None,
-            login: id.to_string(),
-            email: None,
-            name: None,
-            avatar_url: None,
-            provider: "test".to_string(),
-            role,
-            created_at: chrono::DateTime::UNIX_EPOCH,
-            last_login_at: chrono::DateTime::UNIX_EPOCH,
-            settings: serde_json::json!({}),
-            is_bot: false,
-        }
-    }
-
     use moatless_types::user::UserRole;
 
-    /// A `CommitIdentity` over a store that reports one role for every lookup.
-    fn users_with_role(role: UserRole) -> moatless_identity::ports::UserDirectory {
-        let mut users = moatless_identity::auth::users::MockUserDao::new();
+    /// A `CommitIdentity` that reports one role for every lookup.
+    fn users_with_role(role: UserRole) -> impl CommitIdentity {
+        let mut users = moatless_backend_core::identity::MockCommitIdentity::new();
         users
-            .expect_get_user()
-            .returning(move |id| Ok(Some(user(id, role))));
-        moatless_identity::ports::UserDirectory::new(
-            Arc::new(users),
-            Arc::new(moatless_identity::auth::test_support::StubProviderTokens::default()),
-        )
+            .expect_is_platform_admin()
+            .returning(move |_| Ok(role == UserRole::Admin));
+        users
+    }
+
+    /// A `CommitIdentity` that reports an unresolvable actor — what the seam
+    /// answers for the `system` sentinel, which is not a user id.
+    fn users_rejecting_the_actor() -> impl CommitIdentity {
+        let mut users = moatless_backend_core::identity::MockCommitIdentity::new();
+        users.expect_is_platform_admin().returning(|id| {
+            Err(moatless_backend_core::store::StoreError::new(format!(
+                "'{id}' is not a user id"
+            )))
+        });
+        users
     }
 
     /// The bug this gate exists for: a global loop firing as a bot yielded a
@@ -532,12 +524,7 @@ mod tests {
     /// a uuid and so never resolves to an admin.
     #[tokio::test]
     async fn a_creatorless_task_is_rejected() {
-        let mut store = moatless_identity::auth::users::MockUserDao::new();
-        store.expect_get_user().never();
-        let users = moatless_identity::ports::UserDirectory::new(
-            Arc::new(store),
-            Arc::new(moatless_identity::auth::test_support::StubProviderTokens::default()),
-        );
+        let users = users_rejecting_the_actor();
         let task = task(Scope::User, None, None);
 
         assert!(

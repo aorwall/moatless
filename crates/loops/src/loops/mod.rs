@@ -10,9 +10,11 @@
 //! - [`sync`] — reconciling `.moatless/loops/<name>/LOOP.md` from a repo's git
 //!   tree into the Loop tables with explicit configuration authority.
 //! - [`http`] — the `/api/v1/loops` HTTP surface.
+//! - [`ports`] — the Subscription reads the Adapters make.
 
 pub mod dao;
 pub mod firing;
 pub mod http;
 pub mod models;
+pub mod ports;
 pub mod sync;

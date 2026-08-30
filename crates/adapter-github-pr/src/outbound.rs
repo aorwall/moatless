@@ -1,8 +1,8 @@
 //! Outbound reply capabilities for GitHub pull requests.
 
-use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_types::repository::GitHostRepo;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{BindingContext, OutboundReply};
 use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{AdapterBindingReply, AdapterMessageReply};
@@ -122,7 +122,7 @@ mod tests {
     use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
-    use moatless_loops::adapters::models::{AdapterConnection, TaskBinding};
+    use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
     use moatless_types::adapter::OutboundReply;
     use moatless_loops::adapters::{AdapterBindingReply, AdapterMessageReply};
 

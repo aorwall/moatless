@@ -4,8 +4,8 @@ use std::borrow::Cow;
 
 use serde_json::{Map, Value};
 
-use moatless_tasks::task_activities::mapping::ActivityKind;
-use moatless_tasks::task_activities::view::ActivityView;
+use moatless_backend_core::activity::ActivityKind;
+use moatless_backend_core::activity::ActivityView;
 
 const MAX_PROJECTED_FILES: usize = 12;
 const MAX_PROJECTED_FILE_DEPTH: usize = 4;
@@ -483,8 +483,8 @@ fn collect_changed_files(value: &Value, files: &mut Vec<String>, depth: usize) {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use moatless_tasks::task_activities::dao::Activity;
-    use moatless_tasks::task_activities::mapping::ActivityStatus;
+    use moatless_backend_core::activity::Activity;
+    use moatless_backend_core::activity::ActivityStatus;
     use serde_json::json;
 
     fn stored(kind: ActivityKind, payload: Value) -> Activity {

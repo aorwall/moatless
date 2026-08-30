@@ -15,7 +15,7 @@ use sqlx::AssertSqlSafe;
 
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 
-use crate::adapters::models::{
+use moatless_adapter_model::models::{
     LoopSpawnConfig, LoopSpawnConfigRow, Schedule, SubscriptionMatch, SubscriptionMatchRow,
 };
 use moatless_backend_core::db_enum::decode_required;
@@ -1226,7 +1226,7 @@ impl LoopDao {
         worker_id: &str,
         limit: i64,
     ) -> Result<Vec<Schedule>, sqlx::Error> {
-        let due_jobs = sqlx::query_as::<_, crate::adapters::models::ScheduleRow>(
+        let due_jobs = sqlx::query_as::<_, moatless_adapter_model::models::ScheduleRow>(
             r#"SELECT t.id,
                       t.id AS loop_id,
                       sts.cron_expression,
@@ -1261,7 +1261,7 @@ impl LoopDao {
 
         let mut locked = Vec::new();
         for job in due_jobs {
-            let job_lock = sqlx::query_as::<_, crate::adapters::models::ScheduleRow>(
+            let job_lock = sqlx::query_as::<_, moatless_adapter_model::models::ScheduleRow>(
                 r#"WITH locked_source AS (
                        UPDATE schedules
                        SET locked_by = $2,

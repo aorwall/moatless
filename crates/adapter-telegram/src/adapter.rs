@@ -2,13 +2,14 @@
 
 use std::sync::Arc;
 
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::{
     Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent, Adapters,
 };
-use moatless_loops::loops::dao::LoopDao;
+use moatless_loops::loops::ports::LoopReader;
+use moatless_adapter_model::apps::AdapterAppReader;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 
@@ -24,9 +25,11 @@ use super::api::TelegramApi;
 pub struct TelegramAdapter {
     api: TelegramApi,
     db: Option<DbPool>,
-    config: Option<Arc<Config>>,
+    /// The stored Telegram apps, when this Adapter was built over a database.
+    /// `None` leaves every send on the client above.
+    apps: Option<Arc<dyn AdapterAppReader>>,
     adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
-    loops: Option<Arc<LoopDao>>,
+    loops: Option<Arc<dyn LoopReader>>,
     adapter_delivery: Option<Arc<AdapterDeliveryStore>>,
 }
 
@@ -54,19 +57,19 @@ impl TelegramAdapter {
         Self {
             api: TelegramApi::new(bot_token),
             db: None,
-            config: None,
+            apps: None,
             adapter_connections: None,
             loops: None,
             adapter_delivery: None,
         }
     }
 
-    pub fn from_db(config: Arc<Config>, db: DbPool) -> Self {
+    pub fn from_db(config: &Config, db: DbPool, apps: Arc<dyn AdapterAppReader>) -> Self {
         let bot_token = config.telegram.bot_token.as_deref().unwrap_or("");
         Self {
             api: TelegramApi::new(bot_token),
             db: Some(db),
-            config: Some(config),
+            apps: Some(apps),
             adapter_connections: None,
             loops: None,
             adapter_delivery: None,
@@ -86,7 +89,7 @@ impl TelegramAdapter {
     pub fn with_ingress_ports(
         mut self,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
-        loops: Arc<LoopDao>,
+        loops: Arc<dyn LoopReader>,
         adapter_delivery: Arc<AdapterDeliveryStore>,
     ) -> Self {
         self.adapter_connections = Some(adapter_connections);
@@ -105,8 +108,8 @@ impl TelegramAdapter {
             .ok_or_else(|| missing_port("adapter_connections"))
     }
 
-    /// The Loop store, for chat→subscription resolution.
-    pub(super) fn require_loops(&self) -> Result<&LoopDao, AdapterError> {
+    /// The Subscription reads, for chat→subscription resolution.
+    pub(super) fn require_loops(&self) -> Result<&dyn LoopReader, AdapterError> {
         self.loops.as_deref().ok_or_else(|| missing_port("loops"))
     }
 
@@ -136,7 +139,7 @@ impl TelegramAdapter {
         Self {
             api,
             db: None,
-            config: None,
+            apps: None,
             adapter_connections: None,
             loops: None,
             adapter_delivery: None,
@@ -149,23 +152,26 @@ impl TelegramAdapter {
         &self.api
     }
 
+    /// The bot client for one stored app. Telegram's whole app shape is its
+    /// token, so the stored app is read straight into a client.
     pub(super) async fn app_api(&self, app_key: &str) -> Result<TelegramApi, AdapterError> {
-        let Some(db) = &self.db else {
+        let Some(apps) = &self.apps else {
             return Ok(self.api.clone());
         };
-        let config = self.config.as_deref().ok_or_else(|| {
-            SharedAdapterError::Internal("Telegram Adapter missing config".into())
-        })?;
-        let Some(app) = moatless_identity::adapter_apps::telegram_app_config(db, config, app_key)
-            .await
-            .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?
-        else {
+        let Some(app) = apps.app("telegram", app_key).await? else {
             return Err(SharedAdapterError::AdapterNotConfigured(format!(
                 "telegram app '{app_key}'"
             ))
             .into());
         };
-        Ok(TelegramApi::new(&app.bot_token))
+        let Some(bot_token) = app.secret("bot_token") else {
+            return Err(SharedAdapterError::AdapterApi(format!(
+                "Telegram Adapter app '{}' is missing bot_token",
+                app.app_key
+            ))
+            .into());
+        };
+        Ok(TelegramApi::new(&bot_token))
     }
 }
 

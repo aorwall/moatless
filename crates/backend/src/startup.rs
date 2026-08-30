@@ -209,7 +209,7 @@ pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<
     let handle = metrics::init_metrics();
     moatless_core::events::describe_event_metrics();
     crate::event_ingress::describe_ingress_metrics();
-    crate::adapters::metrics::describe_adapter_metrics();
+    moatless_adapter_model::metrics::describe_adapter_metrics();
     crate::adapters::delivery::describe_adapter_delivery_metrics();
     crate::loops::firing::metrics::describe_loop_firing_metrics();
     crate::bindings::metrics::describe_binding_metrics();

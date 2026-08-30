@@ -11,8 +11,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use moatless_backend_core::store::StoreError;
 use moatless_backend_core::workspace::{
-    PluginDelivery, RepoPlacement, ResolvedWorkspace, WorkspaceCredentialReader, WorkspaceResolver,
+    PluginDelivery, RepoPlacement, RepositoryReader, ResolvedWorkspace, WorkspaceCredentialReader,
+    WorkspaceProvisioner, WorkspaceResolver,
 };
+use moatless_types::repository::Repository;
 use moatless_types::access_control::ScopeContext;
 use uuid::Uuid;
 
@@ -133,6 +135,98 @@ impl WorkspaceResolver for WorkspaceProjection {
                 skill_names,
             })
             .collect())
+    }
+
+    async fn names(
+        &self,
+        workspace_ids: &[String],
+    ) -> Result<HashMap<String, String>, StoreError> {
+        if workspace_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let pairs = self
+            .workspaces
+            .find_names_by_ids(workspace_ids)
+            .await
+            .map_err(|e| StoreError::with_source("batch read workspace names", e))?;
+        Ok(pairs.into_iter().collect())
+    }
+
+    async fn describe(
+        &self,
+        ctx: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Option<Workspace>, StoreError> {
+        self.workspaces
+            .find_by_id(workspace_id, ctx)
+            .await
+            .map_err(|e| StoreError::with_source(format!("read workspace {workspace_id}"), e))
+    }
+}
+
+/// The `repositories` store, narrowed to what a peer band reads.
+pub struct RepositoryProjection {
+    repositories: Arc<dyn RepositoryDao>,
+}
+
+impl RepositoryProjection {
+    pub fn new(repositories: Arc<dyn RepositoryDao>) -> Self {
+        Self { repositories }
+    }
+}
+
+#[async_trait]
+impl RepositoryReader for RepositoryProjection {
+    async fn describe(
+        &self,
+        ctx: &ScopeContext,
+        repository_id: &str,
+    ) -> Result<Option<Repository>, StoreError> {
+        self.repositories
+            .find_by_id(repository_id, ctx)
+            .await
+            .map_err(|e| StoreError::with_source(format!("read repository {repository_id}"), e))
+    }
+
+    async fn names(
+        &self,
+        repository_ids: &[String],
+    ) -> Result<HashMap<String, String>, StoreError> {
+        if repository_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let pairs = self
+            .repositories
+            .find_names_by_ids(repository_ids)
+            .await
+            .map_err(|e| StoreError::with_source("batch read repository names", e))?;
+        Ok(pairs.into_iter().collect())
+    }
+}
+
+/// The shadow Workspace a repository-only Task is persisted against.
+///
+/// Holds the pool rather than a `*Dao` because the write is one statement pair
+/// in a transaction, which no row-at-a-time store method expresses.
+pub struct ShadowWorkspaces(moatless_core::db::DbPool);
+
+impl ShadowWorkspaces {
+    pub fn new(pool: moatless_core::db::DbPool) -> Self {
+        Self(pool)
+    }
+}
+
+#[async_trait]
+impl WorkspaceProvisioner for ShadowWorkspaces {
+    async fn ensure_shadow(&self, repository_id: &str) -> Result<String, StoreError> {
+        crate::workspace::dao::ensure_shadow_workspace(&self.0, repository_id)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(
+                    format!("ensure the shadow workspace for repository {repository_id}"),
+                    e,
+                )
+            })
     }
 }
 

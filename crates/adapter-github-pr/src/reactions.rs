@@ -1,6 +1,6 @@
 //! Reaction capability for GitHub pull request comments.
 
-use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_types::repository::GitHostRepo;
 use moatless_loops::adapters::AdapterReactions;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::BindingContext;

@@ -22,7 +22,6 @@ use crate::common;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
-use moatless_t3code::dao::PgConversationDao;
 use moatless_t3code::ports::{
     AttachmentKind, AttachmentStore, CommandRefusal, NewThread, ThreadCommandSink, ThreadMeta,
     ThreadTurn,
@@ -33,7 +32,7 @@ use moatless_backend::repository::dao as repository_dao;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::{AgentMode, AgentType};
 use moatless_backend::t3code::backend::{AppStateAttachments, AppStateCommands};
-use moatless_backend::task::dao::{PgTaskDao, TaskDao};
+use moatless_backend::task::dao::TaskDao;
 use moatless_backend::task::models::{TaskStatus, Visibility};
 use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
 use sqlx::PgPool;
@@ -118,24 +117,24 @@ async fn seed_project_for(pool: &PgPool, owner: &str) {
 async fn seed_task_owned(pool: &PgPool, task_id: &str, owner: &str) {
     let mut task = make_task_row(task_id, owner);
     task.workspace_id = Some("ws-other".to_string());
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(pool).insert_task(&task).await.unwrap();
 }
 
 async fn seed_task(pool: &PgPool, task_id: &str, owner: &str) {
     let mut task = make_task_row(task_id, owner);
     task.workspace_id = Some(WS.to_string());
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(pool).insert_task(&task).await.unwrap();
 }
 
 async fn seed_public_task(pool: &PgPool, task_id: &str, owner: &str) {
     let mut task = make_task_row(task_id, owner);
     task.workspace_id = Some(WS.to_string());
     task.visibility = Visibility::Public;
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(pool).insert_task(&task).await.unwrap();
 }
 
 async fn follow(pool: &PgPool, user_id: &str, task_id: &str) {
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(pool)
         .follow_task(user_id, task_id)
         .await
         .unwrap();
@@ -619,8 +618,8 @@ async fn the_thread_snapshot_carries_the_message_id_that_was_sent(pool: PgPool) 
         .expect("the turn is accepted");
 
     let snapshot = thread_snapshot(
-        &PgConversationDao::new(pool.clone()),
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(&pool),
+        &moatless_backend::t3code::conversations_over(&pool),
         &deployment(&defaults()),
         &viewer(USER_1),
         "t-snap",
@@ -649,7 +648,7 @@ async fn a_send_to_a_closed_task_is_refused_and_writes_nothing(pool: PgPool) {
     let mut task = make_task_row("t-closed", USER_1);
     task.workspace_id = Some(WS.to_string());
     task.status = TaskStatus::Closed;
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&task).await.unwrap();
 
     let refusal = sink(&pool)
         .send_turn(
@@ -742,7 +741,7 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
         .await
         .expect("the thread is created");
 
-    let task = PgTaskDao(pool.clone())
+    let task = moatless_backend::task::dao::store_over(&pool)
         .find_by_id(task_id, &viewer(USER_1))
         .await
         .unwrap()
@@ -785,7 +784,7 @@ async fn a_thread_created_with_no_message_gets_no_sandbox(pool: PgPool) {
         .await
         .expect("the thread is created");
 
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .find_by_id(task_id, &viewer(USER_1))
         .await
         .unwrap()

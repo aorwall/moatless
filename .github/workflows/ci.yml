@@ -193,6 +193,19 @@ jobs:
       - name: No production SQL against a table another crate owns
         run: ./scripts/check-table-ownership.sh
 
+  # A store is private to the crate that owns the table; a peer names the port
+  # published over it. The crate that owns no table declares no database driver.
+  # Both are grep-level checks over the same string/comment-blanking tokenizer.
+  # Every crossing that is allowed is listed in the script with its reason, and
+  # that reason is stated again in the owning crate's AGENTS.md. No Rust build.
+  crate-seams:
+    name: Crate-seam invariant
+    runs-on: staging-runners
+    steps:
+      - uses: actions/checkout@v6
+      - name: No crate names another crate's store, and no driver without a table
+        run: ./scripts/check-crate-seams.sh
+
   # Step 7 invariant — bindings does not depend on the Adapter aggregate or
   # Adapter-owned capability/error surface. A shrinking baseline tracks the
   # bindings files still naming `crate::adapters`; each slice deletes its own

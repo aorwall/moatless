@@ -9,7 +9,7 @@
 
 use moatless_types::sandbox::SandboxDesiredState;
 
-use super::types::{CorrelationMarker, OperationGeneration};
+use crate::types::{CorrelationMarker, OperationGeneration};
 
 /// What a watcher observed about a pod/container, normalized.
 ///
@@ -196,7 +196,7 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use moatless_types::sandbox::SandboxDesiredState as D;
 
-    use crate::lifecycle::types::OperationKind;
+    use crate::types::OperationKind;
 
     fn marker(kind: OperationKind, gen: i64) -> CorrelationMarker {
         CorrelationMarker::new(

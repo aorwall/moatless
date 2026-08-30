@@ -23,7 +23,8 @@ Shared type definitions. Pure data, no I/O.
   conversion is the single place a column is decoded. Keep a lenient decode
   lenient and keep its log; a strict one must fail rather than default.
 - **Keep the dependency list closed.** `serde`, `serde_json`, `chrono`,
-  `thiserror`, `tracing`, and optionally `utoipa`. Adding `sqlx`, `axum`,
+  `thiserror`, `tracing`, `url`, `uuid`, and optionally `utoipa`. Every one of
+  them parses or carries a value and does no I/O. Adding `sqlx`, `axum`,
   `reqwest`, or `redis` here rebuilds every crate above on any transport
   change. `cargo tree -p moatless-types -e normal` is the check.
 - **Renaming a module must not rename a schema.** No type here carries

@@ -12,7 +12,7 @@ use crate::adapters::common::{
     binding_descriptor, binding_reply_target, ensure_task_access_with,
     load_adapter_connection_for_auth_with,
 };
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::bindings::outbound::{self, OutboundSender};
 use crate::bindings::recently_sent::RecentlySent;

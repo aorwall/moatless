@@ -31,8 +31,7 @@ use moatless_types::user::UserRole;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
 use moatless_identity::auth::users::UserDao;
-use moatless_identity::git_host_tokens::GitHostTokens;
-use moatless_identity::secret::service::SecretService;
+use moatless_backend_core::identity::GitHostTokenIssuer;
 use moatless_s3 as file_s3;
 use moatless_tasks::agent::prompt;
 use moatless_backend_core::sandbox::CodexCredentials;
@@ -141,7 +140,7 @@ pub struct HandlerDbPorts {
     /// Provider token auth persistence for persisting refreshed tokens.
     pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     /// Scoped secret resolver for global/team/user secrets.
-    pub secrets: Arc<SecretService>,
+    pub secrets: Arc<dyn moatless_backend_core::identity::SecretResolver>,
     /// Codex credential orchestrator (9c) — used to route sandbox-pushed
     /// rotations through `store(.., WriteSource::SandboxRotation)` so the
     /// broadcast fan-out picks them up automatically.
@@ -157,7 +156,7 @@ pub struct HandlerDbPorts {
     /// source in the credential set a sandbox is handed.
     pub workspace_credentials: Arc<dyn moatless_backend_core::workspace::WorkspaceCredentialReader>,
     /// The one way to a git-host token, for the identity the task acts as.
-    pub git_host_tokens: Arc<GitHostTokens>,
+    pub git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     /// File metadata repository — supplies filename and mime type when
     /// fulfilling `download_upload` requests.
     pub files: Arc<dyn FileDao>,

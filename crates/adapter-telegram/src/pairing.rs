@@ -35,6 +35,15 @@ pub struct PairingRequest {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Every query here reads or writes `integration_pairing_requests`. The failing
+/// statement is in the source, so one context serves them all.
+fn pairing_store_error(error: sqlx::Error) -> SharedAdapterError {
+    SharedAdapterError::Store(moatless_types::store::StoreError::with_source(
+        "a pairing-request store call",
+        error,
+    ))
+}
+
 /// Alphabet for pairing codes — no O/I/0/1 to avoid confusion.
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CODE_LENGTH: usize = 8;
@@ -64,7 +73,7 @@ pub async fn upsert_pairing_request(
     .bind(provider_user_id)
     .fetch_optional(db)
     .await
-    .map_err(SharedAdapterError::Db)?;
+    .map_err(pairing_store_error)?;
 
     if let Some(req) = existing {
         return Ok(req);
@@ -83,7 +92,7 @@ pub async fn upsert_pairing_request(
     .bind(&meta)
     .fetch_one(db)
     .await
-    .map_err(SharedAdapterError::Db)?;
+    .map_err(pairing_store_error)?;
 
     info!(
         loop_id,
@@ -110,7 +119,7 @@ pub async fn find_by_code(
     .bind(code)
     .fetch_optional(db)
     .await
-    .map_err(SharedAdapterError::Db)?;
+    .map_err(pairing_store_error)?;
 
     Ok(row)
 }
@@ -125,7 +134,7 @@ pub async fn list_pending(db: &DbPool, loop_id: &str) -> Result<Vec<PairingReque
     .bind(loop_id)
     .fetch_all(db)
     .await
-    .map_err(SharedAdapterError::Db)?;
+    .map_err(pairing_store_error)?;
 
     Ok(rows)
 }
@@ -142,7 +151,7 @@ pub async fn list_pending_for_user(
     let loop_ids = loops
         .ids_created_by(user_id)
         .await
-        .map_err(SharedAdapterError::Db)?;
+        .map_err(pairing_store_error)?;
 
     let rows: Vec<PairingRequest> = sqlx::query_as(
         "SELECT * FROM integration_pairing_requests \
@@ -152,7 +161,7 @@ pub async fn list_pending_for_user(
     .bind(&loop_ids)
     .fetch_all(db)
     .await
-    .map_err(SharedAdapterError::Db)?;
+    .map_err(pairing_store_error)?;
 
     Ok(rows)
 }
@@ -176,14 +185,14 @@ pub async fn approve_request(
     .bind(req.id)
     .execute(db)
     .await
-    .map_err(SharedAdapterError::Db)?;
+    .map_err(pairing_store_error)?;
 
     // Read current adapter_config and append user to dm_allowlist
     let store = LoopDao::new(db.clone());
     let current_config = store
         .get_adapter_config(loop_id)
         .await
-        .map_err(SharedAdapterError::Db)?;
+        .map_err(pairing_store_error)?;
 
     let mut tg_config: TelegramAdapterConfig = current_config
         .as_ref()
@@ -202,7 +211,7 @@ pub async fn approve_request(
     store
         .set_adapter_config(loop_id, &updated_config)
         .await
-        .map_err(SharedAdapterError::Db)?;
+        .map_err(pairing_store_error)?;
 
     info!(
         loop_id,
@@ -217,7 +226,7 @@ pub async fn approve_request(
             .bind(req.id)
             .fetch_one(db)
             .await
-            .map_err(SharedAdapterError::Db)?;
+            .map_err(pairing_store_error)?;
 
     Ok(updated)
 }
@@ -230,7 +239,7 @@ pub async fn prune_expired(db: &DbPool) -> Result<u64, AdapterError> {
     )
     .execute(db)
     .await
-    .map_err(SharedAdapterError::Db)?;
+    .map_err(pairing_store_error)?;
 
     let count = result.rows_affected();
     if count > 0 {
@@ -302,7 +311,7 @@ mod error_source_tests {
             .expect_err("unreachable database must fail");
 
         assert!(
-            matches!(err, AdapterError::Shared(SharedAdapterError::Db(_))),
+            matches!(err, AdapterError::Shared(SharedAdapterError::Store(_))),
             "got {err:?}"
         );
         assert!(

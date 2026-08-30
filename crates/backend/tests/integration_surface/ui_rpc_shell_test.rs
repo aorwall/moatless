@@ -31,7 +31,7 @@ use moatless_backend::repository::dao as repository_dao;
 use moatless_backend::repository::routes::repository_router;
 use moatless_backend::t3code::backend as t3code_backend;
 use moatless_backend::tag::dao::{PgTagDao, TagDao};
-use moatless_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
+use moatless_backend::task::dao::{TaskDao, TaskPatch};
 use moatless_backend::task::models::{
     SandboxDesiredState, SandboxStopReason, Task, TaskStatus, Visibility,
 };
@@ -236,14 +236,14 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
             Arc::new(PgPairingCodeDao(pool.clone())),
             Arc::new(PgPairingApiKeyIssuer(Arc::new(PgApiKeyDao(pool.clone())))),
         )),
-        workspaces: Arc::new(PgConversationDao::new(pool.clone())),
-        conversations: Arc::new(PgConversationDao::new(pool.clone())),
+        workspaces: Arc::new(moatless_backend::t3code::conversations_over(pool)),
+        conversations: Arc::new(moatless_backend::t3code::conversations_over(pool)),
         sandboxes: Arc::new(NoSandboxes),
         observer: Arc::new(NoSandboxes),
         diagnostics: Arc::new(NoSandboxes),
         // Nothing this suite drives publishes a Script's port.
         ports: Arc::new(NoSandboxes),
-        tasks: Arc::new(PgConversationDao::new(pool.clone())),
+        tasks: Arc::new(moatless_backend::t3code::conversations_over(pool)),
         intent: Arc::new(NoSandboxes),
         // Nothing this suite drives starts or stops a Sandbox.
         starter: Arc::new(NoSandboxes),
@@ -284,8 +284,8 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
 /// a broken join, decode or parameter can announce itself.
 async fn snapshot(pool: &PgPool, viewer: &ScopeContext) -> Value {
     match shell_snapshot(
-        &PgConversationDao::new(pool.clone()),
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(pool),
+        &moatless_backend::t3code::conversations_over(pool),
         &defaults(),
         viewer,
     )
@@ -315,8 +315,8 @@ async fn project_ids(pool: &PgPool, viewer: &ScopeContext) -> Vec<String> {
 /// follow.
 async fn archived_snapshot(pool: &PgPool, viewer: &ScopeContext) -> Value {
     archived_shell_snapshot(
-        &PgConversationDao::new(pool.clone()),
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(pool),
+        &moatless_backend::t3code::conversations_over(pool),
         &defaults(),
         viewer,
     )
@@ -380,7 +380,7 @@ async fn project(pool: &PgPool, viewer: &ScopeContext, id: &str) -> Value {
 async fn seed_task(pool: &PgPool, task_id: &str, owner: &str, workspace_id: Option<&str>) -> Task {
     let mut task = make_task_row(task_id, owner);
     task.workspace_id = workspace_id.map(str::to_string);
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(pool).insert_task(&task).await.unwrap();
     task
 }
 
@@ -393,19 +393,19 @@ async fn seed_public_task(
     let mut task = make_task_row(task_id, owner);
     task.workspace_id = workspace_id.map(str::to_string);
     task.visibility = Visibility::Public;
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(pool).insert_task(&task).await.unwrap();
     task
 }
 
 async fn follow(pool: &PgPool, user_id: &str, task_id: &str) {
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(pool)
         .follow_task(user_id, task_id)
         .await
         .unwrap();
 }
 
 async fn set_settled_and_snoozed(pool: &PgPool, user_id: &str, task_id: &str) {
-    let tasks = PgTaskDao(pool.clone());
+    let tasks = moatless_backend::task::dao::store_over(pool);
     tasks
         .settle_task(user_id, task_id, Utc::now())
         .await
@@ -444,7 +444,7 @@ async fn follower_state(
 }
 
 async fn unfollow(pool: &PgPool, user_id: &str, task_id: &str) {
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(pool)
         .unfollow_task(user_id, task_id)
         .await
         .unwrap();
@@ -936,7 +936,7 @@ async fn the_repositorys_own_server_config_projects_to_decodable_scripts(pool: P
 /// wrong*; failing in a seeded test with an empty result says nothing.
 #[sqlx::test]
 async fn postgres_accepts_the_conversation_query(pool: PgPool) {
-    let repository = PgConversationDao::new(pool);
+    let repository = moatless_backend::t3code::conversations_over(&pool);
     for viewer in [viewer("user-1"), admin("root")] {
         let listed = repository
             .list_followed(&viewer)
@@ -970,7 +970,7 @@ async fn a_blocked_full_listing_cannot_monopolize_the_pool(pool: PgPool) {
         .connect_with(pool.connect_options().as_ref().clone())
         .await
         .unwrap();
-    let repository = Arc::new(PgConversationDao::new(listing_pool));
+    let repository = Arc::new(moatless_backend::t3code::conversations_over(&listing_pool));
     let running_repository = Arc::clone(&repository);
     let running =
         tokio::spawn(async move { running_repository.list_followed(&viewer("user-1")).await });
@@ -1076,7 +1076,7 @@ async fn seed_conversation_matrix(pool: &PgPool) {
                         Scope::User => Some(owner.to_string()),
                         Scope::Global => None,
                     };
-                    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+                    moatless_backend::task::dao::store_over(pool).insert_task(&task).await.unwrap();
 
                     // Creation auto-follows for the creator, so the viewer's
                     // follow is set both ways rather than only added.
@@ -1194,7 +1194,7 @@ async fn writing_to_a_conversation_puts_it_in_the_sidebar(pool: PgPool) {
     let mut task = make_task_row("t-shared", "user-2");
     task.workspace_id = Some("ws-a".to_string());
     task.visibility = Visibility::Public;
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&task).await.unwrap();
 
     // Readable — it is public — but not yet the viewer's concern.
     assert!(thread_ids(&pool, &viewer("user-1")).await.is_empty());
@@ -1218,7 +1218,7 @@ async fn a_followed_conversation_in_an_unreadable_project_still_lists_under_it(p
     let mut task = make_task_row("t-guest", "user-2");
     task.workspace_id = Some("ws-theirs".to_string());
     task.visibility = Visibility::Public;
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&task).await.unwrap();
     follow(&pool, "user-1", "t-guest").await;
 
     let viewer = viewer("user-1");
@@ -1276,7 +1276,7 @@ async fn a_project_the_viewer_may_not_read_discloses_no_server_commands(pool: Pg
     let mut task = make_task_row("t-guest", "user-2");
     task.workspace_id = Some("ws-theirs".to_string());
     task.visibility = Visibility::Public;
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&task).await.unwrap();
     follow(&pool, "user-1", "t-guest").await;
 
     let viewer = viewer("user-1");
@@ -1362,7 +1362,7 @@ async fn only_open_conversations_are_listed(pool: PgPool) {
         let mut task = make_task_row(task_id, "user-1");
         task.workspace_id = Some("ws-live".to_string());
         task.status = status;
-        PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+        moatless_backend::task::dao::store_over(&pool).insert_task(&task).await.unwrap();
     }
 
     assert_eq!(
@@ -1371,7 +1371,7 @@ async fn only_open_conversations_are_listed(pool: PgPool) {
     );
     // Following is untouched by it — the row is filtered out of the listing,
     // not unfollowed — so reopening one puts it straight back.
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .update_task(
             "t-closed",
             &TaskPatch {
@@ -1406,7 +1406,7 @@ async fn a_closed_conversation_moves_to_the_archived_listing(pool: PgPool) {
         let mut task = make_task_row(task_id, "user-1");
         task.workspace_id = Some("ws-live".to_string());
         task.status = status;
-        PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+        moatless_backend::task::dao::store_over(&pool).insert_task(&task).await.unwrap();
     }
 
     // `error` belongs to neither half: it is not open, and it was not put
@@ -1417,7 +1417,7 @@ async fn a_closed_conversation_moves_to_the_archived_listing(pool: PgPool) {
     );
 
     let before = Utc::now();
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .update_task(
             "t-open",
             &TaskPatch {
@@ -1447,7 +1447,7 @@ async fn a_closed_conversation_moves_to_the_archived_listing(pool: PgPool) {
         closed["archivedAt"]
     );
 
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .update_task(
             "t-open",
             &TaskPatch {
@@ -1490,8 +1490,8 @@ async fn a_readable_conversation_opens_by_id_without_being_followed(pool: PgPool
 
     let viewer = viewer("user-1");
     let snapshot = thread_snapshot(
-        &PgConversationDao::new(pool.clone()),
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(&pool),
+        &moatless_backend::t3code::conversations_over(&pool),
         &Deployment {
             model_defaults: &defaults(),
             frontend_url: "http://localhost:3000",
@@ -1523,8 +1523,8 @@ async fn an_unreadable_conversation_still_does_not_open_by_id(pool: PgPool) {
     seed_task(&pool, "t-private", "user-2", Some("ws-live")).await;
 
     let snapshot = thread_snapshot(
-        &PgConversationDao::new(pool.clone()),
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(&pool),
+        &moatless_backend::t3code::conversations_over(&pool),
         &Deployment {
             model_defaults: &defaults(),
             frontend_url: "http://localhost:3000",
@@ -1550,7 +1550,7 @@ async fn an_unfollowed_closed_conversation_is_absent_from_the_archive(pool: PgPo
     let mut task = make_task_row("t-theirs", "user-1");
     task.workspace_id = Some("ws-live".to_string());
     task.status = TaskStatus::Closed;
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&task).await.unwrap();
     unfollow(&pool, "user-1", "t-theirs").await;
 
     assert!(
@@ -1587,7 +1587,7 @@ async fn two_followers_receive_their_own_settlement_state(pool: PgPool) {
         .unwrap();
     seed_public_task(&pool, "t-shared-state", "user-1", Some("ws-a")).await;
     follow(&pool, "user-2", "t-shared-state").await;
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .settle_task("user-1", "t-shared-state", Utc::now())
         .await
         .unwrap();
@@ -1841,7 +1841,7 @@ async fn a_codex_conversation_reports_the_codex_instance_and_default(pool: PgPoo
     let mut task = make_task_row("t-codex", "user-1");
     task.workspace_id = Some("ws-a".to_string());
     task.agent_type = AgentType(moatless_backend::agent::catalog::CODEX.id.to_string());
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&task).await.unwrap();
     seed_sandbox(&pool, "t-codex", "running", true).await;
 
     let thread = thread(&pool, &viewer("user-1"), "t-codex").await;
@@ -1986,7 +1986,7 @@ async fn a_conversation_with_no_name_falls_back_to_new_thread(pool: PgPool) {
     let mut task = make_task_row("t-nameless", "user-1");
     task.workspace_id = Some("ws-a".to_string());
     task.name = None;
-    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&task).await.unwrap();
 
     let thread = thread(&pool, &viewer("user-1"), "t-nameless").await;
     assert_decodable_thread(&thread);
@@ -2051,7 +2051,7 @@ async fn the_listings_worktree_path_addresses_that_conversations_files(pool: PgP
 
     // Reached the Sandbox: the stub is the only thing that refused it.
     let error = files::list_entries(
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(&pool),
         &NoSandboxes,
         &owner,
         &cwd,
@@ -2072,7 +2072,7 @@ async fn the_listings_worktree_path_addresses_that_conversations_files(pool: PgP
         is_admin: false,
     };
     let error = files::read_file(
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(&pool),
         &NoSandboxes,
         &outsider,
         &cwd,
@@ -2110,7 +2110,7 @@ async fn a_project_root_is_answered_as_a_conversation_with_no_sandbox(pool: PgPo
         .to_string();
 
     let error = files::list_entries(
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(&pool),
         &NoSandboxes,
         &owner,
         &cwd,
@@ -2165,8 +2165,8 @@ async fn seed_live_project(pool: &PgPool) {
 /// snapshot was read at.
 async fn watching(pool: &PgPool, viewer: &ScopeContext) -> ShellFeed {
     let snapshot = shell_snapshot(
-        &PgConversationDao::new(pool.clone()),
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(pool),
+        &moatless_backend::t3code::conversations_over(pool),
         &defaults(),
         viewer,
     )
@@ -2182,8 +2182,8 @@ async fn watching(pool: &PgPool, viewer: &ScopeContext) -> ShellFeed {
 /// One poll, as the subscription makes it.
 async fn delivered(pool: &PgPool, feed: &mut ShellFeed, viewer: &ScopeContext) -> Vec<Value> {
     feed.poll(
-        &PgConversationDao::new(pool.clone()),
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(pool),
+        &moatless_backend::t3code::conversations_over(pool),
         &defaults(),
         viewer,
     )
@@ -2241,7 +2241,7 @@ async fn ingress(pool: &PgPool, task_id: &str, turn_number: i32, event_type: &st
 /// ever recorded, and a filtering assertion means nothing if the change the
 /// viewer should not see was never written.
 async fn recorded_after(pool: &PgPool, after: i64) -> usize {
-    PgConversationDao::new(pool.clone())
+    moatless_backend::t3code::conversations_over(pool)
         .listing_changes_after(after, 100)
         .await
         .unwrap()
@@ -2316,7 +2316,7 @@ async fn a_burst_on_one_conversation_delivers_one_row(pool: PgPool) {
 
     let viewer = viewer("user-1");
     let mut feed = watching(&pool, &viewer).await;
-    let watched_from = PgConversationDao::new(pool.clone())
+    let watched_from = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -2360,7 +2360,7 @@ async fn a_change_reaches_only_the_clients_whose_listing_holds_it(pool: PgPool) 
 
     let viewer = viewer("user-1");
     let mut feed = watching(&pool, &viewer).await;
-    let watched_from = PgConversationDao::new(pool.clone())
+    let watched_from = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -2573,8 +2573,8 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
     );
     let refused = feed
         .poll(
-            &PgConversationDao::new(pool.clone()),
-            &RefusesTheRowRead(PgConversationDao::new(pool.clone())),
+            &moatless_backend::t3code::conversations_over(&pool),
+            &RefusesTheRowRead(moatless_backend::t3code::conversations_over(&pool)),
             &defaults(),
             &viewer,
         )
@@ -2595,7 +2595,7 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
 
     // (2) The workspace read fails, one statement further on.
     let watched_from = head(&pool).await.position;
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .update_task(
             "t-live",
             &TaskPatch {
@@ -2610,8 +2610,8 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
     let gone = a_pool_that_has_gone_away(&pool).await;
     let refused = feed
         .poll(
-            &PgConversationDao::new(gone),
-            &PgConversationDao::new(pool.clone()),
+            &moatless_backend::t3code::conversations_over(&gone),
+            &moatless_backend::t3code::conversations_over(&pool),
             &defaults(),
             &viewer,
         )
@@ -2634,8 +2634,8 @@ async fn each_delivery_carries_a_position_past_the_one_before_it(pool: PgPool) {
 
     let viewer = viewer("user-1");
     let snapshot = shell_snapshot(
-        &PgConversationDao::new(pool.clone()),
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(&pool),
+        &moatless_backend::t3code::conversations_over(&pool),
         &defaults(),
         &viewer,
     )
@@ -2662,7 +2662,7 @@ async fn each_delivery_carries_a_position_past_the_one_before_it(pool: PgPool) {
     assert!(finished > started);
     assert_eq!(
         finished,
-        PgConversationDao::new(pool.clone())
+        moatless_backend::t3code::conversations_over(&pool)
             .listing_head()
             .await
             .unwrap()
@@ -2731,8 +2731,8 @@ async fn reconnect_to(
     after: Option<i64>,
 ) -> (Vec<Value>, ShellFeed) {
     let subscription = shell_subscription(
-        &PgConversationDao::new(pool.clone()),
-        &PgConversationDao::new(pool.clone()),
+        &moatless_backend::t3code::conversations_over(pool),
+        &moatless_backend::t3code::conversations_over(pool),
         &defaults(),
         viewer,
         environment,
@@ -2774,7 +2774,7 @@ async fn a_client_that_missed_changes_is_replayed_rather_than_rebuilt(pool: PgPo
     let viewer = viewer("user-1");
 
     // It read the listing, then the connection dropped.
-    let held = PgConversationDao::new(pool.clone())
+    let held = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -2835,7 +2835,7 @@ async fn a_caught_up_client_is_replayed_nothing_and_still_hears_what_comes_next(
     // A change happens, and the client's position is taken *after* it — so this
     // is the change that produced the position it holds.
     let turn = start_turn(&pool, "t-live", "run-1").await;
-    let held = PgConversationDao::new(pool.clone())
+    let held = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -2889,13 +2889,13 @@ async fn a_gap_too_large_to_replay_is_a_fresh_listing_and_silence_is_not(pool: P
 
     // Someone who has been away a long time: their position, then more changes
     // than the resume window keeps.
-    let stale = PgConversationDao::new(pool.clone())
+    let stale = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
         .position;
     other_peoples_work(&pool, RESUME_WINDOW + 1).await;
-    let head = PgConversationDao::new(pool.clone())
+    let head = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -2940,7 +2940,7 @@ async fn the_resume_window_is_exclusive_at_exactly_its_own_width(pool: PgPool) {
     let viewer = viewer("user-1");
 
     other_peoples_work(&pool, RESUME_WINDOW + 1).await;
-    let head = PgConversationDao::new(pool.clone())
+    let head = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -2976,7 +2976,7 @@ async fn a_position_the_deployment_has_never_reached_is_rebuilt_not_answered_wit
     seed_task(&pool, "t-live", "user-1", Some("ws-live")).await;
     let viewer = viewer("user-1");
 
-    let head = PgConversationDao::new(pool.clone())
+    let head = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -3030,7 +3030,7 @@ async fn a_replay_does_not_carry_changes_the_viewer_may_not_see(pool: PgPool) {
     seed_task(&pool, "t-theirs", "user-2", Some("ws-live")).await;
     let viewer = viewer("user-1");
 
-    let held = PgConversationDao::new(pool.clone())
+    let held = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -3794,8 +3794,8 @@ impl Held {
     /// What the snapshot a subscription opens with leaves the client holding.
     async fn opening(pool: &PgPool, viewer: &ScopeContext) -> Self {
         let snapshot = shell_snapshot(
-            &PgConversationDao::new(pool.clone()),
-            &PgConversationDao::new(pool.clone()),
+            &moatless_backend::t3code::conversations_over(pool),
+            &moatless_backend::t3code::conversations_over(pool),
             &defaults(),
             viewer,
         )
@@ -3933,7 +3933,7 @@ async fn a_removal_names_only_a_conversation_this_client_was_sent(pool: PgPool) 
     let mut mine = make_task_row("t-mine", "user-2");
     mine.workspace_id = Some("ws-live".to_string());
     mine.visibility = Visibility::Public;
-    PgTaskDao(pool.clone()).insert_task(&mine).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&mine).await.unwrap();
 
     let watcher_viewer = viewer("user-2");
     let (mut feed, mut held) = watcher(&pool, &watcher_viewer).await;
@@ -3942,7 +3942,7 @@ async fn a_removal_names_only_a_conversation_this_client_was_sent(pool: PgPool) 
         ["t-mine"],
         "they hold their own and nothing else"
     );
-    let watched_from = PgConversationDao::new(pool.clone())
+    let watched_from = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -3952,7 +3952,7 @@ async fn a_removal_names_only_a_conversation_this_client_was_sent(pool: PgPool) 
     // viewer's business.
     unfollow(&pool, "user-1", "t-theirs").await;
     assert!(
-        PgTaskDao(pool.clone())
+        moatless_backend::task::dao::store_over(&pool)
             .delete_task("t-deleted", &viewer("user-1"))
             .await
             .unwrap()
@@ -3980,7 +3980,7 @@ async fn deleting_a_conversation_removes_it_from_a_watching_client(pool: PgPool)
     assert_eq!(held.threads, ["t-live"]);
 
     assert!(
-        PgTaskDao(pool.clone())
+        moatless_backend::task::dao::store_over(&pool)
             .delete_task("t-live", &viewer)
             .await
             .unwrap()
@@ -4016,7 +4016,7 @@ async fn closing_a_conversation_removes_it_from_a_watching_client(pool: PgPool) 
     assert_eq!(held.threads, ["t-live"]);
 
     assert!(
-        PgTaskDao(pool.clone())
+        moatless_backend::task::dao::store_over(&pool)
             .update_status_if_not_closed("t-live", TaskStatus::Closed, &viewer)
             .await
             .unwrap()
@@ -4028,7 +4028,7 @@ async fn closing_a_conversation_removes_it_from_a_watching_client(pool: PgPool) 
     held.apply(&item);
     assert!(held.threads.is_empty());
 
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .update_task(
             "t-live",
             &TaskPatch {
@@ -4058,14 +4058,14 @@ async fn a_conversation_that_stops_being_readable_is_removed(pool: PgPool) {
     let mut shared = make_task_row("t-shared", "user-1");
     shared.workspace_id = Some("ws-live".to_string());
     shared.visibility = Visibility::Public;
-    PgTaskDao(pool.clone()).insert_task(&shared).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&shared).await.unwrap();
     follow(&pool, "user-2", "t-shared").await;
 
     let watcher_viewer = viewer("user-2");
     let (mut feed, mut held) = watcher(&pool, &watcher_viewer).await;
     assert_eq!(held.threads, ["t-shared"]);
 
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .update_task(
             "t-shared",
             &TaskPatch {
@@ -4116,7 +4116,7 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                         name: Some("a new name".into()),
                         ..TaskPatch::default()
                     };
-                    PgTaskDao(pool)
+                    moatless_backend::task::dao::store_over(&pool)
                         .update_task(&id, &patch, &ctx)
                         .await
                         .unwrap();
@@ -4132,7 +4132,7 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                         description: Some("a description".into()),
                         ..TaskPatch::default()
                     };
-                    PgTaskDao(pool)
+                    moatless_backend::task::dao::store_over(&pool)
                         .update_task(&id, &patch, &ctx)
                         .await
                         .unwrap();
@@ -4151,7 +4151,7 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                         ttl_minutes: Some(240),
                         ..TaskPatch::default()
                     };
-                    PgTaskDao(pool)
+                    moatless_backend::task::dao::store_over(&pool)
                         .update_task(&id, &patch, &ctx)
                         .await
                         .unwrap();
@@ -4244,7 +4244,7 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
         // Watch from after the seeding, so the only change the feed can carry
         // is the one this case makes.
         let mut feed = watching(&pool, &viewer).await;
-        let watched_from = PgConversationDao::new(pool.clone())
+        let watched_from = moatless_backend::t3code::conversations_over(&pool)
             .listing_head()
             .await
             .unwrap()
@@ -4291,7 +4291,7 @@ async fn writing_to_a_conversation_the_author_did_not_follow_adds_the_row(pool: 
     let mut theirs = make_task_row("t-theirs", "user-1");
     theirs.workspace_id = Some("ws-shared".to_string());
     theirs.visibility = Visibility::Public;
-    PgTaskDao(pool.clone()).insert_task(&theirs).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&theirs).await.unwrap();
 
     let author = viewer("user-2");
     let (mut feed, mut held) = watcher(&pool, &author).await;
@@ -4340,7 +4340,7 @@ async fn a_conversation_entering_a_project_the_client_lacks_arrives_as_a_listing
     // `tasks_owner_scope_chk`: a deployment-scoped row has no owner.
     theirs.scope = Scope::Global;
     theirs.owner_user_id = None;
-    PgTaskDao(pool.clone()).insert_task(&theirs).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&theirs).await.unwrap();
 
     let watcher_viewer = viewer("user-1");
     let (mut feed, mut held) = watcher(&pool, &watcher_viewer).await;
@@ -4384,7 +4384,7 @@ async fn a_long_agent_turn_does_not_reorder_the_sidebar(pool: PgPool) {
 
     let viewer = viewer("user-1");
     let (mut feed, held) = watcher(&pool, &viewer).await;
-    let before = PgConversationDao::new(pool.clone())
+    let before = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -4417,7 +4417,7 @@ async fn a_long_agent_turn_does_not_reorder_the_sidebar(pool: PgPool) {
     }
 
     assert_eq!(
-        PgConversationDao::new(pool.clone())
+        moatless_backend::t3code::conversations_over(&pool)
             .listing_head()
             .await
             .unwrap()
@@ -4605,7 +4605,7 @@ async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
         !held.projects.contains(&"ws-other".to_string()),
         "`ws-other` belongs to `user-2`"
     );
-    let watched_from = PgConversationDao::new(pool.clone())
+    let watched_from = moatless_backend::t3code::conversations_over(&pool)
         .listing_head()
         .await
         .unwrap()
@@ -4650,7 +4650,7 @@ async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
     // `tasks_owner_scope_chk`: a deployment-scoped row has no owner.
     theirs.scope = Scope::Global;
     theirs.owner_user_id = None;
-    PgTaskDao(pool.clone()).insert_task(&theirs).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&theirs).await.unwrap();
     follow(&pool, "user-1", "t-theirs").await;
     // Something for the narrowing to withhold: a `scripts` assertion against a
     // workspace with no servers passes whatever the projection does.
@@ -4788,7 +4788,7 @@ async fn archiving_reaches_a_resumed_client_as_the_row_it_archived(pool: PgPool)
     let held = head(&pool).await.position;
     let (_, mut feed) = reconnect(&pool, &viewer, Some(held)).await;
 
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .update_task(
             "t-live",
             &TaskPatch {
@@ -4816,7 +4816,7 @@ async fn archiving_reaches_a_resumed_client_as_the_row_it_archived(pool: PgPool)
 
     // Reopening is the same shape at the other status, so the row comes back
     // with nothing to filter it out by.
-    PgTaskDao(pool.clone())
+    moatless_backend::task::dao::store_over(&pool)
         .update_task(
             "t-live",
             &TaskPatch {
@@ -4850,7 +4850,7 @@ async fn a_resumed_client_gaining_an_unreadable_project_still_gets_the_listing_w
     theirs.visibility = Visibility::Public;
     theirs.scope = Scope::Global;
     theirs.owner_user_id = None;
-    PgTaskDao(pool.clone()).insert_task(&theirs).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&theirs).await.unwrap();
 
     let watcher_viewer = viewer("user-1");
     let mut held = Held::opening(&pool, &watcher_viewer).await;
@@ -4899,7 +4899,7 @@ async fn a_removal_after_a_resume_names_only_ids_that_client_was_sent(pool: PgPo
     let mut mine = make_task_row("t-mine", "user-2");
     mine.workspace_id = Some("ws-global".to_string());
     mine.visibility = Visibility::Public;
-    PgTaskDao(pool.clone()).insert_task(&mine).await.unwrap();
+    moatless_backend::task::dao::store_over(&pool).insert_task(&mine).await.unwrap();
 
     let watcher_viewer = viewer("user-2");
     let held = head(&pool).await.position;
@@ -4911,7 +4911,7 @@ async fn a_removal_after_a_resume_names_only_ids_that_client_was_sent(pool: PgPo
     // this viewer may read would still have to stay silent here.
     unfollow(&pool, "user-1", "t-theirs").await;
     assert!(
-        PgTaskDao(pool.clone())
+        moatless_backend::task::dao::store_over(&pool)
             .delete_task("t-deleted", &viewer("user-1"))
             .await
             .unwrap()
@@ -4931,7 +4931,7 @@ async fn a_removal_after_a_resume_names_only_ids_that_client_was_sent(pool: PgPo
 
     ingress(&pool, "t-mine", turn, "agent", "completed").await;
     assert!(
-        PgTaskDao(pool.clone())
+        moatless_backend::task::dao::store_over(&pool)
             .delete_task("t-mine", &watcher_viewer)
             .await
             .unwrap()
@@ -4967,7 +4967,7 @@ async fn a_removal_never_names_a_row_the_listing_did_not_show(pool: PgPool) {
     let watcher_viewer = viewer("user-1");
 
     // The premise, stated against the query a reconstruction would use.
-    let followed = PgConversationDao::new(pool.clone())
+    let followed = moatless_backend::t3code::conversations_over(&pool)
         .list_followed(&watcher_viewer)
         .await
         .unwrap();
@@ -4993,7 +4993,7 @@ async fn a_removal_never_names_a_row_the_listing_did_not_show(pool: PgPool) {
 
     // It leaves. Neither feed may name it, because neither client ever saw it.
     assert!(
-        PgTaskDao(pool.clone())
+        moatless_backend::task::dao::store_over(&pool)
             .delete_task("t-orphan", &watcher_viewer)
             .await
             .unwrap()
@@ -5093,7 +5093,7 @@ async fn a_rebuilt_feed_describes_the_listing_it_sent_not_the_one_it_replaced(po
 
     // A row only the rebuild snapshot introduced, leaving.
     assert!(
-        PgTaskDao(restored.pool.clone())
+        moatless_backend::task::dao::store_over(&restored.pool)
             .delete_task("t-restore-only", &watcher_viewer)
             .await
             .unwrap()

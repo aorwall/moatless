@@ -11,7 +11,6 @@ pub mod cookie;
 pub mod credentials;
 pub mod error;
 pub mod github;
-pub mod identity;
 pub mod jwt;
 pub mod middleware;
 pub mod models;
@@ -41,7 +40,7 @@ use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 
-use crate::extractors::{TaskAccess, UserTokenVerifier};
+use moatless_core::http_auth::{TaskAccess, UserTokenVerifier};
 use crate::secret::service::SecretService;
 
 /// Application-owned ports needed by authentication. Construction pays this

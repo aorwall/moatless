@@ -1,5 +1,5 @@
 use moatless_types::adapter::AdapterKind;
-use moatless_loops::adapters::models::SubscriptionMatch;
+use moatless_adapter_model::models::SubscriptionMatch;
 use moatless_types::adapter::Audience;
 use moatless_types::loops::RoutingMode;
 use moatless_backend_core::identity::{LinkedUser, ProviderIdentityLink};

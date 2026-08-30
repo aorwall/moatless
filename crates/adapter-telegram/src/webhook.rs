@@ -12,7 +12,7 @@ use tracing::{debug, info};
 
 use moatless_loops::adapters::AdapterKind;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::AccessDecision;
+use moatless_adapter_model::models::AccessDecision;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
 use moatless_backend_core::identity::ProviderIdentityLink;
@@ -275,7 +275,7 @@ pub(super) async fn normalize(
     let author = from_username
         .map(|handle| format!("@{handle}"))
         .or_else(|| from_first_name.map(str::to_string))
-        .and_then(|handle| moatless_loops::adapters::models::author_handle(&handle));
+        .and_then(|handle| moatless_adapter_model::models::author_handle(&handle));
 
     Ok(Normalization::Message {
         message: Box::new(InboundMessage {

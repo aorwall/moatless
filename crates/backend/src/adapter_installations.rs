@@ -121,7 +121,11 @@ struct SlackInstallation {
 
 impl SlackInstallation {
     fn install(config: Arc<Config>, ports: &Ports, adapters: &mut Adapters) -> Self {
-        let adapter = Arc::new(SlackAdapter::from_db(config, ports.pool.clone()));
+        let adapter = Arc::new(SlackAdapter::from_db(
+            &config,
+            ports.adapter_apps.clone(),
+            ports.user_directory.clone(),
+        ));
         adapter.clone().register_into(adapters);
         tracing::info!("Slack Adapter installed");
         Self { adapter }
@@ -152,11 +156,12 @@ struct TelegramInstallation {
 impl TelegramInstallation {
     fn install(config: Arc<Config>, ports: &Ports, adapters: &mut Adapters) -> Self {
         let adapter = Arc::new(
-            TelegramAdapter::from_db(config, ports.pool.clone()).with_ingress_ports(
-                ports.adapter_connections.clone(),
-                ports.loops.clone(),
-                ports.adapter_delivery.clone(),
-            ),
+            TelegramAdapter::from_db(&config, ports.pool.clone(), ports.adapter_apps.clone())
+                .with_ingress_ports(
+                    ports.adapter_connections.clone(),
+                    ports.loops.clone(),
+                    ports.adapter_delivery.clone(),
+                ),
         );
         adapter.clone().register_into(adapters);
         tracing::info!("Telegram Adapter installed");
@@ -202,7 +207,7 @@ impl GithubPrInstallation {
                 state.user_directory.clone(),
                 state.routing.clone(),
                 state.transcript.clone(),
-                state.task_relations.clone(),
+                state.relation_recorder.clone(),
                 state.task_reader.clone(),
                 state.task_creation.clone(),
                 state.message_send.clone(),
@@ -224,7 +229,11 @@ struct LinearInstallation {
 impl LinearInstallation {
     fn install(config: Arc<Config>, ports: &Ports, adapters: &mut Adapters) -> Self {
         let adapter = Arc::new(
-            LinearAdapter::from_db(config, ports.pool.clone(), ports.harness_credentials.clone())
+            LinearAdapter::from_db(
+                config,
+                ports.harness_credentials.clone(),
+                ports.adapter_apps.clone(),
+            )
                 .with_tasks(ports.task_reader.clone())
                 .with_ingress_ports(
                     ports.adapter_connections.clone(),
@@ -244,14 +253,14 @@ impl LinearInstallation {
         let router = Arc::new(
             crate::adapters::providers::linear::delivery::LinearInboundRouter::new(
                 state.adapter_connections.clone(),
-                state.db.clone(),
                 state.harness_credentials.clone(),
                 state.config.clone(),
+                state.adapter_apps.clone(),
                 state.loops.clone(),
                 state.task_bindings.clone(),
                 state.task_reader.clone(),
                 state.task_creation.clone(),
-                state.task_relations.clone(),
+                state.relation_recorder.clone(),
                 state.message_send.clone(),
                 state.sandbox_waker.clone(),
                 state.task_closer.clone(),
@@ -267,11 +276,11 @@ impl LinearInstallation {
             subscribers,
             Arc::new(
                 crate::adapters::providers::linear::event_subscriber::LinearEventSubscriber::new(
-                    state.db.clone(),
                     state.harness_credentials.clone(),
                     state.task_bindings.clone(),
                     state.adapter_connections.clone(),
                     state.config.clone(),
+                    state.adapter_apps.clone(),
                     state.transcript.clone(),
                     state.task_reader.clone(),
                     self.active_turns.clone(),

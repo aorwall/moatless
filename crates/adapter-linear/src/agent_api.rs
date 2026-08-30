@@ -20,7 +20,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::metrics::record_api_call;
+use moatless_adapter_model::metrics::record_api_call;
 use std::sync::Arc;
 
 use moatless_backend_core::identity::{AppCredentials, AppToken};

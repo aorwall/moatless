@@ -11,7 +11,7 @@ use crate::message::send::MessageSendService;
 use crate::task::dao::TaskDao;
 use moatless_backend_core::sandbox::SandboxWaker;
 use moatless_core::file_storage::dao::FileDao;
-use moatless_identity::extractors::AuthUser;
+use moatless_core::http_auth::AuthUser;
 
 use super::error::MessageError;
 use super::schemas::*;

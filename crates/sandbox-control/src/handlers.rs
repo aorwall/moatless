@@ -12,16 +12,18 @@ use futures::stream::{Stream, StreamExt};
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
-use super::access::LogOptions;
-use super::error::SandboxError;
-use super::lifecycle::{ArchiveRetention, Lifecycle, TaskIntent};
-use super::models::*;
+use moatless_sandbox_runtime::access::LogOptions;
+use moatless_sandbox_runtime::error::SandboxError;
+use moatless_sandbox_runtime::types::ArchiveRetention;
+
+use super::lifecycle::{Lifecycle, TaskIntent};
+use moatless_sandbox_runtime::models::*;
 use super::routes::SandboxApiState;
-use super::schemas::*;
+use moatless_sandbox_runtime::schemas::*;
 use moatless_types::sandbox::SandboxStopReason;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::task::Visibility;
-use moatless_identity::extractors::OptionalScope;
+use moatless_core::http_auth::OptionalScope;
 
 /// Provision a new sandbox for a task.
 ///
@@ -72,7 +74,7 @@ pub async fn provision_handler(
         ("task_id" = String, Path, description = "Task identifier")
     ),
     responses(
-        (status = 200, description = "Task live status", body = crate::live_status::LiveStatus),
+        (status = 200, description = "Task live status", body = moatless_sandbox_runtime::live_status::LiveStatus),
         (status = 500, description = "Internal error", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
@@ -464,7 +466,7 @@ pub async fn list_server_config_handler(
     let overrides = client
         .get_server_config(&task_id)
         .await
-        .map_err(|e| crate::client::classify_grpc_error(e, "GetServerConfig"))?;
+        .map_err(|e| moatless_sandbox_runtime::client::classify_grpc_error(e, "GetServerConfig"))?;
 
     Ok(Json(ServerOverridesResponse {
         overrides: overrides
@@ -627,14 +629,14 @@ pub async fn reset_server_config_handler(
 /// Absent means no override, which is the same value as an empty one — callers
 /// merge into it either way.
 async fn read_override(
-    client: &crate::client::SandboxClient,
+    client: &moatless_sandbox_runtime::client::SandboxClient,
     task_id: &str,
     server_name: &str,
 ) -> Result<ServerOverride, SandboxError> {
     let mut overrides = client
         .get_server_config(task_id)
         .await
-        .map_err(|e| crate::client::classify_grpc_error(e, "GetServerConfig"))?;
+        .map_err(|e| moatless_sandbox_runtime::client::classify_grpc_error(e, "GetServerConfig"))?;
     Ok(overrides
         .remove(server_name)
         .map(|(config, _generation)| server_override_from_client(config))
@@ -643,7 +645,7 @@ async fn read_override(
 
 /// Push one server's complete override to the sandbox, optionally restarting it.
 async fn apply_override(
-    client: &crate::client::SandboxClient,
+    client: &moatless_sandbox_runtime::client::SandboxClient,
     task_id: &str,
     server_name: &str,
     effective: ServerOverride,
@@ -653,7 +655,7 @@ async fn apply_override(
     let generation = client
         .apply_server_config(task_id, server_name, &client_override, restart)
         .await
-        .map_err(|e| crate::client::classify_grpc_error(e, "ApplyServerConfig"))?;
+        .map_err(|e| moatless_sandbox_runtime::client::classify_grpc_error(e, "ApplyServerConfig"))?;
 
     info!(
         task_id = %task_id,
@@ -670,7 +672,7 @@ async fn apply_override(
     }))
 }
 
-fn server_override_from_client(value: crate::client::ServerOverride) -> ServerOverride {
+fn server_override_from_client(value: moatless_sandbox_runtime::client::ServerOverride) -> ServerOverride {
     ServerOverride {
         start_command: value.start_command,
         env: value.env,
@@ -678,8 +680,8 @@ fn server_override_from_client(value: crate::client::ServerOverride) -> ServerOv
     }
 }
 
-fn client_server_override(value: &ServerOverride) -> crate::client::ServerOverride {
-    crate::client::ServerOverride {
+fn client_server_override(value: &ServerOverride) -> moatless_sandbox_runtime::client::ServerOverride {
+    moatless_sandbox_runtime::client::ServerOverride {
         start_command: value.start_command.clone(),
         env: value.env.clone(),
         unset_env: value.unset_env.clone(),
@@ -718,12 +720,12 @@ async fn require_known_server(
 /// controls — the runtime trio the container spec injects, plus the reserved
 /// secret keys.
 fn validate_env_key(key: &str) -> Result<(), SandboxError> {
-    if !moatless_identity::secret::models::is_valid_secret_key(key) {
+    if !moatless_core::secret_keys::is_valid_secret_key(key) {
         return Err(SandboxError::BadRequest(format!(
             "invalid env key '{key}': expected ^[A-Z_][A-Z0-9_]*$"
         )));
     }
-    if moatless_identity::secret::models::is_reserved_key(key)
+    if moatless_core::secret_keys::is_reserved_key(key)
         || matches!(
             key,
             "PORT" | "WORKSPACE_DIR" | "WORKSPACE_PATH" | "DATA_DIR"
@@ -739,7 +741,7 @@ fn validate_env_key(key: &str) -> Result<(), SandboxError> {
 #[cfg(test)]
 mod tests {
     use super::validate_env_key;
-    use crate::error::SandboxError;
+    use moatless_sandbox_runtime::error::SandboxError;
 
     #[test]
     fn server_env_overrides_reject_runtime_paths() {
@@ -883,7 +885,7 @@ mod authz_tests {
     //! control over one `TaskIntent`, and which refusal each case earns.
     use super::*;
 
-    use crate::lifecycle::types::ArchiveRetention;
+    use moatless_sandbox_runtime::types::ArchiveRetention;
     use moatless_types::access_control::Scope;
     use moatless_types::sandbox::SandboxDesiredState;
     use moatless_types::task::TaskStatus;

@@ -32,6 +32,7 @@ tracing = "0.1"
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
 moatless-core = { path = "../core", features = ["openapi"] }
 moatless-s3 = { path = "../s3" }
+moatless-sandbox-runtime = { path = "../sandbox-runtime" }
 moatless-sandbox-control = { path = "../sandbox-control" }
 moatless-types = { path = "../types", features = ["openapi"] }
 

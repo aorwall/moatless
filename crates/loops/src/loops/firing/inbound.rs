@@ -1,9 +1,7 @@
 //! Inbound message processing — unified message → task flow.
 
 use moatless_types::loops::LoopContext;
-use moatless_tasks::task::creation::{
-    FirstMessage, NewTaskRequest, TaskCreationError, TaskCreationOutcome, TaskCreationService,
-};
+use moatless_backend_core::task::{NewTask, TaskOpenError, TaskOpened, TaskOpener};
 use moatless_types::task::Visibility;
 use moatless_types::task::RelatedTask;
 
@@ -49,7 +47,7 @@ pub(crate) fn assemble_firing_prompt(
 
 /// Per-path inputs to [`create_task_from_loop`] — the fields that genuinely
 /// differ between the chat, GitHub PR, and Linear firing paths. Everything else
-/// on the resulting [`NewTaskRequest`] is derived uniformly from the
+/// on the resulting [`NewTask`] is derived uniformly from the
 /// [`LoopContext`].
 pub struct CreateTaskParams<'a> {
     /// Task name (chat/GitHub/Linear each compute their own, e.g. Linear falls
@@ -74,72 +72,46 @@ pub struct CreateTaskParams<'a> {
 /// Single task-creation entry point for every Subscription firing path.
 ///
 /// Translates a [`LoopContext`] plus the per-path [`CreateTaskParams`] into a
-/// [`NewTaskRequest`] and hands the whole create-then-provision sequence (short
-/// id, preflight, insert, tags, relations, provision, task event) to
-/// [`TaskCreationService`]. No first message is passed — every adapter delivers
-/// its inbound prompt separately through the binding.
+/// [`NewTask`] and hands the whole create-then-provision sequence (short id,
+/// preflight, insert, tags, relations, provision, task event) to the task band.
+/// No first turn is passed — every adapter delivers its inbound prompt
+/// separately through the binding.
 ///
 /// A Loop is shared and may be global-scoped; the task it fires is not. The
-/// creation service owns that rule and derives scope from `created_by`.
+/// task band owns that rule and derives scope from `created_by`.
 ///
-/// Surfaces the service's typed [`TaskCreationError`] verbatim so callers can
-/// tell a permanent [`TaskCreationError::Preflight`] failure apart from a
-/// transient one (`Db` / `ShortId` / `RepoNotFound`).
-///
-/// [`TaskCreationService`]: moatless_tasks::task::creation::TaskCreationService
+/// Surfaces the port's typed [`TaskOpenError`] verbatim so callers can tell a
+/// permanent [`TaskOpenError::Refused`] apart from a transient store failure.
 pub async fn create_task_from_loop(
-    task_creation: &TaskCreationService,
+    task_creation: &dyn TaskOpener,
     config: &LoopContext,
     params: CreateTaskParams<'_>,
-) -> Result<TaskCreationOutcome, TaskCreationError> {
+) -> Result<TaskOpened, TaskOpenError> {
     let append_system_prompt = assemble_firing_prompt(
         params.reply_instructions.as_deref(),
         config.prompt_template.as_deref(),
         params.origin_prelude,
     );
 
-    let req = NewTaskRequest {
-        repository_id: config.repository_id.clone(),
-        agent_type: config.agent_type.clone(),
-        name: params.name,
-        description: Some(params.description),
-        branch: None, // Will use repo default
-        model: None,
-        created_by: Some(config.effective_user_id().to_string()),
-        headless: true,
-        visibility: params.visibility,
-        loop_id: Some(config.id.clone()),
-        workspace_id: None,
-        // A loop firing has no sandbox to join: it is triggered by an inbound
-        // event, not by another task that already has one warm.
-        sandbox_id: None,
-        checkout_mode: None,
-        template_id: None,
-        vibe: None,
-        append_system_prompt,
-        ttl_minutes: moatless_tasks::task::models::DEFAULT_TTL_MINUTES,
-        inactive_ttl_days: config
-            .inactive_ttl_days
-            .unwrap_or(moatless_tasks::task::models::DEFAULT_INACTIVE_TTL_DAYS),
-        tag_ids: config.tag_ids.clone(),
-        skills: config.skills.clone(),
-        parent: None,
-        related_to: params.related_to,
-        // Bindings runtime / schedule runner deliver the first message themselves.
-        first_message: None,
-        task_id: None,
-        provision: true,
-        event_subtype: moatless_types::task::TaskSubType::Open,
-        repository: None,
-    };
-
-    let metadata = params.event_metadata;
     let outcome = task_creation
-        .create(
-            req,
-            move |_task| async move { metadata },
-            |_task_id, _fm: FirstMessage| async move {},
-        )
+        .open(NewTask {
+            repository_id: config.repository_id.clone(),
+            agent_type: config.agent_type.clone(),
+            name: params.name,
+            description: Some(params.description),
+            created_by: Some(config.effective_user_id().to_string()),
+            visibility: params.visibility,
+            loop_id: config.id.clone(),
+            append_system_prompt,
+            ttl_minutes: moatless_tasks::task::models::DEFAULT_TTL_MINUTES,
+            inactive_ttl_days: config
+                .inactive_ttl_days
+                .unwrap_or(moatless_tasks::task::models::DEFAULT_INACTIVE_TTL_DAYS),
+            tag_ids: config.tag_ids.clone(),
+            skills: config.skills.clone(),
+            related_to: params.related_to,
+            event_metadata: params.event_metadata,
+        })
         .await?;
 
     Ok(outcome)
@@ -152,12 +124,12 @@ pub async fn create_task_from_loop(
 /// event metadata. `related_to` carries the optional peer relation the bindings
 /// path computes; the schedule runner passes `None`.
 pub(crate) async fn create_task_for_external_message(
-    task_creation: &TaskCreationService,
+    task_creation: &dyn TaskOpener,
     config: &LoopContext,
     msg: &InboundMessage,
     related_to: Option<RelatedTask>,
     reply_instructions: Option<String>,
-) -> Result<TaskCreationOutcome, TaskCreationError> {
+) -> Result<TaskOpened, TaskOpenError> {
     create_task_from_loop(
         task_creation,
         config,

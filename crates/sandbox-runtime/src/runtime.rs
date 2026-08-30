@@ -15,11 +15,12 @@
 
 use async_trait::async_trait;
 
+use thiserror::Error;
+
 use crate::error::SandboxError;
 
-use super::error::RuntimeError;
-use super::outcome::Diagnostics;
-use super::types::{ArchiveRetention, ObservedStatus, OperationGeneration, RuntimeEffect};
+use crate::outcome::Diagnostics;
+use crate::types::{ArchiveRetention, ObservedStatus, OperationGeneration, RuntimeEffect};
 
 /// Runtime-resource label carrying lifecycle's operation identity.
 pub const OPERATION_GENERATION_LABEL: &str = "moatless.io/operation-generation";
@@ -79,7 +80,6 @@ pub fn map_sandbox_error(error: SandboxError) -> RuntimeError {
         | SandboxError::Grpc { .. }
         | SandboxError::Unsupported { .. }
         | SandboxError::GrpcClient(_)
-        | SandboxError::Database { .. }
         | SandboxError::Store(_)
         | SandboxError::Authorization(_)
         | SandboxError::Lifecycle(_)) => {
@@ -111,7 +111,9 @@ impl RuntimeOutcome {
 
     /// A recording-adapter builder: production adapters compute the effect from
     /// what they did rather than asserting `NoOp` up front.
-    #[cfg(test)]
+    // `test` stays first so the census keeps scoring this as test-context; the
+    // feature exposes it to the orchestrator band's tests.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn no_op(observed: ObservedStatus) -> Self {
         Self {
             observed,
@@ -212,10 +214,76 @@ pub trait SandboxRuntime: Send + Sync {
     ) -> Result<RuntimeOutcome, RuntimeError>;
 }
 
+/// Coarse error class driving retry policy.
+///
+/// The reconciler retries only *transient* classes (runtime/infra) under its
+/// attempt cap and never *permanent* ones (the Closed guard).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorClass {
+    /// Transient infrastructure/runtime failure — safe to retry with backoff.
+    Transient,
+    /// Permanent failure — retrying cannot help (bad plan, Closed guard,
+    /// missing task). The reconciler must not spin on these.
+    Permanent,
+    /// Per-Task lock contention — not a failure of the operation itself;
+    /// resolved by serialization, not by the attempt cap.
+    Contention,
+}
+
+impl ErrorClass {
+    pub fn is_transient(self) -> bool {
+        matches!(self, Self::Transient)
+    }
+}
+
+/// Failure raised by a [`SandboxRuntime`] mutation.
+///
+/// **Failure diagnostics belong here**, never on the success
+/// [`RuntimeOutcome`]. Adapters have no event publisher; they
+/// surface everything through this type and lifecycle republishes it.
+#[derive(Debug, Error)]
+pub enum RuntimeError {
+    /// A transient infrastructure failure (API timeout, conflict, network).
+    #[error("runtime infrastructure error: {0}")]
+    Infrastructure(String),
+
+    /// The runtime rejected the request permanently (e.g. an unbuildable
+    /// plan). Retrying cannot help.
+    #[error("runtime rejected the request: {0}")]
+    Rejected(String),
+
+    /// A delete was accepted but the resource did not reach observed absence
+    /// within the wait bound. Strict removal treats accepted-but-not-absent as
+    /// **not** success, so this is the failure a stuck deletion surfaces.
+    #[error("resource still present after deletion was accepted: {0}")]
+    NotAbsent(String),
+}
+
+impl RuntimeError {
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            // A stuck-but-accepted deletion is retriable — the reconciler
+            // re-drives remove and re-awaits absence.
+            Self::Infrastructure(_) | Self::NotAbsent(_) => ErrorClass::Transient,
+            Self::Rejected(_) => ErrorClass::Permanent,
+        }
+    }
+
+    /// Bounded cause slug published as the `Error` fact's `lifecycle_event`.
+    /// Bounded because it becomes a UI label key and a log correlation field.
+    pub fn cause(&self) -> &'static str {
+        match self {
+            Self::Infrastructure(_) => "runtime_infrastructure",
+            Self::Rejected(_) => "runtime_rejected",
+            Self::NotAbsent(_) => "runtime_not_absent",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lifecycle::outcome::DegradationWarning;
+    use crate::outcome::DegradationWarning;
 
     #[test]
     fn runtime_outcome_builders_set_effect() {

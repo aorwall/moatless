@@ -7,18 +7,18 @@ use moatless_api_schemas::bindings::{ReplyTargetDescriptor, TaskBindingResponse}
 use moatless_api_schemas::loops::{Loop, LoopConfig, LoopExecutionState, LoopSource, ManualSource, Schedule, Subscription};
 use serde::Deserialize;
 
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{AdapterConnection, TaskBinding};
+use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
 use moatless_backend_core::access_control::{ResolvedScope, ensure_can_use_repository, resolve_scope_for_create};
 // `parse_adapter_kind` now lives in `moatless-adapter-model`; re-exported so the
 // handler-support callers here and in `loops`/`task` keep their path unchanged.
-pub use crate::adapters::models::parse_adapter_kind;
+pub use moatless_adapter_model::models::parse_adapter_kind;
 use crate::loops::dao::{LoopDao, LoopRecord, LoopSourceRow};
 use moatless_types::loops::{LoopConfigSource, LoopKind};
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_backend_core::task::{TaskDescriptor, TaskReader};
-use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_backend_core::workspace::RepositoryReader;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -163,15 +163,15 @@ pub(crate) fn next_fire_at(
 }
 
 /// Verify a repository exists and the caller may use it, through the one port
-/// it needs — the `repositories` DAO. Its sole caller (the Loop HTTP handlers)
-/// already holds the port, so this names no `AppState` and carries no door.
+/// it needs. Its sole caller (the Loop HTTP handlers) already holds the port,
+/// so this names no `AppState` and carries no door.
 pub(crate) async fn ensure_repository_exists(
-    repositories: &dyn RepositoryDao,
+    repositories: &dyn RepositoryReader,
     ctx: &ScopeContext,
     repository_id: &str,
 ) -> Result<(), AdapterError> {
     let repo = repositories
-        .find_by_id(repository_id, ctx)
+        .describe(ctx, repository_id)
         .await?
         .ok_or_else(|| {
             SharedAdapterError::BadRequest(format!("Repository {repository_id} not found"))

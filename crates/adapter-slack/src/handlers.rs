@@ -6,12 +6,12 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use tracing::debug;
 
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
-use moatless_loops::adapters::metrics::record_webhook;
-use moatless_loops::loops::dao::LoopDao;
+use moatless_adapter_model::metrics::record_webhook;
+use moatless_loops::loops::ports::LoopReader;
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_loops::bindings::ports::BindingProbe;
 
@@ -38,7 +38,7 @@ use super::ingress::{Received, WebhookRequest};
 )]
 pub async fn slack_webhook(
     State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<dyn LoopReader>>,
     State(task_bindings): State<Arc<dyn BindingProbe>>,
     State(users): State<Arc<dyn ProviderIdentityLink>>,
     State(adapter_delivery): State<Arc<AdapterDeliveryStore>>,
@@ -57,7 +57,7 @@ pub async fn slack_webhook(
 
     match super::ingress::receive(
         adapter_connections.as_ref(),
-        &loops,
+        loops.as_ref(),
         task_bindings.as_ref(),
         users.as_ref(),
         &adapter_delivery,

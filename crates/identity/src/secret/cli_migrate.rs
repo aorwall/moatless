@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use moatless_types::secret::SecretKind;
-use super::models::looks_like_secret_key;
+use moatless_core::secret_keys::looks_like_secret_key;
 use super::schemas::PutSecretRequest;
 use super::service::SecretService;
 use moatless_core::db::DbPool;

@@ -11,7 +11,7 @@ use super::schemas::{
 };
 use std::sync::Arc;
 
-use crate::extractors::AuthUser;
+use moatless_core::http_auth::AuthUser;
 use crate::team::dao::TeamDao;
 
 /// List all teams the user belongs to.

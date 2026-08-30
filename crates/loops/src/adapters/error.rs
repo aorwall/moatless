@@ -2,10 +2,12 @@
 //!
 //! The band-local vocabulary — the sixteen variants that name nothing above the
 //! adapter-model band — lives in [`SharedAdapterError`], re-exported here.
-//! [`AdapterError`] wraps it and adds the four up-naming variants
-//! (`UserCredential`, `RepositoryCredential`, `TaskCreation`, `MessageDelivery`)
-//! that reach into the auth, repository, task, and message bands, plus the
-//! `IntoResponse` renderer over both halves.
+//! [`AdapterError`] wraps it and adds the variants that carry a failure from
+//! another band, plus the `IntoResponse` renderer over both halves.
+//!
+//! Each of the two cross-band variants boxes its source. `IntoResponse` never
+//! inspects one — it picks a status class and logs the chain — so naming the
+//! other band's error type here bought a dependency and no behaviour.
 
 use axum::Json;
 use axum::http::StatusCode;
@@ -18,32 +20,32 @@ use moatless_core::error::error_response;
 
 pub use moatless_adapter_model::error::{ProviderDecodeError, SharedAdapterError};
 
+use moatless_backend_core::store::StoreError;
+
+/// The boxed source the two cross-band variants carry.
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum AdapterError {
-    /// Resolving the GitHub credential bound to a repository failed while
-    /// serving an adapter API route. Stays on the provider-facing 502 path.
-    #[error("Adapter API error: {source}")]
-    RepositoryCredential {
+    /// A credential the Adapter needed could not be resolved — a repository's
+    /// GitHub credential, or a user's token for an outbound call. Stays on the
+    /// provider-facing 502 path.
+    #[error("Adapter API error: {context}")]
+    UpstreamCredential {
+        context: String,
         #[source]
-        source: moatless_workspaces::repository::error::RepositoryError,
+        source: BoxError,
     },
 
-    /// Resolving a user's GitHub token for an outbound adapter call failed.
-    #[error("Adapter API error: Failed to resolve GitHub token for user {user_id}: {source}")]
-    UserCredential {
-        user_id: String,
+    /// Handing work to the task band failed: opening a Task from a provider
+    /// event, or delivering an inbound turn onto one. Preflight refusals are
+    /// handled at the call site and never reach here.
+    #[error("{context}")]
+    TaskHandoff {
+        context: String,
         #[source]
-        source: moatless_identity::auth::error::AuthError,
+        source: BoxError,
     },
-
-    /// Creating a task from a provider event failed for a transient reason.
-    /// Preflight failures are handled at the call site and never reach here.
-    #[error("Failed to create task from provider event")]
-    TaskCreation(#[source] moatless_tasks::task::creation::TaskCreationError),
-
-    /// Handing an inbound provider message to the task message flow failed.
-    #[error("Failed to deliver provider message to task")]
-    MessageDelivery(#[source] moatless_tasks::message::error::MessageError),
 
     /// Another delivery is creating the task for this subject right now.
     ///
@@ -69,9 +71,39 @@ pub enum AdapterError {
     Shared(#[from] SharedAdapterError),
 }
 
+impl AdapterError {
+    /// A credential the Adapter needed could not be resolved.
+    pub fn upstream_credential(
+        context: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::UpstreamCredential {
+            context: context.into(),
+            source: Box::new(source),
+        }
+    }
+
+    /// Handing work to the task band failed.
+    pub fn task_handoff(
+        context: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::TaskHandoff {
+            context: context.into(),
+            source: Box::new(source),
+        }
+    }
+}
+
+/// This band owns four tables and reads them straight through `sqlx`. A failure
+/// there has no context narrower than the query that raised it, which the
+/// source carries.
 impl From<sqlx::Error> for AdapterError {
     fn from(value: sqlx::Error) -> Self {
-        Self::Shared(SharedAdapterError::Db(value))
+        Self::Shared(SharedAdapterError::Store(StoreError::with_source(
+            "a Loop or Binding store call",
+            value,
+        )))
     }
 }
 
@@ -91,18 +123,15 @@ impl From<AccessControlError> for AdapterError {
 impl IntoResponse for AdapterError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            AdapterError::RepositoryCredential { .. } | AdapterError::UserCredential { .. } => {
+            AdapterError::UpstreamCredential { .. } => {
                 (StatusCode::BAD_GATEWAY, self.to_string())
             }
-            AdapterError::TaskCreation(e) => {
-                tracing::error!(error = %e, "Failed to create task from provider event");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
-            }
-            AdapterError::MessageDelivery(e) => {
-                tracing::error!(error = %e, "Failed to deliver provider message to task");
+            AdapterError::TaskHandoff { context, .. } => {
+                tracing::error!(
+                    error = %moatless_core::error::causal_chain(&self),
+                    context = %context,
+                    "Handing work to the task band failed"
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".to_string(),
@@ -136,8 +165,11 @@ impl IntoResponse for AdapterError {
                 SharedAdapterError::SignatureInvalid => {
                     (StatusCode::UNAUTHORIZED, inner.to_string())
                 }
-                SharedAdapterError::Db(e) => {
-                    tracing::error!(error = %e, "Database error in adapter handler");
+                SharedAdapterError::Store(e) => {
+                    tracing::error!(
+                        error = %moatless_core::error::causal_chain(e),
+                        "Store error in adapter handler"
+                    );
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "Internal server error".to_string(),
@@ -198,11 +230,15 @@ mod tests {
     use super::*;
     use crate::adapters::test_support::{response_snapshot, source_chain, transport_error};
 
-    /// `Db` already carried its cause; the lookup sites that used to stringify
-    /// a `sqlx::Error` into `Internal` now route through it.
+    /// `Store` carries its cause, so the driver error a lookup failed on stays
+    /// reachable through `Error::source` while the response stays redacted.
     #[tokio::test]
-    async fn db_lookup_keeps_sqlx_source_and_stays_redacted() {
-        let err: AdapterError = SharedAdapterError::Db(sqlx::Error::RowNotFound).into();
+    async fn a_store_lookup_keeps_its_source_and_stays_redacted() {
+        let err: AdapterError = SharedAdapterError::Store(StoreError::with_source(
+            "read the connection",
+            sqlx::Error::RowNotFound,
+        ))
+        .into();
 
         assert!(
             err.source()
@@ -266,41 +302,25 @@ mod tests {
         ));
     }
 
+    /// The two cross-band variants box their source. Boxing is what takes the
+    /// other band's error type out of this crate's dependency list, so what has
+    /// to keep working is reaching the cause through `Error::source` and
+    /// downcasting it there.
     #[tokio::test]
-    async fn repository_credential_keeps_source_on_the_502_path() {
-        let err = AdapterError::RepositoryCredential {
-            source: moatless_workspaces::repository::error::RepositoryError::Db(
-                sqlx::Error::PoolClosed,
-            ),
-        };
-
-        assert!(
-            err.source()
-                .and_then(
-                    |s| s.downcast_ref::<moatless_workspaces::repository::error::RepositoryError>()
-                )
-                .is_some()
+    async fn an_upstream_credential_failure_keeps_its_source_on_the_502_path() {
+        let err = AdapterError::upstream_credential(
+            "resolve the GitHub token for user u-1",
+            sqlx::Error::PoolClosed,
         );
 
-        let (status, _) = response_snapshot(err.into_response()).await;
-        assert_eq!(status, StatusCode::BAD_GATEWAY);
-    }
-
-    #[tokio::test]
-    async fn user_credential_keeps_auth_source_and_message() {
-        let err = AdapterError::UserCredential {
-            user_id: "u-1".to_string(),
-            source: moatless_identity::auth::error::AuthError::Forbidden,
-        };
-
         assert!(
             err.source()
-                .and_then(|s| s.downcast_ref::<moatless_identity::auth::error::AuthError>())
+                .and_then(|s| s.downcast_ref::<sqlx::Error>())
                 .is_some()
         );
         assert_eq!(
             err.to_string(),
-            "Adapter API error: Failed to resolve GitHub token for user u-1: Access denied"
+            "Adapter API error: resolve the GitHub token for user u-1"
         );
 
         let (status, _) = response_snapshot(err.into_response()).await;
@@ -391,26 +411,28 @@ mod tests {
     async fn redacted_500_variants_hide_their_cause_but_keep_the_source() {
         const REDACTED: &str = r#"{"error":"Internal server error"}"#;
 
-        let task_creation = AdapterError::TaskCreation(
-            moatless_tasks::task::creation::TaskCreationError::Db(sqlx::Error::RowNotFound),
+        let task_creation = AdapterError::task_handoff(
+            "open a task from a provider event",
+            sqlx::Error::RowNotFound,
         );
         assert!(
             task_creation
                 .source()
-                .and_then(|s| s.downcast_ref::<moatless_tasks::task::creation::TaskCreationError>())
+                .and_then(|s| s.downcast_ref::<sqlx::Error>())
                 .is_some()
         );
         let (status, body) = response_snapshot(task_creation.into_response()).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body, REDACTED);
 
-        let message_delivery = AdapterError::MessageDelivery(
-            moatless_tasks::message::error::MessageError::Db(sqlx::Error::RowNotFound),
+        let message_delivery = AdapterError::task_handoff(
+            "deliver a provider turn to a task",
+            sqlx::Error::RowNotFound,
         );
         assert!(
             message_delivery
                 .source()
-                .and_then(|s| s.downcast_ref::<moatless_tasks::message::error::MessageError>())
+                .and_then(|s| s.downcast_ref::<sqlx::Error>())
                 .is_some()
         );
         let (status, body) = response_snapshot(message_delivery.into_response()).await;

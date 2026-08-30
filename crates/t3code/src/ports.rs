@@ -195,7 +195,7 @@ pub enum BranchListError {
     /// which is where the "connect your account" prompt has to land.
     Unavailable(String),
     /// This deployment failed to answer. The cause is logged, not sent.
-    Failed(sqlx::Error),
+    Failed(moatless_backend_core::store::StoreError),
 }
 
 /// A repository's branches, read from its git host.

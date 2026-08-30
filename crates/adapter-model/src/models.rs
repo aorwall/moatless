@@ -6,12 +6,20 @@
 //! `adapter_kind` text column, an open `agent_type` string — and the decode
 //! from one to the other.
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use moatless_types::loops::LoopContext;
+
+// The row shapes below decode into the domain types, so these names are only
+// reachable when the store that decodes them is compiled.
+#[cfg(feature = "postgres")]
+use chrono::{DateTime, Utc};
+#[cfg(feature = "postgres")]
 use moatless_types::access_control::Scope;
+#[cfg(feature = "postgres")]
 use moatless_types::agent::AgentType;
-use moatless_types::loops::{LoopContext, RoutingMode};
+#[cfg(feature = "postgres")]
+use moatless_types::loops::RoutingMode;
 
 /// The entity vocabulary a caller reaches through this module.
 pub use moatless_types::adapter::{AdapterConnection, AdapterKind, BindingContext, TaskBinding};
@@ -49,6 +57,7 @@ pub const TASK_OWNED_BINDING_ORIGIN: &str = "task_owned";
 // =============================================================================
 
 /// Row from the `adapter_connections` table.
+#[cfg(feature = "postgres")]
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct AdapterConnectionRow {
     pub id: String,
@@ -66,6 +75,7 @@ pub struct AdapterConnectionRow {
     pub updated_at: DateTime<Utc>,
 }
 
+#[cfg(feature = "postgres")]
 impl From<AdapterConnectionRow> for AdapterConnection {
     fn from(row: AdapterConnectionRow) -> Self {
         Self {
@@ -86,6 +96,7 @@ impl From<AdapterConnectionRow> for AdapterConnection {
 }
 
 /// Row from the `loop_configs` table.
+#[cfg(feature = "postgres")]
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct LoopSpawnConfigRow {
     pub id: String,
@@ -108,6 +119,7 @@ pub struct LoopSpawnConfigRow {
     pub updated_at: DateTime<Utc>,
 }
 
+#[cfg(feature = "postgres")]
 impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
     fn from(row: LoopSpawnConfigRow) -> Self {
         Self {
@@ -132,6 +144,7 @@ impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
 }
 
 /// Row from the query that resolves a Subscription against its Loop and config.
+#[cfg(feature = "postgres")]
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct SubscriptionMatchRow {
     pub id: String,
@@ -165,6 +178,7 @@ pub struct SubscriptionMatchRow {
     pub updated_at: DateTime<Utc>,
 }
 
+#[cfg(feature = "postgres")]
 impl From<SubscriptionMatchRow> for SubscriptionMatch {
     fn from(row: SubscriptionMatchRow) -> Self {
         Self {
@@ -206,6 +220,7 @@ impl From<SubscriptionMatchRow> for SubscriptionMatch {
 /// fail-safe direction: a forgotten projection drops delivery rather than
 /// resurrecting a Task. The shared `TASK_BINDING_SELECT` and the `upsert`
 /// `RETURNING` both project it, so live paths see the real value.
+#[cfg(feature = "postgres")]
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct TaskBindingRow {
     pub id: String,
@@ -239,6 +254,7 @@ pub struct TaskBindingRow {
     pub deactivated_at: Option<DateTime<Utc>>,
 }
 
+#[cfg(feature = "postgres")]
 impl From<TaskBindingRow> for TaskBinding {
     fn from(row: TaskBindingRow) -> Self {
         Self {
@@ -268,6 +284,7 @@ impl From<TaskBindingRow> for TaskBinding {
 }
 
 /// Row from the `schedules` table.
+#[cfg(feature = "postgres")]
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct ScheduleRow {
     pub id: String,
@@ -289,6 +306,7 @@ pub struct ScheduleRow {
     pub updated_at: DateTime<Utc>,
 }
 
+#[cfg(feature = "postgres")]
 impl From<ScheduleRow> for Schedule {
     fn from(row: ScheduleRow) -> Self {
         Self {

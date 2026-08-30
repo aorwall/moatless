@@ -14,10 +14,10 @@
 //! differently would write a Binding nothing could find.
 
 use moatless_loops::adapters::error::AdapterError;
-use moatless_loops::adapters::models::{
+use moatless_adapter_model::models::{
     AdapterConnection, SubscriptionMatch, TaskBinding,
 };
-use moatless_loops::loops::dao::LoopDao;
+use moatless_loops::loops::ports::LoopReader;
 use moatless_loops::bindings::dao::TaskBindingDao;
 
 use super::SUBJECT_KIND_ISSUE;
@@ -155,11 +155,11 @@ pub(super) async fn active_bindings_on_issue(
 /// keep receiving events; only new trigger-created Task behaviour is gated on
 /// the Subscription.
 pub(super) async fn rule_for_binding(
-    loops: &LoopDao,
+    loops: &dyn LoopReader,
     binding: &TaskBinding,
 ) -> Result<Option<SubscriptionMatch>, AdapterError> {
     match binding.loop_id {
-        Some(ref loop_id) => Ok(loops.find_subscription_by_id(loop_id).await?),
+        Some(ref loop_id) => Ok(loops.subscription(loop_id).await?),
         None => Ok(None),
     }
 }

@@ -17,9 +17,9 @@ use std::sync::Arc;
 
 use moatless_types::access_control::ScopeContext;
 
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::error::SharedAdapterError;
-use crate::adapters::models::AdapterConnection;
+use moatless_adapter_model::models::AdapterConnection;
 
 use super::handlers::{AdapterDeliveryHandler, AdapterDeliveryHandlers};
 use super::models::{AdapterDelivery, AdapterDeliveryFailure};
@@ -116,7 +116,7 @@ async fn resolve_connection(
     adapter_connections
         .find_by_id(connection_id, &sys_ctx)
         .await
-        .map_err(|e| AdapterDeliveryFailure::retryable(SharedAdapterError::Db(e)))?
+        .map_err(|e| AdapterDeliveryFailure::retryable(SharedAdapterError::Store(e)))?
         .ok_or_else(|| {
             AdapterDeliveryFailure::permanent(ConnectionGone {
                 connection_id: connection_id.to_string(),

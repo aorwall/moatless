@@ -26,21 +26,20 @@ use super::status_resolver::DockerStatusResolver;
 use moatless_types::workspace::ServerConfig;
 use moatless_backend_core::sandbox as core_sandbox;
 use moatless_core::config::Config;
-use moatless_sandbox_control::client::SandboxClient;
-use moatless_sandbox_control::error::SandboxError;
+use moatless_sandbox_runtime::client::SandboxClient;
+use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_control::jwt;
-use moatless_sandbox_control::lifecycle::outcome::{
+use moatless_sandbox_runtime::outcome::{
     DegradationWarning, Diagnostics, ServerFailure,
 };
-use moatless_sandbox_control::lifecycle::runtime::{
+use moatless_sandbox_runtime::runtime::{
     RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, map_sandbox_error,
 };
-use moatless_sandbox_control::lifecycle::{
-    ArchiveRetention, ObservedStatus, ProvisionDeps, RuntimeEffect,
-};
-use moatless_sandbox_control::models::*;
-use moatless_sandbox_control::schemas::*;
-use moatless_sandbox_control::status_reader::SandboxStatusReader;
+use moatless_sandbox_control::lifecycle::ProvisionDeps;
+use moatless_sandbox_runtime::types::{ArchiveRetention, ObservedStatus, RuntimeEffect};
+use moatless_sandbox_runtime::models::*;
+use moatless_sandbox_runtime::schemas::*;
+use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
 
 /// Docker adapter for lifecycle mutation, observation, and connection.
 pub struct DockerSandboxAdapter {
@@ -60,13 +59,13 @@ async fn apply_disk_archive_retention(
     container_data_dir: &str,
     task_id: &str,
     retention: ArchiveRetention,
-) -> Result<(), moatless_sandbox_control::lifecycle::RuntimeError> {
+) -> Result<(), moatless_sandbox_runtime::runtime::RuntimeError> {
     if retention.retains() {
         return Ok(());
     }
 
     let task_path = generate_task_host_path(container_data_dir, task_id)
-        .map_err(moatless_sandbox_control::lifecycle::RuntimeError::Rejected)?;
+        .map_err(moatless_sandbox_runtime::runtime::RuntimeError::Rejected)?;
     match tokio::fs::remove_dir_all(&task_path).await {
         Ok(()) => {
             info!(task_id, path = %task_path.display(), "Deleted Docker task disk archives");
@@ -74,7 +73,7 @@ async fn apply_disk_archive_retention(
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(
-            moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(format!(
+            moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(format!(
                 "delete Docker task disk archives at {}: {error}",
                 task_path.display()
             )),
@@ -85,9 +84,9 @@ async fn apply_disk_archive_retention(
 impl DockerSandboxAdapter {
     fn require_plan(
         &self,
-    ) -> Result<&ProvisionDeps, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<&ProvisionDeps, moatless_sandbox_runtime::runtime::RuntimeError> {
         self.plan.as_ref().ok_or_else(|| {
-            moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(
+            moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(
                 "sandbox plan repositories unavailable".to_string(),
             )
         })
@@ -370,7 +369,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
         self.ensure_running_with_request(task_id, &request, ctx)
@@ -382,7 +381,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         &self,
         task_id: &str,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Stopping Docker sandbox");
 
         // Stop server containers first
@@ -440,7 +439,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Recreating Docker sandbox for restart");
 
         let container_name = generate_container_name(task_id);
@@ -504,7 +503,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Redeploying Docker sandbox (remove containers, reprovision)");
         let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
@@ -535,7 +534,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         task_id: &str,
         retention: ArchiveRetention,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Cleaning up Docker sandbox");
         let container_name = generate_container_name(task_id);
         let server_containers = self
@@ -567,7 +566,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
             .is_empty()
         {
             return Err(
-                moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(format!(
+                moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(format!(
                     "Docker resources for task {task_id} remain after removal"
                 )),
             );
@@ -601,7 +600,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         task_id: &str,
         _rescue_upload_url: Option<&str>,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         // The Docker runtime bind-mounts host paths and provisions no volume to
         // reclaim, so there is no storage tier to fall down. Reporting `NoOp`
         // rather than an error keeps a Docker deployment's reaper cycle quiet.
@@ -647,7 +646,7 @@ impl SandboxStatusReader for DockerSandboxAdapter {
         task_id: &str,
         task_status: moatless_types::task::TaskStatus,
         desired_state: moatless_types::sandbox::SandboxDesiredState,
-    ) -> Result<moatless_sandbox_control::live_status::LiveStatus, SandboxError> {
+    ) -> Result<moatless_sandbox_runtime::live_status::LiveStatus, SandboxError> {
         let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         Ok(self
             .status_resolver
@@ -659,7 +658,7 @@ impl SandboxStatusReader for DockerSandboxAdapter {
         &self,
         _task_id: &str,
         _server_name: &str,
-        _options: moatless_sandbox_control::access::LogOptions,
+        _options: moatless_sandbox_runtime::access::LogOptions,
     ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError> {
         Err(SandboxError::NotReady(
             "Server logs not available in Docker mode".to_string(),
@@ -668,7 +667,7 @@ impl SandboxStatusReader for DockerSandboxAdapter {
 }
 
 #[async_trait]
-impl moatless_sandbox_control::client::SandboxConnector for DockerSandboxAdapter {
+impl moatless_sandbox_runtime::client::SandboxConnector for DockerSandboxAdapter {
     async fn sandbox_client(
         &self,
         task_id: &str,
@@ -1090,14 +1089,14 @@ impl DockerSandboxAdapter {
         &self,
         container_name: &str,
         task_id: &str,
-    ) -> Result<(), moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<(), moatless_sandbox_runtime::runtime::RuntimeError> {
         if self
             .container_exists(container_name)
             .await
             .map_err(map_sandbox_error)?
         {
             Err(
-                moatless_sandbox_control::lifecycle::RuntimeError::NotAbsent(format!(
+                moatless_sandbox_runtime::runtime::RuntimeError::NotAbsent(format!(
                     "container {container_name} for task {task_id}"
                 )),
             )
@@ -1111,7 +1110,7 @@ impl DockerSandboxAdapter {
         task_id: &str,
         root: &str,
         kind: &str,
-    ) -> Result<(), moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<(), moatless_sandbox_runtime::runtime::RuntimeError> {
         let (Some(s3), Some(bucket)) = (self.s3.as_ref(), self.config.s3.bucket_name.as_deref())
         else {
             return Ok(());
@@ -1120,7 +1119,7 @@ impl DockerSandboxAdapter {
         moatless_s3::delete_objects_by_prefix(s3, bucket, &prefix)
             .await
             .map_err(|e| {
-                moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(format!(
+                moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(format!(
                     "delete {kind} archive for {task_id}: {e}"
                 ))
             })?;
@@ -1164,8 +1163,8 @@ impl DockerSandboxAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_sandbox_control::lifecycle::OperationGeneration;
-    use moatless_sandbox_control::lifecycle::runtime::OPERATION_GENERATION_LABEL;
+    use moatless_sandbox_runtime::types::OperationGeneration;
+    use moatless_sandbox_runtime::runtime::OPERATION_GENERATION_LABEL;
     use std::collections::HashMap;
 
     #[test]
@@ -1294,7 +1293,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(_)
+            moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(_)
         ));
     }
 }

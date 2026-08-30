@@ -9,7 +9,7 @@ use axum_extra::extract::Multipart;
 
 use std::sync::Arc;
 
-use moatless_identity::extractors::AuthUser;
+use moatless_core::http_auth::AuthUser;
 use moatless_types::access_control::ScopedResource;
 use moatless_core::config::S3Config;
 

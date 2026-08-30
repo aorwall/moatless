@@ -121,7 +121,7 @@ moatless-backend-core = { path = "../backend-core", features = ["database", "ope
 # Lowest-band crate: config, db, error, events, and the core-clean vocabularies
 moatless-core = { path = "../core", features = ["openapi"] }
 # Adapter domain types + adapter_connections persistence (lifted out of adapters/)
-moatless-adapter-model = { path = "../adapter-model" }
+moatless-adapter-model = { path = "../adapter-model", features = ["postgres"] }
 # Identity band: auth, extractors, team, adapter apps, secrets, setup (lifted out
 # of crates/backend/src). Composed through permanent facade modules that re-export it.
 moatless-identity = { path = "../identity" }
@@ -159,6 +159,7 @@ moatless-adapter-github-pr = { path = "../adapter-github-pr" }
 # status) and the two runtime providers k8s/docker (band 7), which carry their
 # own SDKs (kube/k8s-openapi, bollard) — no longer the backend's dependency
 # surface.
+moatless-sandbox-runtime = { path = "../sandbox-runtime" }
 moatless-sandbox-control = { path = "../sandbox-control" }
 moatless-sandbox-k8s = { path = "../sandbox-k8s" }
 moatless-sandbox-docker = { path = "../sandbox-docker" }

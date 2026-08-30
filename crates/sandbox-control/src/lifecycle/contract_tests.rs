@@ -23,12 +23,12 @@ use super::dao::PgLifecycleDao;
 use super::events::{EventFact, LifecycleEvent};
 use super::lock::PgLifecycleLock;
 use super::orchestrator::{AgentStopPort, LifecycleDao, LifecycleEventSink};
-use super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
+use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use super::test_support::seed_task_with as seed;
-use super::{
-    ArchiveRetention, Lifecycle, LifecycleError, ObservedStatus, OperationKind, RuntimeError,
-    SystemWallClock,
-};
+use moatless_sandbox_runtime::runtime::RuntimeError;
+use moatless_sandbox_runtime::types::{ArchiveRetention, ObservedStatus, OperationKind};
+
+use super::{Lifecycle, LifecycleError, SystemWallClock};
 
 // ---- Fixtures ----
 
@@ -177,9 +177,9 @@ impl LifecycleEventSink for CollectSink {
     async fn publish_diagnostics(
         &self,
         _task_id: &str,
-        _generation: super::OperationGeneration,
+        _generation: moatless_sandbox_runtime::types::OperationGeneration,
         _observed: ObservedStatus,
-        _diagnostics: &super::Diagnostics,
+        _diagnostics: &moatless_sandbox_runtime::outcome::Diagnostics,
     ) {
     }
 }

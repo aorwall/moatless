@@ -26,19 +26,20 @@ use super::service;
 use super::status_resolver::StatusResolver;
 use moatless_backend_core::sandbox as core_sandbox;
 use moatless_core::config::Config;
-use moatless_sandbox_control::client::SandboxClient;
-use moatless_sandbox_control::error::SandboxError;
-use moatless_sandbox_control::lifecycle::outcome::{DegradationWarning, Diagnostics};
-use moatless_sandbox_control::lifecycle::runtime::{
+use moatless_sandbox_runtime::client::SandboxClient;
+use moatless_sandbox_runtime::error::SandboxError;
+use moatless_sandbox_runtime::outcome::{DegradationWarning, Diagnostics};
+use moatless_sandbox_runtime::runtime::{
     RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, map_sandbox_error,
 };
-use moatless_sandbox_control::lifecycle::{
-    ArchiveRetention, ObservedStatus, OperationGeneration, ProvisionDeps, RuntimeEffect,
+use moatless_sandbox_control::lifecycle::ProvisionDeps;
+use moatless_sandbox_runtime::types::{
+    ArchiveRetention, ObservedStatus, OperationGeneration, RuntimeEffect,
 };
-use moatless_sandbox_control::models::*;
-use moatless_sandbox_control::schemas::*;
-use moatless_sandbox_control::status_reader::SandboxStatusReader;
-use moatless_sandbox_control::storage::StorageBackend;
+use moatless_sandbox_runtime::models::*;
+use moatless_sandbox_runtime::schemas::*;
+use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
+use moatless_sandbox_runtime::storage::StorageBackend;
 
 /// Kubernetes adapter for lifecycle mutation, observation, and connection.
 pub struct K8sSandboxAdapter {
@@ -61,21 +62,21 @@ pub struct K8sSandboxAdapter {
 async fn wait_absent<F>(
     resource: &str,
     wait: F,
-) -> Result<(), moatless_sandbox_control::lifecycle::RuntimeError>
+) -> Result<(), moatless_sandbox_runtime::runtime::RuntimeError>
 where
     F: std::future::Future<Output = Result<(), SandboxError>>,
 {
     wait.await.map_err(|error| {
-        moatless_sandbox_control::lifecycle::RuntimeError::NotAbsent(format!("{resource}: {error}"))
+        moatless_sandbox_runtime::runtime::RuntimeError::NotAbsent(format!("{resource}: {error}"))
     })
 }
 
 impl K8sSandboxAdapter {
     fn require_plan(
         &self,
-    ) -> Result<&ProvisionDeps, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<&ProvisionDeps, moatless_sandbox_runtime::runtime::RuntimeError> {
         self.plan.as_ref().ok_or_else(|| {
-            moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(
+            moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(
                 "sandbox plan repositories unavailable".to_string(),
             )
         })
@@ -333,7 +334,7 @@ impl K8sSandboxAdapter {
         }
         .await;
 
-        moatless_sandbox_control::metrics::record_provision(
+        moatless_sandbox_runtime::metrics::record_provision(
             backend,
             if result.is_ok() { "ok" } else { "error" },
             started.elapsed(),
@@ -349,7 +350,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
         Box::pin(self.ensure_running_with_request(task_id, &request, ctx))
@@ -362,7 +363,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         &self,
         task_id: &str,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Stopping sandbox (scaling Deployment to 0)");
 
         // Scale Deployment to 0 — keeps Service and IngressRoutes alive
@@ -406,7 +407,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Restarting sandbox (scaling to 0, then back to 1 after termination)");
 
         // Time the restart so the `ebs` path (which pays a pod-drain wait to
@@ -435,7 +436,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // restart_deployment always ends at 1 replica.
         let outcome = deployment::restart_deployment(&self.k8s, task_id, ctx).await;
 
-        moatless_sandbox_control::metrics::record_restart(backend, started.elapsed());
+        moatless_sandbox_runtime::metrics::record_restart(backend, started.elapsed());
         outcome.map_err(map_sandbox_error)?;
 
         Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
@@ -446,7 +447,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Redeploying sandbox (deleting Deployment/Service/IngressRoutes, preserving PVC)");
         let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
@@ -528,7 +529,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         task_id: &str,
         retention: ArchiveRetention,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         let retain_storage = retention.retains();
         let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
             .await
@@ -561,7 +562,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // so the caller retries and the `Removed` completion is withheld. Removal
         // is strict — it reports success only once every resource is observed
         // absent (pods drained, PVC gone) and every owed archive is deleted.
-        let mut first_err: Option<moatless_sandbox_control::lifecycle::RuntimeError> = None;
+        let mut first_err: Option<moatless_sandbox_runtime::runtime::RuntimeError> = None;
 
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Deployment");
@@ -743,7 +744,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         task_id: &str,
         rescue_upload_url: Option<&str>,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         let deployment = deployment::find_deployment(&self.k8s, task_id)
             .await
             .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
@@ -962,7 +963,7 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         task_id: &str,
         task_status: moatless_types::task::TaskStatus,
         desired_state: moatless_types::sandbox::SandboxDesiredState,
-    ) -> Result<moatless_sandbox_control::live_status::LiveStatus, SandboxError> {
+    ) -> Result<moatless_sandbox_runtime::live_status::LiveStatus, SandboxError> {
         let sandbox_id = self.sandbox_id_for_task(task_id).await?;
         Ok(self
             .status_resolver
@@ -974,7 +975,7 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         &self,
         task_id: &str,
         server_name: &str,
-        options: moatless_sandbox_control::access::LogOptions,
+        options: moatless_sandbox_runtime::access::LogOptions,
     ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError> {
         let container_name = if server_name == "sandbox" {
             "sandbox".to_string()
@@ -1005,7 +1006,7 @@ impl SandboxStatusReader for K8sSandboxAdapter {
 }
 
 #[async_trait]
-impl moatless_sandbox_control::client::SandboxConnector for K8sSandboxAdapter {
+impl moatless_sandbox_runtime::client::SandboxConnector for K8sSandboxAdapter {
     async fn sandbox_client(
         &self,
         task_id: &str,

@@ -62,6 +62,11 @@ pub enum AuthError {
 
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
+
+    /// A published store seam failed. Distinct from [`Self::Database`] only in
+    /// where the failure was raised; both are an internal error to a caller.
+    #[error("{0}")]
+    Store(#[from] moatless_types::store::StoreError),
 }
 
 impl IntoResponse for AuthError {
@@ -88,7 +93,8 @@ impl IntoResponse for AuthError {
             | Self::BotIdentity(_)
             | Self::OAuth(_)
             | Self::Config(_)
-            | Self::Database(_) => {
+            | Self::Database(_)
+            | Self::Store(_) => {
                 // Log the full causal chain server-side exactly once, return a
                 // generic message to the client.
                 error!(error = %moatless_core::error::causal_chain(&self), "Internal auth error");

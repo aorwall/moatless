@@ -11,7 +11,7 @@ use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::admit_delivery;
-use moatless_loops::loops::dao::LoopDao;
+use moatless_loops::loops::ports::LoopReader;
 
 use super::adapter::{WebhookAccepted, WebhookAdapter};
 use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};
@@ -40,7 +40,7 @@ use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};
     ))
 )]
 pub async fn webhook_inbound(
-    State(loops): State<Arc<LoopDao>>,
+    State(loops): State<Arc<dyn LoopReader>>,
     State(adapter_delivery): State<Arc<AdapterDeliveryStore>>,
     Path(loop_id): Path<String>,
     headers: HeaderMap,
@@ -49,7 +49,7 @@ pub async fn webhook_inbound(
     info!(loop_id = %loop_id, "Webhook inbound received");
 
     let subscription = loops
-        .find_runnable_subscription_by_id(&loop_id)
+        .runnable_subscription(&loop_id)
         .await?
         .ok_or_else(|| SharedAdapterError::ConfigNotFound(loop_id.clone()))?;
 

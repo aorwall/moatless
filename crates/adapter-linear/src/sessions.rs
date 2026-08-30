@@ -26,13 +26,13 @@ use tracing::{info, warn};
 use moatless_core::config::Config;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding};
-use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::message::send::MessageSendService;
+use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_loops::loops::ports::LoopReader;
+use moatless_backend_core::task::{InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_tasks::task::creation::TaskCreationService;
+use moatless_backend_core::task::TaskOpener;
 use moatless_backend_core::task::TaskReader;
-use moatless_tasks::task::relations::TaskRelationDao;
+use moatless_backend_core::task::RelationRecorder;
 use moatless_backend_core::sandbox::SandboxWaker;
 
 use super::active_turns::ActiveLinearTurns;
@@ -87,9 +87,9 @@ pub(super) async fn provision_selected_session_task(
     task_bindings: &dyn TaskBindingDao,
     tasks: &dyn TaskReader,
     config: &Config,
-    task_creation: &TaskCreationService,
-    task_relations: &dyn TaskRelationDao,
-    message_send: &MessageSendService,
+    task_creation: &dyn TaskOpener,
+    task_relations: &dyn RelationRecorder,
+    message_send: &dyn MessageAcceptor,
     linear_active_turns: &ActiveLinearTurns,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
@@ -196,9 +196,9 @@ async fn select_session_spawn_rule(
 )]
 pub(super) async fn handle_session_prompted(
     task_bindings: &dyn TaskBindingDao,
-    loops: &LoopDao,
+    loops: &dyn LoopReader,
     linear_active_turns: &ActiveLinearTurns,
-    message_send: &MessageSendService,
+    message_send: &dyn MessageAcceptor,
     sandbox_waker: &dyn SandboxWaker,
     api: &LinearAgentApi,
     session_id: &str,
@@ -239,31 +239,24 @@ pub(super) async fn handle_session_prompted(
         linear_active_turns.open(&binding.task_id);
         let external_event_id = super::external_id::prompt(activity_id);
         if let Err(e) = message_send
-            .send_message_flow(
-                &binding.task_id,
-                body,
-                None,
-                None,
-                None,
-                &[],
-                &[],
-                true,
-                moatless_types::task::ExternalOrigin {
-                    event_id: Some(&external_event_id),
-                    adapter: Some(ADAPTER_LABEL),
-                    subject_key: Some(&binding.subject_key),
-                    source_name: rule.as_ref().map(|r| r.source_matcher.as_str()),
+            .accept(InboundTurn {
+                task_id: binding.task_id.clone(),
+                text: body.to_string(),
+                file_ids: Vec::new(),
+                resume: true,
+                origin: TurnOrigin {
+                    event_id: Some(external_event_id.clone()),
+                    adapter: Some(ADAPTER_LABEL.to_string()),
+                    subject_key: Some(binding.subject_key.clone()),
+                    source_name: rule.as_ref().map(|r| r.source_matcher.clone()),
                     // A prompt carries no actor; the session's creator is who this
                     // is attributed to, and the created path records that.
                     author: None,
                     sender_id: None,
-                    source_task_id: None,
                 },
-                false,
-                None,
-                &[],
-                None,
-            )
+                sent_by: None,
+                skills: Vec::new(),
+            })
             .await
         {
             warn!(
@@ -299,9 +292,9 @@ async fn provision_session_task(
     task_bindings: &dyn TaskBindingDao,
     tasks: &dyn TaskReader,
     config: &Config,
-    task_creation: &TaskCreationService,
-    task_relations: &dyn TaskRelationDao,
-    message_send: &MessageSendService,
+    task_creation: &dyn TaskOpener,
+    task_relations: &dyn RelationRecorder,
+    message_send: &dyn MessageAcceptor,
     linear_active_turns: &ActiveLinearTurns,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
@@ -409,7 +402,7 @@ async fn provision_session_task(
         Err(e) => return Err(e),
     };
     if let Some(ref r) = related {
-        moatless_tasks::task::relations::record_related_to(task_relations, &task_id, r).await;
+        task_relations.record_related_to(&task_id, r).await;
     }
     // Open the Linear turn gate so subsequent sandbox lifecycle / agent events
     // on this task surface in Linear's UI.
@@ -472,29 +465,22 @@ async fn provision_session_task(
     let external_event_id = super::external_id::session_created(&session.id);
     let creator_handle = super::actor_handle(session.creator.as_ref());
     if let Err(e) = message_send
-        .send_message_flow(
-            &task_id,
-            &inbound_text,
-            None,
-            None,
-            None,
-            &[],
-            &[],
-            false,
-            moatless_types::task::ExternalOrigin {
-                event_id: Some(&external_event_id),
-                adapter: Some(ADAPTER_LABEL),
-                subject_key: Some(&binding.subject_key),
-                source_name: Some(rule.source_matcher.as_str()),
-                author: creator_handle.as_deref(),
+        .accept(InboundTurn {
+            task_id: task_id.clone(),
+            text: inbound_text.clone(),
+            file_ids: Vec::new(),
+            resume: false,
+            origin: TurnOrigin {
+                event_id: Some(external_event_id.clone()),
+                adapter: Some(ADAPTER_LABEL.to_string()),
+                subject_key: Some(binding.subject_key.clone()),
+                source_name: Some(rule.source_matcher.clone()),
+                author: creator_handle.clone(),
                 sender_id: None,
-                source_task_id: None,
             },
-            false,
-            session.creator.as_ref().map(|c| c.id.as_str()),
-            &[],
-            None,
-        )
+            sent_by: session.creator.as_ref().map(|c| c.id.clone()),
+            skills: Vec::new(),
+        })
         .await
     {
         warn!(

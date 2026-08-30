@@ -1,6 +1,6 @@
 //! The common result of every lifecycle operation.
 
-use super::types::{IntentEffect, ObservedStatus, RuntimeEffect};
+use crate::types::{IntentEffect, ObservedStatus, RuntimeEffect};
 
 /// A non-fatal degradation the operation succeeded *through* — e.g. a PVC
 /// failure that fell back to ephemeral storage. Carried on success so the UI

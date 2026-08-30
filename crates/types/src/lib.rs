@@ -2,9 +2,9 @@
 //!
 //! Every type here is pure data: no I/O, no behaviour beyond what the data
 //! itself can answer. The crate depends on `serde`, `serde_json`, `chrono`,
-//! `thiserror`, `tracing`, and optionally `utoipa`, and on nothing else — no
-//! `sqlx`, no `axum`, no `reqwest`, no `redis`. Crates above it therefore never
-//! rebuild because a transport dependency moved.
+//! `thiserror`, `tracing`, `url`, `uuid`, and optionally `utoipa`, and on
+//! nothing else — no `sqlx`, no `axum`, no `reqwest`, no `redis`. Crates above
+//! it therefore never rebuild because a transport dependency moved.
 //!
 //! ## What belongs here
 //!
@@ -43,6 +43,9 @@
 //!
 //! A type sits with the domain that owns it even when a neighbouring module
 //! reads more obvious at a glance. Say why in the module doc when it does.
+
+// Test code asserts a parse succeeded; production code keeps the workspace deny.
+#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
 
 /// A closed set of values persisted as text and carried on the wire as text.
 ///
@@ -110,6 +113,7 @@ pub mod message;
 pub mod repository;
 pub mod sandbox;
 pub mod secret;
+pub mod store;
 pub mod task;
 pub mod user;
 pub mod workspace;

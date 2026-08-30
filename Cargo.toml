@@ -4,6 +4,7 @@ members = [
     "sandbox",
     "crates/claude-agent-sdk",
     "crates/sandbox-proto",
+    "crates/sandbox-runtime",
     "crates/cli",
     "crates/api-client",
     "crates/api-schemas",

@@ -17,11 +17,11 @@ use crate::adapters::common::{
     load_loop_for_auth_with,
     task_binding_response,
 };
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::reply::ExternalReplyService;
-use moatless_identity::extractors::AuthUser;
+use moatless_core::http_auth::AuthUser;
 use crate::loops::dao::LoopDao;
 use moatless_backend_core::task::TaskReader;
 use moatless_adapter_model::models::TaskBinding;

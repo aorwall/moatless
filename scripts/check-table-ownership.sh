@@ -20,11 +20,11 @@
 #   - crates/backend            the composition root. It assembles every domain
 #                               and its `t3code` projection reads across them,
 #                               so it names tables it does not own by design.
-#   - crates/t3code             pending a decision, recorded in
-#                               `docs/deferred-changes.md` with the condition
-#                               that makes it worth taking. It reads fifteen
-#                               tables it does not own and behaves like a read
-#                               model; nothing yet says so.
+#   - crates/t3code             a declared read-only projection over the Task
+#                               and Workspace tables. The rule it is excluded
+#                               under — every statement is a read, and a read
+#                               another band already publishes goes through the
+#                               seam — is stated in `crates/t3code/AGENTS.md`.
 #   - crates/cli, crates/sandbox
 #                               neither opens a pool against this schema.
 #   - #[cfg(test)] / #[cfg(all(test, ...))] modules, and module files declared

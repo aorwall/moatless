@@ -6,7 +6,7 @@
 
 use tracing::{debug, warn};
 
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::AdapterError;
 use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
@@ -15,7 +15,7 @@ use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_types::adapter::InboundMessage;
 use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{Adapter, BindingDestination};
-use moatless_loops::loops::dao::LoopDao;
+use moatless_loops::loops::ports::LoopReader;
 use moatless_loops::bindings::ports::BindingProbe;
 use moatless_backend_core::identity::ProviderIdentityLink;
 
@@ -105,7 +105,7 @@ fn challenge(payload: &serde_json::Value) -> String {
 /// that outlives a rejected signature.
 async fn resolve(
     adapter_connections: &dyn AdapterConnectionDao,
-    loops: &LoopDao,
+    loops: &dyn LoopReader,
     task_bindings: &dyn BindingProbe,
     adapter: &SlackAdapter,
     payload: &serde_json::Value,
@@ -192,7 +192,7 @@ async fn resolve(
         config: moatless_adapter_model::models::subscription_context(&subscription),
         source_id: source_id.to_string(),
         connection_id: connection.id,
-        app_key: moatless_identity::adapter_apps::app_key_from_transport_config(&connection.transport_config)
+        app_key: moatless_adapter_model::apps::app_key_from_transport_config(&connection.transport_config)
             .to_string(),
         subscription_id: subscription.id,
         destination,
@@ -274,7 +274,7 @@ fn admission_event_id(payload: &serde_json::Value, msg: &InboundMessage) -> Stri
 /// Resolve, verify, normalize, apply, and durably admit one Slack webhook.
 pub(super) async fn receive(
     adapter_connections: &dyn AdapterConnectionDao,
-    loops: &LoopDao,
+    loops: &dyn LoopReader,
     task_bindings: &dyn BindingProbe,
     users: &dyn ProviderIdentityLink,
     adapter_delivery: &AdapterDeliveryStore,
@@ -310,7 +310,7 @@ pub(super) async fn receive(
     let routed = match verifiable {
         Verifiable::Challenge(challenge) => {
             let app = adapter
-                .app(moatless_identity::adapter_apps::DEFAULT_APP_KEY)
+                .app(moatless_adapter_model::apps::DEFAULT_APP_KEY)
                 .await
                 .map_err(IngressError::Ingress)?;
             verify(&app, &request).map_err(IngressError::Ingress)?;
@@ -603,7 +603,7 @@ mod characterization {
     ) -> Result<Parsed, IngressError> {
         let payload = parse_body(body.as_bytes())?;
         let app = adapter
-            .app(moatless_identity::adapter_apps::DEFAULT_APP_KEY)
+            .app(moatless_adapter_model::apps::DEFAULT_APP_KEY)
             .await
             .map_err(IngressError::Ingress)?;
         verify(&app, &request(headers, body.as_bytes())).map_err(IngressError::Ingress)?;

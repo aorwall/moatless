@@ -13,10 +13,33 @@ loop sync. It sits below the backend and above the provider crates
   Binding lifecycle: `BindingProbe` (is this subject bound?) and, through
   `moatless_backend_core::binding::TaskBindings`, the Task band's downward edge.
   `BindingDirectory` implements both.
+- **Loop** — the four Loop tables and their `LoopDao` store. `loops/ports.rs`
+  publishes `LoopReader`, the Subscription reads an Adapter matches an inbound
+  event against. `LoopDao` implements it directly: it is the only store over
+  those tables, so a wrapper beside it would be a second surface.
+- An Adapter names `LoopReader`, never `LoopDao`. The store has twenty-six
+  inherent functions and the Adapters read five of them. One exception stands:
+  `adapter-telegram/src/pairing.rs` names `LoopDao` because it reads and writes
+  a Loop's adapter config as part of approving a pairing code. Whether that
+  module survives is a behaviour question — see `docs/deferred-changes.md`.
 - An Adapter that upserts Bindings as well as reading and writing them
   (`adapter-github-pr`, `adapter-linear`) names `TaskBindingDao` directly. Do not
   add a narrow read port for a crate that already holds the store — that leaves
   two surfaces over one table.
+
+## The Adapter kernel is a crate, not a re-export
+
+`moatless-adapter-model` holds the Adapter vocabulary every band shares: the
+domain types and row shapes (`models`), the `adapter_connections` store (`dao`),
+the shared error half (`error`), the footer render/parse layer (`footer`), the
+HMAC webhook check (`signature`), the ingress counters (`metrics`), and the
+stored-app seam (`apps`). Name it directly — `moatless_adapter_model::…` — from
+this crate and from every provider crate. Do not re-export it through
+`crate::adapters`; one path to a type is the point.
+
+`AdapterConnectionDao` returns `StoreError`, and the Postgres store behind it
+sits under the crate's `postgres` feature. A crate that only reads connections
+needs no database driver.
 
 ## Two seams join a provider to the rest of the system
 

@@ -29,7 +29,7 @@ use super::cookie;
 use super::error::AuthError;
 use super::github::registry::GitHubAppRegistry;
 use super::github::service::GitHubAppService;
-use super::identity::AuthIdentity;
+use moatless_types::auth::AuthIdentity;
 use moatless_types::user::UserRole;
 use super::oauth::provider::OAuthProvider;
 use super::oidc::OidcService;
@@ -140,10 +140,10 @@ pub(super) struct AuthState {
     /// Preview-URL access for the session gate — the one `may_access_task` bool
     /// the ForwardAuth gate needs (E-(b)), behind a port so this crate holds no
     /// `task` import.
-    pub(super) task_access: Arc<dyn crate::extractors::TaskAccess>,
+    pub(super) task_access: Arc<dyn moatless_core::http_auth::TaskAccess>,
     /// Verifies the sandbox-issued `X-User-Token` on `exchange_token`, behind a
     /// port so this crate holds neither the token secret nor a `sandbox` import.
-    pub(super) token_verifier: Arc<dyn crate::extractors::UserTokenVerifier>,
+    pub(super) token_verifier: Arc<dyn moatless_core::http_auth::UserTokenVerifier>,
     /// Adapter connections (`adapter_connections`). The Linear OAuth
     /// callback mirrors the authorized workspace into this table so inbound
     /// Linear webhooks resolve a connection.
@@ -911,7 +911,7 @@ async fn verify_handler(
 /// passes without consulting the port. Split out so the gate is testable without
 /// the authentication machinery in front of it.
 async fn enforce_preview_access(
-    task_access: &dyn crate::extractors::TaskAccess,
+    task_access: &dyn moatless_core::http_auth::TaskAccess,
     scope_ctx: &ScopeContext,
     forwarded_host: Option<&str>,
 ) -> Result<(), AuthError> {
@@ -1800,10 +1800,10 @@ async fn exchange_token_handler(
         .token_verifier
         .verify_user_token(token)
         .map_err(|e| match e {
-            crate::extractors::TokenVerifyError::NotConfigured => {
+            moatless_core::http_auth::TokenVerifyError::NotConfigured => {
                 AuthError::Config("TASK_TOKEN_SECRET not configured".to_string())
             }
-            crate::extractors::TokenVerifyError::Invalid(_) => AuthError::Unauthorized,
+            moatless_core::http_auth::TokenVerifyError::Invalid(_) => AuthError::Unauthorized,
         })?;
 
     let user_id = verified
@@ -2509,7 +2509,7 @@ async fn linear_callback_handler(
     let existing = conn_repo
         .find_by_external_account("linear", &identity.organization_id)
         .await
-        .map_err(AuthError::Database)?;
+        .map_err(AuthError::Store)?;
 
     let connection_row = AdapterConnection {
         id: existing
@@ -2538,7 +2538,7 @@ async fn linear_callback_handler(
     conn_repo
         .upsert(&connection_row, &sys_ctx)
         .await
-        .map_err(AuthError::Database)?;
+        .map_err(AuthError::Store)?;
 
     // Upsert the workspace token row (global scope: user_id=NULL, team_id=NULL).
     let expires_at = tokens
@@ -2619,7 +2619,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl crate::extractors::TaskAccess for FakeTaskAccess {
+    impl moatless_core::http_auth::TaskAccess for FakeTaskAccess {
         async fn may_access_task(&self, _task_id: &str, _ctx: &ScopeContext) -> bool {
             self.calls.fetch_add(1, Ordering::SeqCst);
             self.allow

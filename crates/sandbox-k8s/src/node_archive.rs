@@ -24,8 +24,8 @@ use tracing::info;
 use super::client::K8sClient;
 use super::naming::sanitize_k8s_name;
 use moatless_core::config::Config;
-use moatless_sandbox_control::lifecycle::RuntimeError;
-use moatless_sandbox_control::lifecycle::runtime::{
+use moatless_sandbox_runtime::runtime::RuntimeError;
+use moatless_sandbox_runtime::runtime::{
     OPERATION_GENERATION_LABEL, generation_from_label,
 };
 
@@ -216,7 +216,7 @@ pub(crate) async fn record_observed_pod(
         .and_then(|labels| generation_from_label(labels.get(OPERATION_GENERATION_LABEL)))
         .map_or(
             0,
-            moatless_sandbox_control::lifecycle::OperationGeneration::value,
+            moatless_sandbox_runtime::types::OperationGeneration::value,
         );
     record_node(k8s, task_id, node_name, generation).await
 }

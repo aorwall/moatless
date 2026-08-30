@@ -39,15 +39,15 @@ use super::provider::{StorageFallback, StorageFallbackOutcome};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_core::events::EventPublisher;
 use moatless_sandbox_control::lifecycle::Lifecycle;
-use moatless_sandbox_control::lifecycle::OperationGeneration;
-use moatless_sandbox_control::lifecycle::classify::ObservedTransition;
-use moatless_sandbox_control::lifecycle::runtime::{
+use moatless_sandbox_runtime::types::OperationGeneration;
+use moatless_sandbox_runtime::classify::ObservedTransition;
+use moatless_sandbox_runtime::runtime::{
     OPERATION_GENERATION_LABEL, generation_from_label,
 };
 use moatless_sandbox_control::lifecycle::watcher::{
     classify_observation, publish_sandbox_observation,
 };
-use moatless_sandbox_control::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
+use moatless_sandbox_runtime::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 
 /// Dependencies the watcher needs to remediate a crash-looping sandbox. The
 /// lifecycle owns plan construction and intent, so the watcher only carries the

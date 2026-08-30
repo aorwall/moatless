@@ -81,7 +81,7 @@
 //!
 //! **Per-connection webhook outcome telemetry.** The metric here is only
 //! `{adapter, kind, outcome}` and is deliberately low-cardinality, whereas
-//! [`record_webhook`](crate::adapters::metrics) carries `event_type`,
+//! [`record_webhook`](moatless_adapter_model::metrics) carries `event_type`,
 //! `loop_id`, and `connection_id` — which is what makes a single broken
 //! Adapter connection visible. The seam's metric is not a replacement: a
 //! handler must keep emitting its own webhook outcome metric, or per-connection
@@ -127,6 +127,7 @@ pub use typed::{ConnectionDeliveryPayload, register_connection_delivery, registe
 pub use worker::spawn_adapter_delivery_worker;
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_backend_core::store::StoreError;
 
 /// Admission failures reach the sender as "not accepted, send it again".
 ///
@@ -139,7 +140,9 @@ impl From<AdmitError> for AdapterError {
     fn from(error: AdmitError) -> Self {
         match error {
             AdmitError::AtCapacity { .. } => Self::Shared(SharedAdapterError::Overloaded),
-            AdmitError::Store(source) => Self::Shared(SharedAdapterError::Db(source)),
+            AdmitError::Store(source) => Self::Shared(SharedAdapterError::Store(
+                StoreError::with_source("persist the Adapter delivery record", source),
+            )),
         }
     }
 }
@@ -167,12 +170,10 @@ impl From<AdapterError> for AdapterDeliveryFailure {
             // Transient: resolving a credential failed (the token may be
             // refreshed or the installation repaired between attempts), or a
             // task-flow storage failure the call site already decided is worth
-            // redelivering — `TaskCreation`'s preflight rejections are handled
-            // there and never reach here.
-            AdapterError::RepositoryCredential { .. }
-            | AdapterError::UserCredential { .. }
-            | AdapterError::TaskCreation(_)
-            | AdapterError::MessageDelivery(_)
+            // redelivering — a preflight refusal is handled there and never
+            // reaches here.
+            AdapterError::UpstreamCredential { .. }
+            | AdapterError::TaskHandoff { .. }
             // Not a failure at all: another delivery won the creation claim for
             // this subject. The retry is the mechanism, not a recovery — it is
             // how this event reaches the task the winner made.
@@ -184,7 +185,7 @@ impl From<AdapterError> for AdapterDeliveryFailure {
             // the latter two sit on the same 502 path as `AdapterApi` and a
             // later attempt can genuinely see a different answer.
             AdapterError::Shared(
-                SharedAdapterError::Db(_)
+                SharedAdapterError::Store(_)
                 | SharedAdapterError::AdapterApi(_)
                 | SharedAdapterError::Unauthorized(_)
                 | SharedAdapterError::Overloaded
@@ -261,7 +262,11 @@ mod tests {
     #[tokio::test]
     async fn every_adapter_error_pins_its_retry_class() {
         let retryable: Vec<AdapterError> = vec![
-            SharedAdapterError::Db(sqlx::Error::PoolTimedOut).into(),
+            SharedAdapterError::Store(StoreError::with_source(
+                "read the connection",
+                sqlx::Error::PoolTimedOut,
+            ))
+            .into(),
             SharedAdapterError::AdapterApi("502 from GitHub".into()).into(),
             SharedAdapterError::Unauthorized("token expired".into()).into(),
             SharedAdapterError::Overloaded.into(),
@@ -274,21 +279,16 @@ mod tests {
                 serde_json::from_str::<serde_json::Value>("{oops").unwrap_err(),
             )
             .into(),
-            AdapterError::RepositoryCredential {
-                source: moatless_workspaces::repository::error::RepositoryError::Db(
-                    sqlx::Error::PoolClosed,
-                ),
-            },
-            AdapterError::UserCredential {
-                user_id: "u-1".into(),
-                source: moatless_identity::auth::error::AuthError::Forbidden,
-            },
-            AdapterError::TaskCreation(moatless_tasks::task::creation::TaskCreationError::Db(
-                sqlx::Error::RowNotFound,
-            )),
-            AdapterError::MessageDelivery(moatless_tasks::message::error::MessageError::Db(
-                sqlx::Error::RowNotFound,
-            )),
+            AdapterError::upstream_credential(
+                "resolve the repository's GitHub credential",
+                sqlx::Error::PoolClosed,
+            ),
+            AdapterError::upstream_credential(
+                "resolve the GitHub token for user u-1",
+                sqlx::Error::PoolClosed,
+            ),
+            AdapterError::task_handoff("open a task from a provider event", sqlx::Error::RowNotFound),
+            AdapterError::task_handoff("deliver a provider turn to a task", sqlx::Error::RowNotFound),
         ];
         for error in retryable {
             let rendered = error.to_string();

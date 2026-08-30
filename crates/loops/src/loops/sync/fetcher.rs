@@ -1,6 +1,6 @@
 //! GitHub REST API-based fetcher for `.moatless/loops/` directories.
 //!
-//! Near-copy of [`moatless_workspaces::skill::fetcher`]: lists `.moatless/loops/` via
+//! Near-copy of the workspace band's skill fetcher: lists `.moatless/loops/` via
 //! `GET /repos/{owner}/{repo}/contents/.moatless/loops` and fetches each
 //! `LOOP.md` with `Accept: application/vnd.github.raw+json`. A 404 on the
 //! parent directory is treated as "no loops" and returns an empty vector.
@@ -16,7 +16,7 @@ use tracing::{debug, warn};
 
 use super::error::LoopError;
 use moatless_types::repository::RepositoryProvider;
-use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_types::repository::GitHostRepo;
 
 /// Repo-relative directory that holds committed loops.
 const LOOPS_PREFIX: &str = ".moatless/loops";

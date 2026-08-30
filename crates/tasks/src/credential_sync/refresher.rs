@@ -17,7 +17,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_backend_core::identity::CodexScopeReader;
+use moatless_backend_core::store::StoreError;
 use crate::credential_sync::CredentialSync;
 use moatless_core::leader::LeaderGuard;
 
@@ -33,7 +34,7 @@ use moatless_core::leader::LeaderGuard;
 /// The expensive part (`refresh_chatgpt_tokens`) only runs when the row is
 /// actually near expiry; the sweeper is effectively idle most of the time.
 pub fn spawn_codex_refresher(
-    provider_tokens: Arc<dyn ProviderTokenDao>,
+    codex_scopes: Arc<dyn CodexScopeReader>,
     credential_sync: Arc<CredentialSync>,
     leader_guard: Arc<dyn LeaderGuard>,
     interval: Duration,
@@ -51,7 +52,7 @@ pub fn spawn_codex_refresher(
             match leader_guard.try_acquire_or_renew().await {
                 Ok(true) => {
                     debug!(identity = %identity, "Codex refresher is leader, running sweep");
-                    if let Err(e) = run_sweep(provider_tokens.as_ref(), &credential_sync).await {
+                    if let Err(e) = run_sweep(codex_scopes.as_ref(), &credential_sync).await {
                         warn!(error = %e, "Codex refresher sweep failed");
                     }
                 }
@@ -75,12 +76,12 @@ pub fn spawn_codex_refresher(
 }
 
 async fn run_sweep(
-    provider_tokens: &dyn ProviderTokenDao,
+    codex_scopes: &dyn CodexScopeReader,
     credential_sync: &Arc<CredentialSync>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), StoreError> {
     // Every healthy codex scope, regardless of which one it is; the refresher
     // then runs the same code path on each.
-    let scopes = provider_tokens.healthy_codex_scopes().await?;
+    let scopes = codex_scopes.healthy_scopes().await?;
 
     let mut attempted = 0u32;
     let mut errored = 0u32;

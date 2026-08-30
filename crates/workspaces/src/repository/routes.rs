@@ -12,8 +12,8 @@ use super::handlers;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::GitSyncService;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_identity::extractors::UserTokenVerifier;
-use moatless_identity::git_host_tokens::GitHostTokens;
+use moatless_core::http_auth::UserTokenVerifier;
+use moatless_backend_core::identity::GitHostTokenIssuer;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -37,7 +37,7 @@ pub struct RepositoryApiDoc;
 /// Generic over the router state `S` so this module names no root type: the
 /// composition root supplies the concrete state at the call site, and each
 /// handler reaches its ports — `Arc<dyn RepositoryDao>`, `Arc<GitSyncService>`,
-/// `Arc<GitHostTokens>`, `Arc<dyn ProviderTokenDao>`, the `DbPool`, and
+/// `Arc<dyn GitHostTokenIssuer>`, `Arc<dyn ProviderTokenDao>`, the `DbPool`, and
 /// the `UserTokenVerifier` behind `AuthUser` — through `FromRef<S>`. The
 /// `sync_config` endpoint that once forced this
 /// module to name `Arc<LoopSyncService>` now lives in `repository_sync` (server
@@ -48,7 +48,7 @@ where
     Arc<dyn RepositoryDao>: FromRef<S>,
     Arc<dyn WorkspaceDao>: FromRef<S>,
     Arc<GitSyncService>: FromRef<S>,
-    Arc<GitHostTokens>: FromRef<S>,
+    Arc<dyn GitHostTokenIssuer>: FromRef<S>,
     Arc<dyn ProviderTokenDao>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
     DbPool: FromRef<S>,

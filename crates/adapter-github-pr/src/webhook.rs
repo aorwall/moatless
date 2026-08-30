@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 
 use moatless_loops::adapters::AdapterKind;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::SubscriptionMatch;
+use moatless_adapter_model::models::SubscriptionMatch;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_backend_core::identity::ProviderIdentityLink;
 
@@ -397,7 +397,7 @@ async fn normalize_issue_comment(
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
     let source_task_id =
-        moatless_loops::adapters::footer::parse_task_id_from_body(context.frontend_url, body);
+        moatless_adapter_model::footer::parse_task_id_from_body(context.frontend_url, body);
     let mut message = inbound_message(
         context,
         pr_number,
@@ -469,7 +469,7 @@ async fn normalize_review_comment(
     message.thread_properties["comment_id"] = serde_json::json!(comment_id);
     message.thread_properties["in_reply_to_id"] = serde_json::json!(in_reply_to_id);
     message.source_task_id =
-        moatless_loops::adapters::footer::parse_task_id_from_body(context.frontend_url, body);
+        moatless_adapter_model::footer::parse_task_id_from_body(context.frontend_url, body);
     Ok(PrimaryWebhook::Message(Box::new(message)))
 }
 
@@ -715,7 +715,7 @@ async fn inbound_message(
         thread_id,
         message_thread_id: pr_number.to_string(),
         user_id,
-        author: moatless_loops::adapters::models::author_handle(context.sender_login),
+        author: moatless_adapter_model::models::author_handle(context.sender_login),
         sender_external_id: None,
         text,
         file_ids: vec![],

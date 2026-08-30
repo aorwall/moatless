@@ -14,21 +14,20 @@
 //! call use?" was answered by whichever site you happened to be reading — and
 //! the two sources were never checked against each other.
 //!
-//! The `db` a client is built with is not incidental: [`LinearAgentApi`] reads
-//! the workspace token out of `provider_tokens` on every call and refreshes it
-//! in place when it is near expiry, so the pool is part of the credential, not
-//! a convenience.
+//! The [`AppCredentials`] a client is built with is not incidental:
+//! [`LinearAgentApi`] reads the workspace token through it on every call and
+//! refreshes it in place when it is near expiry, so it is part of the
+//! credential, not a convenience.
 
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{AdapterConnection, TaskBinding};
+use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
 use moatless_types::access_control::ScopeContext;
-use moatless_core::config::Config;
 use moatless_types::adapter::LinearConfig;
 use std::sync::Arc;
 
 use moatless_backend_core::identity::AppCredentials;
-use moatless_core::db::DbPool;
 
 use super::adapter::LinearAdapter;
 use super::agent_api::LinearAgentApi;
@@ -57,12 +56,15 @@ impl From<&LinearConfig> for LinearCredentials {
     }
 }
 
-impl From<&moatless_identity::adapter_apps::LinearAppConfig> for LinearCredentials {
-    fn from(config: &moatless_identity::adapter_apps::LinearAppConfig) -> Self {
+/// A stored Linear app, in the shape this Adapter authenticates with. Every
+/// field is optional: an install with no OAuth pair still reaches Linear with
+/// the workspace token [`AppCredentials`] holds.
+impl From<AdapterAppSecrets> for LinearCredentials {
+    fn from(app: AdapterAppSecrets) -> Self {
         Self {
-            oauth_client_id: config.oauth_client_id.clone(),
-            oauth_client_secret: config.oauth_client_secret.clone(),
-            api_base_url: config.api_base_url.clone(),
+            oauth_client_id: app.secret("oauth_client_id"),
+            oauth_client_secret: app.secret("oauth_client_secret"),
+            api_base_url: app.setting("api_base_url"),
         }
     }
 }
@@ -85,21 +87,18 @@ impl LinearCredentials {
 }
 
 pub(super) async fn api_for_connection(
-    db: &DbPool,
     tokens: Arc<dyn AppCredentials>,
-    config: &Config,
+    apps: &dyn AdapterAppReader,
     connection: &AdapterConnection,
 ) -> Result<LinearAgentApi, AdapterError> {
-    let app_key = moatless_identity::adapter_apps::app_key_from_transport_config(&connection.transport_config);
-    let app = moatless_identity::adapter_apps::linear_app_config(db, config, app_key)
-        .await
-        .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?;
-    let Some(app) = app else {
+    let app_key =
+        moatless_adapter_model::apps::app_key_from_transport_config(&connection.transport_config);
+    let Some(app) = apps.app("linear", app_key).await? else {
         return Err(
             SharedAdapterError::AdapterNotConfigured(format!("linear app '{app_key}'")).into(),
         );
     };
-    let credentials = LinearCredentials::from(&app);
+    let credentials = LinearCredentials::from(app);
     Ok(credentials.api_for_org(tokens, &connection.scope_value))
 }
 
@@ -111,9 +110,8 @@ pub(super) async fn api_for_connection(
 /// skipping is bubbling a database error into event handling.
 pub(super) async fn api_for_binding(
     adapter_connections: &dyn AdapterConnectionDao,
-    db: &DbPool,
     tokens: Arc<dyn AppCredentials>,
-    config: &Config,
+    apps: &dyn AdapterAppReader,
     binding: &TaskBinding,
 ) -> Option<LinearAgentApi> {
     // Column is `external_account_id` on disk; the rest of the codebase reads
@@ -126,7 +124,7 @@ pub(super) async fn api_for_binding(
         .find_by_id(&binding.connection_id, &sys)
         .await;
     match connection {
-        Ok(Some(connection)) => match api_for_connection(db, tokens, config, &connection).await {
+        Ok(Some(connection)) => match api_for_connection(tokens, apps, &connection).await {
             Ok(api) => Some(api),
             Err(e) => {
                 tracing::warn!(
@@ -167,7 +165,7 @@ pub(super) async fn api_for_single_workspace(
         .require_adapter_connections()?
         .list_by_provider(super::subject::ADAPTER)
         .await
-        .map_err(SharedAdapterError::Db)?;
+        .map_err(SharedAdapterError::Store)?;
     match rows.len() {
         0 => Err(SharedAdapterError::AdapterNotConfigured(
             "No Linear workspace installed — run the Linear OAuth install first".into(),

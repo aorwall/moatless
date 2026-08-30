@@ -1,10 +1,13 @@
-//! Persistence helpers for `adapter_connections`.
+//! The `adapter_connections` store, and the Postgres implementation of it.
+//!
+//! The trait returns [`StoreError`], so a crate that reads connections needs no
+//! database driver. [`PgAdapterConnectionDao`] sits behind the `postgres`
+//! feature with everything else that names `sqlx`.
 
-use sqlx::{AssertSqlSafe, PgPool};
+use moatless_types::access_control::ScopeContext;
+use moatless_types::store::StoreError;
 
-use moatless_types::access_control::{ScopeContext, ScopedEntity};
-
-use crate::models::{AdapterConnection, AdapterConnectionRow};
+use crate::models::AdapterConnection;
 
 #[async_trait::async_trait]
 pub trait AdapterConnectionDao: Send + Sync {
@@ -12,7 +15,7 @@ pub trait AdapterConnectionDao: Send + Sync {
         &self,
         id: &str,
         ctx: &ScopeContext,
-    ) -> Result<Option<AdapterConnection>, sqlx::Error>;
+    ) -> Result<Option<AdapterConnection>, StoreError>;
 
     /// Look up a connection by Adapter + external account. Used for webhook
     /// routing where we identify the tenant from the inbound event, not from
@@ -21,7 +24,7 @@ pub trait AdapterConnectionDao: Send + Sync {
         &self,
         adapter_kind: &str,
         external_account_id: &str,
-    ) -> Result<Option<AdapterConnection>, sqlx::Error>;
+    ) -> Result<Option<AdapterConnection>, StoreError>;
 
     /// Look up a connection by Adapter + external account. Used for webhook
     /// routing where we identify the tenant from the inbound event, not from
@@ -30,29 +33,40 @@ pub trait AdapterConnectionDao: Send + Sync {
         &self,
         adapter_kind: &str,
         scope_value: &str,
-    ) -> Result<Option<AdapterConnection>, sqlx::Error>;
+    ) -> Result<Option<AdapterConnection>, StoreError>;
 
     /// List all connections for an Adapter, unscoped. Used by webhook routing
     /// to enumerate all tenants for an Adapter — no authenticated caller.
     async fn list_by_provider(
         &self,
         adapter_kind: &str,
-    ) -> Result<Vec<AdapterConnection>, sqlx::Error>;
+    ) -> Result<Vec<AdapterConnection>, StoreError>;
 
     async fn list(
         &self,
         ctx: &ScopeContext,
         adapter_kind: Option<&str>,
-    ) -> Result<Vec<AdapterConnection>, sqlx::Error>;
+    ) -> Result<Vec<AdapterConnection>, StoreError>;
 
     async fn upsert(
         &self,
         row: &AdapterConnection,
         ctx: &ScopeContext,
-    ) -> Result<AdapterConnection, sqlx::Error>;
+    ) -> Result<AdapterConnection, StoreError>;
 
-    async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error>;
+    async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, StoreError>;
 }
+
+#[cfg(feature = "postgres")]
+mod postgres {
+    use sqlx::{AssertSqlSafe, PgPool};
+
+    use moatless_types::access_control::{ScopeContext, ScopedEntity};
+    use moatless_types::store::StoreError;
+
+    use crate::models::{AdapterConnection, AdapterConnectionRow};
+
+    use super::AdapterConnectionDao;
 
 pub struct PgAdapterConnectionDao(PgPool);
 
@@ -263,51 +277,82 @@ impl AdapterConnectionDao for PgAdapterConnectionDao {
         &self,
         id: &str,
         ctx: &ScopeContext,
-    ) -> Result<Option<AdapterConnection>, sqlx::Error> {
-        PgAdapterConnectionDao::find_by_id(self, id, ctx).await
+    ) -> Result<Option<AdapterConnection>, StoreError> {
+        PgAdapterConnectionDao::find_by_id(self, id, ctx)
+            .await
+            .map_err(|e| StoreError::with_source(format!("read adapter connection {id}"), e))
     }
 
     async fn find_by_external_account(
         &self,
         adapter_kind: &str,
         external_account_id: &str,
-    ) -> Result<Option<AdapterConnection>, sqlx::Error> {
+    ) -> Result<Option<AdapterConnection>, StoreError> {
         PgAdapterConnectionDao::find_by_external_account(self, adapter_kind, external_account_id)
             .await
+            .map_err(|e| {
+                StoreError::with_source(
+                    format!("read the {adapter_kind} connection for account {external_account_id}"),
+                    e,
+                )
+            })
     }
 
     async fn find_by_scope_value(
         &self,
         adapter_kind: &str,
         scope_value: &str,
-    ) -> Result<Option<AdapterConnection>, sqlx::Error> {
-        PgAdapterConnectionDao::find_by_scope_value(self, adapter_kind, scope_value).await
+    ) -> Result<Option<AdapterConnection>, StoreError> {
+        PgAdapterConnectionDao::find_by_scope_value(self, adapter_kind, scope_value)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(
+                    format!("read the {adapter_kind} connection for {scope_value}"),
+                    e,
+                )
+            })
     }
 
     async fn list_by_provider(
         &self,
         adapter_kind: &str,
-    ) -> Result<Vec<AdapterConnection>, sqlx::Error> {
-        PgAdapterConnectionDao::list_by_provider(self, adapter_kind).await
+    ) -> Result<Vec<AdapterConnection>, StoreError> {
+        PgAdapterConnectionDao::list_by_provider(self, adapter_kind)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(format!("list the {adapter_kind} connections"), e)
+            })
     }
 
     async fn list(
         &self,
         ctx: &ScopeContext,
         adapter_kind: Option<&str>,
-    ) -> Result<Vec<AdapterConnection>, sqlx::Error> {
-        PgAdapterConnectionDao::list(self, ctx, adapter_kind).await
+    ) -> Result<Vec<AdapterConnection>, StoreError> {
+        PgAdapterConnectionDao::list(self, ctx, adapter_kind)
+            .await
+            .map_err(|e| StoreError::with_source("list adapter connections", e))
     }
 
     async fn upsert(
         &self,
         row: &AdapterConnection,
         ctx: &ScopeContext,
-    ) -> Result<AdapterConnection, sqlx::Error> {
-        PgAdapterConnectionDao::upsert(self, row, ctx).await
+    ) -> Result<AdapterConnection, StoreError> {
+        PgAdapterConnectionDao::upsert(self, row, ctx)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(format!("write adapter connection {}", row.id), e)
+            })
     }
 
-    async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error> {
-        PgAdapterConnectionDao::delete(self, id, ctx).await
+    async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, StoreError> {
+        PgAdapterConnectionDao::delete(self, id, ctx)
+            .await
+            .map_err(|e| StoreError::with_source(format!("delete adapter connection {id}"), e))
     }
 }
+}
+
+#[cfg(feature = "postgres")]
+pub use postgres::PgAdapterConnectionDao;

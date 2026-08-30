@@ -3,12 +3,14 @@
 //! Each port names what identity offers, returns values shaped for the caller,
 //! and fails with [`StoreError`], so a peer needs neither the `users` /
 //! `provider_tokens` rows nor the store driver behind them. `moatless-identity`
-//! implements all five.
+//! implements every one.
 
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_types::agent::CodexScope;
+use moatless_types::repository::{GitHostRepo, RepositoryProvider};
 use uuid::Uuid;
 
 use crate::store::StoreError;
@@ -162,4 +164,124 @@ pub trait AppCredentials: Send + Sync {
     /// Persist a freshly-exchanged credential. Idempotent on `provider`.
     async fn store_app_token(&self, provider: &str, token: &AppToken)
     -> Result<(), StoreError>;
+}
+
+/// The secrets one identity's runtime materializes.
+///
+/// Two channels, because they are delivered differently: env-style values
+/// reach the agent as environment variables, ssh keys are written to `~/.ssh`
+/// and never exposed as env. Each read walks `user > global` and marks the
+/// records it used, so the audit trail is part of the read.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait SecretResolver: Send + Sync {
+    /// Env-style secrets `user_id` can reach, keyed by secret name.
+    async fn plaintext(&self, user_id: &str) -> Result<HashMap<String, String>, StoreError>;
+
+    /// SSH private keys `user_id` can reach, keyed by secret name.
+    async fn ssh_keys(&self, user_id: &str) -> Result<HashMap<String, String>, StoreError>;
+}
+
+/// Which secrets exist for a caller, by name alone.
+///
+/// Metadata only: no value is decrypted and none is returned. A caller that
+/// needs a value reads it through [`SecretResolver`].
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait SecretCatalog: Send + Sync {
+    /// Every secret key `ctx` may see — the global ones plus its own.
+    async fn list(&self, ctx: &ScopeContext) -> Result<Vec<String>, StoreError>;
+}
+
+/// The Codex scopes a background refresh should sweep.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait CodexScopeReader: Send + Sync {
+    /// Every scope holding a Codex credential with no permanent refresh
+    /// failure recorded against it.
+    async fn healthy_scopes(&self) -> Result<Vec<CodexScope>, StoreError>;
+}
+
+/// A git host whose credential is a single stored value, readable without
+/// naming a repository.
+///
+/// GitHub is absent by construction: an installation token is minted through
+/// the App, resolved from the repo's owner, so there is no stored GitHub token
+/// and [`GitHostTokenIssuer::token`] is the only way to one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlainGitHost {
+    Gitlab,
+    Gitness,
+}
+
+impl PlainGitHost {
+    pub fn provider(self) -> RepositoryProvider {
+        match self {
+            Self::Gitlab => RepositoryProvider::Gitlab,
+            Self::Gitness => RepositoryProvider::Gitness,
+        }
+    }
+}
+
+/// Why an identity has no usable token for a repository.
+///
+/// [`Self::NoCredential`] is the only "not connected" answer. A dangling
+/// `secret_ref`, an unknown App key or an unusable stored key is
+/// [`Self::Broken`] — collapsing the two would send a caller down an anonymous
+/// path instead of surfacing breakage.
+#[derive(Debug, thiserror::Error)]
+pub enum GitHostTokenError {
+    #[error("{actor} has not connected {provider}")]
+    NoCredential {
+        actor: Actor,
+        provider: RepositoryProvider,
+    },
+
+    /// `repo` is boxed to keep the whole enum small: an `Actor` carries both a
+    /// user id and a Workspace, and every fallible call through the port pays
+    /// this variant's size in its `Result`.
+    #[error("{actor}'s {} credential cannot reach {repo}", repo.provider())]
+    Forbidden {
+        actor: Actor,
+        repo: Box<GitHostRepo>,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync + 'static>,
+    },
+
+    #[error("{actor}'s {provider} credential is unusable: {source}")]
+    Broken {
+        actor: Actor,
+        provider: RepositoryProvider,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync + 'static>,
+    },
+
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// The one way to a git-host token.
+///
+/// Callers may rely on these facts:
+///
+/// - No scope walk is performed. Only two credentials are ever consulted: the
+///   one the actor's Workspace pins for the host, and the actor's own. Another
+///   identity's credential is never tried, at any scope.
+/// - A Workspace pin outranks the identity's own credential, so every call made
+///   on behalf of that Workspace presents the account it names. See
+///   [`Actor::workspace_id`].
+/// - The returned string is never a stored placeholder and never empty.
+/// - Freshness is handled behind the port. Do not cache the returned string.
+#[cfg_attr(feature = "test-support", mockall::automock)]
+#[async_trait]
+pub trait GitHostTokenIssuer: Send + Sync {
+    /// The token `actor` presents to `repo`'s host right now.
+    async fn token(&self, actor: &Actor, repo: &GitHostRepo) -> Result<String, GitHostTokenError>;
+
+    /// The token `actor` holds for a host that needs no repository to answer.
+    async fn host_token(
+        &self,
+        actor: &Actor,
+        host: PlainGitHost,
+    ) -> Result<String, GitHostTokenError>;
 }

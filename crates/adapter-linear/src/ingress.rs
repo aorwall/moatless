@@ -31,23 +31,23 @@
 //! # Reachable without an HTTP request
 //!
 //! [`receive`] takes the downward ports it reads (adapter connections, loops,
-//! db, config, adapter delivery), an Adapter, a signature and a body. That is
+//! app tokens, adapter apps, adapter delivery), an Adapter, a signature and a
+//! body. That is
 //! the seam: every decision below the route is drivable from a test that never
 //! builds a `Request`, and `backend/tests/integration_adapters/linear_ingress_test.rs` drives it.
 
 use tracing::{info, warn};
 
-use moatless_core::config::Config;
+use moatless_adapter_model::apps::AdapterAppReader;
 use std::sync::Arc;
 
 use moatless_backend_core::identity::AppCredentials;
-use moatless_core::db::DbPool;
 
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore};
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch};
-use moatless_loops::loops::dao::LoopDao;
+use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
+use moatless_loops::loops::ports::LoopReader;
 
 use super::adapter::LinearAdapter;
 use super::agent_api::ActivityKind;
@@ -171,16 +171,16 @@ pub struct Rejection {
 #[expect(
     clippy::too_many_arguments,
     reason = "the five downward ports the ingress path reads (adapter \
-              connections, loops, db, config, adapter delivery) inverted out of \
-              the single AppState the seam used to take; provider, signature and \
-              body are the transport facts the HTTP handler already passed"
+              connections, loops, app tokens, adapter apps, adapter delivery) \
+              inverted out of the single AppState the seam used to take; \
+              provider, signature and body are the transport facts the HTTP \
+              handler already passed"
 )]
 pub async fn receive(
     adapter_connections: &dyn AdapterConnectionDao,
-    loops: &LoopDao,
-    db: &DbPool,
+    loops: &dyn LoopReader,
     app_tokens: &Arc<dyn AppCredentials>,
-    config: &Config,
+    apps: &dyn AdapterAppReader,
     adapter_delivery: &AdapterDeliveryStore,
     provider: &LinearAdapter,
     signature: &str,
@@ -213,9 +213,8 @@ pub async fn receive(
     dispatch(
         adapter_connections,
         loops,
-        db,
         app_tokens,
-        config,
+        apps,
         adapter_delivery,
         provider,
         signature,
@@ -236,10 +235,9 @@ pub async fn receive(
 )]
 async fn dispatch(
     adapter_connections: &dyn AdapterConnectionDao,
-    loops: &LoopDao,
-    db: &DbPool,
+    loops: &dyn LoopReader,
     app_tokens: &Arc<dyn AppCredentials>,
-    config: &Config,
+    apps: &dyn AdapterAppReader,
     adapter_delivery: &AdapterDeliveryStore,
     provider: &LinearAdapter,
     signature: &str,
@@ -269,7 +267,7 @@ async fn dispatch(
     let connection = adapter_connections
         .find_by_external_account("linear", org_id)
         .await
-        .map_err(SharedAdapterError::Db)?;
+        .map_err(SharedAdapterError::Store)?;
     let Some(connection) = connection else {
         return Ok(ignored(envelope, reason::NO_CONNECTION));
     };
@@ -328,11 +326,11 @@ async fn dispatch(
         // terminal activity — close the session here instead. The heartbeat is
         // deliberately skipped: it would only keep the panel `active` before
         // the `error` that immediately follows.
-        decline_sessions(db, app_tokens, config, &connection, &effects).await;
+        decline_sessions(app_tokens, apps, &connection, &effects).await;
         return Ok(ignored(envelope, reason::NO_SUBSCRIPTION));
     }
 
-    apply(db, app_tokens, config, &connection, &effects).await;
+    apply(app_tokens, apps, &connection, &effects).await;
 
     let mut kinds = Vec::with_capacity(requests.len());
     for request in requests {
@@ -378,7 +376,7 @@ fn ignored(envelope: &LinearWebhookEnvelope, reason: &'static str) -> Outcome {
 
 /// Settle the one precondition [`webhook::normalize`] cannot see.
 async fn requirement_met(
-    loops: &LoopDao,
+    loops: &dyn LoopReader,
     connection: &AdapterConnection,
     requires: Option<&Requirement>,
 ) -> Result<bool, IngressError> {
@@ -405,16 +403,15 @@ async fn requirement_met(
 /// to be admitted, so a failure to post it is logged and the delivery carries
 /// on. Nothing here decides anything.
 async fn apply(
-    db: &DbPool,
     app_tokens: &Arc<dyn AppCredentials>,
-    config: &Config,
+    apps: &dyn AdapterAppReader,
     connection: &AdapterConnection,
     effects: &[Effect],
 ) {
     if effects.is_empty() {
         return;
     }
-    let api = match super::auth::api_for_connection(db, app_tokens.clone(), config, connection).await {
+    let api = match super::auth::api_for_connection(app_tokens.clone(), apps, connection).await {
         Ok(api) => api,
         Err(e) => {
             warn!(error = %e, "Failed to resolve Linear app config for webhook effect");
@@ -441,16 +438,15 @@ async fn apply(
 /// that closes it. Best-effort, exactly like [`apply`]: a resolve or post
 /// failure is logged and the drop carries on.
 async fn decline_sessions(
-    db: &DbPool,
     app_tokens: &Arc<dyn AppCredentials>,
-    config: &Config,
+    apps: &dyn AdapterAppReader,
     connection: &AdapterConnection,
     effects: &[Effect],
 ) {
     if effects.is_empty() {
         return;
     }
-    let api = match super::auth::api_for_connection(db, app_tokens.clone(), config, connection).await {
+    let api = match super::auth::api_for_connection(app_tokens.clone(), apps, connection).await {
         Ok(api) => api,
         Err(e) => {
             warn!(error = %e, "Failed to resolve Linear app config to decline session");
@@ -491,12 +487,12 @@ async fn admit(
 /// webhook saw, so an operator disabling a loop between admission and
 /// execution stops the work.
 pub(super) async fn resolve_rules_for_team(
-    loops: &LoopDao,
+    loops: &dyn LoopReader,
     connection: &AdapterConnection,
     team_id: &str,
 ) -> Result<Vec<SubscriptionMatch>, AdapterError> {
     let rules = loops
-        .list_subscriptions_by_source_matcher(ADAPTER, team_id)
+        .subscriptions_for_source(ADAPTER, team_id)
         .await?;
     Ok(rules
         .into_iter()

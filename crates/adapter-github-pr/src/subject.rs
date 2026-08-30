@@ -1,7 +1,7 @@
 //! Canonical GitHub pull-request subject coordinates.
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::TaskBinding;
+use moatless_adapter_model::models::TaskBinding;
 use moatless_types::adapter::BindingContext;
 use moatless_loops::adapters::{AdapterDestinationBuilder, BindingDestination};
 

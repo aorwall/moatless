@@ -12,11 +12,11 @@ use tracing::{debug, info, warn};
 use super::naming::generate_pod_name;
 use moatless_types::workspace::{Cpu, Memory, Port, ResourceConfig, ResourceQuantities, StorageMedium};
 use moatless_core::config::Config;
-use moatless_sandbox_control::error::SandboxError;
+use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_control::jwt::{self, MintedSandboxTokens};
-use moatless_sandbox_control::lifecycle::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
-use moatless_sandbox_control::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV, allocated_port};
-use moatless_sandbox_control::server_runner::build_server_start_script;
+use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
+use moatless_sandbox_runtime::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV, allocated_port};
+use moatless_sandbox_runtime::server_runner::build_server_start_script;
 
 /// Auth tokens delivered to a sandbox pod.
 ///
@@ -710,7 +710,7 @@ fn validate_compute_mode(
                 .to_string(),
         );
     }
-    let storage = moatless_sandbox_control::storage::StorageBackend::from_plan(
+    let storage = moatless_sandbox_runtime::storage::StorageBackend::from_plan(
         plan,
         config.sandbox.default_pvc_enabled,
         config.sandbox.default_s3_enabled,
@@ -801,7 +801,7 @@ fn build_sandbox_container(
     // attach-failure fallback rebuilt onto an emptyDir, and such a pod must
     // behave like the emptyDir+S3 tier (restore every boot, keep the backstop)
     // even though its plan still reads pvc+s3.
-    let storage_backend = moatless_sandbox_control::storage::StorageBackend::from_plan(
+    let storage_backend = moatless_sandbox_runtime::storage::StorageBackend::from_plan(
         plan,
         config.sandbox.default_pvc_enabled,
         config.sandbox.default_s3_enabled,
@@ -1490,7 +1490,7 @@ pub fn admitted_server_ports(
 mod tests {
     use super::*;
     use moatless_types::workspace::ServerConfig;
-    use moatless_sandbox_control::models::RepoConfig;
+    use moatless_sandbox_runtime::models::RepoConfig;
 
     /// Build a `ResourceQuantities` from optional quantity spellings.
     fn quantities(cpu: Option<&str>, memory: Option<&str>) -> ResourceQuantities {
@@ -1530,7 +1530,7 @@ mod tests {
         let mut pod = Pod::default();
         stamp_operation_generation(
             &mut pod,
-            RuntimeOperationContext::new(moatless_sandbox_control::lifecycle::OperationGeneration(
+            RuntimeOperationContext::new(moatless_sandbox_runtime::types::OperationGeneration(
                 31,
             )),
         );

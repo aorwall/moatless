@@ -1,6 +1,7 @@
 //! Task DAO — queries for task data access.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -12,6 +13,7 @@ use super::models::{
 };
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 use moatless_backend_core::db_enum::decode_optional;
+use moatless_backend_core::workspace::WorkspaceProvisioner;
 use moatless_core::db::DbPool;
 use moatless_types::agent::AgentType;
 
@@ -289,12 +291,42 @@ pub trait TaskDao: Send + Sync {
 }
 
 /// PostgreSQL implementation of [`TaskDao`].
-pub struct PgTaskDao(pub DbPool);
+/// Ask the workspace band for a repository's shadow Workspace.
+///
+/// The seam reports a `StoreError`; every method here reports `sqlx::Error`, so
+/// the chain is rendered into the message rather than carried. This store owns
+/// tables and names the driver already — nothing is hidden by the flattening.
+async fn shadow_workspace(
+    workspaces: &dyn WorkspaceProvisioner,
+    repository_id: &str,
+) -> Result<String, sqlx::Error> {
+    workspaces
+        .ensure_shadow(repository_id)
+        .await
+        .map_err(|e| sqlx::Error::Protocol(moatless_core::error::causal_chain(&e)))
+}
+
+/// The `tasks` store.
+///
+/// Holds the shadow-workspace seam as well as the pool: a Task names a
+/// Workspace or it names a repository, and in the second case the row is
+/// persisted against the repository's shadow Workspace, which this store must
+/// be able to ask for.
+pub struct PgTaskDao {
+    pool: DbPool,
+    workspaces: Arc<dyn WorkspaceProvisioner>,
+}
+
+impl PgTaskDao {
+    pub fn new(pool: DbPool, workspaces: Arc<dyn WorkspaceProvisioner>) -> Self {
+        Self { pool, workspaces }
+    }
+}
 
 /// The E-(b) session-gate port over `TaskDao`: `verify_handler` (identity) holds
 /// `Arc<dyn TaskAccess>`, not a `TaskDao`, so identity keeps no `task` import.
 #[async_trait]
-impl moatless_identity::extractors::TaskAccess for PgTaskDao {
+impl moatless_core::http_auth::TaskAccess for PgTaskDao {
     async fn may_access_task(&self, task_id: &str, ctx: &ScopeContext) -> bool {
         // `find_by_id` is already scope-filtered, so a task `ctx` cannot see
         // returns `None`. Fail-closed on a DB error, matching the handler's prior
@@ -319,7 +351,7 @@ impl TaskDao for PgTaskDao {
             .bind(task_id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .fetch_optional(&self.0)
+            .fetch_optional(&self.pool)
             .await?;
         row.map(Task::try_from).transpose()
     }
@@ -335,15 +367,11 @@ impl TaskDao for PgTaskDao {
         let workspace_id = match row.workspace_id.clone() {
             Some(id) => id,
             None => {
-                moatless_workspaces::workspace::dao::ensure_shadow_workspace(
-                    &self.0,
-                    &row.repository_id,
-                )
-                .await?
+                shadow_workspace(self.workspaces.as_ref(), &row.repository_id).await?
             }
         };
 
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
 
         // Task controls Sandbox. A creation that names no sandbox writes the
         // Sandbox row here, in the same transaction as the Task, so the control
@@ -472,7 +500,7 @@ impl TaskDao for PgTaskDao {
         &self,
         task_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM task_tags WHERE task_id = $1")
             .bind(task_id)
             .execute(&mut *tx)
@@ -515,7 +543,7 @@ impl TaskDao for PgTaskDao {
              RETURNING task_id, sandbox_id",
             ctrl.sql()
         );
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         let deleted: Option<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(ctx.is_admin)
@@ -593,8 +621,7 @@ impl TaskDao for PgTaskDao {
         match workspace_id {
             Some(id) => Ok(id),
             None => {
-                moatless_workspaces::workspace::dao::ensure_shadow_workspace(&self.0, repository_id)
-                    .await
+                shadow_workspace(self.workspaces.as_ref(), repository_id).await
             }
         }
     }
@@ -775,7 +802,7 @@ impl TaskDao for PgTaskDao {
             .bind(filter.offset)
             .bind(filter.exclude_status.map(TaskStatus::as_str))
             .bind(&filter.followed_by)
-            .fetch_all(&self.0)
+            .fetch_all(&self.pool)
             .await?;
 
         let total = rows.first().map_or(0, |r| r.total_count);
@@ -813,7 +840,7 @@ impl TaskDao for PgTaskDao {
         // mutation it describes have to commit together or not at all. Every
         // statement here shares one `WHERE`, so they all match the same row and
         // `first_affected` speaks for all of them.
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         let ctrl = ctx.control_filter("", 3);
         let ctrl_sql = ctrl.sql();
         let mut first_affected: Option<u64> = None;
@@ -931,7 +958,7 @@ impl TaskDao for PgTaskDao {
              WHERE task_id = $1 AND status <> 'closed' AND {}",
             ctrl.sql()
         );
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         let res = sqlx::query(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(new_status.as_str())
@@ -955,7 +982,7 @@ impl TaskDao for PgTaskDao {
             "DELETE FROM tasks WHERE task_id = $1 AND {} RETURNING task_id, sandbox_id",
             ctrl.sql()
         );
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         let deleted: Option<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(ctx.is_admin)
@@ -1001,7 +1028,7 @@ impl TaskDao for PgTaskDao {
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error> {
         let row: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM tasks WHERE short_id = $1)")
             .bind(short_id)
-            .fetch_one(&self.0)
+            .fetch_one(&self.pool)
             .await?;
         Ok(row.0)
     }
@@ -1019,7 +1046,7 @@ impl TaskDao for PgTaskDao {
                FROM tasks WHERE task_id = ANY($1)"#,
         )
         .bind(task_ids)
-        .fetch_all(&self.0)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().collect())
@@ -1040,7 +1067,7 @@ impl TaskDao for PgTaskDao {
                WHERE t.task_id = ANY($1) AND s.started_at IS NOT NULL"#,
         )
         .bind(task_ids)
-        .fetch_all(&self.0)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().collect())
@@ -1050,7 +1077,7 @@ impl TaskDao for PgTaskDao {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, SandboxIntentView>, sqlx::Error> {
-        load_sandbox_intent_views(&self.0, task_ids).await
+        load_sandbox_intent_views(&self.pool, task_ids).await
     }
 
     async fn get_ttl_minutes_map(
@@ -1064,7 +1091,7 @@ impl TaskDao for PgTaskDao {
         let rows: Vec<(String, i32)> =
             sqlx::query_as(r#"SELECT task_id, ttl_minutes FROM tasks WHERE task_id = ANY($1)"#)
                 .bind(task_ids)
-                .fetch_all(&self.0)
+                .fetch_all(&self.pool)
                 .await?;
 
         Ok(rows.into_iter().collect())
@@ -1082,7 +1109,7 @@ impl TaskDao for PgTaskDao {
             r#"SELECT task_id, inactive_ttl_days FROM tasks WHERE task_id = ANY($1)"#,
         )
         .bind(task_ids)
-        .fetch_all(&self.0)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().collect())
@@ -1103,7 +1130,7 @@ impl TaskDao for PgTaskDao {
                WHERE task_id = ANY($1) AND cold_after_hours IS NOT NULL"#,
         )
         .bind(task_ids)
-        .fetch_all(&self.0)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().collect())
@@ -1112,7 +1139,7 @@ impl TaskDao for PgTaskDao {
     async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<(String,)> =
             sqlx::query_as(r#"SELECT task_id FROM tasks WHERE status = 'open'"#)
-                .fetch_all(&self.0)
+                .fetch_all(&self.pool)
                 .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
@@ -1133,7 +1160,7 @@ impl TaskDao for PgTaskDao {
         .bind(user_id)
         .bind(task_id)
         .bind(read_at)
-        .execute(&self.0)
+        .execute(&self.pool)
         .await?;
         Ok(())
     }
@@ -1154,14 +1181,14 @@ impl TaskDao for PgTaskDao {
         )
         .bind(user_id)
         .bind(task_ids)
-        .fetch_all(&self.0)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().collect())
     }
 
     async fn follow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         let res = sqlx::query(
             r#"INSERT INTO task_follows (user_id, task_id)
                VALUES ($1, $2)
@@ -1184,7 +1211,7 @@ impl TaskDao for PgTaskDao {
     }
 
     async fn unfollow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         let res = sqlx::query(r#"DELETE FROM task_follows WHERE user_id = $1 AND task_id = $2"#)
             .bind(user_id)
             .bind(task_id)
@@ -1206,7 +1233,7 @@ impl TaskDao for PgTaskDao {
         task_id: &str,
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         let res = sqlx::query(
             r#"UPDATE task_follows
                   SET settled_override = 'settled',
@@ -1227,7 +1254,7 @@ impl TaskDao for PgTaskDao {
     }
 
     async fn unsettle_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         let res = sqlx::query(
             r#"UPDATE task_follows
                   SET settled_override = 'active',
@@ -1253,7 +1280,7 @@ impl TaskDao for PgTaskDao {
         until: DateTime<Utc>,
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         let res = sqlx::query(
             r#"UPDATE task_follows
                   SET snoozed_until = $3,
@@ -1275,7 +1302,7 @@ impl TaskDao for PgTaskDao {
     }
 
     async fn unsnooze_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
-        let mut tx = self.0.begin().await?;
+        let mut tx = self.pool.begin().await?;
         let res = sqlx::query(
             r#"UPDATE task_follows
                   SET snoozed_until = NULL,
@@ -1308,7 +1335,7 @@ impl TaskDao for PgTaskDao {
         )
         .bind(user_id)
         .bind(task_id)
-        .execute(&self.0)
+        .execute(&self.pool)
         .await?;
         Ok(())
     }
@@ -1329,7 +1356,7 @@ impl TaskDao for PgTaskDao {
         )
         .bind(user_id)
         .bind(task_ids)
-        .fetch_all(&self.0)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(rows.into_iter().map(|(id,)| id).collect())
@@ -1357,7 +1384,7 @@ impl TaskDao for PgTaskDao {
                 )
                 .bind(&scope_id)
                 .bind(except)
-                .fetch_all(&self.0)
+                .fetch_all(&self.pool)
                 .await?
             }
             "global" => {
@@ -1368,7 +1395,7 @@ impl TaskDao for PgTaskDao {
                          AND ($1::text IS NULL OR task_id <> $1)"#,
                 )
                 .bind(except)
-                .fetch_all(&self.0)
+                .fetch_all(&self.pool)
                 .await?
             }
             _ => Vec::new(),
@@ -1440,24 +1467,43 @@ impl TaskPatch {
 // =========================================================================
 //
 // Integration tests in `tests/` call these as `task_dao::insert_task(&pool, &row)`.
-// Each wrapper constructs a `PgTaskDao` and delegates to the trait method.
+// Each wrapper constructs a `PgTaskDao` through [`store_over`] and delegates to
+// the trait method.
+
+/// The store over a pool, with the shadow-workspace seam wired to the same
+/// pool. Every integration test that reaches this store wants exactly that
+/// pairing, so it is built here rather than repeated at each call site.
+// `test` stays first so the census keeps scoring this as test-context; the
+// feature exposes it to the backend's integration tests.
+#[cfg(any(test, feature = "test-support"))]
+pub fn store_over(pool: &DbPool) -> PgTaskDao {
+    PgTaskDao::new(
+        pool.clone(),
+        Arc::new(moatless_workspaces::ports::ShadowWorkspaces::new(
+            pool.clone(),
+        )),
+    )
+}
 
 /// Insert a task (convenience wrapper). Returns the workspace id the row was
 /// persisted with, as the trait method does.
+#[cfg(any(test, feature = "test-support"))]
 pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<String, sqlx::Error> {
-    PgTaskDao(pool.clone()).insert_task(row).await
+    store_over(pool).insert_task(row).await
 }
 
 /// Find by task_id scoped to access control (convenience wrapper).
+#[cfg(any(test, feature = "test-support"))]
 pub async fn find_by_id(
     pool: &DbPool,
     task_id: &str,
     ctx: &ScopeContext,
 ) -> Result<Option<Task>, sqlx::Error> {
-    PgTaskDao(pool.clone()).find_by_id(task_id, ctx).await
+    store_over(pool).find_by_id(task_id, ctx).await
 }
 
 /// List tasks with individual filter arguments (convenience wrapper).
+#[cfg(any(test, feature = "test-support"))]
 #[allow(clippy::too_many_arguments)]
 pub async fn list_tasks(
     pool: &DbPool,
@@ -1482,33 +1528,36 @@ pub async fn list_tasks(
         parent_task_id: parent_task_id.map(String::from),
         followed_by: None,
     };
-    PgTaskDao(pool.clone()).list_tasks(&filter).await
+    store_over(pool).list_tasks(&filter).await
 }
 
 /// Update task fields (convenience wrapper).
+#[cfg(any(test, feature = "test-support"))]
 pub async fn update_task(
     pool: &DbPool,
     task_id: &str,
     patch: &TaskPatch,
     ctx: &ScopeContext,
 ) -> Result<bool, sqlx::Error> {
-    PgTaskDao(pool.clone())
+    store_over(pool)
         .update_task(task_id, patch, ctx)
         .await
 }
 
 /// Delete a task (convenience wrapper).
+#[cfg(any(test, feature = "test-support"))]
 pub async fn delete_task(
     pool: &DbPool,
     task_id: &str,
     ctx: &ScopeContext,
 ) -> Result<bool, sqlx::Error> {
-    PgTaskDao(pool.clone()).delete_task(task_id, ctx).await
+    store_over(pool).delete_task(task_id, ctx).await
 }
 
 /// Check if a task with the given short_id exists (convenience wrapper).
+#[cfg(any(test, feature = "test-support"))]
 pub async fn exists_by_short_id(pool: &DbPool, short_id: &str) -> Result<bool, sqlx::Error> {
-    PgTaskDao(pool.clone()).exists_by_short_id(short_id).await
+    store_over(pool).exists_by_short_id(short_id).await
 }
 
 #[cfg(all(test, feature = "db-tests"))]
@@ -1613,7 +1662,7 @@ mod tests {
         let mut row = task_row("t1");
         row.branch = Some("feature/x".to_string());
         row.headless = true;
-        PgTaskDao(pool.clone()).insert_task(&row).await.unwrap();
+        store_over(&pool).insert_task(&row).await.unwrap();
 
         let shape = sandbox_shape(&pool, "t1").await.expect("sandbox row");
         assert_eq!(shape.workspace_id, "ws_repo-x");
@@ -1635,7 +1684,7 @@ mod tests {
     #[sqlx::test]
     async fn the_workspace_run_as_account_outranks_the_task_owner(pool: PgPool) {
         seed_bare_task(&pool, "seed", "open").await;
-        let dao = PgTaskDao(pool.clone());
+        let dao = store_over(&pool);
 
         dao.insert_task(&task_row("t1")).await.unwrap();
         assert_eq!(
@@ -1669,7 +1718,7 @@ mod tests {
     #[sqlx::test]
     async fn joining_a_sandbox_writes_no_second_row(pool: PgPool) {
         seed_bare_task(&pool, "seed", "open").await;
-        let dao = PgTaskDao(pool.clone());
+        let dao = store_over(&pool);
         dao.insert_task(&task_row("t1")).await.unwrap();
 
         let mut joiner = task_row("t2");
@@ -1714,7 +1763,7 @@ mod tests {
     async fn delete_task_deletes_the_last_member_sandbox_row(pool: PgPool) {
         seed_bare_task(&pool, "t1", "open").await;
         seed_sandbox_member(&pool, "t1", "t1").await;
-        let dao = PgTaskDao(pool.clone());
+        let dao = store_over(&pool);
 
         assert!(dao.delete_task("t1", &owner_ctx()).await.unwrap());
 
@@ -1732,7 +1781,7 @@ mod tests {
         seed_bare_task(&pool, "t2", "open").await;
         seed_sandbox_member(&pool, "t1", "t1").await;
         seed_sandbox_member(&pool, "t2", "t1").await;
-        let dao = PgTaskDao(pool.clone());
+        let dao = store_over(&pool);
 
         assert!(dao.delete_task("t1", &owner_ctx()).await.unwrap());
 
@@ -1790,7 +1839,7 @@ mod tests {
     async fn delete_errored_empty_task_frees_a_failed_bootstrap(pool: PgPool) {
         seed_bare_task(&pool, "t1", "error").await;
         seed_activity(&pool, "t1").await;
-        let dao = PgTaskDao(pool.clone());
+        let dao = store_over(&pool);
 
         assert!(
             dao.delete_errored_empty_task("t1", &owner_ctx())
@@ -1821,7 +1870,7 @@ mod tests {
     async fn delete_errored_empty_task_keeps_an_errored_task_with_messages(pool: PgPool) {
         seed_bare_task(&pool, "t1", "error").await;
         seed_message(&pool, "t1").await;
-        let dao = PgTaskDao(pool.clone());
+        let dao = store_over(&pool);
 
         assert!(
             !dao.delete_errored_empty_task("t1", &owner_ctx())
@@ -1835,7 +1884,7 @@ mod tests {
     #[sqlx::test]
     async fn delete_errored_empty_task_keeps_a_live_task(pool: PgPool) {
         seed_bare_task(&pool, "t1", "open").await;
-        let dao = PgTaskDao(pool.clone());
+        let dao = store_over(&pool);
 
         assert!(
             !dao.delete_errored_empty_task("t1", &owner_ctx())
@@ -1854,7 +1903,7 @@ mod tests {
             user_id: "user-2".to_string(),
             is_admin: false,
         };
-        let dao = PgTaskDao(pool.clone());
+        let dao = store_over(&pool);
 
         assert!(
             !dao.delete_errored_empty_task("t1", &stranger)

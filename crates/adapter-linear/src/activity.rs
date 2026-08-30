@@ -33,13 +33,12 @@ use std::sync::Arc;
 
 use tracing::{debug, warn};
 
-use moatless_core::config::Config;
-use moatless_core::db::DbPool;
+use moatless_adapter_model::apps::AdapterAppReader;
 use moatless_backend_core::identity::AppCredentials;
 use moatless_loops::bindings::dao::TaskBindingDao;
 
 use moatless_backend_core::task::TranscriptAppend;
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 
 use super::agent_api::LinearAgentApi;
 
@@ -52,11 +51,10 @@ pub use super::agent_api::ActivityKind;
 /// Returns an empty vec on any DB error (logged) so callers can skip emission
 /// silently without bubbling errors into the event-handler hot path.
 async fn resolve_linear_sessions_for_task(
-    db: &DbPool,
     app_tokens: &Arc<dyn AppCredentials>,
     task_bindings: &dyn TaskBindingDao,
     adapter_connections: &dyn AdapterConnectionDao,
-    config: &Config,
+    apps: &dyn AdapterAppReader,
     task_id: &str,
 ) -> Vec<(LinearAgentApi, String)> {
     let rows = match super::subject::bindings_in_scope(
@@ -86,9 +84,8 @@ async fn resolve_linear_sessions_for_task(
         let Some(api) =
             super::auth::api_for_binding(
                 adapter_connections,
-                db,
                 app_tokens.clone(),
-                config,
+                apps,
                 &binding,
             )
             .await
@@ -107,16 +104,15 @@ async fn resolve_linear_sessions_for_task(
 /// event-consumer hot path must not be affected.
 #[expect(
     clippy::too_many_arguments,
-    reason = "five owned downward ports (db, app_tokens, task_bindings, adapter_connections, config) \
+    reason = "four owned downward ports (app_tokens, task_bindings, adapter_connections, adapter apps) \
               inverted out of the AppState this fire-and-forget emitter used to \
               take by value, plus its four activity fields"
 )]
 pub async fn notify_linear_status(
-    db: DbPool,
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
-    config: Arc<Config>,
+    apps: Arc<dyn AdapterAppReader>,
     task_id: String,
     kind: ActivityKind,
     body: String,
@@ -124,11 +120,10 @@ pub async fn notify_linear_status(
 ) {
     for (api, session_id) in
         resolve_linear_sessions_for_task(
-            &db,
             &app_tokens,
             task_bindings.as_ref(),
             adapter_connections.as_ref(),
-            &config,
+            apps.as_ref(),
             &task_id,
         ).await
     {
@@ -152,16 +147,15 @@ pub async fn notify_linear_status(
 /// in the event-consumer hot path are unaffected.
 #[expect(
     clippy::too_many_arguments,
-    reason = "five owned downward ports (db, app_tokens, task_bindings, adapter_connections, config) \
+    reason = "four owned downward ports (app_tokens, task_bindings, adapter_connections, adapter apps) \
               inverted out of the AppState this fire-and-forget emitter used to \
               take by value, plus its four activity fields"
 )]
 pub async fn notify_linear_action(
-    db: DbPool,
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
-    config: Arc<Config>,
+    apps: Arc<dyn AdapterAppReader>,
     task_id: String,
     action: String,
     parameter: String,
@@ -170,11 +164,10 @@ pub async fn notify_linear_action(
 ) {
     for (api, session_id) in
         resolve_linear_sessions_for_task(
-            &db,
             &app_tokens,
             task_bindings.as_ref(),
             adapter_connections.as_ref(),
-            &config,
+            apps.as_ref(),
             &task_id,
         ).await
     {
@@ -210,11 +203,10 @@ pub async fn notify_linear_action(
 /// - `tool_result` blocks (system/user role messages).
 /// - `text` blocks shorter than 4 chars after trim (Claude connector tokens).
 pub async fn notify_linear_message_activities(
-    db: DbPool,
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
-    config: Arc<Config>,
+    apps: Arc<dyn AdapterAppReader>,
     task_id: String,
     message: serde_json::Value,
 ) {
@@ -227,11 +219,10 @@ pub async fn notify_linear_message_activities(
 
     let sessions =
         resolve_linear_sessions_for_task(
-            &db,
             &app_tokens,
             task_bindings.as_ref(),
             adapter_connections.as_ref(),
-            &config,
+            apps.as_ref(),
             &task_id,
         )
             .await;
@@ -306,18 +297,11 @@ pub async fn notify_linear_message_activities(
 /// sees both the call and its outcome.
 ///
 /// Fire-and-forget: any DB or GraphQL failure is logged and swallowed.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "five owned downward ports (db, app_tokens, task_bindings, adapter_connections, \
-              config) inverted out of the AppState this fire-and-forget emitter used to take \
-              by value, plus its activity fields"
-)]
 pub async fn notify_linear_tool_results(
-    db: DbPool,
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
-    config: Arc<Config>,
+    apps: Arc<dyn AdapterAppReader>,
     messages: Arc<dyn TranscriptAppend>,
     task_id: String,
     message: serde_json::Value,
@@ -349,11 +333,10 @@ pub async fn notify_linear_tool_results(
 
     let sessions =
         resolve_linear_sessions_for_task(
-            &db,
             &app_tokens,
             task_bindings.as_ref(),
             adapter_connections.as_ref(),
-            &config,
+            apps.as_ref(),
             &task_id,
         )
             .await;

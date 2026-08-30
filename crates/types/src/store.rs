@@ -1,4 +1,8 @@
 //! The error every published store seam returns.
+//!
+//! `store` names the seam the error belongs to, not the kind of thing it is.
+//! It sits on the floor so a crate below `backend-core` — the Adapter kernel,
+//! for one — can return it without reaching up a band.
 
 /// A store-layer failure. Carries a human context and, when the backend
 /// provides one, the underlying source (e.g. a `sqlx::Error`), so the

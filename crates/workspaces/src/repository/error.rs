@@ -30,6 +30,11 @@ pub enum RepositoryError {
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
 
+    /// A published store seam failed. Distinct from [`Self::Db`] only in where
+    /// the failure was raised; both are an internal error to a caller.
+    #[error("{0}")]
+    Store(#[from] moatless_backend_core::store::StoreError),
+
     #[error("Provider API error: {0}")]
     ProviderError(String),
 
@@ -65,6 +70,13 @@ impl IntoResponse for RepositoryError {
             RepositoryError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             RepositoryError::Db(e) => {
                 error!(error = %e, "Repository database error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
+            }
+            RepositoryError::Store(e) => {
+                error!(error = %moatless_core::error::causal_chain(e), "Repository store error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".to_string(),

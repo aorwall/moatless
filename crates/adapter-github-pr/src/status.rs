@@ -1,10 +1,10 @@
 //! External status capability and display fields for GitHub PR bindings.
 
-use moatless_identity::git_host_repo::GitHostRepo;
+use moatless_types::repository::GitHostRepo;
 use tracing::warn;
 
 use moatless_loops::adapters::AdapterBindingStatus;
-use moatless_loops::adapters::models::TaskBinding;
+use moatless_adapter_model::models::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
 use std::sync::Arc;
 

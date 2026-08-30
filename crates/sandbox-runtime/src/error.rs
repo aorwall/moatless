@@ -86,15 +86,6 @@ pub enum SandboxError {
     #[error("Sandbox gRPC client could not be created")]
     GrpcClient(#[from] crate::client::ClientError),
 
-    /// A database read backing a sandbox operation failed. `context` names the
-    /// read; the SQL error rides along as the source.
-    #[error("Database error while {context}")]
-    Database {
-        context: &'static str,
-        #[source]
-        source: sqlx::Error,
-    },
-
     /// A read through a published store seam failed. The port already names
     /// the read and carries its own source, so this variant adds nothing.
     #[error(transparent)]
@@ -109,13 +100,16 @@ pub enum SandboxError {
     /// can hand lifecycle back the original classification instead of a
     /// flattened string.
     #[error("Sandbox runtime step failed")]
-    Runtime(#[source] crate::lifecycle::RuntimeError),
+    Runtime(#[source] crate::runtime::RuntimeError),
 
     /// A lifecycle operation failed for a reason with no client-visible
     /// mapping. The three that *do* map — task-not-found, closed-task, and
     /// lock contention — become `NotFound`/`BadRequest`/`Conflict` instead.
+    ///
+    /// The source is boxed: the orchestrator that raises it sits a band above,
+    /// and this error is what a runtime answers with.
     #[error("Sandbox lifecycle operation failed")]
-    Lifecycle(#[source] Box<crate::lifecycle::LifecycleError>),
+    Lifecycle(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("Sandbox not ready: {0}")]
     NotReady(String),
@@ -142,23 +136,6 @@ pub enum SandboxError {
     Internal(String),
 }
 
-impl From<crate::lifecycle::LifecycleError> for SandboxError {
-    fn from(value: crate::lifecycle::LifecycleError) -> Self {
-        use crate::lifecycle::LifecycleError as LE;
-        match &value {
-            LE::TaskNotFound(id) => Self::NotFound(id.clone()),
-            // The Closed guard rejected the operation — a client state error.
-            LE::NotAllowed { .. } => Self::BadRequest(value.to_string()),
-            // Another operation holds the per-Task lock — a client-visible
-            // conflict (409), matching the task API.
-            LE::OperationInProgress { .. } => Self::Conflict(value.to_string()),
-            // Everything else is an internal failure: keep the lifecycle error
-            // itself so the response boundary can log the whole chain,
-            // including the `RuntimeError` a failed effect carries.
-            _ => Self::Lifecycle(Box::new(value)),
-        }
-    }
-}
 
 impl SandboxError {
     /// This module's error as the sandbox runtime contract states it.
@@ -198,7 +175,6 @@ impl SandboxError {
             Self::ConfigMissing(_)
             | Self::JwtError(_)
             | Self::JwtSigning { .. }
-            | Self::Database { .. }
             | Self::Store(_)
             | Self::Authorization(_)
             | Self::Runtime(_)
@@ -292,7 +268,6 @@ impl IntoResponse for SandboxError {
             | Self::Grpc { .. }
             | Self::Unsupported { .. }
             | Self::GrpcClient(_)
-            | Self::Database { .. }
             | Self::Store(_)
             | Self::Authorization(_)
             | Self::Runtime(_)
@@ -418,10 +393,6 @@ mod tests {
         for error in [
             SandboxError::ConfigMissing("TASK_TOKEN_SECRET".into()),
             SandboxError::JwtError("missing signing secret".into()),
-            SandboxError::Database {
-                context: "reading the task row for provisioning",
-                source: sqlx::Error::Protocol("connection reset".to_string()),
-            },
             SandboxError::Conflict("another operation is in progress".into()),
             SandboxError::Forbidden("no access to task".into()),
             SandboxError::Internal("crash".into()),
@@ -549,25 +520,24 @@ mod tests {
                 "bearer token",
             ),
             (
-                SandboxError::Database {
-                    context: "reading the task row for provisioning",
-                    source: sqlx::Error::Protocol("SELECT * FROM tasks WHERE id = $1".to_string()),
-                },
+                SandboxError::Store(moatless_backend_core::store::StoreError::with_source(
+                    "read the task row for provisioning",
+                    crate::runtime::RuntimeError::Infrastructure(
+                        "SELECT * FROM tasks WHERE id = $1 failed".to_string(),
+                    ),
+                )),
                 "SELECT * FROM tasks",
             ),
             (
-                SandboxError::Runtime(crate::lifecycle::RuntimeError::Infrastructure(
+                SandboxError::Runtime(crate::runtime::RuntimeError::Infrastructure(
                     "/data/sandboxes/task-1 is not writable".to_string(),
                 )),
                 "/data/sandboxes/task-1",
             ),
             (
-                SandboxError::Lifecycle(Box::new(
-                    crate::lifecycle::LifecycleError::IntentWrite {
-                        task_id: "task-1".to_string(),
-                        reason: "UPDATE sandboxes SET desired_state = $1".to_string(),
-                    },
-                )),
+                SandboxError::Lifecycle(Box::new(crate::runtime::RuntimeError::Infrastructure(
+                    "UPDATE sandboxes SET desired_state = $1 failed".to_string(),
+                ))),
                 "UPDATE sandboxes",
             ),
         ]

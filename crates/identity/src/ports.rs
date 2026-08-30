@@ -9,16 +9,21 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use moatless_backend_core::identity::{
-    AppCredentials, AppToken, CommitIdentity, GitIdentity, HarnessCredentials, LinkedUser,
-    ProviderIdentityLink, UserDisplay, UserResolver,
+    AppCredentials, AppToken, CodexScopeReader, CommitIdentity, GitIdentity, HarnessCredentials,
+    LinkedUser, ProviderIdentityLink, SecretCatalog, SecretResolver, UserDisplay, UserResolver,
 };
+use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
 use moatless_backend_core::store::StoreError;
+use moatless_core::config::Config;
+use moatless_core::db::DbPool;
+use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::CodexScope;
 use moatless_types::user::UserRole;
 use uuid::Uuid;
 
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::users::{User, UserDao};
+use crate::secret::service::SecretService;
 
 /// The `users` table, narrowed to the four identity ports peers read.
 ///
@@ -296,5 +301,71 @@ impl AppCredentials for HarnessTokens {
             )
             .await
             .map_err(|e| StoreError::with_source(format!("write the {provider} app token"), e))
+    }
+}
+
+#[async_trait]
+impl CodexScopeReader for HarnessTokens {
+    async fn healthy_scopes(&self) -> Result<Vec<CodexScope>, StoreError> {
+        self.tokens
+            .healthy_codex_scopes()
+            .await
+            .map_err(|e| StoreError::with_source("list the healthy codex scopes", e))
+    }
+}
+
+/// The `secrets` table is behind [`SecretService`], which owns the scope walk,
+/// the envelope decrypt and the use-marking. Both seams narrow that service
+/// rather than the store, so a peer never gets a path around the walk.
+#[async_trait]
+impl SecretResolver for SecretService {
+    async fn plaintext(&self, user_id: &str) -> Result<HashMap<String, String>, StoreError> {
+        self.resolve_accessible_plaintext(user_id)
+            .await
+            .map_err(|e| StoreError::with_source(format!("resolve secrets for {user_id}"), e))
+    }
+
+    async fn ssh_keys(&self, user_id: &str) -> Result<HashMap<String, String>, StoreError> {
+        self.resolve_accessible_ssh_keys(user_id)
+            .await
+            .map_err(|e| StoreError::with_source(format!("resolve ssh keys for {user_id}"), e))
+    }
+}
+
+#[async_trait]
+impl SecretCatalog for SecretService {
+    async fn list(&self, ctx: &ScopeContext) -> Result<Vec<String>, StoreError> {
+        self.visible_keys(ctx)
+            .await
+            .map_err(|e| StoreError::with_source("list the visible secret keys", e))
+    }
+}
+
+/// The `adapter_apps` and `adapter_app_secrets` tables, narrowed to the one
+/// read an Adapter makes. Holds `Config` because the envelope key that decrypts
+/// a stored secret comes off it.
+pub struct AdapterApps {
+    db: DbPool,
+    config: Arc<Config>,
+}
+
+impl AdapterApps {
+    pub fn new(db: DbPool, config: Arc<Config>) -> Self {
+        Self { db, config }
+    }
+}
+
+#[async_trait]
+impl AdapterAppReader for AdapterApps {
+    async fn app(
+        &self,
+        adapter_kind: &str,
+        app_key: &str,
+    ) -> Result<Option<AdapterAppSecrets>, StoreError> {
+        crate::adapter_apps::stored_app(&self.db, &self.config, adapter_kind, app_key)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(format!("read the {adapter_kind} app '{app_key}'"), e)
+            })
     }
 }

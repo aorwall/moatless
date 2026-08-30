@@ -7,10 +7,10 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{BindingContext, ExternalStatus, InboundMessage, OutboundReply};
 use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::{
@@ -18,11 +18,11 @@ use moatless_loops::adapters::{
     AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
     AdapterPostBindingFollowup, Adapters,
 };
-use moatless_loops::loops::dao::LoopDao;
+use moatless_loops::loops::ports::LoopReader;
 use moatless_backend_core::task::TaskReader;
 use moatless_backend_core::identity::AppCredentials;
 use moatless_types::access_control::ScopeContext;
-use moatless_core::db::DbPool;
+use moatless_adapter_model::apps::AdapterAppReader;
 
 use super::SUBJECT_KIND_ISSUE;
 use super::agent_api::LinearAgentApi;
@@ -38,12 +38,13 @@ pub struct LinearAdapter {
     /// reach. Owned by [`auth`](super::auth), which is the only module that
     /// reads them.
     credentials: LinearCredentials,
-    /// Database pool for reading this Adapter's app config.
-    db: DbPool,
     /// The app-level OAuth row this Adapter authenticates with.
     app_tokens: Arc<dyn AppCredentials>,
-    /// Runtime config used to decrypt DB-backed Adapter app secrets.
+    /// Runtime config the webhook route and the binding follow-up read.
     config: Option<Arc<moatless_core::config::Config>>,
+    /// The stored Linear apps. Present on the DB-backed constructor; the
+    /// test-only ones never reach a stored app.
+    apps: Option<Arc<dyn AdapterAppReader>>,
     /// Task store the post-binding follow-up reads to title the attachment it
     /// links back onto the Linear issue. `None` in test-only constructors that
     /// never drive the follow-up; the composition root injects it through
@@ -54,7 +55,7 @@ pub struct LinearAdapter {
     /// [`with_ingress_ports`](Self::with_ingress_ports)) and absent on the
     /// test constructors, which never reach [`super::ingress::receive`].
     adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
-    loops: Option<Arc<LoopDao>>,
+    loops: Option<Arc<dyn LoopReader>>,
     adapter_delivery: Option<Arc<AdapterDeliveryStore>>,
 }
 
@@ -105,15 +106,14 @@ impl LinearAdapter {
     /// through the same constructor production calls.
     pub fn new(
         config: &moatless_types::adapter::LinearConfig,
-        db: DbPool,
         app_tokens: Arc<dyn AppCredentials>,
     ) -> Self {
         Self {
             global_webhook_secret: config.webhook_secret.clone(),
             credentials: LinearCredentials::from(config),
-            db,
             app_tokens,
             config: None,
+            apps: None,
             tasks: None,
             adapter_connections: None,
             loops: None,
@@ -123,15 +123,15 @@ impl LinearAdapter {
 
     pub fn from_db(
         config: Arc<moatless_core::config::Config>,
-        db: DbPool,
         app_tokens: Arc<dyn AppCredentials>,
+        apps: Arc<dyn AdapterAppReader>,
     ) -> Self {
         Self {
             global_webhook_secret: config.linear.webhook_secret.clone(),
             credentials: LinearCredentials::from(&config.linear),
-            db,
             app_tokens,
             config: Some(config),
+            apps: Some(apps),
             tasks: None,
             adapter_connections: None,
             loops: None,
@@ -155,7 +155,7 @@ impl LinearAdapter {
     pub fn with_ingress_ports(
         mut self,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
-        loops: Arc<LoopDao>,
+        loops: Arc<dyn LoopReader>,
         adapter_delivery: Arc<AdapterDeliveryStore>,
     ) -> Self {
         self.adapter_connections = Some(adapter_connections);
@@ -174,7 +174,7 @@ impl LinearAdapter {
     }
 
     /// The loop store the webhook route hands [`super::ingress::receive`].
-    pub(super) fn require_loops(&self) -> Result<&LoopDao, AdapterError> {
+    pub(super) fn require_loops(&self) -> Result<&dyn LoopReader, AdapterError> {
         self.loops.as_deref().ok_or_else(|| missing_port("loops"))
     }
 
@@ -190,6 +190,14 @@ impl LinearAdapter {
     /// composition root builds Linear that way.
     pub(super) fn require_config(&self) -> Result<&moatless_core::config::Config, AdapterError> {
         self.config.as_deref().ok_or_else(|| missing_port("config"))
+    }
+
+    /// The stored Linear apps a webhook resolves its client through. Present on
+    /// [`from_db`](Self::from_db), which is how the composition root builds it.
+    pub(super) fn require_apps(&self) -> Result<&dyn AdapterAppReader, AdapterError> {
+        self.apps
+            .as_deref()
+            .ok_or_else(|| missing_port("adapter apps"))
     }
 
     /// Build a Linear Agents API client for the given workspace.
@@ -215,27 +223,17 @@ impl LinearAdapter {
         org_id: &str,
         transport_config: &serde_json::Value,
     ) -> Result<LinearAgentApi, AdapterError> {
-        let Some(config) = self.config.as_deref() else {
+        let Some(apps) = self.apps.as_deref() else {
             return Ok(self.agent_api_for_org(org_id));
         };
-        let app_key = moatless_identity::adapter_apps::app_key_from_transport_config(transport_config);
-        let Some(app) = moatless_identity::adapter_apps::linear_app_config(&self.db, config, app_key)
-            .await
-            .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?
-        else {
+        let app_key = moatless_adapter_model::apps::app_key_from_transport_config(transport_config);
+        let Some(app) = apps.app("linear", app_key).await? else {
             return Err(SharedAdapterError::AdapterNotConfigured(format!(
                 "linear app '{app_key}'"
             ))
             .into());
         };
-        Ok(LinearCredentials::from(&app).api_for_org(self.app_tokens.clone(), org_id))
-    }
-
-    /// The pool [`auth`](super::auth) reads workspace rows from. Exposed to the
-    /// sibling module rather than the query being written here — the Adapter
-    /// type owns construction and identity, not database access.
-    pub(super) fn db(&self) -> &DbPool {
-        &self.db
+        Ok(LinearCredentials::from(app).api_for_org(self.app_tokens.clone(), org_id))
     }
 
     /// Exposed accessor for the dispatcher in `handlers.rs`.
@@ -588,7 +586,7 @@ impl AdapterBindingStatus for LinearAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_loops::adapters::footer::parse_task_id_from_body;
+    use moatless_adapter_model::footer::parse_task_id_from_body;
 
     fn reply(text: &str, footer: Option<&str>) -> OutboundReply {
         OutboundReply {

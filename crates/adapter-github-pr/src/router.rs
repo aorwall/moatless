@@ -20,15 +20,15 @@ use std::sync::Arc;
 
 
 use moatless_backend_core::task::{TaskReader, TranscriptAppend};
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::bindings::runtime::RoutingService;
-use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::message::send::MessageSendService;
+use moatless_loops::loops::ports::LoopReader;
+use moatless_backend_core::task::MessageAcceptor;
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_tasks::task::closer::TaskCloser;
-use moatless_tasks::task::creation::TaskCreationService;
-use moatless_tasks::task::relations::TaskRelationDao;
+use moatless_backend_core::task::TaskFinisher;
+use moatless_backend_core::task::TaskOpener;
+use moatless_backend_core::task::RelationRecorder;
 
 use super::adapter::GithubPrAdapter;
 
@@ -38,7 +38,7 @@ pub struct GithubPrInboundRouter {
     /// Per-provider connection records — resolves a delivery to its connection.
     pub(super) adapter_connections: Arc<dyn AdapterConnectionDao>,
     /// Subscription/trigger lookup — resolves a delivery to its trigger.
-    pub(super) loops: Arc<LoopDao>,
+    pub(super) loops: Arc<dyn LoopReader>,
     /// Task↔subject bindings — selection, upsert, sibling guard, cursor bumps.
     pub(super) task_bindings: Arc<dyn TaskBindingDao>,
     /// Resolves an inbound GitHub handle to the system user it belongs to.
@@ -48,18 +48,18 @@ pub struct GithubPrInboundRouter {
     /// External-event-id → task lookup for author attachment.
     pub(super) messages: Arc<dyn TranscriptAppend>,
     /// Records the related-to relation on review-task spawn.
-    pub(super) task_relations: Arc<dyn TaskRelationDao>,
+    pub(super) task_relations: Arc<dyn RelationRecorder>,
     /// Push-echo dedup — which task claimed a `synchronize` sha.
     /// Task rows — the close pre-check (already-closed / not-found skip).
     pub(super) tasks: Arc<dyn TaskReader>,
     /// The shared task-creation spine (review-task spawn).
-    pub(super) task_creation: Arc<TaskCreationService>,
+    pub(super) task_creation: Arc<dyn TaskOpener>,
     /// Delivers the PR-close notice into a bound task's chat.
-    pub(super) message_send: Arc<MessageSendService>,
+    pub(super) message_send: Arc<dyn MessageAcceptor>,
     /// Terminal close (update Closed → remove sandbox → deactivate → publish),
     /// which [`close_subject`](Self::close_subject) delegates to with an enriched
     /// close event.
-    pub(super) task_closer: Arc<TaskCloser>,
+    pub(super) task_closer: Arc<dyn TaskFinisher>,
     /// The concrete adapter — `Some` when GitHub PR is configured. Source of the
     /// self-resolved reply instructions and the merge / post-merge credential.
     pub(super) adapter: Option<Arc<GithubPrAdapter>>,
@@ -73,16 +73,16 @@ impl GithubPrInboundRouter {
     )]
     pub fn new(
         adapter_connections: Arc<dyn AdapterConnectionDao>,
-        loops: Arc<LoopDao>,
+        loops: Arc<dyn LoopReader>,
         task_bindings: Arc<dyn TaskBindingDao>,
         users: Arc<dyn ProviderIdentityLink>,
         routing: Arc<RoutingService>,
         messages: Arc<dyn TranscriptAppend>,
-        task_relations: Arc<dyn TaskRelationDao>,
+        task_relations: Arc<dyn RelationRecorder>,
         tasks: Arc<dyn TaskReader>,
-        task_creation: Arc<TaskCreationService>,
-        message_send: Arc<MessageSendService>,
-        task_closer: Arc<TaskCloser>,
+        task_creation: Arc<dyn TaskOpener>,
+        message_send: Arc<dyn MessageAcceptor>,
+        task_closer: Arc<dyn TaskFinisher>,
         adapter: Option<Arc<GithubPrAdapter>>,
     ) -> Self {
         Self {

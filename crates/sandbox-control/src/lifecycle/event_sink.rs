@@ -15,8 +15,8 @@ use moatless_core::events::EventPublisher;
 
 use super::events::LifecycleEvent;
 use super::orchestrator::LifecycleEventSink;
-use super::outcome::Diagnostics;
-use super::types::{ObservedStatus, OperationGeneration};
+use moatless_sandbox_runtime::outcome::Diagnostics;
+use moatless_sandbox_runtime::types::{ObservedStatus, OperationGeneration};
 
 /// Publishes lifecycle events through the existing Redis publication path.
 ///

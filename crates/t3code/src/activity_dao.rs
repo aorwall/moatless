@@ -1,14 +1,14 @@
 //! The reads this surface needs and the conversation feed does not.
 //!
 //! Everything a Moatless reader already asks of `task_activities` is served by
-//! [`moatless_tasks::task_activities::dao`] and called from there. What is left
-//! here answers questions only a T3 transcript asks.
+//! [`moatless_backend_core::activity::ActivitySource`]. What is left here
+//! answers questions only a T3 transcript asks.
 
 use std::collections::{HashMap, HashSet};
 
-use moatless_tasks::task_activities::dao::Activity;
-use moatless_tasks::task_activities::mapping::ActivityKind;
-use moatless_tasks::task_activities::view::ActivityView;
+use moatless_backend_core::activity::Activity;
+use moatless_backend_core::activity::ActivityKind;
+use moatless_backend_core::activity::ActivityView;
 use serde_json::Value;
 
 use crate::UiRpcDbPool;

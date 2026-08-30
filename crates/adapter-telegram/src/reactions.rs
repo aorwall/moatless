@@ -33,7 +33,7 @@ impl AdapterReactions for TelegramAdapter {
         if trimmed.is_empty() {
             return Err(SharedAdapterError::BadRequest("Empty emoji".into()).into());
         }
-        let api = self.app_api(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+        let api = self.app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
         api.set_message_reaction(&chat_id, message_id, Some(trimmed))
             .await?;
         Ok(None)
@@ -49,7 +49,7 @@ impl AdapterReactions for TelegramAdapter {
         // The `_emoji` argument is accepted for parity with other providers but
         // ignored — Telegram replaces the bot's full reaction list either way.
         let (chat_id, message_id) = reaction_target(binding, target_external_id)?;
-        let api = self.app_api(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+        let api = self.app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
         api.set_message_reaction(&chat_id, message_id, None).await
     }
 }

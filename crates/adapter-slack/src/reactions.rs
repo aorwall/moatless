@@ -31,7 +31,7 @@ impl AdapterReactions for SlackAdapter {
     ) -> Result<Option<String>, AdapterError> {
         let (channel, ts) = subject::reaction_target(binding, target_external_id)?;
         let name = normalize_emoji(emoji)?;
-        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
         app.api.add_reaction(&channel, name, ts).await?;
         Ok(None)
     }
@@ -44,7 +44,7 @@ impl AdapterReactions for SlackAdapter {
     ) -> Result<(), AdapterError> {
         let (channel, ts) = subject::reaction_target(binding, target_external_id)?;
         let name = normalize_emoji(emoji)?;
-        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
         app.api.remove_reaction(&channel, name, ts).await
     }
 }

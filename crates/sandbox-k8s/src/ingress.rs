@@ -219,7 +219,7 @@ pub async fn delete_task_ingress_routes(k8s: &K8sClient, task_id: &str) -> Resul
 pub async fn wait_for_task_ingress_routes_deleted(
     k8s: &K8sClient,
     task_id: &str,
-) -> Result<(), moatless_sandbox_control::error::SandboxError> {
+) -> Result<(), moatless_sandbox_runtime::error::SandboxError> {
     let api = ingress_api(k8s);
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
     super::wait::wait_absent(

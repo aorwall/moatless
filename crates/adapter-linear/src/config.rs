@@ -4,7 +4,7 @@
 //! share a single Linear team UUID (multi-listener support is what migration
 //! `0036` enables) — each one is evaluated independently.
 
-use moatless_loops::adapters::models::SubscriptionMatch;
+use moatless_adapter_model::models::SubscriptionMatch;
 
 /// Default workflow state names whose ENTRY fires task creation.
 const DEFAULT_TRIGGER_STATES: &[&str] = &["Todo", "In Progress"];

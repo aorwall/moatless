@@ -10,7 +10,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use super::dao::FileDao;
 use super::handlers;
 use super::s3::S3Storage;
-use moatless_identity::extractors::UserTokenVerifier;
+use moatless_core::http_auth::UserTokenVerifier;
 
 #[derive(OpenApi)]
 #[openapi(

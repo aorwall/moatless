@@ -9,7 +9,7 @@ use super::dao::TaskEventDao;
 use super::error::TaskEventError;
 use super::schemas::*;
 use crate::task::dao::TaskDao;
-use moatless_identity::extractors::AuthUser;
+use moatless_core::http_auth::AuthUser;
 
 /// List persisted events for a task.
 #[utoipa::path(

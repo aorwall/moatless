@@ -192,7 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 13-field read the HTTP routes need is the backend-local
     // `SandboxStatusReader`; the T3 contract observer is projected from it at
     // its one construction site, and the one connector serves both surfaces.
-    let sandbox_runtime: Arc<dyn sandbox::lifecycle::SandboxRuntime>;
+    let sandbox_runtime: Arc<dyn moatless_sandbox_runtime::runtime::SandboxRuntime>;
     let sandbox_observer: Arc<dyn sandbox::status_reader::SandboxStatusReader>;
     let sandbox_connector: Arc<dyn sandbox_proto::client::SandboxConnector>;
     let cluster_diagnostics: Arc<dyn moatless_backend_core::sandbox::ClusterDiagnostics>;
@@ -201,7 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reaper_k8s: Option<sandbox::k8s::client::K8sClient>;
     let docker_watcher_client: Option<sandbox::docker::client::DockerClient>;
     // The reconciler's per-tick fleet observation, built per runtime backend.
-    let sandbox_fleet_observer: Arc<dyn sandbox::lifecycle::FleetObserver>;
+    let sandbox_fleet_observer: Arc<dyn moatless_sandbox_runtime::fleet::FleetObserver>;
     // Attach-failure remediation for the pod watcher — K8s only; Docker has no
     // PVC to fail to attach.
     let storage_fallback: Option<Arc<dyn sandbox::k8s::provider::StorageFallback>>;
@@ -1079,7 +1079,7 @@ fn spawn_codex_refresher(
     .with_lease_duration(lease_duration_secs);
     let leader_guard: Arc<dyn LeaderGuard> = Arc::new(K8sLeaderGuard(election));
     let handle = moatless_backend::credential_sync::refresher::spawn_codex_refresher(
-        app_state.provider_tokens.clone(),
+        app_state.harness_credentials.clone(),
         Arc::clone(&app_state.credential_sync),
         leader_guard,
         interval,

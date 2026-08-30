@@ -7,9 +7,11 @@ use tracing::warn;
 
 use moatless_core::events::EventPublisher;
 
-use super::classify::{Observation, ObservedTransition};
+use moatless_sandbox_runtime::classify::{Observation, ObservedTransition};
 use super::events::{self, EventFact};
-use super::{Lifecycle, OperationGeneration};
+use moatless_sandbox_runtime::types::OperationGeneration;
+
+use super::Lifecycle;
 
 pub struct PublishDecision {
     pub publishes: bool,

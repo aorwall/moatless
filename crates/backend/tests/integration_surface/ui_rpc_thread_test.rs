@@ -23,7 +23,7 @@ use crate::common;
 use moatless_tasks::task_activities::mapping::{ActivityKind, ActivityStatus};
 use moatless_api_schemas::task::{FileContextData, MessageContextInput, PreviewUrlContextData};
 use moatless_types::sandbox::SandboxEventPayload;
-use moatless_t3code::dao::{ConversationDao, PgConversationDao};
+use moatless_t3code::dao::{ConversationDao};
 use moatless_backend::message::contexts::message_context_input_to_row;
 use moatless_backend::message::dao as message_dao;
 use moatless_backend::message::dao::{MessageDao, PgMessageDao};
@@ -108,7 +108,7 @@ async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
         .await
         .unwrap();
 
-    let dao = PgConversationDao::new(pool.clone());
+    let dao = moatless_backend::t3code::conversations_over(&pool);
 
     let window = dao
         .changed_messages(TASK, &["the-call".to_string()], &[])
@@ -165,7 +165,7 @@ async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
     )
     .await;
 
-    let window = PgConversationDao::new(pool.clone())
+    let window = moatless_backend::t3code::conversations_over(&pool)
         .changed_messages(TASK, &["third".to_string()], &[])
         .await
         .unwrap();
@@ -214,7 +214,7 @@ async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPoo
         .await
         .unwrap();
 
-    let transcript = PgConversationDao::new(pool.clone())
+    let transcript = moatless_backend::t3code::conversations_over(&pool)
         .transcript(TASK)
         .await
         .unwrap();
@@ -260,7 +260,7 @@ async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPoo
     assert_eq!(asked.payload["questions"][0]["id"], "Which store?");
 
     // The call itself is still a call, with its input where it has always been.
-    let call = PgConversationDao::new(pool.clone())
+    let call = moatless_backend::t3code::conversations_over(&pool)
         .interactive_call(TASK, "toolu_ask")
         .await
         .unwrap()
@@ -308,7 +308,7 @@ async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPoo
     // The session resumes and presents the same call again, on a new Message.
     append(&pool, "the-resume", asked).await;
 
-    let dao = PgConversationDao::new(pool.clone());
+    let dao = moatless_backend::t3code::conversations_over(&pool);
     let window = dao
         .changed_messages(TASK, &["the-resume".to_string()], &[])
         .await
@@ -366,7 +366,7 @@ async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: Pg
     );
     assert!(changes[0].message_uuid.is_none());
 
-    let window = PgConversationDao::new(pool.clone())
+    let window = moatless_backend::t3code::conversations_over(&pool)
         .changed_messages(TASK, &[], &["evt-window".to_string()])
         .await
         .unwrap();
@@ -464,7 +464,7 @@ async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
     .unwrap();
     append(&pool, "no-upload", serde_json::json!([])).await;
 
-    let transcript = PgConversationDao::new(pool.clone())
+    let transcript = moatless_backend::t3code::conversations_over(&pool)
         .transcript(TASK)
         .await
         .unwrap();

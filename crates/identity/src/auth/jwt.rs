@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 use uuid::Uuid;
 
-use super::identity::AuthIdentity;
+use moatless_types::auth::AuthIdentity;
 use moatless_types::user::UserRole;
 use moatless_core::config::Config;
 

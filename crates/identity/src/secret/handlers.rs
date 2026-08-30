@@ -6,7 +6,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 
-use crate::extractors::AuthUser;
+use moatless_core::http_auth::AuthUser;
 use crate::secret::service::SecretService;
 
 use super::error::SecretError;

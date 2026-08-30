@@ -29,14 +29,14 @@ use crate::skill::models::SkillSource;
 use crate::skill::scanner;
 use moatless_types::repository::RepositoryProvider;
 use moatless_types::access_control::Actor;
-use moatless_identity::git_host_repo::GitHostRepo;
-use moatless_identity::git_host_tokens::GitHostTokens;
+use moatless_types::repository::GitHostRepo;
+use moatless_backend_core::identity::GitHostTokenIssuer;
 
 /// Syncs plugin content into stored skills, and reads them back.
 pub struct PluginSyncService {
     plugins: Arc<dyn PluginDao>,
     fetcher: Arc<dyn SkillFetcher>,
-    git_host_tokens: Arc<GitHostTokens>,
+    git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     /// One lock per plugin id, so simultaneous callers collapse into one fetch.
     /// Held in a bounded cache rather than a map that only ever grows; evicting
     /// an idle lock is harmless because nobody is waiting on it.
@@ -47,7 +47,7 @@ impl PluginSyncService {
     pub fn new(
         plugins: Arc<dyn PluginDao>,
         fetcher: Arc<dyn SkillFetcher>,
-        git_host_tokens: Arc<GitHostTokens>,
+        git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     ) -> Self {
         Self {
             plugins,

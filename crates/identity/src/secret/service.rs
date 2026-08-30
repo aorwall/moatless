@@ -11,7 +11,8 @@ use super::audit::{SecretAuditDao, SecretAuditInput};
 use super::dao::{SecretDao, SecretInsert, SecretReplace};
 use super::error::SecretError;
 use moatless_types::secret::SecretKind;
-use super::models::{EncryptedSecretValue, ResolvedSecret, SecretRecord, is_reserved_key, is_valid_secret_key};
+use moatless_core::secret_keys::{is_reserved_key, is_valid_secret_key};
+use super::models::{EncryptedSecretValue, ResolvedSecret, SecretRecord};
 use super::schemas::{PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, ValidateSecretsRequest, ValidateSecretsResponse};
 use moatless_backend_core::access_control::resolve_scope_for_create;
 use moatless_types::access_control::AccessControlError;
@@ -232,6 +233,16 @@ impl SecretService {
             .map(SecretMetadataResponse::try_from)
             .collect::<Result<Vec<_>, _>>()
             .map_err(SecretError::Internal)
+    }
+
+    /// Every secret key `ctx` may see, of any kind. Backs the `SecretCatalog`
+    /// seam, which reports which credentials exist without decrypting one.
+    pub(crate) async fn visible_keys(
+        &self,
+        ctx: &ScopeContext,
+    ) -> Result<Vec<String>, SecretError> {
+        let records = self.secrets.list(ctx, None).await?;
+        Ok(records.into_iter().map(|record| record.key).collect())
     }
 
     pub async fn get_metadata(

@@ -71,25 +71,25 @@ use std::sync::Arc;
 
 use tracing::{debug, info, warn};
 
+use moatless_adapter_model::apps::AdapterAppReader;
 use moatless_core::config::Config;
-use moatless_core::db::DbPool;
 
-use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::{
     AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
     ConnectionDeliveryPayload, register_connection_delivery,
 };
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::AdapterConnection;
+use moatless_adapter_model::models::AdapterConnection;
 use moatless_loops::bindings::runtime::RoutingService;
-use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::message::send::MessageSendService;
+use moatless_loops::loops::ports::LoopReader;
+use moatless_backend_core::task::MessageAcceptor;
 use moatless_backend_core::identity::AppCredentials;
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_tasks::task::closer::TaskCloser;
-use moatless_tasks::task::creation::TaskCreationService;
+use moatless_backend_core::task::TaskFinisher;
+use moatless_backend_core::task::TaskOpener;
 use moatless_backend_core::task::TaskReader;
-use moatless_tasks::task::relations::TaskRelationDao;
+use moatless_backend_core::task::RelationRecorder;
 use moatless_backend_core::sandbox::SandboxWaker;
 
 use super::active_turns::ActiveLinearTurns;
@@ -126,17 +126,17 @@ pub const NOTIFICATION: &str = "linear.notification";
 /// behaviour keeps its substrate beside it.
 pub struct LinearInboundRouter {
     adapter_connections: Arc<dyn AdapterConnectionDao>,
-    db: DbPool,
     app_tokens: Arc<dyn AppCredentials>,
     config: Arc<Config>,
-    loops: Arc<LoopDao>,
+    apps: Arc<dyn AdapterAppReader>,
+    loops: Arc<dyn LoopReader>,
     task_bindings: Arc<dyn TaskBindingDao>,
     tasks: Arc<dyn TaskReader>,
-    task_creation: Arc<TaskCreationService>,
-    task_relations: Arc<dyn TaskRelationDao>,
-    message_send: Arc<MessageSendService>,
+    task_creation: Arc<dyn TaskOpener>,
+    task_relations: Arc<dyn RelationRecorder>,
+    message_send: Arc<dyn MessageAcceptor>,
     sandbox_waker: Arc<dyn SandboxWaker>,
-    task_closer: Arc<TaskCloser>,
+    task_closer: Arc<dyn TaskFinisher>,
     linear_active_turns: Arc<ActiveLinearTurns>,
     routing: Arc<RoutingService>,
 }
@@ -144,7 +144,7 @@ pub struct LinearInboundRouter {
 impl LinearInboundRouter {
     #[expect(
         clippy::too_many_arguments,
-        reason = "the thirteen ports the five linear delivery handlers read, \
+        reason = "the fourteen ports the five linear delivery handlers read, \
                   wired in from the composition root; the rejected alternatives \
                   are threading thirteen params through five delivery closures, \
                   and extending the shared RoutingService with one provider's \
@@ -152,25 +152,25 @@ impl LinearInboundRouter {
     )]
     pub fn new(
         adapter_connections: Arc<dyn AdapterConnectionDao>,
-        db: DbPool,
         app_tokens: Arc<dyn AppCredentials>,
         config: Arc<Config>,
-        loops: Arc<LoopDao>,
+        apps: Arc<dyn AdapterAppReader>,
+        loops: Arc<dyn LoopReader>,
         task_bindings: Arc<dyn TaskBindingDao>,
         tasks: Arc<dyn TaskReader>,
-        task_creation: Arc<TaskCreationService>,
-        task_relations: Arc<dyn TaskRelationDao>,
-        message_send: Arc<MessageSendService>,
+        task_creation: Arc<dyn TaskOpener>,
+        task_relations: Arc<dyn RelationRecorder>,
+        message_send: Arc<dyn MessageAcceptor>,
         sandbox_waker: Arc<dyn SandboxWaker>,
-        task_closer: Arc<TaskCloser>,
+        task_closer: Arc<dyn TaskFinisher>,
         linear_active_turns: Arc<ActiveLinearTurns>,
         routing: Arc<RoutingService>,
     ) -> Self {
         Self {
             adapter_connections,
-            db,
             app_tokens,
             config,
+            apps,
             loops,
             task_bindings,
             tasks,
@@ -495,7 +495,7 @@ impl LinearInboundRouter {
                     .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
             })
             .unwrap_or_default();
-        let rules = super::ingress::resolve_rules_for_team(&self.loops, &connection, &team_id)
+        let rules = super::ingress::resolve_rules_for_team(self.loops.as_ref(), &connection, &team_id)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
 
@@ -511,7 +511,7 @@ impl LinearInboundRouter {
             // Resolved here rather than above the guard, and best-effort: there is
             // no work left to redo on this record, so a credential failure must not
             // turn a settled no-op into a retry.
-            match super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection).await {
+            match super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection).await {
                 Ok(api) => {
                     super::sessions::decline_session(
                         &api,
@@ -529,16 +529,16 @@ impl LinearInboundRouter {
             return Ok(());
         }
 
-        let api = super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection)
+        let api = super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         super::sessions::provision_selected_session_task(
             self.task_bindings.as_ref(),
             self.tasks.as_ref(),
             &self.config,
-            &self.task_creation,
+            self.task_creation.as_ref(),
             self.task_relations.as_ref(),
-            &self.message_send,
+            self.message_send.as_ref(),
             &self.linear_active_turns,
             &api,
             &connection,
@@ -555,14 +555,14 @@ impl LinearInboundRouter {
         connection: AdapterConnection,
         payload: SessionPromptDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
-        let api = super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection)
+        let api = super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         super::sessions::handle_session_prompted(
             self.task_bindings.as_ref(),
-            &self.loops,
+            self.loops.as_ref(),
             &self.linear_active_turns,
-            &self.message_send,
+            self.message_send.as_ref(),
             self.sandbox_waker.as_ref(),
             &api,
             &payload.session_id,
@@ -583,7 +583,7 @@ impl LinearInboundRouter {
         // handler re-resolves: a rule disabled between admission and execution
         // should stop the work, which is what disabling it means.
         let team_id = payload.issue.resolved_team_id().unwrap_or_default();
-        let rules = super::ingress::resolve_rules_for_team(&self.loops, &connection, team_id)
+        let rules = super::ingress::resolve_rules_for_team(self.loops.as_ref(), &connection, team_id)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         if rules.is_empty() {
@@ -595,18 +595,18 @@ impl LinearInboundRouter {
             return Ok(());
         }
 
-        let api = super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection)
+        let api = super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         super::issues::handle_issue_update(
             self.task_bindings.as_ref(),
             self.tasks.as_ref(),
             &self.config,
-            &self.task_closer,
+            self.task_closer.as_ref(),
             self.sandbox_waker.as_ref(),
             &self.linear_active_turns,
-            &self.task_creation,
-            &self.message_send,
+            self.task_creation.as_ref(),
+            self.message_send.as_ref(),
             &api,
             &connection,
             &rules,
@@ -625,15 +625,15 @@ impl LinearInboundRouter {
         connection: AdapterConnection,
         payload: CommentDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
-        let api = super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection)
+        let api = super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         super::comments::handle_comment_created(
             &self.config,
             &self.routing,
             self.task_bindings.as_ref(),
-            &self.loops,
-            &self.message_send,
+            self.loops.as_ref(),
+            self.message_send.as_ref(),
             self.sandbox_waker.as_ref(),
             &api,
             &connection,
@@ -665,15 +665,15 @@ impl LinearInboundRouter {
             return Ok(());
         }
 
-        let api = super::auth::api_for_connection(&self.db, self.app_tokens.clone(), &self.config, &connection)
+        let api = super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection)
             .await
             .map_err(AdapterDeliveryFailure::from)?;
         super::notifications::handle_issue_status_notification(
             self.task_bindings.as_ref(),
             self.tasks.as_ref(),
             &self.config,
-            &self.task_closer,
-            &self.loops,
+            self.task_closer.as_ref(),
+            self.loops.as_ref(),
             &api,
             &connection,
             &payload.notification,

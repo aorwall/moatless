@@ -2,7 +2,7 @@
 
 use tracing::debug;
 
-use moatless_loops::adapters::models::{AccessDecision, SourceAccessPolicy};
+use moatless_adapter_model::models::{AccessDecision, SourceAccessPolicy};
 
 use super::config::TelegramAdapterConfig;
 

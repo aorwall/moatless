@@ -14,6 +14,7 @@ use tracing::{info, warn};
 use crate::auth::error::AuthError;
 use crate::secret::models::EncryptedSecretValue;
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher};
+use moatless_adapter_model::apps::AdapterAppSecrets;
 use moatless_core::config::{Config, SlackConfig, TelegramConfig};
 use moatless_types::adapter::LinearConfig;
 use moatless_types::secret::SecretsConfig;
@@ -21,7 +22,7 @@ use moatless_core::db::DbPool;
 
 pub mod dao;
 
-pub const DEFAULT_APP_KEY: &str = "default";
+pub use moatless_adapter_model::apps::{DEFAULT_APP_KEY, app_key_from_transport_config};
 const SYSTEM_ACTOR: &str = "adapter_apps_env_carry_over";
 
 #[derive(Clone)]
@@ -72,28 +73,6 @@ pub struct StoredAdapterApp {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Clone, Debug)]
-pub struct SlackAppConfig {
-    pub bot_token: String,
-    pub signing_secret: String,
-    pub bot_user_id: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct TelegramAppConfig {
-    pub bot_token: String,
-    pub mode: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct LinearAppConfig {
-    pub webhook_secret: Option<String>,
-    pub oauth_client_id: Option<String>,
-    pub oauth_client_secret: Option<String>,
-    pub oauth_callback_url: Option<String>,
-    pub api_base_url: Option<String>,
-}
-
 fn secret_fingerprint(plaintext: &str) -> String {
     let digest = Sha256::digest(plaintext.trim().as_bytes());
     hex::encode(&digest[..8])
@@ -105,14 +84,6 @@ fn secret_aad(app_id: &str) -> &str {
 
 pub fn app_id(adapter_kind: &str, app_key: &str) -> String {
     format!("aa_{adapter_kind}_{app_key}")
-}
-
-pub fn app_key_from_transport_config(transport_config: &Value) -> &str {
-    transport_config
-        .get("app_key")
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(DEFAULT_APP_KEY)
 }
 
 fn require_cipher(secrets: &SecretsConfig) -> Result<std::sync::Arc<dyn SecretCipher>, AuthError> {
@@ -457,90 +428,29 @@ async fn app_secrets(
     Ok(Some((row, secrets)))
 }
 
+/// One stored app, narrowed to what an Adapter reads. The row type stays
+/// private to this module; the port hands out this shape.
+pub(crate) async fn stored_app(
+    db: &DbPool,
+    config: &Config,
+    adapter_kind: &str,
+    app_key: &str,
+) -> Result<Option<AdapterAppSecrets>, AuthError> {
+    Ok(app_secrets(db, config, adapter_kind, app_key)
+        .await?
+        .map(|(row, secrets)| AdapterAppSecrets {
+            app_key: row.app_key,
+            secrets,
+            config: row.config_json,
+        }))
+}
+
 async fn default_app_secrets(
     db: &DbPool,
     config: &Config,
     adapter_kind: &str,
 ) -> Result<Option<(AdapterAppRow, HashMap<String, String>)>, AuthError> {
     app_secrets(db, config, adapter_kind, DEFAULT_APP_KEY).await
-}
-
-pub async fn slack_app_config(
-    db: &DbPool,
-    config: &Config,
-    app_key: &str,
-) -> Result<Option<SlackAppConfig>, AuthError> {
-    let Some((row, secrets)) = app_secrets(db, config, "slack", app_key).await? else {
-        return Ok(None);
-    };
-    let (Some(bot_token), Some(signing_secret)) = (
-        secrets.get("bot_token").cloned(),
-        secrets.get("signing_secret").cloned(),
-    ) else {
-        return Err(AuthError::Config(format!(
-            "Slack Adapter app '{}' is missing required secrets",
-            row.app_key
-        )));
-    };
-    Ok(Some(SlackAppConfig {
-        bot_token,
-        signing_secret,
-        bot_user_id: row
-            .config_json
-            .get("bot_user_id")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-    }))
-}
-
-pub async fn telegram_app_config(
-    db: &DbPool,
-    config: &Config,
-    app_key: &str,
-) -> Result<Option<TelegramAppConfig>, AuthError> {
-    let Some((row, secrets)) = app_secrets(db, config, "telegram", app_key).await? else {
-        return Ok(None);
-    };
-    let Some(bot_token) = secrets.get("bot_token").cloned() else {
-        return Err(AuthError::Config(format!(
-            "Telegram Adapter app '{}' is missing bot_token",
-            row.app_key
-        )));
-    };
-    Ok(Some(TelegramAppConfig {
-        bot_token,
-        mode: row
-            .config_json
-            .get("mode")
-            .and_then(Value::as_str)
-            .unwrap_or("webhook")
-            .to_string(),
-    }))
-}
-
-pub async fn linear_app_config(
-    db: &DbPool,
-    config: &Config,
-    app_key: &str,
-) -> Result<Option<LinearAppConfig>, AuthError> {
-    let Some((row, secrets)) = app_secrets(db, config, "linear", app_key).await? else {
-        return Ok(None);
-    };
-    Ok(Some(LinearAppConfig {
-        webhook_secret: secrets.get("webhook_secret").cloned(),
-        oauth_client_id: secrets.get("oauth_client_id").cloned(),
-        oauth_client_secret: secrets.get("oauth_client_secret").cloned(),
-        oauth_callback_url: row
-            .config_json
-            .get("oauth_callback_url")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        api_base_url: row
-            .config_json
-            .get("api_base_url")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-    }))
 }
 
 pub async fn carry_over_env_and_load_config(

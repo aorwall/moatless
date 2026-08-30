@@ -15,10 +15,9 @@ use moatless_backend::compose::{LifecycleOptions, compose};
 use moatless_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_backend::sandbox::client::SandboxClient;
-use moatless_backend::sandbox::lifecycle::{
-    ArchiveRetention, NotifyPort, ObservedStatus, ProvisionDeps, RuntimeOperationContext,
-    RuntimeOutcome, SandboxRuntime,
-};
+use moatless_backend::sandbox::lifecycle::{NotifyPort, ProvisionDeps};
+use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
+use moatless_sandbox_runtime::types::{ArchiveRetention, ObservedStatus};
 use moatless_backend::state::AppState;
 use moatless_backend::task::models::{Task, TaskStatus, Visibility};
 use moatless_backend::workspace::models::{Workspace, WorkspaceRepo};
@@ -47,9 +46,9 @@ impl SandboxRuntime for MockSandboxRuntime {
         &self,
         _task_id: &str,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_backend::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         Err(
-            moatless_backend::sandbox::lifecycle::RuntimeError::Infrastructure(
+            moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(
                 "mock: not implemented".into(),
             ),
         )
@@ -59,7 +58,7 @@ impl SandboxRuntime for MockSandboxRuntime {
         &self,
         _task_id: &str,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_backend::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         Ok(RuntimeOutcome::applied(ObservedStatus::Stopped))
     }
 
@@ -67,9 +66,9 @@ impl SandboxRuntime for MockSandboxRuntime {
         &self,
         _task_id: &str,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_backend::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         Err(
-            moatless_backend::sandbox::lifecycle::RuntimeError::Infrastructure(
+            moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(
                 "mock: not implemented".into(),
             ),
         )
@@ -79,9 +78,9 @@ impl SandboxRuntime for MockSandboxRuntime {
         &self,
         _task_id: &str,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_backend::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         Err(
-            moatless_backend::sandbox::lifecycle::RuntimeError::Infrastructure(
+            moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(
                 "mock: not implemented".into(),
             ),
         )
@@ -92,7 +91,7 @@ impl SandboxRuntime for MockSandboxRuntime {
         _task_id: &str,
         _retention: ArchiveRetention,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_backend::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         Ok(RuntimeOutcome::applied(ObservedStatus::Removed))
     }
 
@@ -101,7 +100,7 @@ impl SandboxRuntime for MockSandboxRuntime {
         _task_id: &str,
         _rescue_upload_url: Option<&str>,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, moatless_backend::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         Ok(RuntimeOutcome::applied(ObservedStatus::Stopped))
     }
 }
@@ -705,14 +704,14 @@ pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState
     let router = Arc::new(
         moatless_backend::adapters::providers::linear::delivery::LinearInboundRouter::new(
             worker_state.adapter_connections.clone(),
-            worker_state.db.clone(),
             worker_state.harness_credentials.clone(),
             worker_state.config.clone(),
+            worker_state.adapter_apps.clone(),
             worker_state.loops.clone(),
             worker_state.task_bindings.clone(),
             worker_state.task_reader.clone(),
             worker_state.task_creation.clone(),
-            worker_state.task_relations.clone(),
+            worker_state.relation_recorder.clone(),
             worker_state.message_send.clone(),
             worker_state.sandbox_waker.clone(),
             worker_state.task_closer.clone(),
@@ -772,7 +771,7 @@ pub fn authed_request(
         .body(axum::body::Body::empty())
         .unwrap();
     req.extensions_mut()
-        .insert(moatless_backend::auth::identity::AuthIdentity {
+        .insert(moatless_types::auth::AuthIdentity {
             user_id: Uuid::parse_str(user_id)
                 .expect("authed_request user_id must be a UUID (use common::USER_1)"),
             login: user_id.to_string(),
@@ -798,7 +797,7 @@ pub fn authed_json_request(
         .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
     req.extensions_mut()
-        .insert(moatless_backend::auth::identity::AuthIdentity {
+        .insert(moatless_types::auth::AuthIdentity {
             user_id: Uuid::parse_str(user_id)
                 .expect("authed_request user_id must be a UUID (use common::USER_1)"),
             login: user_id.to_string(),
