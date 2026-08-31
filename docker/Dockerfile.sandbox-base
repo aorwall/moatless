@@ -21,7 +21,7 @@ ARG TASK_VERSION=v3.52.0
 
 # Build go-task from source instead of copying the upstream release binary so
 # dependency CVE patches can be applied during the build.
-FROM golang:1.26.5-bookworm AS task-builder
+FROM golang:1.26.7-bookworm AS task-builder
 ARG TASK_VERSION
 ENV CGO_ENABLED=0
 RUN git clone --depth 1 --branch ${TASK_VERSION} https://github.com/go-task/task.git /src && \
@@ -51,7 +51,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 # 2026-08-24: re-pull nodesource nodejs >= 22.23.2 (CVE-2026-58043, OP-718) and
 # the latest OS security patches. This layer sits above the nodesource install,
 # so bumping it re-runs that layer and picks up the patched runtime.
-ARG APT_SECURITY_REFRESH=2026-08-24
+# 2026-08-31: pull patched openssl/libssl3t64/libssl-dev >= 3.0.13-0ubuntu3.15
+# (CVE-2026-63076, -63072, -54874), OP-747. libexpat1 (CVE-2026-66046) is still
+# "needs evaluation" upstream — clears on a later refresh once noble ships it.
+ARG APT_SECURITY_REFRESH=2026-08-31
 
 # Install essential system packages
 RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" \
