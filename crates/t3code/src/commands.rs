@@ -219,7 +219,7 @@ async fn turn_start(
             .await;
     }
 
-    let conversation = require_writable(ctx, viewer, &task_id).await?;
+    let conversation = require_controllable(ctx, viewer, &task_id).await?;
     let agents = ctx.agents.list(viewer).await;
     let model = model_for_existing(&agents, &conversation, command)?;
     ctx.sink
@@ -439,7 +439,7 @@ async fn meta_update(
     command: &Value,
 ) -> Result<(), CommandRefusal> {
     let task_id = thread_id(command)?.to_string();
-    let conversation = require_writable(ctx, viewer, &task_id).await?;
+    let conversation = require_controllable(ctx, viewer, &task_id).await?;
     let agents = ctx.agents.list(viewer).await;
 
     // A meta update carrying the other instance's model is not worth refusing:
@@ -642,36 +642,48 @@ fn plan_verdict(answers: &Value) -> Value {
     json!({ "approved": false, "feedback": said })
 }
 
-/// The Task, if this viewer may write to it.
+/// The Task, if this viewer may run a turn on it.
 ///
-/// Resolved through the same narrowed listing the read path uses, so the follow
-/// rule and the read rule apply to a write exactly as they apply to a read. A
+/// Resolved through the read a link resolves through, then gated on control —
+/// which is the grant a turn takes, because a turn is the agent running in
+/// someone's Sandbox and a controller can already run anything else there. A
 /// Task that fails either is reported the same way as one that does not exist.
 ///
 /// The status rule is this function's own, because the two paths want different
-/// answers from it: a reader may open an archived conversation, and a writer may
-/// not add a turn to one. Unarchiving is the way back, and it does not come
-/// through here.
-async fn require_writable(
+/// answers from it: a reader may open an archived conversation, and no one may
+/// add a turn to one. Unarchiving is the way back, and it does not come through
+/// here.
+async fn require_controllable(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Conversation, CommandRefusal> {
-    ctx.conversations
-        .list_followed_by_ids(viewer, std::slice::from_ref(&task_id.to_string()))
+    let unreachable = |error: sqlx::Error| {
+        tracing::warn!(%error, task_id, "T3 command could not resolve its thread");
+        CommandRefusal::Failed {
+            message: "Could not reach that thread.".to_string(),
+        }
+    };
+    let refused = || CommandRefusal::NotWritable {
+        task_id: task_id.to_string(),
+    };
+
+    let conversation = ctx
+        .conversations
+        .readable_by_id(viewer, task_id)
         .await
-        .map_err(|error| {
-            tracing::warn!(%error, task_id, "T3 command could not resolve its thread");
-            CommandRefusal::Failed {
-                message: "Could not reach that thread.".to_string(),
-            }
-        })?
-        .into_iter()
-        .next()
+        .map_err(unreachable)?
         .filter(|conversation| conversation.closed_at.is_none())
-        .ok_or_else(|| CommandRefusal::NotWritable {
-            task_id: task_id.to_string(),
-        })
+        .ok_or_else(refused)?;
+    if !ctx
+        .conversations
+        .controls_conversation(viewer, task_id)
+        .await
+        .map_err(unreachable)?
+    {
+        return Err(refused());
+    }
+    Ok(conversation)
 }
 
 /// The catalog model a command asks for, checked against the Task's own agent.
@@ -1075,12 +1087,14 @@ mod tests {
     }
 
     /// A DAO that answers with one conversation, or with none when `found` is
-    /// false — which is what "the viewer cannot write to it" looks like from
-    /// here.
+    /// `None` — which is what "the viewer cannot be shown it" looks like from
+    /// here. Control is granted; the test that withholds it overrides
+    /// `controls_conversation` itself.
     fn conversations(found: Option<Conversation>) -> MockConversationDao {
         let mut dao = MockConversationDao::new();
-        dao.expect_list_followed_by_ids()
-            .returning(move |_, _| Ok(found.clone().into_iter().collect::<Vec<_>>()));
+        dao.expect_readable_by_id()
+            .returning(move |_, _| Ok(found.clone()));
+        dao.expect_controls_conversation().returning(|_, _| Ok(true));
         dao.expect_listing_head().returning(|| {
             Ok(UiRpcListingHead {
                 identity: UiRpcEnvironmentIdentity::new("test"),
@@ -1524,8 +1538,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_thread_the_viewer_cannot_write_to_is_refused() {
+    async fn a_thread_the_viewer_cannot_be_shown_is_refused() {
         let (result, calls) = run_against(turn(None), None).await;
+        assert!(matches!(result, Err(CommandRefusal::NotWritable { .. })));
+        assert!(calls.is_empty());
+    }
+
+    /// Reading a conversation is not running a turn on it. The two refusals are
+    /// the same on the wire, deliberately: which one it was says who owns the
+    /// Task.
+    #[tokio::test]
+    async fn a_thread_the_viewer_reads_but_does_not_control_is_refused() {
+        let found = conversation(AgentType::CLAUDE_CODE);
+        let mut dao = MockConversationDao::new();
+        dao.expect_readable_by_id()
+            .returning(move |_, _| Ok(Some(found.clone())));
+        dao.expect_controls_conversation()
+            .returning(|_, _| Ok(false));
+        dao.expect_interactive_call()
+            .returning(|_, _| Ok(Some(asked(mapping::QUESTION_TOOL))));
+        let (result, calls) = dispatch_against(dao, turn(None)).await;
         assert!(matches!(result, Err(CommandRefusal::NotWritable { .. })));
         assert!(calls.is_empty());
     }

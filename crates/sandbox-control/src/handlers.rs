@@ -30,7 +30,7 @@ use moatless_core::http_auth::OptionalScope;
 /// Builds the provision request internally from DB state (task, repository,
 /// credentials). No request body required.
 ///
-/// Requires start access: the Sandbox's owner, a platform admin, or any
+/// Requires control access: the Sandbox's owner, a platform admin, or any
 /// signed-in caller when the Task is public.
 #[utoipa::path(
     post,
@@ -42,7 +42,7 @@ use moatless_core::http_auth::OptionalScope;
     responses(
         (status = 200, description = "Sandbox provisioned successfully", body = ProvisionResponse),
         (status = 400, description = "Task is Closed — start not allowed", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "No start access to the task", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "No control access to the task", body = moatless_api_schemas::error::ErrorBody),
         (status = 409, description = "Another lifecycle operation is in progress", body = moatless_api_schemas::error::ErrorBody),
         (status = 500, description = "Provisioning failed", body = moatless_api_schemas::error::ErrorBody)
     )
@@ -54,7 +54,7 @@ pub async fn provision_handler(
     Path(task_id): Path<String>,
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /provision");
-    authorize_task_start(&state, &scope, &task_id).await?;
+    authorize_task_control(&state, &scope, &task_id).await?;
 
     // Lifecycle owns plan construction, the Running intent, and the start
     // timestamp; the runtime receives a fresh request from DB state.
@@ -281,7 +281,7 @@ pub async fn remove_handler(
     Path(task_id): Path<String>,
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /cleanup");
-    authorize_task_control(&state, &scope, &task_id).await?;
+    authorize_task_write(&state, &scope, &task_id).await?;
     // A cleanup deletes archives (no retention) — lifecycle owns the Removed
     // intent and strict teardown.
     require_lifecycle(&state)?
@@ -507,7 +507,7 @@ pub async fn update_server_config_handler(
     Json(req): Json<UpdateServerConfigRequest>,
 ) -> Result<Json<ServerConfigResponse>, SandboxError> {
     info!(task_id = %task_id, server = %server_name, "PATCH /servers/{server_name}");
-    let intent = authorize_task_control(&state, &scope, &task_id).await?;
+    let intent = authorize_task_write(&state, &scope, &task_id).await?;
 
     if req.port.is_some() {
         return Err(SandboxError::Conflict(
@@ -609,7 +609,7 @@ pub async fn reset_server_config_handler(
     Path((task_id, server_name)): Path<(String, String)>,
 ) -> Result<Json<ServerConfigResponse>, SandboxError> {
     info!(task_id = %task_id, server = %server_name, "DELETE /servers/{server_name}/override");
-    let intent = authorize_task_control(&state, &scope, &task_id).await?;
+    let intent = authorize_task_write(&state, &scope, &task_id).await?;
     require_known_server(&state, &intent, &task_id, &server_name).await?;
 
     // An empty override is exactly "reset": `apply` removes the control files.
@@ -775,9 +775,24 @@ pub(super) async fn authorize_task_read(
     Ok(intent)
 }
 
-/// Like [`authorize_task_read`], but additionally requires *control* access
-/// (the same policy the task HTTP API and sandbox gRPC server enforce): the
-/// owner of the Sandbox or a platform admin. Read-only viewers get `Forbidden`.
+/// Like [`authorize_task_read`], but additionally requires *write* access: the
+/// owner of the Sandbox or a platform admin, and never a public reader. Guards
+/// the two actions that outlive the pod they were made on — removing the
+/// Sandbox, and changing a server's configuration.
+pub(super) async fn authorize_task_write(
+    state: &SandboxApiState,
+    scope: &Option<ScopeContext>,
+    task_id: &str,
+) -> Result<TaskIntent, SandboxError> {
+    let intent = authorize_task_read(state, scope, task_id).await?;
+    ensure_can_write(scope, &intent, task_id)?;
+    Ok(intent)
+}
+
+/// Like [`authorize_task_read`], but additionally requires *control* access:
+/// write, or the public visibility the Task grants. Guards every action that
+/// operates the Sandbox — provision, stop, restart, redeploy, restarting a
+/// server, and writing a file.
 pub(super) async fn authorize_task_control(
     state: &SandboxApiState,
     scope: &Option<ScopeContext>,
@@ -785,19 +800,6 @@ pub(super) async fn authorize_task_control(
 ) -> Result<TaskIntent, SandboxError> {
     let intent = authorize_task_read(state, scope, task_id).await?;
     ensure_can_control(scope, &intent, task_id)?;
-    Ok(intent)
-}
-
-/// Like [`authorize_task_read`], but additionally requires *start* access:
-/// control, or the public visibility the Task grants. Used only by the
-/// provision (start) path; every other lifecycle action stays control-only.
-pub(super) async fn authorize_task_start(
-    state: &SandboxApiState,
-    scope: &Option<ScopeContext>,
-    task_id: &str,
-) -> Result<TaskIntent, SandboxError> {
-    let intent = authorize_task_read(state, scope, task_id).await?;
-    ensure_can_start(scope, &intent, task_id)?;
     Ok(intent)
 }
 
@@ -822,33 +824,16 @@ fn ensure_can_read(
     Err(SandboxError::NotFound(format!("task {task_id}")))
 }
 
-/// Start access to a Sandbox: control, or the public visibility its Task
+/// Control access to a Sandbox: write, or the public visibility its Task
 /// grants.
 ///
-/// A public Task is collaborative, and a stopped Sandbox is what makes that
-/// collaboration unusable — the viewer can read the Task but every file read
-/// fails against a Sandbox that is not running, and only the owner could wake
-/// it. So starting is the one lifecycle action public visibility grants: any
-/// signed-in caller may wake a public Task's Sandbox. Stopping, restarting,
-/// redeploying, removing, and server-config changes stay control-only, because
-/// those take a running Sandbox away from the people sharing it.
-fn ensure_can_start(
-    scope: &Option<ScopeContext>,
-    intent: &TaskIntent,
-    task_id: &str,
-) -> Result<(), SandboxError> {
-    let ctx = scope
-        .as_ref()
-        .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
-    if intent.visibility == Visibility::Public || ctx.can_control(&intent.scoped_resource()) {
-        return Ok(());
-    }
-    Err(SandboxError::Forbidden(format!(
-        "no control access to task {task_id}"
-    )))
-}
-
-/// Control access to a Sandbox. Visibility never grants it.
+/// A public Task is collaborative, and a Sandbox only its owner can operate is
+/// what makes that collaboration unusable — a reader can see the Task, but
+/// every file read fails against a Sandbox that is not running and nobody but
+/// the owner can wake it. Control includes an interactive shell, so it also
+/// covers everything a shell reaches: writing a file, restarting a server,
+/// pushing a commit. Refusing those while granting `terminal.open` is a rule
+/// one command undoes.
 fn ensure_can_control(
     scope: &Option<ScopeContext>,
     intent: &TaskIntent,
@@ -857,11 +842,28 @@ fn ensure_can_control(
     let ctx = scope
         .as_ref()
         .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
-    if ctx.can_control(&intent.scoped_resource()) {
+    if ctx.can_control(&intent.scoped_resource(), intent.visibility) {
         return Ok(());
     }
     Err(SandboxError::Forbidden(format!(
         "no control access to task {task_id}"
+    )))
+}
+
+/// Write access to a Sandbox. Visibility never grants it.
+fn ensure_can_write(
+    scope: &Option<ScopeContext>,
+    intent: &TaskIntent,
+    task_id: &str,
+) -> Result<(), SandboxError> {
+    let ctx = scope
+        .as_ref()
+        .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
+    if ctx.can_write(&intent.scoped_resource()) {
+        return Ok(());
+    }
+    Err(SandboxError::Forbidden(format!(
+        "no write access to task {task_id}"
     )))
 }
 
@@ -941,61 +943,65 @@ mod authz_tests {
     #[test]
     fn read_of_a_public_task_is_allowed() {
         // A public Task is collaborative, and its Sandbox view is part of what
-        // it shares — read and start, never the rest of control.
+        // it shares — read and control, never write.
         let public = intent(Scope::User, Some("owner"), Visibility::Public);
         assert!(ensure_can_read(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
         assert!(matches!(
-            ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1"),
+            ensure_can_write(&Some(ctx("stranger", false)), &public, "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }
 
     #[test]
-    fn start_of_a_public_task_is_allowed_for_any_signed_in_caller() {
-        // Reading a public Task's files needs a running Sandbox, so a viewer
-        // who may read it may also wake it.
+    fn control_of_a_public_task_is_allowed_for_any_signed_in_caller() {
+        // Operating a public Task's Sandbox is what makes it collaborative:
+        // reading its files needs a running Sandbox, and a shell is how a
+        // reader takes part at all.
         let public = intent(Scope::User, Some("owner"), Visibility::Public);
-        assert!(ensure_can_start(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
+        assert!(ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
     }
 
     #[test]
-    fn start_of_a_private_task_by_a_stranger_is_forbidden() {
-        // Start widens by visibility only. A private Task is unchanged.
+    fn control_of_a_private_task_by_a_stranger_is_forbidden() {
+        // Control widens by visibility only. A private Task is unchanged.
         assert!(matches!(
-            ensure_can_start(&Some(ctx("stranger", false)), &private(Some("owner")), "task-1"),
+            ensure_can_control(&Some(ctx("stranger", false)), &private(Some("owner")), "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }
 
     #[test]
-    fn start_by_the_owner_and_admin_is_allowed() {
+    fn control_by_the_owner_and_admin_is_allowed() {
         assert!(
-            ensure_can_start(&Some(ctx("owner", false)), &private(Some("owner")), "task-1").is_ok()
+            ensure_can_control(&Some(ctx("owner", false)), &private(Some("owner")), "task-1")
+                .is_ok()
         );
         assert!(
-            ensure_can_start(&Some(ctx("root", true)), &private(Some("other-user")), "task-1").is_ok()
+            ensure_can_control(&Some(ctx("root", true)), &private(Some("other-user")), "task-1")
+                .is_ok()
         );
     }
 
     #[test]
-    fn start_without_identity_is_forbidden() {
+    fn control_without_identity_is_forbidden() {
         // "Every signed-in user" is the grant — an unauthenticated caller is
         // still refused, even on a public Task.
         let public = intent(Scope::User, Some("owner"), Visibility::Public);
         assert!(matches!(
-            ensure_can_start(&None, &public, "task-1"),
+            ensure_can_control(&None, &public, "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }
 
     #[test]
-    fn start_never_widens_the_other_lifecycle_actions() {
-        // Stop/restart/redeploy/remove keep taking a shared Sandbox away, so
-        // they stay control-only even on a public Task.
+    fn control_never_widens_the_two_write_actions() {
+        // Removing the Sandbox deletes its archives, and a server override
+        // survives the pod it was set on. Both outlive the operation a
+        // controller is making, so both stay with the owner.
         let public = intent(Scope::User, Some("owner"), Visibility::Public);
-        assert!(ensure_can_start(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
+        assert!(ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
         assert!(matches!(
-            ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1"),
+            ensure_can_write(&Some(ctx("stranger", false)), &public, "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }
@@ -1029,41 +1035,41 @@ mod authz_tests {
     }
 
     #[test]
-    fn control_by_the_owner_is_allowed() {
+    fn write_by_the_owner_is_allowed() {
         assert!(
-            ensure_can_control(&Some(ctx("owner", false)), &private(Some("owner")), "task-1").is_ok()
+            ensure_can_write(&Some(ctx("owner", false)), &private(Some("owner")), "task-1").is_ok()
         );
     }
 
     #[test]
-    fn control_by_a_read_only_viewer_is_forbidden() {
-        // Read access never implies control: a global sandbox is admin-controlled.
+    fn write_by_a_read_only_viewer_is_forbidden() {
+        // Read access never implies write: a global sandbox is admin-owned.
         let global = intent(Scope::Global, None, Visibility::Private);
         assert!(ensure_can_read(&Some(ctx("viewer", false)), &global, "task-1").is_ok());
         assert!(matches!(
-            ensure_can_control(&Some(ctx("viewer", false)), &global, "task-1"),
+            ensure_can_write(&Some(ctx("viewer", false)), &global, "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }
 
     #[test]
-    fn control_by_a_stranger_is_forbidden() {
-        let err = ensure_can_control(&Some(ctx("stranger", false)), &private(Some("owner")), "task-1")
+    fn write_by_a_stranger_is_forbidden() {
+        let err = ensure_can_write(&Some(ctx("stranger", false)), &private(Some("owner")), "task-1")
             .unwrap_err();
         assert!(matches!(err, SandboxError::Forbidden(_)));
     }
 
     #[test]
-    fn control_by_an_admin_bypasses_scope() {
+    fn write_by_an_admin_bypasses_scope() {
         assert!(
-            ensure_can_control(&Some(ctx("root", true)), &private(Some("other-user")), "task-1").is_ok()
+            ensure_can_write(&Some(ctx("root", true)), &private(Some("other-user")), "task-1").is_ok()
         );
     }
 
     #[test]
-    fn control_without_identity_is_forbidden() {
+    fn write_without_identity_is_forbidden() {
         assert!(matches!(
-            ensure_can_control(&None, &private(Some("someone")), "task-1"),
+            ensure_can_write(&None, &private(Some("someone")), "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }

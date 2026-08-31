@@ -114,13 +114,16 @@ nothing here carries an SDK type.
   act, what the pod looks like — comes off that row. A Sandbox with intent at
   the epoch was never requested, is converged Stopped, and is wakeable.
 - HTTP authorization reads the Sandbox, not the Task: `authorize_task_read` /
-  `authorize_task_start` / `authorize_task_control` in `handlers.rs` work from
-  one `TaskIntent`. The one Task-level grant they honour is
-  `visibility = 'public'`, which grants read and start, and never the rest of
-  control. Start is separate because reading a public Task's files needs a
-  running Sandbox: any signed-in caller may wake one, but only the owner or an
-  admin may stop, restart, redeploy, remove, or reconfigure its servers —
-  those take a running Sandbox away from the people sharing it.
+  `authorize_task_control` / `authorize_task_write` in `handlers.rs` work from
+  one `TaskIntent`. There are three grants, and the split is by permanence:
+  read, **control** (operate a running Sandbox — start, stop, restart, redeploy,
+  restart a server, and write a file into the workspace), and **write** (a
+  persistent change the owner would have to undo — cleanup/remove and every
+  server-config change). `visibility = 'public'` grants read and control to any
+  signed-in caller, so a public Task's Sandbox is one anyone may operate but
+  only the owner or an admin may reconfigure or tear down. A controller can open
+  a shell, so anything a shell reaches (the owner's git token included) is
+  control by construction; write is only the boundary the shell cannot cross.
 - `delete_task` requires successful `lifecycle.remove` before deleting the task
   row (enforced in `moatless-tasks`).
 - Completion facts commit before publication. The backend's
@@ -141,9 +144,11 @@ nothing here carries an SDK type.
 - Provision-plan construction and expected-image selection stay behind lifecycle
   and the concrete runtime adapters.
 - Provision-plan construction must reject tasks whose sandbox identity cannot
-  control the task before any runtime resource is created. The check belongs in
+  write the task before any runtime resource is created. This checks the pod's
+  own identity (the task's `created_by`), not the caller who started it, so it
+  is `write` and not `control`: the pod acts as the owner. The check belongs in
   this provider-agnostic band and must continue to match the gRPC
-  `ScopeContext::can_control` gate.
+  `ScopeContext::can_write` gate (`grpc_server::resolve_write`).
 
 ## The provider contract
 

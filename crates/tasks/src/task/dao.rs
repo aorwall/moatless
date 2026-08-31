@@ -146,7 +146,7 @@ pub trait TaskDao: Send + Sync {
     ) -> Result<String, sqlx::Error>;
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error>;
     /// Update task fields for the caller's scope. Per-field statements embed the
-    /// control_filter so the caller only modifies rows they own. Returns `true`
+    /// write_filter so the caller only modifies rows they own. Returns `true`
     /// when at least one field was updated; returns `Ok(true)` when `patch` is
     /// empty (no writes occurred but the caller already read-checked the task,
     /// so the phantom "succeeded" is acceptable — callers that reach here with
@@ -535,7 +535,7 @@ impl TaskDao for PgTaskDao {
         // `status`, the empty conversation and the control rule are all in this
         // one `WHERE`, so a Task that became usable between the caller's read
         // and this call is not deleted by a decision that has gone stale.
-        let ctrl = ctx.control_filter("", 2);
+        let ctrl = ctx.write_filter("", 2);
         let sql = format!(
             "DELETE FROM tasks \
              WHERE task_id = $1 AND status = $4 AND {} \
@@ -831,7 +831,7 @@ impl TaskDao for PgTaskDao {
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
         // Use individual UPDATE statements per field for type safety.
-        // Each statement embeds the control_filter so only the owner (or admin)
+        // Each statement embeds the write_filter so only the owner (or admin)
         // can modify the row. The first executed statement's rows_affected drives
         // the return value; subsequent statements return their own rows_affected
         // but we track the first non-empty patch field's result.
@@ -841,7 +841,7 @@ impl TaskDao for PgTaskDao {
         // statement here shares one `WHERE`, so they all match the same row and
         // `first_affected` speaks for all of them.
         let mut tx = self.pool.begin().await?;
-        let ctrl = ctx.control_filter("", 3);
+        let ctrl = ctx.write_filter("", 3);
         let ctrl_sql = ctrl.sql();
         let mut first_affected: Option<u64> = None;
 
@@ -946,7 +946,7 @@ impl TaskDao for PgTaskDao {
         new_status: TaskStatus,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        let ctrl = ctx.control_filter("", 3);
+        let ctrl = ctx.write_filter("", 3);
         // `closed_at` is a fact of `status` — the same rule `update_task`
         // applies. Without it this path leaves the two disagreeing: a task
         // closed here would be archived with no time to show for it, and a
@@ -977,7 +977,7 @@ impl TaskDao for PgTaskDao {
     }
 
     async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        let ctrl = ctx.control_filter("", 2);
+        let ctrl = ctx.write_filter("", 2);
         let sql = format!(
             "DELETE FROM tasks WHERE task_id = $1 AND {} RETURNING task_id, sandbox_id",
             ctrl.sql()

@@ -194,7 +194,7 @@ impl PgAdapterConnectionDao {
     }
 
     /// Upsert an adapter connection. On conflict (adapter_kind, external_account_id),
-    /// the DO UPDATE arm includes a `control_filter` guard so cross-user updates
+    /// the DO UPDATE arm includes a `write_filter` guard so cross-user updates
     /// affect 0 rows — the caller maps rows_affected == 0 to NotFound.
     pub async fn upsert(
         &self,
@@ -203,7 +203,7 @@ impl PgAdapterConnectionDao {
     ) -> Result<AdapterConnection, sqlx::Error> {
         // In the DO UPDATE arm both the target row and EXCLUDED are in scope,
         // so the filter's columns must be table-qualified.
-        let ctrl = ctx.control_filter("adapter_connections.", 13);
+        let ctrl = ctx.write_filter("adapter_connections.", 13);
         let sql = format!(
             r#"INSERT INTO adapter_connections
                (id, adapter_kind, connection_kind, external_account_id, credential_ref, webhook_secret,
@@ -256,7 +256,7 @@ impl PgAdapterConnectionDao {
     }
 
     pub async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error> {
-        let ctrl = ctx.control_filter("", 2);
+        let ctrl = ctx.write_filter("", 2);
         let sql = format!(
             "DELETE FROM adapter_connections WHERE id = $1 AND {}",
             ctrl.sql()

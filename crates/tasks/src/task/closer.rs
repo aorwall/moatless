@@ -247,7 +247,7 @@ impl TaskCloser {
             .find_by_id(task_id, scope_ctx)
             .await?
             .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-        if !scope_ctx.can_control(&task_resource(&row)) {
+        if !scope_ctx.can_write(&task_resource(&row)) {
             return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
         }
 

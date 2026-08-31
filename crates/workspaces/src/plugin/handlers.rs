@@ -517,7 +517,7 @@ async fn write_subject(
 /// The two answers are deliberately different: one the caller cannot see is
 /// absent, and one they can see but not control is refused. Control is the same
 /// admin-or-owner rule `WorkspaceDao`'s own mutations embed as
-/// [`ScopeContext::control_filter`]; it is applied here rather than in the
+/// [`ScopeContext::write_filter`]; it is applied here rather than in the
 /// statement because the row being written belongs to another table.
 async fn ensure_workspace_control(
     workspaces: &dyn WorkspaceDao,
@@ -536,7 +536,7 @@ async fn ensure_workspace_control(
             .as_deref()
             .or(workspace.created_by.as_deref()),
     );
-    if !ctx.can_control(&resource) {
+    if !ctx.can_write(&resource) {
         return Err(PluginError::Forbidden(format!(
             "No control access to workspace '{workspace_id}'"
         )));

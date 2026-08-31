@@ -193,9 +193,12 @@ pub async fn search_entries(
 /// path goes through as the client sent it and the Sandbox resolves it against
 /// its workspace root, rather than this module keeping a second copy of that
 /// rule to drift. What makes that safe is
-/// [`workspace::addressed_conversation`] above, which is what stops a caller
+/// [`workspace::controlled_conversation`], which is what stops a caller
 /// addressing a *different* conversation's Sandbox at all — a Sandbox holds one
-/// conversation's checkout and nothing else.
+/// conversation's checkout and nothing else. It is `controlled_` and not
+/// `addressed_` because a write puts bytes on someone else's disk: reading a
+/// public conversation's checkout is part of what it shares, and editing it is
+/// not.
 ///
 /// It is also why the resolution [`read_file`] does is not done here. A write
 /// creates what is missing, so "no file at this path" is the normal case and
@@ -211,7 +214,7 @@ pub async fn write_file(
     relative_path: &str,
     contents: &str,
 ) -> Result<Value, WorkspaceAccessError> {
-    let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
+    let task_id = workspace::controlled_conversation(conversations, viewer, cwd).await?;
     sandboxes
         .sandbox_client(&task_id)
         .await

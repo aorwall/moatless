@@ -8,9 +8,9 @@
 //!
 //! Two checks run, in order:
 //!
-//! 1. **Task control** — the pod authenticates back to the backend as the
-//!    task's `created_by`, and the gRPC control gate then requires
-//!    `ScopeContext::can_control` on the task row. This evaluates the same
+//! 1. **Task write** — the pod authenticates back to the backend as the
+//!    task's `created_by`, and the gRPC write gate then requires
+//!    `ScopeContext::can_write` on the task row. This evaluates the same
 //!    predicate up front so the two cannot drift.
 //! 2. **GitHub credentials** — the token the pod will be handed exists and can
 //!    see the repository.
@@ -187,7 +187,7 @@ impl PreflightPort for RealPreflight {
 ///
 /// The pod authenticates back as the task's owner, and every sandbox gRPC call
 /// — `GetCredentials` first among them — is gated on
-/// [`ScopeContext::can_control`]. A task that fails this check yields a pod
+/// [`ScopeContext::can_write`]. A task that fails this check yields a pod
 /// that is refused its credentials, never completes init, fails its startup
 /// probe, and crash-loops. Evaluating the identical predicate here turns that
 /// into one error before any infrastructure exists.
@@ -224,7 +224,7 @@ async fn validate_control(
         user_id: user_id.to_string(),
         is_admin: is_platform_admin(users, user_id).await,
     };
-    if ctx.can_control(resource) {
+    if ctx.can_write(resource) {
         return Ok(());
     }
     Err(PreflightError::NoTaskControl {
@@ -510,7 +510,7 @@ mod tests {
         );
     }
 
-    /// Platform admin short-circuits `can_control`, so the gate would admit the
+    /// Platform admin short-circuits `can_write`, so the gate would admit the
     /// pod. Preflight must agree, or it rejects tasks that in fact work.
     #[tokio::test]
     async fn an_admin_creator_controls_even_a_global_task() {

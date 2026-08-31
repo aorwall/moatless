@@ -29,9 +29,10 @@ pub struct AskedAgent {
 }
 
 /// Why a stacked action could not be handed to the agent. A malformed request is
-/// the viewer's fault (`Rejected`); an unreachable or unwritable Task is a
-/// refusal the read path also gives (`Access`); a message that could not be
-/// recorded is the write failing after it was accepted (`Send`).
+/// the viewer's fault (`Rejected`); a Task that is unreachable or not the
+/// viewer's to operate is a refusal the read path also gives (`Access`); a
+/// message that could not be recorded is the write failing after it was
+/// accepted (`Send`).
 #[derive(Debug)]
 pub enum ActionError {
     Access(WorkspaceAccessError),
@@ -96,19 +97,12 @@ pub async fn run_stacked_action(
         })
         .unwrap_or_default();
 
-    let task_id = workspace::addressed_conversation(conversations, viewer, &cwd)
+    // The action commits, pushes and opens PRs, so reading is not enough: the
+    // viewer must control the Task. Control and not write, because a controller
+    // reaches the same three things from a shell with `git` and `gh`.
+    let task_id = workspace::controlled_conversation(conversations, viewer, &cwd)
         .await
         .map_err(ActionError::Access)?;
-    // The action commits, pushes and opens PRs, so following and reading is not
-    // enough: the viewer must control the Task. A reader who does not is
-    // answered as if the workspace were not there.
-    if !conversations
-        .controls_conversation(viewer, &task_id)
-        .await
-        .map_err(|e| ActionError::Access(WorkspaceAccessError::Database(e)))?
-    {
-        return Err(ActionError::Access(WorkspaceAccessError::Unaddressable));
-    }
 
     let text = compose_message(
         &action,
@@ -350,11 +344,9 @@ async fn repository_for_cwd(
         id.to_string()
     } else if let Some(task_id) = projection::task_id_from_cwd(cwd) {
         conversations
-            .list_followed_by_ids(viewer, &[task_id.to_string()])
+            .readable_by_id(viewer, task_id)
             .await
             .map_err(|error| PullRequestError::Failed(error.to_string()))?
-            .into_iter()
-            .next()
             .and_then(|conversation| conversation.workspace_id)
             .ok_or(PullRequestError::NotFound)?
     } else {
@@ -677,16 +669,14 @@ mod tests {
         })
     }
 
-    /// A follower who may read a Task cannot commit, push or open a PR against
-    /// it: the action gates on control, and a reader is answered as if the
-    /// workspace were not there rather than told it exists. The sink is never
-    /// reached.
+    /// Someone who may read a Task cannot commit, push or open a PR against it:
+    /// the action gates on control. The sink is never reached.
     #[tokio::test]
     async fn a_reader_who_does_not_control_the_task_cannot_run_an_action() {
         let mut conversations = crate::dao::MockConversationDao::new();
         conversations
-            .expect_list_followed_by_ids()
-            .returning(|_, ids| Ok(vec![running(&ids[0])]));
+            .expect_readable_by_id()
+            .returning(|_, id| Ok(Some(running(id))));
         conversations
             .expect_controls_conversation()
             .returning(|_, _| Ok(false));
@@ -704,7 +694,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            ActionError::Access(WorkspaceAccessError::Unaddressable)
+            ActionError::Access(WorkspaceAccessError::NoControl)
         ));
         assert!(sink.turns.lock().unwrap().is_empty());
     }
@@ -715,8 +705,8 @@ mod tests {
     async fn a_controller_sends_the_agent_a_turn_and_is_answered() {
         let mut conversations = crate::dao::MockConversationDao::new();
         conversations
-            .expect_list_followed_by_ids()
-            .returning(|_, ids| Ok(vec![running(&ids[0])]));
+            .expect_readable_by_id()
+            .returning(|_, id| Ok(Some(running(id))));
         conversations
             .expect_controls_conversation()
             .returning(|_, _| Ok(true));
@@ -758,8 +748,8 @@ mod tests {
     async fn a_failed_send_is_reported_as_a_send_error() {
         let mut conversations = crate::dao::MockConversationDao::new();
         conversations
-            .expect_list_followed_by_ids()
-            .returning(|_, ids| Ok(vec![running(&ids[0])]));
+            .expect_readable_by_id()
+            .returning(|_, id| Ok(Some(running(id))));
         conversations
             .expect_controls_conversation()
             .returning(|_, _| Ok(true));

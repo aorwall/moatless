@@ -458,10 +458,13 @@ nested into the parent Message nor streamed on the wire.
 **Scope**:
 The access boundary applied to Repositories, Workspaces, Tasks, Adapters, Secrets,
 and Credentials: `Global` or `User` (two values only). `Global` is readable by every
-authenticated user and controlled by admins; `User` is readable and controlled by its
-owner (admins bypass both). Ownership is `COALESCE(owner_user_id, created_by)`. A Task
-additionally readable when its `visibility = 'public'` — read/interact only, never
-control. Secrets use this same Scope.
+authenticated user and written by admins; `User` is readable and written by its
+owner (admins bypass both). Ownership is `COALESCE(owner_user_id, created_by)`. There
+are three grants: **read**, **control** (operate: start, stop, restart, redeploy, run
+a shell or a turn in the Sandbox), and **write** (persistent change: cleanup, server
+config, task edits). A Task with `visibility = 'public'` grants read and control to
+every signed-in user; write stays with the owner and admins. Secrets use this same
+Scope.
 _Note_: `Team` is **not** a scope — teams are an org/entity concept and grant no
 resource access (removed in the access-scope redesign).
 _Avoid_: conflating with `OAuth scope` (a permission grant) — always qualify that.

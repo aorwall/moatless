@@ -5,11 +5,19 @@
 //! `(user_id, is_admin)` × `(scope, owner, visibility)` — no database input:
 //!
 //! - **read**: `is_admin ∨ scope = global ∨ owner = me ∨ (Task ∧ visibility = public)`
-//! - **control**: `is_admin ∨ (scope = user ∧ owner = me)`
+//! - **control**: `is_admin ∨ (scope = user ∧ owner = me) ∨ (Task ∧ visibility = public)`
+//! - **write**: `is_admin ∨ (scope = user ∧ owner = me)`
 //!
-//! Owner is `COALESCE(owner_user_id, created_by)`. These are the only two
-//! grants; for tasks, read includes interact (send message, follow,
-//! mark read) by product rule — a public task is collaborative.
+//! Owner is `COALESCE(owner_user_id, created_by)`. For tasks, read includes
+//! interact (send message, follow, mark read) by product rule — a public task
+//! is collaborative.
+//!
+//! Control is what operates a Task's Sandbox: start, stop, restart, redeploy,
+//! open a shell, run the agent. Write is what changes something the owner
+//! would otherwise have to find and undo: remove the Sandbox, reconfigure its
+//! servers, close or rename or delete the Task. Control includes a shell, so
+//! anything a shell can reach is control by construction — refusing a file
+//! write while granting `terminal.open` is a rule one command undoes.
 //!
 //! [`Actor`] names the identity a call acts as. Every constructor on it is one
 //! way an identity can be chosen, so a reader can enumerate the rules without
@@ -30,12 +38,14 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::task::Visibility;
+
 /// Access scope for repositories, tasks, integrations, and credentials.
 ///
 /// Reads: `global` is readable by every authenticated user; `user` only by
-/// its owner (and admins). Control: `global` is admin-managed; `user` is
+/// its owner (and admins). Writes: `global` is admin-managed; `user` is
 /// owner-managed. Task `visibility = 'public'` additionally grants
-/// read/interact on tasks — never control.
+/// read/interact and control on tasks — never write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -146,7 +156,7 @@ impl ScopedResource {
 /// Access-control WHERE clause fragment with parameter tracking.
 ///
 /// Created via [`ScopeContext::access_filter()`] or
-/// [`ScopeContext::control_filter()`]. Contains the SQL fragment and tracks
+/// [`ScopeContext::write_filter()`]. Contains the SQL fragment and tracks
 /// the next available positional parameter index.
 pub struct AccessFilter {
     sql: String,
@@ -237,11 +247,11 @@ impl ScopeContext {
         }
     }
 
-    /// Build a control (mutation) SQL filter.
+    /// Build a write (mutation) SQL filter.
     ///
-    /// Control is stricter than read: global rows are admin-controlled and
-    /// task visibility never grants control, so the fragment is identical for
-    /// every entity.
+    /// Write is the strictest grant: global rows are admin-managed and task
+    /// visibility never grants it, so the fragment is identical for every
+    /// entity and this takes no [`ScopedEntity`].
     ///
     /// Uses 2 positional parameters starting at `start`:
     ///   - `$start`: `is_admin` (bool)
@@ -253,10 +263,41 @@ impl ScopeContext {
     /// Embedding this in a mutation's `WHERE` makes the check and the write a
     /// single atomic statement; `rows_affected == 0` maps to the module's
     /// NotFound error, matching the existence-hiding reads.
-    pub fn control_filter(&self, prefix: &str, start: usize) -> AccessFilter {
+    pub fn write_filter(&self, prefix: &str, start: usize) -> AccessFilter {
         let (p1, p2) = (start, start + 1);
         let sql = format!(
             "(${p1} OR ({prefix}scope = 'user' \
+             AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
+        );
+        AccessFilter {
+            sql,
+            next_param: start + 2,
+        }
+    }
+
+    /// Build a control (operate) SQL filter.
+    ///
+    /// Control is write plus the public-task arm. The entity decides whether
+    /// that arm appears, exactly as it does for [`Self::access_filter`], so a
+    /// caller cannot ask for it on a table with no `visibility` column. For
+    /// every entity but [`ScopedEntity::Task`] this is [`Self::write_filter`],
+    /// because only a Task has anything to operate.
+    ///
+    /// Uses 2 positional parameters starting at `start`:
+    ///   - `$start`: `is_admin` (bool)
+    ///   - `$start+1`: `user_id` (text)
+    ///
+    /// Caller must `.bind()` these from `self.is_admin`, `self.user_id`.
+    /// `prefix` is the table alias (e.g. `""` or `"t."`).
+    pub fn control_filter(&self, entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
+        let (p1, p2) = (start, start + 1);
+        let vis = if entity.has_visibility() {
+            format!(" OR {prefix}visibility = 'public'")
+        } else {
+            String::new()
+        };
+        let sql = format!(
+            "(${p1}{vis} OR ({prefix}scope = 'user' \
              AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
         );
         AccessFilter {
@@ -282,11 +323,11 @@ impl ScopeContext {
         }
     }
 
-    /// Check if this context can control (mutate, operate) a resource.
+    /// Check if this context can write (change) a resource.
     ///
-    /// Global rows are admin-controlled; user rows are owner-controlled.
-    /// Visibility never grants control.
-    pub fn can_control(&self, resource: &ScopedResource) -> bool {
+    /// Global rows are admin-managed; user rows are owner-managed. Visibility
+    /// never grants write.
+    pub fn can_write(&self, resource: &ScopedResource) -> bool {
         if self.is_admin {
             return true;
         }
@@ -295,6 +336,20 @@ impl ScopeContext {
                 .owner_user_id
                 .as_deref()
                 .is_some_and(|oid| oid == self.user_id)
+    }
+
+    /// Check if this context can control (operate) a Task's Sandbox.
+    ///
+    /// Write, plus the public-task arm: a public Task is collaborative, and a
+    /// Sandbox nobody but the owner can wake, restart or work in is what makes
+    /// that collaboration unusable. Visibility is an input here, unlike
+    /// [`Self::can_read`], because it is the whole of what this grant adds.
+    ///
+    /// Only a Task has a Sandbox to operate, so this takes a [`Visibility`]
+    /// rather than a [`ScopedEntity`]: a caller holding anything else has no
+    /// grant between read and write and calls [`Self::can_write`].
+    pub fn can_control(&self, resource: &ScopedResource, visibility: Visibility) -> bool {
+        visibility == Visibility::Public || self.can_write(resource)
     }
 
     /// Check if this context can create a resource with the requested scope.
@@ -463,10 +518,10 @@ mod tests {
         let ctx = ScopeContext::system();
         assert!(ctx.is_admin);
         assert_eq!(ctx.user_id, ScopeContext::SYSTEM_USER_ID);
-        // is_admin short-circuits every read/control policy, so the system
+        // is_admin short-circuits every read/write policy, so the system
         // principal can reach any scoped row regardless of owner.
         assert!(ctx.can_read(&ScopedResource::borrowed(Scope::User, Some("someone"))));
-        assert!(ctx.can_control(&ScopedResource::borrowed(Scope::Global, None)));
+        assert!(ctx.can_write(&ScopedResource::borrowed(Scope::Global, None)));
     }
 
     #[test]
@@ -539,7 +594,7 @@ mod tests {
         let ownerless = ScopedResource::borrowed(Scope::User, None);
 
         assert!(!ctx.can_read(&ownerless));
-        assert!(!ctx.can_control(&ownerless));
+        assert!(!ctx.can_write(&ownerless));
     }
 
     // -- filter tests --
@@ -595,8 +650,8 @@ mod tests {
     }
 
     #[test]
-    fn control_filter_admin_or_owner_only() {
-        let f = test_ctx().control_filter("", 1);
+    fn write_filter_admin_or_owner_only() {
+        let f = test_ctx().write_filter("", 1);
         assert_eq!(
             f.sql(),
             "($1 OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
@@ -605,13 +660,57 @@ mod tests {
     }
 
     #[test]
-    fn control_filter_with_table_prefix() {
-        let f = test_ctx().control_filter("t.", 3);
+    fn write_filter_with_table_prefix() {
+        let f = test_ctx().write_filter("t.", 3);
         assert_eq!(
             f.sql(),
             "($3 OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $4))"
         );
         assert_eq!(f.next_param(), 5);
+    }
+
+    #[test]
+    fn control_filter_task_adds_the_public_arm_to_the_write_fragment() {
+        let f = test_ctx().control_filter(ScopedEntity::Task, "", 1);
+        assert_eq!(
+            f.sql(),
+            "($1 OR visibility = 'public' \
+             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
+        );
+        assert_eq!(f.next_param(), 3);
+    }
+
+    #[test]
+    fn control_filter_without_visibility_is_the_write_fragment() {
+        // Only a Task has a Sandbox to operate. On every other entity the two
+        // grants coincide, and the fragment must not name a column the table
+        // does not have.
+        let ctx = test_ctx();
+        for entity in [ScopedEntity::Repository, ScopedEntity::Resource] {
+            assert_eq!(
+                ctx.control_filter(entity, "t.", 3).sql(),
+                ctx.write_filter("t.", 3).sql()
+            );
+        }
+    }
+
+    #[test]
+    fn control_follows_visibility_where_write_does_not() {
+        let stranger = ScopeContext {
+            user_id: "stranger".into(),
+            is_admin: false,
+        };
+        let owned = ScopedResource::borrowed(Scope::User, Some("owner"));
+
+        assert!(stranger.can_control(&owned, Visibility::Public));
+        assert!(!stranger.can_control(&owned, Visibility::Private));
+        assert!(!stranger.can_write(&owned));
+
+        // An unowned row names nobody to match, so control still follows
+        // visibility and write has no path at all.
+        let unowned = ScopedResource::borrowed(Scope::User, None);
+        assert!(stranger.can_control(&unowned, Visibility::Public));
+        assert!(!stranger.can_write(&unowned));
     }
 
     // -- policy matrix --
@@ -656,20 +755,26 @@ mod tests {
         let verdict = |allowed: bool| if allowed { "allow" } else { "deny" };
         let mut lines = Vec::new();
         for (scope_name, task) in &tasks {
-            for public in [false, true] {
+            for visibility in [Visibility::Private, Visibility::Public] {
+                let public = visibility == Visibility::Public;
                 for (actor_name, ctx) in &actors {
                     // read: pure policy plus the SQL filter's public-task arm.
                     let read = ctx.can_read(task) || public;
                     // interact (send message / follow / mark read) is read:
                     // a public task is collaborative by product rule.
                     let interact = read;
-                    // control never follows from visibility.
-                    let control = ctx.can_control(task);
+                    // control: operating the Sandbox. Visibility grants it.
+                    let control = ctx.can_control(task, visibility);
+                    // write: changing the Task or its durable config. It never
+                    // follows from visibility.
+                    let write = ctx.can_write(task);
                     lines.push(format!(
-                        "{scope_name:<6} {vis:<7} {actor_name:<5} read={} interact={} control={}",
+                        "{scope_name:<6} {vis:<7} {actor_name:<5} \
+                         read={} interact={} control={} write={}",
                         verdict(read),
                         verdict(interact),
                         verdict(control),
+                        verdict(write),
                         vis = if public { "public" } else { "private" },
                     ));
                 }
@@ -677,18 +782,18 @@ mod tests {
         }
 
         let expected = "\
-global private owner read=allow interact=allow control=deny
-global private other read=allow interact=allow control=deny
-global private admin read=allow interact=allow control=allow
-global public  owner read=allow interact=allow control=deny
-global public  other read=allow interact=allow control=deny
-global public  admin read=allow interact=allow control=allow
-user   private owner read=allow interact=allow control=allow
-user   private other read=deny interact=deny control=deny
-user   private admin read=allow interact=allow control=allow
-user   public  owner read=allow interact=allow control=allow
-user   public  other read=allow interact=allow control=deny
-user   public  admin read=allow interact=allow control=allow";
+global private owner read=allow interact=allow control=deny write=deny
+global private other read=allow interact=allow control=deny write=deny
+global private admin read=allow interact=allow control=allow write=allow
+global public  owner read=allow interact=allow control=allow write=deny
+global public  other read=allow interact=allow control=allow write=deny
+global public  admin read=allow interact=allow control=allow write=allow
+user   private owner read=allow interact=allow control=allow write=allow
+user   private other read=deny interact=deny control=deny write=deny
+user   private admin read=allow interact=allow control=allow write=allow
+user   public  owner read=allow interact=allow control=allow write=allow
+user   public  other read=allow interact=allow control=allow write=deny
+user   public  admin read=allow interact=allow control=allow write=allow";
         assert_eq!(lines.join("\n"), expected);
     }
 

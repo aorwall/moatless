@@ -79,6 +79,11 @@ pub enum WorkspaceAccessError {
     /// viewer cannot be shown. Deliberately one variant: telling the two apart
     /// on the wire would answer whether a Task id exists.
     Unaddressable,
+    /// The viewer may be shown the conversation but may not operate it. Its own
+    /// variant rather than [`Self::Unaddressable`], because here the person is
+    /// looking at the thing they are being refused: hiding its existence from
+    /// someone who is reading it says nothing and reads as a defect.
+    NoControl,
     /// The conversation's Sandbox was not ready to be called at all — stopped,
     /// still starting, or gone. This is the readiness gate refusing, before any
     /// request is made.
@@ -111,6 +116,11 @@ impl WorkspaceAccessError {
                 "This conversation has no sandbox, so it has no workspace yet.".into()
             }
             Self::Unaddressable => "This conversation's workspace is not available.".into(),
+            Self::NoControl => {
+                "You can read this conversation, but only its owner can run things in its \
+                 sandbox."
+                    .into()
+            }
             Self::NotRunning(_) => "The sandbox for this conversation is not running.".into(),
             Self::Sandbox(SandboxError::NotReady(_)) => {
                 "The sandbox for this conversation did not answer.".into()
@@ -142,28 +152,23 @@ pub fn sandbox_access(error: SandboxError) -> WorkspaceAccessError {
 /// The conversation a `cwd` names, once this viewer is allowed to be told it
 /// exists.
 ///
-/// Both filters the shell listing applies are applied again here, through the
-/// same read: a `cwd` is client-supplied, and the fact that one was issued to
-/// *somebody* says nothing about who is holding it now. Following is re-checked
-/// as well as access, so this stays exactly as wide as the sidebar it is
-/// reached from and no wider.
+/// The access filter is applied again here, through the same read a link
+/// resolves through: a `cwd` is client-supplied, and the fact that one was
+/// issued to *somebody* says nothing about who is holding it now.
+///
+/// Following is **not** re-checked. A Follow is acquired by posting one
+/// message, so it is not a restriction on anyone who can reach the Task at all,
+/// and what the shell paths actually gate on is control — see
+/// [`controlled_conversation`], which is what they call.
 pub async fn addressed_conversation(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
     cwd: &str,
 ) -> Result<String, WorkspaceAccessError> {
-    if projection::is_project_root(cwd) {
-        return Err(WorkspaceAccessError::NoWorktree);
-    }
-    let Some(task_id) = projection::task_id_from_cwd(cwd) else {
-        return Err(WorkspaceAccessError::Unaddressable);
-    };
-    let named = [task_id.to_string()];
+    let task_id = addressable_task_id(cwd)?;
     let conversation = conversations
-        .list_followed_by_ids(viewer, &named)
+        .readable_by_id(viewer, &task_id)
         .await?
-        .into_iter()
-        .next()
         .ok_or(WorkspaceAccessError::Unaddressable)?;
     match conversation.sandbox_desired_state() {
         Some(SandboxDesiredState::Running | SandboxDesiredState::Stopped) => {
@@ -171,6 +176,33 @@ pub async fn addressed_conversation(
         }
         Some(SandboxDesiredState::Removed) | None => Err(WorkspaceAccessError::NoWorktree),
     }
+}
+
+/// The conversation a `cwd` names, for a caller that is about to *operate* it:
+/// open a terminal, run a script, write a file, commit.
+///
+/// [`addressed_conversation`] first, so an unreadable Task is unaddressable
+/// rather than forbidden, and then the control check — which a public Task
+/// grants to any signed-in caller and a private one only to its owner.
+pub async fn controlled_conversation(
+    conversations: &dyn ConversationDao,
+    viewer: &ScopeContext,
+    cwd: &str,
+) -> Result<String, WorkspaceAccessError> {
+    let task_id = addressed_conversation(conversations, viewer, cwd).await?;
+    if !conversations.controls_conversation(viewer, &task_id).await? {
+        return Err(WorkspaceAccessError::NoControl);
+    }
+    Ok(task_id)
+}
+
+fn addressable_task_id(cwd: &str) -> Result<String, WorkspaceAccessError> {
+    if projection::is_project_root(cwd) {
+        return Err(WorkspaceAccessError::NoWorktree);
+    }
+    projection::task_id_from_cwd(cwd)
+        .map(str::to_string)
+        .ok_or(WorkspaceAccessError::Unaddressable)
 }
 
 #[cfg(test)]

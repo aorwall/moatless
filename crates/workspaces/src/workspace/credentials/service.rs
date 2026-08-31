@@ -234,7 +234,7 @@ impl WorkspaceCredentialService {
                 .as_deref()
                 .or(workspace.created_by.as_deref()),
         );
-        if !ctx.can_control(&resource) {
+        if !ctx.can_write(&resource) {
             self.audit(&ctx.user_id, action, workspace_id, provider, "denied")
                 .await;
             return Err(WorkspaceError::Forbidden(format!(

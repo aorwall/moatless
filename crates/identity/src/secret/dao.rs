@@ -187,8 +187,8 @@ impl SecretDao for PgSecretDao {
         // Bind order: $1=id, $2=kind, $3=provider, $4=value_ciphertext,
         //   $5=encryption_nonce, $6=encrypted_data_key, $7=external_ref,
         //   $8=kms_key_id, $9=encryption_version, $10=actor_id, $11=enabled,
-        //   then control_filter: $12=is_admin, $13=user_id
-        let cf = ctx.control_filter("", 12);
+        //   then write_filter: $12=is_admin, $13=user_id
+        let cf = ctx.write_filter("", 12);
         let sql = format!(
             r#"UPDATE secrets
                SET kind = $2,
@@ -226,8 +226,8 @@ impl SecretDao for PgSecretDao {
     }
 
     async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        // $1=id; control_filter uses $2=is_admin, $3=user_id
-        let cf = ctx.control_filter("", 2);
+        // $1=id; write_filter uses $2=is_admin, $3=user_id
+        let cf = ctx.write_filter("", 2);
         let sql = format!("DELETE FROM secrets WHERE id = $1 AND {}", cf.sql());
         let result = sqlx::query(AssertSqlSafe(sql))
             .bind(id)

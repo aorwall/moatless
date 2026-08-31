@@ -659,13 +659,13 @@ pub async fn close_task(
     let req = req.map(|Json(req)| req).unwrap_or_default();
     let scope_ctx = auth.scope_context();
     // Read-check + control-check: find_by_id uses access_filter (visibility);
-    // the inline can_control check enforces owner/admin policy without the
-    // deleted ensure_can_control_task helper.
+    // the inline can_write check enforces owner/admin policy without the
+    // deleted ensure_can_write_task helper.
     let row = tasks
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    if !scope_ctx.can_control(&task_resource(&row)) {
+    if !scope_ctx.can_write(&task_resource(&row)) {
         return Err(TaskError::NotFound(task_id.clone())); // existence hiding
     }
 
@@ -763,7 +763,7 @@ pub async fn reopen_task_for(
         .find_by_id(task_id, scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-    if !scope_ctx.can_control(&task_resource(&row)) {
+    if !scope_ctx.can_write(&task_resource(&row)) {
         return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
     }
 
@@ -815,7 +815,7 @@ pub async fn reopen_task_for(
     responses(
         (status = 204, description = "Task started"),
         (status = 400, description = "Invalid task state", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "Task not found, or the caller has no control access to it", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[expect(
@@ -837,7 +837,7 @@ pub async fn start_task(
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    if !scope_ctx.can_control(&task_resource(&row)) {
+    if !scope_ctx.can_control(&task_resource(&row), row.visibility) {
         return Err(TaskError::NotFound(task_id.clone())); // existence hiding
     }
 
@@ -963,7 +963,7 @@ pub async fn set_task_tags(
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    if !scope_ctx.can_control(&task_resource(&existing)) {
+    if !scope_ctx.can_write(&task_resource(&existing)) {
         return Err(TaskError::NotFound(task_id.clone())); // existence hiding
     }
 

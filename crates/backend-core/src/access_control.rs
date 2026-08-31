@@ -2,7 +2,7 @@
 //!
 //! The policy itself is pure and lives in [`moatless_types::access_control::ScopeContext`].
 //! Enforcement is SQL-embedded: reads filter through `access_filter()`,
-//! mutations through `control_filter()` inside the DAO statement. The helpers
+//! mutations through `write_filter()` inside the DAO statement. The helpers
 //! here cover the two decisions that happen before a row exists: what scope a
 //! new resource may be created with, and whether a repository may be used.
 

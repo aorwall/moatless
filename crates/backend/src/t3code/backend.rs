@@ -1180,7 +1180,7 @@ async fn free_thread_id(
         return Ok(());
     };
 
-    if !viewer.can_control(&ScopedResource::borrowed(
+    if !viewer.can_write(&ScopedResource::borrowed(
         existing.scope,
         existing
             .owner_user_id

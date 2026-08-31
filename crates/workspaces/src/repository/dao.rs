@@ -169,7 +169,7 @@ impl RepositoryDao for PgRepositoryDao {
         sets.push(format!("updated_at = ${idx}"));
         idx += 1;
 
-        let control = ctx.control_filter("", idx);
+        let control = ctx.write_filter("", idx);
         let sql = format!(
             "UPDATE repositories SET {} \
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
@@ -203,7 +203,7 @@ impl RepositoryDao for PgRepositoryDao {
             q = q.bind(provider.map(RepositoryProvider::as_str));
         }
 
-        // Bind updated_at then control_filter params
+        // Bind updated_at then write_filter params
         q = q.bind(now);
         q = q.bind(ctx.is_admin);
         q = q.bind(&ctx.user_id);
@@ -213,7 +213,7 @@ impl RepositoryDao for PgRepositoryDao {
     }
 
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        let control = ctx.control_filter("", 3);
+        let control = ctx.write_filter("", 3);
         let sql = format!(
             "UPDATE repositories SET deleted = true, updated_at = $2 \
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",

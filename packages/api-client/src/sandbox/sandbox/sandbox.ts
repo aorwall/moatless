@@ -946,7 +946,7 @@ export const prefetchLiveStatusHandlerQuery = async <TData = Awaited<ReturnType<
  * Builds the provision request internally from DB state (task, repository,
 credentials). No request body required.
 
-Requires start access: the Sandbox's owner, a platform admin, or any
+Requires control access: the Sandbox's owner, a platform admin, or any
 signed-in caller when the Task is public.
  * @summary Provision a new sandbox for a task.
  */

@@ -786,8 +786,8 @@ pub async fn shell_snapshot(
 /// the reader's sidebar until they write to it, which is what acquires the
 /// Follow (`message::service`).
 ///
-/// Reading is the whole of that widening. Commands still resolve through the
-/// followed listing ([`commands::require_writable`]), so this opens a
+/// Reading is the whole of that widening. Running a turn resolves through the
+/// control gate ([`commands::require_controllable`]), so this opens a
 /// conversation without granting anything else about it.
 ///
 /// # Read order
@@ -3234,7 +3234,9 @@ fn file_failure_exit(
         WorkspaceAccessError::NotRunning(cause) => {
             debug!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request refused");
         }
-        WorkspaceAccessError::NoWorktree | WorkspaceAccessError::Unaddressable => {
+        WorkspaceAccessError::NoWorktree
+        | WorkspaceAccessError::Unaddressable
+        | WorkspaceAccessError::NoControl => {
             debug!(?error, %tag, user_id = %identity.user_id, "T3 UI workspace file request refused");
         }
     }
@@ -3272,7 +3274,9 @@ fn review_failure_exit(
         WorkspaceAccessError::NotRunning(cause) => {
             debug!(%cause, %tag, user_id = %identity.user_id, "T3 UI review request refused");
         }
-        WorkspaceAccessError::NoWorktree | WorkspaceAccessError::Unaddressable => {
+        WorkspaceAccessError::NoWorktree
+        | WorkspaceAccessError::Unaddressable
+        | WorkspaceAccessError::NoControl => {
             debug!(?error, %tag, user_id = %identity.user_id, "T3 UI review request refused");
         }
     }
@@ -3326,7 +3330,9 @@ fn git_action_failure_exit(
                 WorkspaceAccessError::NotRunning(cause) => {
                     debug!(%cause, user_id = %identity.user_id, "T3 git action refused");
                 }
-                WorkspaceAccessError::NoWorktree | WorkspaceAccessError::Unaddressable => {
+                WorkspaceAccessError::NoWorktree
+                | WorkspaceAccessError::Unaddressable
+                | WorkspaceAccessError::NoControl => {
                     debug!(?access, user_id = %identity.user_id, "T3 git action refused");
                 }
             }
@@ -3507,7 +3513,9 @@ fn terminal_failure_exit(
             warn!(%cause, user_id = %identity.user_id, "T3 UI terminal request failed");
         }
         terminal::TerminalError::Workspace(
-            WorkspaceAccessError::NoWorktree | WorkspaceAccessError::Unaddressable,
+            WorkspaceAccessError::NoWorktree
+            | WorkspaceAccessError::Unaddressable
+            | WorkspaceAccessError::NoControl,
         )
         | terminal::TerminalError::Malformed(_) => {
             debug!(?error, user_id = %identity.user_id, "T3 UI terminal request refused");

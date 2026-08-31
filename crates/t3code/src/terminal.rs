@@ -242,7 +242,7 @@ pub async fn open_reporting_new_process(
         rows: optional_u32(payload, "rows")?.unwrap_or(0),
         env: optional_env(payload)?,
     };
-    let task_id = workspace::addressed_conversation(conversations, viewer, &request.cwd).await?;
+    let task_id = workspace::controlled_conversation(conversations, viewer, &request.cwd).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -280,8 +280,8 @@ pub async fn attach(
 ) -> Result<Streaming<TerminalAttachStreamEvent>, TerminalError> {
     let thread_id = required_string(payload, "threadId")?.to_string();
     let task_id = match optional_string(payload, "cwd")? {
-        Some(cwd) => workspace::addressed_conversation(conversations, viewer, &cwd).await?,
-        None => authorized_thread(conversations, viewer, &thread_id).await?,
+        Some(cwd) => workspace::controlled_conversation(conversations, viewer, &cwd).await?,
+        None => controlled_thread(conversations, viewer, &thread_id).await?,
     };
     let client = sandboxes
         .sandbox_client(&task_id)
@@ -313,7 +313,7 @@ pub async fn write(
     payload: &Value,
 ) -> Result<(), TerminalError> {
     let thread_id = required_string(payload, "threadId")?.to_string();
-    let task_id = authorized_thread(conversations, viewer, &thread_id).await?;
+    let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -335,7 +335,7 @@ pub async fn resize(
     payload: &Value,
 ) -> Result<(), TerminalError> {
     let thread_id = required_string(payload, "threadId")?.to_string();
-    let task_id = authorized_thread(conversations, viewer, &thread_id).await?;
+    let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -360,7 +360,7 @@ pub async fn clear(
 ) -> Result<(), TerminalError> {
     let thread_id = required_string(payload, "threadId")?.to_string();
     let terminal_id = required_string(payload, "terminalId")?.to_string();
-    let task_id = authorized_thread(conversations, viewer, &thread_id).await?;
+    let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -392,7 +392,7 @@ pub async fn restart(
         rows: required_u32(payload, "rows")?,
         env: optional_env(payload)?,
     };
-    let task_id = workspace::addressed_conversation(conversations, viewer, &request.cwd).await?;
+    let task_id = workspace::controlled_conversation(conversations, viewer, &request.cwd).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -422,7 +422,7 @@ pub async fn close(
 ) -> Result<(), TerminalError> {
     let thread_id = required_string(payload, "threadId")?.to_string();
     let terminal_id = optional_string(payload, "terminalId")?;
-    let task_id = authorized_thread(conversations, viewer, &thread_id).await?;
+    let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -613,18 +613,25 @@ fn cwd_error(payload: &Value, detail: &str) -> Value {
     })
 }
 
-async fn authorized_thread(
+/// The same gate [`workspace::controlled_conversation`] applies, for the calls
+/// that name a thread directly rather than through a `cwd`: readable first, so
+/// a thread this viewer cannot be shown stays unaddressable, then control,
+/// which is what typing into someone's shell is.
+async fn controlled_thread(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
     thread_id: &str,
 ) -> Result<String, TerminalError> {
-    let named = [thread_id.to_string()];
     let conversation = conversations
-        .list_followed_by_ids(viewer, &named)
+        .readable_by_id(viewer, thread_id)
         .await?
-        .into_iter()
-        .next()
         .ok_or(WorkspaceAccessError::Unaddressable)?;
+    if !conversations
+        .controls_conversation(viewer, &conversation.task_id)
+        .await?
+    {
+        return Err(WorkspaceAccessError::NoControl.into());
+    }
     match conversation.sandbox_desired_state() {
         Some(SandboxDesiredState::Running | SandboxDesiredState::Stopped) => {
             Ok(conversation.task_id)

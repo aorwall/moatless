@@ -471,7 +471,7 @@
           "sandbox"
         ],
         "summary": "Provision a new sandbox for a task.",
-        "description": "Builds the provision request internally from DB state (task, repository,\ncredentials). No request body required.\n\nRequires start access: the Sandbox's owner, a platform admin, or any\nsigned-in caller when the Task is public.",
+        "description": "Builds the provision request internally from DB state (task, repository,\ncredentials). No request body required.\n\nRequires control access: the Sandbox's owner, a platform admin, or any\nsigned-in caller when the Task is public.",
         "operationId": "provision_handler",
         "parameters": [
           {
@@ -506,7 +506,7 @@
             }
           },
           "403": {
-            "description": "No start access to the task",
+            "description": "No control access to the task",
             "content": {
               "application/json": {
                 "schema": {
@@ -6774,7 +6774,7 @@
             }
           },
           "404": {
-            "description": "Task not found",
+            "description": "Task not found, or the caller has no control access to it",
             "content": {
               "application/json": {
                 "schema": {
@@ -14491,7 +14491,7 @@
       },
       "Scope": {
         "type": "string",
-        "description": "Access scope for repositories, tasks, integrations, and credentials.\n\nReads: `global` is readable by every authenticated user; `user` only by\nits owner (and admins). Control: `global` is admin-managed; `user` is\nowner-managed. Task `visibility = 'public'` additionally grants\nread/interact on tasks — never control.",
+        "description": "Access scope for repositories, tasks, integrations, and credentials.\n\nReads: `global` is readable by every authenticated user; `user` only by\nits owner (and admins). Writes: `global` is admin-managed; `user` is\nowner-managed. Task `visibility = 'public'` additionally grants\nread/interact and control on tasks — never write.",
         "enum": [
           "global",
           "user"

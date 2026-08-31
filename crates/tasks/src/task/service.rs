@@ -130,10 +130,13 @@ pub async fn stop_task(
         .find_by_id(task_id, scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-    if !scope_ctx.can_control(&ScopedResource::borrowed(
-        task.scope,
-        task.owner_user_id.as_deref().or(task.created_by.as_deref()),
-    )) {
+    if !scope_ctx.can_control(
+        &ScopedResource::borrowed(
+            task.scope,
+            task.owner_user_id.as_deref().or(task.created_by.as_deref()),
+        ),
+        task.visibility,
+    ) {
         // Existence hiding: a task the caller may not control is reported the
         // same way as one that is not there.
         return Err(TaskError::NotFound(task_id.to_string()));

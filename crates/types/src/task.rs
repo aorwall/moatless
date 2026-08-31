@@ -409,7 +409,7 @@ pub struct Task {
 
 impl Task {
     /// The task as a [`ScopedResource`] for access-control checks
-    /// (`ScopeContext::can_read` / `can_control`). Ownership falls back to
+    /// (`ScopeContext::can_read` / `can_write`). Ownership falls back to
     /// `created_by` for rows predating the `owner_user_id` column, matching the
     /// `COALESCE` in the DAO's scope filter.
     pub fn scoped_resource(&self) -> ScopedResource {

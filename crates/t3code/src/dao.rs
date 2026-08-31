@@ -343,11 +343,26 @@ pub trait ConversationDao: Send + Sync {
         task_id: &str,
     ) -> Result<Option<Conversation>, sqlx::Error>;
 
-    /// Whether this viewer may *mutate* the named Task — the `control_filter`
+    /// Whether this viewer may *mutate* the named Task — the `write_filter`
     /// rule: owner or admin, and never a follower or a public reader. The
     /// listing above is a read and widens to what a person follows; a write
     /// path resolves the Task through it and then gates here, because
-    /// visibility never grants control.
+    /// visibility never grants write.
+    async fn writes_conversation(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error>;
+
+    /// Whether this viewer may *operate* the named Task — the `control_filter`
+    /// rule: the write rule, widened by `visibility = 'public'`.
+    ///
+    /// This is the gate on every T3 path that runs something rather than
+    /// changes something: opening a terminal, running a script, starting or
+    /// stopping the Sandbox, starting a turn. It is asked directly and not
+    /// after a Follow, because a Follow is acquired by posting one message —
+    /// which a public Task accepts from anyone — so it neither adds a
+    /// restriction nor is one a controller should have to acquire.
     async fn controls_conversation(
         &self,
         viewer: &ScopeContext,
@@ -1030,6 +1045,24 @@ impl T3TaskDao for PgConversationDao {
             .fetch_optional(&self.pool)
             .await
     }
+
+    async fn controlled_by_id(
+        &self,
+        task_id: &str,
+        viewer: &ScopeContext,
+    ) -> Result<Option<TaskView>, sqlx::Error> {
+        let control = viewer.control_filter(ScopedEntity::Task, "", 2);
+        let sql = format!(
+            "SELECT status FROM tasks WHERE task_id = $1 AND {}",
+            control.sql()
+        );
+        sqlx::query_as::<_, TaskView>(AssertSqlSafe(sql))
+            .bind(task_id)
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .fetch_optional(&self.pool)
+            .await
+    }
 }
 
 #[async_trait]
@@ -1076,12 +1109,28 @@ impl ConversationDao for PgConversationDao {
             .next())
     }
 
+    async fn writes_conversation(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let write = viewer.write_filter("", 2);
+        let sql = format!("SELECT 1 FROM tasks WHERE task_id = $1 AND {}", write.sql());
+        let found = sqlx::query_scalar::<_, i32>(AssertSqlSafe(sql))
+            .bind(task_id)
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(found.is_some())
+    }
+
     async fn controls_conversation(
         &self,
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        let control = viewer.control_filter("", 2);
+        let control = viewer.control_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
             "SELECT 1 FROM tasks WHERE task_id = $1 AND {}",
             control.sql()

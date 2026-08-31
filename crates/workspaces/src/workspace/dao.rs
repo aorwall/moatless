@@ -407,7 +407,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         sets.push(format!("updated_at = ${idx}"));
         idx += 1;
 
-        let control = ctx.control_filter("", idx);
+        let control = ctx.write_filter("", idx);
         let sql = format!(
             "UPDATE workspaces SET {} \
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
@@ -470,7 +470,7 @@ impl WorkspaceDao for PgWorkspaceDao {
     }
 
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        let control = ctx.control_filter("", 3);
+        let control = ctx.write_filter("", 3);
         let sql = format!(
             "UPDATE workspaces SET deleted = true, updated_at = $2 \
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
@@ -491,7 +491,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         id: &str,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        let control = ctx.control_filter("", 3);
+        let control = ctx.write_filter("", 3);
         let sql = format!(
             "UPDATE workspaces \
              SET deleted = true, source = 'manual', updated_at = $2 \
@@ -514,7 +514,7 @@ impl WorkspaceDao for PgWorkspaceDao {
 
     async fn add_repo(&self, row: &WorkspaceRepo, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         // Gate on caller controlling the workspace via EXISTS subquery.
-        let control = ctx.control_filter("w.", 8);
+        let control = ctx.write_filter("w.", 8);
         let sql = format!(
             r#"INSERT INTO workspace_repos (
                    id, workspace_id, repository_id, branch, mount_name, is_primary, position
@@ -547,7 +547,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         placement_id: &str,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        let control = ctx.control_filter("w.", 3);
+        let control = ctx.write_filter("w.", 3);
         let sql = format!(
             "DELETE FROM workspace_repos \
              WHERE id = $1 AND workspace_id = $2 \
@@ -573,7 +573,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         let mut tx = self.0.begin().await?;
 
         // Check the placement belongs to this workspace AND caller controls it.
-        let control = ctx.control_filter("w.", 3);
+        let control = ctx.write_filter("w.", 3);
         let check_sql = format!(
             "SELECT count(*) FROM workspace_repos wr \
              JOIN workspaces w ON w.id = wr.workspace_id \
@@ -615,7 +615,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         workspace_id: &str,
         ctx: &ScopeContext,
     ) -> Result<(), sqlx::Error> {
-        let control = ctx.control_filter("", 3);
+        let control = ctx.write_filter("", 3);
         let sql = format!(
             "UPDATE workspaces \
              SET kind = CASE (SELECT count(*) FROM workspace_repos WHERE workspace_id = $1) \

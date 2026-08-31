@@ -424,14 +424,14 @@ impl SandboxAuthorizer {
                         "Token is not valid for this task",
                     ));
                 }
-                self.resolve_control(&claims, request_task_id).await
+                self.resolve_write(&claims, request_task_id).await
             }
             VerifiedToken::SandboxBound { claims, sandbox_id } => {
                 self.resolve_sandbox_membership(&claims, request_task_id, &sandbox_id)
                     .await
             }
             VerifiedToken::Claimless { claims } => {
-                self.resolve_control(&claims, request_task_id).await
+                self.resolve_write(&claims, request_task_id).await
             }
         }
     }
@@ -457,12 +457,12 @@ impl SandboxAuthorizer {
         self.resolve_grant(verified, request_task_id).await
     }
 
-    /// The DB-backed control gate: load the task through the caller's scoped read
+    /// The DB-backed write gate: load the task through the caller's scoped read
     /// (an invisible task is a plain NotFound, like the HTTP 404), then require
-    /// `ctx.can_control` (owner or admin). Public *visibility* lets a task be
-    /// viewed over HTTP but never grants sandbox control — credentials, messages,
-    /// and workspace writes stay owner-only.
-    async fn resolve_control(
+    /// `ctx.can_write` (owner or admin). Public *visibility* grants control —
+    /// operating the sandbox — but never write, so the calls behind this gate
+    /// (credentials, messages, workspace writes) stay owner-only.
+    async fn resolve_write(
         &self,
         claims: &jwt::UserTokenClaims,
         task_id: &str,
@@ -477,12 +477,12 @@ impl SandboxAuthorizer {
             .find_by_id(task_id, &ctx)
             .await
             .map_err(|e| {
-                warn!(error = %e, task_id, "resolve_control: task lookup failed");
+                warn!(error = %e, task_id, "resolve_write: task lookup failed");
                 Status::internal("Failed to load task")
             })?
             .ok_or_else(|| Status::not_found("Task not found"))?;
 
-        if ctx.can_control(&task.scoped_resource()) {
+        if ctx.can_write(&task.scoped_resource()) {
             Ok(TaskGrant {
                 sandbox_id: task.sandbox_id.unwrap_or_else(|| task_id.to_string()),
                 login: claims.login.clone(),
@@ -533,7 +533,7 @@ impl SandboxAuthorizer {
                 "Token is not valid for this task's sandbox",
             ));
         }
-        if !ctx.can_control(&task.scoped_resource()) {
+        if !ctx.can_write(&task.scoped_resource()) {
             return Err(Status::permission_denied("Not authorized for this task"));
         }
 
@@ -2188,7 +2188,7 @@ mod tests {
     // ---------------------------------------------------------------------
     // SandboxAuthorizer — the single verification layer shared by every
     // task-scoped gRPC handler (credentials, messages, transcripts, uploads,
-    // workspace-sync URLs). `resolve_control` = scoped read + `ctx.can_control`
+    // workspace-sync URLs). `resolve_write` = scoped read + `ctx.can_write`
     // (admin or owner); `resolve_grant` additionally enforces the token's task
     // binding. The scoped read's SQL filter is covered by `scope.rs` tests;
     // these exercise the control-gate composition and the binding check.
@@ -2334,7 +2334,7 @@ mod tests {
         );
         assert!(
             svc.authorizer
-                .resolve_control(&claims_for("owner"), "task-1")
+                .resolve_write(&claims_for("owner"), "task-1")
                 .await
                 .is_ok()
         );
@@ -2350,7 +2350,7 @@ mod tests {
         );
         let err = svc
             .authorizer
-            .resolve_control(&claims_for("attacker"), "task-1")
+            .resolve_write(&claims_for("attacker"), "task-1")
             .await
             .expect_err("non-owner must be denied");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
@@ -2367,7 +2367,7 @@ mod tests {
         let svc = service_with(tasks_returning(Some(task)), users_regular());
         let err = svc
             .authorizer
-            .resolve_control(&claims_for("stranger"), "task-1")
+            .resolve_write(&claims_for("stranger"), "task-1")
             .await
             .expect_err("public visibility must not grant sandbox control");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
@@ -2383,7 +2383,7 @@ mod tests {
         );
         let err = denied
             .authorizer
-            .resolve_control(&claims_for("stranger"), "task-1")
+            .resolve_write(&claims_for("stranger"), "task-1")
             .await
             .expect_err("non-admin must not control a global task");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
@@ -2395,7 +2395,7 @@ mod tests {
         assert!(
             allowed
                 .authorizer
-                .resolve_control(&claims_for("admin"), "task-1")
+                .resolve_write(&claims_for("admin"), "task-1")
                 .await
                 .is_ok()
         );
@@ -2410,7 +2410,7 @@ mod tests {
         );
         assert!(
             svc.authorizer
-                .resolve_control(&claims_for("admin"), "task-1")
+                .resolve_write(&claims_for("admin"), "task-1")
                 .await
                 .is_ok()
         );
@@ -2424,7 +2424,7 @@ mod tests {
         let svc = service_with(tasks_returning(None), users_regular());
         let err = svc
             .authorizer
-            .resolve_control(&claims_for("anyone"), "ghost")
+            .resolve_write(&claims_for("anyone"), "ghost")
             .await
             .expect_err("missing task must error");
         assert_eq!(err.code(), tonic::Code::NotFound);

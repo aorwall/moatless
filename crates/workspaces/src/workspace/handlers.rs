@@ -495,7 +495,7 @@ pub async fn override_workspace(
     }
     // Intentionally skipping `ensure_workspace_mutable` — this endpoint is the
     // explicit way to take ownership of a git-synced workspace. The DAO
-    // control_filter ensures only the owner/admin can do this.
+    // write_filter ensures only the owner/admin can do this.
     //
     // The privileged-field gate is NOT skipped: taking ownership of a workspace
     // is not the same as being allowed to elevate it.
@@ -583,7 +583,7 @@ pub async fn reset_git_workspace(
             .as_deref()
             .or(existing.created_by.as_deref()),
     );
-    if !ctx.can_control(&resource) {
+    if !ctx.can_write(&resource) {
         return Err(WorkspaceError::Forbidden(format!(
             "No control access to workspace '{workspace_id}'"
         )));
@@ -643,7 +643,7 @@ async fn ensure_writable(
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.to_string()))?;
     ensure_workspace_mutable(&existing)?;
-    // Control is enforced in the DAO via control_filter; the read above just
+    // Control is enforced in the DAO via write_filter; the read above just
     // provides an early NotFound / git-sync guard.
     Ok(())
 }

@@ -2460,6 +2460,14 @@ impl ConversationDao for RefusesTheRowRead {
         self.0.search_conversations(viewer, query, limit).await
     }
 
+    async fn writes_conversation(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        self.0.writes_conversation(viewer, task_id).await
+    }
+
     async fn controls_conversation(
         &self,
         viewer: &ScopeContext,

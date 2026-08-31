@@ -5,7 +5,7 @@
 //! These endpoints run behind the app-level `auth_middleware` (session cookie
 //! or API key), which injects an `AuthIdentity` extension. Each handler then
 //! authorizes the caller against the target Sandbox via the `OptionalScope`
-//! extractor and the `authorize_task_read`/`authorize_task_control` helpers, so
+//! extractor and the `authorize_task_read`/`authorize_task_write` helpers, so
 //! a caller can only read or operate a sandbox they may access.
 
 use axum::response::IntoResponse;

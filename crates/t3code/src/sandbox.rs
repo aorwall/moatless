@@ -49,7 +49,9 @@ pub enum SandboxRpcError {
     Database(#[source] sqlx::Error),
 }
 
-async fn authorized_task(
+/// The Task, if this viewer may be told it exists. The read gate, for the
+/// status calls.
+async fn readable_task(
     state: &SandboxState,
     viewer: &ScopeContext,
     task_id: &str,
@@ -62,13 +64,28 @@ async fn authorized_task(
         .ok_or(SandboxRpcError::NotFound)
 }
 
+/// The Task, if this viewer may operate it. The gate on start and stop, which
+/// move a Sandbox rather than report on one.
+async fn controlled_task(
+    state: &SandboxState,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<TaskView, SandboxRpcError> {
+    state
+        .tasks
+        .controlled_by_id(task_id, viewer)
+        .await
+        .map_err(SandboxRpcError::Database)?
+        .ok_or(SandboxRpcError::NotFound)
+}
+
 /// A Task's sandbox lifecycle status only, without declared server rows.
 pub async fn status(
     state: &SandboxState,
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SandboxRpcError> {
-    let task = authorized_task(state, viewer, task_id).await?;
+    let task = readable_task(state, viewer, task_id).await?;
     let desired = state
         .intent
         .desired_state(task_id)
@@ -144,7 +161,7 @@ pub async fn start(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SandboxRpcError> {
-    let _task = authorized_task(state, viewer, task_id).await?;
+    let _task = controlled_task(state, viewer, task_id).await?;
     state
         .starter
         .start(task_id)
@@ -174,7 +191,7 @@ pub async fn stop(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SandboxRpcError> {
-    let _task = authorized_task(state, viewer, task_id).await?;
+    let _task = controlled_task(state, viewer, task_id).await?;
     state
         .stopper
         .stop(task_id, SandboxStopReason::User)

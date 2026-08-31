@@ -304,6 +304,7 @@ fn refusal(thread_id: &str, relative_path: &str, error: &WorkspaceAccessError) -
         WorkspaceAccessError::NoWorktree | WorkspaceAccessError::Unaddressable => {
             StatusCode::NOT_FOUND
         }
+        WorkspaceAccessError::NoControl => StatusCode::FORBIDDEN,
         WorkspaceAccessError::NotRunning(_) => StatusCode::SERVICE_UNAVAILABLE,
         WorkspaceAccessError::Sandbox(SandboxError::NotFound(_)) => StatusCode::NOT_FOUND,
         WorkspaceAccessError::Sandbox(SandboxError::BadRequest(_)) => StatusCode::BAD_REQUEST,
