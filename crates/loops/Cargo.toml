@@ -45,17 +45,14 @@ moatless-core = { path = "../core", features = ["openapi"] }
 moatless-s3 = { path = "../s3" }
 moatless-tasks = { path = "../tasks" }
 moatless-types = { path = "../types" }
-# Mock doubles of the published binding seams, for the Adapter crates' tests.
-# `cfg(test)` does not fire across a crate boundary, so the ports carry
-# `#[cfg_attr(feature = "test-support", mockall::automock)]` instead.
-mockall = { version = "0.15", optional = true }
 
 [features]
-# Exposes the adapter/bindings test-support fakes to other crates' test builds
-# (the provider and server bands still in the backend reach them across the
-# facade). The `test,` disjunct stays FIRST so the census keeps items gated this
-# way in test-context (crate-census scan.rs keys on the substring "test").
-test-support = ["dep:mockall"]
+# Exposes the adapter test-support stubs (`ProviderStub`, `stub_provider`) to
+# other crates' test builds (the provider and server bands still in the backend
+# reach them across the facade). The `test,` disjunct stays FIRST so the census
+# keeps items gated this way in test-context (crate-census scan.rs keys on the
+# substring "test").
+test-support = []
 # Gate the `#[sqlx::test]` blocks that need a running PostgreSQL. Empty because
 # those blocks reach helpers through the crate's own `test` cfg.
 db-tests = []

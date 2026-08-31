@@ -22,7 +22,7 @@ use moatless_adapter_model::models::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
 
 use moatless_adapter_model::capabilities::AdapterBindingStatus;
-use crate::adapters::Adapters;
+use moatless_adapter_model::registry::Adapters;
 use crate::auth::users::UserDao;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;

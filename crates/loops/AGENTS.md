@@ -9,14 +9,16 @@ loop sync. It sits below the backend and above the provider crates
 - **Binding** — the `task_bindings` table, its `TaskBindingDao` store, and
   `PgTaskBindingDao`, all in `bindings/dao.rs`. This crate owns them; no other
   crate declares a Binding store.
-- Two seams sit in `bindings/ports.rs` for a crate that does **not** drive the
-  Binding lifecycle: `BindingProbe` (is this subject bound?) and, through
+- Two seams a crate that does **not** drive the Binding lifecycle reads:
+  `BindingProbe` (is this subject bound?), published by the Adapter kernel at
+  `moatless_adapter_model::binding`, and, through
   `moatless_backend_core::binding::TaskBindings`, the Task band's downward edge.
-  `BindingDirectory` implements both.
-- **Loop** — the four Loop tables and their `LoopDao` store. `loops/ports.rs`
-  publishes `LoopReader`, the Subscription reads an Adapter matches an inbound
-  event against. `LoopDao` implements it directly: it is the only store over
-  those tables, so a wrapper beside it would be a second surface.
+  `BindingDirectory` in `bindings/ports.rs` implements both.
+- **Loop** — the four Loop tables and their `LoopDao` store. The Adapter kernel
+  publishes `LoopReader` (`moatless_adapter_model::loops`), the Subscription reads
+  an Adapter matches an inbound event against; `loops/ports.rs` implements it for
+  `LoopDao` directly. `LoopDao` is the only store over those tables, so a wrapper
+  beside it would be a second surface.
 - An Adapter names `LoopReader`, never `LoopDao`. The store has twenty-six
   inherent functions and the Adapters read five of them. One exception stands:
   `adapter-telegram/src/pairing.rs` names `LoopDao` because it reads and writes
@@ -34,8 +36,11 @@ offers (`capabilities` — the eleven traits a provider implements), what it
 speaks (`models`, `apps`, `footer`, `signature`), what it can fail with
 (`error` — both halves, `SharedAdapterError` and `AdapterError`, plus the
 `IntoResponse` renderer over them), where its connections are stored (`dao`),
-and the ingress counters (`metrics`). A provider crate implements an Adapter by
-naming that crate and nothing above it.
+the ingress counters (`metrics`), the `registry` that maps a kind to a
+capability, `render_mentions` (`mentions`), and the two read seams a provider
+names but does not own — `BindingProbe` (`binding`) and `LoopReader` (`loops`).
+A provider crate implements an Adapter by naming that crate and nothing above
+it.
 
 Name it directly — `moatless_adapter_model::…` — from this crate and from every
 provider crate. Do not re-export it through `crate::adapters`; one path to a
@@ -45,10 +50,10 @@ type is the point. The shared Adapter vocabulary that lives one crate lower —
 not through this facade.
 
 What is left under `src/adapters/` is what the loops band adds *around* the
-contract: the registry that maps a kind to a capability, the durable-delivery
-seam, ingress, self-echo, subject events, and the shared connection/loop
-handler support. If a change would put a trait every provider implements back in
-here, it belongs in the kernel instead.
+contract: the durable-delivery seam, ingress, self-echo, subject events, and the
+shared connection/loop handler support. If a change would put a trait every
+provider implements, the registry, or a read seam a provider names back in here,
+it belongs in the kernel instead.
 
 `scripts/check-crate-seams.sh` enforces this: a `pub use` of another crate's
 item anywhere under `src/adapters/` fails unless it is listed in that script's

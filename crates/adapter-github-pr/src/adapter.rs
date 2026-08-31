@@ -8,8 +8,8 @@ use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::capabilities::{Adapter, AdapterInboundPresentation, AdapterOutboundContent};
-use moatless_loops::adapters::Adapters;
-use moatless_loops::loops::ports::LoopReader;
+use moatless_adapter_model::registry::Adapters;
+use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_loops::bindings::dao::TaskBindingDao;
 

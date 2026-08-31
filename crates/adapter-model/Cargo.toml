@@ -13,15 +13,25 @@ hmac = "0.13"
 # Counter instrumentation for webhook ingress and outbound Adapter API calls.
 metrics = "0.24"
 moatless-api-schemas = { path = "../api-schemas", optional = true }
+# The identity read port `render_mentions` resolves a `<@login>` through, and
+# the Task band's `TaskBindings` seam a Binding directory answers. Both are read
+# vocabularies, and `backend-core`'s base feature set pulls no database driver,
+# so naming it here keeps the kernel's driver-free floor.
+moatless-backend-core = { path = "../backend-core" }
 moatless-core = { path = "../core", optional = true }
 moatless-types = { path = "../types" }
+# Canonical `<@login>` mention matching (mentions).
+regex = "1"
 reqwest = { version = "0.13", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"], optional = true }
 thiserror = "2"
-tracing = { version = "0.1", optional = true }
+# Unconditional: the ingress helpers and `render_mentions` log on the base
+# surface, and `tracing` pulls no driver or transport of its own, so gating it
+# would buy a smaller floor than the gate costs to read.
+tracing = "0.1"
 
 [features]
 # The Postgres store and the row shapes it decodes. A crate that only reads the
@@ -35,7 +45,7 @@ postgres = ["dep:sqlx"]
 # `postgres` follows applies here — a consumer that never answers an HTTP
 # request takes the contract without compiling axum. Kept off by default so the
 # kernel's base surface stays the vocabulary and nothing else.
-http = ["dep:axum", "dep:moatless-api-schemas", "dep:moatless-core", "dep:tracing"]
+http = ["dep:axum", "dep:moatless-api-schemas", "dep:moatless-core"]
 # Test-only helpers that travel with the error contract: reading a rendered
 # response back into `(status, body)`, walking a source chain, and producing a
 # genuine transport failure. Implies `http` because two of the three are about
@@ -50,6 +60,8 @@ test-support = ["http"]
 # feature-gated test that silently does not run is worse than no test.
 moatless-adapter-model = { path = ".", features = ["http", "postgres", "test-support"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# `mentions` tests build a stub `ProviderIdentityLink` that mints provider ids.
+uuid = { version = "1", features = ["v4"] }
 
 [lints]
 workspace = true

@@ -51,7 +51,7 @@ async fn outbound_text(
     let Some(users) = adapter.users() else {
         return text;
     };
-    moatless_loops::adapters::mentions::render_mentions(
+    moatless_adapter_model::mentions::render_mentions(
         users,
         super::delivery::ADAPTER,
         &text,

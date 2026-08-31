@@ -16,12 +16,16 @@
 //! answers requests compiles neither a database driver nor axum.
 
 pub mod apps;
+pub mod binding;
 pub mod capabilities;
 pub mod dao;
 pub mod error;
 pub mod footer;
+pub mod loops;
+pub mod mentions;
 pub mod metrics;
 pub mod models;
+pub mod registry;
 pub mod signature;
 
 /// Helpers the Adapter error tests need, shared with the crates whose own tests

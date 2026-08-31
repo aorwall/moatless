@@ -7,7 +7,7 @@ use chrono::Utc;
 use tracing::{debug, info, warn};
 
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
-use crate::adapters::Adapters;
+use moatless_adapter_model::registry::Adapters;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryFailure;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
@@ -22,7 +22,7 @@ use moatless_types::loops::RoutingMode;
 use moatless_types::task::TaskStatus;
 use moatless_types::access_control::ScopeContext;
 use moatless_backend_core::task::TranscriptAppend;
-use crate::loops::ports::LoopReader;
+use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::task::MessageAcceptor;
 use crate::bindings::dao::TaskBindingDao;
 use moatless_backend_core::task::{

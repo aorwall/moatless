@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use moatless_adapter_model::capabilities::{
+use crate::capabilities::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
     AdapterDirectMessage, AdapterInboundPresentation, AdapterMessageReply,
     AdapterPostBindingFollowup, AdapterReactions,
 };
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use crate::error::{AdapterError, SharedAdapterError};
 
 use moatless_types::adapter::AdapterKind;
 
@@ -113,7 +113,9 @@ impl Adapters {
         self.providers.get(&adapter_kind)
     }
 
-    pub(crate) fn outbound_for_binding_reply_by_name(
+    /// Public because the loops band's outbound path resolves a reply provider
+    /// by name across the crate boundary.
+    pub fn outbound_for_binding_reply_by_name(
         &self,
         name: &str,
     ) -> Result<&dyn AdapterBindingReply, AdapterError> {
@@ -126,7 +128,7 @@ impl Adapters {
             .ok_or_else(|| unsupported_outbound(adapter_kind, OutboundOperation::BindingReply))
     }
 
-    pub(crate) fn outbound_for_message_reply_by_name(
+    pub fn outbound_for_message_reply_by_name(
         &self,
         name: &str,
     ) -> Result<&dyn AdapterMessageReply, AdapterError> {
@@ -168,7 +170,7 @@ impl Adapters {
             .map(Arc::as_ref)
     }
 
-    pub(crate) fn reactions(
+    pub fn reactions(
         &self,
         adapter_kind: AdapterKind,
     ) -> Result<&dyn AdapterReactions, AdapterError> {
@@ -178,7 +180,7 @@ impl Adapters {
             .ok_or_else(|| unsupported_reactions(adapter_kind))
     }
 
-    pub(crate) fn reactions_by_name(
+    pub fn reactions_by_name(
         &self,
         name: &str,
     ) -> Result<&dyn AdapterReactions, AdapterError> {
@@ -197,7 +199,7 @@ impl Adapters {
         self.identity_by_name(name).map(Adapter::provider_key)
     }
 
-    pub(crate) fn identity_by_name(&self, name: &str) -> Option<&dyn Adapter> {
+    pub fn identity_by_name(&self, name: &str) -> Option<&dyn Adapter> {
         self.adapter_kind_for_name(name)
             .and_then(|kind| self.providers.get(&kind).map(Arc::as_ref))
     }
@@ -273,4 +275,64 @@ fn unsupported_reactions(adapter_kind: AdapterKind) -> AdapterError {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use std::sync::Arc;
+
+    use super::Adapters;
+    use crate::capabilities::Adapter;
+    use crate::error::{AdapterError, SharedAdapterError};
+    use moatless_types::adapter::AdapterKind;
+
+    // The capability-matrix tests that build the five concrete providers live in
+    // the backend crate (`backend/src/adapters/registry_matrix_tests.rs`): the
+    // providers sit above the loops band, so a loops test cannot name them. They
+    // reach the registry accessors through `adapters::test_support::registry`.
+    // What stays here is the pair that needs no provider — the empty/stand-in
+    // registry and the registry-owned "missing outbound capability" error —
+    // proven with in-crate stub adapters alone.
+
+    struct DummyProvider;
+
+    struct IdentityOnlyProvider {
+        kind: AdapterKind,
+    }
+
+    impl Adapter for IdentityOnlyProvider {
+        fn adapter_kind(&self) -> AdapterKind {
+            self.kind
+        }
+    }
+
+    impl Adapter for DummyProvider {
+        fn adapter_kind(&self) -> AdapterKind {
+            AdapterKind::Telegram
+        }
+    }
+
+    #[test]
+    fn empty_registry_takes_a_stand_in_adapter() {
+        let mut providers = Adapters::new();
+        providers.register_trait_object(Arc::new(DummyProvider));
+
+        assert_eq!(providers.registered_types(), vec![AdapterKind::Telegram]);
+        assert!(providers.get(AdapterKind::Telegram).is_some());
+    }
+
+    #[tokio::test]
+    async fn missing_outbound_capability_returns_registry_owned_error() {
+        let mut providers = Adapters::new();
+        let kind = AdapterKind::Slack;
+        providers.register_trait_object(Arc::new(IdentityOnlyProvider { kind }));
+
+        match providers.outbound_for_direct_destination(kind) {
+            Err(AdapterError::Shared(SharedAdapterError::BadRequest(msg))) => {
+                assert!(
+                    msg.contains("does not support direct destination sends"),
+                    "unexpected message: {msg}"
+                );
+            }
+            Err(other) => panic!("expected BadRequest, got: {other:?}"),
+            Ok(_) => panic!("identity-only adapter should not have outbound capability"),
+        }
+    }
+}

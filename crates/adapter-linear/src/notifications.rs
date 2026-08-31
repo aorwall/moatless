@@ -19,7 +19,7 @@ use moatless_core::config::Config;
 
 use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::models::AdapterConnection;
-use moatless_loops::loops::ports::LoopReader;
+use moatless_adapter_model::loops::LoopReader;
 use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_backend_core::task::TaskFinisher;
 use moatless_backend_core::task::TaskReader;

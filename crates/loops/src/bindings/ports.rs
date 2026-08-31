@@ -1,11 +1,11 @@
-//! The seams the Binding domain publishes.
+//! The Binding domain's implementations of the read seams it answers.
 //!
-//! An Adapter that only *asks about* Bindings reads [`BindingProbe`]; the
-//! Adapters depend on this crate already, so that is declared here rather than
-//! hopping through `backend-core`. An Adapter that *drives* the Binding
-//! lifecycle — `adapter-github-pr` and `adapter-linear`, which both upsert
-//! through [`crate::bindings::runtime::upsert_binding_into`] as well as read
-//! and write status — names [`TaskBindingDao`] itself: a narrow read port
+//! An Adapter that only *asks about* Bindings reads [`BindingProbe`], published
+//! by the Adapter kernel (`moatless_adapter_model::binding`); [`BindingDirectory`]
+//! below answers it over the Binding store it holds. An Adapter that *drives* the
+//! Binding lifecycle — `adapter-github-pr` and `adapter-linear`, which both
+//! upsert through [`crate::bindings::runtime::upsert_binding_into`] as well as
+//! read and write status — names [`TaskBindingDao`] itself: a narrow read port
 //! beside a store it already holds is a second surface, not a seam.
 //!
 //! The Task band sits *below* this crate and reaches Binding through
@@ -16,44 +16,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use moatless_adapter_model::binding::BindingProbe;
 use moatless_adapter_model::models::TaskBinding;
 use moatless_backend_core::binding::{TaskBindingSummary, TaskBindings};
 use moatless_backend_core::store::StoreError;
 
 use crate::bindings::dao::TaskBindingDao;
 use crate::loops::dao::LoopDao;
-
-/// Whether a subject already has a Binding. Answers a yes/no; the rows behind
-/// it stay here.
-#[cfg_attr(feature = "test-support", mockall::automock)]
-#[async_trait]
-pub trait BindingProbe: Send + Sync {
-    /// Whether any Binding tracks this subject.
-    async fn is_bound(
-        &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-    ) -> Result<bool, StoreError>;
-}
-
-#[async_trait]
-impl<T: TaskBindingDao + ?Sized> BindingProbe for T {
-    async fn is_bound(
-        &self,
-        adapter_kind: &str,
-        subject_kind: &str,
-        subject_key: &str,
-    ) -> Result<bool, StoreError> {
-        let rows = self
-            .find_by_subject(adapter_kind, subject_kind, subject_key)
-            .await
-            .map_err(|e| {
-                StoreError::with_source(format!("read bindings on {adapter_kind}:{subject_key}"), e)
-            })?;
-        Ok(!rows.is_empty())
-    }
-}
 
 /// The Binding store and the Loops that label its rows, behind the two seams a
 /// crate that does not drive the Binding lifecycle reads: [`BindingProbe`] and
@@ -77,9 +46,14 @@ impl BindingProbe for BindingDirectory {
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<bool, StoreError> {
-        self.bindings
-            .is_bound(adapter_kind, subject_kind, subject_key)
+        let rows = self
+            .bindings
+            .find_by_subject(adapter_kind, subject_kind, subject_key)
             .await
+            .map_err(|e| {
+                StoreError::with_source(format!("read bindings on {adapter_kind}:{subject_key}"), e)
+            })?;
+        Ok(!rows.is_empty())
     }
 }
 

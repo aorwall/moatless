@@ -12,7 +12,7 @@ use moatless_adapter_model::models::{LoopSpawnConfig, Schedule};
 use moatless_types::adapter::{AdapterKind, Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
-use crate::adapters::Adapters;
+use moatless_adapter_model::registry::Adapters;
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::metrics::record_schedule_firing;
 use moatless_types::task::TaskStatus;

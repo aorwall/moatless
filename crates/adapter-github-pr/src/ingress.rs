@@ -15,7 +15,7 @@ use moatless_loops::adapters::delivery::{AdapterDeliveryRequest, AdapterDelivery
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
-use moatless_loops::loops::ports::LoopReader;
+use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_loops::bindings::dao::TaskBindingDao;
 

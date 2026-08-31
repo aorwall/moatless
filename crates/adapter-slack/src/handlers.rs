@@ -11,9 +11,9 @@ use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_adapter_model::metrics::record_webhook;
-use moatless_loops::loops::ports::LoopReader;
+use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::identity::ProviderIdentityLink;
-use moatless_loops::bindings::ports::BindingProbe;
+use moatless_adapter_model::binding::BindingProbe;
 
 
 use super::adapter::SlackAdapter;

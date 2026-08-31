@@ -82,7 +82,7 @@ use moatless_loops::adapters::delivery::{
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::AdapterConnection;
 use moatless_loops::bindings::runtime::RoutingService;
-use moatless_loops::loops::ports::LoopReader;
+use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::task::MessageAcceptor;
 use moatless_backend_core::identity::AppCredentials;
 use moatless_loops::bindings::dao::TaskBindingDao;

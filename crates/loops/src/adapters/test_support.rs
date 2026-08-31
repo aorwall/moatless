@@ -193,31 +193,21 @@ fn graphql_operation_name(document: &str) -> Option<String> {
 // this module is about a *provider's* HTTP surface — a stub to talk to, a
 // recorder for its call budget — which is the loops band's business.
 
-/// Thin pass-throughs over the registry's `pub(crate)` capability accessors.
+/// Thin pass-throughs over the registry's capability accessors.
 ///
 /// The capability-matrix tests build the five concrete providers, which live in
-/// the backend crate above the loops band, so those tests live there too. Each
-/// of these four accessors has an in-crate production caller (so it stays alive
-/// on its own) but *only* a cross-crate test consumer — widening it to `pub`
-/// just for the test would be a lie about the production contract. Instead each
-/// gets a labelled, test-context wrapper here: the wrapper *delegates* to the
-/// real accessor (it never reads the underlying maps), so the moved test asserts
-/// the exact production lookup and cannot drift from it, and the accessors stay
-/// `pub(crate)`. Gated with the rest of this module, so nothing here reaches a
-/// release build.
-///
-/// The registry's other test-exercised lookups need no wrapper: `get`,
-/// `get_by_name`, `binding_status_by_name`, `inbound_presentation_by_name`,
-/// `outbound_for_direct_*`, and `post_binding_followup` are already `pub` (they
-/// have cross-crate production callers), so the test names them directly.
+/// the backend crate above the loops band, so those tests live there too. They
+/// reach the kernel registry's lookups through this shared, test-context path
+/// so the moved test asserts the exact production lookup and a second copy of
+/// the call cannot drift from it. Gated with the rest of this module, so nothing
+/// here reaches a release build.
 pub mod registry {
     use moatless_adapter_model::capabilities::{
         AdapterBindingReply, AdapterMessageReply, AdapterReactions,
     };
     use moatless_adapter_model::error::AdapterError;
+    use moatless_adapter_model::registry::Adapters;
     use moatless_types::adapter::AdapterKind;
-
-    use super::super::Adapters;
 
     pub fn reactions(
         adapters: &Adapters,

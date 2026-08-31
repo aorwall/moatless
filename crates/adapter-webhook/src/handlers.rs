@@ -11,7 +11,7 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::admit_delivery;
-use moatless_loops::loops::ports::LoopReader;
+use moatless_adapter_model::loops::LoopReader;
 
 use super::adapter::{WebhookAccepted, WebhookAdapter};
 use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};

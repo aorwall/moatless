@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use crate::adapter_installations::AdapterInstallations;
-use crate::adapters::Adapters;
+use moatless_adapter_model::registry::Adapters;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::self_echo::SelfEchoFilter;
@@ -40,8 +40,9 @@ use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::TagDao;
 use moatless_backend_core::binding::TaskBindings;
+use moatless_adapter_model::binding::BindingProbe;
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_loops::bindings::ports::{BindingDirectory, BindingProbe};
+use moatless_loops::bindings::ports::BindingDirectory;
 use crate::task::closer::TaskCloser;
 use crate::task::creation::TaskCreationService;
 use moatless_backend_core::sandbox::{PreflightPort, SandboxJoiner};
@@ -941,7 +942,7 @@ impl axum::extract::FromRef<AppState> for Arc<LoopDao> {
 
 /// The Subscription reads an Adapter's webhook route makes. Coerced from the
 /// one `LoopDao` rather than held as a second field.
-impl axum::extract::FromRef<AppState> for Arc<dyn moatless_loops::loops::ports::LoopReader> {
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_adapter_model::loops::LoopReader> {
     fn from_ref(state: &AppState) -> Self {
         state.loops.clone()
     }

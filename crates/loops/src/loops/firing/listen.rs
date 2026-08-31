@@ -13,7 +13,7 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
-use crate::loops::ports::LoopReader;
+use moatless_adapter_model::loops::LoopReader;
 use crate::bindings::dao::TaskBindingDao;
 
 /// Wires a task to an external Adapter subject: resolves the connection and

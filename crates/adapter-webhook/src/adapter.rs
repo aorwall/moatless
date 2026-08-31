@@ -22,7 +22,7 @@ use moatless_types::adapter::{
 };
 use moatless_types::loops::LoopContext;
 use moatless_adapter_model::capabilities::{Adapter, AdapterBindingReply, AdapterMessageReply, AdapterOutboundContent};
-use moatless_loops::adapters::Adapters;
+use moatless_adapter_model::registry::Adapters;
 
 /// Inbound webhook payload.
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]

@@ -15,8 +15,8 @@ use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_types::adapter::{BindingDestination, InboundMessage};
 use moatless_types::loops::LoopContext;
 use moatless_adapter_model::capabilities::Adapter;
-use moatless_loops::loops::ports::LoopReader;
-use moatless_loops::bindings::ports::BindingProbe;
+use moatless_adapter_model::loops::LoopReader;
+use moatless_adapter_model::binding::BindingProbe;
 use moatless_backend_core::identity::ProviderIdentityLink;
 
 use super::adapter::{ResolvedSlackApp, SlackAdapter};

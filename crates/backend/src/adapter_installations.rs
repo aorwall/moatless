@@ -16,7 +16,7 @@ use crate::adapters::providers::slack::adapter::SlackAdapter;
 use crate::adapters::providers::telegram::adapter::TelegramAdapter;
 use crate::adapters::providers::webhook::adapter::WebhookAdapter;
 use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
-use crate::adapters::Adapters;
+use moatless_adapter_model::registry::Adapters;
 use crate::compose::Ports;
 use crate::state::AppState;
 use moatless_core::config::Config;

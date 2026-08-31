@@ -7,7 +7,7 @@ use moatless_api_schemas::message::ReplyToMessageResponse;
 use moatless_types::access_control::ScopeContext;
 
 use moatless_types::adapter::AdapterKind;
-use crate::adapters::Adapters;
+use moatless_adapter_model::registry::Adapters;
 use crate::adapters::common::{
     binding_descriptor, binding_reply_target, ensure_task_access_with,
     load_adapter_connection_for_auth_with,

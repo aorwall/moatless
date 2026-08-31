@@ -14,10 +14,12 @@
 # `adapters` are sibling modules of one crate. The gate therefore does not
 # measure a Cargo edge. It preserves the current module-boundary decision:
 # bindings may not acquire new dependencies on the Adapter registry/capability
-# surface, and the five remaining rows shrink only by relocation or by the
+# surface, and the remaining rows shrink only by relocation or by the
 # lower shared error/port split described in Step 7 and Step 10g of the spec.
+#
+# `outbound.rs` and `status_service.rs` cleared when the registry moved to
+# `moatless-adapter-model`: both named `crate::adapters::Adapters` and now name
+# the kernel.
 crates/loops/src/bindings/handlers.rs
-crates/loops/src/bindings/outbound.rs
 crates/loops/src/bindings/reply.rs
 crates/loops/src/bindings/runtime.rs
-crates/loops/src/bindings/status_service.rs

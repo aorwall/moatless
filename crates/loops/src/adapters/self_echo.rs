@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use crate::adapters::Adapters;
+use moatless_adapter_model::registry::Adapters;
 use crate::bindings::recently_sent::RecentlySent;
 use moatless_tasks::message::send::SelfEchoGuard;
 

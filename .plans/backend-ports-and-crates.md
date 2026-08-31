@@ -890,7 +890,7 @@ The fourth row is why the carve-local check is not merely incomplete but wrong. 
 <!-- plan-assert: contains crates/loops/src/loops/sync/parser.rs ../../.moatless/loops -->
 <!-- plan-assert: contains crates/loops/src/lib.rs cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used)) -->
 <!-- plan-assert: contains crates/backend/Cargo.toml moatless-loops/test-support -->
-<!-- plan-assert: contains crates/loops/src/adapters/registry/mod.rs pub fn inbound_presentation_by_name -->
+<!-- plan-assert: contains crates/adapter-model/src/registry.rs pub fn inbound_presentation_by_name -->
 
 **A census classification question the loops carve raised, recorded and deliberately not fixed: a `#[cfg(test)]` file can swell a facade row's line-count without touching what the row is for.** `backend/src/adapters/registry_matrix_tests.rs` stayed in the backend — it builds the five concrete providers, which sit above the loops band and cannot compile inside `moatless-loops` — so its lines count under the backend adapters facade in the report's line-count column, which reads as the facade *growing* while the crate was carved out. It did not grow in the sense that gates anything: **line counts are not the ratchet — the illegal-edge ceiling is** — and every reference in that file is `#[cfg(test)]`, so the census scores them as `TEST-CONTEXT` and the ceiling did not move. The line-count column answers "how large is this facade", a description; the ceiling answers "did an illegal edge appear", the invariant. Whether a cfg(test) file should count toward a facade's line total is the open question, left open on purpose — the number it moves is not one anything gates on, and inventing a rule for it would be maintaining a figure no ratchet reads.
 

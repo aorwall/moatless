@@ -16,8 +16,8 @@ use moatless_types::adapter::{
 };
 use moatless_types::loops::LoopContext;
 use moatless_adapter_model::capabilities::{Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination, AdapterInboundPresentation, AdapterMessageReply, AdapterOutboundContent, AdapterPostBindingFollowup};
-use moatless_loops::adapters::Adapters;
-use moatless_loops::loops::ports::LoopReader;
+use moatless_adapter_model::registry::Adapters;
+use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::task::TaskReader;
 use moatless_backend_core::identity::AppCredentials;
 use moatless_types::access_control::ScopeContext;

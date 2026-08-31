@@ -17,7 +17,7 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::adapters::test_support::registry as ts;
 use moatless_types::adapter::AdapterKind;
 
-use crate::adapters::Adapters;
+use moatless_adapter_model::registry::Adapters;
 use moatless_identity::auth::test_support::StubProviderTokens;
 
 fn registry_with_all_current_adapters() -> Adapters {

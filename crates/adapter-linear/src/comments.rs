@@ -25,7 +25,7 @@ use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
 use moatless_types::adapter::Audience;
 use moatless_loops::bindings::runtime::RoutingService;
-use moatless_loops::loops::ports::LoopReader;
+use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::task::{InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_backend_core::sandbox::SandboxWaker;

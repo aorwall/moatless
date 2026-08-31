@@ -3421,8 +3421,10 @@ dependencies = [
  "metrics",
  "moatless-adapter-model",
  "moatless-api-schemas",
+ "moatless-backend-core",
  "moatless-core",
  "moatless-types",
+ "regex",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -3431,6 +3433,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3752,7 +3755,6 @@ dependencies = [
  "moatless-tasks",
  "moatless-types",
  "moatless-workspaces",
- "mockall",
  "moka",
  "regex",
  "reqwest 0.13.4",

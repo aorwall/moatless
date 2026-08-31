@@ -15,7 +15,7 @@ use moatless_types::auth::AuthConfig;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use crate::adapters::Adapters;
+use moatless_adapter_model::registry::Adapters;
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::metrics::record_outbound;
 use crate::bindings::recently_sent::RecentlySent;
