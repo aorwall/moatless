@@ -25,7 +25,9 @@ use moatless_backend_core::task::TranscriptAppend;
 use crate::loops::ports::LoopReader;
 use moatless_backend_core::task::MessageAcceptor;
 use crate::bindings::dao::TaskBindingDao;
-use moatless_backend_core::task::{InboundTurn, TaskOpenError, TaskOpener, TurnOrigin};
+use moatless_backend_core::task::{
+    EventSubject, InboundTurn, TaskOpenError, TaskOpener, TurnOrigin,
+};
 use moatless_backend_core::task::TaskReader;
 use moatless_backend_core::sandbox::{SandboxWaker, wake_for_message};
 
@@ -175,13 +177,24 @@ impl RoutingService {
         // Provenance: the task an adapter recovered from the event's own body (the
         // `Moatless task:` footer), else the task an already-recorded event
         // identifier names. Never an identity.
+        //
+        // The identifier is only asked about on this subject: a provider that
+        // numbers events per subject rather than globally reuses one id across
+        // all of them, and the task that holds it elsewhere did not write this.
         let origin_task_id = match msg.source_task_id.clone() {
             Some(task_id) => Some(task_id),
             None => match msg.external_event_id.as_deref() {
                 Some(ext_id) => {
                     let candidates = self.external_id_aliases(adapter_label, ext_id);
                     self.messages
-                        .find_by_external_event_id(&candidates)
+                        .find_author_on_subject(
+                            &candidates,
+                            EventSubject {
+                                adapter: adapter_label,
+                                source_name: &msg.source_id,
+                                subject_key,
+                            },
+                        )
                         .await?
                 }
                 None => None,
@@ -634,6 +647,11 @@ impl RoutingService {
     /// This lookup sits above [`resolve_recipients`] because the resolver performs
     /// no input or output of its own — see [`crate::bindings::recipients`]. An
     /// audience that names no parent asks nothing of the database.
+    ///
+    /// It asks across every subject, which the parent id being a comment id
+    /// makes correct: `github:rc:<id>` and `linear:comment:<uuid>` are
+    /// allocated once by the provider, so the id names the comment without
+    /// help. Only an audience whose parent is a comment reaches here.
     pub async fn parent_author_task_id(
         &self,
         adapter_label: &str,
@@ -646,10 +664,7 @@ impl RoutingService {
             return Ok(None);
         };
         let candidates = self.external_id_aliases(adapter_label, parent_id);
-        Ok(self
-            .messages
-            .find_by_external_event_id(&candidates)
-            .await?)
+        Ok(self.messages.find_comment_author(&candidates).await?)
     }
 
     pub fn external_id_aliases(&self, adapter_label: &str, external_id: &str) -> Vec<String> {

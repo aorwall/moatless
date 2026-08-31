@@ -102,3 +102,38 @@ pub async fn task_for_any(
     .fetch_optional(pool)
     .await
 }
+
+/// The Task that produced any of `external_event_ids` **at `source_name`**,
+/// if one did.
+///
+/// The table is keyed on the id alone, because that is all a writer holds, and
+/// it holds every source's rows together. `source_name` is the column that
+/// tells them apart, so a caller that knows where it is asking says so and
+/// reads back only its own. That an id names its own subject — GitHub's do,
+/// `owner/repo#607` rather than `607` — is a property of each provider's codec,
+/// and this answer does not rest on it: a row written under an earlier shape,
+/// or by a provider that numbers per subject, is placed by its source here
+/// either way.
+///
+/// A row that records no source is not a match: it cannot be shown to have
+/// happened here, and naming the wrong Task as an event's author is what the
+/// scoping exists to prevent.
+pub async fn task_for_any_from_source(
+    pool: &DbPool,
+    external_event_ids: &[String],
+    provider: &str,
+    source_name: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"SELECT task_id FROM task_outbound_events
+           WHERE external_event_id = ANY($1)
+             AND provider = $2
+             AND source_name = $3
+           LIMIT 1"#,
+    )
+    .bind(external_event_ids)
+    .bind(provider)
+    .bind(source_name)
+    .fetch_optional(pool)
+    .await
+}

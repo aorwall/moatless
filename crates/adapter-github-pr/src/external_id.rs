@@ -1,3 +1,31 @@
+//! The external event ids GitHub events are recorded under.
+//!
+//! # What a pull-request-level id has to carry
+//!
+//! GitHub allocates comment, review, check and run ids once across the whole
+//! host, so `github:ic:<id>` names an event by itself. It numbers pull
+//! requests per repository, so the number does not: `607` is a pull request in
+//! every repository that has one. An id built from the number alone is
+//! therefore one string for many events, and the tables it is written to —
+//! `task_messages`, `task_outbound_events` — hold every repository's rows
+//! together.
+//!
+//! So a PR-level id carries the whole subject, `owner/repo#number`, exactly as
+//! [`GithubPrSubject::key`] spells it. Taking the subject rather than the
+//! number is what makes an ambiguous id unwriteable rather than merely
+//! discouraged.
+//!
+//! # Reading rows written before that
+//!
+//! Rows recorded under the old `github:pr:<action>:<number>` shape are
+//! rewritten in place by migration `0148`, using the subject key each row
+//! already carries. A row that carries no subject keeps its old id, and
+//! nothing aliases the two shapes together: an alias would hand the ambiguous
+//! string back to every reader that matches on the id alone, which is the
+//! collision this format removes.
+
+use super::subject::GithubPrSubject;
+
 /// `github:ic:<id>` - issue comment, also used for PR conversation comments.
 pub(super) fn issue_comment(id: u64) -> String {
     format!("github:ic:{id}")
@@ -13,35 +41,36 @@ pub(super) fn review(id: u64) -> String {
     format!("github:rv:{id}")
 }
 
-/// `github:pr:<action>:<pr_number>[:<sha>]` - PR-level event.
-pub(super) fn pr_event(action: &str, pr_number: u64, sha: Option<&str>) -> String {
+/// `github:pr:<action>:<owner>/<repo>#<number>[:<sha>]` - PR-level event.
+pub(super) fn pr_event(action: &str, subject: &GithubPrSubject, sha: Option<&str>) -> String {
+    let key = subject.key();
     match sha {
-        Some(s) if !s.is_empty() => format!("github:pr:{action}:{pr_number}:{s}"),
-        _ => format!("github:pr:{action}:{pr_number}"),
+        Some(s) if !s.is_empty() => format!("github:pr:{action}:{key}:{s}"),
+        _ => format!("github:pr:{action}:{key}"),
     }
 }
 
-/// `github:pr:opened:<pr_number>`.
-pub(super) fn pr_opened(pr_number: u64) -> String {
-    pr_event("opened", pr_number, None)
+/// `github:pr:opened:<owner>/<repo>#<number>`.
+pub(super) fn pr_opened(subject: &GithubPrSubject) -> String {
+    pr_event("opened", subject, None)
 }
 
-/// `github:pr:synchronize:<pr_number>:<sha>`.
+/// `github:pr:synchronize:<owner>/<repo>#<number>:<sha>`.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "stable GitHub PR external-id codec retained")
 )]
-pub(super) fn pr_synchronize(pr_number: u64, sha: &str) -> String {
-    pr_event("synchronize", pr_number, Some(sha))
+pub(super) fn pr_synchronize(subject: &GithubPrSubject, sha: &str) -> String {
+    pr_event("synchronize", subject, Some(sha))
 }
 
-/// `github:pr:merged:<pr_number>` - the merged-PR notification.
+/// `github:pr:merged:<owner>/<repo>#<number>` - the merged-PR notification.
 ///
-/// A distinct namespace from `github:pr:closed:<pr_number>`, which the
-/// auto-close notice owns: the two carry different text to different tasks, so
-/// sharing an id would let whichever ran first suppress the other's receipt.
-pub(super) fn pr_merged(pr_number: u64) -> String {
-    pr_event("merged", pr_number, None)
+/// A distinct namespace from `github:pr:closed:...`, which the auto-close
+/// notice owns: the two carry different text to different tasks, so sharing an
+/// id would let whichever ran first suppress the other's receipt.
+pub(super) fn pr_merged(subject: &GithubPrSubject) -> String {
+    pr_event("merged", subject, None)
 }
 
 /// `github:cr:<id>` - check_run completion.
@@ -60,16 +89,18 @@ pub(super) fn workflow_run(id: u64) -> String {
     format!("github:wfrun:{id}")
 }
 
-/// `github:conflict:<pr_number>:<sha>` - merge-conflict notification.
+/// `github:conflict:<owner>/<repo>#<number>:<sha>` - merge-conflict
+/// notification.
 ///
 /// Keyed by the PR head sha so a persisting conflict is announced once per
 /// pushed commit: re-checking the same head is deduped, but a new push (new
 /// sha) that is still conflicted re-notifies.
-pub(super) fn merge_conflict(pr_number: u64, sha: &str) -> String {
+pub(super) fn merge_conflict(subject: &GithubPrSubject, sha: &str) -> String {
+    let key = subject.key();
     if sha.is_empty() {
-        format!("github:conflict:{pr_number}")
+        format!("github:conflict:{key}")
     } else {
-        format!("github:conflict:{pr_number}:{sha}")
+        format!("github:conflict:{key}:{sha}")
     }
 }
 
@@ -91,6 +122,13 @@ pub(super) fn comment_target_from_id(external_id: &str) -> Option<CommentTarget>
     None
 }
 
+/// The ids a stored row may carry for the same event.
+///
+/// Only the comment namespaces alias, and only onto the bare integer written
+/// before the prefix scheme. A PR-level id never aliases onto its old
+/// number-only shape: that string is the ambiguous one, and handing it to a
+/// reader that matches on the id alone would put back the collision the format
+/// removes. Migration `0148` rewrites those rows instead.
 pub(super) fn aliases(external_id: &str) -> Vec<String> {
     let tail = external_id.rsplit(':').next().unwrap_or("");
     if tail.is_empty() || !tail.chars().all(|c| c.is_ascii_digit()) {
@@ -115,19 +153,47 @@ mod tests {
         assert_eq!(review(7), "github:rv:7");
     }
 
+    fn subject(repo: &str, number: u64) -> GithubPrSubject {
+        GithubPrSubject::new("acme", repo, number)
+    }
+
     #[test]
     fn pr_event_formats() {
-        assert_eq!(pr_event("opened", 42, None), "github:pr:opened:42");
+        let pr = subject("widgets", 42);
         assert_eq!(
-            pr_event("synchronize", 42, Some("abcdef0")),
-            "github:pr:synchronize:42:abcdef0"
+            pr_event("opened", &pr, None),
+            "github:pr:opened:acme/widgets#42"
         );
-        assert_eq!(pr_opened(42), "github:pr:opened:42");
-        assert_eq!(pr_merged(42), "github:pr:merged:42");
-        assert_ne!(pr_merged(42), pr_event("closed", 42, None));
         assert_eq!(
-            pr_synchronize(42, "7fc06122f3aa1b4ed6cdee04b40dabf01dadbeef"),
-            "github:pr:synchronize:42:7fc06122f3aa1b4ed6cdee04b40dabf01dadbeef"
+            pr_event("synchronize", &pr, Some("abcdef0")),
+            "github:pr:synchronize:acme/widgets#42:abcdef0"
+        );
+        assert_eq!(pr_opened(&pr), "github:pr:opened:acme/widgets#42");
+        assert_eq!(pr_merged(&pr), "github:pr:merged:acme/widgets#42");
+        assert_ne!(pr_merged(&pr), pr_event("closed", &pr, None));
+        assert_eq!(
+            pr_synchronize(&pr, "7fc06122f3aa1b4ed6cdee04b40dabf01dadbeef"),
+            "github:pr:synchronize:acme/widgets#42:7fc06122f3aa1b4ed6cdee04b40dabf01dadbeef"
+        );
+    }
+
+    /// The collision the format exists to remove: one number, two
+    /// repositories, and the ids must not be equal.
+    #[test]
+    fn the_same_number_in_two_repositories_gives_two_ids() {
+        for id in [
+            pr_opened(&subject("widgets", 607)),
+            pr_merged(&subject("widgets", 607)),
+            pr_event("closed", &subject("widgets", 607), None),
+            merge_conflict(&subject("widgets", 607), "abcdef0"),
+        ] {
+            let other = id.replace("acme/widgets", "acme/gadgets");
+            assert_ne!(id, other);
+        }
+
+        assert_ne!(
+            pr_opened(&subject("widgets", 607)),
+            pr_opened(&subject("gadgets", 607)),
         );
     }
 
@@ -139,8 +205,12 @@ mod tests {
 
     #[test]
     fn merge_conflict_formats() {
-        assert_eq!(merge_conflict(42, "abcdef0"), "github:conflict:42:abcdef0");
-        assert_eq!(merge_conflict(42, ""), "github:conflict:42");
+        let pr = subject("widgets", 42);
+        assert_eq!(
+            merge_conflict(&pr, "abcdef0"),
+            "github:conflict:acme/widgets#42:abcdef0"
+        );
+        assert_eq!(merge_conflict(&pr, ""), "github:conflict:acme/widgets#42");
     }
 
     #[test]
@@ -170,8 +240,15 @@ mod tests {
         assert!(comment_target_from_id("nonsense").is_none());
     }
 
+    /// A PR-level id is never aliased onto the number-only string, in either
+    /// shape — the current one because it has no number-only tail, the legacy
+    /// one because handing that string back is the collision itself.
     #[test]
     fn aliases_skip_new_only_namespaces() {
+        assert_eq!(
+            aliases(&pr_opened(&subject("widgets", 7))),
+            vec!["github:pr:opened:acme/widgets#7".to_string()]
+        );
         assert_eq!(
             aliases("github:pr:opened:7"),
             vec!["github:pr:opened:7".to_string()]

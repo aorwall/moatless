@@ -189,7 +189,11 @@ impl GithubPrInboundRouter {
                 "pr_number": merged.pr_number,
             }),
             adapter_context: serde_json::json!({}),
-            external_event_id: Some(super::external_id::pr_merged(merged.pr_number)),
+            external_event_id: Some(super::external_id::pr_merged(&GithubPrSubject::new(
+                &execution.owner,
+                &execution.repo,
+                merged.pr_number,
+            ))),
             source_task_id: None,
             audience: Audience::Everyone,
         };

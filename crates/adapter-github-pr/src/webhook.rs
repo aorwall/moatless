@@ -91,6 +91,15 @@ pub(super) struct NormalizeContext<'a> {
     pub(super) users: &'a dyn ProviderIdentityLink,
 }
 
+impl NormalizeContext<'_> {
+    /// The pull request an event in this delivery happened on. Every id and
+    /// subject key built here names the repository, so a number is never on
+    /// its own.
+    fn subject(&self, pr_number: u64) -> GithubPrSubject {
+        GithubPrSubject::new(self.owner, self.repo, pr_number)
+    }
+}
+
 /// Normalize one GitHub webhook without persistence, API calls, admission, or routing.
 pub(super) async fn normalize(
     event_type: &str,
@@ -283,7 +292,7 @@ async fn normalize_pull_request(
             None,
             text,
             Audience::Everyone,
-            super::external_id::pr_event(action, pr_number, None),
+            super::external_id::pr_event(action, &context.subject(pr_number), None),
         )
         .await,
     )))
@@ -317,7 +326,7 @@ fn pr_status_observation(
         pr.pointer("/head/ref").and_then(serde_json::Value::as_str),
     );
     Some(WebhookStatusObservation::PullRequest {
-        subject_key: GithubPrSubject::new(context.owner, context.repo, pr_number).key(),
+        subject_key: context.subject(pr_number).key(),
         status,
     })
 }
@@ -365,7 +374,7 @@ async fn normalize_pull_request_sync(
             Some(pr_number.to_string()),
             text,
             Audience::Everyone,
-            super::external_id::pr_event("synchronize", pr_number, sync_sha),
+            super::external_id::pr_event("synchronize", &context.subject(pr_number), sync_sha),
         )
         .await,
     )))
@@ -505,7 +514,7 @@ async fn normalize_review(
         ReviewDecision::from_review_state(review_state).filter(|decision| decision.is_verdict())
     {
         observations.push(WebhookStatusObservation::ReviewDecision {
-            subject_key: GithubPrSubject::new(context.owner, context.repo, pr_number).key(),
+            subject_key: context.subject(pr_number).key(),
             decision,
         });
     }

@@ -23,6 +23,7 @@ use crate::task_activities;
 use crate::task_activities::dao::Activity;
 use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
 use moatless_backend_core::db_enum::decode_required;
+use moatless_backend_core::task::EventSubject;
 use moatless_core::db::DbPool;
 
 /// The tool calls that hand a conversation back to a person. A sidebar shows
@@ -358,12 +359,27 @@ pub trait MessageDao: Send + Sync {
 
     /// Find the owning task for any one of the supplied external IDs.
     ///
-    /// Used by GitHub webhook delivery to suppress only the task that authored
-    /// a comment or PR event, while still allowing sibling bindings on the
-    /// same subject to receive it.
+    /// Matches on the id alone, across every subject, so it answers only for
+    /// ids the provider allocates once across all of them — a comment id. Use
+    /// [`find_task_id_by_any_external_event_id_on_subject`](Self::find_task_id_by_any_external_event_id_on_subject)
+    /// for anything a second subject can repeat.
     async fn find_task_id_by_any_external_event_id(
         &self,
         external_ids: &[String],
+    ) -> Result<Option<String>, sqlx::Error>;
+
+    /// Find the owning task for any one of the supplied external IDs, among
+    /// only the events carried on `subject`.
+    ///
+    /// Used by adapter delivery to name the task that authored the event, so
+    /// that a binding can be attached to it, while sibling bindings on the same
+    /// subject still receive it. Each table is scoped by the column that
+    /// locates it: `task_messages` by its subject key, `task_outbound_events`
+    /// by its source name. A row carrying neither is not a match.
+    async fn find_task_id_by_any_external_event_id_on_subject<'a>(
+        &self,
+        external_ids: &[String],
+        subject: EventSubject<'a>,
     ) -> Result<Option<String>, sqlx::Error>;
 
     /// Keyset-paginated page of messages strictly older than `before_id`
@@ -1314,6 +1330,42 @@ impl MessageDao for PgMessageDao {
             return Ok(Some(task_id));
         }
         crate::task::outbound_events::task_for_any(&self.0, external_ids).await
+    }
+
+    async fn find_task_id_by_any_external_event_id_on_subject<'a>(
+        &self,
+        external_ids: &[String],
+        subject: EventSubject<'a>,
+    ) -> Result<Option<String>, sqlx::Error> {
+        if external_ids.is_empty() {
+            return Ok(None);
+        }
+
+        let by_message = sqlx::query_scalar::<_, String>(
+            r#"SELECT task_id
+               FROM task_messages
+               WHERE external_event_id = ANY($1)
+                 AND external_adapter = $2
+                 AND external_subject_key = $3
+               ORDER BY id DESC
+               LIMIT 1"#,
+        )
+        .bind(external_ids)
+        .bind(subject.adapter)
+        .bind(subject.subject_key)
+        .fetch_optional(&self.0)
+        .await?;
+
+        if let Some(task_id) = by_message {
+            return Ok(Some(task_id));
+        }
+        crate::task::outbound_events::task_for_any_from_source(
+            &self.0,
+            external_ids,
+            subject.adapter,
+            subject.source_name,
+        )
+        .await
     }
 
     async fn get_paginated(

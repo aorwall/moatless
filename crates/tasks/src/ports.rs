@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use moatless_backend_core::store::StoreError;
 use moatless_backend_core::activity::{Activity, ActivitySource};
 use moatless_backend_core::task::{
-    AssistantReply, CloseReason, ExternalEvent, InboundTurn, MessageAcceptor, NewTask,
+    AssistantReply, CloseReason, EventSubject, ExternalEvent, InboundTurn, MessageAcceptor, NewTask,
     RelationRecorder, SandboxProvision, TagResolver, TaskDescriptor, TaskFinisher, TaskOpenError,
     TaskOpened, TaskOpener, TaskReader, ToolCallRecord, TranscriptAppend, TranscriptEntry,
     TranscriptEntryKind, TranscriptOrigin, TurnCounter,
@@ -139,14 +139,27 @@ impl TranscriptAppend for Transcript {
             })
     }
 
-    async fn find_by_external_event_id(
+    async fn find_author_on_subject<'a>(
+        &self,
+        external_ids: &[String],
+        subject: EventSubject<'a>,
+    ) -> Result<Option<String>, StoreError> {
+        self.messages
+            .find_task_id_by_any_external_event_id_on_subject(external_ids, subject)
+            .await
+            .map_err(|e| {
+                StoreError::with_source("find the task that authored an event on a subject", e)
+            })
+    }
+
+    async fn find_comment_author(
         &self,
         external_ids: &[String],
     ) -> Result<Option<String>, StoreError> {
         self.messages
             .find_task_id_by_any_external_event_id(external_ids)
             .await
-            .map_err(|e| StoreError::with_source("find the task that authored an event", e))
+            .map_err(|e| StoreError::with_source("find the task that authored a comment", e))
     }
 
     async fn external_event_ids(&self, task_id: &str) -> Result<Vec<String>, StoreError> {

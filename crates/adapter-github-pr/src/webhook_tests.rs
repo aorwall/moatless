@@ -158,9 +158,11 @@ async fn opened_pr_preserves_text_audience_external_id_and_subject_facts() {
     let message = message(normalized.primary);
 
     assert_eq!(message.audience, Audience::Everyone);
+    // The id names the pull request, not just its number — `#42` exists in
+    // every other repository this connection carries too.
     assert_eq!(
         message.external_event_id.as_deref(),
-        Some("github:pr:opened:42")
+        Some("github:pr:opened:soaplabs/repo#42")
     );
     assert_eq!(message.source_id, "soaplabs/repo");
     assert_eq!(message.user_id, "alice");

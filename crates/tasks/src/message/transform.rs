@@ -676,6 +676,15 @@ pub(crate) fn format_external_label(raw: &str) -> String {
     }
 }
 
+/// Render the pull request an id names, whichever shape it carries.
+fn pull_request(value: &str) -> String {
+    if value.contains('#') {
+        value.to_string()
+    } else {
+        format!("#{value}")
+    }
+}
+
 fn format_github_label(kind: &str, rest: &[&str], raw: &str) -> String {
     let single = if rest.len() == 1 { Some(rest[0]) } else { None };
     match kind {
@@ -683,9 +692,12 @@ fn format_github_label(kind: &str, rest: &[&str], raw: &str) -> String {
         "rc" | "rv" => single.map_or_else(|| raw.to_string(), |n| format!("Review #{n}")),
         "cr" => single.map_or_else(|| raw.to_string(), |n| format!("Check #{n}")),
         "cs" => single.map_or_else(|| raw.to_string(), |n| format!("Suite #{n}")),
+        // `rest[1]` is the pull request: `owner/repo#607` since the ids began
+        // naming their repository, a bare `607` in a row written before that.
+        // Only the bare form needs a `#` supplied.
         "pr" => match rest.len() {
-            2 => format!("PR #{} {}", rest[1], rest[0]),
-            3 => format!("PR #{} {} {}", rest[1], rest[0], rest[2]),
+            2 => format!("PR {} {}", pull_request(rest[1]), rest[0]),
+            3 => format!("PR {} {} {}", pull_request(rest[1]), rest[0], rest[2]),
             _ => raw.to_string(),
         },
         _ => raw.to_string(),
@@ -906,6 +918,7 @@ mod tests {
         assert_eq!(format_external_label("github:cs:66"), "Suite #66");
     }
 
+    /// A row written before the ids named their repository still renders.
     #[test]
     fn format_external_label_github_pr_action() {
         assert_eq!(
@@ -919,6 +932,20 @@ mod tests {
         assert_eq!(
             format_external_label("github:pr:synchronize:42:abc1234"),
             "PR #42 synchronize abc1234",
+        );
+    }
+
+    /// An id that names its repository shows it, rather than a bare number the
+    /// reader would have to guess the repository of.
+    #[test]
+    fn format_external_label_github_pr_names_its_repository() {
+        assert_eq!(
+            format_external_label("github:pr:opened:acme/widgets#42"),
+            "PR acme/widgets#42 opened",
+        );
+        assert_eq!(
+            format_external_label("github:pr:synchronize:acme/widgets#42:abc1234"),
+            "PR acme/widgets#42 synchronize abc1234",
         );
     }
 

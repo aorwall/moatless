@@ -144,7 +144,7 @@ impl GithubPrInboundRouter {
             }),
             adapter_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::merge_conflict(
-                execution.pr_number,
+                &GithubPrSubject::new(&execution.owner, &execution.repo, execution.pr_number),
                 &pr.head.sha,
             )),
             source_task_id: None,

@@ -42,6 +42,7 @@ use moatless_types::repository::GitHostRepo;
 use super::adapter::GithubPrAdapter;
 use super::api::{GithubPrApi, MAX_COMMENT_LENGTH};
 use super::external_id;
+use super::subject::GithubPrSubject;
 
 /// Extract the configured GitHub PR adapter or answer "adapter not configured".
 ///
@@ -144,7 +145,7 @@ pub async fn create_pr(
             recently_sent.as_ref(),
             messages.as_ref(),
             task_id,
-            &external_id::pr_opened(created.number),
+            &external_id::pr_opened(&GithubPrSubject::new(&owner, &repo, created.number)),
             &owner,
             &repo,
         )

@@ -81,6 +81,34 @@ pub struct ExternalEvent {
     pub source_name: Option<String>,
 }
 
+/// Where an external event happened: the Adapter that carried it, the
+/// provider's own name for the place (`owner/repo` for GitHub), and the
+/// subject within that place.
+///
+/// An external event id is unique only inside a subject, because that is all
+/// the provider promises: a pull request number, a per-issue comment index. An
+/// Adapter's codec is expected to spell the subject into the id it writes —
+/// GitHub's PR-level ids carry `owner/repo#607` — but the tables hold every
+/// subject's rows together, so the reader states the subject too. It is then
+/// the query, not the codec, that makes the answer mean what it says, and rows
+/// written under an earlier codec are placed correctly as well.
+///
+/// The two tables an event can be recorded in are scoped by what each of them
+/// carries: `task_messages` by `external_subject_key`, the exact subject, and
+/// `task_outbound_events` by `source_name`, the place. A row that names
+/// neither is not a match — a lookup that cannot tell where an event happened
+/// must return nothing rather than guess.
+#[derive(Debug, Clone, Copy)]
+pub struct EventSubject<'a> {
+    /// The Adapter that carried the event: `task_messages.external_adapter`
+    /// and `task_outbound_events.provider`.
+    pub adapter: &'a str,
+    /// The provider's own name for where it happened — `owner/repo`.
+    pub source_name: &'a str,
+    /// The subject within that place — `owner/repo#607`.
+    pub subject_key: &'a str,
+}
+
 /// Where a transcript row came from, and what it is bound to.
 #[derive(Debug, Clone)]
 pub struct TranscriptOrigin {
@@ -128,9 +156,28 @@ pub trait TranscriptAppend: Send + Sync {
         event: &ExternalEvent,
     ) -> Result<(), StoreError>;
 
-    /// The Task that authored any one of `external_ids`. Suppresses the echo of
-    /// an event back to its own author while sibling Bindings still receive it.
-    async fn find_by_external_event_id(
+    /// The Task that authored any one of `external_ids` **on `subject`**.
+    ///
+    /// The answer names a Task as the author of the subject's event, and a
+    /// caller acts on it by binding that Task to the subject. Scoping is what
+    /// makes the answer mean that: see [`EventSubject`] for the ids that are
+    /// only unique within one.
+    async fn find_author_on_subject<'a>(
+        &self,
+        external_ids: &[String],
+        subject: EventSubject<'a>,
+    ) -> Result<Option<String>, StoreError>;
+
+    /// The Task that authored the comment any one of `external_ids` names,
+    /// wherever it wrote it. Suppresses the echo of a reply back to its own
+    /// author while sibling Bindings still receive it.
+    ///
+    /// Unscoped, and correct only because every id it is asked about is a
+    /// per-comment provider id — `github:rc:<id>`, `linear:comment:<uuid>` —
+    /// that the provider allocates once across all of its subjects. An id
+    /// keyed on anything a second subject can repeat belongs in
+    /// [`find_author_on_subject`](Self::find_author_on_subject) instead.
+    async fn find_comment_author(
         &self,
         external_ids: &[String],
     ) -> Result<Option<String>, StoreError>;

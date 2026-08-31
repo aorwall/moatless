@@ -14,7 +14,9 @@ use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnec
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::RoutingMode;
 use moatless_loops::bindings::metrics::{inbound_reason, record_inbound};
-use moatless_backend_core::task::{CloseReason, InboundTurn, TaskOpenError, TurnOrigin};
+use moatless_backend_core::task::{
+    CloseReason, EventSubject, InboundTurn, TaskOpenError, TurnOrigin,
+};
 use moatless_types::task::Visibility;
 
 use super::router::GithubPrInboundRouter;
@@ -116,7 +118,13 @@ impl GithubPrInboundRouter {
             }
         }
 
-        let subject_key = GithubPrSubject::from_thread_properties(&msg.thread_properties)?.key();
+        let subject = GithubPrSubject::from_thread_properties(&msg.thread_properties)?;
+        let subject_key = subject.key();
+        // The repository this event happened in, spelled the way the outbound
+        // recorder spells it (`api_routes::note_external_event`), so a task's
+        // own claim is found under the same name it was filed under. Read off
+        // the subject rather than the trigger, which is configuration.
+        let source_name = format!("{}/{}", subject.owner(), subject.repo());
         let binding_repo = self.task_bindings.clone();
 
         // Provenance: who wrote this event, where it can be named. The
@@ -124,13 +132,26 @@ impl GithubPrInboundRouter {
         // parsed off the body is authoritative and costs no round-trip; failing
         // that, an event identifier already recorded against a task names it.
         // Nothing here is an identity.
+        //
+        // The identifier is only asked about on this pull request. A PR-level
+        // id names its own subject now (`external_id`), but a row written
+        // before it did carries a bare number that every repository with a #607
+        // shares, and the answer here attaches a binding — so the question
+        // states the subject rather than trusting the string to be unambiguous.
         let origin_task_id = match msg.source_task_id.clone() {
             Some(task_id) => Some(task_id),
             None => match msg.external_event_id.as_deref() {
                 Some(ext_id) => {
                     let candidates = self.routing.external_id_aliases(ADAPTER_LABEL, ext_id);
                     self.messages
-                        .find_by_external_event_id(&candidates)
+                        .find_author_on_subject(
+                            &candidates,
+                            EventSubject {
+                                adapter: ADAPTER_LABEL,
+                                source_name: &source_name,
+                                subject_key: &subject_key,
+                            },
+                        )
                         .await?
                 }
                 None => None,
@@ -480,7 +501,11 @@ impl GithubPrInboundRouter {
                 "pr_number": info.pr_number,
             }),
             adapter_context: serde_json::json!({}),
-            external_event_id: Some(super::external_id::pr_event("closed", info.pr_number, None)),
+            external_event_id: Some(super::external_id::pr_event(
+                "closed",
+                &GithubPrSubject::new(owner, repo, info.pr_number),
+                None,
+            )),
             source_task_id: None,
             audience: Audience::Everyone,
         }

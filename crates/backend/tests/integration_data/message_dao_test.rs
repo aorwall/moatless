@@ -14,6 +14,7 @@ use moatless_backend::message::models::{MessageRole, MessageType, TaskMessageCon
 use moatless_backend::task_activities::mapping::{
     map_content, ActivityKind, ActivityStatus, BlockContext, ConversationWrite,
 };
+use moatless_backend_core::task::EventSubject;
 use sqlx::PgPool;
 
 use common::{make_message_row, make_repository_row, make_task_row};
@@ -529,8 +530,10 @@ async fn set_external_source_metadata_writes_all_columns_and_is_idempotent(pool:
     assert_eq!(row2.external_source_name.as_deref(), Some("foo/bar"));
 }
 
+/// A comment id is allocated once by the provider, so the task that wrote the
+/// comment is found without being told where to look.
 #[sqlx::test]
-async fn find_task_id_by_any_external_event_id_matches_globally(pool: PgPool) {
+async fn a_comment_id_names_its_author_across_every_subject(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
     let task2 = make_task_row("task-2", "user-2");
     moatless_backend::task::dao::insert_task(&pool, &task2)
@@ -569,6 +572,182 @@ async fn find_task_id_by_any_external_event_id_matches_globally(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(found.as_deref(), Some("task-1"));
+}
+
+/// Two repositories, one pull request number, two tasks — and one id string
+/// recorded against both.
+///
+/// This is the shape of a row written before PR-level ids named their
+/// repository: `github:pr:opened:607` is a pull request in every repository
+/// that has a #607, so the task working `soaplabs/soap-specs#607` holds the
+/// very id that `soaplabs/moatless#607` would arrive under. Migration `0148`
+/// rewrites the rows it can place; this is what answers for the rest, and for
+/// any provider that numbers per subject. Asked on the subject, the lookup
+/// names the task actually on that pull request — the caller binds the answer,
+/// so naming the other one attaches a task to a pull request it never touched.
+#[sqlx::test]
+async fn a_pr_number_keyed_id_names_only_the_task_on_that_repositorys_pull_request(pool: PgPool) {
+    seed_task(&pool, "task-specs", "user-1").await;
+    let moatless_task = make_task_row("task-moatless", "user-2");
+    moatless_backend::task::dao::insert_task(&pool, &moatless_task)
+        .await
+        .unwrap();
+
+    for (task_id, uuid, subject_key) in [
+        ("task-specs", "specs-607", "soaplabs/soap-specs#607"),
+        ("task-moatless", "moatless-607", "soaplabs/moatless#607"),
+    ] {
+        let mut msg = make_message_row(task_id, uuid);
+        msg.external_event_id = Some("github:pr:opened:607".to_string());
+        msg.external_adapter = Some("github_pr".to_string());
+        msg.external_subject_key = Some(subject_key.to_string());
+        message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+            .await
+            .unwrap();
+    }
+
+    let repo = PgMessageDao(pool.clone());
+    let ids = ["github:pr:opened:607".to_string()];
+
+    assert_eq!(
+        repo.find_task_id_by_any_external_event_id_on_subject(
+            &ids,
+            EventSubject {
+                adapter: "github_pr",
+                source_name: "soaplabs/moatless",
+                subject_key: "soaplabs/moatless#607",
+            },
+        )
+        .await
+        .unwrap()
+        .as_deref(),
+        Some("task-moatless"),
+    );
+
+    assert_eq!(
+        repo.find_task_id_by_any_external_event_id_on_subject(
+            &ids,
+            EventSubject {
+                adapter: "github_pr",
+                source_name: "soaplabs/soap-specs",
+                subject_key: "soaplabs/soap-specs#607",
+            },
+        )
+        .await
+        .unwrap()
+        .as_deref(),
+        Some("task-specs"),
+    );
+
+    // A third repository's #607: neither task wrote it, and the shared id must
+    // not offer one up.
+    assert_eq!(
+        repo.find_task_id_by_any_external_event_id_on_subject(
+            &ids,
+            EventSubject {
+                adapter: "github_pr",
+                source_name: "soaplabs/soap-backend",
+                subject_key: "soaplabs/soap-backend#607",
+            },
+        )
+        .await
+        .unwrap(),
+        None,
+    );
+}
+
+/// The same shape on the outbound side: a task that opened `#607` in one
+/// repository claimed an id every other repository's `#607` would arrive under.
+///
+/// `task_outbound_events` is keyed on the id alone, because a `moat` command
+/// holds nothing else, so `source_name` is the only column that tells such
+/// claims apart.
+#[sqlx::test]
+async fn an_outbound_claim_names_its_task_only_at_the_source_that_made_it(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let repo = PgMessageDao(pool.clone());
+
+    repo.record_external_event(
+        "task-1",
+        "github:pr:opened:607",
+        "github_pr",
+        Some("soaplabs/soap-specs"),
+    )
+    .await
+    .unwrap();
+
+    let ids = ["github:pr:opened:607".to_string()];
+
+    assert_eq!(
+        repo.find_task_id_by_any_external_event_id_on_subject(
+            &ids,
+            EventSubject {
+                adapter: "github_pr",
+                source_name: "soaplabs/soap-specs",
+                subject_key: "soaplabs/soap-specs#607",
+            },
+        )
+        .await
+        .unwrap()
+        .as_deref(),
+        Some("task-1"),
+    );
+
+    assert_eq!(
+        repo.find_task_id_by_any_external_event_id_on_subject(
+            &ids,
+            EventSubject {
+                adapter: "github_pr",
+                source_name: "soaplabs/moatless",
+                subject_key: "soaplabs/moatless#607",
+            },
+        )
+        .await
+        .unwrap(),
+        None,
+    );
+}
+
+/// A row that records no subject cannot be shown to have happened here.
+///
+/// Rows predating the subject columns, and the `unknown` provider the
+/// activity backfill wrote, are the ones this covers. The answer binds a task
+/// to a subject, so an unplaceable row must yield nothing rather than a guess:
+/// the cost is a binding not auto-attached, against delivering a pull
+/// request's whole event stream into an unrelated task.
+#[sqlx::test]
+async fn an_event_that_records_no_subject_names_no_task(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_task(&pool, "task-2", "user-2").await;
+    let repo = PgMessageDao(pool.clone());
+
+    let mut msg = make_message_row("task-1", "no-subject");
+    msg.external_event_id = Some("github:pr:opened:607".to_string());
+    msg.external_adapter = Some("github_pr".to_string());
+    msg.external_subject_key = None;
+    message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
+
+    repo.record_external_event("task-2", "github:pr:opened:608", "github_pr", None)
+        .await
+        .unwrap();
+
+    for id in ["github:pr:opened:607", "github:pr:opened:608"] {
+        assert_eq!(
+            repo.find_task_id_by_any_external_event_id_on_subject(
+                &[id.to_string()],
+                EventSubject {
+                    adapter: "github_pr",
+                    source_name: "soaplabs/moatless",
+                    subject_key: "soaplabs/moatless#607",
+                },
+            )
+            .await
+            .unwrap(),
+            None,
+        );
+    }
 }
 
 /// A claim recorded by the id alone answers both readers.
