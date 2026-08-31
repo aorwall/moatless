@@ -18,7 +18,7 @@ use std::sync::Arc;
 use moatless_types::access_control::ScopeContext;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use crate::adapters::error::SharedAdapterError;
+use moatless_adapter_model::error::SharedAdapterError;
 use moatless_adapter_model::models::AdapterConnection;
 
 use super::handlers::{AdapterDeliveryHandler, AdapterDeliveryHandlers};

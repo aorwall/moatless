@@ -1,9 +1,9 @@
 //! Canonical GitHub pull-request subject coordinates.
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::TaskBinding;
 use moatless_types::adapter::{BindingContext, BindingDestination};
-use moatless_loops::adapters::AdapterDestinationBuilder;
+use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 
 use super::adapter::GithubPrAdapter;
 
@@ -230,7 +230,7 @@ mod tests {
 
     use super::*;
     use crate::adapter::GithubPrAdapter;
-    use moatless_loops::adapters::AdapterDestinationBuilder;
+    use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 
     #[test]
     fn parses_thread_properties_and_builds_canonical_values() {

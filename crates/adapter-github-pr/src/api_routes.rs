@@ -31,9 +31,9 @@ use tracing::{info, warn};
 
 use moatless_backend_core::task::{ExternalEvent, TaskReader, TranscriptAppend};
 use moatless_loops::adapters::common::{ensure_task_access_only, ensure_task_access_with};
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::footer::FOOTER_MARKER;
-use moatless_loops::adapters::AdapterDestinationBuilder;
+use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_types::access_control::Actor;
 use moatless_core::http_auth::AuthUser;

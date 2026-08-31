@@ -350,6 +350,19 @@ jobs:
             echo "::notice::Skipping moatless-backend-core --no-default-features — cargo manifest did not change"
           fi
 
+          # The Adapter kernel with neither feature on: the contract, and no
+          # database driver, no axum, no moatless-core. Nothing else checks
+          # this. The workspace floor cannot — `moatless-loops` enables
+          # `postgres` and `http`, and cargo unifies features across a
+          # workspace build, so an ungated `use axum::…` added to this crate
+          # compiles clean there and only breaks a consumer that took the
+          # kernel bare. `--lib` rather than `--all-targets` on purpose: the
+          # test targets pull this crate's own dev-dependency on itself, which
+          # turns both features back on. Cheap (a handful of deps), so it runs
+          # every time rather than only on a manifest change — the failure mode
+          # is a source edit, not a manifest edit.
+          cargo clippy -p moatless-adapter-model --lib -- -D warnings
+
           .github/scripts/apt-https-mirrors.sh
           apt-get update
           apt-get install -y --no-install-recommends jq

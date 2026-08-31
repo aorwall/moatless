@@ -15,7 +15,7 @@ use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_loops::loops::dao::LoopDao;
 use moatless_core::db::DbPool;
 
@@ -291,7 +291,7 @@ mod error_source_tests {
     use axum::response::IntoResponse as _;
 
     use super::*;
-    use moatless_loops::adapters::test_support::response_snapshot;
+    use moatless_adapter_model::test_support::response_snapshot;
 
     /// A pool pointed at a dead loopback port, with a short acquire timeout so
     /// the pairing queries fail fast instead of waiting out the default.

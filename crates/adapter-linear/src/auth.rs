@@ -21,7 +21,7 @@
 
 use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::LinearConfig;
@@ -157,7 +157,7 @@ pub(super) async fn api_for_binding(
 /// issue and nothing else. Refusing when more than one workspace is installed
 /// is the point: guessing would post a comment into the wrong company's Linear.
 ///
-/// [`AdapterDirectDestination::post_to_destination`]: moatless_loops::adapters::AdapterDirectDestination::post_to_destination
+/// [`AdapterDirectDestination::post_to_destination`]: moatless_adapter_model::capabilities::AdapterDirectDestination::post_to_destination
 pub(super) async fn api_for_single_workspace(
     adapter: &LinearAdapter,
 ) -> Result<LinearAgentApi, AdapterError> {

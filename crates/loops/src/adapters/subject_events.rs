@@ -4,7 +4,7 @@
 //! exist. The shared binding runtime owns recipient resolution, receipt
 //! deduplication, self-echo filtering, and sandbox notification.
 
-use crate::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::InboundMessage;
 use crate::bindings::runtime::RoutingService;

@@ -119,7 +119,7 @@ async fn normalize_payload(
 }
 
 fn message(
-    primary: Result<PrimaryWebhook, moatless_loops::adapters::error::AdapterError>,
+    primary: Result<PrimaryWebhook, moatless_adapter_model::error::AdapterError>,
 ) -> Box<moatless_types::adapter::InboundMessage> {
     match primary.expect("normalization should succeed") {
         PrimaryWebhook::Message(message) => message,

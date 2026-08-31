@@ -2,7 +2,7 @@
 //!
 //! Verifies `X-Webhook-Signature` header using `HMAC-SHA256(secret, body)`.
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::signature::verify_hmac_sha256;
 
 /// Verify the webhook request signature.

@@ -237,8 +237,8 @@ impl AppStateBoundPullRequests {
 /// A reference that names no pull request the credential can see is `NotFound`;
 /// a missing credential or a host that refused is surfaced verbatim; anything
 /// else is this deployment's own failure, logged rather than sent.
-fn pull_request_error(error: crate::adapters::error::AdapterError) -> PullRequestError {
-    use crate::adapters::error::{AdapterError, SharedAdapterError};
+fn pull_request_error(error: moatless_adapter_model::error::AdapterError) -> PullRequestError {
+    use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
     match error {
         AdapterError::UpstreamCredential { .. } => PullRequestError::Unavailable(
             "Connect a GitHub account to resolve pull requests.".to_string(),
@@ -1267,7 +1267,7 @@ mod tests {
     /// this deployment's own bug.
     #[test]
     fn the_two_recognised_adapter_errors_stay_actionable() {
-        use crate::adapters::error::{AdapterError, SharedAdapterError};
+        use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
         let missing_credential = pull_request_error(AdapterError::upstream_credential(
             "resolve the GitHub token for user u-1",

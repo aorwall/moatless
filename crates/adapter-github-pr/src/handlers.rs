@@ -5,7 +5,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::warn;
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_adapter_model::metrics::record_webhook;
 

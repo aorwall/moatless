@@ -18,7 +18,7 @@ use crate::adapters::common::{
     task_binding_response,
 };
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::reply::ExternalReplyService;
 use moatless_core::http_auth::AuthUser;

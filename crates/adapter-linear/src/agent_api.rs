@@ -19,7 +19,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tracing::{info, warn};
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::metrics::record_api_call;
 use std::sync::Arc;
 
@@ -1149,7 +1149,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use moatless_loops::adapters::error::ProviderDecodeError;
+    use moatless_adapter_model::error::ProviderDecodeError;
     use moatless_loops::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     /// A pool that is never connected — `graphql_with_token` takes the token as

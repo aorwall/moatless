@@ -20,7 +20,7 @@ use std::sync::Arc;
 use crate::adapters::delivery::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryRequest,
 };
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::metrics::record_webhook;
 use moatless_types::adapter::InboundDeliveryPayload;
 use crate::bindings::runtime::RoutingService;

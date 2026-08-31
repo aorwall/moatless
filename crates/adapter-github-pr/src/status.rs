@@ -3,7 +3,7 @@
 use moatless_types::repository::GitHostRepo;
 use tracing::warn;
 
-use moatless_loops::adapters::AdapterBindingStatus;
+use moatless_adapter_model::capabilities::AdapterBindingStatus;
 use moatless_adapter_model::models::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
 use std::sync::Arc;

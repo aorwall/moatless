@@ -3414,10 +3414,14 @@ name = "moatless-adapter-model"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "chrono",
  "hex",
  "hmac 0.13.0",
  "metrics",
+ "moatless-adapter-model",
+ "moatless-api-schemas",
+ "moatless-core",
  "moatless-types",
  "reqwest 0.13.4",
  "serde",
@@ -3425,6 +3429,8 @@ dependencies = [
  "sha2 0.11.0",
  "sqlx",
  "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

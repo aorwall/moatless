@@ -28,7 +28,7 @@ use sha2::Sha256;
 use sqlx::PgPool;
 use sqlx::Row;
 
-use moatless_backend::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_backend::adapters::providers::linear;
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_backend::state::AppState;

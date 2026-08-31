@@ -29,7 +29,7 @@ use tracing::warn;
 
 use moatless_types::adapter::AdapterKind;
 use moatless_loops::adapters::common::{ensure_task_access_only, resolve_connection};
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
 use moatless_backend_core::identity::UserDisplay;
 use moatless_backend_core::task::TaskReader;

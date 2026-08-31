@@ -8,7 +8,7 @@ use moatless_api_schemas::loops::{Loop, LoopConfig, LoopExecutionState, LoopSour
 use serde::Deserialize;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
 use moatless_backend_core::access_control::{ResolvedScope, ensure_can_use_repository, resolve_scope_for_create};
 use crate::loops::dao::{LoopDao, LoopRecord, LoopSourceRow};

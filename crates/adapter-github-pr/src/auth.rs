@@ -8,7 +8,7 @@ use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_types::access_control::Actor;
 use moatless_types::repository::GitHostRepo;
 use moatless_backend_core::identity::{GitHostTokenError, GitHostTokenIssuer};
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::BindingContext;
 

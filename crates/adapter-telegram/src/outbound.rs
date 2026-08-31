@@ -2,13 +2,11 @@
 
 use std::fmt::Write;
 
-use moatless_loops::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{BindingContext, DestinationPostResult, OutboundReply};
 use moatless_types::loops::{LoopContext, RoutingMode};
-use moatless_loops::adapters::{
-    AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
-};
+use moatless_adapter_model::capabilities::{AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply};
 
 use super::adapter::TelegramAdapter;
 use super::subject::{
@@ -182,7 +180,7 @@ mod tests {
     use super::super::api::TelegramApi;
     use super::super::test_support::{BotApiStub, bot_api_stub, test_loop_context};
     use super::*;
-    use moatless_loops::adapters::error::SharedAdapterError;
+    use moatless_adapter_model::error::SharedAdapterError;
 
     /// A provider whose Bot API calls are recorded rather than sent.
     async fn provider_with_stub() -> (TelegramAdapter, BotApiStub) {

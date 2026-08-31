@@ -1,6 +1,6 @@
 //! Slack HMAC-SHA256 webhook signature verification.
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::signature::verify_hmac_sha256;
 
 /// Verify the Slack request signature.

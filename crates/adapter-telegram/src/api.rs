@@ -3,7 +3,7 @@
 use reqwest::Client;
 use tracing::warn;
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
 /// Maximum message length for Telegram's sendMessage API.
 const MAX_MESSAGE_LENGTH: usize = 4096;

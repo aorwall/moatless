@@ -3,7 +3,7 @@
 use tracing::{info, warn};
 
 use moatless_backend_core::identity::ProviderIdentityLink;
-use moatless_loops::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 
 /// The system user a Telegram sender is linked to, if any.
 ///

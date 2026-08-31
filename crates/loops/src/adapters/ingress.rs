@@ -17,7 +17,7 @@ use tracing::{debug, warn};
 use crate::adapters::delivery::{
     AdapterDeliveryRequest, AdapterDeliveryStore, Admission, AdmitError,
 };
-use crate::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 
 /// What one Adapter's `receive` made of a delivery it is prepared to
 /// acknowledge.

@@ -8,7 +8,7 @@ use tracing::debug;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_adapter_model::metrics::record_webhook;
 use moatless_loops::loops::ports::LoopReader;
@@ -117,9 +117,9 @@ mod tests {
     use axum::response::IntoResponse;
 
     use moatless_loops::adapters::delivery::AdmitError;
-    use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+    use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
     use moatless_loops::adapters::ingress::IngressError;
-    use moatless_loops::adapters::test_support::response_snapshot;
+    use moatless_adapter_model::test_support::response_snapshot;
 
     /// The acknowledgment class of each failure the Slack webhook path raises.
     /// An ingress rejection and an admission failure both leave the request

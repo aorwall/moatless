@@ -121,7 +121,7 @@ moatless-backend-core = { path = "../backend-core", features = ["database", "ope
 # Lowest-band crate: config, db, error, events, and the core-clean vocabularies
 moatless-core = { path = "../core", features = ["openapi"] }
 # Adapter domain types + adapter_connections persistence (lifted out of adapters/)
-moatless-adapter-model = { path = "../adapter-model", features = ["postgres"] }
+moatless-adapter-model = { path = "../adapter-model", features = ["postgres", "http"] }
 # Identity band: auth, extractors, team, adapter apps, secrets, setup (lifted out
 # of crates/backend/src). Composed through permanent facade modules that re-export it.
 moatless-identity = { path = "../identity" }

@@ -20,7 +20,7 @@ use tracing::{debug, info, warn};
 use moatless_types::task::TaskStatus;
 use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
-use moatless_loops::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
 use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_backend_core::task::{CloseReason, TaskFinisher};

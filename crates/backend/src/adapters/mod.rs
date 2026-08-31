@@ -7,21 +7,20 @@
 //! naming `crate::adapters::…` unchanged. Explicit named re-exports (never a
 //! glob) so the crate census resolves edges through the facade.
 //!
-//! Only the Adapter core is re-exported here. The shared Adapter vocabulary
-//! (`AdapterKind`, `BindingDestination`, `DestinationPostResult`) is defined in
-//! `moatless-types` and is named from there directly — routing it through two
-//! facades would give one type three paths.
+//! Only what the loops band itself owns is re-exported here. The Adapter
+//! *contract* — the capability traits and `AdapterError` — belongs to
+//! `moatless-adapter-model`, and the shared vocabulary (`AdapterKind`,
+//! `BindingDestination`, `DestinationPostResult`) to `moatless-types`; both are
+//! named from their owning crate directly. Routing a type through two facades
+//! would give it three paths, and the longest one wins by sitting closest to
+//! the caller.
 
 pub mod handlers;
 pub mod providers;
 pub mod routes;
 
 pub use moatless_loops::adapters::{
-    Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,
-    AdapterDirectDestination, AdapterDirectMessage, AdapterInboundPresentation,
-    AdapterMessageReply, AdapterOutboundContent, AdapterPostBindingFollowup, AdapterReactions,
-    Adapters, common, delivery, error, events, inbound_delivery, ingress, self_echo,
-    subject_events,
+    Adapters, common, delivery, events, inbound_delivery, ingress, self_echo, subject_events,
 };
 
 /// Loopback stubs for Adapter HTTP clients, re-exported from the crate under the

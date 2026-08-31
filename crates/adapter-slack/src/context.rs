@@ -1,10 +1,10 @@
 //! How a Slack thread is presented to the agent: the instructions and labels
 //! that frame an inbound message, and the thread history fetched alongside it.
 
-use moatless_loops::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 use moatless_types::adapter::{BindingContext, InboundMessage};
 use moatless_types::loops::LoopContext;
-use moatless_loops::adapters::AdapterInboundPresentation;
+use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 
 use super::adapter::SlackAdapter;
 use super::config::SlackAdapterConfig;
@@ -147,7 +147,7 @@ mod tests {
     use moatless_types::adapter::{AdapterKind, Audience, BindingContext, InboundMessage};
     use moatless_types::loops::{LoopContext, RoutingMode};
     use moatless_loops::adapters::test_support::ProviderStub;
-    use moatless_loops::adapters::AdapterInboundPresentation;
+    use moatless_adapter_model::capabilities::AdapterInboundPresentation;
     use moatless_types::access_control::Scope;
 
     use crate::adapter::SlackAdapter;

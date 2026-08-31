@@ -5,11 +5,10 @@ use std::sync::Arc;
 use moatless_backend_core::identity::GitHostTokenIssuer;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::AdapterKind;
-use moatless_loops::adapters::{
-    Adapter, AdapterInboundPresentation, AdapterOutboundContent, Adapters,
-};
+use moatless_adapter_model::capabilities::{Adapter, AdapterInboundPresentation, AdapterOutboundContent};
+use moatless_loops::adapters::Adapters;
 use moatless_loops::loops::ports::LoopReader;
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_loops::bindings::dao::TaskBindingDao;
@@ -257,9 +256,7 @@ mod tests {
 
     use moatless_core::db::DbPool;
     use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-    use moatless_loops::adapters::{
-        Adapter, AdapterDestinationBuilder, AdapterInboundPresentation, AdapterOutboundContent,
-    };
+    use moatless_adapter_model::capabilities::{Adapter, AdapterDestinationBuilder, AdapterInboundPresentation, AdapterOutboundContent};
 
     use super::GithubPrAdapter;
 

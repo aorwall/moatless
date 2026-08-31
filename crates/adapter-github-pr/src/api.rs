@@ -6,7 +6,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tracing::warn;
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
 /// Maximum comment length for GitHub's API (64 KB).
 pub(super) const MAX_COMMENT_LENGTH: usize = 65_536;

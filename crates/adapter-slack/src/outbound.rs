@@ -5,16 +5,14 @@ use std::fmt::Write as _;
 
 use tracing::warn;
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{
     BindingContext, DestinationPostResult, OutboundPresentation, OutboundReply, SlackBlock,
     SlackText, TaskProvenance,
 };
 use moatless_types::loops::LoopContext;
-use moatless_loops::adapters::{
-    AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
-};
+use moatless_adapter_model::capabilities::{AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply};
 
 use super::adapter::SlackAdapter;
 use super::api::{PostMessage, SlackApi};
@@ -288,9 +286,7 @@ mod tests {
     };
     use moatless_types::loops::{LoopContext, RoutingMode};
     use moatless_loops::adapters::test_support::ProviderStub;
-    use moatless_loops::adapters::{
-        AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage,
-    };
+    use moatless_adapter_model::capabilities::{AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage};
     use moatless_types::access_control::Scope;
 
     use crate::adapter::SlackAdapter;

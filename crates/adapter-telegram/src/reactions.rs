@@ -1,7 +1,7 @@
 //! Reaction capability for Telegram messages.
 
-use moatless_loops::adapters::AdapterReactions;
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::capabilities::AdapterReactions;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::BindingContext;
 
 use super::adapter::TelegramAdapter;

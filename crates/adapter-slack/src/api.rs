@@ -3,7 +3,7 @@
 use serde::Deserialize;
 use tracing::warn;
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::SlackBlock;
 
 /// Slack API client wrapping reqwest.

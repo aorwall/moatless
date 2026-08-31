@@ -3,9 +3,9 @@
 //! Every Slack destination — a Binding's thread properties, a `channel:`/`dm:`/
 //! `thread:` string, a reaction target — is read here and nowhere else.
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::{BindingContext, BindingDestination};
-use moatless_loops::adapters::AdapterDestinationBuilder;
+use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 
 use super::adapter::SlackAdapter;
 
@@ -249,7 +249,7 @@ impl AdapterDestinationBuilder for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use moatless_loops::adapters::AdapterDestinationBuilder;
+    use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
     use moatless_types::adapter::BindingContext;
 
     use crate::adapter::SlackAdapter;

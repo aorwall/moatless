@@ -9,7 +9,7 @@
 
 use tracing::{debug, info, warn};
 
-use moatless_loops::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::models::{AccessDecision, MessageTrigger};
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::LoopContext;

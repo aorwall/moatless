@@ -4,6 +4,9 @@
 //! produces it, so these helpers give the clients somewhere local to talk to:
 //! an address nothing listens on (transport failure) or a stub that answers
 //! with a body of our choosing (rejection / undecodable payload).
+//!
+//! The helpers that read a *rendered* `AdapterError` back are in
+//! `moatless_adapter_model::test_support`, next to the renderer they check.
 
 // Compiled for two consumers — in-crate `#[cfg(test)]` modules and the
 // `db-tests` integration binaries — and neither uses all of it. Under the
@@ -184,34 +187,11 @@ fn graphql_operation_name(document: &str) -> Option<String> {
     Some(field.to_string())
 }
 
-/// A genuine [`reqwest::Error`] from a refused connection.
-pub async fn transport_error() -> reqwest::Error {
-    reqwest::Client::new()
-        .get(UNREACHABLE_BASE)
-        .send()
-        .await
-        .expect_err("connection to a dead loopback port must fail")
-}
-
-/// Walk `Error::source` and collect each link's `Display`.
-pub fn source_chain(err: &dyn std::error::Error) -> Vec<String> {
-    let mut chain = Vec::new();
-    let mut current = err.source();
-    while let Some(e) = current {
-        chain.push(e.to_string());
-        current = e.source();
-    }
-    chain
-}
-
-/// Read an `IntoResponse` result into `(status, body)` for response snapshots.
-pub async fn response_snapshot(response: axum::response::Response) -> (StatusCode, String) {
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("read response body");
-    (status, String::from_utf8_lossy(&bytes).into_owned())
-}
+// `transport_error`, `source_chain` and `response_snapshot` were here. They
+// assert the Adapter error contract, so they moved with it into
+// `moatless_adapter_model::test_support`; name them from there. What is left in
+// this module is about a *provider's* HTTP surface — a stub to talk to, a
+// recorder for its call budget — which is the loops band's business.
 
 /// Thin pass-throughs over the registry's `pub(crate)` capability accessors.
 ///
@@ -231,10 +211,13 @@ pub async fn response_snapshot(response: axum::response::Response) -> (StatusCod
 /// `outbound_for_direct_*`, and `post_binding_followup` are already `pub` (they
 /// have cross-crate production callers), so the test names them directly.
 pub mod registry {
+    use moatless_adapter_model::capabilities::{
+        AdapterBindingReply, AdapterMessageReply, AdapterReactions,
+    };
+    use moatless_adapter_model::error::AdapterError;
     use moatless_types::adapter::AdapterKind;
 
-    use super::super::error::AdapterError;
-    use super::super::{AdapterBindingReply, AdapterMessageReply, AdapterReactions, Adapters};
+    use super::super::Adapters;
 
     pub fn reactions(
         adapters: &Adapters,

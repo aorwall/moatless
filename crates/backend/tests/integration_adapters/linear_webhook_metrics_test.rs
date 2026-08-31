@@ -36,7 +36,7 @@ use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use sha2::Sha256;
 use sqlx::PgPool;
 
-use moatless_backend::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_backend::state::AppState;
 

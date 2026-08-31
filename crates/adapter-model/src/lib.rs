@@ -2,17 +2,31 @@
 // workspace `deny`/`warn`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Adapter domain types (loop/binding contexts, DB rows, inbound/outbound
-//! messages, access-control vocabularies) and `adapter_connections`
-//! persistence.
+//! The Adapter kernel: the whole Adapter contract in one crate.
 //!
-//! Lifted out of `moatless-backend::adapters` so the binding and adapter
-//! layers can name these types without pulling in the whole backend.
+//! What an Adapter offers ([`capabilities`]), what it speaks ([`models`],
+//! [`apps`], [`footer`], [`signature`]), what it can fail with ([`error`]), and
+//! where its connections are stored ([`dao`]). A provider crate implements the
+//! contract by naming this crate and nothing above it; the bands that
+//! orchestrate providers name the same items from the same paths.
+//!
+//! Two features keep the base surface to the contract itself: `postgres` adds
+//! the connection store and its row shapes, `http` adds the `IntoResponse`
+//! rendering of [`error::AdapterError`]. A consumer that neither reads rows nor
+//! answers requests compiles neither a database driver nor axum.
 
 pub mod apps;
+pub mod capabilities;
 pub mod dao;
 pub mod error;
 pub mod footer;
 pub mod metrics;
 pub mod models;
 pub mod signature;
+
+/// Helpers the Adapter error tests need, shared with the crates whose own tests
+/// assert against a rendered [`error::AdapterError`]. The `test,` disjunct stays
+/// FIRST so items gated this way read as test-context. Requires `http`, which
+/// `test-support` enables: two of the three helpers are about the renderer.
+#[cfg(all(feature = "http", any(test, feature = "test-support")))]
+pub mod test_support;

@@ -79,7 +79,7 @@ use moatless_loops::adapters::delivery::{
     AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
     ConnectionDeliveryPayload, register_connection_delivery,
 };
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::AdapterConnection;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_loops::loops::ports::LoopReader;

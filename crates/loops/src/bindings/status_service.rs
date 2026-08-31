@@ -13,7 +13,8 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use moka::future::Cache;
 
-use crate::adapters::{AdapterBindingStatus, Adapters};
+use moatless_adapter_model::capabilities::AdapterBindingStatus;
+use crate::adapters::Adapters;
 use crate::bindings::dao::TaskBindingDao;
 use moatless_adapter_model::models::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
@@ -67,9 +68,10 @@ pub fn should_refresh(
 }
 
 /// Process-global cache keyed by the external subject a binding points at (see
-/// [`crate::adapters::AdapterBindingStatus::binding_status_key`]), so several tasks bound to
-/// the same subject share one entry and one API call. A short TTL keeps the
-/// live fetch cheap under fan-out without holding stale status for long.
+/// [`moatless_adapter_model::capabilities::AdapterBindingStatus::binding_status_key`]),
+/// so several tasks bound to the same subject share one entry and one API call.
+/// A short TTL keeps the live fetch cheap under fan-out without holding stale
+/// status for long.
 fn cache() -> &'static Cache<String, ExternalStatus> {
     static CACHE: OnceLock<Cache<String, ExternalStatus>> = OnceLock::new();
     CACHE.get_or_init(|| {
@@ -129,7 +131,7 @@ mod tests {
     use chrono::Duration as ChronoDuration;
     use serde_json::Value;
 
-    use crate::adapters::AdapterBindingStatus;
+    use moatless_adapter_model::capabilities::AdapterBindingStatus;
 
     use super::*;
 

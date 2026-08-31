@@ -1,13 +1,22 @@
 //! Adapter capability interfaces and shared capability value types.
+//!
+//! What an Adapter *offers* — reply to a binding, reply to one message, post to
+//! a raw destination, react, enrich inbound context, report external status.
+//! Each is a separate trait so a provider implements only what it can do and
+//! the registry can ask for one capability without naming a concrete adapter.
+//!
+//! These traits are the Adapter contract, so they live in the kernel with the
+//! vocabulary they speak and the error they return. Nothing here names a store,
+//! a runtime, or a band above this crate: a provider crate implements them
+//! without depending on whatever is orchestrating it.
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
-use moatless_types::adapter::{BindingContext, ExternalStatus, InboundMessage, OutboundReply};
-use moatless_types::loops::LoopContext;
-
-use moatless_types::adapter::AdapterKind;
-use moatless_types::adapter::{BindingDestination, DestinationPostResult};
-
+use crate::error::{AdapterError, SharedAdapterError};
+use crate::models::{binding_context, subscription_context};
+use moatless_types::adapter::{
+    AdapterConnection, AdapterKind, BindingContext, BindingDestination, DestinationPostResult,
+    ExternalStatus, InboundMessage, OutboundReply, TaskBinding,
+};
+use moatless_types::loops::{LoopContext, SubscriptionMatch};
 
 /// Universal adapter identity kept for compatibility with typed provider
 /// registration and legacy name lookups.
@@ -108,9 +117,8 @@ pub trait AdapterBindingReply: AdapterOutboundContent {
             )
             .into());
         };
-        let config =
-            moatless_adapter_model::models::subscription_context(rule);
-        let thread = moatless_adapter_model::models::binding_context(binding);
+        let config = subscription_context(rule);
+        let thread = binding_context(binding);
         self.send_reply(&thread, &config, message).await
     }
 }
@@ -153,8 +161,8 @@ pub trait AdapterPostBindingFollowup: Adapter {
     /// Follow-up the provider runs after an outbound send created a binding.
     ///
     /// The implementor owns the ports this needs (a task store, its frontend
-    /// URL) rather than receiving `AppState`, so the loops-band capability
-    /// surface names nothing in the server band.
+    /// URL) rather than receiving `AppState`, so the capability surface names
+    /// nothing in the server band.
     async fn on_binding_created(
         &self,
         connection: &AdapterConnection,

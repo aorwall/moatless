@@ -38,7 +38,7 @@ uuid = { version = "1", features = ["v4", "v5", "serde"] }
 # Percent-encoding for outbound provider URLs.
 urlencoding = "2"
 
-moatless-adapter-model = { path = "../adapter-model", features = ["postgres"] }
+moatless-adapter-model = { path = "../adapter-model", features = ["postgres", "http"] }
 moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
 moatless-core = { path = "../core", features = ["openapi"] }
@@ -64,6 +64,7 @@ db-tests = []
 workspace = true
 
 [dev-dependencies]
+moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }
 async-trait = "0.1"
 http-body-util = "0.1"
 tokio-test = "0.4"

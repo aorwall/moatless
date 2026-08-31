@@ -13,7 +13,7 @@ use crate::adapters::common::{
     load_adapter_connection_for_auth_with,
 };
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::bindings::outbound::{self, OutboundSender};
 use crate::bindings::recently_sent::RecentlySent;
 use crate::loops::dao::LoopDao;

@@ -16,14 +16,13 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use moatless_loops::adapters::delivery::Admission;
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::{
     AdapterKind, Audience, BindingContext, InboundMessage, OutboundReply,
 };
 use moatless_types::loops::LoopContext;
-use moatless_loops::adapters::{
-    Adapter, AdapterBindingReply, AdapterMessageReply, AdapterOutboundContent, Adapters,
-};
+use moatless_adapter_model::capabilities::{Adapter, AdapterBindingReply, AdapterMessageReply, AdapterOutboundContent};
+use moatless_loops::adapters::Adapters;
 
 /// Inbound webhook payload.
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]

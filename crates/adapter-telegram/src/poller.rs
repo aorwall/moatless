@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn only_a_fixable_failure_holds_the_offset_back() {
         use moatless_loops::adapters::delivery::AdmitError;
-        use moatless_loops::adapters::error::SharedAdapterError;
+        use moatless_adapter_model::error::SharedAdapterError;
 
         assert!(is_worth_redelivering(&IngressError::NotAdmitted(
             AdmitError::AtCapacity { limit: 100 }

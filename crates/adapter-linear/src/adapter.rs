@@ -9,17 +9,14 @@ use tracing::warn;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{
     AdapterKind, BindingContext, ExternalStatus, InboundMessage, OutboundReply,
 };
 use moatless_types::loops::LoopContext;
-use moatless_loops::adapters::{
-    Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
-    AdapterInboundPresentation, AdapterMessageReply, AdapterOutboundContent,
-    AdapterPostBindingFollowup, Adapters,
-};
+use moatless_adapter_model::capabilities::{Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination, AdapterInboundPresentation, AdapterMessageReply, AdapterOutboundContent, AdapterPostBindingFollowup};
+use moatless_loops::adapters::Adapters;
 use moatless_loops::loops::ports::LoopReader;
 use moatless_backend_core::task::TaskReader;
 use moatless_backend_core::identity::AppCredentials;

@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use tokio::sync::OnceCell;
 
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::AdapterKind;
-use moatless_loops::adapters::{Adapter, AdapterOutboundContent, Adapters};
+use moatless_adapter_model::capabilities::{Adapter, AdapterOutboundContent};
+use moatless_loops::adapters::Adapters;
 use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_core::config::Config;

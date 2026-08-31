@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use super::super::capabilities::Adapter;
+use moatless_adapter_model::capabilities::Adapter;
 use super::Adapters;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::AdapterKind;
 
 // The capability-matrix tests that build the five concrete providers live in the

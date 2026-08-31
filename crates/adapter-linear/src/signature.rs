@@ -6,7 +6,7 @@
 //! collapsed by the delivery identity it is admitted under
 //! (`handlers::dedup_key`), which is durable rather than in-process.
 
-use moatless_loops::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::signature::verify_hmac_sha256;
 
 /// Verify the Linear webhook signature using a constant-time comparison.

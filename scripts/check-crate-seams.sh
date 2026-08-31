@@ -119,13 +119,14 @@ PERL
 # names the change that deletes it; the list only shrinks. An entry with no
 # condition is a second path nobody chose, not an exception.
 read -r -d '' ALLOWED_REEXPORTS <<'REEXPORTS' || true
-# `SharedAdapterError` and `ProviderDecodeError` are named from `adapter-model`
-# through this facade so the provider error paths spell one `error::` prefix
-# while `AdapterError` still lives here. Removed by the Adapter contract move —
-# when `AdapterError` and its renderer relocate to `moatless-adapter-model`, the
-# whole error module is named from there and this re-export has nothing to
-# forward. Stated in crates/loops/AGENTS.md.
-error.rs          moatless_adapter_model
+# Empty, and it got here by shrinking rather than by never having been used.
+# The one entry was `error.rs moatless_adapter_model`: `SharedAdapterError` and
+# `ProviderDecodeError` were named from the kernel through this facade so the
+# provider error paths spelled one `error::` prefix while `AdapterError` still
+# lived here. The Adapter contract move — `AdapterError`, its renderer, and the
+# capability traits into `moatless-adapter-model` — removed the module doing the
+# forwarding, so the entry cleared by construction rather than by exception.
+# Nothing may be added back without the condition that deletes it again.
 REEXPORTS
 
 # The re-export scan, hoisted so the real facade and the self-test fixture run

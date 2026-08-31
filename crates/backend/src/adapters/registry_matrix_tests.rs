@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::adapters::test_support::registry as ts;
 use moatless_types::adapter::AdapterKind;
 

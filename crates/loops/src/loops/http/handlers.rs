@@ -13,7 +13,7 @@ use utoipa::ToSchema;
 use crate::adapters::common::{LoopFilter, ensure_repository_exists, load_adapter_connection_for_auth_with, load_loop_for_auth_with, loop_response, next_fire_at, resolve_scope_for_adapter_create};
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::models::parse_adapter_kind;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::loops::dao::{AdapterSourceUpdate, LoopDao, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource, UpdateLoopSource as StoreUpdateSource};
 use moatless_types::loops::LoopKind as DomainLoopKind;
 use crate::loops::sync::LoopSyncService;

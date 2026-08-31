@@ -29,23 +29,40 @@ loop sync. It sits below the backend and above the provider crates
 
 ## The Adapter kernel is a crate, not a re-export
 
-`moatless-adapter-model` holds the Adapter vocabulary every band shares: the
-domain types and row shapes (`models`), the `adapter_connections` store (`dao`),
-the shared error half (`error`), the footer render/parse layer (`footer`), the
-HMAC webhook check (`signature`), the ingress counters (`metrics`), and the
-stored-app seam (`apps`). Name it directly — `moatless_adapter_model::…` — from
-this crate and from every provider crate. Do not re-export it through
-`crate::adapters`; one path to a type is the point. The shared Adapter
-vocabulary that lives one crate lower — `AdapterKind`, `BindingDestination`,
-`DestinationPostResult` in `moatless-types` — follows the same rule: name it
-from `moatless_types::adapter`, not through this facade.
+`moatless-adapter-model` holds the whole Adapter contract: what an Adapter
+offers (`capabilities` — the eleven traits a provider implements), what it
+speaks (`models`, `apps`, `footer`, `signature`), what it can fail with
+(`error` — both halves, `SharedAdapterError` and `AdapterError`, plus the
+`IntoResponse` renderer over them), where its connections are stored (`dao`),
+and the ingress counters (`metrics`). A provider crate implements an Adapter by
+naming that crate and nothing above it.
+
+Name it directly — `moatless_adapter_model::…` — from this crate and from every
+provider crate. Do not re-export it through `crate::adapters`; one path to a
+type is the point. The shared Adapter vocabulary that lives one crate lower —
+`AdapterKind`, `BindingDestination`, `DestinationPostResult` in
+`moatless-types` — follows the same rule: name it from `moatless_types::adapter`,
+not through this facade.
+
+What is left under `src/adapters/` is what the loops band adds *around* the
+contract: the registry that maps a kind to a capability, the durable-delivery
+seam, ingress, self-echo, subject events, and the shared connection/loop
+handler support. If a change would put a trait every provider implements back in
+here, it belongs in the kernel instead.
 
 `scripts/check-crate-seams.sh` enforces this: a `pub use` of another crate's
 item anywhere under `src/adapters/` fails unless it is listed in that script's
-`ALLOWED_REEXPORTS` with the change that removes it. One re-export is listed —
-`error.rs` forwards `SharedAdapterError` and `ProviderDecodeError` from
-`adapter-model` while `AdapterError` still lives here; it goes when the Adapter
-contract (`AdapterError` and its renderer) relocates to `adapter-model`.
+`ALLOWED_REEXPORTS` with the change that removes it. That list is now empty, and
+it got there by shrinking — its one entry was `error.rs` forwarding
+`SharedAdapterError` and `ProviderDecodeError` while `AdapterError` still lived
+here, and the contract move deleted the module that was forwarding them.
+
+Two features keep the kernel's base surface to the contract alone: `postgres`
+adds the connection store and its row shapes, `http` adds the renderer and the
+two crates it reads to build a body. Built with neither, `adapter-model` pulls
+no database driver, no axum, and no `moatless-core` — check it with
+`cargo build -p moatless-adapter-model` before assuming a new item can sit
+ungated.
 
 `AdapterConnectionDao` returns `StoreError`, and the Postgres store behind it
 sits under the crate's `postgres` feature. A crate that only reads connections

@@ -8,13 +8,13 @@ use tracing::{debug, warn};
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
-use moatless_loops::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_types::adapter::{BindingDestination, InboundMessage};
 use moatless_types::loops::LoopContext;
-use moatless_loops::adapters::Adapter;
+use moatless_adapter_model::capabilities::Adapter;
 use moatless_loops::loops::ports::LoopReader;
 use moatless_loops::bindings::ports::BindingProbe;
 use moatless_backend_core::identity::ProviderIdentityLink;
@@ -395,7 +395,7 @@ mod characterization {
     use sha2::Sha256;
 
     use moatless_types::adapter::AdapterKind;
-    use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+    use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
     use moatless_types::adapter::{Audience, InboundMessage};
     use moatless_types::loops::{LoopContext, RoutingMode};
     use moatless_loops::adapters::test_support::ProviderStub;

@@ -13,7 +13,7 @@
 //! sites: `issue_id` is a lookup key, and a provisioning path that spelled it
 //! differently would write a Binding nothing could find.
 
-use moatless_loops::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::models::{
     AdapterConnection, SubscriptionMatch, TaskBinding,
 };

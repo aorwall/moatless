@@ -12,7 +12,7 @@ use super::common::{
     resolve_scope_for_adapter_create,
 };
 use moatless_types::adapter::AdapterKind;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::AdapterConnection;
 use moatless_types::adapter::OutboundReply;
 use crate::bindings::outbound::{checked_presentation, resolve_files_with, truncate_text};

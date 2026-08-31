@@ -6,11 +6,11 @@ use std::sync::Arc;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use crate::adapters::AdapterInboundPresentation;
+use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use crate::adapters::Adapters;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryFailure;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;
@@ -1020,8 +1020,8 @@ mod error_source_tests {
     use axum::http::StatusCode;
     use axum::response::IntoResponse as _;
 
-    use crate::adapters::error::AdapterError;
-    use crate::adapters::test_support::{response_snapshot, source_chain};
+    use moatless_adapter_model::error::AdapterError;
+    use moatless_adapter_model::test_support::{response_snapshot, source_chain};
 
     /// These assert *reachability* of the causal error, not the depth of the
     /// chain. `TaskHandoff` boxes its source, so what has to keep working is

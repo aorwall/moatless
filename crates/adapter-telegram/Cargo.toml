@@ -18,7 +18,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 utoipa = { version = "5", features = ["axum_extras"] }
 
-moatless-adapter-model = { path = "../adapter-model" }
+moatless-adapter-model = { path = "../adapter-model", features = ["http"] }
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
 moatless-core = { path = "../core" }
 moatless-loops = { path = "../loops" }
@@ -34,4 +34,5 @@ workspace = true
 uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
 moatless-loops = { path = "../loops", features = ["test-support"] }
+moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }
 tokio = { version = "1", features = ["test-util"] }

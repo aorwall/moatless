@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::adapters::capabilities::{
+use moatless_adapter_model::capabilities::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
     AdapterDirectMessage, AdapterInboundPresentation, AdapterMessageReply,
     AdapterPostBindingFollowup, AdapterReactions,
 };
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
 use moatless_types::adapter::AdapterKind;
 

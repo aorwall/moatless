@@ -11,7 +11,7 @@
 use tracing::{debug, info};
 
 use moatless_types::adapter::AdapterKind;
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::AccessDecision;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::LoopContext;

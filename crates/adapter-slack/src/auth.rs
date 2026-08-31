@@ -8,7 +8,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use moatless_backend_core::identity::ProviderIdentityLink;
-use moatless_loops::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 
 use super::api::{SlackApi, SlackUserInfo};
 

@@ -13,7 +13,7 @@
 
 use axum::http::StatusCode;
 
-use moatless_loops::adapters::error::AdapterError;
+use moatless_adapter_model::error::AdapterError;
 use moatless_types::adapter::InboundMessage;
 use moatless_types::loops::LoopContext;
 use moatless_loops::adapters::test_support::stub_provider;

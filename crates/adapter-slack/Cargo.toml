@@ -17,7 +17,7 @@ tracing = "0.1"
 utoipa = { version = "5", features = ["axum_extras"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
-moatless-adapter-model = { path = "../adapter-model" }
+moatless-adapter-model = { path = "../adapter-model", features = ["http"] }
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
 moatless-core = { path = "../core" }
 moatless-loops = { path = "../loops" }
@@ -43,3 +43,4 @@ hex = "0.4"
 hmac = "0.13"
 sha2 = "0.11"
 moatless-loops = { path = "../loops", features = ["test-support"] }
+moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }

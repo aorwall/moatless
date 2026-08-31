@@ -7,7 +7,7 @@ use axum::http::HeaderMap;
 use tracing::{debug, info};
 
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
-use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::admit_delivery;

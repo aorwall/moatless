@@ -126,7 +126,7 @@ pub use store::AdapterDeliveryStore;
 pub use typed::{ConnectionDeliveryPayload, register_connection_delivery, register_typed_delivery};
 pub use worker::spawn_adapter_delivery_worker;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_backend_core::store::StoreError;
 
 /// Admission failures reach the sender as "not accepted, send it again".
@@ -218,7 +218,7 @@ mod tests {
     use http_body_util::BodyExt;
 
     use super::*;
-    use crate::adapters::test_support::transport_error;
+    use moatless_adapter_model::test_support::transport_error;
 
     async fn response_of(error: AdmitError) -> (axum::http::StatusCode, String) {
         let response = AdapterError::from(error).into_response();

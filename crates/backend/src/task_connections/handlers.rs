@@ -21,7 +21,8 @@ use moatless_types::task::TaskStatus;
 use moatless_adapter_model::models::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
 
-use crate::adapters::{AdapterBindingStatus, Adapters};
+use moatless_adapter_model::capabilities::AdapterBindingStatus;
+use crate::adapters::Adapters;
 use crate::auth::users::UserDao;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
@@ -509,7 +510,7 @@ fn connection_kind(subject_kind: &str) -> String {
 mod tests {
     use chrono::Utc;
 
-    use crate::adapters::AdapterBindingStatus;
+    use moatless_adapter_model::capabilities::AdapterBindingStatus;
 
     use super::*;
 
