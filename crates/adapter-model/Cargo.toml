@@ -28,6 +28,10 @@ serde_json = "1"
 sha2 = "0.11"
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"], optional = true }
 thiserror = "2"
+# The loopback stubs in `test_support` bind a port and serve on it. Optional and
+# pulled in by `test-support` alone, so no release build of this crate compiles
+# a runtime.
+tokio = { version = "1", features = ["net", "rt"], optional = true }
 # Unconditional: the ingress helpers and `render_mentions` log on the base
 # surface, and `tracing` pulls no driver or transport of its own, so gating it
 # would buy a smaller floor than the gate costs to read.
@@ -46,12 +50,13 @@ postgres = ["dep:sqlx"]
 # request takes the contract without compiling axum. Kept off by default so the
 # kernel's base surface stays the vocabulary and nothing else.
 http = ["dep:axum", "dep:moatless-api-schemas", "dep:moatless-core"]
-# Test-only helpers that travel with the error contract: reading a rendered
-# response back into `(status, body)`, walking a source chain, and producing a
-# genuine transport failure. Implies `http` because two of the three are about
-# the renderer. The `test,` disjunct stays FIRST on the module gate, matching
-# the convention the other crates use.
-test-support = ["http"]
+# Test-only helpers that travel with the Adapter contract: reading a rendered
+# response back into `(status, body)`, walking a source chain, producing a
+# genuine transport failure, and the loopback stubs a provider client talks to.
+# Implies `http` because the renderer helpers and the stub server both need it.
+# The `test,` disjunct stays FIRST on the module gate, matching the convention
+# the other crates use.
+test-support = ["http", "dep:tokio"]
 
 [dev-dependencies]
 # Enables this crate's own optional surface for its test targets, so the
@@ -59,6 +64,8 @@ test-support = ["http"]
 # only when a workspace build happens to unify `http` on from a consumer. A
 # feature-gated test that silently does not run is worse than no test.
 moatless-adapter-model = { path = ".", features = ["http", "postgres", "test-support"] }
+# Reads a rendered `AdapterError` body back in the delivery redaction tests.
+http-body-util = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # `mentions` tests build a stub `ProviderIdentityLink` that mints provider ids.
 uuid = { version = "1", features = ["v4"] }

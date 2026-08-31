@@ -75,10 +75,8 @@ use moatless_adapter_model::apps::AdapterAppReader;
 use moatless_core::config::Config;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::{
-    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
-    ConnectionDeliveryPayload, register_connection_delivery,
-};
+use moatless_loops::adapters::delivery::{ConnectionDeliveryPayload, register_connection_delivery};
+use moatless_adapter_model::delivery::{AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::AdapterConnection;
 use moatless_loops::bindings::runtime::RoutingService;
@@ -477,7 +475,7 @@ pub(super) fn notification_request(
 impl LinearInboundRouter {
     async fn session_provision(
         &self,
-        _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+        _delivery: moatless_adapter_model::delivery::AdapterDelivery,
         connection: AdapterConnection,
         payload: SessionProvisionDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
@@ -551,7 +549,7 @@ impl LinearInboundRouter {
 
     async fn session_prompt(
         &self,
-        _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+        _delivery: moatless_adapter_model::delivery::AdapterDelivery,
         connection: AdapterConnection,
         payload: SessionPromptDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
@@ -575,7 +573,7 @@ impl LinearInboundRouter {
 
     async fn issue_update(
         &self,
-        _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+        _delivery: moatless_adapter_model::delivery::AdapterDelivery,
         connection: AdapterConnection,
         payload: IssueUpdateDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
@@ -621,7 +619,7 @@ impl LinearInboundRouter {
 
     async fn comment(
         &self,
-        _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+        _delivery: moatless_adapter_model::delivery::AdapterDelivery,
         connection: AdapterConnection,
         payload: CommentDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
@@ -646,7 +644,7 @@ impl LinearInboundRouter {
 
     async fn notification(
         &self,
-        _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+        _delivery: moatless_adapter_model::delivery::AdapterDelivery,
         connection: AdapterConnection,
         payload: NotificationDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
@@ -688,7 +686,7 @@ impl LinearInboundRouter {
 pub(super) fn log_admission(
     kind: &'static str,
     event_id: &str,
-    admission: moatless_loops::adapters::delivery::Admission,
+    admission: moatless_adapter_model::delivery::Admission,
 ) {
     moatless_loops::adapters::ingress::log_admission(ADAPTER, kind, event_id, admission);
 }

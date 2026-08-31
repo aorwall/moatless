@@ -295,7 +295,7 @@ impl ProviderIdentityLink for UnreachableUsers {
 
 #[cfg(test)]
 mod tests {
-    use moatless_loops::adapters::test_support::ProviderStub;
+    use moatless_adapter_model::test_support::ProviderStub;
 
     use crate::api::SlackApi;
     use super::{SenderIdentity, UnreachableUsers, bot_user_id, resolve_inbound_sender};
@@ -440,7 +440,7 @@ mod tests {
     #[tokio::test]
     async fn an_unreachable_slack_leaves_the_bot_unidentified() {
         let api =
-            SlackApi::with_base_url("xoxb-test", moatless_loops::adapters::test_support::UNREACHABLE_BASE);
+            SlackApi::with_base_url("xoxb-test", moatless_adapter_model::test_support::UNREACHABLE_BASE);
         assert_eq!(bot_user_id(&api, None).await, None);
     }
 }

@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use crate::adapters::delivery::AdapterDeliveryHandlers;
+use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
 use crate::adapters::providers::github_pr::adapter::GithubPrAdapter;
 use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::providers::linear::adapter::LinearAdapter;

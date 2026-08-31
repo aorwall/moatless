@@ -185,11 +185,9 @@ db-tests = [
     # Forwards so the control crate's `for_ingress_tests` harness, reached from
     # crates/backend/tests/integration_*, compiles with its DB-backed blocks.
     "moatless-sandbox-control/db-tests",
-    # The `adapters::test_support` facade re-export is gated `#[cfg(any(test,
-    # feature = "db-tests"))]`, so under db-tests it is part of the *library*, not
-    # a test target — the dev-dependency's test-support feature does not reach it.
-    # Forward it on the normal moatless-loops dependency so the re-exported module
-    # is compiled whenever this facade is.
+    # `AdapterEventSubscribers::keys` is gated `test-support` in moatless-loops and
+    # read by the db-tests integration binaries, which link the normal dependency
+    # rather than the dev-dependency, so the feature is forwarded here.
     "moatless-loops/test-support",
 ]
 
@@ -217,6 +215,10 @@ moatless-tasks = { path = "../tasks", features = ["test-support"] }
 # loops' adapter/bindings test-support fakes for the backend's own `#[cfg(test)]`
 # unit tests (provider handlers, event_handler), reached through the facade.
 moatless-loops = { path = "../loops", features = ["test-support"] }
+# The Adapter kernel's loopback provider stubs (`stub_provider`,
+# `UNREACHABLE_BASE`) the integration tests drive. Dev-dependency features do not
+# unify into the normal build under resolver 2, so this stays out of `cargo build`.
+moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }
 tokio-test = "0.4"
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "migrate"] }
 tower = { version = "0.5", features = ["util"] }

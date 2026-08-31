@@ -4,8 +4,13 @@
 //! is far more than a chat sender will wait for on its webhook response
 //! deadline. The webhook handler therefore hands the routing over to
 //! [`crate::adapters::delivery`] before it acknowledges, and this module is the
-//! other end of that handover: the payload that survives the admitting
-//! process, and the handler the worker runs against it.
+//! other end of that handover: the handler the worker runs against the payload
+//! that survived the admitting process.
+//!
+//! Building that payload is
+//! [`inbound_delivery_request`](moatless_adapter_model::delivery::inbound_delivery_request)
+//! — it is the same shape for every chat Adapter, so it belongs to the
+//! contract rather than to this crate.
 //!
 //! The handler is Adapter-agnostic because the routing is — every chat Adapter
 //! ends at the same [`route_inbound_message`] call with the same arguments.
@@ -17,10 +22,9 @@
 
 use std::sync::Arc;
 
-use crate::adapters::delivery::{
-    AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryRequest,
+use moatless_adapter_model::delivery::{
+    AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler,
 };
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::metrics::record_webhook;
 use moatless_types::adapter::InboundDeliveryPayload;
 use crate::bindings::runtime::RoutingService;
@@ -111,38 +115,10 @@ impl AdapterDeliveryHandler for InboundMessageHandler {
     }
 }
 
-/// Build the durable request for one inbound message, keyed by the sender's
-/// own delivery id.
-///
-/// Admitting it is [`crate::adapters::ingress::admit_delivery`], which every
-/// caller reaches separately. That split is deliberate: this function used to
-/// admit as well, and flattened the `AdmitError` into an `AdapterError` on the
-/// way out (`.admit(..).await?`), which made
-/// [`IngressError::NotAdmitted`](crate::adapters::ingress::IngressError::NotAdmitted)
-/// unreachable for every Adapter that went through it — a shared variant three
-/// of its four users could not produce. What is left here is the part worth
-/// sharing: the payload shape and the one serialization error, spelled once
-/// instead of at each of the three call sites.
-pub fn inbound_delivery_request(
-    adapter: &'static str,
-    kind: &'static str,
-    event_id: String,
-    payload: InboundDeliveryPayload,
-) -> Result<AdapterDeliveryRequest, AdapterError> {
-    let payload = serde_json::to_value(payload).map_err(|e| {
-        SharedAdapterError::Internal(format!("Failed to serialize inbound delivery payload: {e}"))
-    })?;
-    Ok(AdapterDeliveryRequest {
-        adapter,
-        kind,
-        event_id,
-        payload,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
     use moatless_types::adapter::AdapterKind;
     use moatless_types::adapter::{Audience, InboundMessage};
 
@@ -287,12 +263,11 @@ mod db_tests {
     use sqlx::PgPool;
     use tokio_util::sync::CancellationToken;
 
-    use crate::adapters::delivery::{
-        AdapterDeliveryHandlers, AdapterDeliveryPolicy, AdapterDeliveryRequest,
-        AdapterDeliveryStore, spawn_adapter_delivery_worker,
-    };
+    use crate::adapters::delivery::{AdapterDeliveryPolicy, AdapterDeliveryStore, spawn_adapter_delivery_worker};
+    use moatless_adapter_model::delivery::{AdapterDeliveryHandlers, AdapterDeliveryRequest};
 
     use super::*;
+    use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
     const KIND: &str = "slack.inbound_message";
 

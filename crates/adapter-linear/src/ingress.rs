@@ -44,7 +44,8 @@ use std::sync::Arc;
 use moatless_backend_core::identity::AppCredentials;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore};
+use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_adapter_model::delivery::AdapterDeliveryRequest;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
 use moatless_adapter_model::loops::LoopReader;
@@ -128,7 +129,7 @@ pub enum IngressError {
     /// `From<AdapterError>` here would let any read failure masquerade as an
     /// un-acknowledgeable one.
     #[error("Linear webhook work was not admitted")]
-    NotAdmitted(#[from] moatless_loops::adapters::delivery::AdmitError),
+    NotAdmitted(#[from] moatless_adapter_model::delivery::AdmitError),
     /// The delivery carries work, but not the field that would tell that work
     /// apart from the next delivery like it.
     ///
@@ -464,7 +465,7 @@ async fn decline_sessions(
 ///
 /// Every admission site funnels through here, so the property the acceptance
 /// rests on — the response is written after the record is, or not at all — is
-/// stated once. An [`AdmitError`](moatless_loops::adapters::delivery::AdmitError) becomes
+/// stated once. An [`AdmitError`](moatless_adapter_model::delivery::AdmitError) becomes
 /// [`IngressError::NotAdmitted`], which is the one failure the route refuses to
 /// answer with a `200`.
 async fn admit(

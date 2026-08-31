@@ -25,13 +25,8 @@ pub use moatless_loops::adapters::{
     common, delivery, events, inbound_delivery, ingress, self_echo, subject_events,
 };
 
-/// Loopback stubs for Adapter HTTP clients, re-exported from the crate under the
-/// same gate the backend's tests reach them by. Never in a release build.
-#[cfg(any(test, feature = "db-tests"))]
-pub use moatless_loops::adapters::test_support;
-
-/// Capability-matrix tests for the registry — they build the concrete providers
-/// (which live in this crate, above the loops band) and assert the registry's
-/// `pub(crate)` accessors through `test_support::registry`.
+/// Capability-matrix tests for the registry — they build the concrete providers,
+/// which live in this crate above the loops band, and call the kernel registry's
+/// accessors directly.
 #[cfg(test)]
 mod registry_matrix_tests;

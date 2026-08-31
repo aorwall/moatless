@@ -1,7 +1,7 @@
 //! A local Bot API stub that records what the Adapter sent it, and the one
 //! Subscription fixture its tests build on.
 //!
-//! [`moatless_loops::adapters::test_support::stub_provider`] answers, but remembers
+//! [`moatless_adapter_model::test_support::stub_provider`] answers, but remembers
 //! nothing — and half of what the Telegram workflows promise is a *count*: one
 //! `sendMessage` per reply, one per `/start`, one per pairing code, and none at
 //! all from normalization. A stub that cannot be counted cannot prove that.

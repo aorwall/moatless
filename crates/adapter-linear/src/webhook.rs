@@ -23,7 +23,7 @@
 //! rather than an error, with the single exception of a delivery that carries
 //! work but no identity — see [`IngressError::Unidentifiable`].
 
-use moatless_loops::adapters::delivery::AdapterDeliveryRequest;
+use moatless_adapter_model::delivery::AdapterDeliveryRequest;
 
 use super::ingress::{IngressError, reason};
 use super::webhook_payloads::LinearWebhookEnvelope;

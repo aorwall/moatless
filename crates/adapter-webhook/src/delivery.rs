@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use moatless_loops::adapters::delivery::AdapterDeliveryHandlers;
+use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
 use moatless_loops::adapters::inbound_delivery::InboundMessageHandler;
 use moatless_loops::bindings::runtime::RoutingService;
 

@@ -3418,6 +3418,7 @@ dependencies = [
  "chrono",
  "hex",
  "hmac 0.13.0",
+ "http-body-util",
  "metrics",
  "moatless-adapter-model",
  "moatless-api-schemas",

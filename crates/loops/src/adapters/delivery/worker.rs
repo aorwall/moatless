@@ -12,9 +12,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use super::handlers::AdapterDeliveryHandlers;
+use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
 use super::metrics::{record_backlog, record_execution};
-use super::models::{AdapterDelivery, AdapterDeliveryFailure};
+use moatless_adapter_model::delivery::{AdapterDelivery, AdapterDeliveryFailure};
 use super::store::AdapterDeliveryStore;
 
 /// Run the Adapter delivery worker until the root token is cancelled.
@@ -338,10 +338,10 @@ mod db_tests {
 
     use sqlx::PgPool;
 
-    use super::super::handlers::AdapterDeliveryHandler;
-    use super::super::models::{
-        AdapterDeliveryPolicy, AdapterDeliveryRequest, Admission, AdmitError,
+    use moatless_adapter_model::delivery::{
+        AdapterDeliveryHandler, AdapterDeliveryRequest, Admission, AdmitError,
     };
+    use super::super::models::AdapterDeliveryPolicy;
     use super::*;
 
     /// Timings collapsed so retry, lease expiry, and recovery all happen inside

@@ -584,7 +584,7 @@ The last row is the dangerous one, because it *removes* edges rather than adding
 <!-- plan-assert: contains crates/adapter-model/src/error.rs UpstreamCredential -->
 <!-- plan-assert: contains crates/adapter-model/src/error.rs TaskHandoff -->
 <!-- plan-assert: contains crates/adapter-model/src/capabilities.rs pub trait AdapterBindingReply -->
-<!-- plan-assert: contains crates/loops/src/adapters/delivery/mod.rs impl From<AdapterError> for AdapterDeliveryFailure -->
+<!-- plan-assert: contains crates/adapter-model/src/delivery/mod.rs impl From<AdapterError> for AdapterDeliveryFailure -->
 
 **10d precondition — two reaper fields must invert to ports, and doing so closes the 9a coverage gap for free.** `TaskReaper` takes eleven collaborators: eight are trait-backed ports, and three are concrete — `config: Arc<Config>`, `k8s: K8sClient`, `sandbox: Arc<Lifecycle>`. Only two of the three are above the tasks band and block the carve: `k8s` and `sandbox`. `config` is core band — a downward dependency — so it is **not** a blocker and needs no port. A `moatless-tasks` that names either above-band concrete does not compile, so 10d cannot ship until `k8s` and `sandbox` are ports. This is unpriced work and a hard precondition, not a cleanup.
 

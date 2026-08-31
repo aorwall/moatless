@@ -53,7 +53,7 @@ impl AdapterReactions for SlackAdapter {
 mod tests {
     use moatless_adapter_model::capabilities::AdapterReactions;
     use moatless_types::adapter::BindingContext;
-    use moatless_loops::adapters::test_support::ProviderStub;
+    use moatless_adapter_model::test_support::ProviderStub;
 
     use crate::adapter::SlackAdapter;
     use crate::api::SlackApi;

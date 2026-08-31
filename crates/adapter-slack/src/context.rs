@@ -146,7 +146,7 @@ impl AdapterInboundPresentation for SlackAdapter {
 mod tests {
     use moatless_types::adapter::{AdapterKind, Audience, BindingContext, InboundMessage};
     use moatless_types::loops::{LoopContext, RoutingMode};
-    use moatless_loops::adapters::test_support::ProviderStub;
+    use moatless_adapter_model::test_support::ProviderStub;
     use moatless_adapter_model::capabilities::AdapterInboundPresentation;
     use moatless_types::access_control::Scope;
 

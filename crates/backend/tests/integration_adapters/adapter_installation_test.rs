@@ -45,9 +45,7 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
     assert!(Option::<Arc<GithubPrAdapter>>::from_ref(&state).is_some());
     assert!(Option::<Arc<LinearAdapter>>::from_ref(&state).is_some());
 
-    let mut kinds = moatless_backend::adapters::test_support::delivery::kinds(
-        &installations.delivery_handlers(&state),
-    );
+    let mut kinds = installations.delivery_handlers(&state).kinds();
     kinds.sort_unstable();
     assert_eq!(
         kinds,

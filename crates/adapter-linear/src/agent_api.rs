@@ -1150,7 +1150,7 @@ mod error_source_tests {
 
     use super::*;
     use moatless_adapter_model::error::ProviderDecodeError;
-    use moatless_loops::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
+    use moatless_adapter_model::test_support::{UNREACHABLE_BASE, stub_provider};
 
     /// A pool that is never connected — `graphql_with_token` takes the token as
     /// an argument, so it never touches the database.

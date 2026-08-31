@@ -78,7 +78,7 @@ mod tests {
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
 
-    use moatless_loops::adapters::delivery::AdmitError;
+    use moatless_adapter_model::delivery::AdmitError;
     use moatless_adapter_model::error::SharedAdapterError;
     use moatless_loops::adapters::ingress::IngressError;
     use moatless_adapter_model::test_support::response_snapshot;

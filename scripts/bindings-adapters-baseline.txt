@@ -18,8 +18,7 @@
 # lower shared error/port split described in Step 7 and Step 10g of the spec.
 #
 # `outbound.rs` and `status_service.rs` cleared when the registry moved to
-# `moatless-adapter-model`: both named `crate::adapters::Adapters` and now name
-# the kernel.
+# `moatless-adapter-model`, and `runtime.rs` when the delivery contract did:
+# each named `crate::adapters` for a type the kernel now owns.
 crates/loops/src/bindings/handlers.rs
 crates/loops/src/bindings/reply.rs
-crates/loops/src/bindings/runtime.rs

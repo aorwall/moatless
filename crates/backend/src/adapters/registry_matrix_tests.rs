@@ -1,20 +1,15 @@
 //! Capability-matrix tests for the adapter registry.
 //!
 //! These build the five concrete providers, which live in this crate above the
-//! loops band, so they cannot live in `moatless-loops` alongside the registry
-//! itself. They assert the registry's `pub(crate)` capability accessors through
-//! the labelled test-context pass-throughs in
-//! `moatless_loops::adapters::test_support::registry` (re-exported here as the
-//! `crate::adapters::test_support` facade): the accessors that have only this
-//! cross-crate test consumer stay `pub(crate)` and are reached through a wrapper
-//! that delegates to the real lookup, rather than being widened to `pub`. The
-//! registry-only tests that need no provider (empty registry, registry-owned
-//! error) stay in the crate, in `registry/tests.rs`.
+//! loops band, so they cannot live in the Adapter kernel alongside the registry
+//! itself. They call the registry's capability accessors directly, which is what
+//! makes the assertion worth something: the lookup under test is the production
+//! lookup. The registry-only tests that need no provider (empty registry,
+//! registry-owned error) stay beside it in the kernel.
 
 use std::sync::Arc;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use crate::adapters::test_support::registry as ts;
 use moatless_types::adapter::AdapterKind;
 
 use moatless_adapter_model::registry::Adapters;
@@ -68,17 +63,17 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
     ] {
         assert!(providers.get(kind).is_some(), "{kind:?} identity adapter");
         assert!(
-            ts::outbound_for_binding_reply_by_name(&providers, kind.as_str()).is_ok(),
+            providers.outbound_for_binding_reply_by_name(kind.as_str()).is_ok(),
             "{kind:?} binding reply"
         );
         assert!(
-            ts::outbound_for_message_reply_by_name(&providers, kind.as_str()).is_ok(),
+            providers.outbound_for_message_reply_by_name(kind.as_str()).is_ok(),
             "{kind:?} message reply"
         );
     }
     assert!(providers.get(AdapterKind::Webhook).is_some());
-    assert!(ts::outbound_for_binding_reply_by_name(&providers, "webhook").is_ok());
-    assert!(ts::outbound_for_message_reply_by_name(&providers, "webhook").is_ok());
+    assert!(providers.outbound_for_binding_reply_by_name("webhook").is_ok());
+    assert!(providers.outbound_for_message_reply_by_name("webhook").is_ok());
 
     for kind in [
         AdapterKind::Slack,
@@ -86,7 +81,7 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
         AdapterKind::GithubPr,
     ] {
         assert!(
-            ts::reactions(&providers, kind).is_ok(),
+            providers.reactions(kind).is_ok(),
             "{kind:?} reactions"
         );
         assert!(
@@ -169,8 +164,8 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
             .post_binding_followup(AdapterKind::Webhook)
             .is_none()
     );
-    assert!(ts::reactions(&providers, AdapterKind::Linear).is_err());
-    assert!(ts::reactions(&providers, AdapterKind::Webhook).is_err());
+    assert!(providers.reactions(AdapterKind::Linear).is_err());
+    assert!(providers.reactions(AdapterKind::Webhook).is_err());
     assert!(
         providers
             .inbound_presentation_by_name(AdapterKind::Webhook.as_str())
@@ -243,7 +238,7 @@ async fn direct_message_registration_requires_direct_destination_send() {
 async fn missing_capability_returns_adapter_error() {
     let providers = registry_with_all_current_adapters();
 
-    match ts::reactions(&providers, AdapterKind::Linear) {
+    match providers.reactions(AdapterKind::Linear) {
         Err(AdapterError::Shared(SharedAdapterError::BadRequest(_))) => {}
         Err(other) => panic!("expected BadRequest, got: {other:?}"),
         Ok(_) => panic!("Linear should not have reaction capability"),
@@ -255,19 +250,19 @@ async fn capability_lookup_by_name_preserves_provider_aliases() {
     let providers = registry_with_all_current_adapters();
 
     assert_eq!(
-        ts::outbound_for_binding_reply_by_name(&providers, "github")
+        providers.outbound_for_binding_reply_by_name("github")
             .expect("github alias should resolve to GitHub PR binding reply")
             .adapter_kind(),
         AdapterKind::GithubPr
     );
     assert_eq!(
-        ts::reactions_by_name(&providers, "github")
+        providers.reactions_by_name("github")
             .expect("github alias should resolve to GitHub PR reactions")
             .adapter_kind(),
         AdapterKind::GithubPr
     );
 
-    match ts::reactions_by_name(&providers, "linear") {
+    match providers.reactions_by_name("linear") {
         Err(AdapterError::Shared(SharedAdapterError::BadRequest(_))) => {}
         Err(other) => panic!("expected BadRequest, got: {other:?}"),
         Ok(_) => panic!("Linear should not have reaction capability"),

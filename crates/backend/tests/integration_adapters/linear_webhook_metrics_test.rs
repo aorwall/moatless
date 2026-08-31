@@ -65,7 +65,7 @@ fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.linear = linear_config(
         Some(SECRET),
-        Some(moatless_backend::adapters::test_support::UNREACHABLE_BASE),
+        Some(moatless_adapter_model::test_support::UNREACHABLE_BASE),
     );
     test_app_state_with_linear(pool.clone(), config)
 }

@@ -286,7 +286,7 @@ mod tests {
     // The capability-matrix tests that build the five concrete providers live in
     // the backend crate (`backend/src/adapters/registry_matrix_tests.rs`): the
     // providers sit above the loops band, so a loops test cannot name them. They
-    // reach the registry accessors through `adapters::test_support::registry`.
+    // call these accessors directly.
     // What stays here is the pair that needs no provider — the empty/stand-in
     // registry and the registry-owned "missing outbound capability" error —
     // proven with in-crate stub adapters alone.

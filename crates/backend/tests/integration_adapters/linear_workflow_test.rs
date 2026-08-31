@@ -57,7 +57,7 @@ use moatless_types::task::TaskSubType;
 use moatless_adapter_model::models::{SubscriptionMatch, TaskBinding};
 use moatless_types::loops::RoutingMode;
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
-use moatless_backend::adapters::test_support::ProviderStub;
+use moatless_adapter_model::test_support::ProviderStub;
 use moatless_backend::repository::dao as repository_dao;
 use moatless_backend::state::AppState;
 use moatless_backend::task::dao as task_dao;

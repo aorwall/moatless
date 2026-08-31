@@ -700,7 +700,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
               subset of it, so `expect` would fire in the binaries that do call this"
 )]
 pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState) {
-    let mut handlers = moatless_backend::adapters::delivery::AdapterDeliveryHandlers::new();
+    let mut handlers = moatless_adapter_model::delivery::AdapterDeliveryHandlers::new();
     let router = Arc::new(
         moatless_backend::adapters::providers::linear::delivery::LinearInboundRouter::new(
             worker_state.adapter_connections.clone(),

@@ -285,7 +285,7 @@ mod tests {
         SlackPlainText, TaskOrigin, TaskProvenance,
     };
     use moatless_types::loops::{LoopContext, RoutingMode};
-    use moatless_loops::adapters::test_support::ProviderStub;
+    use moatless_adapter_model::test_support::ProviderStub;
     use moatless_adapter_model::capabilities::{AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage};
     use moatless_types::access_control::Scope;
 
@@ -379,7 +379,7 @@ mod tests {
         }
     }
 
-    fn body(request: &moatless_loops::adapters::test_support::RecordedRequest) -> serde_json::Value {
+    fn body(request: &moatless_adapter_model::test_support::RecordedRequest) -> serde_json::Value {
         serde_json::from_str(&request.body).expect("stub recorded a JSON body")
     }
 

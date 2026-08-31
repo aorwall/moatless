@@ -21,8 +21,9 @@ use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::SharedAdapterError;
 use moatless_adapter_model::models::AdapterConnection;
 
-use super::handlers::{AdapterDeliveryHandler, AdapterDeliveryHandlers};
-use super::models::{AdapterDelivery, AdapterDeliveryFailure};
+use moatless_adapter_model::delivery::{
+    AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryHandlers,
+};
 
 /// A provider-owned payload whose work is scoped to one adapter connection.
 pub trait ConnectionDeliveryPayload: serde::de::DeserializeOwned + Send + Sync + 'static {

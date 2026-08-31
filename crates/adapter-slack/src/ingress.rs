@@ -9,7 +9,7 @@ use tracing::{debug, warn};
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_adapter_model::error::AdapterError;
-use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
+use moatless_adapter_model::delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_types::adapter::{BindingDestination, InboundMessage};
@@ -398,7 +398,7 @@ mod characterization {
     use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
     use moatless_types::adapter::{Audience, InboundMessage};
     use moatless_types::loops::{LoopContext, RoutingMode};
-    use moatless_loops::adapters::test_support::ProviderStub;
+    use moatless_adapter_model::test_support::ProviderStub;
     use moatless_backend_core::identity::ProviderIdentityLink;
 
     use crate::adapter::SlackAdapter;

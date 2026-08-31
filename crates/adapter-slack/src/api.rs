@@ -696,7 +696,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use moatless_loops::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
+    use moatless_adapter_model::test_support::{UNREACHABLE_BASE, stub_provider};
 
     #[tokio::test]
     async fn unreachable_slack_keeps_transport_source() {

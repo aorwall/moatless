@@ -10,7 +10,7 @@ use tracing::{debug, info};
 
 use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::inbound_delivery::inbound_delivery_request;
+use moatless_adapter_model::delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_adapter_model::models::SubscriptionMatch;

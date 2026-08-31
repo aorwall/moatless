@@ -42,4 +42,7 @@ hmac = "0.13"
 # must never appear under `[dependencies]`.
 moatless-identity = { path = "../identity", features = ["test-support"] }
 moatless-loops = { path = "../loops", features = ["test-support"] }
+# Test-only: the loopback provider stubs (`stub_provider`, `UNREACHABLE_BASE`)
+# these tests drive live in the Adapter kernel's `test_support`.
+moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }
 sha2 = "0.11"

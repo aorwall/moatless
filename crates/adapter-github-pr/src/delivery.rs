@@ -69,10 +69,8 @@ use moatless_types::access_control::ScopeContext;
 
 use tracing::info;
 
-use moatless_loops::adapters::delivery::{
-    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
-    register_typed_delivery,
-};
+use moatless_loops::adapters::delivery::register_typed_delivery;
+use moatless_adapter_model::delivery::{AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
 use moatless_types::adapter::InboundMessage;
@@ -276,7 +274,7 @@ pub(super) fn request(
 
 async fn execute_pr_message(
     router: Arc<GithubPrInboundRouter>,
-    _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+    _delivery: moatless_adapter_model::delivery::AdapterDelivery,
     payload: PrMessageDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
     let (connection, trigger) = payload.context.resolve(&router).await?;
@@ -288,7 +286,7 @@ async fn execute_pr_message(
 
 async fn execute_close(
     router: Arc<GithubPrInboundRouter>,
-    delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+    delivery: moatless_adapter_model::delivery::AdapterDelivery,
     payload: CloseDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
     let (_connection, trigger) = payload.context.resolve(&router).await?;
@@ -310,7 +308,7 @@ async fn execute_close(
 
 async fn execute_pr_merged(
     router: Arc<GithubPrInboundRouter>,
-    _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+    _delivery: moatless_adapter_model::delivery::AdapterDelivery,
     payload: PrMergedDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
     let (connection, trigger) = payload.context.resolve(&router).await?;
@@ -326,7 +324,7 @@ async fn execute_pr_merged(
 
 async fn execute_post_merge(
     router: Arc<GithubPrInboundRouter>,
-    _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+    _delivery: moatless_adapter_model::delivery::AdapterDelivery,
     payload: PostMergeDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
     let (connection, trigger) = payload.context.resolve(&router).await?;
@@ -341,7 +339,7 @@ async fn execute_post_merge(
 
 async fn execute_merge_conflict(
     router: Arc<GithubPrInboundRouter>,
-    _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
+    _delivery: moatless_adapter_model::delivery::AdapterDelivery,
     payload: MergeConflictDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
     let (connection, trigger) = payload.context.resolve(&router).await?;
@@ -359,7 +357,7 @@ async fn execute_merge_conflict(
 pub(super) fn log_admission(
     kind: &'static str,
     event_id: &str,
-    admission: moatless_loops::adapters::delivery::Admission,
+    admission: moatless_adapter_model::delivery::Admission,
 ) {
     moatless_loops::adapters::ingress::log_admission(ADAPTER, kind, event_id, admission);
 }

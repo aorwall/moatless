@@ -24,9 +24,8 @@ use crate::common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use moatless_backend::adapters::delivery::{
-    AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission, spawn_adapter_delivery_worker,
-};
+use moatless_backend::adapters::delivery::spawn_adapter_delivery_worker;
+use moatless_adapter_model::delivery::{AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission};
 use moatless_backend::adapters::providers::linear;
 use moatless_backend::state::AppState;
 use sqlx::PgPool;

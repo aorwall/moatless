@@ -15,7 +15,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use moatless_loops::adapters::delivery::Admission;
+use moatless_adapter_model::delivery::Admission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::{
     AdapterKind, Audience, BindingContext, InboundMessage, OutboundReply,

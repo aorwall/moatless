@@ -23,13 +23,3 @@ pub mod inbound_delivery;
 pub mod ingress;
 pub mod self_echo;
 pub mod subject_events;
-/// Loopback stubs for Adapter HTTP clients.
-///
-/// Reachable from `backend/tests/` and the backend's own tests as well as from
-/// in-crate tests, because the workflows whose API-call budgets need pinning
-/// take an `AppState` and no in-crate test can build one. Both tiers stubbing
-/// the same way is the point: a second copy would drift, and a drifted stub is a
-/// test that quietly reaches the real sender. Gated so it never compiles into a
-/// release build; the `test,` disjunct stays first for the census.
-#[cfg(any(test, feature = "test-support", feature = "db-tests"))]
-pub mod test_support;

@@ -175,7 +175,7 @@ mod tests {
     use moatless_types::adapter::{TaskOrigin, TaskProvenance};
     use axum::http::StatusCode;
 
-    use moatless_loops::adapters::test_support::stub_provider;
+    use moatless_adapter_model::test_support::stub_provider;
 
     use super::super::api::TelegramApi;
     use super::super::test_support::{BotApiStub, bot_api_stub, test_loop_context};

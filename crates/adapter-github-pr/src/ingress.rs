@@ -11,7 +11,8 @@ use tracing::{debug, warn};
 
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore};
+use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_adapter_model::delivery::AdapterDeliveryRequest;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::ingress::{IngressError, Outcome};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};

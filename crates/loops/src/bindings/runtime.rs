@@ -9,7 +9,7 @@ use tracing::{debug, info, warn};
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::registry::Adapters;
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use crate::adapters::delivery::AdapterDeliveryFailure;
+use moatless_adapter_model::delivery::AdapterDeliveryFailure;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};

@@ -44,11 +44,15 @@ impl AdapterDeliveryHandlers {
         self.0.insert(kind, handler);
     }
 
-    pub(crate) fn get(&self, kind: &str) -> Option<&Arc<dyn AdapterDeliveryHandler>> {
+    /// Public because the worker that dispatches on a claimed record's kind
+    /// sits in the loops band, above this crate.
+    pub fn get(&self, kind: &str) -> Option<&Arc<dyn AdapterDeliveryHandler>> {
         self.0.get(kind)
     }
 
-    pub(crate) fn kinds(&self) -> Vec<&'static str> {
+    /// The kinds the worker claims, and the observable claim set an
+    /// installation contract test asserts.
+    pub fn kinds(&self) -> Vec<&'static str> {
         self.0.keys().copied().collect()
     }
 }
