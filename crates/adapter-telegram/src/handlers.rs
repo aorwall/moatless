@@ -82,6 +82,7 @@ mod tests {
     use moatless_adapter_model::error::SharedAdapterError;
     use moatless_loops::adapters::ingress::IngressError;
     use moatless_adapter_model::test_support::response_snapshot;
+    use moatless_types::store::StoreError;
 
     use super::refusal;
 
@@ -111,7 +112,9 @@ mod tests {
                 StatusCode::SERVICE_UNAVAILABLE,
             ),
             (
-                IngressError::NotAdmitted(AdmitError::Store(sqlx::Error::PoolTimedOut)),
+                IngressError::NotAdmitted(AdmitError::Store(StoreError::new(
+                    "persist the Adapter delivery record",
+                ))),
                 StatusCode::INTERNAL_SERVER_ERROR,
             ),
         ] {

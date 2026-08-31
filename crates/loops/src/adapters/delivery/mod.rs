@@ -127,7 +127,6 @@ pub use typed::{ConnectionDeliveryPayload, register_connection_delivery, registe
 pub use worker::spawn_adapter_delivery_worker;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_backend_core::store::StoreError;
 
 /// Admission failures reach the sender as "not accepted, send it again".
 ///
@@ -136,13 +135,15 @@ use moatless_backend_core::store::StoreError;
 /// work that is still safe to retry. Capacity maps to `503` because the
 /// condition is explicitly transient; a failed durable write maps to the
 /// existing `500` path, which logs the cause once and returns no detail.
+///
+/// The store failure is carried across, not rebuilt: [`AdmitError::Store`]
+/// already holds the store error the raise site named, so this arm hands the
+/// same value to the same variant it always landed in.
 impl From<AdmitError> for AdapterError {
     fn from(error: AdmitError) -> Self {
         match error {
             AdmitError::AtCapacity { .. } => Self::Shared(SharedAdapterError::Overloaded),
-            AdmitError::Store(source) => Self::Shared(SharedAdapterError::Store(
-                StoreError::with_source("persist the Adapter delivery record", source),
-            )),
+            AdmitError::Store(source) => Self::Shared(SharedAdapterError::Store(source)),
         }
     }
 }
@@ -219,6 +220,16 @@ mod tests {
 
     use super::*;
     use moatless_adapter_model::test_support::transport_error;
+    use moatless_types::store::StoreError;
+
+    /// A failed durable write, shaped exactly as the admission path raises it:
+    /// the operation named, the driver error kept as the source.
+    fn failed_write() -> AdmitError {
+        AdmitError::Store(StoreError::with_source(
+            "persist the Adapter delivery record",
+            sqlx::Error::PoolTimedOut,
+        ))
+    }
 
     async fn response_of(error: AdmitError) -> (axum::http::StatusCode, String) {
         let response = AdapterError::from(error).into_response();
@@ -248,7 +259,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_durable_write_returns_a_redacted_500() {
-        let (status, body) = response_of(AdmitError::Store(sqlx::Error::PoolTimedOut)).await;
+        let (status, body) = response_of(failed_write()).await;
         assert_eq!(status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body, r#"{"error":"Internal server error"}"#);
     }
@@ -333,8 +344,12 @@ mod tests {
 
     #[test]
     fn the_admission_failure_keeps_its_cause() {
-        let error = AdmitError::Store(sqlx::Error::PoolTimedOut);
+        let error = failed_write();
         let source = std::error::Error::source(&error).expect("the sqlx error is retained");
-        assert!(source.to_string().contains("pool timed out"));
+        assert!(
+            source.to_string().contains("pool timed out"),
+            "the driver error stays one link down, not flattened into the store \
+             error's context: {source}"
+        );
     }
 }

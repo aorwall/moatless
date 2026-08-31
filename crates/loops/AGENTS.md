@@ -84,6 +84,12 @@ editing.
 Put durable provider work behind `delivery`. Put "mirror what is happening back
 to the provider" behind `events`.
 
+An error either seam hands a provider names no database driver.
+`AdmitError::Store` carries `StoreError`, wrapped at the raise site in
+`delivery/store.rs`, so the `sqlx::Error` survives as the source without
+appearing in the type four provider crates match on and two construct in their
+own tests.
+
 ## Rules for a `TaskEventSubscriber`
 
 - **Keep `on_task_event` cheap.** It runs inline on the consumer's dispatch, one

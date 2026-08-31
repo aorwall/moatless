@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use moatless_types::store::StoreError;
+
 /// One inbound delivery an Adapter hands over before acknowledging its sender.
 ///
 /// `event_id` must be the identifier the *sender* assigned to the delivery.
@@ -62,10 +64,13 @@ pub enum AdmitError {
     /// concurrent admissions commit. See [`AdapterDeliveryPolicy::backlog_capacity`].
     #[error("Adapter delivery backlog is at capacity ({limit} unfinished records)")]
     AtCapacity { limit: i64 },
-    /// The durable write itself failed. The cause is retained as the source and
-    /// redacted at the transport boundary.
-    #[error("failed to persist the Adapter delivery record")]
-    Store(#[from] sqlx::Error),
+    /// The durable write itself failed. [`StoreError`] names the operation and
+    /// carries the driver error as its source, so this variant — which four
+    /// provider crates match on and two construct in their own tests — names no
+    /// database driver. The cause is retained as the source and redacted at the
+    /// transport boundary.
+    #[error(transparent)]
+    Store(#[from] StoreError),
 }
 
 /// One admitted record, as handed to its handler.

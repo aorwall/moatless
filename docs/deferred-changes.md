@@ -76,16 +76,17 @@ no `redis`.
 That last constraint is what keeps a change to a transport crate from rebuilding
 everything above it.
 
-Each type below clears the fan-in bar and fails the third clause: one variant or
-one body reaches a transport crate, so moving it would put that crate in
-`moatless-types`.
+Each type below fails the third clause: one variant or one body reaches a
+transport crate, so moving it would put that crate in `moatless-types`. The
+fan-in bar is counted per row in the entry condition — a type stops naming a
+transport long before three crates outside its owner name it, and the two are
+independent gates rather than one.
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | `SharedAdapterError` names a transport | `crates/adapter-model/src/error.rs::SharedAdapterError` — `ProviderDecodeError::Body(#[from] reqwest::Error)` and the two `reqwest`-carrying provider variants | When the transport-level variants are split off the domain error, so the domain half names no transport |
-| `AdmitError` names the store | `crates/loops/src/adapters/delivery/models.rs::AdmitError` — `Store(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
-| `TaskCreationError` names the store | `crates/tasks/src/task/creation.rs::TaskCreationError` — `Db(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
-| `CredentialError` names the store | `crates/workspaces/src/credentials/error.rs::CredentialError` — `Database(#[from] sqlx::Error)` | Same split as `SharedAdapterError` |
+| `TaskCreationError` names the store | `crates/tasks/src/task/creation.rs::TaskCreationError` — `Db(#[from] sqlx::Error)`, beside a `Store(#[from] StoreError)` variant that already carries the seam half | When a crate outside `tasks` names it. None does today, so the type is that crate's own vocabulary and the driver in `Db` is what a caller inside the crate already compiles |
+| `CredentialError` names the store | `crates/workspaces/src/credentials/error.rs::CredentialError` — `Database(#[from] sqlx::Error)` | When a third crate outside `workspaces` names it. `backend` and `tasks` do today, one short of the bar |
 
 A type named by only one or two crates other than its owner is that subsystem's
 vocabulary and stays with the subsystem — `sandbox-control`'s lifecycle types go
@@ -117,6 +118,16 @@ with its reason, and only shrinks. Two decisions sit outside that file.
 |---|---|---|
 | `t3code` reads fifteen tables it does not own | `crates/t3code/src/lib.rs` — 43 statements across `tasks`, `task_messages`, `task_turns`, `task_activities`, `task_follows`, `task_bindings`, `task_message_usage`, `task_message_contexts`, `workspaces`, `workspace_repos`, `users`, and the four listing/conversation change-feed tables. It is now declared a read-only projection in `crates/t3code/AGENTS.md`, which is what the table-ownership exclusion rests on | When one of these reads has to become a write, or the T3 contract changes shape. Either breaks the declaration and forces the reads through the ports |
 | `adapter-telegram/pairing.rs` is mostly unreachable | `crates/adapter-telegram/src/pairing.rs` — `find_by_code`, `list_pending`, `list_pending_for_user`, `approve_request`, `prune_expired` are `pub` with no caller anywhere in the workspace; only `upsert_pairing_request` is reached (from `ingress.rs`) | When the Telegram pairing flow is next worked on. Deleting them now would be a behaviour question dressed as a cleanup — nothing says whether the flow is unfinished or abandoned |
+
+## Seam gates
+
+`scripts/check-crate-seams.sh` invariant 1 keeps a store private to its crate by
+matching references to a `*Dao` path. A concrete store that is not named `*Dao`
+is outside what it can see, and one such store crosses crate boundaries today.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A concrete Postgres store is held by five peer crates | `crates/loops/src/adapters/delivery/store.rs::AdapterDeliveryStore` — `pub` for `new` and `admit`, the other nine methods `pub(crate)`; the gate does not see it because the name carries no `Dao` suffix | When a second admission implementation exists. A port over `admit` would have one implementation, and the only test that could use a fake — `crates/loops/src/adapters/ingress.rs::store_with_no_database` — deliberately uses a lazy pool pointed at a dead address instead, so the port would not clear the repository's single-implementation bar |
 
 ## Correctness
 

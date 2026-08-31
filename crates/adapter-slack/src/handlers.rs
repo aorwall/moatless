@@ -120,6 +120,7 @@ mod tests {
     use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
     use moatless_loops::adapters::ingress::IngressError;
     use moatless_adapter_model::test_support::response_snapshot;
+    use moatless_types::store::StoreError;
 
     /// The acknowledgment class of each failure the Slack webhook path raises.
     /// An ingress rejection and an admission failure both leave the request
@@ -144,7 +145,9 @@ mod tests {
                 StatusCode::SERVICE_UNAVAILABLE,
             ),
             (
-                IngressError::NotAdmitted(AdmitError::Store(sqlx::Error::PoolTimedOut)),
+                IngressError::NotAdmitted(AdmitError::Store(StoreError::new(
+                    "persist the Adapter delivery record",
+                ))),
                 StatusCode::INTERNAL_SERVER_ERROR,
             ),
         ] {

@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use sqlx::Row;
 
 use moatless_core::db::DbPool;
+use moatless_types::store::StoreError;
 
 use super::metrics::record_admission;
 use super::models::{AdapterDelivery, AdapterDeliveryPolicy, AdapterDeliveryRequest, Admission, AdmitError};
@@ -123,7 +124,8 @@ impl AdapterDeliveryStore {
         .bind(self.policy.max_attempts)
         .bind(self.policy.backlog_capacity)
         .fetch_optional(&self.pool)
-        .await?;
+        .await
+        .map_err(admission_failed)?;
 
         if inserted.is_some() {
             return Ok(Admission::Admitted);
@@ -139,7 +141,8 @@ impl AdapterDeliveryStore {
         .bind(request.kind)
         .bind(&request.event_id)
         .fetch_optional(&self.pool)
-        .await?;
+        .await
+        .map_err(admission_failed)?;
 
         if duplicate.is_some() {
             Ok(Admission::Duplicate)
@@ -366,6 +369,19 @@ impl AdapterDeliveryStore {
         })
         .transpose()
     }
+}
+
+/// Wrap a failed statement on the admission path.
+///
+/// Named once so both statements — the insert and the duplicate check behind it
+/// — report the same operation, and applied here rather than at the transport
+/// boundary so `AdmitError` never carries a `sqlx::Error` of its own. The driver
+/// error survives as the [`StoreError`]'s source.
+fn admission_failed(source: sqlx::Error) -> AdmitError {
+    AdmitError::Store(StoreError::with_source(
+        "persist the Adapter delivery record",
+        source,
+    ))
 }
 
 /// Keep a stored failure readable without letting a pathological error message
