@@ -30,6 +30,13 @@ pub struct Activation {
     pub skill_name: Option<String>,
     pub reach: Reach,
     pub enabled: bool,
+    /// Lift this record above every record that is not `always`, whatever
+    /// reach either of them carries. See [`precedence`].
+    pub always: bool,
+    /// Frontload the skill's body rather than leaving it to be picked for a
+    /// turn. Read off whichever record decides the skill, so the record that
+    /// says whether it arrives is the one that says how.
+    pub frontload: bool,
 }
 
 /// A plugin and the skills stored for it, as resolution sees it. A plugin that
@@ -41,12 +48,22 @@ pub struct PluginSkills {
     pub skill_names: Vec<String>,
 }
 
+/// The skills one plugin contributes, and how they arrive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickedSkills {
+    /// Always non-empty: a plugin with no picked skills is not delivered.
+    pub names: Vec<String>,
+    /// The subset of [`names`](Self::names) whose deciding record asked for
+    /// frontloading. A skill nobody delivers cannot be frontloaded, so this
+    /// never names one that is not in `names`.
+    pub frontloaded: Vec<String>,
+}
+
 /// One plugin a person gets, and which of its skills come with it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPlugin {
     pub plugin_id: String,
-    /// Always non-empty: a plugin with no picked skills is not delivered.
-    pub skill_names: Vec<String>,
+    pub skills: PickedSkills,
 }
 
 /// Precedence, most specific first. A personal record beats a global one at
@@ -54,15 +71,29 @@ pub struct ResolvedPlugin {
 /// Workspace record beats both, so what a Workspace excludes stays excluded
 /// for whoever works in it. Within one reach a skill record beats the plugin
 /// record, so "the whole plugin except this one skill" is expressible.
-fn precedence(reach: Reach, skill_specific: bool) -> u8 {
-    match (reach, skill_specific) {
+///
+/// `always` sits outside that order rather than inside it: a record carrying it
+/// outranks every record that does not, whatever reach either of them has, so a
+/// skill turned on for everyone or for one person keeps arriving in a Workspace
+/// that says nothing about it and in one whose own record turns it off. Among
+/// records that all carry it, the scope order decides as usual.
+fn precedence(reach: Reach, skill_specific: bool, always: bool) -> u8 {
+    let by_scope = match (reach, skill_specific) {
         (Reach::Workspace, true) => 6,
         (Reach::Workspace, false) => 5,
         (Reach::Personal, true) => 4,
         (Reach::Personal, false) => 3,
         (Reach::Everyone, true) => 2,
         (Reach::Everyone, false) => 1,
-    }
+    };
+    if always { by_scope + 6 } else { by_scope }
+}
+
+/// What the record that won a skill decided about it.
+#[derive(Debug, Clone, Copy)]
+struct Decision {
+    enabled: bool,
+    frontload: bool,
 }
 
 /// Resolve what one person gets in one Workspace.
@@ -74,15 +105,16 @@ pub fn resolve(plugins: &[PluginSkills], activations: &[Activation]) -> Vec<Reso
     let mut resolved = Vec::new();
 
     for plugin in plugins {
-        // For each skill: the winning record's `enabled`, and the precedence it
-        // won at, so a later record only displaces it if it is more specific.
-        let mut decided: BTreeMap<&str, (u8, bool)> = BTreeMap::new();
+        // For each skill: what the winning record decided, and the precedence
+        // it won at, so a later record only displaces it if it is more
+        // specific.
+        let mut decided: BTreeMap<&str, (u8, Decision)> = BTreeMap::new();
 
         for act in activations
             .iter()
             .filter(|a| a.plugin_id == plugin.plugin_id)
         {
-            let rank = precedence(act.reach, act.skill_name.is_some());
+            let rank = precedence(act.reach, act.skill_name.is_some(), act.always);
 
             let targets: Vec<&str> = match act.skill_name.as_deref() {
                 // A plugin-level record speaks for every skill the plugin has
@@ -102,22 +134,42 @@ pub fn resolve(plugins: &[PluginSkills], activations: &[Activation]) -> Vec<Reso
             for skill in targets {
                 let beats = decided.get(skill).is_none_or(|(seen, _)| rank > *seen);
                 if beats {
-                    decided.insert(skill, (rank, act.enabled));
+                    decided.insert(
+                        skill,
+                        (
+                            rank,
+                            Decision {
+                                enabled: act.enabled,
+                                frontload: act.frontload,
+                            },
+                        ),
+                    );
                 }
             }
         }
 
-        let skill_names: Vec<String> = plugin
+        let picked: Vec<(&String, Decision)> = plugin
             .skill_names
             .iter()
-            .filter(|s| decided.get(s.as_str()).is_some_and(|(_, on)| *on))
-            .cloned()
+            .filter_map(|s| {
+                decided
+                    .get(s.as_str())
+                    .filter(|(_, d)| d.enabled)
+                    .map(|(_, d)| (s, *d))
+            })
             .collect();
 
-        if !skill_names.is_empty() {
+        if !picked.is_empty() {
             resolved.push(ResolvedPlugin {
                 plugin_id: plugin.plugin_id.clone(),
-                skill_names,
+                skills: PickedSkills {
+                    frontloaded: picked
+                        .iter()
+                        .filter(|(_, d)| d.frontload)
+                        .map(|(s, _)| (*s).clone())
+                        .collect(),
+                    names: picked.iter().map(|(s, _)| (*s).clone()).collect(),
+                },
             });
         }
     }
@@ -152,6 +204,8 @@ pub fn resolve_rows(
             skill_name: r.skill_name.clone(),
             reach: reach_of(r),
             enabled: r.enabled,
+            always: r.always,
+            frontload: r.frontload,
         })
         .collect();
 
@@ -187,7 +241,7 @@ pub async fn resolve_for(
     plugins: &dyn crate::plugin::dao::PluginDao,
     user_id: Option<uuid::Uuid>,
     workspace_id: Option<&str>,
-) -> Result<Vec<(crate::plugin::models::Plugin, Vec<String>)>, sqlx::Error> {
+) -> Result<Vec<(crate::plugin::models::Plugin, PickedSkills)>, sqlx::Error> {
     let registered = plugins.list_all().await?;
     if registered.is_empty() {
         return Ok(Vec::new());
@@ -202,7 +256,7 @@ pub async fn resolve_for(
             registered
                 .iter()
                 .find(|p| p.id == r.plugin_id)
-                .map(|p| (p.clone(), r.skill_names))
+                .map(|p| (p.clone(), r.skills))
         })
         .collect())
 }
@@ -224,6 +278,24 @@ mod tests {
             skill_name: skill.map(str::to_string),
             reach,
             enabled,
+            always: false,
+            frontload: false,
+        }
+    }
+
+    /// The same record, marked to outrank everything that is not.
+    fn always(act: Activation) -> Activation {
+        Activation {
+            always: true,
+            ..act
+        }
+    }
+
+    /// The same record, asking for the skill's body up front.
+    fn frontloading(act: Activation) -> Activation {
+        Activation {
+            frontload: true,
+            ..act
         }
     }
 
@@ -231,7 +303,15 @@ mod tests {
         resolved
             .iter()
             .find(|r| r.plugin_id == plugin_id)
-            .map(|r| r.skill_names.clone())
+            .map(|r| r.skills.names.clone())
+            .unwrap_or_default()
+    }
+
+    fn frontloaded(resolved: &[ResolvedPlugin], plugin_id: &str) -> Vec<String> {
+        resolved
+            .iter()
+            .find(|r| r.plugin_id == plugin_id)
+            .map(|r| r.skills.frontloaded.clone())
             .unwrap_or_default()
     }
 
@@ -504,6 +584,8 @@ mod tests {
             user_id,
             workspace_id: workspace_id.map(str::to_string),
             enabled: true,
+            always: false,
+            frontload: false,
         };
 
         assert_eq!(reach_of(&row(None, None)), Reach::Everyone);
@@ -512,5 +594,141 @@ mod tests {
             Reach::Personal
         );
         assert_eq!(reach_of(&row(None, Some("ws1"))), Reach::Workspace);
+    }
+
+    // ---- Always ----
+
+    #[test]
+    fn a_global_always_record_outlasts_a_workspace_that_turns_it_off() {
+        let resolved = resolve(
+            &[plugin("p1", &["a"])],
+            &[
+                always(act("p1", None, Reach::Everyone, true)),
+                act("p1", None, Reach::Workspace, false),
+            ],
+        );
+        assert_eq!(
+            names(&resolved, "p1"),
+            vec!["a"],
+            "a skill marked always has to arrive in a workspace nobody told \
+             about it, which is the whole of what the flag is for"
+        );
+    }
+
+    #[test]
+    fn a_personal_always_record_outlasts_a_workspace_skill_record() {
+        let resolved = resolve(
+            &[plugin("p1", &["a"])],
+            &[
+                always(act("p1", None, Reach::Personal, true)),
+                act("p1", Some("a"), Reach::Workspace, false),
+            ],
+        );
+        assert_eq!(
+            names(&resolved, "p1"),
+            vec!["a"],
+            "always outranks the scope order however specific the record \
+             below it is"
+        );
+    }
+
+    #[test]
+    fn always_pins_an_off_record_too() {
+        let resolved = resolve(
+            &[plugin("p1", &["a"])],
+            &[
+                always(act("p1", None, Reach::Everyone, false)),
+                act("p1", None, Reach::Workspace, true),
+            ],
+        );
+        assert!(
+            resolved.is_empty(),
+            "the flag pins whichever decision its record carries — an \
+             administrator has to be able to keep a plugin out for good"
+        );
+    }
+
+    #[test]
+    fn among_always_records_the_scope_order_still_decides() {
+        let resolved = resolve(
+            &[plugin("p1", &["a"])],
+            &[
+                always(act("p1", None, Reach::Everyone, true)),
+                always(act("p1", None, Reach::Workspace, false)),
+            ],
+        );
+        assert!(
+            resolved.is_empty(),
+            "the flag lifts a record out of the scope order only against \
+             records that do not carry it"
+        );
+    }
+
+    // ---- Frontload ----
+
+    #[test]
+    fn a_frontloading_record_names_the_skills_it_delivers() {
+        let resolved = resolve(
+            &[plugin("p1", &["a", "b"])],
+            &[frontloading(act("p1", None, Reach::Everyone, true))],
+        );
+        assert_eq!(names(&resolved, "p1"), vec!["a", "b"]);
+        assert_eq!(
+            frontloaded(&resolved, "p1"),
+            vec!["a", "b"],
+            "a plugin-wide record speaks for every skill on this axis as well"
+        );
+    }
+
+    #[test]
+    fn a_skill_nobody_delivers_is_never_frontloaded() {
+        let resolved = resolve(
+            &[plugin("p1", &["a", "b"])],
+            &[
+                frontloading(act("p1", None, Reach::Everyone, true)),
+                act("p1", Some("b"), Reach::Personal, false),
+            ],
+        );
+        assert_eq!(names(&resolved, "p1"), vec!["a"]);
+        assert_eq!(
+            frontloaded(&resolved, "p1"),
+            vec!["a"],
+            "frontloading a skill that was turned off would ask the sandbox \
+             for a body it never cloned"
+        );
+    }
+
+    #[test]
+    fn the_record_that_decides_a_skill_decides_how_it_arrives() {
+        let resolved = resolve(
+            &[plugin("p1", &["a"])],
+            &[
+                frontloading(act("p1", None, Reach::Everyone, true)),
+                act("p1", None, Reach::Workspace, true),
+            ],
+        );
+        assert_eq!(names(&resolved, "p1"), vec!["a"]);
+        assert!(
+            frontloaded(&resolved, "p1").is_empty(),
+            "the workspace record won the skill, so its silence on \
+             frontloading is the answer"
+        );
+    }
+
+    #[test]
+    fn an_always_record_carries_its_frontloading_past_the_scope_order() {
+        let resolved = resolve(
+            &[plugin("p1", &["a"])],
+            &[
+                always(frontloading(act("p1", None, Reach::Everyone, true))),
+                act("p1", None, Reach::Workspace, true),
+            ],
+        );
+        assert_eq!(
+            frontloaded(&resolved, "p1"),
+            vec!["a"],
+            "the two flags travel together: the record that wins is the one \
+             that says how the skill arrives"
+        );
     }
 }

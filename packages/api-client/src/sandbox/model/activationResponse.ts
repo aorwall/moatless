@@ -11,7 +11,12 @@ import type { ActivationReach } from './activationReach';
  * One stored activation record.
  */
 export interface ActivationResponse {
+  /** Whether this record outranks every record that is not `always`. */
+  always: boolean;
   enabled: boolean;
+  /** Whether the skills this record decides frontload into every fresh agent
+session. */
+  frontload: boolean;
   pluginId: string;
   reach: ActivationReach;
   /** @nullable */

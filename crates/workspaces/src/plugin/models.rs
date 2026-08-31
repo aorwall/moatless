@@ -40,4 +40,27 @@ pub struct ActivationRow {
     pub user_id: Option<Uuid>,
     pub workspace_id: Option<String>,
     pub enabled: bool,
+    /// Outranks every record that is not `always`, whatever reach either of
+    /// them carries.
+    pub always: bool,
+    /// Frontload the skill's body into every fresh agent session it reaches,
+    /// rather than waiting to be picked for a turn.
+    pub frontload: bool,
+}
+
+/// A write to one activation record.
+///
+/// The decision is stated outright; the two flags are `None` when the caller
+/// did not mention them, which leaves whatever is stored alone. That is what
+/// lets a control that knows only about on and off toggle a record without
+/// clearing flags it cannot see.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ActivationWrite {
+    pub plugin_id: String,
+    pub skill_name: Option<String>,
+    pub user_id: Option<Uuid>,
+    pub workspace_id: Option<String>,
+    pub enabled: bool,
+    pub always: Option<bool>,
+    pub frontload: Option<bool>,
 }

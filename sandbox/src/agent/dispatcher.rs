@@ -183,6 +183,17 @@ async fn dispatch_pending_messages_for_context(
         return;
     }
 
+    // A skill an activation record marked to frontload leads every fresh
+    // session on top of whatever the turn asked for; a resumed one still
+    // carries it, which is the rule the backend already applies to a task's own
+    // skills. Applied after the gate above, so a standing skill cannot open a
+    // turn on a delivery that has nothing in it.
+    let skills = if resume_session_id.is_some() {
+        skills
+    } else {
+        crate::agent::skills::with_always_frontloaded(&state.config, skills)
+    };
+
     // Frontloading turns the requested skills into the prompt's leading preamble.
     let mut text = crate::agent::skills::frontload_skills(&state.config, &skills, &text).await;
 

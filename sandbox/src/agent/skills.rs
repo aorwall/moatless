@@ -70,6 +70,27 @@ pub(crate) async fn frontload_skills(config: &Config, skills: &[String], prompt:
     out
 }
 
+/// The turn's own skills, behind the ones an activation record asked to
+/// frontload everywhere.
+///
+/// The standing skills lead: what somebody picked for this turn belongs
+/// closest to what they wrote. A name already requested is not repeated, and
+/// neither is one two plugins both deliver.
+pub(crate) fn with_always_frontloaded(config: &Config, requested: Vec<String>) -> Vec<String> {
+    let mut skills: Vec<String> = Vec::new();
+    for name in config
+        .plugins
+        .iter()
+        .flat_map(|plugin| plugin.frontload_skill_names.iter())
+    {
+        if !requested.contains(name) && !skills.contains(name) {
+            skills.push(name.clone());
+        }
+    }
+    skills.extend(requested);
+    skills
+}
+
 /// The roots to search, in precedence order.
 ///
 /// The plugin scan reads manifests off disk, so it runs on a blocking worker;
@@ -96,11 +117,11 @@ async fn skill_roots(config: &Config) -> Vec<SkillRoot> {
     let plugin_dirs = tokio::task::spawn_blocking(move || {
         crate::init::plugin_skills::plugin_skill_dirs(&plugins)
     })
-        .await
-        .unwrap_or_else(|e| {
-            warn!(error = %e, "Plugin skill scan failed; plugin skills will not resolve");
-            Vec::new()
-        });
+    .await
+    .unwrap_or_else(|e| {
+        warn!(error = %e, "Plugin skill scan failed; plugin skills will not resolve");
+        Vec::new()
+    });
     roots.extend(plugin_dirs.into_iter().map(|dir| SkillRoot {
         label_prefix: dir.display().to_string(),
         dir,
@@ -305,5 +326,65 @@ mod tests {
             let out = frontload_skills(&config, &[name.to_string()], "go").await;
             assert_eq!(out, "go", "name {name:?} should resolve nothing");
         }
+    }
+
+    // ---- Standing skills ----
+
+    fn with_plugins(config: &mut Config, plugins: &[(&str, &[&str])]) {
+        config.plugins = plugins
+            .iter()
+            .map(
+                |(name, frontload)| moatless_api_schemas::plugin::PluginDelivery {
+                    name: (*name).to_string(),
+                    git_url: format!("https://example.test/{name}.git"),
+                    skill_names: frontload.iter().copied().map(String::from).collect(),
+                    frontload_skill_names: frontload.iter().copied().map(String::from).collect(),
+                },
+            )
+            .collect();
+    }
+
+    #[test]
+    fn a_standing_skill_leads_the_skills_the_turn_asked_for() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mut config = config_in(tmp.path(), "claude-code");
+        with_plugins(&mut config, &[("guidelines", &["house-style"])]);
+
+        assert_eq!(
+            with_always_frontloaded(&config, vec!["e2e-testing".to_string()]),
+            vec!["house-style".to_string(), "e2e-testing".to_string()],
+            "what somebody picked for the turn belongs closest to what they wrote"
+        );
+    }
+
+    #[test]
+    fn a_standing_skill_the_turn_also_asked_for_is_frontloaded_once() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mut config = config_in(tmp.path(), "claude-code");
+        with_plugins(
+            &mut config,
+            &[
+                ("guidelines", &["house-style"]),
+                ("extra", &["house-style"]),
+            ],
+        );
+
+        assert_eq!(
+            with_always_frontloaded(&config, vec!["house-style".to_string()]),
+            vec!["house-style".to_string()],
+            "a body repeated in the same prompt is cost without content"
+        );
+    }
+
+    #[test]
+    fn no_standing_skills_leaves_the_turn_as_it_was() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = config_in(tmp.path(), "claude-code");
+
+        assert_eq!(
+            with_always_frontloaded(&config, vec!["e2e-testing".to_string()]),
+            vec!["e2e-testing".to_string()]
+        );
+        assert!(with_always_frontloaded(&config, Vec::new()).is_empty());
     }
 }

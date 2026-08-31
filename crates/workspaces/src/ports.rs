@@ -129,10 +129,11 @@ impl WorkspaceResolver for WorkspaceProjection {
             .map_err(|e| StoreError::with_source("resolve plugin activations", e))?;
         Ok(resolved
             .into_iter()
-            .map(|(plugin, skill_names)| PluginDelivery {
+            .map(|(plugin, skills)| PluginDelivery {
                 name: plugin.name,
                 git_url: plugin.git_url,
-                skill_names,
+                skill_names: skills.names,
+                frontload_skill_names: skills.frontloaded,
             })
             .collect())
     }

@@ -11,7 +11,22 @@ import type { ActivationReach } from './activationReach';
  * Turn a plugin, or one skill inside it, on or off.
  */
 export interface SetActivationRequest {
+  /**
+   * Lift this record above every record that is not `always`, whatever
+reach either of them carries — so what is turned on for everyone or for
+one person keeps arriving in a Workspace that says nothing about it, and
+in one that turns it off. Omit to leave whatever the record already
+says, so a control that knows only about on and off cannot clear it.
+   * @nullable
+   */
+  always?: boolean | null;
   enabled: boolean;
+  /**
+   * Frontload the skill's body into every fresh agent session it reaches,
+rather than waiting to be picked for a turn. Omitted the same way.
+   * @nullable
+   */
+  frontload?: boolean | null;
   reach: ActivationReach;
   /**
    * Omit to mean the whole plugin.

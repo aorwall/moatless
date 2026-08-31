@@ -1113,13 +1113,25 @@ impl ApiClient {
     }
 
     /// GET /api/v1/plugins/effective
+    ///
+    /// `user_id` asks what somebody else gets, which the server allows an
+    /// administrator; omitted, the answer is the caller's own.
     pub async fn list_effective_plugins(
         &self,
         workspace_id: Option<&str>,
+        user_id: Option<&str>,
     ) -> Result<Vec<moatless_api_schemas::plugin::EffectivePluginResponse>, ApiError> {
-        let qs = match workspace_id {
-            Some(id) => format!("?workspaceId={id}"),
-            None => String::new(),
+        let mut params: Vec<String> = Vec::new();
+        if let Some(id) = workspace_id {
+            params.push(format!("workspaceId={id}"));
+        }
+        if let Some(id) = user_id {
+            params.push(format!("userId={id}"));
+        }
+        let qs = if params.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", params.join("&"))
         };
         self.get(&format!("/api/v1/plugins/effective{qs}")).await
     }
@@ -1135,12 +1147,16 @@ impl ApiClient {
     }
 
     /// DELETE /api/v1/plugins/{id}/activation
+    ///
+    /// `user_id` clears somebody else's personal record, which the server
+    /// allows an administrator; omitted, it clears the caller's own.
     pub async fn clear_plugin_activation(
         &self,
         plugin_id: &str,
         reach: moatless_api_schemas::plugin::ActivationReach,
         skill_name: Option<&str>,
         workspace_id: Option<&str>,
+        user_id: Option<&str>,
     ) -> Result<(), ApiError> {
         let reach = match reach {
             moatless_api_schemas::plugin::ActivationReach::Everyone => "everyone",
@@ -1153,8 +1169,11 @@ impl ApiClient {
         let workspace_qs = workspace_id
             .map(|id| format!("&workspaceId={id}"))
             .unwrap_or_default();
+        let user_qs = user_id
+            .map(|id| format!("&userId={id}"))
+            .unwrap_or_default();
         let path = format!(
-            "/api/v1/plugins/{plugin_id}/activation?reach={reach}{skill_qs}{workspace_qs}"
+            "/api/v1/plugins/{plugin_id}/activation?reach={reach}{skill_qs}{workspace_qs}{user_qs}"
         );
         self.delete_request(&path).await
     }

@@ -475,6 +475,7 @@ mod tests {
             name: name.to_string(),
             git_url: format!("https://example.test/{name}.git"),
             skill_names: vec!["picked".to_string()],
+            frontload_skill_names: Vec::new(),
         }
     }
 
@@ -493,10 +494,8 @@ mod tests {
         write(&plugins.join("plugin-b/custom/skills/baz/SKILL.md"), "baz");
         fs::create_dir_all(plugins.join("plugin-c")).unwrap();
 
-        let dirs = plugin_skill_dirs_under(
-            &plugins,
-            &[delivered("plugin-b"), delivered("plugin-a")],
-        );
+        let dirs =
+            plugin_skill_dirs_under(&plugins, &[delivered("plugin-b"), delivered("plugin-a")]);
         assert_eq!(
             dirs,
             vec![

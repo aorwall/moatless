@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use super::models::{ActivationRow, Plugin, PluginSkill};
+use super::models::{ActivationRow, ActivationWrite, Plugin, PluginSkill};
 use moatless_core::db::DbPool;
 
 /// DAO trait for plugin persistence.
@@ -42,8 +42,10 @@ pub trait PluginDao: Send + Sync {
         workspace_id: Option<&str>,
     ) -> Result<Vec<ActivationRow>, sqlx::Error>;
 
-    /// Set one activation record, replacing whatever it said before.
-    async fn set_activation(&self, row: &ActivationRow) -> Result<(), sqlx::Error>;
+    /// Set one activation record, replacing whatever it said before, and read
+    /// back what now stands. A flag the write left unsaid keeps its stored
+    /// value, so the caller is told the record rather than its own request.
+    async fn set_activation(&self, write: &ActivationWrite) -> Result<ActivationRow, sqlx::Error>;
 
     /// Remove one activation record. Clearing a personal or Workspace record
     /// hands it back to whatever the next reach down says, which is not the
@@ -152,7 +154,8 @@ impl PluginDao for PgPluginDao {
         // always, the named person's own, the named Workspace's. A row belongs
         // to exactly one of them, so these cannot overlap.
         sqlx::query_as::<_, ActivationRow>(
-            r#"SELECT plugin_id, skill_name, user_id, workspace_id, enabled
+            r#"SELECT plugin_id, skill_name, user_id, workspace_id, enabled,
+                      "always", frontload
                FROM plugin_activations
                WHERE (user_id IS NULL AND workspace_id IS NULL)
                   OR user_id = $1
@@ -164,21 +167,29 @@ impl PluginDao for PgPluginDao {
         .await
     }
 
-    async fn set_activation(&self, row: &ActivationRow) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"INSERT INTO plugin_activations (plugin_id, skill_name, user_id, workspace_id, enabled)
-               VALUES ($1, $2, $3, $4, $5)
+    async fn set_activation(&self, write: &ActivationWrite) -> Result<ActivationRow, sqlx::Error> {
+        // `COALESCE($6, plugin_activations."always")` is what makes an unsaid
+        // flag leave the stored one alone; on the insert half there is no
+        // stored one, so it falls to the column default.
+        sqlx::query_as::<_, ActivationRow>(
+            r#"INSERT INTO plugin_activations (plugin_id, skill_name, user_id, workspace_id, enabled, "always", frontload)
+               VALUES ($1, $2, $3, $4, $5, COALESCE($6, false), COALESCE($7, false))
                ON CONFLICT (plugin_id, skill_name, user_id, workspace_id)
-               DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()"#,
+               DO UPDATE SET enabled = EXCLUDED.enabled,
+                             "always" = COALESCE($6, plugin_activations."always"),
+                             frontload = COALESCE($7, plugin_activations.frontload),
+                             updated_at = now()
+               RETURNING plugin_id, skill_name, user_id, workspace_id, enabled, "always", frontload"#,
         )
-        .bind(&row.plugin_id)
-        .bind(&row.skill_name)
-        .bind(row.user_id)
-        .bind(&row.workspace_id)
-        .bind(row.enabled)
-        .execute(&self.0)
-        .await?;
-        Ok(())
+        .bind(&write.plugin_id)
+        .bind(&write.skill_name)
+        .bind(write.user_id)
+        .bind(&write.workspace_id)
+        .bind(write.enabled)
+        .bind(write.always)
+        .bind(write.frontload)
+        .fetch_one(&self.0)
+        .await
     }
 
     async fn clear_activation(

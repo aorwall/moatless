@@ -11,7 +11,7 @@ use moatless_types::access_control::{Actor, ScopedResource};
 use super::activation;
 use super::dao::PluginDao;
 use super::error::PluginError;
-use super::models::{ActivationRow, Plugin};
+use super::models::{ActivationRow, ActivationWrite, Plugin};
 use super::schemas::{
     ActivationReach, ActivationResponse, CreatePluginRequest, EffectivePluginResponse,
     PluginResponse, PluginSkillResponse, SetActivationRequest,
@@ -206,16 +206,23 @@ pub async fn list_plugin_activations(
     Ok(Json(
         rows.into_iter()
             .filter(|r| r.plugin_id == id)
-            .map(|r| ActivationResponse {
-                reach: wire_reach(activation::reach_of(&r)),
-                plugin_id: r.plugin_id,
-                skill_name: r.skill_name,
-                user_id: r.user_id,
-                workspace_id: r.workspace_id,
-                enabled: r.enabled,
-            })
+            .map(to_activation_response)
             .collect(),
     ))
+}
+
+/// A stored record on the wire, reach read back off the subject it names.
+fn to_activation_response(r: ActivationRow) -> ActivationResponse {
+    ActivationResponse {
+        reach: wire_reach(activation::reach_of(&r)),
+        plugin_id: r.plugin_id,
+        skill_name: r.skill_name,
+        user_id: r.user_id,
+        workspace_id: r.workspace_id,
+        enabled: r.enabled,
+        always: r.always,
+        frontload: r.frontload,
+    }
 }
 
 /// The domain's reach on the wire. Kept as a total match so a reach added to
@@ -285,25 +292,23 @@ pub async fn set_plugin_activation(
         .await?
         .ok_or_else(|| PluginError::NotFound(format!("Plugin '{id}' not found")))?;
 
-    let row = ActivationRow {
+    let write = ActivationWrite {
         plugin_id: id,
         skill_name: req.skill_name,
         user_id,
         workspace_id,
         enabled: req.enabled,
+        always: req.always,
+        frontload: req.frontload,
     };
-    if let Err(e) = plugins.set_activation(&row).await {
-        return Err(unknown_user_or(e, user_id));
-    }
+    // What is read back, not what was asked for: a flag the request left unsaid
+    // keeps the value it had, and the caller is owed the record that resulted.
+    let stored = match plugins.set_activation(&write).await {
+        Ok(stored) => stored,
+        Err(e) => return Err(unknown_user_or(e, user_id)),
+    };
 
-    Ok(Json(ActivationResponse {
-        plugin_id: row.plugin_id,
-        skill_name: row.skill_name,
-        reach: req.reach,
-        user_id: row.user_id,
-        workspace_id: row.workspace_id,
-        enabled: row.enabled,
-    }))
+    Ok(Json(to_activation_response(stored)))
 }
 
 /// A write naming a user who is not there, told apart from any other database
@@ -417,20 +422,17 @@ pub async fn list_effective_plugins(
 ) -> Result<Json<Vec<EffectivePluginResponse>>, PluginError> {
     let subject = activation_subject(&auth, params.user_id)?;
     let workspace_id = visible_workspace(workspaces.as_ref(), &auth, params.workspace_id).await?;
-    let resolved = activation::resolve_for(
-        plugins.as_ref(),
-        Some(subject),
-        workspace_id.as_deref(),
-    )
-    .await?;
+    let resolved =
+        activation::resolve_for(plugins.as_ref(), Some(subject), workspace_id.as_deref()).await?;
 
     Ok(Json(
         resolved
             .into_iter()
-            .map(|(plugin, skill_names)| EffectivePluginResponse {
+            .map(|(plugin, skills)| EffectivePluginResponse {
                 plugin_id: plugin.id,
                 plugin_name: plugin.name,
-                skill_names,
+                skill_names: skills.names,
+                frontload_skill_names: skills.frontloaded,
             })
             .collect(),
     ))

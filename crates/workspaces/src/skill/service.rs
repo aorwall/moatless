@@ -121,7 +121,7 @@ impl SkillService {
         .await?;
         let mut from_plugins: Vec<(Vec<Skill>, Vec<String>)> = Vec::with_capacity(resolved.len());
         for (plugin, picked) in resolved {
-            from_plugins.push((self.plugin_skills(&actor, &plugin).await?, picked));
+            from_plugins.push((self.plugin_skills(&actor, &plugin).await?, picked.names));
         }
 
         let merged = merge_skills(workspace.as_ref().clone(), from_plugins);

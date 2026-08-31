@@ -8842,11 +8842,21 @@
         "required": [
           "pluginId",
           "reach",
-          "enabled"
+          "enabled",
+          "always",
+          "frontload"
         ],
         "properties": {
+          "always": {
+            "type": "boolean",
+            "description": "Whether this record outranks every record that is not `always`."
+          },
           "enabled": {
             "type": "boolean"
+          },
+          "frontload": {
+            "type": "boolean",
+            "description": "Whether the skills this record decides frontload into every fresh agent\nsession."
           },
           "pluginId": {
             "type": "string"
@@ -11059,6 +11069,13 @@
           "skillNames"
         ],
         "properties": {
+          "frontloadSkillNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The subset of `skillNames` that frontloads into every fresh agent\nsession rather than waiting to be picked for a turn."
+          },
           "pluginId": {
             "type": "string"
           },
@@ -15245,8 +15262,22 @@
           "enabled"
         ],
         "properties": {
+          "always": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Lift this record above every record that is not `always`, whatever\nreach either of them carries — so what is turned on for everyone or for\none person keeps arriving in a Workspace that says nothing about it, and\nin one that turns it off. Omit to leave whatever the record already\nsays, so a control that knows only about on and off cannot clear it."
+          },
           "enabled": {
             "type": "boolean"
+          },
+          "frontload": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Frontload the skill's body into every fresh agent session it reaches,\nrather than waiting to be picked for a turn. Omitted the same way."
           },
           "reach": {
             "$ref": "#/components/schemas/ActivationReach"

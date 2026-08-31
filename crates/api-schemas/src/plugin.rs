@@ -74,6 +74,17 @@ pub struct SetActivationRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
     pub enabled: bool,
+    /// Lift this record above every record that is not `always`, whatever
+    /// reach either of them carries — so what is turned on for everyone or for
+    /// one person keeps arriving in a Workspace that says nothing about it, and
+    /// in one that turns it off. Omit to leave whatever the record already
+    /// says, so a control that knows only about on and off cannot clear it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub always: Option<bool>,
+    /// Frontload the skill's body into every fresh agent session it reaches,
+    /// rather than waiting to be picked for a turn. Omitted the same way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frontload: Option<bool>,
 }
 
 /// One stored activation record.
@@ -92,6 +103,11 @@ pub struct ActivationResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
     pub enabled: bool,
+    /// Whether this record outranks every record that is not `always`.
+    pub always: bool,
+    /// Whether the skills this record decides frontload into every fresh agent
+    /// session.
+    pub frontload: bool,
 }
 
 /// What the calling user actually gets, after resolution.
@@ -103,6 +119,10 @@ pub struct EffectivePluginResponse {
     pub plugin_name: String,
     /// Never empty — a plugin with no picked skills is not delivered at all.
     pub skill_names: Vec<String>,
+    /// The subset of `skillNames` that frontloads into every fresh agent
+    /// session rather than waiting to be picked for a turn.
+    #[serde(default)]
+    pub frontload_skill_names: Vec<String>,
 }
 
 /// One plugin as handed to a sandbox: where to get it, and which of its skills
@@ -119,4 +139,11 @@ pub struct PluginDelivery {
     pub git_url: String,
     /// Never empty — a plugin with no picked skills is not sent at all.
     pub skill_names: Vec<String>,
+    /// The subset of `skillNames` to frontload into every fresh agent session,
+    /// on top of whatever the turn itself asked for.
+    ///
+    /// Absent from a configuration written before the flag existed, which is
+    /// what `default` covers: no skill frontloads until somebody says so.
+    #[serde(default)]
+    pub frontload_skill_names: Vec<String>,
 }

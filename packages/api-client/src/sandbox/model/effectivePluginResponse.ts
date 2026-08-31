@@ -10,6 +10,9 @@
  * What the calling user actually gets, after resolution.
  */
 export interface EffectivePluginResponse {
+  /** The subset of `skillNames` that frontloads into every fresh agent
+session rather than waiting to be picked for a turn. */
+  frontloadSkillNames?: string[];
   pluginId: string;
   pluginName: string;
   /** Never empty — a plugin with no picked skills is not delivered at all. */
