@@ -1,31 +1,19 @@
-//! Slack's registration on the durable Adapter delivery seam.
-
-use std::sync::Arc;
-
-use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
-use moatless_loops::adapters::inbound_delivery::InboundMessageHandler;
-use moatless_loops::bindings::runtime::RoutingService;
+//! Slack's kinds on the durable Adapter delivery seam.
+//!
+//! Binding `INBOUND_MESSAGE` to its `InboundMessageHandler` happens at the
+//! composition root (`backend/src/adapter_installations.rs`), the one crate
+//! that holds both the `RoutingService` the handler needs and the
+//! `moatless-loops` band it comes from. What stays here is the vocabulary the
+//! rest of this crate reads: the adapter name and its one delivery kind.
 
 /// Adapter name on `adapter_delivery` rows, metrics, and bindings.
-pub(crate) const ADAPTER: &str = "slack";
+pub const ADAPTER: &str = "slack";
 
 /// Routing one inbound Slack message.
 ///
 /// Namespaced under `slack.` so kinds stay owned by exactly one Adapter and
 /// two migrations never contend for the same name.
-pub(crate) const INBOUND_MESSAGE: &str = "slack.inbound_message";
-
-/// Register the Slack deliveries this build knows how to execute.
-///
-/// The worker claims only registered kinds, so a replica that predates this
-/// registration leaves Slack deliveries for one that has it rather than
-/// failing them.
-pub fn register(handlers: &mut AdapterDeliveryHandlers, routing: Arc<RoutingService>) {
-    handlers.register(
-        INBOUND_MESSAGE,
-        Arc::new(InboundMessageHandler::new(ADAPTER, routing)),
-    );
-}
+pub const INBOUND_MESSAGE: &str = "slack.inbound_message";
 
 #[cfg(test)]
 mod tests {

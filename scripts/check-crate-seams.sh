@@ -2,7 +2,7 @@
 #
 # The seam is the only way across a crate boundary.
 #
-# Three invariants, all about what one crate is allowed to know about another:
+# Four invariants, all about what one crate is allowed to know about another:
 #
 #   1. **A store stays private to its crate.** A `*Dao` — the trait, its `Pg*`
 #      implementation, or a mock of it — belongs to the crate that owns the
@@ -30,6 +30,18 @@
 #      runs against a synthetic fixture written to trip it, on every invocation,
 #      and fails if it does not fire. An inert gate is the one change a ratchet
 #      cannot protect.
+#
+#   4. **A freed provider crate names no `moatless_loops`.** The Adapter kernel
+#      descent took `adapter-slack` and `adapter-webhook` off the loops band
+#      entirely: they implement the contract by naming `moatless-adapter-model`
+#      and nothing above it. `adapter-telegram` keeps one edge, `pairing.rs`,
+#      which reads and writes a Loop's config through `LoopDao` — a behaviour
+#      question recorded in docs/deferred-changes.md and listed in ALLOWED_DAOS
+#      above. A reference anywhere else under one of these crates' `src/` — a
+#      `use`, a path, a doc link, or a test module — reintroduces the
+#      dependency this change removed, so this scan is a raw line match that
+#      does *not* drop comments or test context, and it carries the same
+#      fixture self-test as invariant 3.
 #
 # All are grep-level checks, not a Rust parser, but the source scan tokenizes
 # enough that a reference cannot hide in a comment, a string, or a test module.
@@ -155,6 +167,19 @@ scan_reexports() {
     | xargs -0 -r perl -0777 -ne "$REEXPORT_SCAN"
 }
 
+# ── The `moatless_loops` scan (invariant 4) ──────────────────────────────────
+# A raw line match, deliberately unlike the `*Dao` scan: a doc link or a test
+# module naming the crate reintroduces the edge just as surely as a `use` does,
+# so neither comments nor test context is stripped.
+scan_loops() {
+  find "$1" -name '*.rs' -print0 2>/dev/null \
+    | xargs -0 -r grep -Hn 'moatless_loops' 2>/dev/null || true
+}
+
+# The one file that may still name it, with the behaviour question that removes
+# it — the same exemption ALLOWED_DAOS carries for its `LoopDao` pair.
+LOOPS_EXEMPT="crates/adapter-telegram/src/pairing.rs"
+
 fail=0
 
 # ── 1. Cross-crate `*Dao` references ─────────────────────────────────────────
@@ -236,6 +261,34 @@ if [ -z "$(scan_reexports "$fixture")" ]; then
   fail=1
 fi
 
+# ── 4. The freed provider crates name no `moatless_loops` ────────────────────
+for crate in adapter-slack adapter-webhook adapter-telegram; do
+  dir="crates/$crate/src"
+  [ -d "$dir" ] || continue
+
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    file="${hit%%:*}"
+    [ "$file" = "$LOOPS_EXEMPT" ] && continue
+    rest="${hit#*:}"
+    line="${rest%%:*}"
+    echo "FAIL $file:$line — $crate names moatless_loops; the Adapter kernel"
+    echo "     descent took this crate off the loops band. Name the contract on"
+    echo "     moatless-adapter-model instead, or — for pairing.rs alone — add the"
+    echo "     file to the exemption with the behaviour question that removes it."
+    fail=1
+  done < <(scan_loops "$dir")
+done
+
+# The self-test for invariant 4, sharing the fixture dir already trapped above.
+printf 'use moatless_loops::adapters::inbound_delivery::InboundMessageHandler;\n' > "$fixture/loops_probe.rs"
+if [ -z "$(scan_loops "$fixture")" ]; then
+  echo "FAIL scripts/check-crate-seams.sh — the moatless_loops scan found nothing in"
+  echo "     a fixture written to trip it. The check is inert; repair it before"
+  echo "     trusting any run that reported this invariant clean."
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo
   echo "A crate reached past a published seam."
@@ -249,5 +302,6 @@ if [ "$fail" -ne 0 ]; then
 fi
 
 echo "OK: no crate names another crate's store outside the documented set, no"
-echo "crate that owns a table-free surface declares sqlx, and the Adapter facade"
-echo "re-exports nothing outside the shrinking set."
+echo "crate that owns a table-free surface declares sqlx, the Adapter facade"
+echo "re-exports nothing outside the shrinking set, and no freed provider crate"
+echo "names moatless_loops outside the one exempt file."

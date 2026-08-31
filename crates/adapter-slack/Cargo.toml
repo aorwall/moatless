@@ -20,7 +20,6 @@ uuid = { version = "1", features = ["v4", "serde"] }
 moatless-adapter-model = { path = "../adapter-model", features = ["http"] }
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
 moatless-core = { path = "../core" }
-moatless-loops = { path = "../loops" }
 moatless-tasks = { path = "../tasks" }
 moatless-types = { path = "../types" }
 
@@ -42,5 +41,4 @@ moatless-identity = { path = "../identity" }
 hex = "0.4"
 hmac = "0.13"
 sha2 = "0.11"
-moatless-loops = { path = "../loops", features = ["test-support"] }
 moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }

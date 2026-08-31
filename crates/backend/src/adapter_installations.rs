@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
+use crate::adapters::inbound_delivery::InboundMessageHandler;
 use crate::adapters::providers::github_pr::adapter::GithubPrAdapter;
 use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::providers::linear::adapter::LinearAdapter;
@@ -133,7 +134,14 @@ impl SlackInstallation {
     }
 
     fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
-        crate::adapters::providers::slack::delivery::register(handlers, state.routing.clone());
+        use crate::adapters::providers::slack::delivery;
+        handlers.register(
+            delivery::INBOUND_MESSAGE,
+            Arc::new(InboundMessageHandler::new(
+                delivery::ADAPTER,
+                state.routing.clone(),
+            )),
+        );
     }
 }
 
@@ -146,7 +154,14 @@ impl WebhookInstallation {
     }
 
     fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
-        crate::adapters::providers::webhook::delivery::register(handlers, state.routing.clone());
+        use crate::adapters::providers::webhook::delivery;
+        handlers.register(
+            delivery::INBOUND_MESSAGE,
+            Arc::new(InboundMessageHandler::new(
+                delivery::ADAPTER,
+                state.routing.clone(),
+            )),
+        );
     }
 }
 
@@ -170,7 +185,14 @@ impl TelegramInstallation {
     }
 
     fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
-        crate::adapters::providers::telegram::delivery::register(handlers, state.routing.clone());
+        use crate::adapters::providers::telegram::delivery;
+        handlers.register(
+            delivery::INBOUND_MESSAGE,
+            Arc::new(InboundMessageHandler::new(
+                delivery::ADAPTER,
+                state.routing.clone(),
+            )),
+        );
     }
 }
 

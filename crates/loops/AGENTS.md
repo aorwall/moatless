@@ -31,16 +31,10 @@ loop sync. It sits below the backend and above the provider crates
 
 ## The Adapter kernel is a crate, not a re-export
 
-`moatless-adapter-model` holds the whole Adapter contract: what an Adapter
-offers (`capabilities` — the eleven traits a provider implements), what it
-speaks (`models`, `apps`, `footer`, `signature`), what it can fail with
-(`error` — both halves, `SharedAdapterError` and `AdapterError`, plus the
-`IntoResponse` renderer over them), where its connections are stored (`dao`),
-the ingress counters (`metrics`), the `registry` that maps a kind to a
-capability, `render_mentions` (`mentions`), and the two read seams a provider
-names but does not own — `BindingProbe` (`binding`) and `LoopReader` (`loops`).
-A provider crate implements an Adapter by naming that crate and nothing above
-it.
+The whole Adapter contract lives in `moatless-adapter-model` — its holdings,
+the `postgres`/`http`/`test-support` feature gates, and its driver-free base
+surface are documented in `crates/adapter-model/AGENTS.md`. A provider
+implements an Adapter by naming that crate and nothing above it.
 
 Name it directly — `moatless_adapter_model::…` — from this crate and from every
 provider crate. Do not re-export it through `crate::adapters`; one path to a
@@ -50,28 +44,17 @@ type is the point. The shared Adapter vocabulary that lives one crate lower —
 not through this facade.
 
 What is left under `src/adapters/` is what the loops band adds *around* the
-contract: the durable-delivery seam, ingress, self-echo, subject events, and the
-shared connection/loop handler support. If a change would put a trait every
-provider implements, the registry, or a read seam a provider names back in here,
-it belongs in the kernel instead.
+contract: the durable-delivery store and worker, the inbound-message handler,
+self-echo, subject events, and the shared connection/loop handler support. If a
+change would put a trait every provider implements, the registry, an ingress
+vocabulary, or a read seam a provider names back in here, it belongs in the
+kernel instead.
 
-`scripts/check-crate-seams.sh` enforces this: a `pub use` of another crate's
-item anywhere under `src/adapters/` fails unless it is listed in that script's
-`ALLOWED_REEXPORTS` with the change that removes it. That list is now empty, and
-it got there by shrinking — its one entry was `error.rs` forwarding
-`SharedAdapterError` and `ProviderDecodeError` while `AdapterError` still lived
-here, and the contract move deleted the module that was forwarding them.
-
-Two features keep the kernel's base surface to the contract alone: `postgres`
-adds the connection store and its row shapes, `http` adds the renderer and the
-two crates it reads to build a body. Built with neither, `adapter-model` pulls
-no database driver, no axum, and no `moatless-core` — check it with
-`cargo build -p moatless-adapter-model` before assuming a new item can sit
-ungated.
-
-`AdapterConnectionDao` returns `StoreError`, and the Postgres store behind it
-sits under the crate's `postgres` feature. A crate that only reads connections
-needs no database driver.
+`scripts/check-crate-seams.sh` enforces this: invariant 3 fails a `pub use` of
+another crate's item anywhere under `src/adapters/` unless it is listed in the
+script's `ALLOWED_REEXPORTS` with the change that removes it — a list that is
+empty and only shrinks — and invariant 4 fails a `moatless_loops` reference in
+`adapter-slack` or `adapter-webhook`, the two provider crates the kernel freed.
 
 ## Two seams join a provider to the rest of the system
 

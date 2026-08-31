@@ -1,14 +1,14 @@
-//! The generic Webhook Adapter's registration on the durable Adapter delivery
-//! seam.
-
-use std::sync::Arc;
-
-use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
-use moatless_loops::adapters::inbound_delivery::InboundMessageHandler;
-use moatless_loops::bindings::runtime::RoutingService;
+//! The generic Webhook Adapter's kinds on the durable Adapter delivery seam.
+//!
+//! Binding `INBOUND_MESSAGE` to its `InboundMessageHandler` happens at the
+//! composition root (`backend/src/adapter_installations.rs`), the one crate
+//! that holds both the `RoutingService` the handler needs and the
+//! `moatless-loops` band it comes from. What stays here is the vocabulary the
+//! rest of this crate reads: the adapter name, its subject, and its one
+//! delivery kind.
 
 /// Adapter name on `adapter_delivery` rows, metrics, and bindings.
-pub(crate) const ADAPTER: &str = "webhook";
+pub const ADAPTER: &str = "webhook";
 
 /// The subject a webhook binding is keyed on: one thread on one trigger.
 pub(crate) const SUBJECT_KIND: &str = "webhook_thread";
@@ -17,19 +17,7 @@ pub(crate) const SUBJECT_KIND: &str = "webhook_thread";
 ///
 /// Namespaced under `webhook.` so kinds stay owned by exactly one adapter and
 /// two migrations never contend for the same name.
-pub(crate) const INBOUND_MESSAGE: &str = "webhook.inbound_message";
-
-/// Register the webhook deliveries this build knows how to execute.
-///
-/// The worker claims only registered kinds, so a replica that predates this
-/// registration leaves webhook deliveries for one that has it rather than failing
-/// them.
-pub fn register(handlers: &mut AdapterDeliveryHandlers, routing: Arc<RoutingService>) {
-    handlers.register(
-        INBOUND_MESSAGE,
-        Arc::new(InboundMessageHandler::new(ADAPTER, routing)),
-    );
-}
+pub const INBOUND_MESSAGE: &str = "webhook.inbound_message";
 
 #[cfg(test)]
 mod tests {
