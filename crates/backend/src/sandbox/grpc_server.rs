@@ -1938,11 +1938,47 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
 
         const MAX_RECOVERY_ATTEMPTS: i32 = 3;
-        if interrupted.recovery_attempts >= MAX_RECOVERY_ATTEMPTS {
+
+        // The cap exists to stop a crash-looping pod (e.g. OOM on resume) from
+        // hammering recovery forever. A re-drive that produced agent output
+        // before the pod died again is not that loop — it is live work the node
+        // reclaimed or an idle-stop restarted. Zero the counter in that case so
+        // only *consecutive no-progress* recoveries count toward the cap;
+        // otherwise a long turn reclaimed a few times exhausts the budget and is
+        // abandoned mid-work.
+        let mut recovery_attempts = interrupted.recovery_attempts;
+        if recovery_attempts > 0
+            && messages
+                .turn_progressed_since_last_recovery(&req.task_id, interrupted.turn_number)
+                .await
+                .unwrap_or(false)
+        {
+            if let Some(task_turns) = self.ingress.as_ref().map(|i| &i.task_turns) {
+                match task_turns
+                    .reset_recovery_attempts(&req.task_id, interrupted.turn_number)
+                    .await
+                {
+                    Ok(()) => {
+                        info!(
+                            task_id = %req.task_id,
+                            turn_number = interrupted.turn_number,
+                            prior_attempts = recovery_attempts,
+                            "RecoverInterruptedRun: last re-drive made progress; resetting recovery counter"
+                        );
+                        recovery_attempts = 0;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, task_id = %req.task_id, "reset_recovery_attempts failed");
+                    }
+                }
+            }
+        }
+
+        if recovery_attempts >= MAX_RECOVERY_ATTEMPTS {
             warn!(
                 task_id = %req.task_id,
                 turn_number = interrupted.turn_number,
-                attempts = interrupted.recovery_attempts,
+                attempts = recovery_attempts,
                 "RecoverInterruptedRun: cap reached, marking aborted"
             );
             // No transcript row: a run outcome is not something somebody said.
@@ -1959,7 +1995,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                         serde_json::json!({
                             "turn_number": interrupted.turn_number,
                             "session_id": interrupted.session_id,
-                            "attempts": interrupted.recovery_attempts,
+                            "attempts": recovery_attempts,
                         }),
                     )
                     .await;
@@ -2016,6 +2052,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 agent_type: task_agent_type,
                 agent_mode: interrupted.agent_mode,
                 effort: interrupted.effort,
+                run_id: interrupted.run_id,
             }),
         }))
     }

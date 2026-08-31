@@ -580,6 +580,26 @@ async fn increment_recovery_attempts_counts_per_turn(pool: PgPool) {
     );
 }
 
+#[sqlx::test]
+async fn reset_recovery_attempts_zeroes_the_counter(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnDao(pool.clone());
+    repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
+    repo.increment_recovery_attempts("task-a", 1).await.unwrap();
+    repo.increment_recovery_attempts("task-a", 1).await.unwrap();
+
+    repo.reset_recovery_attempts("task-a", 1).await.unwrap();
+
+    // The next attempt starts counting from zero again.
+    assert_eq!(
+        repo.increment_recovery_attempts("task-a", 1).await.unwrap(),
+        1
+    );
+
+    // A missing row is a no-op, not an error.
+    repo.reset_recovery_attempts("task-a", 999).await.unwrap();
+}
+
 // ── latest_closed_turn_status — the resume-suppression signal ───────────────
 
 #[sqlx::test]

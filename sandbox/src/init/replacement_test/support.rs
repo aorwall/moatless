@@ -197,6 +197,7 @@ pub(super) fn interrupted_turn(
         agent_type: agent_type.map(ToString::to_string),
         agent_mode: None,
         effort: None,
+        run_id: None,
     }
 }
 

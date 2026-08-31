@@ -515,6 +515,39 @@ async fn injected_input_ack_waits_for_following_source() {
 }
 
 #[tokio::test]
+async fn resume_run_maps_recovery_events_onto_the_interrupted_turns_run_id() {
+    let (events, received, _cancel) = recording_publisher();
+    let mut coord =
+        Coordinator::new(Harness::scripted(Script::new(vec![])), events.clone(), "task-1");
+
+    // The recovery path adopts the interrupted turn's run_id before the resumed
+    // execution starts, so every event maps back to that turn instead of forking
+    // a new one the reaper would later orphan.
+    coord.resume_run("run-orig".to_string());
+
+    let (ack_tx, _ack_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "resumed prompt"), ack_tx)
+        .await
+        .expect("submit");
+    coord
+        .handle_signal(Signal::ExecutionStarted {
+            session: SessionId("sess-1".to_string()),
+            cause: Cause::Input(InputId("in-1".to_string())),
+        })
+        .await;
+    flush(&events).await;
+
+    for req in received.lock().expect("lock").iter() {
+        assert_eq!(
+            req.run_id, "run-orig",
+            "recovery reuses the interrupted turn's run_id: {}",
+            req.sub_type
+        );
+    }
+}
+
+#[tokio::test]
 async fn injected_input_ack_resolves_on_following_activity() {
     let (events, _received, _cancel) = recording_publisher();
     let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");

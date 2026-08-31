@@ -161,6 +161,10 @@ pub struct InterruptedTurn {
     /// Reasoning effort the interrupted turn ran with, so the replay repeats it.
     pub effort: Option<String>,
     pub recovery_attempts: i32,
+    /// The turn's original `run_id`, so the recovery re-drive can reuse it and
+    /// keep its events on this turn. `None` for legacy turns with no recorded
+    /// run_id — those fall back to a fresh run (the pre-existing behaviour).
+    pub run_id: Option<String>,
 }
 
 /// DAO trait for message persistence.
@@ -448,6 +452,18 @@ pub trait MessageDao: Send + Sync {
         &self,
         task_id: &str,
     ) -> Result<Option<InterruptedTurn>, sqlx::Error>;
+
+    /// Whether the turn produced agent output (an `agent.message` row) after its
+    /// most recent `agent.recovery_started` — i.e. the last recovery re-drive
+    /// ran productively before the pod died again. `true` marks a legitimate
+    /// re-interruption of live work; `false` marks a crash-loop that never got
+    /// past resume. The recovery handler resets the attempt counter on `true` so
+    /// only a no-progress loop exhausts the cap.
+    async fn turn_progressed_since_last_recovery(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<bool, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MessageDao`].
@@ -1656,14 +1672,14 @@ impl MessageDao for PgMessageDao {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let recovery_attempts: i32 = sqlx::query_scalar(
-            "SELECT recovery_attempts FROM task_turns WHERE task_id = $1 AND turn_number = $2",
+        let turn_row: Option<(i32, Option<String>)> = sqlx::query_as(
+            "SELECT recovery_attempts, run_id FROM task_turns WHERE task_id = $1 AND turn_number = $2",
         )
         .bind(task_id)
         .bind(turn_number)
         .fetch_optional(&self.0)
-        .await?
-        .unwrap_or(0);
+        .await?;
+        let (recovery_attempts, run_id) = turn_row.unwrap_or((0, None));
 
         Ok(Some(InterruptedTurn {
             task_message_id,
@@ -1674,7 +1690,41 @@ impl MessageDao for PgMessageDao {
             agent_mode,
             effort,
             recovery_attempts,
+            run_id,
         }))
+    }
+
+    async fn turn_progressed_since_last_recovery(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<bool, sqlx::Error> {
+        // An `agent.message` row is only written once the resumed run produced
+        // assistant output (its content lives in `task_messages`; the event is a
+        // skeleton). Its presence after the last `recovery_started` means the
+        // re-drive got past resume and did real work. `created_at` (timestamptz)
+        // is the reliable ordering key; `timestamp` is free-form text.
+        let (progressed,): (bool,) = sqlx::query_as(
+            r#"SELECT EXISTS (
+                   SELECT 1 FROM task_events e
+                   WHERE e.task_id = $1
+                     AND e.turn_number = $2
+                     AND e.type = 'agent'
+                     AND e.sub_type = 'message'
+                     AND e.created_at > COALESCE(
+                       (SELECT MAX(r.created_at) FROM task_events r
+                          WHERE r.task_id = $1
+                            AND r.turn_number = $2
+                            AND r.type = 'agent'
+                            AND r.sub_type = 'recovery_started'),
+                       '-infinity'::timestamptz)
+               )"#,
+        )
+        .bind(task_id)
+        .bind(turn_number)
+        .fetch_one(&self.0)
+        .await?;
+        Ok(progressed)
     }
 }
 

@@ -1376,8 +1376,8 @@ async fn find_interrupted_turn_reads_recovery_attempts_from_task_turns(pool: PgP
     seed_task(&pool, "task-1", "user-1").await;
     seed_acknowledged_turn(&pool, "task-1", "recovering-user", 1).await;
     sqlx::query(
-        "INSERT INTO task_turns (task_id, turn_number, status, recovery_attempts) \
-         VALUES ($1, 1, 'interrupted', 2)",
+        "INSERT INTO task_turns (task_id, turn_number, status, recovery_attempts, run_id) \
+         VALUES ($1, 1, 'interrupted', 2, 'run-orig')",
     )
     .bind("task-1")
     .execute(&pool)
@@ -1392,4 +1392,58 @@ async fn find_interrupted_turn_reads_recovery_attempts_from_task_turns(pool: PgP
         .expect("expected interrupted turn");
 
     assert_eq!(interrupted.recovery_attempts, 2);
+    // The turn's run_id rides along so the recovery re-drive can reuse it.
+    assert_eq!(interrupted.run_id.as_deref(), Some("run-orig"));
+}
+
+/// Insert an `agent.<sub_type>` event on `turn_number` at an explicit
+/// `created_at`, so a test can order recovery markers against output.
+async fn seed_agent_event_at(
+    pool: &PgPool,
+    task_id: &str,
+    sub_type: &str,
+    turn_number: i32,
+    created_at: &str,
+) {
+    sqlx::query(
+        r#"INSERT INTO task_events
+               (event_id, task_id, type, sub_type, turn_number, agent_type, payload, timestamp, created_at)
+           VALUES ($1, $2, 'agent', $3, $4, 'claude-code', '{}'::jsonb, $5, $5::timestamptz)"#,
+    )
+    .bind(format!("{task_id}-agent-{sub_type}-{turn_number}-{created_at}"))
+    .bind(task_id)
+    .bind(sub_type)
+    .bind(turn_number)
+    .bind(created_at)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test]
+async fn turn_progressed_since_last_recovery_tracks_output_after_the_newest_recovery(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let repo = PgMessageDao(pool.clone());
+
+    // Nothing published yet: no progress.
+    assert!(!repo
+        .turn_progressed_since_last_recovery("task-1", 1)
+        .await
+        .unwrap());
+
+    // A recovery re-drive that then produced an agent.message: progress.
+    seed_agent_event_at(&pool, "task-1", "recovery_started", 1, "2026-01-01T00:00:00Z").await;
+    seed_agent_event_at(&pool, "task-1", "message", 1, "2026-01-01T00:01:00Z").await;
+    assert!(repo
+        .turn_progressed_since_last_recovery("task-1", 1)
+        .await
+        .unwrap());
+
+    // A newer recovery re-drive with no output after it: a crash loop, no
+    // progress — the earlier message predates this attempt.
+    seed_agent_event_at(&pool, "task-1", "recovery_started", 1, "2026-01-01T00:02:00Z").await;
+    assert!(!repo
+        .turn_progressed_since_last_recovery("task-1", 1)
+        .await
+        .unwrap());
 }

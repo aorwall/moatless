@@ -103,6 +103,14 @@ impl TaskTurnDao for RecordingTurns {
     ) -> Result<i32, sqlx::Error> {
         unreachable!("increment_recovery_attempts is the recovery path")
     }
+
+    async fn reset_recovery_attempts(
+        &self,
+        _task_id: &str,
+        _turn_number: i32,
+    ) -> Result<(), sqlx::Error> {
+        unreachable!("reset_recovery_attempts is the recovery path")
+    }
 }
 
 /// In-memory ingress outbox: admits, claims and deletes like the Postgres one,

@@ -333,6 +333,10 @@ message InterruptedTurn {
   optional string agent_mode = 5;
   // Reasoning effort the interrupted turn ran with, replayed with it.
   optional string effort = 6;
+  // The interrupted turn's original run_id. The recovery re-drive reuses it so
+  // its events map back to this same turn rather than forking a new one. Absent
+  // for legacy turns whose run_id was never recorded.
+  optional string run_id = 7;
 }
 
 // ── Sandbox gRPC API (backend is the client) ────────────────────

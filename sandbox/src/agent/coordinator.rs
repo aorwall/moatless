@@ -234,6 +234,15 @@ impl Coordinator {
         self.hold_run_id = true;
     }
 
+    /// Resume an interrupted turn under its original Run id. The next
+    /// `ExecutionStarted` adopts `run_id` rather than minting a fresh one, so the
+    /// recovery run's events (and its terminal close) map back to the interrupted
+    /// turn instead of forking a new one that the reaper would later orphan.
+    pub(crate) fn resume_run(&mut self, run_id: String) {
+        self.run_id = run_id;
+        self.hold_run_id = true;
+    }
+
     /// Suppress the terminal `error` event for the next `Failed` outcome. The
     /// service calls this when it has classified the failure as a retryable
     /// transient error with retry budget remaining, so the coordinator stays
@@ -1194,9 +1203,18 @@ impl CoordinatorService {
                             agent_mode,
                             effort,
                             resume_session_id,
+                            run_id,
                         }) => {
                             // A replayed run also gets a fresh recovery budget.
                             self.credential_recovery_attempts = 0;
+
+                            // Adopt the interrupted turn's run_id so the backend
+                            // maps this re-drive back to that turn. Skip for a
+                            // legacy turn with no recorded run_id — it forks a
+                            // fresh turn, as before.
+                            if let Some(run_id) = run_id.filter(|id| !id.is_empty()) {
+                                self.coordinator.resume_run(run_id);
+                            }
 
                             // Session state (Claude transcripts + Codex rollouts)
                             // was restored to disk during init before the pod

@@ -152,6 +152,10 @@ pub(crate) enum AgentCommand {
         agent_mode: Option<String>,
         effort: Option<String>,
         resume_session_id: String,
+        /// The interrupted turn's original run_id. Reused so the recovery run's
+        /// events map back to that turn instead of forking a new one. `None`
+        /// for a legacy turn with no recorded run_id.
+        run_id: Option<String>,
     },
     /// Stop the agent. The `ack` (when present) resolves once the lifecycle
     /// owner has published the single terminal `Stopped` event and closed the
@@ -243,12 +247,14 @@ impl AgentHandle {
         agent_mode: Option<String>,
         effort: Option<String>,
         resume_session_id: String,
+        run_id: Option<String>,
     ) {
         let _ = self.command_tx.send(AgentCommand::Recover {
             text,
             agent_mode,
             effort,
             resume_session_id,
+            run_id,
         });
     }
 }

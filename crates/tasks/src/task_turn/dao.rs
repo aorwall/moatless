@@ -205,6 +205,16 @@ pub trait TaskTurnDao: Send + Sync {
         task_id: &str,
         turn_number: i32,
     ) -> Result<i32, sqlx::Error>;
+
+    /// Zero a turn's recovery counter. Called when the last re-drive made
+    /// forward progress before the pod died again, so a long turn interrupted by
+    /// repeated external reschedules never exhausts the crash-loop cap. A no-op
+    /// when the row is absent.
+    async fn reset_recovery_attempts(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<(), sqlx::Error>;
 }
 
 /// The next free turn number for a task.
@@ -469,6 +479,22 @@ impl TaskTurnDao for PgTaskTurnDao {
         .fetch_one(&self.0)
         .await?;
         Ok(attempts)
+    }
+
+    async fn reset_recovery_attempts(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE task_turns SET recovery_attempts = 0 \
+             WHERE task_id = $1 AND turn_number = $2",
+        )
+        .bind(task_id)
+        .bind(turn_number)
+        .execute(&self.0)
+        .await?;
+        Ok(())
     }
 
     async fn list_turn_metrics(
