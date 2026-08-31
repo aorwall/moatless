@@ -2,9 +2,11 @@
 //!
 //! Providers keep transport verification, parsing, and provider-specific
 //! decisions — every Adapter writes its own `receive`, because every step
-//! inside one is Adapter policy. What they share is how a delivery *ends*:
-//! [`Outcome`] and [`IngressError`] name the transport treatments, and
-//! [`log_admission`] gives admission one operator trace instead of five.
+//! inside one is Adapter policy. What they share is the one step in the middle
+//! and how a delivery *ends*: [`admit_delivery`] hands work over through the
+//! [`DeliveryAdmission`] port, and [`Outcome`] and [`IngressError`] name the
+//! transport treatments while [`log_admission`] gives admission one operator
+//! trace instead of five.
 //!
 //! Four Adapters invented these two enums independently — GitHub PR and Linear
 //! first, then Slack and Telegram in #174, deliberately written to be identical
@@ -13,8 +15,22 @@
 
 use tracing::{debug, warn};
 
-use crate::delivery::{Admission, AdmitError};
+use crate::delivery::{AdapterDeliveryRequest, Admission, AdmitError, DeliveryAdmission};
 use crate::error::AdapterError;
+
+/// Commit one provider work item to the durable adapter delivery queue.
+///
+/// The failure is handed back as [`AdmitError`], not flattened into an
+/// [`AdapterError`]: a `receive` that `?`s it lands on
+/// [`IngressError::NotAdmitted`], the one class that must never be
+/// acknowledged. Keeping it unflattened is what preserves that distinction to
+/// the caller.
+pub async fn admit_delivery(
+    admission: &dyn DeliveryAdmission,
+    request: AdapterDeliveryRequest,
+) -> Result<Admission, AdmitError> {
+    admission.admit(request).await
+}
 
 /// What one Adapter's `receive` made of a delivery it is prepared to
 /// acknowledge.

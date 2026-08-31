@@ -22,8 +22,15 @@ moatless-types = { path = "../types" }
 workspace = true
 
 [dev-dependencies]
+async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 hex = "0.4"
 hmac = "0.13"
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
+# The kernel's `FakeAdmission` and `response_snapshot`, so the handler's four
+# admission branches are driven without a database. Dev-dependency features do
+# not unify into the normal build under resolver 2, so this stays out of
+# `cargo build`.
+moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }
 sha2 = "0.11"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

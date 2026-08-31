@@ -32,7 +32,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::{Json, Router};
 use moatless_backend::adapters::delivery::spawn_adapter_delivery_worker;
-use moatless_adapter_model::delivery::{AdapterDeliveryRequest, Admission};
+use moatless_adapter_model::delivery::{AdapterDeliveryRequest, Admission, DeliveryAdmission};
 use moatless_backend::adapters::routes::adapter_router;
 use moatless_backend::repository::dao as repository_dao;
 use moatless_backend::state::AppState;

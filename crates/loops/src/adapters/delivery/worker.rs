@@ -339,7 +339,7 @@ mod db_tests {
     use sqlx::PgPool;
 
     use moatless_adapter_model::delivery::{
-        AdapterDeliveryHandler, AdapterDeliveryRequest, Admission, AdmitError,
+        AdapterDeliveryHandler, AdapterDeliveryRequest, Admission, AdmitError, DeliveryAdmission,
     };
     use super::super::models::AdapterDeliveryPolicy;
     use super::*;

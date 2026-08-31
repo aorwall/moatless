@@ -25,7 +25,7 @@ use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 
 use moatless_backend::adapters::delivery::spawn_adapter_delivery_worker;
-use moatless_adapter_model::delivery::{AdapterDeliveryRequest, Admission};
+use moatless_adapter_model::delivery::{AdapterDeliveryRequest, Admission, DeliveryAdmission};
 use moatless_backend::state::AppState;
 
 use common::{test_app_state_with_adapters, test_config};

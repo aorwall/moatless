@@ -1,32 +1,17 @@
-//! Durable admission for provider dispatchers.
+//! The real-store side of durable admission.
 //!
-//! The shared ingress vocabulary — `Outcome`, `IngressError`, `log_admission` —
-//! is the Adapter kernel's (`moatless_adapter_model::ingress`). What is here is
-//! the one step that needs this band's store: committing a delivery to the
-//! durable queue.
-
-use crate::adapters::delivery::AdapterDeliveryStore;
-use moatless_adapter_model::delivery::{AdapterDeliveryRequest, Admission, AdmitError};
-
-/// Commit one provider work item to the durable adapter delivery queue.
-///
-/// The failure is handed back as [`AdmitError`], not flattened into an
-/// `AdapterError`: a `receive` that `?`s it lands on
-/// `IngressError::NotAdmitted`, which is the one class that must never be
-/// acknowledged. Flattening it first is what made that variant unreachable for
-/// three of the four Adapters before the vocabulary was shared.
-pub async fn admit_delivery(
-    store: &AdapterDeliveryStore,
-    request: AdapterDeliveryRequest,
-) -> Result<Admission, AdmitError> {
-    store.admit(request).await
-}
+//! The admission seam is the Adapter kernel's: `DeliveryAdmission` names the
+//! one call a provider makes, `moatless_adapter_model::ingress::admit_delivery`
+//! wraps it, and the kernel's `FakeAdmission` drives the four outcome branches
+//! at the handler level without a database. What stays here is the one
+//! characterization that a fake cannot stand in for — that the *concrete*
+//! `AdapterDeliveryStore`, refused by a database that is not there, surfaces as
+//! `IngressError::NotAdmitted` through the adapter-model admission port.
 
 #[cfg(test)]
 mod tests {
-    use super::admit_delivery;
     use crate::adapters::delivery::AdapterDeliveryStore;
-    use moatless_adapter_model::delivery::{AdapterDeliveryRequest, AdmitError};
+    use moatless_adapter_model::delivery::{AdapterDeliveryRequest, AdmitError, DeliveryAdmission};
     use moatless_adapter_model::ingress::IngressError;
     use moatless_core::db::DbPool;
 
@@ -61,7 +46,7 @@ mod tests {
         };
 
         let received: Result<_, IngressError> =
-            async { Ok(admit_delivery(&store_with_no_database(), request).await?) }.await;
+            async { Ok(store_with_no_database().admit(request).await?) }.await;
 
         assert!(
             matches!(

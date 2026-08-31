@@ -24,11 +24,69 @@
 
 use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::{Json, Router};
+
+use moatless_types::store::StoreError;
+
+use crate::delivery::{AdapterDeliveryRequest, Admission, AdmitError, DeliveryAdmission};
+
+/// What a [`FakeAdmission`] answers. A descriptor rather than a stored
+/// `Result`, because [`AdmitError`] is not `Clone` and a fake that answered
+/// once could not pin a retry.
+#[derive(Debug, Clone, Copy)]
+pub enum FakeAdmissionAnswer {
+    Admitted,
+    Duplicate,
+    AtCapacity { limit: i64 },
+    StoreFailed,
+}
+
+/// A [`DeliveryAdmission`] that answers a fixed outcome and records every
+/// request, so a handler test can drive each admission branch without a
+/// database — the outcomes the concrete store reaches only against real
+/// Postgres state.
+pub struct FakeAdmission {
+    answer: FakeAdmissionAnswer,
+    seen: Mutex<Vec<AdapterDeliveryRequest>>,
+}
+
+impl FakeAdmission {
+    pub fn new(answer: FakeAdmissionAnswer) -> Self {
+        Self {
+            answer,
+            seen: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Every request handed to [`DeliveryAdmission::admit`], in order. What a
+    /// test asserts the `kind` and the sender's `event_id` on.
+    pub fn seen(&self) -> Vec<AdapterDeliveryRequest> {
+        self.seen.lock().expect("seen log is not poisoned").clone()
+    }
+}
+
+#[async_trait]
+impl DeliveryAdmission for FakeAdmission {
+    async fn admit(&self, request: AdapterDeliveryRequest) -> Result<Admission, AdmitError> {
+        self.seen
+            .lock()
+            .expect("seen log is not poisoned")
+            .push(request);
+        match self.answer {
+            FakeAdmissionAnswer::Admitted => Ok(Admission::Admitted),
+            FakeAdmissionAnswer::Duplicate => Ok(Admission::Duplicate),
+            FakeAdmissionAnswer::AtCapacity { limit } => Err(AdmitError::AtCapacity { limit }),
+            FakeAdmissionAnswer::StoreFailed => Err(AdmitError::Store(StoreError::new(
+                "persist the Adapter delivery record",
+            ))),
+        }
+    }
+}
 
 /// An address on loopback nothing is listening on, so connecting is refused
 /// immediately. Injected as a provider client'"'"'s base URL to exercise the "we

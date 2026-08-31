@@ -264,7 +264,9 @@ mod db_tests {
     use tokio_util::sync::CancellationToken;
 
     use crate::adapters::delivery::{AdapterDeliveryPolicy, AdapterDeliveryStore, spawn_adapter_delivery_worker};
-    use moatless_adapter_model::delivery::{AdapterDeliveryHandlers, AdapterDeliveryRequest};
+    use moatless_adapter_model::delivery::{
+        AdapterDeliveryHandlers, AdapterDeliveryRequest, DeliveryAdmission,
+    };
 
     use super::*;
     use moatless_adapter_model::error::{AdapterError, SharedAdapterError};

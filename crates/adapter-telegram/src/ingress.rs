@@ -188,7 +188,7 @@ pub(super) async fn receive(
             // The routing runs in the Adapter delivery worker, which is also where
             // the webhook outcome metric is recorded. Failing here propagates:
             // nothing durable was written, so the caller must not acknowledge.
-            let admission = moatless_loops::adapters::ingress::admit_delivery(
+            let admission = moatless_adapter_model::ingress::admit_delivery(
                 adapter
                     .require_adapter_delivery()
                     .map_err(IngressError::Ingress)?,

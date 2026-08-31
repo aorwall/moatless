@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use tracing::debug;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::ingress::{IngressError, Outcome};
 use moatless_adapter_model::metrics::record_webhook;
@@ -41,7 +41,7 @@ pub async fn slack_webhook(
     State(loops): State<Arc<dyn LoopReader>>,
     State(task_bindings): State<Arc<dyn BindingProbe>>,
     State(users): State<Arc<dyn ProviderIdentityLink>>,
-    State(adapter_delivery): State<Arc<AdapterDeliveryStore>>,
+    State(adapter_delivery): State<Arc<dyn DeliveryAdmission>>,
     State(slack_provider): State<Option<Arc<SlackAdapter>>>,
     headers: HeaderMap,
     body: Bytes,
@@ -60,7 +60,7 @@ pub async fn slack_webhook(
         loops.as_ref(),
         task_bindings.as_ref(),
         users.as_ref(),
-        &adapter_delivery,
+        adapter_delivery.as_ref(),
         &slack_provider,
         request,
     )

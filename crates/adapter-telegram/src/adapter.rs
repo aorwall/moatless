@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::capabilities::{Adapter, AdapterInboundPresentation, AdapterOutboundContent};
@@ -30,7 +30,7 @@ pub struct TelegramAdapter {
     apps: Option<Arc<dyn AdapterAppReader>>,
     adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
     loops: Option<Arc<dyn LoopReader>>,
-    adapter_delivery: Option<Arc<AdapterDeliveryStore>>,
+    adapter_delivery: Option<Arc<dyn DeliveryAdmission>>,
 }
 
 /// The internal error for an ingress port read on an adapter that never
@@ -83,14 +83,15 @@ impl TelegramAdapter {
     /// local-construction move as `LinearAdapter::with_tasks`. All three are
     /// pool-wrapper DAOs, which the backend guidelines allow constructing
     /// locally precisely because they stay stateless, so a per-provider instance
-    /// is interchangeable with the one `AppState` holds (`AdapterDeliveryStore`
-    /// carries the one non-obvious case — policy state — and pins the invariant
-    /// at its own definition).
+    /// is interchangeable with the one `AppState` holds (the concrete
+    /// `AdapterDeliveryStore` behind this `DeliveryAdmission` carries the one
+    /// non-obvious case — policy state — and pins the invariant at its own
+    /// definition).
     pub fn with_ingress_ports(
         mut self,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<dyn LoopReader>,
-        adapter_delivery: Arc<AdapterDeliveryStore>,
+        adapter_delivery: Arc<dyn DeliveryAdmission>,
     ) -> Self {
         self.adapter_connections = Some(adapter_connections);
         self.loops = Some(loops);
@@ -113,8 +114,8 @@ impl TelegramAdapter {
         self.loops.as_deref().ok_or_else(|| missing_port("loops"))
     }
 
-    /// The durable delivery store admitted updates are handed to.
-    pub(super) fn require_adapter_delivery(&self) -> Result<&AdapterDeliveryStore, AdapterError> {
+    /// The durable delivery seam admitted updates are handed to.
+    pub(super) fn require_adapter_delivery(&self) -> Result<&dyn DeliveryAdmission, AdapterError> {
         self.adapter_delivery
             .as_deref()
             .ok_or_else(|| missing_port("adapter_delivery"))

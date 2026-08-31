@@ -92,8 +92,8 @@ mod tests {
     /// before the shared vocabulary landed: `receive` admitted through a helper
     /// that flattened `AdmitError` into `AdapterError` first, so a refused
     /// admission arrived as an ingress rejection. It now admits through
-    /// `moatless_loops::adapters::ingress::admit_delivery` — see the test beside that
-    /// function — and this pins that the class it produces is still refused
+    /// `moatless_adapter_model::ingress::admit_delivery` — and this pins that
+    /// the class it produces is still refused
     /// rather than acknowledged, and with the same statuses the flattened one
     /// produced.
     #[tokio::test]

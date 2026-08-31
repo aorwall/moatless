@@ -11,7 +11,7 @@ use tracing::{debug, warn};
 
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::delivery::AdapterDeliveryRequest;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::ingress::{IngressError, Outcome};
@@ -64,7 +64,7 @@ pub(crate) async fn receive(
     loops: &dyn LoopReader,
     users: &dyn ProviderIdentityLink,
     task_bindings: &Arc<dyn TaskBindingDao>,
-    adapter_delivery: &AdapterDeliveryStore,
+    adapter_delivery: &dyn DeliveryAdmission,
     github_provider: &GithubPrAdapter,
     request: WebhookRequest<'_>,
 ) -> Result<Outcome, IngressError> {
@@ -409,13 +409,14 @@ fn delivery_event_id(delivery_id: &str, body: &[u8]) -> String {
 /// Each successful admission commits independently. A redelivery therefore
 /// sees earlier kinds as duplicates and resumes at the first missing kind.
 async fn admit_sequentially(
-    adapter_delivery: &AdapterDeliveryStore,
+    adapter_delivery: &dyn DeliveryAdmission,
     plan: Vec<AdapterDeliveryRequest>,
 ) -> Result<(), IngressError> {
     for request in plan {
         let kind = request.kind;
         let event_id = request.event_id.clone();
-        let admission = moatless_loops::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
+        let admission =
+            moatless_adapter_model::ingress::admit_delivery(adapter_delivery, request).await?;
         super::delivery::log_admission(kind, &event_id, admission);
     }
     Ok(())

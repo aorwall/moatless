@@ -13,7 +13,7 @@ use moatless_types::store::StoreError;
 use super::metrics::record_admission;
 use super::models::AdapterDeliveryPolicy;
 use moatless_adapter_model::delivery::{
-    AdapterDelivery, AdapterDeliveryRequest, Admission, AdmitError,
+    AdapterDelivery, AdapterDeliveryRequest, Admission, AdmitError, DeliveryAdmission,
 };
 
 /// Unfinished and finished record counts, for the worker's backlog gauges.
@@ -31,8 +31,8 @@ pub(crate) struct Backlog {
 /// The durable Adapter delivery store.
 ///
 /// Most webhook handlers reach this through `AppState::adapter_delivery` and
-/// only ever call [`AdapterDeliveryStore::admit`]; the remaining operations
-/// belong to the worker that owns admitted records.
+/// only ever call [`DeliveryAdmission::admit`]; the remaining operations belong
+/// to the worker that owns admitted records.
 ///
 /// INVARIANT — must stay a stateless wrapper over the pool. A provider adapter
 /// (Telegram today, see `TelegramAdapter::with_ingress_ports`) may construct
@@ -72,31 +72,6 @@ impl AdapterDeliveryStore {
 
     pub(crate) fn policy(&self) -> &AdapterDeliveryPolicy {
         &self.policy
-    }
-
-    /// Take durable ownership of one inbound Adapter delivery.
-    ///
-    /// Returns once the record is committed, which is the point the caller may
-    /// acknowledge its sender. A repeat delivery of the same
-    /// `(sender, kind, event_id)` returns [`Admission::Duplicate`] without
-    /// writing anything, so acknowledging a duplicate costs one insert attempt
-    /// and produces no second effect.
-    ///
-    /// Refuses with [`AdmitError::AtCapacity`] once the unfinished backlog
-    /// reaches [`AdapterDeliveryPolicy::backlog_capacity`]. The capacity test rides
-    /// along inside the insert, so admission stays a single round trip on the
-    /// sender's response deadline. See that field for the exact bound this
-    /// enforces — it is a ceiling, not an exact cutoff.
-    pub async fn admit(&self, request: AdapterDeliveryRequest) -> Result<Admission, AdmitError> {
-        let (adapter, kind) = (request.adapter, request.kind);
-        let result = self.insert(request).await;
-        let outcome = match &result {
-            Ok(admission) => admission.as_str(),
-            Err(AdmitError::AtCapacity { .. }) => "at_capacity",
-            Err(AdmitError::Store(_)) => "error",
-        };
-        record_admission(adapter, kind, outcome);
-        result
     }
 
     async fn insert(&self, request: AdapterDeliveryRequest) -> Result<Admission, AdmitError> {
@@ -371,6 +346,38 @@ impl AdapterDeliveryStore {
             ))
         })
         .transpose()
+    }
+}
+
+#[async_trait::async_trait]
+impl DeliveryAdmission for AdapterDeliveryStore {
+    /// Take durable ownership of one inbound Adapter delivery.
+    ///
+    /// Returns once the record is committed, which is the point the caller may
+    /// acknowledge its sender. A repeat delivery of the same
+    /// `(sender, kind, event_id)` returns [`Admission::Duplicate`] without
+    /// writing anything, so acknowledging a duplicate costs one insert attempt
+    /// and produces no second effect.
+    ///
+    /// Refuses with [`AdmitError::AtCapacity`] once the unfinished backlog
+    /// reaches `AdapterDeliveryPolicy::backlog_capacity`. The capacity test rides
+    /// along inside the insert, so admission stays a single round trip on the
+    /// sender's response deadline. See that field for the exact bound this
+    /// enforces — it is a ceiling, not an exact cutoff.
+    ///
+    /// `DeliveryAdmission` is the store's public admission surface; the
+    /// worker-only operations stay inherent on the concrete
+    /// [`AdapterDeliveryStore`].
+    async fn admit(&self, request: AdapterDeliveryRequest) -> Result<Admission, AdmitError> {
+        let (adapter, kind) = (request.adapter, request.kind);
+        let result = self.insert(request).await;
+        let outcome = match &result {
+            Ok(admission) => admission.as_str(),
+            Err(AdmitError::AtCapacity { .. }) => "at_capacity",
+            Err(AdmitError::Store(_)) => "error",
+        };
+        record_admission(adapter, kind, outcome);
+        result
     }
 }
 

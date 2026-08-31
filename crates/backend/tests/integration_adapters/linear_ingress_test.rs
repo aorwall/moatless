@@ -106,7 +106,7 @@ async fn deliver_signed_bytes(
         &(state.harness_credentials.clone()
             as std::sync::Arc<dyn moatless_backend_core::identity::AppCredentials>),
         state.adapter_apps.as_ref(),
-        &state.adapter_delivery,
+        state.adapter_delivery.as_ref(),
         &linear_adapter,
         &signature,
         &body,
@@ -607,7 +607,7 @@ async fn a_bad_signature_is_an_ingress_rejection_naming_its_event_type(pool: PgP
         &(state.harness_credentials.clone()
             as std::sync::Arc<dyn moatless_backend_core::identity::AppCredentials>),
         state.adapter_apps.as_ref(),
-        &state.adapter_delivery,
+        state.adapter_delivery.as_ref(),
         &linear_adapter,
         "00ff",
         &body,

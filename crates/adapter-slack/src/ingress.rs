@@ -7,7 +7,7 @@
 use tracing::{debug, warn};
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
@@ -277,7 +277,7 @@ pub(super) async fn receive(
     loops: &dyn LoopReader,
     task_bindings: &dyn BindingProbe,
     users: &dyn ProviderIdentityLink,
-    adapter_delivery: &AdapterDeliveryStore,
+    adapter_delivery: &dyn DeliveryAdmission,
     adapter: &SlackAdapter,
     request: WebhookRequest<'_>,
 ) -> Result<Received, IngressError> {
@@ -369,7 +369,8 @@ pub(super) async fn receive(
     // Slack as a failure so it re-delivers, and must never be swallowed into an
     // acknowledgment. The routing itself runs in the Adapter delivery worker,
     // which is also where the webhook outcome metric is recorded.
-    let admission = moatless_loops::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
+    let admission =
+        moatless_adapter_model::ingress::admit_delivery(adapter_delivery, request).await?;
     debug!(
         source_id,
         event_id = %event_id,

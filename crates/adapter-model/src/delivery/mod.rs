@@ -42,9 +42,11 @@
 //! `moatless_loops::adapters::delivery`. A provider crate names this module to
 //! implement the contract and never needs the machinery behind it.
 
+mod admission;
 mod handlers;
 mod models;
 
+pub use admission::DeliveryAdmission;
 pub use handlers::{AdapterDeliveryHandler, AdapterDeliveryHandlers};
 pub use models::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryRequest, Admission, AdmitError,

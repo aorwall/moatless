@@ -44,7 +44,7 @@ use std::sync::Arc;
 use moatless_backend_core::identity::AppCredentials;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::delivery::AdapterDeliveryRequest;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
@@ -182,7 +182,7 @@ pub async fn receive(
     loops: &dyn LoopReader,
     app_tokens: &Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
-    adapter_delivery: &AdapterDeliveryStore,
+    adapter_delivery: &dyn DeliveryAdmission,
     provider: &LinearAdapter,
     signature: &str,
     body: &[u8],
@@ -239,7 +239,7 @@ async fn dispatch(
     loops: &dyn LoopReader,
     app_tokens: &Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
-    adapter_delivery: &AdapterDeliveryStore,
+    adapter_delivery: &dyn DeliveryAdmission,
     provider: &LinearAdapter,
     signature: &str,
     body: &[u8],
@@ -469,13 +469,13 @@ async fn decline_sessions(
 /// [`IngressError::NotAdmitted`], which is the one failure the route refuses to
 /// answer with a `200`.
 async fn admit(
-    adapter_delivery: &AdapterDeliveryStore,
+    adapter_delivery: &dyn DeliveryAdmission,
     request: AdapterDeliveryRequest,
     event_id: &str,
 ) -> Result<(), IngressError> {
     let kind = request.kind;
     let admission =
-        moatless_loops::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
+        moatless_adapter_model::ingress::admit_delivery(adapter_delivery, request).await?;
     super::delivery::log_admission(kind, event_id, admission);
     Ok(())
 }

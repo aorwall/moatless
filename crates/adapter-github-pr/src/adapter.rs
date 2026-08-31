@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use moatless_backend_core::identity::GitHostTokenIssuer;
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::capabilities::{Adapter, AdapterInboundPresentation, AdapterOutboundContent};
@@ -36,7 +36,7 @@ pub struct GithubPrAdapter {
     loops: Option<Arc<dyn LoopReader>>,
     task_bindings: Option<Arc<dyn TaskBindingDao>>,
     users: Option<Arc<dyn ProviderIdentityLink>>,
-    adapter_delivery: Option<Arc<AdapterDeliveryStore>>,
+    adapter_delivery: Option<Arc<dyn DeliveryAdmission>>,
 }
 
 /// The internal error for an ingress port read on an adapter that never
@@ -95,9 +95,10 @@ impl GithubPrAdapter {
     /// `LinearAdapter::with_tasks` make. All five are pool-wrapper DAOs the
     /// backend guidelines allow constructing locally precisely because they
     /// stay stateless, so a per-provider instance is
-    /// interchangeable with the one `AppState` holds (`AdapterDeliveryStore`
-    /// carries the one non-obvious case — policy state — and pins the invariant
-    /// at its own definition).
+    /// interchangeable with the one `AppState` holds (the concrete
+    /// `AdapterDeliveryStore` behind this `DeliveryAdmission` carries the one
+    /// non-obvious case — policy state — and pins the invariant at its own
+    /// definition).
     #[must_use]
     pub fn with_ingress_ports(
         mut self,
@@ -105,7 +106,7 @@ impl GithubPrAdapter {
         loops: Arc<dyn LoopReader>,
         task_bindings: Arc<dyn TaskBindingDao>,
         users: Arc<dyn ProviderIdentityLink>,
-        adapter_delivery: Arc<AdapterDeliveryStore>,
+        adapter_delivery: Arc<dyn DeliveryAdmission>,
     ) -> Self {
         self.adapter_connections = Some(adapter_connections);
         self.loops = Some(loops);
@@ -144,8 +145,8 @@ impl GithubPrAdapter {
             .ok_or_else(|| missing_port("users"))
     }
 
-    /// The durable delivery store admitted webhook work is handed to.
-    pub(super) fn require_adapter_delivery(&self) -> Result<&AdapterDeliveryStore, AdapterError> {
+    /// The durable delivery seam admitted webhook work is handed to.
+    pub(super) fn require_adapter_delivery(&self) -> Result<&dyn DeliveryAdmission, AdapterError> {
         self.adapter_delivery
             .as_deref()
             .ok_or_else(|| missing_port("adapter_delivery"))

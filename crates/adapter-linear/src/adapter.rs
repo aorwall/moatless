@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::warn;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{
@@ -55,7 +55,7 @@ pub struct LinearAdapter {
     /// test constructors, which never reach [`super::ingress::receive`].
     adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
     loops: Option<Arc<dyn LoopReader>>,
-    adapter_delivery: Option<Arc<AdapterDeliveryStore>>,
+    adapter_delivery: Option<Arc<dyn DeliveryAdmission>>,
 }
 
 /// The internal error for an ingress port read on an adapter that never
@@ -155,7 +155,7 @@ impl LinearAdapter {
         mut self,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<dyn LoopReader>,
-        adapter_delivery: Arc<AdapterDeliveryStore>,
+        adapter_delivery: Arc<dyn DeliveryAdmission>,
     ) -> Self {
         self.adapter_connections = Some(adapter_connections);
         self.loops = Some(loops);
@@ -177,8 +177,8 @@ impl LinearAdapter {
         self.loops.as_deref().ok_or_else(|| missing_port("loops"))
     }
 
-    /// The delivery store the webhook route hands [`super::ingress::receive`].
-    pub(super) fn require_adapter_delivery(&self) -> Result<&AdapterDeliveryStore, AdapterError> {
+    /// The delivery seam the webhook route hands [`super::ingress::receive`].
+    pub(super) fn require_adapter_delivery(&self) -> Result<&dyn DeliveryAdmission, AdapterError> {
         self.adapter_delivery
             .as_deref()
             .ok_or_else(|| missing_port("adapter_delivery"))

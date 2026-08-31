@@ -948,7 +948,7 @@ impl axum::extract::FromRef<AppState> for Arc<dyn moatless_adapter_model::loops:
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<AdapterDeliveryStore> {
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_adapter_model::delivery::DeliveryAdmission> {
     fn from_ref(state: &AppState) -> Self {
         state.adapter_delivery.clone()
     }
