@@ -359,7 +359,7 @@ pub(super) fn log_admission(
     event_id: &str,
     admission: moatless_adapter_model::delivery::Admission,
 ) {
-    moatless_loops::adapters::ingress::log_admission(ADAPTER, kind, event_id, admission);
+    moatless_adapter_model::ingress::log_admission(ADAPTER, kind, event_id, admission);
 }
 
 #[cfg(test)]

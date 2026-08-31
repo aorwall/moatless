@@ -13,7 +13,7 @@ use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, CONNECTED_THREAD_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::RoutingMode;
-use moatless_loops::bindings::metrics::{inbound_reason, record_inbound};
+use moatless_adapter_model::metrics::{inbound_reason, record_inbound};
 use moatless_backend_core::task::{
     CloseReason, EventSubject, InboundTurn, TaskOpenError, TurnOrigin,
 };

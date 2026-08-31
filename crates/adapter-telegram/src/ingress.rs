@@ -12,7 +12,7 @@ use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
-use moatless_loops::adapters::ingress::{IngressError, Outcome};
+use moatless_adapter_model::ingress::{IngressError, Outcome};
 use moatless_adapter_model::models::SubscriptionMatch;
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_core::db::DbPool;
@@ -98,7 +98,7 @@ pub(super) async fn receive(
     // a private chat — and verify that Subscription's secret, which is how an
     // update could route under a Subscription whose secret was never checked
     // (spec Decision 5).
-    let Some((connection, subscription)) = moatless_loops::bindings::runtime::resolve_chat_provider_event(
+    let Some((connection, subscription)) = moatless_adapter_model::routing::resolve_chat_provider_event(
         adapter
             .require_adapter_connections()
             .map_err(IngressError::Ingress)?,

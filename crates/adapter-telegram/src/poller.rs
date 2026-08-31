@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use moatless_loops::adapters::ingress::IngressError;
+use moatless_adapter_model::ingress::IngressError;
 
 use super::adapter::TelegramAdapter;
 use super::ingress::{self, Transport};

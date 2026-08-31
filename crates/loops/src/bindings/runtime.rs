@@ -11,7 +11,7 @@ use moatless_adapter_model::registry::Adapters;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::delivery::AdapterDeliveryFailure;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use crate::bindings::metrics::{inbound_reason, record_inbound};
+use moatless_adapter_model::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::inbound;
@@ -22,7 +22,6 @@ use moatless_types::loops::RoutingMode;
 use moatless_types::task::TaskStatus;
 use moatless_types::access_control::ScopeContext;
 use moatless_backend_core::task::TranscriptAppend;
-use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::task::MessageAcceptor;
 use crate::bindings::dao::TaskBindingDao;
 use moatless_backend_core::task::{
@@ -821,69 +820,6 @@ impl RoutingService {
 
         Ok(())
     }
-}
-
-pub async fn resolve_chat_provider_event(
-    adapter_connections: &dyn AdapterConnectionDao,
-    loops: &dyn LoopReader,
-    provider: &str,
-    scope_value: &str,
-    source_id: &str,
-) -> Result<Option<(AdapterConnection, SubscriptionMatch)>, AdapterError> {
-    let connection_repo = adapter_connections;
-    // Look up exactly the requested scope_value. We deliberately do not fall
-    // back to the "default" connection when scope_value is unknown — that would
-    // silently route a tenant A event to tenant B's connection. Callers that
-    // want the default behavior pass "default" explicitly.
-    let Some(connection) = connection_repo
-        .find_by_scope_value(provider, scope_value)
-        .await?
-    else {
-        warn!(
-            provider,
-            scope_value, "No provider connection matched incoming event"
-        );
-        record_inbound(provider, "ignored", inbound_reason::NO_CONNECTION, "", "");
-        return Ok(None);
-    };
-
-    let subscription_repo = loops;
-    let subscription = subscription_repo
-        .subscription_for_source(provider, source_id)
-        .await?
-        .or(subscription_repo
-            .wildcard_subscription(provider)
-            .await?);
-    let Some(subscription) = subscription else {
-        record_inbound(
-            provider,
-            "ignored",
-            inbound_reason::NO_RULE_MATCH,
-            "",
-            &connection.id,
-        );
-        return Ok(None);
-    };
-
-    if subscription.connection_id != connection.id {
-        debug!(
-            provider,
-            source_id,
-            subscription_id = %subscription.id,
-            connection_id = %connection.id,
-            "Task trigger belongs to a different connection"
-        );
-        record_inbound(
-            provider,
-            "ignored",
-            inbound_reason::WRONG_CONNECTION,
-            &subscription.id,
-            &connection.id,
-        );
-        return Ok(None);
-    }
-
-    Ok(Some((connection, subscription)))
 }
 
 /// One event, the bindings on its subject, and what routing already knows about

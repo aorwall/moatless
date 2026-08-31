@@ -11,7 +11,7 @@ use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
-use moatless_loops::adapters::ingress::{IngressError, Outcome};
+use moatless_adapter_model::ingress::{IngressError, Outcome};
 use moatless_types::adapter::{BindingDestination, InboundMessage};
 use moatless_types::loops::LoopContext;
 use moatless_adapter_model::capabilities::Adapter;
@@ -139,7 +139,7 @@ async fn resolve(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("default");
-    let Some((connection, subscription)) = moatless_loops::bindings::runtime::resolve_chat_provider_event(
+    let Some((connection, subscription)) = moatless_adapter_model::routing::resolve_chat_provider_event(
         adapter_connections,
         loops,
         "slack",

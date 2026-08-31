@@ -9,7 +9,7 @@ use tracing::debug;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::AdapterDeliveryStore;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::ingress::{IngressError, Outcome};
+use moatless_adapter_model::ingress::{IngressError, Outcome};
 use moatless_adapter_model::metrics::record_webhook;
 use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::identity::ProviderIdentityLink;
@@ -118,7 +118,7 @@ mod tests {
 
     use moatless_adapter_model::delivery::AdmitError;
     use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-    use moatless_loops::adapters::ingress::IngressError;
+    use moatless_adapter_model::ingress::IngressError;
     use moatless_adapter_model::test_support::response_snapshot;
     use moatless_types::store::StoreError;
 

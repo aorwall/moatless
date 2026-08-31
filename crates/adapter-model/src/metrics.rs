@@ -1,4 +1,4 @@
-//! Prometheus counters for adapter webhook ingress.
+//! Prometheus counters for adapter webhook ingress and inbound binding routing.
 //!
 //! `loop_id` and `connection_id` are emitted as labels so the admin UI
 //! can render per-loop and per-connection counts. Pass empty strings
@@ -79,3 +79,69 @@ pub fn record_api_call(adapter: &'static str, outcome: &'static str) {
     .increment(1);
 }
 
+/// Inbound binding routing outcomes, by provider, loop, connection, and reason.
+///
+/// `describe_binding_metrics` in `moatless-loops` registers the description,
+/// beside the outbound counter that belongs to that band alone.
+pub const BINDING_INBOUND_TOTAL: &str = "moatless_binding_inbound_total";
+
+/// The `reason` labels the shared router emits on [`BINDING_INBOUND_TOTAL`].
+///
+/// A reason is a word an operator queries by, and there is one router writing
+/// them, so one query answers "why did events stop reaching tasks" across every
+/// adapter.
+///
+/// The other distinction the names carry is whether the event is *accounted
+/// for* by the skip. A task that wrote the event, or that has already received
+/// it, has it — nothing was lost by passing that binding over. A binding the
+/// audience did not name holds nothing, so a subject whose every binding was
+/// skipped for that reason has delivered the event to no task at all, which is
+/// the failure this vocabulary exists to make visible.
+pub mod inbound_reason {
+    /// No adapter connection matched the event's scope.
+    pub const NO_CONNECTION: &str = "no_connection";
+    /// No subscription matched the event's source.
+    pub const NO_RULE_MATCH: &str = "no_rule_match";
+    /// The matched subscription belongs to a different connection.
+    pub const WRONG_CONNECTION: &str = "wrong_connection";
+    /// The subscription is deactivated.
+    pub const INACTIVE_RULE: &str = "inactive_rule";
+    /// The binding's own task authored the event.
+    pub const SELF_ECHO: &str = "self_echo";
+    /// The binding already received this event.
+    pub const DUPLICATE_RECEIPT: &str = "duplicate_receipt";
+    /// Another delivery holds the creation claim for this subject, so this one
+    /// retries into the task that claim produces. Expected whenever a sender
+    /// emits one message as two events.
+    pub const CREATION_CLAIMED: &str = "creation_claimed";
+    /// The audience named someone else, so this binding holds nothing.
+    pub const NOT_IN_AUDIENCE: &str = "not_in_audience";
+    /// Every binding on a subject that had some was passed over, so the event
+    /// reached no task at all. The one outcome that is nobody's correct answer.
+    pub const NO_RECIPIENTS: &str = "no_recipients";
+    /// Delivered to a task the event itself created.
+    pub const NEW_TASK: &str = "new_task";
+    /// Delivered to a task that was already bound.
+    pub const EXISTING_TASK: &str = "existing_task";
+    /// Handing the message to the task message flow failed.
+    pub const DELIVER_FAILED: &str = "deliver_failed";
+}
+
+/// Record one inbound routing outcome.
+pub fn record_inbound(
+    provider: &str,
+    outcome: &'static str,
+    reason: &'static str,
+    loop_id: &str,
+    connection_id: &str,
+) {
+    metrics::counter!(
+        BINDING_INBOUND_TOTAL,
+        "provider" => provider.to_string(),
+        "outcome" => outcome,
+        "reason" => reason,
+        "loop_id" => loop_id.to_string(),
+        "connection_id" => connection_id.to_string(),
+    )
+    .increment(1);
+}
