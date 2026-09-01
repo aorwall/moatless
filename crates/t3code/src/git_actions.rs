@@ -564,6 +564,13 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never answers a question")
         }
+        async fn fork(
+            &self,
+            _viewer: &ScopeContext,
+            _fork: crate::ports::ForkThread,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never forks a thread")
+        }
     }
 
     /// A sink that refuses every send, standing in for the write failing after
@@ -649,6 +656,13 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _answer: crate::ports::QuestionAnswer,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn fork(
+            &self,
+            _viewer: &ScopeContext,
+            _fork: crate::ports::ForkThread,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }

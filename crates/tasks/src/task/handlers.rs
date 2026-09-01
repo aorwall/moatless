@@ -176,11 +176,7 @@ pub async fn fork_task(
     Json(req): Json<ForkTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     let same_sandbox = req.same_sandbox.unwrap_or(false);
-    if same_sandbox && req.branch.is_some() {
-        return Err(TaskError::BadRequest(
-            "branch cannot be set with sameSandbox: the fork shares one working tree".to_string(),
-        ));
-    }
+    TaskForkService::validate_checkout(same_sandbox, req.branch.as_deref())?;
 
     let user_id = auth.user_id.to_string();
     let scope_ctx = auth.scope_context();

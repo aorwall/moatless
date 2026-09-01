@@ -21,14 +21,16 @@ use crate::repository::handlers::list_branches;
 use crate::state::AppState;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::error::TaskError;
+use crate::task::fork::TaskForkService;
 use crate::task::handlers as task_handlers;
 use crate::task::models::TaskStatus;
 use crate::task::service as task_service;
 use moatless_t3code::ports::{
     AgentCatalogSource, AttachmentKind, AttachmentStore, AttachmentStoreError, BoundPullRequest,
-    BoundPullRequestSource, BranchListError, CommandRefusal, DeclaredAttachment, GithubIdentity,
-    NewThread, PullRequestError, QuestionAnswer, RepositoryBranchSource, ResolvedPullRequest,
-    SourceControlAuthSource, ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment,
+    BoundPullRequestSource, BranchListError, CommandRefusal, DeclaredAttachment, ForkThread,
+    GithubIdentity, NewThread, PullRequestError, QuestionAnswer, RepositoryBranchSource,
+    ResolvedPullRequest, SourceControlAuthSource, ThreadCommandSink, ThreadMeta, ThreadTurn,
+    TurnAttachment,
 };
 
 pub struct AppStateAgents(pub AppState);
@@ -953,6 +955,108 @@ impl ThreadCommandSink for AppStateCommands {
         if let Some(branch) = branch.as_deref().filter(|branch| !branch.is_empty()) {
             bind_thread_to_open_pr(&self.0, viewer, &workspace_id, branch, &thread.task_id).await;
         }
+        Ok(())
+    }
+
+    async fn fork(&self, viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal> {
+        TaskForkService::validate_checkout(fork.same_sandbox, fork.branch.as_deref())
+            .map_err(|e| create_refusal(&fork.new_task_id, e))?;
+
+        // Same reason `create_thread` checks this first: the id arrives from
+        // the client, and `copy_conversation` below writes rows keyed on it
+        // before any Task row exists to claim it.
+        free_thread_id(self.0.tasks.as_ref(), viewer, &fork.new_task_id).await?;
+
+        let (source, plan) = self
+            .0
+            .task_fork
+            .plan(viewer, &fork.source_task_id, fork.at_turn)
+            .await
+            .map_err(|e| create_refusal(&fork.source_task_id, e))?;
+
+        let copied = self
+            .0
+            .task_fork
+            .copy_conversation(&plan, &fork.new_task_id)
+            .await
+            .map_err(|e| create_refusal(&fork.new_task_id, e))?;
+
+        let request = moatless_api_schemas::task::CreateTaskRequest {
+            repository_id: Some(source.repository_id.clone()),
+            workspace_id: source.workspace_id.clone(),
+            sandbox_id: fork
+                .same_sandbox
+                .then(|| source.sandbox_id.clone())
+                .flatten(),
+            checkout_mode: fork
+                .same_sandbox
+                .then_some(moatless_types::task::CheckoutMode::Shared),
+            agent_type: Some(source.agent_type.clone()),
+            name: None,
+            description: None,
+            branch: fork.branch.clone().or_else(|| source.branch.clone()),
+            message: fork.message.clone(),
+            model: fork.model.clone().or_else(|| source.model.clone()),
+            agent_mode: fork.agent_mode.clone(),
+            effort: fork.effort.clone(),
+            contexts: Vec::new(),
+            file_ids: Vec::new(),
+            parent_task_id: None,
+            headless: None,
+            // T3 has no skill picker of its own.
+            skills: Vec::new(),
+        };
+
+        let create_result = async {
+            let mut new_task = task_service::normalize(
+                self.0.workspace_resolver.as_ref(),
+                self.0.repository_reader.as_ref(),
+                &self.0.credential_sync,
+                &self.0.config,
+                viewer,
+                &viewer.user_id,
+                task_service::CreateTaskIntent {
+                    request,
+                    task_id: Some(fork.new_task_id.clone()),
+                    provision: true,
+                    first_message_uuid: None,
+                },
+            )
+            .await?;
+            new_task.tag_ids = self.0.task_fork.source_tag_ids(&fork.source_task_id).await;
+            new_task.forked_from = Some(crate::task::creation::ForkedFrom {
+                source_task_id: fork.source_task_id.clone(),
+                at_turn: plan.at_turn,
+                session: plan.session.clone(),
+            });
+            task_service::create_task(
+                &self.0.task_creation,
+                self.0.message_send.clone(),
+                new_task,
+                |_| async { serde_json::Value::Null },
+            )
+            .await
+        }
+        .await;
+
+        if let Err(e) = create_result {
+            self.0
+                .task_fork
+                .discard_conversation(&fork.new_task_id)
+                .await;
+            return Err(create_refusal(&fork.new_task_id, e));
+        }
+
+        tracing::info!(
+            task_id = %fork.new_task_id,
+            source_task_id = %fork.source_task_id,
+            at_turn = ?plan.at_turn,
+            messages = copied.messages,
+            activities = copied.activities,
+            contexts = copied.contexts,
+            same_sandbox = fork.same_sandbox,
+            "Task forked from T3"
+        );
         Ok(())
     }
 

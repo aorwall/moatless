@@ -166,6 +166,30 @@ pub struct ThreadMeta {
     pub model: Option<String>,
 }
 
+/// A fork, as this surface understood it.
+pub struct ForkThread {
+    /// The id the client minted for the fork and has already navigated to —
+    /// the same convention [`NewThread::task_id`] follows.
+    pub new_task_id: String,
+    pub source_task_id: String,
+    /// The source Task's turn the copy stops after. `None` cuts after its
+    /// newest turn that reached a terminal status.
+    pub at_turn: Option<i32>,
+    /// The fork's own first message. `None` creates it idle.
+    pub message: Option<String>,
+    /// Join the source Task's Sandbox on its shared checkout instead of
+    /// provisioning one from a copy of its workspace archive. Refused
+    /// alongside `branch` by the sink, one working tree either way.
+    pub same_sandbox: bool,
+    pub branch: Option<String>,
+    /// A catalog model id, already translated out of T3's published slug.
+    pub model: Option<String>,
+    pub agent_mode: Option<AgentMode>,
+    /// The reasoning effort for the first turn, in the agent's own
+    /// vocabulary. `None` leaves the agent on its own default.
+    pub effort: Option<String>,
+}
+
 /// An answer to a question the agent asked.
 pub struct QuestionAnswer {
     pub task_id: String,
@@ -380,6 +404,11 @@ pub trait ThreadCommandSink: Send + Sync {
         viewer: &ScopeContext,
         thread: NewThread,
     ) -> Result<(), CommandRefusal>;
+
+    /// Branch a new Thread off an existing one at one of its completed turns.
+    /// Reported the same way `create_thread` is: the client already minted
+    /// and navigated to `fork.new_task_id`, so there is nothing to hand back.
+    async fn fork(&self, viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal>;
 
     async fn update_meta(
         &self,

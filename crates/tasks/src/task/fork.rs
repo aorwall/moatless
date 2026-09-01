@@ -139,6 +139,20 @@ impl TaskForkService {
         }
     }
 
+    /// `sameSandbox` joins the parent's one working tree, so a fork asking for
+    /// it cannot also pick a `branch` for a checkout that will not exist.
+    /// Every caller that accepts a fork request runs this before [`Self::plan`],
+    /// so a request refused here starts nothing.
+    pub fn validate_checkout(same_sandbox: bool, branch: Option<&str>) -> Result<(), TaskError> {
+        if same_sandbox && branch.is_some() {
+            return Err(TaskError::BadRequest(
+                "branch cannot be set with sameSandbox: the fork shares one working tree"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// The source Task's tag ids, for the fork to be created with.
     ///
     /// Best-effort: a fork that lands without its parent's tags is still the
@@ -278,5 +292,27 @@ impl TaskForkService {
                  the copied rows are orphaned until reaped"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_shared_checkout_and_a_picked_branch_are_refused_together() {
+        let error = TaskForkService::validate_checkout(true, Some("feat/checkout"))
+            .expect_err("branch cannot be set with sameSandbox");
+        assert!(matches!(error, TaskError::BadRequest(_)));
+    }
+
+    #[test]
+    fn a_shared_checkout_with_no_branch_is_fine() {
+        assert!(TaskForkService::validate_checkout(true, None).is_ok());
+    }
+
+    #[test]
+    fn an_isolated_checkout_may_pick_a_branch() {
+        assert!(TaskForkService::validate_checkout(false, Some("feat/checkout")).is_ok());
     }
 }

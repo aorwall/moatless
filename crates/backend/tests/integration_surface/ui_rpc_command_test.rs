@@ -23,8 +23,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 use moatless_t3code::ports::{
-    AttachmentKind, AttachmentStore, CommandRefusal, NewThread, ThreadCommandSink, ThreadMeta,
-    ThreadTurn,
+    AttachmentKind, AttachmentStore, CommandRefusal, ForkThread, NewThread, ThreadCommandSink,
+    ThreadMeta, ThreadTurn,
 };
 use moatless_t3code::{thread_snapshot, AgentModelDefaults, Deployment};
 use moatless_backend::agent::catalog;
@@ -831,6 +831,109 @@ async fn sending_into_an_unprovisioned_thread_provisions_it(pool: PgPool) {
 
     assert_eq!(message_uuids(&pool, task_id).await.len(), 1);
     assert!(sandbox_requested(&pool, task_id).await);
+}
+
+// =========================================================================
+// Forking a thread
+// =========================================================================
+
+/// The row `task_forks` keeps for `task_id`, if it is a fork of anything.
+async fn fork_row(pool: &PgPool, task_id: &str) -> Option<(String, Option<i32>)> {
+    sqlx::query_as(
+        r#"SELECT source_task_id, at_turn FROM task_forks WHERE task_id = $1"#,
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+    .unwrap()
+}
+
+fn fork(new_task_id: &str, source_task_id: &str) -> ForkThread {
+    ForkThread {
+        new_task_id: new_task_id.into(),
+        source_task_id: source_task_id.into(),
+        at_turn: None,
+        message: None,
+        same_sandbox: false,
+        branch: None,
+        model: None,
+        agent_mode: None,
+        effort: None,
+    }
+}
+
+/// T3 navigates to the fork's id before the command is answered, same as
+/// `thread.create` — so the Task has to exist under exactly that id, carrying
+/// which Task it branched from.
+#[sqlx::test]
+async fn a_fork_is_created_under_the_clients_id_referencing_its_source(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-source", USER_1).await;
+
+    let fork_id = "44444444-5555-4666-8777-888899990000";
+    sink(&pool)
+        .fork(&viewer(USER_1), fork(fork_id, "t-source"))
+        .await
+        .expect("the fork is created");
+
+    let task = moatless_backend::task::dao::store_over(&pool)
+        .find_by_id(fork_id, &viewer(USER_1))
+        .await
+        .unwrap()
+        .expect("the fork exists under the id T3 minted");
+    assert_eq!(task.agent_type, AgentType(catalog::CLAUDE_CODE.id.into()));
+
+    let (source_task_id, at_turn) = fork_row(&pool, fork_id)
+        .await
+        .expect("the fork's task_forks row names its source");
+    assert_eq!(source_task_id, "t-source");
+    assert_eq!(at_turn, None);
+}
+
+/// `sameSandbox` joins the source's one working tree, so a `branch` alongside
+/// it is refused before any row is written — the same rule the HTTP endpoint
+/// enforces, now reached through the sink instead.
+#[sqlx::test]
+async fn a_fork_with_same_sandbox_and_a_branch_is_refused_before_anything_is_created(
+    pool: PgPool,
+) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-source", USER_1).await;
+
+    let fork_id = "11112222-3333-4444-8555-666677778888";
+    let mut request = fork(fork_id, "t-source");
+    request.same_sandbox = true;
+    request.branch = Some("feat/try-again".into());
+
+    let error = sink(&pool)
+        .fork(&viewer(USER_1), request)
+        .await
+        .expect_err("branch cannot be set with sameSandbox");
+    assert!(matches!(error, CommandRefusal::Rejected { .. }));
+
+    assert!(
+        moatless_backend::task::dao::store_over(&pool)
+            .find_by_id(fork_id, &viewer(USER_1))
+            .await
+            .unwrap()
+            .is_none(),
+        "a refused fork left no Task behind"
+    );
+}
+
+/// A viewer who cannot read the source Task gets the same answer as one that
+/// does not exist — existence hiding, as everywhere else this surface refuses.
+#[sqlx::test]
+async fn a_fork_of_a_thread_the_viewer_cannot_read_is_not_writable(pool: PgPool) {
+    seed_project_for(&pool, USER_2).await;
+    seed_task_owned(&pool, "t-other", USER_2).await;
+
+    let fork_id = "99998888-7777-4666-8555-444433332222";
+    let error = sink(&pool)
+        .fork(&viewer(USER_1), fork(fork_id, "t-other"))
+        .await
+        .expect_err("the source thread is not this viewer's to fork");
+    assert!(matches!(error, CommandRefusal::NotWritable { .. }));
 }
 
 // =========================================================================

@@ -37,7 +37,7 @@ use base64::Engine;
 
 use super::dao::{Conversation, ConversationDao};
 use super::ports::{
-    AgentCatalogSource, AttachmentKind, CommandRefusal, NewThread, QuestionAnswer,
+    AgentCatalogSource, AttachmentKind, CommandRefusal, ForkThread, NewThread, QuestionAnswer,
     ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment,
 };
 use super::providers;
@@ -76,6 +76,7 @@ pub async fn dispatch(
     match tag.as_str() {
         "thread.turn.start" => turn_start(ctx, viewer, command).await?,
         "thread.create" => create_thread(ctx, viewer, command).await?,
+        "thread.fork" => fork_thread(ctx, viewer, command).await?,
         "thread.meta.update" => meta_update(ctx, viewer, command).await?,
         "thread.turn.interrupt" | "thread.session.stop" => {
             ctx.sink.stop(viewer, thread_id(command)?).await?;
@@ -428,6 +429,81 @@ async fn create_thread(
             },
         )
         .await
+}
+
+/// Branch a new Thread off an existing one at one of its completed turns.
+///
+/// The fork's agent is fixed to the source Thread's — T3 has no picker for
+/// switching it mid-branch — so a `modelSelection` override is checked
+/// against the source's instance exactly as [`meta_update`] checks one
+/// against an existing Thread's.
+async fn fork_thread(
+    ctx: &CommandContext<'_>,
+    viewer: &ScopeContext,
+    command: &Value,
+) -> Result<(), CommandRefusal> {
+    let new_task_id = thread_id(command)?.to_string();
+    let source_task_id = command
+        .get("sourceThreadId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| missing("sourceThreadId"))?
+        .to_string();
+    let cut_at_turn = parse_at_turn(command)?;
+
+    let source = ctx
+        .conversations
+        .readable_by_id(viewer, &source_task_id)
+        .await
+        .map_err(|error| {
+            warn!(%error, task_id = %source_task_id, "T3 fork could not resolve its source thread");
+            CommandRefusal::Failed {
+                message: "Could not reach that thread.".to_string(),
+            }
+        })?
+        .ok_or_else(|| CommandRefusal::NotWritable {
+            task_id: source_task_id.clone(),
+        })?;
+
+    let agents = ctx.agents.list(viewer).await;
+    let model = model_for_existing(&agents, &source, command)?;
+
+    ctx.sink
+        .fork(
+            viewer,
+            ForkThread {
+                new_task_id,
+                source_task_id,
+                at_turn: cut_at_turn,
+                message: command
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                same_sandbox: command
+                    .get("sameSandbox")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                branch: branch(command),
+                model,
+                agent_mode: interaction_mode(command),
+                effort: selected_effort(command),
+            },
+        )
+        .await
+}
+
+/// The source Task's turn a fork cuts after, if the command named one.
+/// `None` cuts after the newest turn that reached a terminal status.
+fn parse_at_turn(command: &Value) -> Result<Option<i32>, CommandRefusal> {
+    match command.get("atTurn") {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_i64()
+            .and_then(|n| i32::try_from(n).ok())
+            .map(Some)
+            .ok_or_else(|| CommandRefusal::Rejected {
+                message: "`atTurn` must be a whole number.".to_string(),
+            }),
+    }
 }
 
 /// Title and model. `branch`, `expectedBranch` and `worktreePath` are read and
@@ -837,6 +913,17 @@ mod tests {
             branch: Option<String>,
             has_first_message: bool,
         },
+        Fork {
+            new_task_id: String,
+            source_task_id: String,
+            at_turn: Option<i32>,
+            message: Option<String>,
+            same_sandbox: bool,
+            branch: Option<String>,
+            model: Option<String>,
+            agent_mode: Option<String>,
+            effort: Option<String>,
+        },
         UpdateMeta {
             task_id: String,
             title: Option<String>,
@@ -928,6 +1015,20 @@ mod tests {
                 instance: thread.instance,
                 branch: thread.branch,
                 has_first_message: thread.first_message.is_some(),
+            });
+            Ok(())
+        }
+        async fn fork(&self, _viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Fork {
+                new_task_id: fork.new_task_id,
+                source_task_id: fork.source_task_id,
+                at_turn: fork.at_turn,
+                message: fork.message,
+                same_sandbox: fork.same_sandbox,
+                branch: fork.branch,
+                model: fork.model,
+                agent_mode: fork.agent_mode.map(|m| m.0),
+                effort: fork.effort,
             });
             Ok(())
         }
@@ -1657,6 +1758,111 @@ mod tests {
                 has_first_message: false,
             }]
         );
+    }
+
+    /// The command a hover-icon fork sends with nothing else picked: the
+    /// source thread and where to cut, nothing more.
+    fn fork_command() -> Value {
+        json!({
+            "type": "thread.fork",
+            "commandId": "cmd-1",
+            "threadId": "fork-1",
+            "sourceThreadId": "task-1",
+            "createdAt": "2026-07-01T09:00:00.000Z"
+        })
+    }
+
+    #[tokio::test]
+    async fn a_fork_persists_under_the_id_the_client_minted() {
+        let (result, calls) = run(fork_command()).await;
+        assert!(result.is_ok());
+        assert_eq!(
+            calls,
+            vec![Call::Fork {
+                new_task_id: "fork-1".to_string(),
+                source_task_id: "task-1".to_string(),
+                at_turn: None,
+                message: None,
+                same_sandbox: false,
+                branch: None,
+                model: None,
+                agent_mode: None,
+                effort: None,
+            }]
+        );
+    }
+
+    /// `atTurn`, `sameSandbox`, `branch` and `message` all reach the sink
+    /// verbatim — the same shape the HTTP fork request carries.
+    #[tokio::test]
+    async fn a_fork_carries_at_turn_same_sandbox_branch_and_message() {
+        let mut command = fork_command();
+        command["atTurn"] = json!(3);
+        command["sameSandbox"] = json!(false);
+        command["branch"] = json!("feat/try-again");
+        command["message"] = json!("try a different approach");
+        let (result, calls) = run(command).await;
+        assert!(result.is_ok());
+        assert_eq!(
+            calls,
+            vec![Call::Fork {
+                new_task_id: "fork-1".to_string(),
+                source_task_id: "task-1".to_string(),
+                at_turn: Some(3),
+                message: Some("try a different approach".to_string()),
+                same_sandbox: false,
+                branch: Some("feat/try-again".to_string()),
+                model: None,
+                agent_mode: None,
+                effort: None,
+            }]
+        );
+    }
+
+    /// A model override is checked and translated against the *source*
+    /// thread's agent, the same way `meta_update` checks one against the
+    /// thread it is updating — the fork has no agent of its own yet.
+    #[tokio::test]
+    async fn a_fork_carries_a_translated_model_override() {
+        let mut command = fork_command();
+        command["modelSelection"] = json!({ "instanceId": "claudeAgent", "model": "claude-haiku-4-5" });
+        let (result, calls) = run(command).await;
+        assert!(result.is_ok());
+        assert!(matches!(
+            calls.as_slice(),
+            [Call::Fork { model, .. }] if model.as_deref() == Some("haiku")
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_fork_without_a_source_thread_id_is_refused() {
+        let mut command = fork_command();
+        command.as_object_mut().unwrap().remove("sourceThreadId");
+        let (result, calls) = run(command).await;
+        assert!(calls.is_empty());
+        assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
+    }
+
+    #[tokio::test]
+    async fn a_fork_at_turn_that_is_not_a_whole_number_is_refused() {
+        let mut command = fork_command();
+        command["atTurn"] = json!("three");
+        let (result, calls) = run(command).await;
+        assert!(calls.is_empty());
+        assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
+    }
+
+    /// A source thread the viewer cannot read is reported the same as one
+    /// that does not exist — existence hiding, as everywhere else on this
+    /// surface.
+    #[tokio::test]
+    async fn a_fork_of_a_thread_the_viewer_cannot_read_is_refused() {
+        let (result, calls) = run_against(fork_command(), None).await;
+        assert!(calls.is_empty());
+        assert!(matches!(
+            result,
+            Err(CommandRefusal::NotWritable { task_id }) if task_id == "task-1"
+        ));
     }
 
     #[tokio::test]

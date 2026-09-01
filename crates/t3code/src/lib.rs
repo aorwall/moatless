@@ -4213,6 +4213,13 @@ mod tests {
         ) -> Result<(), ports::CommandRefusal> {
             unreachable!("no test in this file answers a question")
         }
+        async fn fork(
+            &self,
+            _viewer: &ScopeContext,
+            _fork: ports::ForkThread,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file forks a thread")
+        }
     }
 
     /// These tests are about the envelope encoding, so the listing behind it
