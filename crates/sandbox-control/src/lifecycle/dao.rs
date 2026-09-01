@@ -172,23 +172,12 @@ impl LifecycleDao for PgLifecycleDao {
         //
         // One candidate per Sandbox, because every lifecycle operation is keyed
         // by `sandbox_id` (`op_start` and its peers lock and drive on
-        // `intent.sandbox_id`) — a second member would only contend for the same
-        // lock and spend the same attempt cap twice.
-        //
-        // Which member is picked is not free, though: the wake this row carries
-        // is delivered by notifying that one `task_id`, and the pod dispatches
-        // per Task. So a member holding an unclaimed user message is ordered
-        // ahead of one that is not, or a Task that joined an existing Sandbox
-        // would never be dispatched — the wake would land on the Sandbox's
-        // oldest member, which has nothing pending, and `pending_work_at` would
-        // never clear. Backed by `task_messages_pending_user_idx`, whose partial
-        // predicate is exactly this one.
-        //
-        // With several members pending, this drains rather than starves: the
-        // notified member's claim leaves `pending_work_at` set (see
-        // `clear_settled_pending_work`, which refuses to clear while a peer
-        // still holds an unclaimed message), and the next tick's EXISTS is false
-        // for it, so the ordering advances to the next.
+        // `intent.sandbox_id`), so a second member would only contend for the
+        // same lock and spend the same attempt cap twice. The candidate is a
+        // handle on the Sandbox, not the Task a wake is for: on a shared
+        // Sandbox the members holding the queued work are resolved separately,
+        // through `PendingWorkReader`, because `task_messages` belongs to the
+        // Task domain.
         sqlx::query_as(
             r#"SELECT DISTINCT ON (s.sandbox_id) t.task_id, s.pending_work_at
                FROM sandboxes s
@@ -196,15 +185,7 @@ impl LifecycleDao for PgLifecycleDao {
                WHERE (s.desired_state = 'running' AND t.status IN ('open', 'error'))
                   OR (s.pending_work_at IS NOT NULL AND t.status IN ('open', 'error'))
                   OR s.operation_generation IS NOT NULL
-               ORDER BY s.sandbox_id,
-                        EXISTS (
-                            SELECT 1
-                              FROM task_messages m
-                             WHERE m.task_id = t.task_id
-                               AND m.agent_session_id IS NULL
-                               AND m.message_type = 'user'
-                        ) DESC,
-                        t.created_at_db NULLS LAST, t.task_id"#,
+               ORDER BY s.sandbox_id, t.created_at_db NULLS LAST, t.task_id"#,
         )
         .fetch_all(&self.pool)
         .await
@@ -730,77 +711,6 @@ mod db_tests {
             .collect();
         got.sort();
         assert_eq!(got, vec!["run-error", "run-open", "stopped-open"]);
-    }
-
-    #[sqlx::test]
-    async fn a_shared_sandboxs_candidate_is_the_member_holding_the_pending_message(pool: PgPool) {
-        use super::super::test_support::seed_task_with;
-        // A Sandbox with two members — the Task that created it, and a Task
-        // that joined it afterwards (a `sameSandbox` fork). The wake this row
-        // carries is delivered by notifying one `task_id`, so the collapse has
-        // to pick the member the message is actually waiting on.
-        seed_task_with(&pool, "owner", "open", "running").await;
-        join_sandbox(&pool, "member", "owner").await;
-        seed_pending_user_message(&pool, "member").await;
-
-        let candidates = PgLifecycleDao::new(pool)
-            .reconcile_candidates()
-            .await
-            .unwrap();
-
-        assert_eq!(candidates.len(), 1, "still one candidate per Sandbox");
-        assert_eq!(
-            candidates[0].task_id, "member",
-            "the joined member holds the unclaimed message; ordering by age alone \
-             would pick `owner`, whose queue is empty, and the wake would never clear"
-        );
-    }
-
-    /// A Task that joined an existing Sandbox: its own row, no Sandbox of its
-    /// own, and `created_at_db` later than the owner's by insertion order.
-    async fn join_sandbox(pool: &PgPool, task_id: &str, sandbox_id: &str) {
-        sqlx::query(
-            r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_type, repository_id,
-                   status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id,
-                   workspace_id, sandbox_id, checkout_mode)
-               VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', 'open', 0,
-                   'private', 'user', 'team-x', 'user-1', 'user-1', 'ws_repo-x', $2, 'shared')"#,
-        )
-        .bind(task_id)
-        .bind(sandbox_id)
-        .execute(pool)
-        .await
-        .expect("join sandbox");
-    }
-
-    /// An unclaimed user message — `agent_session_id IS NULL AND message_type =
-    /// 'user'`, the predicate the pending-work ordering and
-    /// `clear_settled_pending_work` share — plus the Sandbox wake its send path
-    /// writes.
-    async fn seed_pending_user_message(pool: &PgPool, task_id: &str) {
-        sqlx::query(
-            r#"INSERT INTO task_messages
-                   (task_id, uuid, message_type, user_type, timestamp, message_role,
-                    message_text, created_at)
-               VALUES ($1, $2, 'user', 'human', NOW()::text, 'user', '', NOW())"#,
-        )
-        .bind(task_id)
-        .bind(format!("{task_id}-msg"))
-        .execute(pool)
-        .await
-        .expect("seed pending message");
-
-        sqlx::query(
-            r#"UPDATE sandboxes s
-                  SET pending_work_at = NOW()
-                 FROM tasks t
-                WHERE t.task_id = $1
-                  AND s.sandbox_id = t.sandbox_id"#,
-        )
-        .bind(task_id)
-        .execute(pool)
-        .await
-        .expect("seed wake signal");
     }
 
     #[sqlx::test]

@@ -591,6 +591,41 @@ macro_rules! bind_message {
 }
 pub(crate) use bind_message;
 
+/// Every open Task sharing `task_id`'s Sandbox that holds an unclaimed user
+/// message.
+///
+/// The Sandbox's wake signal is one flag for the whole Sandbox, while the pod
+/// dispatches per Task, so the control plane asks this to turn the flag into
+/// the Tasks to notify. The predicate matches `clear_settled_pending_work`'s
+/// below: the set this returns is exactly the set whose emptiness clears the
+/// flag, so a wake that survives always names someone. Backed by the partial
+/// index `task_messages_pending_user_idx`.
+///
+/// Reached through `moatless_backend_core::task::PendingWorkReader`.
+pub async fn members_awaiting_dispatch(
+    pool: &DbPool,
+    task_id: &str,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"SELECT peer.task_id
+             FROM tasks t
+             JOIN tasks peer ON peer.sandbox_id = t.sandbox_id
+            WHERE t.task_id = $1
+              AND peer.status IN ('open', 'error')
+              AND EXISTS (
+                  SELECT 1
+                    FROM task_messages m
+                   WHERE m.task_id = peer.task_id
+                     AND m.agent_session_id IS NULL
+                     AND m.message_type = 'user'
+              )
+            ORDER BY peer.created_at_db NULLS LAST, peer.task_id"#,
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+}
+
 /// Drop the Sandbox's wake signal once nothing is waiting on it.
 ///
 /// Runs in the claiming transaction, after the claim, so it sees the rows that

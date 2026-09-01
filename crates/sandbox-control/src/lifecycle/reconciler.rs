@@ -27,9 +27,10 @@ use moatless_types::sandbox::SandboxStopReason;
 use moatless_sandbox_runtime::fleet::{FleetObserver, RuntimeObservation};
 
 use super::attempt::AttemptBudget;
-use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus};
 use super::orchestrator::{Lifecycle, LifecycleDao, SandboxMember, WallClock};
 use super::reconcile::{ReconcileInput, decide};
+use moatless_backend_core::task::PendingWorkReader;
+use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus};
 use moatless_sandbox_runtime::types::ArchiveRetention;
 
 /// Delivers a pending-message wake to an already-Ready sandbox over gRPC.
@@ -307,6 +308,7 @@ pub struct Reconciler {
     store: Arc<dyn LifecycleDao>,
     observer: Arc<dyn FleetObserver>,
     notify: Arc<dyn NotifyPort>,
+    pending_work: Arc<dyn PendingWorkReader>,
     member_registry: Arc<dyn MemberRegistryPort>,
     clock: Arc<dyn WallClock>,
     retries: Mutex<HashMap<String, TaskRetry>>,
@@ -319,6 +321,7 @@ pub struct ReconcilerDeps {
     pub store: Arc<dyn LifecycleDao>,
     pub observer: Arc<dyn FleetObserver>,
     pub notify: Arc<dyn NotifyPort>,
+    pub pending_work: Arc<dyn PendingWorkReader>,
     pub member_registry: Arc<dyn MemberRegistryPort>,
     pub clock: Arc<dyn WallClock>,
 }
@@ -330,6 +333,7 @@ impl Reconciler {
             store: deps.store,
             observer: deps.observer,
             notify: deps.notify,
+            pending_work: deps.pending_work,
             member_registry: deps.member_registry,
             clock: deps.clock,
             retries: Mutex::new(HashMap::new()),
@@ -374,8 +378,7 @@ impl Reconciler {
             .iter()
             .filter_map(|c| c.pending_work_at.map(|at| (c.task_id.clone(), at)))
             .collect();
-        let mut candidates: HashSet<String> =
-            enumerated.into_iter().map(|c| c.task_id).collect();
+        let mut candidates: HashSet<String> = enumerated.into_iter().map(|c| c.task_id).collect();
         candidates.extend(coarse.keys().cloned());
 
         for task_id in &candidates {
@@ -467,7 +470,11 @@ impl Reconciler {
             }
 
             if marker.kind.is_edge() {
-                if !moatless_sandbox_runtime::marker::is_stale(&marker, now, moatless_sandbox_runtime::marker::EDGE_ABANDON_AFTER) {
+                if !moatless_sandbox_runtime::marker::is_stale(
+                    &marker,
+                    now,
+                    moatless_sandbox_runtime::marker::EDGE_ABANDON_AFTER,
+                ) {
                     // Caller-owned edges are never replayed. Give the fresh
                     // replacement time to appear before level recovery acts.
                     return;
@@ -556,6 +563,18 @@ impl Reconciler {
 
     /// Re-notify a Ready sandbox of its pending wake, spaced by leader-local
     /// exponential backoff keyed by Task.
+    ///
+    /// `task_id` is the Sandbox's candidate, which is a handle on the Sandbox
+    /// and not necessarily the Task the work is queued for: several Tasks can
+    /// share one Sandbox, and the candidate is the oldest of them. The pod
+    /// dispatches per Task, so the wake is delivered to each member holding an
+    /// unclaimed message. Notifying the candidate alone would leave a Task that
+    /// joined an existing Sandbox undispatched forever, since its message never
+    /// clears the wake and the wake never reaches it.
+    ///
+    /// The backoff stays keyed on the candidate: the wake is one per Sandbox,
+    /// so the whole fan-out shares its spacing, and `retries` keeps tracking the
+    /// candidate set that `reconcile_once` retains.
     async fn maybe_notify(&self, task_id: &str, now: DateTime<Utc>) {
         let due = {
             let mut guard = self
@@ -581,12 +600,41 @@ impl Reconciler {
                 true
             }
         };
-        if due {
+        if !due {
+            return;
+        }
+
+        // A read failure falls back to the candidate rather than notifying
+        // nobody: a wake that stalls on a transient DB error would leave the
+        // turn undelivered until the next tick anyway, and the candidate is the
+        // target this had before members were resolved.
+        let targets = match self.pending_work.members_awaiting_dispatch(task_id).await {
+            Ok(targets) if targets.is_empty() => {
+                // The claim landed between the candidate read and this one.
+                // Nothing is waiting, so the wake has already been answered.
+                debug!(
+                    task_id,
+                    "reconciler: pending wake settled before notify; nothing to deliver"
+                );
+                return;
+            }
+            Ok(targets) => targets,
+            Err(error) => {
+                warn!(
+                    task_id,
+                    %error,
+                    "reconciler: could not resolve the Sandbox's pending members; notifying the candidate"
+                );
+                vec![task_id.to_string()]
+            }
+        };
+
+        for target in &targets {
             debug!(
                 task_id,
-                "reconciler: re-notifying Ready sandbox of pending wake"
+                target, "reconciler: re-notifying Ready sandbox of pending wake"
             );
-            self.notify.notify(task_id).await;
+            self.notify.notify(target).await;
         }
     }
 
@@ -603,7 +651,9 @@ impl Reconciler {
             .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
 
         if let Some(g) = generation {
-            retry.budget.begin(moatless_sandbox_runtime::types::OperationGeneration(g));
+            retry
+                .budget
+                .begin(moatless_sandbox_runtime::types::OperationGeneration(g));
         }
 
         // Backing off between transient retries.
@@ -632,7 +682,10 @@ impl Reconciler {
         &self,
         task_id: &str,
         action: ReconcileAction,
-        result: Result<moatless_sandbox_runtime::outcome::LifecycleOutcome, super::error::LifecycleError>,
+        result: Result<
+            moatless_sandbox_runtime::outcome::LifecycleOutcome,
+            super::error::LifecycleError,
+        >,
         now: DateTime<Utc>,
     ) -> Option<String> {
         let mut guard = self
@@ -735,8 +788,8 @@ mod tests {
         }
 
         async fn reconcile_candidates(
-        &self,
-    ) -> Result<Vec<crate::lifecycle::orchestrator::ReconcileCandidate>, StoreError> {
+            &self,
+        ) -> Result<Vec<crate::lifecycle::orchestrator::ReconcileCandidate>, StoreError> {
             panic!("member registration test must not enumerate reconcile candidates")
         }
 
@@ -927,7 +980,13 @@ mod tests {
         let mut failures = HashMap::new();
         let key = ("sandbox-1".to_string(), "task-1".to_string());
 
-        note_member_failure(&mut failures, key.clone(), "err-a", t0(), MEMBER_REG_RELOG_INTERVAL);
+        note_member_failure(
+            &mut failures,
+            key.clone(),
+            "err-a",
+            t0(),
+            MEMBER_REG_RELOG_INTERVAL,
+        );
         // Two identical repeats are hidden.
         note_member_failure(
             &mut failures,
@@ -961,7 +1020,13 @@ mod tests {
         let mut failures = HashMap::new();
         let key = ("sandbox-1".to_string(), "task-1".to_string());
 
-        note_member_failure(&mut failures, key.clone(), "err", t0(), MEMBER_REG_RELOG_INTERVAL);
+        note_member_failure(
+            &mut failures,
+            key.clone(),
+            "err",
+            t0(),
+            MEMBER_REG_RELOG_INTERVAL,
+        );
         let after = note_member_failure(
             &mut failures,
             key.clone(),
@@ -984,8 +1049,14 @@ mod tests {
         };
         let failures = empty_failures();
 
-        ensure_running_members_registered(&store, &registry, &failures, t0(), MEMBER_REG_RELOG_INTERVAL)
-            .await;
+        ensure_running_members_registered(
+            &store,
+            &registry,
+            &failures,
+            t0(),
+            MEMBER_REG_RELOG_INTERVAL,
+        )
+        .await;
         ensure_running_members_registered(
             &store,
             &registry,
@@ -1000,7 +1071,11 @@ mod tests {
         let entry = guard.get(&key).expect("failure recorded");
         assert_eq!(entry.suppressed_since_warn, 1);
         // The source chain is captured, not just the bare context.
-        assert!(entry.last_error.contains("clone failed"), "chain: {}", entry.last_error);
+        assert!(
+            entry.last_error.contains("clone failed"),
+            "chain: {}",
+            entry.last_error
+        );
     }
 
     #[tokio::test]
@@ -1049,7 +1124,10 @@ mod tests {
             "JoinTask failed",
             std::io::Error::other("status: Unimplemented"),
         );
-        assert_eq!(format_error_chain(&err), "JoinTask failed: status: Unimplemented");
+        assert_eq!(
+            format_error_chain(&err),
+            "JoinTask failed: status: Unimplemented"
+        );
     }
 }
 
@@ -1059,16 +1137,17 @@ mod db_tests {
 
     use sqlx::PgPool;
 
-
     use super::super::dao::PgLifecycleDao;
     use super::super::events::{EventFact, LifecycleEvent};
     use super::super::lock::PgLifecycleLock;
     use super::super::orchestrator::{
         AgentStopPort, IntentWrite, LifecycleEventSink, SystemWallClock,
     };
-    use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
     use super::super::test_support::{seed_bare_task, seed_task_with as seed};
     use moatless_sandbox_runtime::fleet::ObserveError;
+    use moatless_sandbox_runtime::runtime::{
+        RuntimeOperationContext, RuntimeOutcome, SandboxRuntime,
+    };
     use moatless_sandbox_runtime::types::{
         CorrelationMarker, ObservedStatus, OperationGeneration, OperationKind,
     };
@@ -1118,9 +1197,9 @@ mod db_tests {
         ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
             self.calls.lock().unwrap().ensure += 1;
             if self.fail_ensure {
-                return Err(moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure(
-                    "boom".into(),
-                ));
+                return Err(
+                    moatless_sandbox_runtime::runtime::RuntimeError::Infrastructure("boom".into()),
+                );
             }
             Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
         }
@@ -1199,11 +1278,50 @@ mod db_tests {
     #[derive(Default)]
     struct RecordingNotify {
         count: Mutex<u32>,
+        targets: Mutex<Vec<String>>,
     }
     #[async_trait]
     impl NotifyPort for RecordingNotify {
-        async fn notify(&self, _t: &str) {
+        async fn notify(&self, t: &str) {
             *self.count.lock().unwrap() += 1;
+            self.targets.lock().unwrap().push(t.to_string());
+        }
+    }
+
+    /// The production `PendingWorkReader` predicate, run against the test pool.
+    ///
+    /// A stub returning a fixed list would not exercise what the fan-out is
+    /// for, which is resolving the members of a shared Sandbox from the rows a
+    /// test actually seeded. The statement matches
+    /// `moatless_tasks::message::dao::members_awaiting_dispatch`; that crate is
+    /// not a dependency here, and this is test code, so it is restated rather
+    /// than shared.
+    struct PoolPendingWork(PgPool);
+    #[async_trait]
+    impl PendingWorkReader for PoolPendingWork {
+        async fn members_awaiting_dispatch(
+            &self,
+            task_id: &str,
+        ) -> Result<Vec<String>, moatless_backend_core::store::StoreError> {
+            sqlx::query_scalar(
+                r#"SELECT peer.task_id
+                     FROM tasks t
+                     JOIN tasks peer ON peer.sandbox_id = t.sandbox_id
+                    WHERE t.task_id = $1
+                      AND peer.status IN ('open', 'error')
+                      AND EXISTS (
+                          SELECT 1
+                            FROM task_messages m
+                           WHERE m.task_id = peer.task_id
+                             AND m.agent_session_id IS NULL
+                             AND m.message_type = 'user'
+                      )
+                    ORDER BY peer.created_at_db NULLS LAST, peer.task_id"#,
+            )
+            .bind(task_id)
+            .fetch_all(&self.0)
+            .await
+            .map_err(|e| moatless_backend_core::store::StoreError::with_source("pending", e))
         }
     }
 
@@ -1307,6 +1425,7 @@ mod db_tests {
                 store,
                 observer,
                 notify,
+                pending_work: Arc::new(PoolPendingWork(pool)),
                 member_registry,
                 clock,
             },
@@ -1593,6 +1712,48 @@ mod db_tests {
             *notify.count.lock().unwrap(),
             1,
             "notify fired once; the second immediate tick is backoff-suppressed",
+        );
+    }
+
+    #[sqlx::test]
+    async fn the_wake_reaches_the_shared_sandbox_member_holding_the_message(pool: PgPool) {
+        // Two Tasks on one Sandbox: "t1" created it, "t2" joined it (a
+        // `sameSandbox` fork). Only "t2" has an unclaimed message. The candidate
+        // enumeration collapses the Sandbox to its oldest member, "t1", so a
+        // notify aimed at the candidate would dispatch the wrong Task and leave
+        // "t2" waiting forever while its message kept the wake set.
+        seed(&pool, "t1", "open", "running").await;
+        seed_bare_task(&pool, "t2", "open").await;
+        sqlx::query("UPDATE tasks SET sandbox_id = 't1' WHERE task_id = 't2'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        seed_pending_user_message(&pool, "t2", Utc::now()).await;
+
+        let notify = Arc::new(RecordingNotify::default());
+        let (rec, _sink) = build_with(
+            pool.clone(),
+            pool,
+            Arc::new(RecordingRuntime::new()),
+            observer(
+                &[("t1", SandboxObservedStatus::Ready)],
+                SandboxObservedStatus::Ready,
+            ),
+            notify.clone(),
+            Arc::new(RecordingMemberRegistry::default()),
+            Arc::new(SystemWallClock),
+            ReconcilerConfig {
+                grace: Duration::ZERO,
+                ..Default::default()
+            },
+        );
+
+        rec.reconcile_once().await;
+
+        assert_eq!(
+            notify.targets.lock().unwrap().as_slice(),
+            ["t2"],
+            "the wake goes to the member whose message is unclaimed, not the candidate"
         );
     }
 

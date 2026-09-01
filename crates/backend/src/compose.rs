@@ -413,6 +413,9 @@ impl Ports {
                 store: self.lifecycle_store.clone(),
                 observer,
                 notify,
+                // The Task band owns `task_messages`, so it answers which
+                // members of a shared Sandbox a wake has to reach.
+                pending_work: Arc::new(moatless_tasks::ports::PendingWork::new(self.pool.clone())),
                 member_registry,
                 clock: Arc::new(SystemWallClock),
             },

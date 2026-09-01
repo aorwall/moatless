@@ -12,9 +12,9 @@ use moatless_backend_core::activity::{Activity, ActivitySource};
 use moatless_backend_core::store::StoreError;
 use moatless_backend_core::task::{
     AssistantReply, CloseReason, EventSubject, ExternalEvent, InboundTurn, MessageAcceptor,
-    NewTask, RelationRecorder, SandboxProvision, TagResolver, TaskDescriptor, TaskFinisher,
-    TaskOpenError, TaskOpened, TaskOpener, TaskReader, ToolCallRecord, TranscriptAppend,
-    TranscriptEntry, TranscriptEntryKind, TranscriptOrigin, TurnCounter,
+    NewTask, PendingWorkReader, RelationRecorder, SandboxProvision, TagResolver, TaskDescriptor,
+    TaskFinisher, TaskOpenError, TaskOpened, TaskOpener, TaskReader, ToolCallRecord,
+    TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TranscriptOrigin, TurnCounter,
 };
 use moatless_types::access_control::ScopeContext;
 use moatless_types::task::RelatedTask;
@@ -409,6 +409,30 @@ impl RelationRecorder for TaskRelations {
     async fn record_related_to(&self, from_task_id: &str, related: &RelatedTask) {
         crate::task::relations::record_related_to(self.relations.as_ref(), from_task_id, related)
             .await;
+    }
+}
+
+/// The unclaimed-user-message predicate, answered for a Sandbox's members.
+///
+/// The control plane holds the wake signal but not the queue it stands for, so
+/// this is the read that turns "this Sandbox has work" into the Tasks to
+/// notify.
+pub struct PendingWork {
+    pool: moatless_core::db::DbPool,
+}
+
+impl PendingWork {
+    pub fn new(pool: moatless_core::db::DbPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl PendingWorkReader for PendingWork {
+    async fn members_awaiting_dispatch(&self, task_id: &str) -> Result<Vec<String>, StoreError> {
+        crate::message::dao::members_awaiting_dispatch(&self.pool, task_id)
+            .await
+            .map_err(|e| StoreError::with_source(format!("read pending members for {task_id}"), e))
     }
 }
 
