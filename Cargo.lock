@@ -3535,6 +3535,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-arch-rules"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "syn",
+ "walkdir",
+]
+
+[[package]]
 name = "moatless-backend"
 version = "0.1.0"
 dependencies = [

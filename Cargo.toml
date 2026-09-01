@@ -26,6 +26,7 @@ members = [
     "crates/adapter-github-pr",
     "crates/t3code",
     "crates/types",
+    "crates/arch-rules",
     # "crates/codex-sdk",  # Excluded: built separately via its own workspace (codex dep graph)
 ]
 resolver = "2"
