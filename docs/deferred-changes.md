@@ -321,6 +321,7 @@ an isolated Codex Fork errors on `thread/fork`; `sameSandbox` is the working pat
 | Nothing alerts when `main` goes red | `ci.yml` | Pairs with a nightly build for the image tier |
 | A sandbox readiness test intermittently hangs to the CI timeout | `sandbox/src/init/replacement_test/readiness.rs::sustained_ack_failure_never_re_runs_and_aborts_on_shutdown` | When it fires a second time on `main`, or when anyone next works in `sandbox/src/init` |
 | Nothing holds a removed crate edge removed | `ci.yml`; `crates/backend-core/Cargo.toml` can regain `sandbox-proto` and `crates/core/Cargo.toml` can regain `moatless-api-schemas` with no gate objecting | A `cargo metadata` check over a forbidden-edge list, sized so one line per edge is the whole cost of adding one |
+| Committed OpenAPI spec and TS client lag the backend | `openapi-specs.json` and `packages/api-client/src/**` lack the `fork_task` operation (`POST /api/v1/tasks/{task_id}/fork`) the tasks routes register | Run `task generate` alongside the next change touching the API surface, or on its own when the frontend first consumes the fork endpoint. Harmless until then: `build-rust` regenerates the spec fresh on every push (the `Generate OpenAPI spec` step in `ci.yml`), so `main` stays green while nothing references the missing types |
 
 **Route literals.** The suite already imports generated *types* from
 `@moatless/api-client` (`tests/shared/types.ts`, `tests/shared/wait-helpers.ts`),
