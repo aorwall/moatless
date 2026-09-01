@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use crate::enums::SandboxDesiredState;
+
 // =============================================================================
 // Repository checkouts (backend → sandbox provisioning contract)
 // =============================================================================
@@ -141,6 +143,9 @@ pub struct ResourceMetrics {
 // =============================================================================
 
 /// A provider-agnostic runtime event associated with a sandbox.
+///
+/// In K8s mode, these are sourced from K8s Event objects (FailedScheduling,
+/// BackOff, Pulling, etc.). Docker mode can populate from `docker events`.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -179,6 +184,62 @@ pub struct ContainerDiagnostics {
     pub last_terminated_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub waiting_reason: Option<String>,
+    /// CPU usage in millicores (from K8s Metrics API, if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_millicores: Option<u64>,
+    /// Memory usage in megabytes (from K8s Metrics API, if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_mb: Option<u64>,
+}
+
+/// Wakeup timer armed by the agent via `ScheduleWakeup`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WakeupJobInfo {
+    pub reason: String,
+    pub prompt_preview: String,
+    pub wakeup_at_unix_ms: i64,
+}
+
+/// Watch that re-triggers the agent once the `run_in_background` jobs captured
+/// at the end of a turn have finished (subprocess mode only).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundWatchJobInfo {
+    pub process_count: u32,
+    pub commands: Vec<String>,
+}
+
+/// Per-kind payload for a scheduled job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ScheduledJobKind {
+    Wakeup(WakeupJobInfo),
+    BackgroundWatch(BackgroundWatchJobInfo),
+}
+
+/// Snapshot of one scheduled job currently registered in the sandbox.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledJobInfo {
+    pub id: String,
+    pub registered_at_unix_ms: i64,
+    #[serde(flatten)]
+    pub kind: ScheduledJobKind,
+}
+
+/// A live background process (a `run_in_background` job or ad-hoc daemon) still
+/// running in the sandbox after the agent went idle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundProcess {
+    pub pid: u32,
+    pub command: String,
 }
 
 /// Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)
@@ -187,7 +248,9 @@ pub struct ContainerDiagnostics {
 #[serde(rename_all = "camelCase")]
 pub struct SandboxStatusFullResponse {
     pub sandbox_status: SandboxStatus,
+    #[cfg_attr(feature = "openapi", schema(required = true))]
     pub sandbox_error: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(required = true))]
     pub agent_status: Option<AgentStatus>,
     pub servers: Vec<ServerEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -196,6 +259,31 @@ pub struct SandboxStatusFullResponse {
     pub container_diagnostics: Option<Vec<ContainerDiagnostics>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_events: Option<Vec<RuntimeEvent>>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub scheduled_jobs: Vec<ScheduledJobInfo>,
+    /// Live background processes (`run_in_background` jobs, ad-hoc daemons) still
+    /// running in the sandbox. Empty when idle with no background work.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub background_processes: Vec<BackgroundProcess>,
+    /// Desired sandbox lifecycle intent recorded on the task
+    /// (`running`/`stopped`/`removed`). Reflects the last user/system action,
+    /// independent of the live pod phase. `None` when it can't be resolved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_desired_state: Option<SandboxDesiredState>,
+    /// Image the currently-provisioned sandbox container is running, read from
+    /// the live Deployment/container. `None` when no sandbox exists yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_sandbox_image: Option<String>,
+    /// Image a fresh (re)deploy would use for the sandbox container: the
+    /// per-repo `docker_image` override when set, otherwise the configured
+    /// default. Compare against `current_sandbox_image` to know whether a
+    /// redeploy would change the image.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_sandbox_image: Option<String>,
+    /// `true` when `current_sandbox_image` matches `latest_sandbox_image`.
+    /// `None` when either image is unknown (e.g. no sandbox provisioned).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_up_to_date: Option<bool>,
 }
 
 /// Server status response proxied from sandbox pod.

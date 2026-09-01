@@ -19,7 +19,9 @@ use super::service;
 use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::task::TaskStatus;
 use moatless_types::workspace::ServerConfig;
-use moatless_sandbox_runtime::client::SandboxConnector;
+use moatless_sandbox_runtime::client::{
+    background_process_from_proto, scheduled_job_info_from_proto, SandboxConnector,
+};
 use moatless_core::config::Config;
 use moatless_sandbox_runtime::live_status::{AgentStatus, LiveStatus, derive_live_status};
 use moatless_sandbox_runtime::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
@@ -313,12 +315,12 @@ impl StatusResolver {
                 scheduled_jobs: resp
                     .scheduled_jobs
                     .into_iter()
-                    .filter_map(ScheduledJobInfo::from_proto)
+                    .filter_map(scheduled_job_info_from_proto)
                     .collect(),
                 background_processes: resp
                     .background_processes
                     .into_iter()
-                    .map(BackgroundProcess::from_proto)
+                    .map(background_process_from_proto)
                     .collect(),
             },
             Err(e) => {

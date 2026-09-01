@@ -43,7 +43,7 @@ use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePa
 use moatless_backend_core::change_feed::conversation::{ConversationChange, ConversationHead};
 use moatless_backend_core::sandbox::{
     ClusterDiagnostics, LiveStatus, LogOptions, SandboxDiagnosticsEntry, SandboxError,
-    SandboxPortPublisher, SandboxStatusFullResponse, ServerLogStream,
+    SandboxPortPublisher, ContractSandboxStatus, ServerLogStream,
 };
 use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_types::agent::AgentType;
@@ -169,7 +169,7 @@ impl SandboxObserver for NoSandboxes {
         task_id: &str,
         _task_status: TaskStatus,
         _desired_state: SandboxDesiredState,
-    ) -> Result<SandboxStatusFullResponse, SandboxError> {
+    ) -> Result<ContractSandboxStatus, SandboxError> {
         Err(SandboxError::NotReady(task_id.to_string()))
     }
 

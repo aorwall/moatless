@@ -13,7 +13,7 @@ use std::fs;
 /// A live descendant process of the sandbox, surfaced for the control-panel UI
 /// and captured by the background-completion watcher.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackgroundProcess {
+pub struct LiveProcess {
     pub pid: u32,
     /// Full command line (argv joined by spaces), falling back to the `comm`
     /// name when `/proc/<pid>/cmdline` is empty (e.g. kernel threads).
@@ -87,7 +87,7 @@ fn ancestry_with(leaf: u32, root: u32, parent: impl Fn(u32) -> Option<u32>) -> V
 /// with `setsid`/`nohup`, which reparent to PID 1 and sit *outside* the pane's
 /// subtree. The walk still descends *through* the excluded PIDs, so the CLI's
 /// own children are still found.
-pub fn live_descendants_excluding_session(root: u32, pane_pid: u32) -> Vec<BackgroundProcess> {
+pub fn live_descendants_excluding_session(root: u32, pane_pid: u32) -> Vec<LiveProcess> {
     let spine: Vec<u32> = ancestry_to_root(pane_pid, root);
     live_descendants(root)
         .into_iter()
@@ -153,14 +153,14 @@ pub fn has_live_descendants(root: u32) -> bool {
 /// Every live descendant of `root`, with a best-effort command string. Used to
 /// surface background jobs in the control-panel UI and to snapshot the PIDs the
 /// background-completion watcher waits on. Order is unspecified.
-pub fn live_descendants(root: u32) -> Vec<BackgroundProcess> {
+pub fn live_descendants(root: u32) -> Vec<LiveProcess> {
     let mut out = Vec::new();
     let mut stack = children_of(root);
     while let Some(pid) = stack.pop() {
         // Always descend into children — a zombie can still parent live work.
         stack.extend(children_of(pid));
         if pid_is_live(pid) {
-            out.push(BackgroundProcess {
+            out.push(LiveProcess {
                 pid,
                 command: process_command(pid).unwrap_or_else(|| "unknown".to_string()),
             });

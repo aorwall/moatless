@@ -207,7 +207,7 @@ mod tests {
 
     use async_trait::async_trait;
     use moatless_backend_core::sandbox::{
-        LiveStatus, LogOptions, SandboxDesiredState, SandboxStatus, SandboxStatusFullResponse,
+        LiveStatus, LogOptions, SandboxDesiredState, SandboxStatus, ContractSandboxStatus,
         ServerLogStream,
     };
     use moatless_types::task::TaskStatus;
@@ -233,7 +233,7 @@ mod tests {
             _task_id: &str,
             _task_status: TaskStatus,
             _desired_state: SandboxDesiredState,
-        ) -> Result<SandboxStatusFullResponse, SandboxError> {
+        ) -> Result<ContractSandboxStatus, SandboxError> {
             unreachable!("the lifecycle read uses live_status")
         }
 

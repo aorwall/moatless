@@ -3726,7 +3726,7 @@ mod tests {
     use crate::listing::UiRpcListingHead;
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
-    use moatless_backend_core::sandbox::{LiveStatus, LogOptions, SandboxDesiredState, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher, SandboxStatus, SandboxStatusFullResponse, ServerLogStream};
+    use moatless_backend_core::sandbox::{LiveStatus, LogOptions, SandboxDesiredState, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher, SandboxStatus, ContractSandboxStatus, ServerLogStream};
     use moatless_types::task::TaskStatus;
     use moatless_identity::auth::pairing::{PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key};
     use uuid::Uuid;
@@ -3896,7 +3896,7 @@ mod tests {
             task_id: &str,
             _task_status: moatless_types::task::TaskStatus,
             _desired_state: moatless_types::sandbox::SandboxDesiredState,
-        ) -> Result<SandboxStatusFullResponse, SandboxError> {
+        ) -> Result<ContractSandboxStatus, SandboxError> {
             Err(unreachable(task_id))
         }
 
@@ -4452,7 +4452,7 @@ mod tests {
             _task_id: &str,
             _task_status: TaskStatus,
             _desired_state: SandboxDesiredState,
-        ) -> Result<SandboxStatusFullResponse, SandboxError> {
+        ) -> Result<ContractSandboxStatus, SandboxError> {
             unreachable!("the lifecycle read uses live_status")
         }
 

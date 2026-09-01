@@ -217,17 +217,10 @@ pub struct ServerSnapshot {
     pub pid: Option<u32>,
 }
 
-/// Resource metrics from sandbox GET /status
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ResourceMetrics {
-    pub memory_usage_mb: f64,
-    pub memory_limit_mb: Option<f64>,
-    pub memory_usage_percent: Option<f64>,
-    pub cpu_usage_percent: Option<f64>,
-    pub event_loop_latency_ms: f64,
-    pub uptime_seconds: f64,
-}
+// Resource metrics are part of the sandbox status response body, so they live in
+// `moatless-api-schemas`; re-exported so this crate's `models::` paths keep
+// naming them.
+pub use moatless_api_schemas::sandbox::ResourceMetrics;
 
 pub use moatless_types::sandbox::ServerCapabilities;
 

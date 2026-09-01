@@ -40,7 +40,7 @@ impl core_sandbox::SandboxObserver for ContractObserver {
         task_id: &str,
         task_status: crate::task::models::TaskStatus,
         desired_state: crate::task::models::SandboxDesiredState,
-    ) -> Result<core_sandbox::SandboxStatusFullResponse, core_sandbox::SandboxError> {
+    ) -> Result<core_sandbox::ContractSandboxStatus, core_sandbox::SandboxError> {
         self.0
             .sandbox_status(task_id, task_status, desired_state)
             .await
@@ -81,8 +81,8 @@ impl core_sandbox::SandboxObserver for ContractObserver {
 
 pub(crate) fn sandbox_status(
     response: crate::sandbox::schemas::SandboxStatusFullResponse,
-) -> core_sandbox::SandboxStatusFullResponse {
-    core_sandbox::SandboxStatusFullResponse {
+) -> core_sandbox::ContractSandboxStatus {
+    core_sandbox::ContractSandboxStatus {
         sandbox_status: response.sandbox_status,
         servers: response.servers.into_iter().map(server_entry).collect(),
     }
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn the_projected_status_carries_exactly_the_contract_field_set() {
         let rich = fully_populated_rich_status();
-        let core_sandbox::SandboxStatusFullResponse {
+        let core_sandbox::ContractSandboxStatus {
             sandbox_status,
             servers,
         } = sandbox_status(rich);

@@ -20,7 +20,7 @@ use std::time::Duration;
 use tokio::time::Instant;
 use tracing::{debug, info};
 
-use crate::process_tree::{self, BackgroundProcess};
+use crate::process_tree::{self, LiveProcess};
 
 use super::scheduled_job::{
     BackgroundWatchSnapshot, JobContext, JobKind, JobSnapshot, ScheduledJob,
@@ -100,7 +100,7 @@ impl BackgroundWatchJob {
     }
 
     /// Build a watch from an already-captured process list (unit-test seam).
-    fn from_processes(procs: Vec<BackgroundProcess>) -> Option<Self> {
+    fn from_processes(procs: Vec<LiveProcess>) -> Option<Self> {
         if procs.is_empty() {
             return None;
         }
@@ -271,11 +271,11 @@ mod tests {
     #[test]
     fn arm_captures_pids_and_commands() {
         let job = BackgroundWatchJob::from_processes(vec![
-            BackgroundProcess {
+            LiveProcess {
                 pid: 42,
                 command: "cargo test --no-run".to_string(),
             },
-            BackgroundProcess {
+            LiveProcess {
                 pid: 43,
                 command: "sleep 30".to_string(),
             },
@@ -294,8 +294,8 @@ mod tests {
 
     #[test]
     fn command_previews_are_capped() {
-        let procs: Vec<BackgroundProcess> = (0..10)
-            .map(|i| BackgroundProcess {
+        let procs: Vec<LiveProcess> = (0..10)
+            .map(|i| LiveProcess {
                 pid: 100 + i,
                 command: format!("proc-{i}"),
             })
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn single_job_prompt_uses_singular_grammar() {
-        let job = BackgroundWatchJob::from_processes(vec![BackgroundProcess {
+        let job = BackgroundWatchJob::from_processes(vec![LiveProcess {
             pid: 7,
             command: "sleep 5".to_string(),
         }])

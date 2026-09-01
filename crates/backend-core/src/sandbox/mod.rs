@@ -28,8 +28,12 @@ impl Default for LogOptions {
     }
 }
 
+/// The narrowed sandbox status the T3 contract observer returns: the two fields
+/// the T3 surface was designed for. Deliberately distinct from the wire response
+/// body `moatless_api_schemas::sandbox::SandboxStatusFullResponse`; the backend
+/// projects the wider response down to this. See `t3code::projection`.
 #[derive(Debug, Clone)]
-pub struct SandboxStatusFullResponse {
+pub struct ContractSandboxStatus {
     pub sandbox_status: SandboxStatus,
     pub servers: Vec<ServerEntry>,
 }
@@ -43,7 +47,7 @@ pub trait SandboxObserver: Send + Sync {
         task_id: &str,
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
-    ) -> Result<SandboxStatusFullResponse, SandboxError>;
+    ) -> Result<ContractSandboxStatus, SandboxError>;
 
     async fn live_status(
         &self,
