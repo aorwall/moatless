@@ -14,13 +14,24 @@ ARCH_STRICT=1 cargo test -p moatless-arch-rules                         # fails 
 
 A rule ships before the workspace satisfies it. The violations present the day
 it lands go into `arch-baseline.json`, the test fails only on ones that are
-not, and `ARCH_STRICT=1` is the switch once a rule reaches zero. A rule that
-had to wait for a clean workspace would never land.
+not, and `ARCH_STRICT=1` is the switch once every rule reaches zero. A rule
+that had to wait for a clean workspace would never land.
 
 **The baseline only shrinks.** `the_baseline_holds_no_fixed_violations` fails
 when an entry no longer occurs, so a fixed violation must be dropped rather
 than left to shadow the next one. Running `--update-baseline` to absorb a new
 violation is the one motion this design exists to make visible in a diff.
+
+**A rule at zero is already locked there — there is no per-rule strict switch,
+and none is needed.** The ordinary test filters to violations absent from the
+baseline, so a rule with no baseline entries fails on any occurrence at all:
+`forbidden-crate-dep` sits at zero with an empty slice, so a new forbidden edge
+fails CI today, with nothing to flip. `ARCH_STRICT=1` reads the *whole* baseline
+as empty, which is the stricter assertion that nothing is baselined anywhere; it
+is global by design and worth turning on only once every rule has reached zero.
+A per-rule variant would duplicate the lock the empty slice already gives, and
+would not even stop a deliberate `--update-baseline` from absorbing a forbidden
+edge — that is caught in review, for every rule alike.
 
 ## Adding a rule
 
