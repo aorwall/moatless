@@ -817,3 +817,84 @@ async fn latest_running_signals_reads_the_newest_turn_and_the_newest_person(pool
         "the newest user message, not the newest message"
     );
 }
+/// A turn left `interrupted` behind later completed turns is a lost terminal
+/// event, not work in flight. Task 062dc4f6 sat like this: turn 1 interrupted,
+/// turns 2 through 8 completed, sandbox stopped. Reading the lowest open turn
+/// refused every fork of it with "turn 1 in flight; stop it or wait for it",
+/// which nothing could ever clear.
+#[sqlx::test]
+async fn a_stale_open_turn_behind_a_finished_one_does_not_block_a_fork(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnDao(pool.clone());
+
+    repo.apply_ingress_event(&ingress_event(
+        "task-a",
+        1,
+        "e1-active",
+        "active",
+        TurnTransition::Open,
+    ))
+    .await
+    .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        "task-a",
+        1,
+        "e1-interrupted",
+        "turn_interrupted",
+        TurnTransition::Interrupted,
+    ))
+    .await
+    .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        "task-a",
+        2,
+        "e2-completed",
+        "completed",
+        TurnTransition::Terminal(TurnStatus::Completed),
+    ))
+    .await
+    .unwrap();
+
+    let point = repo.fork_point("task-a", None).await.unwrap();
+
+    assert_eq!(
+        point.open_turn, None,
+        "turn 1 cannot still be running once turn 2 has finished"
+    );
+    assert_eq!(
+        point.turn,
+        Some(2),
+        "the cut lands on the newest ended turn"
+    );
+}
+
+/// The newest turn still being open is what a fork must refuse, and that check
+/// has to keep working now that it reads one row instead of aggregating.
+#[sqlx::test]
+async fn a_running_newest_turn_still_blocks_a_fork(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnDao(pool.clone());
+
+    repo.apply_ingress_event(&ingress_event(
+        "task-a",
+        1,
+        "e1-completed",
+        "completed",
+        TurnTransition::Terminal(TurnStatus::Completed),
+    ))
+    .await
+    .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        "task-a",
+        2,
+        "e2-active",
+        "active",
+        TurnTransition::Open,
+    ))
+    .await
+    .unwrap();
+
+    let point = repo.fork_point("task-a", None).await.unwrap();
+
+    assert_eq!(point.open_turn, Some(2));
+}

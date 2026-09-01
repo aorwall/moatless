@@ -263,9 +263,11 @@ pub trait TaskTurnDao: Send + Sync {
 /// What [`TaskTurnDao::fork_point`] found.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ForkPoint {
-    /// The lowest turn that has not reached a terminal status. A fork is
-    /// refused while one exists: its transcript ends on an unanswered call, and
-    /// the turn is still writing rows the copy would race.
+    /// The Task's newest turn, when that turn has not reached a terminal
+    /// status. A fork is refused while one exists: its transcript ends on an
+    /// unanswered call, and the turn is still writing rows the copy would race.
+    /// Only the newest turn qualifies, matching how every other reader of
+    /// `task_turns` decides whether a Task is busy.
     pub open_turn: Option<i32>,
     /// The turn the cut keeps — the requested one, or the newest terminal one.
     /// `None` means the requested turn has no row, or the Task has no terminal
@@ -628,12 +630,19 @@ impl TaskTurnDao for PgTaskTurnDao {
         task_id: &str,
         at_turn: Option<i32>,
     ) -> Result<ForkPoint, sqlx::Error> {
+        // The newest turn only, because that is the one an agent could still be
+        // writing. An earlier turn left `active` or `interrupted` behind a
+        // higher-numbered one is a lost terminal event, not work in flight: the
+        // turns after it prove the agent moved on, and nothing will ever resume
+        // it. Asking across every turn instead refused these Tasks forever, and
+        // told the person to wait for a turn that had ended a day earlier.
         let open_turn: Option<i32> = sqlx::query_scalar(
-            "SELECT MIN(turn_number) FROM task_turns \
-             WHERE task_id = $1 AND status IN ('active', 'interrupted')",
+            "SELECT turn_number FROM task_turns \
+             WHERE task_id = $1 AND status IN ('active', 'interrupted') \
+               AND turn_number = (SELECT MAX(turn_number) FROM task_turns WHERE task_id = $1)",
         )
         .bind(task_id)
-        .fetch_one(&self.0)
+        .fetch_optional(&self.0)
         .await?;
 
         // `$2` both selects and relaxes: naming a turn takes exactly that row,
