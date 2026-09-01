@@ -95,7 +95,7 @@ tests. A push proves nothing about test state; run the verification commands
 above yourself.
 
 ## Architecture & conventions
-- Domain glossary: `CONTEXT.md`. Historical markdown specs and ADRs were removed because they were not maintained; use current code/tests as authority and docs only as routing aids. Read `.plans/` only when asked to implement or review that specific plan.
+- Domain glossary: `CONTEXT.md`. Historical markdown specs and ADRs were removed because they were not maintained; use current code/tests as authority and docs only as routing aids. Read `.plans/` only when asked to implement or review that specific plan. Unscoped feature ideas not yet committed to a plan go in `docs/ideas/` instead — see `docs/ideas/README.md`.
 - Durable local guidelines and decisions go in the nearest relevant `AGENTS.md`. When editing a path, read the `AGENTS.md` files in that directory and its parents.
 - Found a real problem you are deliberately not fixing now? Record it in `docs/deferred-changes.md` with an anchor and the condition that makes it worth doing. Check that file before starting work in an area — it is where the known gaps are, and its own rules keep it from rotting.
 - The repo owns its own agent-config compatibility: every `AGENTS.md` has a committed `CLAUDE.md` symlink beside it, and `.claude/skills` is a committed symlink to `.agents/skills`. Nothing creates these at runtime — add a new `AGENTS.md` → commit `ln -s AGENTS.md CLAUDE.md` alongside it.
