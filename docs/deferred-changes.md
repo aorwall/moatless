@@ -147,6 +147,7 @@ change that found it.
 | A pinned Gitness branch listing reads its base URL off the caller | `crates/workspaces/src/repository/handlers.rs::list_branches`, the `RepositoryProvider::Gitness` arm — `find_provider_token_full(&ctx.user_id, "gitness")` for `base_url`, while the token beside it may have come from the Workspace pin | When a Workspace pins a Gitness credential; see below |
 | A replayed `thread.create` is refused rather than recognised | `crates/backend/src/t3code/backend.rs::free_thread_id` — a bootstrap frame re-sent after a reconnect names a thread that was created successfully, and the id is refused as taken. `send_turn`'s `already_sent` guard is the shape a fix would take, keyed on `NewThread::first_message`'s `message_uuid` | When a reconnecting client is observed showing "That thread already exists." on a thread it can see. The refusal predates the id-reclaim change, which only made the wording specific |
 | An attached terminal stream outlives the control that opened it | `crates/t3code/src/terminal.rs::attach` / `forward_attach_stream` — control is checked once when the stream is opened (`controlled_thread`), never again while it runs, so a controller who opened a shell on a Task that is then set back to private keeps reading and writing it until they detach | When a public Task set private is observed leaving a stranger's attached shell live. The next call refuses; only the held stream is stale, and re-checking it needs a per-frame gate the attach loop does not have. Owner recovery in the meantime is `POST /cleanup` (write, owner-only) |
+| An isolated Fork starts from a fresh clone, not the parent's Workspace | `crates/tasks/src/task/handlers.rs::fork_task` — the `!same_sandbox` path provisions an ordinary isolated Sandbox, so the fork's pod restores its own (empty) archives at `<prefix>/<fork_task_id>/{workspace,transcripts}.tar` rather than the parent's | When a Fork not sharing its parent's Sandbox must reproduce the parent's uncommitted working tree — or when a Codex isolated Fork is observed failing `thread/fork` because the parent thread is absent from its fresh `$CODEX_HOME`. See below |
 
 **A Task auto-close spares hears neither notice.** `close_subject` walks the
 Bindings its own trigger created, and where the Task carries other Bindings it
@@ -284,6 +285,31 @@ Sandbox change, because it moves in the opposite direction: that change made the
 harness pod shape (`sandboxes.agent_type`, `sandboxes.use_tmux`), and this one
 makes it per member again. Do it as its own change, with the pod-level columns
 kept as the default a member inherits when it asks for nothing.
+
+**An isolated Fork's Workspace.** A Fork carries a copy of the parent's
+conversation (`message::fork::copy_conversation`) and, on its first Turn, resumes
+the parent's Session — Claude by truncating a copy of the transcript, Codex via
+`thread/fork`. Both anchors reach the pod through `task_forks`, but the bytes the
+resume reads do not: an isolated Fork provisions an ordinary Sandbox, whose init
+restores `<prefix>/<fork_task_id>/{workspace,transcripts}.tar` — its own,
+still-empty archives — so the pod holds a fresh clone and neither the parent's
+uncommitted working tree nor its Claude transcript. A `sameSandbox` Fork has no
+such gap: it shares the parent's checkout and `$CLAUDE_CONFIG_DIR`/`$CODEX_HOME`,
+so both anchors resolve against files already present.
+
+Closing it is a seed step before the Fork's Sandbox provisions: S3 `copy_object`
+of the parent's two archives onto the Fork's keys (the keys are
+`sandbox_key`/`transcript_key` in `crates/backend/src/sandbox/grpc_server.rs`,
+both `task_id`-scoped). Two conditions gate it. First, the parent's archives must
+be current — a Fork is refused while the parent has a Turn in flight
+(`TaskForkService::plan`), so the parent is quiescent, but whether its last sync
+flushed the working tree and the transcript depends on the sync policy, and a
+`SyncWorkspaceRequest.include_transcripts` toggle would force it. Second, the
+copy needs the S3 client, which lives in the backend band, not `moatless-tasks`
+where `fork_task` runs — so the seed belongs on the provisioning path, keyed off
+the `forked_from` origin, not in the create handler. Until then an isolated
+Claude Fork degrades to a fresh Session (context lost, conversation intact) and
+an isolated Codex Fork errors on `thread/fork`; `sameSandbox` is the working path.
 
 ## Test and CI structure
 

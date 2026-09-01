@@ -69,6 +69,37 @@ pub struct CreateTaskRequest {
     pub skills: Vec<String>,
 }
 
+/// Branch a Task off another Task at one of its completed turns.
+///
+/// Everything the fork runs against — repository, workspace, branch, agent,
+/// model — comes from the Task being forked; only what the fork is *for* is
+/// stated here.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ForkTaskRequest {
+    /// The source Task's turn the copy stops after. Omit to cut after its
+    /// newest turn that reached a terminal status.
+    pub at_turn: Option<i32>,
+    /// The fork's own first message — what to try instead. Omit to create the
+    /// fork idle, and send to it later.
+    pub message: Option<String>,
+    /// Join the source Task's Sandbox on its shared checkout instead of
+    /// provisioning one from a copy of its workspace archive. One working tree,
+    /// so `branch` is refused alongside it.
+    #[serde(default)]
+    pub same_sandbox: Option<bool>,
+    /// Branch for the fork's own checkout. Omit to keep the source Task's.
+    pub branch: Option<String>,
+    /// Reasoning effort for the first turn, in the agent's own vocabulary.
+    pub effort: Option<String>,
+    pub model: Option<String>,
+    pub agent_mode: Option<AgentMode>,
+    /// Skills to activate for the first turn.
+    #[serde(default)]
+    pub skills: Vec<String>,
+}
+
 /// Data for an element context (selected UI component).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -194,6 +225,17 @@ pub struct ListTasksQuery {
     pub followed_by: Option<String>,
 }
 
+/// Where a forked task was branched from, derived from its `forked_from`
+/// relation. `at_turn` is the source task's turn the copy stops after; `None`
+/// means the whole conversation was copied.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ForkOrigin {
+    pub task_id: String,
+    pub at_turn: Option<i32>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -236,10 +278,16 @@ pub struct TaskResponse {
     pub visibility: Visibility,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
-    /// Derived from the `created_by` relation in `relations`. Kept for
-    /// backward compatibility with clients that pre-date the relations field.
+    /// Derived from whichever parent relation in `relations` makes this task a
+    /// child — `created_by` or `forked_from`. Kept for backward compatibility
+    /// with clients that pre-date the relations field. Read `forked_from` to
+    /// tell the two apart.
     pub parent_task_id: Option<String>,
-    /// Typed relations this task has to other tasks (currently `created_by`).
+    /// Set when this task was branched off another one. `parent_task_id` names
+    /// the same task; this field says the edge is a fork and where it was cut.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<ForkOrigin>,
+    /// Typed relations this task has to other tasks.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub relations: Vec<TaskRelationDto>,
     #[serde(skip_serializing_if = "Option::is_none")]

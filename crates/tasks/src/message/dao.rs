@@ -464,10 +464,132 @@ pub trait MessageDao: Send + Sync {
         task_id: &str,
         turn_number: i32,
     ) -> Result<bool, sqlx::Error>;
+
+    /// The parent's agent session at a fork cut, and the transcript line the
+    /// cut lands on. `None` when the parent's agent never ran at or before it.
+    async fn fork_anchors(
+        &self,
+        task_id: &str,
+        at_turn: Option<i32>,
+    ) -> Result<Option<crate::message::fork::ForkAnchors>, sqlx::Error>;
+
+    /// Copy a Task's conversation onto a fork, up to and including `at_turn`.
+    /// See [`crate::message::fork`] for what the copy carries and re-keys.
+    async fn fork_conversation(
+        &self,
+        source_task_id: &str,
+        dest_task_id: &str,
+        at_turn: Option<i32>,
+    ) -> Result<crate::message::fork::ForkCopyCounts, sqlx::Error>;
+
+    /// Delete a fork's copied conversation, undoing [`Self::fork_conversation`]
+    /// when the create that was to follow it fails. See
+    /// [`crate::message::fork::discard_conversation`] for why this exists and
+    /// when it is safe to call.
+    async fn discard_forked_conversation(&self, dest_task_id: &str) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MessageDao`].
 pub struct PgMessageDao(pub DbPool);
+
+/// The columns a whole Message is written with, and their placeholders.
+///
+/// A macro rather than a `const`, because sqlx 0.9 takes only `&'static str`
+/// and both users concatenate it into a larger statement at compile time. It is
+/// paired with [`bind_message`], which binds the same columns in the same
+/// order: the fork copy writes Messages the ingest path never saw, and two
+/// hand-kept lists would drift a column apart without failing to compile.
+macro_rules! message_columns {
+    () => {
+        "task_id, uuid, message_type, user_type, parent_uuid,
+         is_sidechain, cwd, session_id, turn_number, version,
+         git_branch, request_id, timestamp, message_role, message_text,
+         assistant_message_id, assistant_message_type, assistant_message_model,
+         assistant_stop_reason, assistant_stop_sequence,
+         assistant_usage_input_tokens, assistant_usage_output_tokens,
+         assistant_usage_cache_creation_input_tokens,
+         assistant_usage_cache_read_input_tokens,
+         tool_use_result, sdk_metadata, attachments, agent_session_id,
+         will_not_resume, run_metrics,
+         agent_mode, model, resume, external_event_id,
+         external_adapter, external_source_name, source_task_id,
+         start_fresh, sent_by, external_subject_key, assistant_usage,
+         tool_response, effort, external_author, skills,
+         external_sender_id"
+    };
+}
+pub(crate) use message_columns;
+
+macro_rules! message_placeholders {
+    () => {
+        "$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+         $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+         $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+         $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
+         $41, $42, $43, $44, $45, $46"
+    };
+}
+pub(crate) use message_placeholders;
+
+/// Bind one `TaskMessage` to the placeholders [`message_columns`] declares.
+///
+/// A macro because the two callers hold different query types — `query_as` for
+/// the upsert that returns an id, `query` for the fork copy that does not — and
+/// `bind` is inherent to each.
+macro_rules! bind_message {
+    ($q:expr, $msg:expr) => {
+        $q.bind(&$msg.task_id)
+            .bind(&$msg.uuid)
+            .bind($msg.message_type.as_str())
+            .bind(&$msg.user_type)
+            .bind(&$msg.parent_uuid)
+            .bind($msg.is_sidechain)
+            .bind(&$msg.cwd)
+            .bind(&$msg.session_id)
+            .bind($msg.turn_number)
+            .bind(&$msg.version)
+            .bind(&$msg.git_branch)
+            .bind(&$msg.request_id)
+            .bind(&$msg.timestamp)
+            .bind($msg.message_role.as_str())
+            .bind(&$msg.message_text)
+            .bind(&$msg.assistant_message_id)
+            .bind(&$msg.assistant_message_type)
+            .bind(&$msg.assistant_message_model)
+            .bind(&$msg.assistant_stop_reason)
+            .bind(&$msg.assistant_stop_sequence)
+            .bind($msg.assistant_usage_input_tokens)
+            .bind($msg.assistant_usage_output_tokens)
+            .bind($msg.assistant_usage_cache_creation_input_tokens)
+            .bind($msg.assistant_usage_cache_read_input_tokens)
+            .bind(&$msg.tool_use_result)
+            .bind(&$msg.sdk_metadata)
+            .bind(&$msg.attachments)
+            .bind(&$msg.agent_session_id)
+            .bind($msg.will_not_resume)
+            .bind(&$msg.run_metrics)
+            .bind($msg.agent_mode_raw.as_deref())
+            .bind(&$msg.model)
+            .bind($msg.resume)
+            .bind(&$msg.external_event_id)
+            .bind(&$msg.external_adapter)
+            .bind(&$msg.external_source_name)
+            .bind(&$msg.source_task_id)
+            .bind($msg.start_fresh)
+            .bind(&$msg.sent_by)
+            .bind(&$msg.external_subject_key)
+            .bind(&$msg.assistant_usage)
+            .bind(&$msg.tool_response)
+            .bind(&$msg.effort)
+            .bind(&$msg.external_author)
+            // Deliberately absent from the upsert's `DO UPDATE SET`: that path
+            // is the per-block agent-message merge, and must not blank a user
+            // row's skills.
+            .bind(&$msg.skills)
+            .bind(&$msg.external_sender_id)
+    };
+}
+pub(crate) use bind_message;
 
 /// Drop the Sandbox's wake signal once nothing is waiting on it.
 ///
@@ -534,30 +656,13 @@ impl MessageDao for PgMessageDao {
     ) -> Result<i32, sqlx::Error> {
         let mut tx = self.0.begin().await?;
 
-        let row: (i32,) = sqlx::query_as(
-            r#"INSERT INTO task_messages (
-                task_id, uuid, message_type, user_type, parent_uuid,
-                is_sidechain, cwd, session_id, turn_number, version,
-                git_branch, request_id, timestamp, message_role, message_text,
-                assistant_message_id, assistant_message_type, assistant_message_model,
-                assistant_stop_reason, assistant_stop_sequence,
-                assistant_usage_input_tokens, assistant_usage_output_tokens,
-                assistant_usage_cache_creation_input_tokens,
-                assistant_usage_cache_read_input_tokens,
-                tool_use_result, sdk_metadata, attachments, agent_session_id,
-                will_not_resume, run_metrics,
-                agent_mode, model, resume, external_event_id,
-                external_adapter, external_source_name, source_task_id,
-                start_fresh, sent_by, external_subject_key, assistant_usage,
-                tool_response, effort, external_author, skills,
-                external_sender_id
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-                $41, $42, $43, $44, $45, $46
-            )
+        let row: (i32,) = bind_message!(
+            sqlx::query_as(concat!(
+                "INSERT INTO task_messages (",
+                message_columns!(),
+                ") VALUES (",
+                message_placeholders!(),
+                r#")
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
                 -- Text is spliced below, at each block's own index. A whole
@@ -579,56 +684,10 @@ impl MessageDao for PgMessageDao {
                 assistant_usage_cache_read_input_tokens = COALESCE(task_messages.assistant_usage_cache_read_input_tokens, EXCLUDED.assistant_usage_cache_read_input_tokens),
                 assistant_usage = COALESCE(task_messages.assistant_usage, EXCLUDED.assistant_usage),
                 tool_response = COALESCE(EXCLUDED.tool_response, task_messages.tool_response)
-            RETURNING id"#,
+            RETURNING id"#
+            )),
+            msg
         )
-        .bind(&msg.task_id)
-        .bind(&msg.uuid)
-        .bind(msg.message_type.as_str())
-        .bind(&msg.user_type)
-        .bind(&msg.parent_uuid)
-        .bind(msg.is_sidechain)
-        .bind(&msg.cwd)
-        .bind(&msg.session_id)
-        .bind(msg.turn_number)
-        .bind(&msg.version)
-        .bind(&msg.git_branch)
-        .bind(&msg.request_id)
-        .bind(&msg.timestamp)
-        .bind(msg.message_role.as_str())
-        .bind(&msg.message_text)
-        .bind(&msg.assistant_message_id)
-        .bind(&msg.assistant_message_type)
-        .bind(&msg.assistant_message_model)
-        .bind(&msg.assistant_stop_reason)
-        .bind(&msg.assistant_stop_sequence)
-        .bind(msg.assistant_usage_input_tokens)
-        .bind(msg.assistant_usage_output_tokens)
-        .bind(msg.assistant_usage_cache_creation_input_tokens)
-        .bind(msg.assistant_usage_cache_read_input_tokens)
-        .bind(&msg.tool_use_result)
-        .bind(&msg.sdk_metadata)
-        .bind(&msg.attachments)
-        .bind(&msg.agent_session_id)
-        .bind(msg.will_not_resume)
-        .bind(&msg.run_metrics)
-        .bind(msg.agent_mode_raw.as_deref())
-        .bind(&msg.model)
-        .bind(msg.resume)
-        .bind(&msg.external_event_id)
-        .bind(&msg.external_adapter)
-        .bind(&msg.external_source_name)
-        .bind(&msg.source_task_id)
-        .bind(msg.start_fresh)
-        .bind(&msg.sent_by)
-        .bind(&msg.external_subject_key)
-        .bind(&msg.assistant_usage)
-        .bind(&msg.tool_response)
-        .bind(&msg.effort)
-        .bind(&msg.external_author)
-        // Deliberately absent from the DO UPDATE SET above: that path is the
-        // per-block agent-message merge, and must not blank a user row's skills.
-        .bind(&msg.skills)
-        .bind(&msg.external_sender_id)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -1099,7 +1158,8 @@ impl MessageDao for PgMessageDao {
         .bind(task_id)
         .fetch_optional(&self.0)
         .await?;
-        row.map(|r| decode_required("message_type", r.0)).transpose()
+        row.map(|r| decode_required("message_type", r.0))
+            .transpose()
     }
 
     async fn last_message_is_completed_reply(
@@ -1725,6 +1785,28 @@ impl MessageDao for PgMessageDao {
         .fetch_one(&self.0)
         .await?;
         Ok(progressed)
+    }
+
+    async fn fork_anchors(
+        &self,
+        task_id: &str,
+        at_turn: Option<i32>,
+    ) -> Result<Option<crate::message::fork::ForkAnchors>, sqlx::Error> {
+        crate::message::fork::anchors(&self.0, task_id, at_turn).await
+    }
+
+    async fn fork_conversation(
+        &self,
+        source_task_id: &str,
+        dest_task_id: &str,
+        at_turn: Option<i32>,
+    ) -> Result<crate::message::fork::ForkCopyCounts, sqlx::Error> {
+        crate::message::fork::copy_conversation(&self.0, source_task_id, dest_task_id, at_turn)
+            .await
+    }
+
+    async fn discard_forked_conversation(&self, dest_task_id: &str) -> Result<(), sqlx::Error> {
+        crate::message::fork::discard_conversation(&self.0, dest_task_id).await
     }
 }
 

@@ -37,7 +37,14 @@ pub(crate) enum ProcessTermination {
 pub(crate) enum ProcessEvent {
     /// The process is ready and its real Session identity is known. Reports an
     /// execution opened by the most recently submitted input.
-    SessionReady { session: SessionId },
+    ///
+    /// `agent_turn_id` is the harness's native turn id when it has one at
+    /// announcement — Codex's `turn/start` id, which a later fork cuts the thread
+    /// on. Claude has none (its fork cuts by Message uuid) and reports `None`.
+    SessionReady {
+        session: SessionId,
+        agent_turn_id: Option<String>,
+    },
     /// A harness-internal execution began (a CLI wakeup or Monitor): a known
     /// Session with no pending input behind it, so no `InputAccepted` follows.
     /// Persistent transports only.

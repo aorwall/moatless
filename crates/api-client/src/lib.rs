@@ -272,6 +272,16 @@ impl ApiClient {
         self.post("/api/v1/tasks", req).await
     }
 
+    /// POST /api/v1/tasks/{task_id}/fork
+    pub async fn fork_task(
+        &self,
+        task_id: &str,
+        req: &moatless_api_schemas::task::ForkTaskRequest,
+    ) -> Result<moatless_api_schemas::task::CreateTaskResponse, ApiError> {
+        self.post(&format!("/api/v1/tasks/{task_id}/fork"), req)
+            .await
+    }
+
     /// POST /api/v1/tasks/{task_id}/start
     pub async fn start_task(&self, task_id: &str) -> Result<(), ApiError> {
         self.post_empty(&format!("/api/v1/tasks/{task_id}/start"))

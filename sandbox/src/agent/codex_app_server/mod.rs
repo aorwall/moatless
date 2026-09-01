@@ -51,7 +51,7 @@ use crate::config::Config;
 use self::protocol::{
     AskForApproval, ClientInfo, ErrorNotification, IncomingMessage, InitializeParams,
     InitializeResponse, ItemNotification, JsonRpcErrorInfo, RequestId, SandboxMode, ThreadEnvelope,
-    ThreadResumeParams, ThreadStartParams, ThreadTokenUsageUpdatedNotification,
+    ThreadForkParams, ThreadResumeParams, ThreadStartParams, ThreadTokenUsageUpdatedNotification,
     TurnCompletedNotification, TurnInterruptParams, TurnPlanUpdatedNotification, TurnStartParams,
     TurnStartResponse, TurnStartedNotification, TurnSteerParams, TurnSteerResponse, UserInput,
 };
@@ -178,6 +178,16 @@ impl AppServerSession {
         params: ThreadResumeParams,
     ) -> Result<String, RpcError> {
         let value = self.rpc.request("thread/resume", params).await?;
+        Ok(serde_json::from_value::<ThreadEnvelope>(value)?.thread.id)
+    }
+
+    /// `thread/fork` → the new, forked Session id.
+    ///
+    /// Like `thread/resume`, a fork announces its id only in the response — no
+    /// `thread/started` notification — so the return value is the sole place the
+    /// forked Session id appears.
+    pub(crate) async fn fork_thread(&self, params: ThreadForkParams) -> Result<String, RpcError> {
+        let value = self.rpc.request("thread/fork", params).await?;
         Ok(serde_json::from_value::<ThreadEnvelope>(value)?.thread.id)
     }
 
@@ -601,6 +611,21 @@ pub(crate) fn thread_resume_params(
         sandbox: Some(SandboxMode::DangerFullAccess),
         approval_policy: Some(AskForApproval::Never),
         developer_instructions: Some(build_prompt_append(config, request)),
+    }
+}
+
+/// `thread/fork` params for branching a fork's first Turn off the parent's
+/// thread at `last_turn_id` (`None` = the parent's head).
+pub(crate) fn thread_fork_params(
+    config: &Config,
+    source_session_id: &str,
+    last_turn_id: Option<&str>,
+) -> ThreadForkParams {
+    ThreadForkParams {
+        thread_id: source_session_id.to_string(),
+        last_turn_id: last_turn_id.map(str::to_string),
+        cwd: Some(config.workspace_dir.clone()),
+        exclude_turns: true,
     }
 }
 

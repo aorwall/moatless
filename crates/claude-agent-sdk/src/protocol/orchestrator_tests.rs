@@ -2,7 +2,7 @@
 mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
-    use tokio::sync::{mpsc, Mutex};
+    use tokio::sync::{Mutex, mpsc};
     use tokio_util::sync::CancellationToken;
 
     use crate::error::Result;
@@ -1063,10 +1063,12 @@ mod tests {
         let resp = &response["response"];
         assert_eq!(resp["subtype"], "error");
         assert_eq!(resp["request_id"], "req-mcp-5");
-        assert!(resp["error"]
-            .as_str()
-            .unwrap()
-            .contains("nonexistent-server"));
+        assert!(
+            resp["error"]
+                .as_str()
+                .unwrap()
+                .contains("nonexistent-server")
+        );
     }
 
     #[tokio::test]

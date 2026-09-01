@@ -250,7 +250,10 @@ impl AgentProcess for ScriptedProcess {
             }
 
             return match self.steps.pop_front()? {
-                Step::SessionReady(session) => Some(ProcessEvent::SessionReady { session }),
+                Step::SessionReady(session) => Some(ProcessEvent::SessionReady {
+                    session,
+                    agent_turn_id: None,
+                }),
                 Step::InternalStart(session) => Some(ProcessEvent::InternalStart { session }),
                 Step::InputAccepted(input) => Some(ProcessEvent::InputAccepted { input }),
                 Step::AcceptInput => {

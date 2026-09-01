@@ -374,6 +374,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
         None,  // effort
         None,  // resume_session_id
         false, // start_fresh
+        None,  // fork
     );
     let ack = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
@@ -418,6 +419,7 @@ async fn run_codex_roundtrip() {
         None,  // effort
         None,  // resume_session_id
         false, // start_fresh
+        None,  // fork
     );
     let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
@@ -462,6 +464,7 @@ async fn run_agent_resume(use_tmux: bool) {
         None,  // effort
         None,  // resume_session_id → fresh
         false, // start_fresh
+        None,  // fork
     );
     let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
@@ -487,6 +490,7 @@ async fn run_agent_resume(use_tmux: bool) {
         None,                     // effort
         Some(session_id.clone()), // resume_session_id → resume turn 1
         false,                    // start_fresh
+        None,                     // fork
     );
     let resumed_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
@@ -527,6 +531,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
         None,
         None,
         false,
+        None, // fork
     );
     let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
@@ -548,6 +553,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
         None,
         None,
         false,
+        None, // fork
     );
     let second_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
@@ -600,6 +606,7 @@ async fn run_agent_internal_wakeup(use_tmux: bool) {
         None,
         None,
         false,
+        None, // fork
     );
     let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await

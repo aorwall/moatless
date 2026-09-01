@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use claude_agent_sdk::types::content::{ApiMessage, ContentBlock};
 use claude_agent_sdk::types::messages::{MessagePriority, UserMessage};
-use claude_agent_sdk::{query_tmux_streaming, QueryHandle, SdkMessage};
+use claude_agent_sdk::{QueryHandle, SdkMessage, query_tmux_streaming};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -28,9 +28,9 @@ use crate::agent::types::{AgentRunRequest, ResumeSession};
 use super::super::error::HarnessError;
 use super::super::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use super::super::signal::{Input, InputId, SessionId};
+use super::ClaudeConfig;
 use super::classify::{classify_result, classify_startup_error, classify_stream_error};
 use super::normalize::Normalizer;
-use super::ClaudeConfig;
 
 /// The per-Input configuration the live session was opened with. A new Input
 /// compatible with this pastes into the live TUI; an incompatible one forces a
@@ -86,6 +86,28 @@ impl ClaudePersistentProcess {
     /// Session id when this spawn replaces an existing session so the new TUI
     /// continues the same conversation.
     async fn spawn_resume(&self, input: &Input, replacing: Option<&str>) -> Option<ResumeSession> {
+        // A fork's first Turn resumes a truncated copy of the parent's
+        // transcript under a fresh id, not the parent's Session and not the live
+        // one — so it rides ahead of both `start_fresh` (which a fork also sets,
+        // as the version-skew guard) and `replacing`. When the cut succeeds the
+        // copy is the resume target; when it cannot (no transcript on disk, or
+        // the anchor is missing) the fork falls through to a fresh Session. This
+        // is the same cut `ClaudeProcess::resolve_resume` makes for the
+        // subprocess transport.
+        if let Some(fork) = &input.fork {
+            if let Some(anchor) = &fork.source_message_uuid {
+                if let Some(new_session_id) = super::fork::write_forked_transcript(
+                    &self.cfg.config.workspace_dir,
+                    &fork.source_session_id,
+                    anchor,
+                )
+                .await
+                {
+                    return Some(ResumeSession::WithId(new_session_id));
+                }
+            }
+            return None;
+        }
         if input.start_fresh {
             return None;
         }
@@ -206,8 +228,10 @@ impl ClaudePersistentProcess {
                 // A fresh spawn / replacement announces its start only now that
                 // the real Session id is known.
                 if let Some(input) = self.awaiting_init.take() {
-                    self.pending
-                        .push_back(ProcessEvent::SessionReady { session });
+                    self.pending.push_back(ProcessEvent::SessionReady {
+                        session,
+                        agent_turn_id: None,
+                    });
                     self.pending
                         .push_back(ProcessEvent::InputAccepted { input });
                     self.turn_in_flight = true;
@@ -307,8 +331,10 @@ impl AgentProcess for ClaudePersistentProcess {
                 .map(|f| SessionId(f.session_id.clone()))
                 .or_else(|| self.normalizer.session())
                 .unwrap_or_else(|| SessionId(String::new()));
-            self.pending
-                .push_back(ProcessEvent::SessionReady { session });
+            self.pending.push_back(ProcessEvent::SessionReady {
+                session,
+                agent_turn_id: None,
+            });
             self.pending
                 .push_back(ProcessEvent::InputAccepted { input: input_id });
             self.turn_in_flight = true;

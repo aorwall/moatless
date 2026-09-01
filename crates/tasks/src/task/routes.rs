@@ -8,23 +8,24 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
 use crate::credential_sync::CredentialSync;
-use moatless_core::http_auth::UserTokenVerifier;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
-use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
-use moatless_backend_core::binding::TaskBindings;
+use crate::tag::dao::TagDao;
 use crate::task::closer::TaskCloser;
 use crate::task::creation::TaskCreationService;
-use moatless_backend_core::sandbox::PreflightPort;
 use crate::task::dao::TaskDao;
+use crate::task::fork::TaskForkService;
 use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelationDao;
-use moatless_backend_core::sandbox::SandboxLifecycle;
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_workspaces::workspace::git_sync::GitSyncService;
+use moatless_backend_core::binding::TaskBindings;
+use moatless_backend_core::sandbox::PreflightPort;
+use moatless_backend_core::sandbox::SandboxLifecycle;
+use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
-use crate::tag::dao::TagDao;
+use moatless_core::http_auth::UserTokenVerifier;
+use moatless_workspaces::workspace::git_sync::GitSyncService;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -33,6 +34,7 @@ use crate::tag::dao::TagDao;
     ),
     paths(
         handlers::create_task,
+        handlers::fork_task,
         handlers::list_tasks,
         handlers::get_task,
         handlers::get_task_statistics,
@@ -78,6 +80,7 @@ where
     Arc<TaskPresenter>: FromRef<S>,
     Arc<TaskCloser>: FromRef<S>,
     Arc<TaskCreationService>: FromRef<S>,
+    Arc<TaskForkService>: FromRef<S>,
     Arc<MessageSendService>: FromRef<S>,
     Arc<CredentialSync>: FromRef<S>,
     Arc<GitSyncService>: FromRef<S>,
@@ -91,6 +94,7 @@ where
             handlers::update_task_metadata,
             handlers::delete_task
         ))
+        .routes(routes!(handlers::fork_task))
         .routes(routes!(handlers::get_task_statistics))
         .routes(routes!(handlers::close_task))
         .routes(routes!(handlers::reopen_task))

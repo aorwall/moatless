@@ -375,6 +375,19 @@ fn lexical_cwd(c: &str) -> String {
 /// for a non-symlink path the lexical fallback yields the identical
 /// `projects/<dashed-cwd>` name as canonicalize. In the rare symlink+failure
 /// case, discovery falls back to snapshot-diff / the Stop hook.
+/// The Claude project directory that holds a cwd's `<session_id>.jsonl`
+/// transcripts, resolved the same way the tmux transport and `--resume` do
+/// (`CLAUDE_CONFIG_DIR` → `CLAUDE_HOME` → `$HOME/.claude`, then
+/// `projects/<dashed-cwd>`). Exposed for the sandbox's fork path, which reads a
+/// parent session's transcript and writes a truncated copy under a fresh id.
+pub fn transcript_dir(cwd: Option<&str>) -> Result<PathBuf> {
+    let options = ClaudeOptions {
+        cwd: cwd.map(ToString::to_string),
+        ..Default::default()
+    };
+    resolve_project_dir(&options)
+}
+
 pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
     let cwd_str = if let Some(c) = &options.cwd {
         match std::path::PathBuf::from(c).canonicalize() {
@@ -467,7 +480,7 @@ pub(crate) async fn list_jsonl_stems(dir: &Path) -> Result<HashSet<String>> {
             return Err(SdkError::Internal(format!(
                 "Failed to read project dir {}: {e}",
                 dir.display()
-            )))
+            )));
         }
     };
     while let Some(entry) = read

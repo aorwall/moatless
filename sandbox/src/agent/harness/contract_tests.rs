@@ -80,6 +80,7 @@ async fn new_execution_ordering_started_accepted_source_finished() {
         Signal::ExecutionStarted {
             cause: Cause::Input(ref id),
             ref session,
+            ..
         } if id.0 == "in-1" && session.0 == "sess-1"
     ));
     assert!(matches!(signals[1], Signal::InputAccepted { ref input } if input.0 == "in-1"));

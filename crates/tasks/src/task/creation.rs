@@ -34,14 +34,17 @@ use moatless_types::task::TaskSubType;
 use crate::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
-use moatless_types::task::Visibility;
+use crate::task::fork::{ForkSession, TaskFork, TaskForkDao};
 use crate::task::models::{Task, TaskStatus};
-use crate::task::relations::{CreatedByParent, TaskRelationDao, record_created_by, record_related_to};
-use moatless_types::task::RelatedTask;
+use crate::task::relations::{
+    CreatedByParent, TaskRelationDao, record_created_by, record_forked_from, record_related_to,
+};
 use crate::task::schemas::MessageContextInput;
+use moatless_backend_core::workspace::RepositoryReader;
 use moatless_core::events::EventPublisher;
 use moatless_types::agent::{AgentMode, AgentType};
-use moatless_backend_core::workspace::RepositoryReader;
+use moatless_types::task::RelatedTask;
+use moatless_types::task::Visibility;
 use moatless_workspaces::repository::models::Repository;
 
 /// Normalised task-creation input. Every call path (HTTP handler, loops,
@@ -78,6 +81,11 @@ pub struct NewTaskRequest {
     pub skills: Vec<String>,
     /// Optional `created_by` parent relation to record after insert.
     pub parent: Option<CreatedByParent>,
+    /// Set when this Task is a fork. Records the `forked_from` relation and,
+    /// when the parent's agent had a session to branch, the `task_forks` row —
+    /// both after the insert the two reference, and both before the first
+    /// message, which is what the pod reads them for.
+    pub forked_from: Option<ForkedFrom>,
     /// Optional `related_to` peer relation to record after insert.
     pub related_to: Option<RelatedTask>,
     /// Optional first message; when present the service invokes the caller's
@@ -101,6 +109,16 @@ pub struct NewTaskRequest {
     /// control); when `None`, the service fetches it and surfaces
     /// [`TaskCreationError::RepoNotFound`] for an unknown id.
     pub repository: Option<Repository>,
+}
+
+/// What makes a Task a fork, carried from the fork handler to the one place
+/// that may write it — after the Task row exists, and before its first message.
+pub struct ForkedFrom {
+    pub source_task_id: String,
+    pub at_turn: Option<i32>,
+    /// `None` when the parent's agent never ran at or before the cut. The fork
+    /// still carries the conversation; its first turn starts on a fresh session.
+    pub session: Option<ForkSession>,
 }
 
 /// The first message payload the HTTP path sends through `send_message_flow`.
@@ -198,6 +216,7 @@ pub struct TaskCreationService {
     tasks: Arc<dyn TaskDao>,
     tags: Arc<dyn TagDao>,
     relations: Arc<dyn TaskRelationDao>,
+    forks: Arc<dyn TaskForkDao>,
     repositories: Arc<dyn RepositoryReader>,
     events: Option<Arc<dyn EventPublisher>>,
     starter: Arc<dyn SandboxStarter>,
@@ -214,6 +233,7 @@ impl TaskCreationService {
         tasks: Arc<dyn TaskDao>,
         tags: Arc<dyn TagDao>,
         relations: Arc<dyn TaskRelationDao>,
+        forks: Arc<dyn TaskForkDao>,
         repositories: Arc<dyn RepositoryReader>,
         events: Option<Arc<dyn EventPublisher>>,
         starter: Arc<dyn SandboxStarter>,
@@ -224,6 +244,7 @@ impl TaskCreationService {
             tasks,
             tags,
             relations,
+            forks,
             repositories,
             events,
             starter,
@@ -368,6 +389,33 @@ impl TaskCreationService {
         }
         if let Some(related) = &req.related_to {
             record_related_to(self.relations.as_ref(), &task_id, related).await;
+        }
+
+        // The fork's edge and its anchors, which are not best-effort: a fork
+        // whose edge is missing is an orphan holding a conversation it cannot
+        // explain, and one whose anchors are missing silently starts its first
+        // turn on an empty session. Both are written before the first message,
+        // because that message is what the pod acts on.
+        if let Some(fork) = &req.forked_from {
+            record_forked_from(
+                self.relations.as_ref(),
+                &task_id,
+                &fork.source_task_id,
+                fork.at_turn,
+            )
+            .await?;
+            if let Some(session) = &fork.session {
+                self.forks
+                    .insert(&TaskFork {
+                        task_id: task_id.clone(),
+                        source_task_id: fork.source_task_id.clone(),
+                        at_turn: fork.at_turn,
+                        source_session_id: session.source_session_id.clone(),
+                        source_message_uuid: session.source_message_uuid.clone(),
+                        source_agent_turn_id: session.source_agent_turn_id.clone(),
+                    })
+                    .await?;
+            }
         }
 
         // Join an existing sandbox before delivering a first message. The DB
@@ -517,8 +565,8 @@ mod tests {
     use moatless_backend_core::sandbox::{
         MockPreflightPort, MockSandboxJoiner, PreflightRejection, SandboxError,
     };
-    use moatless_core::events::test_support::RecordingPublisher;
     use moatless_backend_core::workspace::MockRepositoryReader;
+    use moatless_core::events::test_support::RecordingPublisher;
     use moatless_types::repository::RepositoryKind;
     use moatless_types::task::CheckoutMode;
     use moatless_workspaces::repository::models::Repository;
@@ -579,6 +627,7 @@ mod tests {
             skills: vec![],
             parent: None,
             related_to: None,
+            forked_from: None,
             first_message: None,
             event_subtype: TaskSubType::Created,
             repository: None,
@@ -607,6 +656,7 @@ mod tests {
     ) -> TaskCreationService {
         let tags = MockTagDao::new();
         let relations = MockTaskRelationDao::new();
+        let forks = crate::task::fork::MockTaskForkDao::new();
         let mut repos = MockRepositoryReader::new();
         repos
             .expect_describe()
@@ -615,6 +665,7 @@ mod tests {
             Arc::new(tasks),
             Arc::new(tags),
             Arc::new(relations),
+            Arc::new(forks),
             Arc::new(repos),
             Some(publisher as Arc<dyn EventPublisher>),
             Arc::new(starter),

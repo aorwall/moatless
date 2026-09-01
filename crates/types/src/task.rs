@@ -247,9 +247,16 @@ crate::string_enum!(
 crate::string_enum!(
     /// Type of a directional link between two tasks. The `from` task points at the
     /// `to` task via this relation (e.g. a child `created_by` its parent).
+    ///
+    /// `CreatedBy` and `ForkedFrom` are both parent edges and both surface the
+    /// `from` task as a child. They differ in what else follows: only
+    /// `CreatedBy` closes with its parent and reports its agent errors into the
+    /// parent's conversation, because a fork is often the work that continued
+    /// and nobody is waiting on its result.
     TaskRelationType {
         CreatedBy => "created_by",
         RelatedTo => "related_to",
+        ForkedFrom => "forked_from",
     }
 );
 
@@ -315,12 +322,21 @@ mod wire_contract {
         ] {
             assert_eq!(value.as_str(), wire);
             assert_eq!(TaskStatus::try_from(wire), Ok(value));
-            assert_eq!(serde_json::to_string(&value).unwrap(), format!("\"{wire}\""));
+            assert_eq!(
+                serde_json::to_string(&value).unwrap(),
+                format!("\"{wire}\"")
+            );
         }
-        for (value, wire) in [(Visibility::Public, "public"), (Visibility::Private, "private")] {
+        for (value, wire) in [
+            (Visibility::Public, "public"),
+            (Visibility::Private, "private"),
+        ] {
             assert_eq!(value.as_str(), wire);
             assert_eq!(Visibility::try_from(wire), Ok(value));
-            assert_eq!(serde_json::to_string(&value).unwrap(), format!("\"{wire}\""));
+            assert_eq!(
+                serde_json::to_string(&value).unwrap(),
+                format!("\"{wire}\"")
+            );
         }
         for (value, wire) in [
             (CheckoutMode::Shared, "shared"),
@@ -328,15 +344,22 @@ mod wire_contract {
         ] {
             assert_eq!(value.as_str(), wire);
             assert_eq!(CheckoutMode::try_from(wire), Ok(value));
-            assert_eq!(serde_json::to_string(&value).unwrap(), format!("\"{wire}\""));
+            assert_eq!(
+                serde_json::to_string(&value).unwrap(),
+                format!("\"{wire}\"")
+            );
         }
         for (value, wire) in [
             (TaskRelationType::CreatedBy, "created_by"),
             (TaskRelationType::RelatedTo, "related_to"),
+            (TaskRelationType::ForkedFrom, "forked_from"),
         ] {
             assert_eq!(value.as_str(), wire);
             assert_eq!(TaskRelationType::try_from(wire), Ok(value));
-            assert_eq!(serde_json::to_string(&value).unwrap(), format!("\"{wire}\""));
+            assert_eq!(
+                serde_json::to_string(&value).unwrap(),
+                format!("\"{wire}\"")
+            );
         }
         assert_eq!(CheckoutMode::default(), CheckoutMode::Shared);
     }

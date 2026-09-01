@@ -6,8 +6,8 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader, SeekFrom};
@@ -20,16 +20,16 @@ use crate::types::messages::{ApiKeySource, SdkMessage, SystemInitMessage};
 use crate::types::options::ClaudeOptions;
 
 use super::hooks::{
-    extract_last_assistant_message, extract_session_id, extract_transcript_path, HookEvent,
-    HookLine,
+    HookEvent, HookLine, extract_last_assistant_message, extract_session_id,
+    extract_transcript_path,
 };
-use super::session::{list_jsonl_stems, TmuxSession};
+use super::session::{TmuxSession, list_jsonl_stems};
 use super::subagents::{
-    spawn_subagent_watcher, subagent_dir, sum_transcript_usage, SubagentRegistry,
+    SubagentRegistry, spawn_subagent_watcher, subagent_dir, sum_transcript_usage,
 };
 use super::translator::{
-    extract_subagent_completion, translate_record, translate_stop_payload_fallback, Translated,
-    TurnAccumulator,
+    Translated, TurnAccumulator, extract_subagent_completion, translate_record,
+    translate_stop_payload_fallback,
 };
 
 /// Retry budget for the Stop fallback: wait up to 40 × 50ms = 2s for the

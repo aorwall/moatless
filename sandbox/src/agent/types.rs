@@ -15,6 +15,20 @@ pub enum ResumeSession {
     WithId(String),
 }
 
+/// Where a fork's first turn branches from — the parent's session, and the cut
+/// inside it.
+///
+/// Exactly one of the two anchors is set, and which one follows the harness:
+/// Claude's transcript is keyed by message uuid and carries no turn id, and
+/// Codex's `thread/fork` takes the cut as `lastTurnId` and knows nothing about
+/// messages. Neither is set for a fork at the session's head.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForkSource {
+    pub source_session_id: String,
+    pub source_message_uuid: Option<String>,
+    pub source_agent_turn_id: Option<String>,
+}
+
 impl Serialize for ResumeSession {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {

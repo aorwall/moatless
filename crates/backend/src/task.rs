@@ -7,6 +7,6 @@
 //! db-tests that need it, so it is not surfaced here.
 
 pub use moatless_tasks::task::{
-    closer, creation, dao, error, handlers, models,
-    presenter, relations, routes, schemas, service, statistics,
+    closer, creation, dao, error, fork, handlers, models, presenter, relations, routes, schemas,
+    service, statistics,
 };

@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::query::{query_streaming, QueryHandle};
+use crate::query::{QueryHandle, query_streaming};
 use crate::tmux::query_tmux_streaming;
 use crate::types::content::{ApiMessage, ContentBlock};
 use crate::types::messages::{MessagePriority, SdkMessage, UserMessage};

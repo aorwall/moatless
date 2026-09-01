@@ -18,10 +18,10 @@ use super::models::Task;
 use super::relations::{TaskRelation, TaskRelationDao};
 use super::schemas::*;
 use crate::tag::dao::TagDao;
-use moatless_backend_core::binding::TaskBindings;
 use crate::task::dao::TaskDao;
 use crate::task::models::SandboxIntentView;
 use moatless_api_schemas::bindings::TaskBindingSummary;
+use moatless_backend_core::binding::TaskBindings;
 use moatless_backend_core::identity::UserDisplay;
 use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 
@@ -288,9 +288,10 @@ pub(crate) struct ResolvedNames {
 }
 
 /// Build a `TaskResponse` from a row plus pre-resolved tags, names, bindings,
-/// and outgoing relations. `parent_task_id` is derived from the first
-/// `CreatedBy` relation for backward compatibility with clients that pre-date
-/// the relations field.
+/// and outgoing relations. `parent_task_id` is derived from the first parent
+/// relation — `CreatedBy` or `ForkedFrom` — for backward compatibility with
+/// clients that pre-date the relations field; `forked_from` says which of the
+/// two it was.
 pub(crate) fn build_task_response(
     row: &Task,
     sandbox: &SandboxIntentView,
@@ -299,17 +300,24 @@ pub(crate) fn build_task_response(
     bindings: Vec<TaskBindingSummary>,
     relations: Vec<TaskRelationDto>,
 ) -> TaskResponse {
+    use moatless_api_schemas::enums::TaskRelationType as RelType;
+
     let title = derive_title(row);
 
-    let parent_task_id = relations
+    let parent = relations
         .iter()
-        .find(|r| {
-            matches!(
-                r.relation_type,
-                moatless_api_schemas::enums::TaskRelationType::CreatedBy
-            )
-        })
-        .map(|r| r.to_task_id.clone());
+        .find(|r| matches!(r.relation_type, RelType::CreatedBy | RelType::ForkedFrom));
+    let parent_task_id = parent.map(|r| r.to_task_id.clone());
+    let forked_from = parent
+        .filter(|r| matches!(r.relation_type, RelType::ForkedFrom))
+        .map(|r| ForkOrigin {
+            task_id: r.to_task_id.clone(),
+            at_turn: r
+                .context
+                .get("at_turn")
+                .and_then(serde_json::Value::as_i64)
+                .and_then(|n| i32::try_from(n).ok()),
+        });
 
     TaskResponse {
         task_id: row.task_id.clone(),
@@ -339,6 +347,7 @@ pub(crate) fn build_task_response(
         scope: row.scope,
         owner_user_id: row.owner_user_id.clone(),
         parent_task_id,
+        forked_from,
         relations,
         append_system_prompt: row.append_system_prompt.clone(),
         tags,

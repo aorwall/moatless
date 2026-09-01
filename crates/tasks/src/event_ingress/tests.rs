@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 
-use moatless_core::events::EventPublisher;
 use crate::task_event::dao::MockTaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnTransition, UnclosedTurn};
+use moatless_core::events::EventPublisher;
 use moatless_core::events::test_support::RecordingPublisher;
 
 use super::outbox::{ClaimedPayload, IngressOutbox, IngressPayload, Pending};
@@ -41,6 +41,14 @@ impl TaskTurnDao for RecordingTurns {
             return Err(sqlx::Error::PoolClosed);
         }
         Ok(())
+    }
+
+    async fn fork_point(
+        &self,
+        _task_id: &str,
+        _at_turn: Option<i32>,
+    ) -> Result<crate::task_turn::dao::ForkPoint, sqlx::Error> {
+        unreachable!("fork_point is the fork handler's, not the ingress path")
     }
 
     async fn project_turn(
@@ -87,6 +95,15 @@ impl TaskTurnDao for RecordingTurns {
         _metrics: &serde_json::Value,
     ) -> Result<bool, sqlx::Error> {
         unreachable!("set_turn_metrics is the completion path, not the ingress path")
+    }
+
+    async fn set_agent_turn_id(
+        &self,
+        _task_id: &str,
+        _turn_number: i32,
+        _agent_turn_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        unreachable!("set_agent_turn_id is the session-init path, not the ingress path")
     }
 
     async fn list_turn_metrics(

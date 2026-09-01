@@ -104,7 +104,7 @@ fn system_init_yields_session_ready_then_input_accepted() {
     let events = drain(&mut p);
     assert!(matches!(
         events[0],
-        ProcessEvent::SessionReady { ref session } if session.0 == "sess-real"
+        ProcessEvent::SessionReady { ref session, .. } if session.0 == "sess-real"
     ));
     assert!(matches!(
         events[1],
@@ -482,8 +482,8 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
         eprintln!("skipping: set CLAUDE_SDK_E2E=1 to run");
         return;
     }
-    use super::super::signal::{Outcome, Signal};
     use super::super::Harness;
+    use super::super::signal::{Outcome, Signal};
 
     let mut config = crate::config::test_support::minimal_config();
     let workspace = std::env::temp_dir().join("harness-claude-e2e");
@@ -551,8 +551,8 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
         eprintln!("skipping: set CLAUDE_TMUX_E2E=1 to run");
         return;
     }
-    use super::super::signal::{Cause, Outcome, SessionId, Signal};
     use super::super::Harness;
+    use super::super::signal::{Cause, Outcome, SessionId, Signal};
 
     let mut config = crate::config::test_support::minimal_config();
     let workspace = std::env::temp_dir().join("harness-claude-persistent-e2e");
@@ -597,7 +597,9 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
         let (mut session, mut outcome) = (None, None);
         while let Some(signal) = harness.next_signal().await {
             match signal {
-                Signal::ExecutionStarted { session: s, cause } => {
+                Signal::ExecutionStarted {
+                    session: s, cause, ..
+                } => {
                     assert!(
                         matches!(cause, Cause::Input(_)),
                         "user Turn is input-caused"

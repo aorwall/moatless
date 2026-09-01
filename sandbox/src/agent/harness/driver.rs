@@ -207,7 +207,10 @@ async fn drive_persistent_event(
     signal_tx: &mpsc::Sender<Signal>,
 ) -> Result<bool, SignalClosed> {
     match event {
-        Some(ProcessEvent::SessionReady { session }) => {
+        Some(ProcessEvent::SessionReady {
+            session,
+            agent_turn_id,
+        }) => {
             state.active = true;
             state.accepted = false;
             state.awaiting_open_accept = true;
@@ -219,7 +222,15 @@ async fn drive_persistent_event(
                     .cloned()
                     .unwrap_or_else(|| InputId(String::new())),
             );
-            emit(signal_tx, Signal::ExecutionStarted { session, cause }).await?;
+            emit(
+                signal_tx,
+                Signal::ExecutionStarted {
+                    session,
+                    agent_turn_id,
+                    cause,
+                },
+            )
+            .await?;
             Ok(true)
         }
         Some(ProcessEvent::InternalStart { session }) => {
@@ -233,6 +244,8 @@ async fn drive_persistent_event(
                 signal_tx,
                 Signal::ExecutionStarted {
                     session,
+                    // A harness-internal wakeup opens no turn a fork would cut on.
+                    agent_turn_id: None,
                     cause: Cause::Internal,
                 },
             )
@@ -519,13 +532,14 @@ async fn run_execution<P: AgentProcess>(
             }
             event = process.next() => {
                 match event {
-                    Some(ProcessEvent::SessionReady { session }) => {
+                    Some(ProcessEvent::SessionReady { session, agent_turn_id }) => {
                         if !started {
                             started = true;
                             emit(
                                 signal_tx,
                                 Signal::ExecutionStarted {
                                     session,
+                                    agent_turn_id,
                                     cause: Cause::Input(input_id.clone()),
                                 },
                             )

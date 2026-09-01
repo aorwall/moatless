@@ -48,17 +48,17 @@ use crate::agent::harness::content::CanonicalContentBlock;
 use moatless_types::agent::AgentSubType;
 use moatless_types::sandbox::SandboxStatus;
 use moatless_types::task::TaskTurnSubType;
-use serde_json::{json, Value};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use serde_json::{Value, json};
+use tokio::sync::{RwLock, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::agent::heartbeat::{Heartbeat, HEARTBEAT_TICK_INTERVAL};
-use crate::agent::types::{ResumeSession, StopSource};
+use crate::agent::heartbeat::{HEARTBEAT_TICK_INTERVAL, Heartbeat};
+use crate::agent::types::{ForkSource, ResumeSession, StopSource};
 use crate::backend_client::BackendClient;
 use crate::config::Config;
-use crate::credentials::recovery::CredentialFailureDetector;
 use crate::credentials::Dispatcher;
+use crate::credentials::recovery::CredentialFailureDetector;
 use crate::events::GrpcEventPublisher;
 use crate::init::credentials::filter_agent_credentials;
 use crate::init::workspace_sync::{self, WorkspaceSyncTracker};
@@ -66,10 +66,10 @@ use crate::init::workspace_sync::{self, WorkspaceSyncTracker};
 use super::agent_state::AgentState;
 use super::background_watch_job::BackgroundWatchJob;
 use super::handle::{
-    credential_recovery::{try_recover_credentials, MAX_CREDENTIAL_RECOVERY_RETRIES},
+    AGENT_TYPE_CLAUDE_CODE, AgentCommand, RunAck,
+    credential_recovery::{MAX_CREDENTIAL_RECOVERY_RETRIES, try_recover_credentials},
     resolve_agent_harness,
-    retry::{compute_backoff, is_retryable_harness_error, MAX_RETRIES},
-    AgentCommand, RunAck, AGENT_TYPE_CLAUDE_CODE,
+    retry::{MAX_RETRIES, compute_backoff, is_retryable_harness_error},
 };
 use super::harness::{
     Activity, Cause, ContextWindow, ErrorClass, Harness, HarnessClosed, HarnessError, Input,
@@ -254,7 +254,11 @@ impl Coordinator {
     /// Map one signal onto Run/ack/publication effects.
     pub(crate) async fn handle_signal(&mut self, signal: Signal) {
         match signal {
-            Signal::ExecutionStarted { session, cause } => {
+            Signal::ExecutionStarted {
+                session,
+                agent_turn_id,
+                cause,
+            } => {
                 self.drop_accepted_injected_acks(
                     "new execution started before non-terminal output",
                 );
@@ -278,7 +282,12 @@ impl Coordinator {
                     .publish_agent_event(
                         &self.task_id,
                         AgentSubType::SessionInit,
-                        json!({ "session_id": self.session_id }),
+                        json!({
+                            "session_id": self.session_id,
+                            // Codex only; the backend records it on the turn so a
+                            // fork can cut the thread here. Omitted when absent.
+                            "agent_turn_id": agent_turn_id,
+                        }),
                     )
                     .await;
             }
@@ -572,6 +581,9 @@ fn recovery_input(original: &Input, task_id: &str) -> Input {
         effort: original.effort.clone(),
         resume: None,
         start_fresh: true,
+        // A recovery prompt opens a new Session outright; there is no cut to
+        // branch, and the Task's own session already exists.
+        fork: None,
         env: original.env.clone(),
         system_prompt: original.system_prompt.clone(),
     }
@@ -731,6 +743,11 @@ pub(crate) struct CoordinatorService {
     last_resume_session_id: Option<String>,
     /// The `start_fresh` flag from the most recent `AgentCommand::Send`.
     last_start_fresh: bool,
+    /// The fork anchors from the most recent `AgentCommand::Send`. Kept for the
+    /// same reason as the fields above: a retry re-drives the same Turn, and a
+    /// fork's first turn that is retried must branch from the same cut rather
+    /// than fall back to an empty session.
+    last_fork: Option<ForkSource>,
     /// Number of the pending retry attempt (0-indexed; 0 = no retry pending).
     retry_attempt: u32,
     /// When the pending retry should fire. `None` = no retry scheduled. A
@@ -794,6 +811,7 @@ struct SendCommand {
     effort: Option<String>,
     resume_session_id: Option<String>,
     start_fresh: bool,
+    fork: Option<ForkSource>,
     ack: oneshot::Sender<RunAck>,
 }
 
@@ -825,6 +843,7 @@ impl CoordinatorService {
             last_effort: None,
             last_resume_session_id: None,
             last_start_fresh: false,
+            last_fork: None,
             retry_attempt: 0,
             retry_at: None,
             consecutive_errors: 0,
@@ -1160,8 +1179,9 @@ impl CoordinatorService {
                         let effort = self.last_effort.clone();
                         let resume_session_id = self.last_resume_session_id.clone();
                         let start_fresh = self.last_start_fresh;
+                        let fork = self.last_fork.clone();
 
-                        match self.build_input(text, model, agent_mode, effort, resume_session_id, start_fresh).await {
+                        match self.build_input(text, model, agent_mode, effort, resume_session_id, start_fresh, fork).await {
                             Ok(input) => {
                                 let (throwaway_tx, _throwaway_rx) = oneshot::channel();
                                 if self.coordinator.submit(input, throwaway_tx).await.is_err() {
@@ -1185,6 +1205,7 @@ impl CoordinatorService {
                             effort,
                             resume_session_id,
                             start_fresh,
+                            fork,
                             ack,
                         }) => {
                             let send = SendCommand {
@@ -1194,6 +1215,7 @@ impl CoordinatorService {
                                 effort,
                                 resume_session_id,
                                 start_fresh,
+                                fork,
                                 ack,
                             };
                             self.handle_send_command(&task_id, send).await;
@@ -1228,6 +1250,10 @@ impl CoordinatorService {
                                 effort,
                                 Some(resume_session_id),
                                 false,
+                                // A recovery replays a run that already had a
+                                // Session of its own; the fork it may have
+                                // started from is long spent.
+                                None,
                             ).await {
                                 Ok(input) => input,
                                 Err(err) => {
@@ -1411,6 +1437,7 @@ impl CoordinatorService {
         self.last_effort = send.effort.clone();
         self.last_resume_session_id = send.resume_session_id.clone();
         self.last_start_fresh = send.start_fresh;
+        self.last_fork = send.fork.clone();
 
         let input = match self
             .build_input(
@@ -1420,6 +1447,7 @@ impl CoordinatorService {
                 send.effort,
                 send.resume_session_id,
                 send.start_fresh,
+                send.fork,
             )
             .await
         {
@@ -1535,6 +1563,10 @@ impl CoordinatorService {
     /// Build a harness [`Input`] for a single Turn, resolving credentials,
     /// system prompt, and resume from per-Turn sources — mirroring
     /// `session::spawn_session`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one Turn's inputs; grouping them into a struct only moves the argument list"
+    )]
     async fn build_input(
         &self,
         text: String,
@@ -1543,6 +1575,7 @@ impl CoordinatorService {
         effort: Option<String>,
         resume_session_id: Option<String>,
         start_fresh: bool,
+        fork: Option<ForkSource>,
     ) -> Result<Input, String> {
         // Resolve system prompt from backend, falling back to the cached prompt
         // when a later fetch fails.
@@ -1611,6 +1644,7 @@ impl CoordinatorService {
             effort,
             resume,
             start_fresh,
+            fork,
             env,
             system_prompt,
         })

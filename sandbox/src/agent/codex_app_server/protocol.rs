@@ -92,6 +92,24 @@ pub(crate) struct ThreadResumeParams {
     pub(crate) developer_instructions: Option<String>,
 }
 
+/// `thread/fork` — branches a new Session off an existing one at a cut. The
+/// server copies the source thread's transcript up to `last_turn_id` onto a
+/// fresh id and returns it; the source is untouched. `exclude_turns` keeps the
+/// cut Turn's own boundary out of the copy so the fork's first Turn is the
+/// resumed prompt, not a replay.
+///
+/// `last_turn_id` is omitted to fork at the source's head — the whole thread.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ThreadForkParams {
+    pub(crate) thread_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) last_turn_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) cwd: Option<String>,
+    pub(crate) exclude_turns: bool,
+}
+
 /// The `thread` envelope shared by the `thread/start` and `thread/resume`
 /// responses and by the `thread/started` notification. Only the Session id is
 /// read; the rest of `Thread` is left on the wire.

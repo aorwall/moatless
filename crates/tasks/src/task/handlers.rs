@@ -9,29 +9,30 @@ use axum::extract::{Path, Query, State};
 use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use moatless_types::task::TaskSubType;
 
-use super::creation::TaskCreationService;
-use moatless_backend_core::sandbox::PreflightPort;
+use super::creation::{ForkedFrom, TaskCreationService};
 use super::dao::{TaskDao, TaskFilter, TaskPatch};
+use super::fork::TaskForkService;
 use super::models::Task;
-use moatless_types::task::TaskRelationType;
 use super::relations::TaskRelationDao;
 use crate::credential_sync::CredentialSync;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use crate::tag::dao::TagDao;
 use crate::task::models::{SandboxIntentView, TaskStatus};
-use moatless_types::sandbox::ArchiveRetention;
-use moatless_backend_core::sandbox::SandboxLifecycle;
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_types::access_control::{ScopeContext, ScopedResource};
+use moatless_backend_core::sandbox::PreflightPort;
+use moatless_backend_core::sandbox::SandboxLifecycle;
+use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::http_auth::AuthUser;
-use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
+use moatless_types::access_control::{ScopeContext, ScopedResource};
+use moatless_types::sandbox::ArchiveRetention;
+use moatless_types::task::TaskRelationType;
 use moatless_workspaces::workspace::git_sync::GitSyncService;
 
-use moatless_backend_core::binding::TaskBindings;
 use moatless_api_schemas::bindings::TaskBindingSummary;
+use moatless_backend_core::binding::TaskBindings;
 
 use super::closer::{CloseEvent, TaskCloser};
 use super::error::TaskError;
@@ -128,6 +129,171 @@ pub async fn create_task(
     // Reuse the response the event closure produced (enriched, or its
     // un-enriched fallback). Only re-enrich when the closure never ran because
     // events are disabled, so nothing was stashed.
+    let stashed = enriched.lock().ok().and_then(|mut cell| cell.take());
+    let task_response = match stashed {
+        Some(resp) => resp,
+        None => task_presenter.enrich_task(&outcome.task, &user_id).await?,
+    };
+    Ok(Json(CreateTaskResponse {
+        task_id: outcome.task.task_id.clone(),
+        status: outcome.task.status,
+        task: task_response,
+    }))
+}
+
+/// Fork a task: branch a new Task off this one at one of its completed turns.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/fork",
+    tag = "tasks",
+    request_body = ForkTaskRequest,
+    params(
+        ("task_id" = String, Path, description = "Task to branch off")
+    ),
+    responses(
+        (status = 200, description = "Fork created", body = CreateTaskResponse),
+        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "No access to the source task's repository", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task or turn not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 409, description = "A turn is in flight, or the turn has no agent turn id", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the same two-stage create pipeline `create_task` forwards to, plus the fork service that resolves the cut and copies the conversation ahead of it. As there, no caller above a handler exists to hoist the ports to."
+)]
+pub async fn fork_task(
+    State(workspaces): State<Arc<dyn WorkspaceResolver>>,
+    State(repositories): State<Arc<dyn RepositoryReader>>,
+    State(credential_sync): State<Arc<CredentialSync>>,
+    State(config): State<Arc<Config>>,
+    State(task_creation): State<Arc<TaskCreationService>>,
+    State(task_fork): State<Arc<TaskForkService>>,
+    State(message_send): State<Arc<MessageSendService>>,
+    State(task_presenter): State<Arc<TaskPresenter>>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+    Json(req): Json<ForkTaskRequest>,
+) -> Result<Json<CreateTaskResponse>, TaskError> {
+    let same_sandbox = req.same_sandbox.unwrap_or(false);
+    if same_sandbox && req.branch.is_some() {
+        return Err(TaskError::BadRequest(
+            "branch cannot be set with sameSandbox: the fork shares one working tree".to_string(),
+        ));
+    }
+
+    let user_id = auth.user_id.to_string();
+    let scope_ctx = auth.scope_context();
+    let (source, plan) = task_fork.plan(&scope_ctx, &task_id, req.at_turn).await?;
+
+    // The fork's id is minted here rather than by the creation service: the
+    // conversation is copied onto it before the Task row exists, which is what
+    // puts the copied Messages behind the fork's own first message.
+    let fork_task_id = uuid::Uuid::new_v4().to_string();
+    let copied = task_fork.copy_conversation(&plan, &fork_task_id).await?;
+
+    // Everything the fork runs against comes from the Task it branched off. A
+    // fork is deliberately created unnamed and undescribed: "Fork of X" says
+    // where it came from, not what it is doing, and the agent sets both with
+    // `moat set-name` once it knows.
+    let create = CreateTaskRequest {
+        repository_id: Some(source.repository_id.clone()),
+        workspace_id: source.workspace_id.clone(),
+        sandbox_id: same_sandbox.then(|| source.sandbox_id.clone()).flatten(),
+        checkout_mode: same_sandbox.then_some(moatless_types::task::CheckoutMode::Shared),
+        agent_type: Some(source.agent_type.clone()),
+        name: None,
+        description: None,
+        branch: req.branch.clone().or_else(|| source.branch.clone()),
+        message: req.message.clone(),
+        model: req.model.clone().or_else(|| source.model.clone()),
+        agent_mode: req.agent_mode.clone(),
+        effort: req.effort.clone(),
+        contexts: Vec::new(),
+        file_ids: Vec::new(),
+        parent_task_id: None,
+        headless: None,
+        skills: req.skills.clone(),
+    };
+
+    // The conversation now sits under `fork_task_id` with no Task row to own it,
+    // and nothing cascades it away: `task_messages` and `task_activities` carry
+    // no foreign key to `tasks`, which is what let the copy land ahead of the
+    // create. So every failure from here — a rejected credential in `normalize`,
+    // a preflight refusal, a Sandbox join that never lands — has to take the copy
+    // back down, or it outlives the create that never completed. The create runs
+    // inside a block whose error triggers exactly that before it propagates.
+    // `enriched` is filled inside and read after for the response, so it lives
+    // outside the block.
+    let enriched: Arc<Mutex<Option<TaskResponse>>> = Arc::new(Mutex::new(None));
+    let create_result = async {
+        let mut new_task = service::normalize(
+            workspaces.as_ref(),
+            repositories.as_ref(),
+            &credential_sync,
+            &config,
+            &scope_ctx,
+            &user_id,
+            service::CreateTaskIntent {
+                request: create,
+                task_id: Some(fork_task_id.clone()),
+                provision: true,
+                first_message_uuid: None,
+            },
+        )
+        .await?;
+        new_task.tag_ids = task_fork.source_tag_ids(&task_id).await;
+        new_task.forked_from = Some(ForkedFrom {
+            source_task_id: task_id.clone(),
+            at_turn: plan.at_turn,
+            session: plan.session.clone(),
+        });
+
+        // Enrich once, as `create_task` does: the event payload and the HTTP
+        // response are the same object, and `enrich_task` is ~6 queries.
+        let presenter_ev = task_presenter.clone();
+        let uid_ev = user_id.clone();
+        let enriched_ev = enriched.clone();
+        service::create_task(&task_creation, message_send, new_task, move |task| async move {
+            match presenter_ev.enrich_task(&task, &uid_ev).await {
+                Ok(resp) => {
+                    let payload = serde_json::json!({ "task": resp });
+                    if let Ok(mut cell) = enriched_ev.lock() {
+                        *cell = Some(resp);
+                    }
+                    payload
+                }
+                Err(e) => {
+                    tracing::warn!(task_id = %task.task_id, error = %e, "Failed to enrich forked task for event");
+                    serde_json::json!({ "task": { "taskId": task.task_id } })
+                }
+            }
+        })
+        .await
+    }
+    .await;
+
+    let outcome = match create_result {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            // The Task never came to exist; take its copied conversation with it
+            // rather than leave rows behind a Task that is not there.
+            task_fork.discard_conversation(&fork_task_id).await;
+            return Err(error);
+        }
+    };
+
+    tracing::info!(
+        task_id = %fork_task_id,
+        source_task_id = %task_id,
+        at_turn = ?plan.at_turn,
+        messages = copied.messages,
+        activities = copied.activities,
+        contexts = copied.contexts,
+        same_sandbox,
+        "Task forked"
+    );
+
     let stashed = enriched.lock().ok().and_then(|mut cell| cell.take());
     let task_response = match stashed {
         Some(resp) => resp,
@@ -1119,9 +1285,9 @@ pub(crate) fn task_resource(row: &Task) -> ScopedResource {
 mod tests {
     use super::*;
 
-    use moatless_backend_core::store::StoreError;
     use crate::task::dao::MockTaskDao;
     use crate::task::models::{SandboxDesiredState, SandboxStopReason};
+    use moatless_backend_core::store::StoreError;
     use uuid::Uuid;
 
     struct RecordingSandbox {
@@ -1224,7 +1390,8 @@ mod tests {
         async fn list_summaries(
             &self,
             _task_ids: &[String],
-        ) -> Result<std::collections::HashMap<String, Vec<TaskBindingSummary>>, StoreError> {
+        ) -> Result<std::collections::HashMap<String, Vec<TaskBindingSummary>>, StoreError>
+        {
             unimplemented!("not reachable from deactivate_task_bindings")
         }
     }

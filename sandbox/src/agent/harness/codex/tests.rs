@@ -10,21 +10,23 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use crate::agent::codex_app_server::protocol::TurnError;
 use crate::agent::codex_app_server::{AppServerSession, ServerEvent};
 use crate::agent::types::ResumeSession;
-use crate::credentials::recovery::{CredentialFailureDetector, CODEX_AUTH_JSON};
+use crate::credentials::recovery::{CODEX_AUTH_JSON, CredentialFailureDetector};
 
+use super::super::Harness;
 use super::super::error::{ErrorClass, FailureStage, SessionImpact};
 use super::super::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use super::super::signal::{Cause, Input, InputId, Outcome, Signal};
 use super::super::source::{Role, SourceEvent};
-use super::super::Harness;
-use super::classify::{classify_startup_error, classify_stream_error, classify_turn_error, is_expired_credential};
+use super::classify::{
+    classify_startup_error, classify_stream_error, classify_turn_error, is_expired_credential,
+};
 use super::{CodexConfig, CodexProcess, MID_TURN_DELIVERY_TIMEOUT};
 
 fn config() -> CodexConfig {
@@ -336,10 +338,12 @@ fn agent_message_and_reasoning_are_ordered_assistant_text_blocks() {
         "**Planning update and patch sequence**"
     );
     assert_eq!(s[1].block_json()["type"], "text");
-    assert!(s[1].block_json()["text"]
-        .as_str()
-        .expect("text")
-        .contains("four steps"));
+    assert!(
+        s[1].block_json()["text"]
+            .as_str()
+            .expect("text")
+            .contains("four steps")
+    );
     assert!(s.iter().all(|e| e.role == Role::Assistant));
     assert_ne!(s[0].source_id, s[1].source_id);
     assert_eq!(s[0].model.as_deref(), None); // model set only after submit
@@ -557,10 +561,12 @@ fn web_search_is_a_lone_tool_use_carrying_the_query() {
     let s = sources(&events);
     assert_eq!(s.len(), 1, "web search has no result concept");
     assert_eq!(s[0].block_json()["name"], "codex.web_search");
-    assert!(s[0].block_json()["input"]["query"]
-        .as_str()
-        .expect("query")
-        .contains("Rust release"));
+    assert!(
+        s[0].block_json()["input"]["query"]
+            .as_str()
+            .expect("query")
+            .contains("Rust release")
+    );
     assert_eq!(s[0].block_json()["input"]["action"]["type"], "search");
 }
 
@@ -645,7 +651,7 @@ fn thread_started_yields_session_ready_then_input_accepted() {
     let events = drain(&mut p);
     assert!(matches!(
         events[0],
-        ProcessEvent::SessionReady { ref session } if session.0 == "thread-A"
+        ProcessEvent::SessionReady { ref session, .. } if session.0 == "thread-A"
     ));
     assert!(matches!(
         events[1],
@@ -1342,7 +1348,7 @@ async fn fresh_turn_orders_started_accepted_source_finished() {
 
     assert!(matches!(
         next_signal(&mut signal_rx).await,
-        Signal::ExecutionStarted { session, cause: Cause::Input(id) }
+        Signal::ExecutionStarted { session, cause: Cause::Input(id), .. }
             if session.0 == "thread-A" && id.0 == "in-1"
     ));
     assert!(matches!(
@@ -2017,7 +2023,7 @@ async fn collect_turn(harness: &mut Harness, mid_turn: Option<(&str, &str)>) -> 
             break;
         };
         match signal {
-            Signal::ExecutionStarted { session, cause } => {
+            Signal::ExecutionStarted { session, cause, .. } => {
                 eprintln!("EXECUTION STARTED session={} cause={cause:?}", session.0);
                 log.session = Some(session.0);
                 if let Cause::Input(id) = cause {

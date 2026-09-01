@@ -8,13 +8,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_backend_core::store::StoreError;
 use moatless_backend_core::activity::{Activity, ActivitySource};
+use moatless_backend_core::store::StoreError;
 use moatless_backend_core::task::{
-    AssistantReply, CloseReason, EventSubject, ExternalEvent, InboundTurn, MessageAcceptor, NewTask,
-    RelationRecorder, SandboxProvision, TagResolver, TaskDescriptor, TaskFinisher, TaskOpenError,
-    TaskOpened, TaskOpener, TaskReader, ToolCallRecord, TranscriptAppend, TranscriptEntry,
-    TranscriptEntryKind, TranscriptOrigin, TurnCounter,
+    AssistantReply, CloseReason, EventSubject, ExternalEvent, InboundTurn, MessageAcceptor,
+    NewTask, RelationRecorder, SandboxProvision, TagResolver, TaskDescriptor, TaskFinisher,
+    TaskOpenError, TaskOpened, TaskOpener, TaskReader, ToolCallRecord, TranscriptAppend,
+    TranscriptEntry, TranscriptEntryKind, TranscriptOrigin, TurnCounter,
 };
 use moatless_types::access_control::ScopeContext;
 use moatless_types::task::RelatedTask;
@@ -281,6 +281,7 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
         let outcome = self
             .create(
                 crate::task::creation::NewTaskRequest {
+                    forked_from: None,
                     repository_id: req.repository_id,
                     agent_type: req.agent_type,
                     name: req.name,
@@ -370,9 +371,7 @@ impl MessageAcceptor for crate::message::send::MessageSendService {
         )
         .await
         .map(|_| ())
-        .map_err(|e| {
-            StoreError::with_source(format!("accept a turn on task {}", turn.task_id), e)
-        })
+        .map_err(|e| StoreError::with_source(format!("accept a turn on task {}", turn.task_id), e))
     }
 }
 

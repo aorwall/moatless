@@ -169,7 +169,7 @@ async fn incompatible_input_opens_replacement_execution_on_the_intended_session(
     let started = harness.next_signal().await.expect("started");
     assert!(matches!(
         started,
-        Signal::ExecutionStarted { cause: Cause::Input(ref id), ref session } if id.0 == "in-1" && session.0 == "sess-1"
+        Signal::ExecutionStarted { cause: Cause::Input(ref id), ref session, .. } if id.0 == "in-1" && session.0 == "sess-1"
     ));
     assert!(
         matches!(harness.next_signal().await, Some(Signal::InputAccepted { ref input }) if input.0 == "in-1")
@@ -195,7 +195,7 @@ async fn incompatible_input_opens_replacement_execution_on_the_intended_session(
     let second = drain_to_terminal(&mut harness).await;
     assert!(matches!(
         second[0],
-        Signal::ExecutionStarted { cause: Cause::Input(ref id), ref session } if id.0 == "in-2" && session.0 == "sess-2"
+        Signal::ExecutionStarted { cause: Cause::Input(ref id), ref session, .. } if id.0 == "in-2" && session.0 == "sess-2"
     ));
     assert!(matches!(second[1], Signal::InputAccepted { ref input } if input.0 == "in-2"));
     assert!(matches!(second[2], Signal::Source(ref e) if e.session.0 == "sess-2"));
@@ -221,7 +221,7 @@ async fn internal_execution_starts_without_input_or_acknowledgement() {
     let signals = drain_to_terminal(&mut harness).await;
     assert!(matches!(
         signals[0],
-        Signal::ExecutionStarted { cause: Cause::Internal, ref session } if session.0 == "sess-1"
+        Signal::ExecutionStarted { cause: Cause::Internal, ref session, .. } if session.0 == "sess-1"
     ));
     assert!(matches!(signals[1], Signal::Source(ref e) if e.source_id.0 == "s1"));
     assert!(matches!(

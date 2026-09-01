@@ -197,6 +197,27 @@ message PendingAgentDelivery {
   // only: the sandbox resolves each one's SKILL.md against the repo's skill
   // roots and the agent's installed home skills dir, so the body never travels.
   repeated string skills = 12;
+  // Set only while the Task is a fork whose own agent session does not exist
+  // yet — the first turn, and any retry of it. The harness branches the named
+  // session and runs this delivery on the branch.
+  //
+  // `resume_session_id` is deliberately left unset and `start_fresh` set
+  // alongside this: a pod on an older image ignores an unknown field, and the
+  // worst case has to be a fork with no agent context rather than two Tasks
+  // resuming one session id into one transcript.
+  optional ForkSession fork = 13;
+}
+
+// Where a fork's first turn branches from.
+message ForkSession {
+  // The parent's Claude session id or Codex thread id.
+  string source_session_id = 1;
+  // Claude's cut: the last agent-written message uuid to keep, which is the
+  // uuid on the transcript line. The harness copies the transcript through it.
+  optional string source_message_uuid = 2;
+  // Codex's cut, passed to `thread/fork` as `lastTurnId` — fork through,
+  // inclusive. Absent for a fork at the thread's head.
+  optional string source_agent_turn_id = 3;
 }
 
 // An answer with its structure intact.

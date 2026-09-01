@@ -12,8 +12,9 @@ use moatless_api_schemas::sandbox::{
 };
 use moatless_api_schemas::shared::{AgentMode, AgentType};
 use moatless_api_schemas::task::{
-    CloseTaskRequest, CreateTaskRequest, FileContextData, ListTasksQuery, ListTasksResponse,
-    MessageContextInput, TaskResponse, UpdateTaskMetadataRequest, UpdateTaskTtlRequest,
+    CloseTaskRequest, CreateTaskRequest, FileContextData, ForkTaskRequest, ListTasksQuery,
+    ListTasksResponse, MessageContextInput, TaskResponse, UpdateTaskMetadataRequest,
+    UpdateTaskTtlRequest,
 };
 use moatless_api_schemas::workspace::ScriptConfig;
 
@@ -36,6 +37,27 @@ pub enum TaskAction {
     },
     /// Get task details
     Get { task_id: String },
+    /// Fork a task: branch a new task off it, carrying its conversation and
+    /// the agent's own session up to a chosen turn
+    Fork {
+        /// Task id or short id to branch off
+        task_id: String,
+        /// The source task's turn the copy stops after. Omit to cut after its
+        /// newest completed turn
+        #[arg(long)]
+        at_turn: Option<i32>,
+        /// The fork's first message — what to try instead. Omit to create the
+        /// fork idle and send to it later
+        #[arg(long)]
+        message: Option<String>,
+        /// Join the source task's sandbox on its shared checkout instead of
+        /// provisioning one from a copy of its workspace
+        #[arg(long)]
+        same_sandbox: bool,
+        /// Branch for the fork's own checkout. Omit to keep the source task's
+        #[arg(long, conflicts_with = "same_sandbox")]
+        branch: Option<String>,
+    },
     /// Create a new task (starts the sandbox and, if --message is provided, the agent)
     Create {
         /// Repository ID or name. Optional when --workspace is given (the
@@ -416,6 +438,56 @@ pub async fn run(
                 );
             }
         }
+        TaskAction::Fork {
+            task_id,
+            at_turn,
+            message,
+            same_sandbox,
+            branch,
+        } => {
+            let source_task_id = resolve_task_id(client, &task_id).await?;
+            let has_message = message.is_some();
+            let req = ForkTaskRequest {
+                at_turn,
+                message,
+                same_sandbox: same_sandbox.then_some(true),
+                branch,
+                effort: None,
+                model: None,
+                // The CLI always drives the agent in edit mode; plan mode is a
+                // UI affordance.
+                agent_mode: Some(AgentMode("edit".to_string())),
+                skills: Vec::new(),
+            };
+            let created = client.api().fork_task(&source_task_id, &req).await?;
+            if json {
+                output::print_json_typed(&created);
+                return Ok(());
+            }
+            let cut = match created.task.forked_from.as_ref().and_then(|f| f.at_turn) {
+                Some(turn) => format!(" at turn {turn}"),
+                None => String::new(),
+            };
+            println!(
+                "Task {} forked from {source_task_id}{cut} (status: {}).",
+                created.task_id, created.status
+            );
+            // A same-sandbox fork skips provisioning entirely, which is the
+            // thing the flag exists to avoid saying.
+            let sandbox_note = if same_sandbox {
+                format!("Joining task {source_task_id}'s sandbox")
+            } else {
+                "Sandbox provisioning".to_string()
+            };
+            if has_message {
+                println!("{sandbox_note}; agent will begin once the sandbox is ready.");
+            } else {
+                println!(
+                    "{sandbox_note}; send a message with `moat send --task {}` to start the agent.",
+                    created.task_id
+                );
+            }
+        }
         TaskAction::Children { task_id } => {
             let parent = match task_id {
                 Some(task_ref) => resolve_task_id(client, &task_ref).await?,
@@ -691,9 +763,9 @@ fn friendlier_scripts_error(err: ClientError, task_id: &str) -> ClientError {
         404 => ClientError::Other(format!(
             "{message} Run `moat tasks scripts {task_id} list` to see what's declared."
         )),
-        409 => {
-            ClientError::Other(format!("{message} Run `moat tasks start {task_id}`, then retry."))
-        }
+        409 => ClientError::Other(format!(
+            "{message} Run `moat tasks start {task_id}`, then retry."
+        )),
         _ => ClientError::Other(format!("({status}) {message}")),
     }
 }
@@ -1586,8 +1658,8 @@ mod tests {
     use crate::client::ClientError;
 
     use super::{
-        context_files_to_contexts, label, looks_like_task_id, normalize_context_file_path,
-        resolve_parent_task_id, validate_context_files_have_message, TaskAction,
+        TaskAction, context_files_to_contexts, label, looks_like_task_id,
+        normalize_context_file_path, resolve_parent_task_id, validate_context_files_have_message,
     };
 
     /// `TaskAction` is a `Subcommand`, so parsing it standalone needs a

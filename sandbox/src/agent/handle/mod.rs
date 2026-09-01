@@ -141,6 +141,8 @@ pub(crate) enum AgentCommand {
         /// The user asked for a fresh agent session: never inject into a
         /// running one, and start the new run without `--resume`.
         start_fresh: bool,
+        /// Where this Task's session branches from, on a fork's first turn.
+        fork: Option<crate::agent::types::ForkSource>,
         ack: oneshot::Sender<RunAck>,
     },
     /// Replay an interrupted run on startup. Behaves identically to `Send`
@@ -199,6 +201,7 @@ impl AgentHandle {
         effort: Option<String>,
         resume_session_id: Option<String>,
         start_fresh: bool,
+        fork: Option<crate::agent::types::ForkSource>,
     ) -> oneshot::Receiver<RunAck> {
         let (ack_tx, ack_rx) = oneshot::channel();
         let _ = self.command_tx.send(AgentCommand::Send {
@@ -208,6 +211,7 @@ impl AgentHandle {
             effort,
             resume_session_id,
             start_fresh,
+            fork,
             ack: ack_tx,
         });
         ack_rx

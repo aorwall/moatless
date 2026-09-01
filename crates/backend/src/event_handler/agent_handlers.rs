@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use moatless_types::access_control::ScopeContext;
 use moatless_core::events::EventPublisher;
-use moatless_types::task::{TaskSubType, TaskTurnSubType};
+use moatless_types::access_control::ScopeContext;
+use moatless_types::task::{TaskRelationType, TaskSubType, TaskTurnSubType};
 
 use crate::message::models::{MessageRole, MessageType, TaskMessage, TaskMessageContext};
 use crate::message::send::MessageSendService;
@@ -12,8 +12,8 @@ use crate::state::AppState;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::models::TaskStatus;
 use crate::task::relations::TaskRelationDao;
-use moatless_backend_core::sandbox::SandboxWaker;
 use crate::task_activities::mapping::{BlockContext, ConversationWrite, map_content};
+use moatless_backend_core::sandbox::SandboxWaker;
 
 use super::models::SdkResultMessage;
 use crate::agent_event::AgentEvent;
@@ -232,11 +232,12 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     }
 }
 
-/// Handle `agent.session_init` event — Claude Code session started.
+/// Handle `agent.session_init` event — the agent's session opened.
 ///
-/// Per-message acknowledgment is now handled by the sandbox via
-/// `AcknowledgeMessages` gRPC call. This handler only logs the event.
-pub async fn handle_agent_session_init(_state: &AppState, event: &AgentEvent) {
+/// Per-message acknowledgment is handled by the sandbox via `AcknowledgeMessages`.
+/// This handler records the run's native turn id (Codex only) on the turn, so a
+/// later fork can cut the thread there; Claude carries none and skips it.
+pub async fn handle_agent_session_init(state: &AppState, event: &AgentEvent) {
     let session_id = if let Some(sid) = event.payload.get("session_id").and_then(|v| v.as_str()) {
         sid
     } else {
@@ -249,6 +250,28 @@ pub async fn handle_agent_session_init(_state: &AppState, event: &AgentEvent) {
         session_id = %session_id,
         "Agent session initialized"
     );
+
+    // Codex names a turn to fork at by its `turn/start` id, reported here. Store
+    // it on the turn this run opened; a run without one (Claude) has nothing to
+    // record.
+    let agent_turn_id = event
+        .payload
+        .get("agent_turn_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+    if let Some(agent_turn_id) = agent_turn_id {
+        if let Some(turn_number) =
+            resolve_turn_number(state, &event.task_id, event.turn_number).await
+        {
+            if let Err(e) = state
+                .task_turns
+                .set_agent_turn_id(&event.task_id, turn_number, agent_turn_id)
+                .await
+            {
+                tracing::warn!(task_id = %event.task_id, error = %e, "Failed to record agent turn id");
+            }
+        }
+    }
 }
 
 /// Handle `agent.stopped` event — the agent was stopped before completing.
@@ -330,7 +353,6 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
             )
             .await;
     }
-
 }
 
 /// The ports an errored run is closed over.
@@ -424,14 +446,17 @@ pub async fn handle_agent_error(ports: &AgentErrorPorts, event: &AgentEvent) {
 
 /// Tell the parent task that this child errored. A child that completes
 /// reports its own result to the parent, so only errors are forwarded here.
+///
+/// `created_by` only. A fork carries a parent edge too, but nobody is waiting
+/// on a fork's result, so its errors stay in its own conversation.
 async fn notify_parent_task_of_child_error(
     ports: &AgentErrorPorts,
     event: &AgentEvent,
     error_msg: &str,
 ) {
-    let relation = match ports.task_relations.find_created_by(&event.task_id).await {
-        Ok(Some(relation)) => relation,
-        Ok(None) => return,
+    let relation = match ports.task_relations.find_parent(&event.task_id).await {
+        Ok(Some(relation)) if relation.relation_type == TaskRelationType::CreatedBy => relation,
+        Ok(_) => return,
         Err(e) => {
             tracing::warn!(
                 task_id = %event.task_id,

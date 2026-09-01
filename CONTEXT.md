@@ -104,6 +104,19 @@ _Avoid_: bare "session" for the user login session — always qualify that as
 "auth session". Do not confuse the Codex thread with an external Slack "thread"
 (that is a Binding).
 
+**Fork**:
+A Task branched off another Task at one of its completed Turns. It is created
+holding a copy of the parent's conversation (Messages and activities) up to that
+Turn, and its first Turn resumes the parent's Session cut at the same point —
+Claude by truncating a copy of the transcript at the anchor Message uuid, Codex
+via `thread/fork` at the anchor `agent_turn_id`. Recorded as a `forked_from`
+relation (`task_forks` row), not `created_by`: a Fork appears under its parent
+everywhere a child does, but the parent's close cascade and error notifications
+skip it. Runs in its own Sandbox or, with `sameSandbox`, in the parent's on a
+shared checkout.
+_Avoid_: "child" for a Fork when the distinction from a `created_by` subtask
+matters — a Fork is a parent-edged Task, not a spawned subagent Task.
+
 ### Providers — always qualified
 
 "Provider" is never a domain term on its own: four unrelated concepts share the

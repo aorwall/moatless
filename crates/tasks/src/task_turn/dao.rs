@@ -197,6 +197,18 @@ pub trait TaskTurnDao: Send + Sync {
         metrics: &serde_json::Value,
     ) -> Result<bool, sqlx::Error>;
 
+    /// Record the agent's native turn id on the turn — Codex's `turn/start` id,
+    /// which [`Self::fork_point`] hands the pod as `thread/fork`'s `lastTurnId`.
+    /// Claude carries no such id (a fork cuts its transcript by Message uuid), so
+    /// only Codex runs ever call this. First writer wins: the id is fixed for a
+    /// turn's life, so a re-delivered `session_init` must not overwrite it.
+    async fn set_agent_turn_id(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+        agent_turn_id: &str,
+    ) -> Result<bool, sqlx::Error>;
+
     /// Bump a turn's recovery counter and return the new value. Creates the row
     /// as `interrupted` when the turn predates `task_turns` — a turn being
     /// recovered is by definition one that never closed.
@@ -205,6 +217,17 @@ pub trait TaskTurnDao: Send + Sync {
         task_id: &str,
         turn_number: i32,
     ) -> Result<i32, sqlx::Error>;
+
+    /// Where a fork of `task_id` would cut, and the harness id that names it.
+    ///
+    /// One read rather than three, because the three answers are one decision:
+    /// a Task with a turn in flight cannot be forked at all, and the cut and its
+    /// `agent_turn_id` come off the same row.
+    async fn fork_point(
+        &self,
+        task_id: &str,
+        at_turn: Option<i32>,
+    ) -> Result<ForkPoint, sqlx::Error>;
 
     /// Zero a turn's recovery counter. Called when the last re-drive made
     /// forward progress before the pod died again, so a long turn interrupted by
@@ -215,6 +238,22 @@ pub trait TaskTurnDao: Send + Sync {
         task_id: &str,
         turn_number: i32,
     ) -> Result<(), sqlx::Error>;
+}
+
+/// What [`TaskTurnDao::fork_point`] found.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ForkPoint {
+    /// The lowest turn that has not reached a terminal status. A fork is
+    /// refused while one exists: its transcript ends on an unanswered call, and
+    /// the turn is still writing rows the copy would race.
+    pub open_turn: Option<i32>,
+    /// The turn the cut keeps — the requested one, or the newest terminal one.
+    /// `None` means the requested turn has no row, or the Task has no terminal
+    /// turn at all; the caller tells the two apart by whether it asked for one.
+    pub turn: Option<i32>,
+    /// The harness's own id for that turn — Codex's `lastTurnId`. `None` for
+    /// Claude, and for a turn that ran before the column existed.
+    pub agent_turn_id: Option<String>,
 }
 
 /// The next free turn number for a task.
@@ -481,6 +520,42 @@ impl TaskTurnDao for PgTaskTurnDao {
         Ok(attempts)
     }
 
+    async fn fork_point(
+        &self,
+        task_id: &str,
+        at_turn: Option<i32>,
+    ) -> Result<ForkPoint, sqlx::Error> {
+        let open_turn: Option<i32> = sqlx::query_scalar(
+            "SELECT MIN(turn_number) FROM task_turns \
+             WHERE task_id = $1 AND status IN ('active', 'interrupted')",
+        )
+        .bind(task_id)
+        .fetch_one(&self.0)
+        .await?;
+
+        // `$2` both selects and relaxes: naming a turn takes exactly that row,
+        // whatever it ended as, while omitting it takes the newest row that
+        // ended at all.
+        let cut: Option<(i32, Option<String>)> = sqlx::query_as(
+            r#"SELECT turn_number, agent_turn_id FROM task_turns
+               WHERE task_id = $1
+                 AND ($2::int IS NULL OR turn_number = $2)
+                 AND ($2::int IS NOT NULL OR status NOT IN ('active', 'interrupted'))
+               ORDER BY turn_number DESC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .bind(at_turn)
+        .fetch_optional(&self.0)
+        .await?;
+
+        Ok(ForkPoint {
+            open_turn,
+            turn: cut.as_ref().map(|(turn, _)| *turn),
+            agent_turn_id: cut.and_then(|(_, id)| id),
+        })
+    }
+
     async fn reset_recovery_attempts(
         &self,
         task_id: &str,
@@ -528,6 +603,27 @@ impl TaskTurnDao for PgTaskTurnDao {
         .bind(task_id)
         .bind(turn_number)
         .bind(metrics)
+        .execute(&self.0)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn set_agent_turn_id(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+        agent_turn_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        // Only updates an existing turn, and only when the id is not already
+        // set: `session_init` can be re-delivered, and the first turn id the run
+        // reported is the one `fork_point` cuts on.
+        let result = sqlx::query(
+            r#"UPDATE task_turns SET agent_turn_id = $3
+               WHERE task_id = $1 AND turn_number = $2 AND agent_turn_id IS NULL"#,
+        )
+        .bind(task_id)
+        .bind(turn_number)
+        .bind(agent_turn_id)
         .execute(&self.0)
         .await?;
         Ok(result.rows_affected() > 0)

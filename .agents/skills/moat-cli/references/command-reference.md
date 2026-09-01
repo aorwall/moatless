@@ -253,6 +253,28 @@ moat tasks get abc123        # full UUID
 moat tasks get K9PCBWwH      # shortId (from the UI / SHORT column)
 ```
 
+### `moat tasks fork <task_id>`
+
+Branch a new task off an existing one. The fork starts holding a copy of the
+source task's conversation up to a chosen turn, and its first turn resumes the
+source's Claude session or Codex thread cut at that same point. The source task
+must have no turn in flight. Accepts a shortId or full UUID.
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--at-turn` | No | Newest completed turn | The source turn the copy stops after |
+| `--message` | No | — | The fork's first message; omit to create it idle and send later |
+| `--same-sandbox` | No | off | Join the source's sandbox on its shared checkout instead of provisioning a copy |
+| `--branch` | No | Source's branch | Branch for the fork's own checkout; conflicts with `--same-sandbox` |
+
+- **API**: `POST /api/v1/tasks/{task_id}/fork`
+
+```bash
+moat tasks fork abc123 --message "try a different approach"
+moat tasks fork abc123 --at-turn 3        # cut after the source's turn 3
+moat tasks fork abc123 --same-sandbox     # share the source's checkout
+```
+
 ### `moat tasks create`
 
 Create a new task.

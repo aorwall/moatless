@@ -4,9 +4,9 @@
 //! typed `relation_type` and an optional JSON `context` describing why/how
 //! the link was created.
 
-pub use moatless_types::task::TaskRelationType;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+pub use moatless_types::task::TaskRelationType;
 use sqlx::AssertSqlSafe;
 use tracing::warn;
 
@@ -70,19 +70,26 @@ pub trait TaskRelationDao: Send + Sync {
         kind: Option<TaskRelationType>,
     ) -> Result<Vec<TaskRelation>, sqlx::Error>;
 
-    /// The single `created_by` parent of `from_task_id`, if any.
-    async fn find_created_by(
-        &self,
-        from_task_id: &str,
-    ) -> Result<Option<TaskRelation>, sqlx::Error>;
+    /// The single parent of `from_task_id`, if any — the `created_by` task
+    /// that spawned it or the `forked_from` task it was branched off. The
+    /// returned row's `relation_type` says which, because the two read the same
+    /// in a listing and differently in a prompt.
+    async fn find_parent(&self, from_task_id: &str) -> Result<Option<TaskRelation>, sqlx::Error>;
 
-    /// Batch lookup of `created_by` parents for many child tasks.
-    /// Returned map keys are `from_task_id`; missing keys mean no parent.
-    async fn get_created_by_map(
+    /// Batch lookup of parents for many child tasks, over the same two types as
+    /// [`TaskRelationDao::find_parent`]. Returned map keys are `from_task_id`;
+    /// missing keys mean no parent.
+    async fn get_parent_map(
         &self,
         from_task_ids: &[String],
     ) -> Result<std::collections::HashMap<String, String>, sqlx::Error>;
 }
+
+/// The two relation types that make `from_task_id` a child of `to_task_id`.
+///
+/// Bound as a `text[]` rather than interpolated: these are data values, and the
+/// SQL that reads them must stay parameterised.
+pub const PARENT_RELATION_TYPES: [&str; 2] = ["created_by", "forked_from"];
 
 pub struct PgTaskRelationDao(pub DbPool);
 
@@ -137,20 +144,18 @@ impl TaskRelationDao for PgTaskRelationDao {
             .await
     }
 
-    async fn find_created_by(
-        &self,
-        from_task_id: &str,
-    ) -> Result<Option<TaskRelation>, sqlx::Error> {
+    async fn find_parent(&self, from_task_id: &str) -> Result<Option<TaskRelation>, sqlx::Error> {
         sqlx::query_as::<_, TaskRelation>(AssertSqlSafe(format!(
-            "{TASK_RELATION_SELECT} WHERE from_task_id = $1 AND relation_type = 'created_by' \
+            "{TASK_RELATION_SELECT} WHERE from_task_id = $1 AND relation_type = ANY($2) \
             ORDER BY created_at ASC LIMIT 1"
         )))
         .bind(from_task_id)
+        .bind(&PARENT_RELATION_TYPES[..])
         .fetch_optional(&self.0)
         .await
     }
 
-    async fn get_created_by_map(
+    async fn get_parent_map(
         &self,
         from_task_ids: &[String],
     ) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
@@ -160,10 +165,11 @@ impl TaskRelationDao for PgTaskRelationDao {
         let rows: Vec<(String, String)> = sqlx::query_as(
             r#"SELECT DISTINCT ON (from_task_id) from_task_id, to_task_id
                FROM task_relations
-               WHERE from_task_id = ANY($1) AND relation_type = 'created_by'
+               WHERE from_task_id = ANY($1) AND relation_type = ANY($2)
                ORDER BY from_task_id, created_at ASC"#,
         )
         .bind(from_task_ids)
+        .bind(&PARENT_RELATION_TYPES[..])
         .fetch_all(&self.0)
         .await?;
         Ok(rows.into_iter().collect())
@@ -193,6 +199,28 @@ pub async fn record_created_by(
             "Failed to record created_by relation"
         );
     }
+}
+
+/// Record the `forked_from` edge from a fork to the Task it was branched off.
+///
+/// Not fire-and-forget, unlike its two neighbours: a fork whose edge is missing
+/// shows up as an orphan with a conversation it cannot explain, and the fork
+/// handler still has the transaction open to undo it. `at_turn` goes in the
+/// context because that is what the presenter and the system prompt display;
+/// the anchors the pod needs are typed columns on `task_forks`.
+pub async fn record_forked_from(
+    repo: &dyn TaskRelationDao,
+    from_task_id: &str,
+    source_task_id: &str,
+    at_turn: Option<i32>,
+) -> Result<(), sqlx::Error> {
+    let row = TaskRelation::new(
+        from_task_id,
+        source_task_id,
+        TaskRelationType::ForkedFrom,
+        serde_json::json!({ "at_turn": at_turn }),
+    );
+    repo.insert(&row).await
 }
 
 /// Fire-and-forget helper to record a `related_to` peer relation. Same

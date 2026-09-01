@@ -26,7 +26,7 @@
 
 use std::collections::HashMap;
 
-use crate::agent::types::ResumeSession;
+use crate::agent::types::{ForkSource, ResumeSession};
 
 use super::error::HarnessError;
 use super::source::SourceEvent;
@@ -61,6 +61,14 @@ pub struct Input {
     pub resume: Option<ResumeSession>,
     /// Begin a new Session instead of resuming or injecting into a running one.
     pub start_fresh: bool,
+    /// Branch the named Session at the named cut and run this Input on the
+    /// branch. Set only on a fork's first turn, and on any retry of it.
+    ///
+    /// A harness that understands this must test it *before* `start_fresh`,
+    /// which is set alongside it as the version-skew guard: an older pod
+    /// ignores the field and reads a plain fresh start rather than resuming the
+    /// parent's session into the parent's transcript.
+    pub fork: Option<ForkSource>,
     /// Resolved subprocess environment for this Turn (credentials the coordinator
     /// refreshed before submit).
     pub env: Option<HashMap<String, String>>,
@@ -79,6 +87,7 @@ impl Input {
             effort: None,
             resume: None,
             start_fresh: false,
+            fork: None,
             env: None,
             system_prompt: None,
         }
@@ -151,7 +160,14 @@ pub enum Signal {
     /// An Agent process is ready and its Session identity is known. The
     /// coordinator mints the Run when it receives this. Emitted at most once per
     /// execution and never after a source event.
-    ExecutionStarted { session: SessionId, cause: Cause },
+    ///
+    /// `agent_turn_id` is the harness's native turn id when known at start (Codex
+    /// only); the coordinator relays it so a fork can cut the thread there.
+    ExecutionStarted {
+        session: SessionId,
+        agent_turn_id: Option<String>,
+        cause: Cause,
+    },
     /// The Agent process accepted a submitted input. The coordinator
     /// acknowledges opening inputs after this, against the current Run. For
     /// active-execution injections, it waits for later non-terminal output.

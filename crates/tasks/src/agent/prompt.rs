@@ -9,19 +9,36 @@ use std::sync::Arc;
 use tracing::warn;
 
 use moatless_backend_core::workspace::WorkspaceResolver;
-use moatless_types::workspace::ServerConfig;
 use moatless_core::config::Config;
+use moatless_types::workspace::ServerConfig;
 
 use crate::task::models::Task;
 use crate::task::relations::TaskRelationDao;
+use moatless_types::task::TaskRelationType;
+
+/// The Task this one hangs off, and how — the two shapes of a parent edge.
+///
+/// They read the same in a listing and differently here: a spawned child owes
+/// its parent a result, and a fork owes nobody anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParentTask<'a> {
+    /// Spawned by that Task, which is waiting to be told how it went.
+    CreatedBy(&'a str),
+    /// Branched off that Task at one of its turns, carrying its conversation
+    /// up to that point. `at_turn` is `None` when the cut was at head.
+    ForkedFrom {
+        task_id: &'a str,
+        at_turn: Option<i32>,
+    },
+}
 
 /// Inputs needed to build the append-system-prompt for one task.
 pub struct PromptInputs<'a> {
     pub task_id: &'a str,
     /// `Task.name` — `None` and whitespace-only treated as missing.
     pub task_name: Option<&'a str>,
-    /// Set when this task was spawned by another task.
-    pub parent_task_id: Option<&'a str>,
+    /// Set when this task hangs off another one.
+    pub parent: Option<ParentTask<'a>>,
     /// `Task.append_system_prompt` — trigger-set instructions.
     pub task_append_system_prompt: Option<&'a str>,
     /// The workspace's `system_prompt`.
@@ -151,17 +168,37 @@ pub async fn build_for_task(
         _ => None,
     };
 
-    let parent_task_id: Option<String> = match task_relations {
-        Some(repo) => match repo.find_created_by(task_id).await {
-            Ok(Some(r)) => Some(r.to_task_id),
+    // Held as an owned pair because `ParentTask` borrows the id, and the
+    // relation row does not outlive this scope.
+    let parent_relation: Option<(TaskRelationType, String, Option<i32>)> = match task_relations {
+        Some(repo) => match repo.find_parent(task_id).await {
+            Ok(Some(r)) => {
+                let at_turn = r
+                    .context
+                    .get("at_turn")
+                    .and_then(serde_json::Value::as_i64)
+                    .and_then(|n| i32::try_from(n).ok());
+                Some((r.relation_type, r.to_task_id, at_turn))
+            }
             Ok(None) => None,
             Err(e) => {
-                warn!(error = %e, task_id, "Failed to load created_by relation for prompt");
+                warn!(error = %e, task_id, "Failed to load parent relation for prompt");
                 None
             }
         },
         None => None,
     };
+    let parent = parent_relation
+        .as_ref()
+        .and_then(|(kind, id, at_turn)| match kind {
+            TaskRelationType::CreatedBy => Some(ParentTask::CreatedBy(id)),
+            TaskRelationType::ForkedFrom => Some(ParentTask::ForkedFrom {
+                task_id: id,
+                at_turn: *at_turn,
+            }),
+            // A peer link is not a parent and says nothing to the agent.
+            TaskRelationType::RelatedTo => None,
+        });
 
     let servers: Vec<ServerConfig> = workspace
         .as_ref()
@@ -175,7 +212,7 @@ pub async fn build_for_task(
     build_append_system_prompt(&PromptInputs {
         task_id,
         task_name: task.and_then(|t| t.name.as_deref()),
-        parent_task_id: parent_task_id.as_deref(),
+        parent,
         task_append_system_prompt: task.and_then(|t| t.append_system_prompt.as_deref()),
         repo_system_prompt: workspace.as_ref().and_then(|w| w.system_prompt.as_deref()),
         servers: &servers,
@@ -216,8 +253,8 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
         ));
     }
 
-    if let Some(parent_id) = inputs.parent_task_id {
-        sections.push(build_parent_task_section(parent_id));
+    if let Some(parent) = inputs.parent {
+        sections.push(build_parent_task_section(parent));
     }
 
     sections.push(GITHUB_CLI_HINT.to_string());
@@ -301,15 +338,32 @@ fn build_server_section(
     Some(lines.join("\n"))
 }
 
-/// Build the "# Parent Task" section for child tasks.
-fn build_parent_task_section(parent_task_id: &str) -> String {
-    format!(
-        "# Parent Task\n\n\
-         This task was created by another task (`{parent_task_id}`). \
-         When you have completed your work, you MUST report back to the parent task by running:\n\n  \
-         `moat send --task {parent_task_id} --text \"<summary of what you did and the outcome>\"`\n\n\
-         Always send this final message — the parent task is waiting for your response."
-    )
+/// Build the "# Parent Task" or "# Forked Task" section.
+fn build_parent_task_section(parent: ParentTask<'_>) -> String {
+    match parent {
+        ParentTask::CreatedBy(parent_task_id) => format!(
+            "# Parent Task\n\n\
+             This task was created by another task (`{parent_task_id}`). \
+             When you have completed your work, you MUST report back to the parent task by running:\n\n  \
+             `moat send --task {parent_task_id} --text \"<summary of what you did and the outcome>\"`\n\n\
+             Always send this final message — the parent task is waiting for your response."
+        ),
+        ParentTask::ForkedFrom { task_id, at_turn } => {
+            let cut = match at_turn {
+                Some(turn) => format!("at turn {turn}"),
+                None => "at its most recent turn".to_string(),
+            };
+            format!(
+                "# Forked Task\n\n\
+                 This task was forked from `{task_id}` {cut}. The conversation above it is a copy \
+                 of that task's, up to the fork point — you are continuing from there along a \
+                 different path, and anything `{task_id}` did after the fork is not yours.\n\n\
+                 Nothing is waiting on your result, so do not report back. This task has no name \
+                 or description yet: once you know what you are doing here, set them with \
+                 `moat set-name \"<name>\"`."
+            )
+        }
+    }
 }
 
 #[cfg(test)]
@@ -322,7 +376,7 @@ mod tests {
         PromptInputs {
             task_id,
             task_name: None,
-            parent_task_id: None,
+            parent: None,
             task_append_system_prompt: None,
             repo_system_prompt: None,
             servers: &[],
@@ -492,12 +546,30 @@ mod tests {
     #[test]
     fn parent_task_section_included_with_send_command() {
         let inputs = PromptInputs {
-            parent_task_id: Some("parent-abc"),
+            parent: Some(ParentTask::CreatedBy("parent-abc")),
             ..base_inputs("task-123")
         };
         let prompt = build_append_system_prompt(&inputs);
         assert!(prompt.contains("# Parent Task"));
         assert!(prompt.contains("parent-abc"));
         assert!(prompt.contains("moat send --task parent-abc"));
+    }
+
+    #[test]
+    fn forked_task_section_names_the_source_and_does_not_report_back() {
+        let inputs = PromptInputs {
+            parent: Some(ParentTask::ForkedFrom {
+                task_id: "source-abc",
+                at_turn: Some(4),
+            }),
+            ..base_inputs("task-123")
+        };
+        let prompt = build_append_system_prompt(&inputs);
+        assert!(prompt.contains("# Forked Task"));
+        assert!(prompt.contains("source-abc"));
+        assert!(prompt.contains("turn 4"));
+        assert!(!prompt.contains("# Parent Task"));
+        assert!(!prompt.contains("moat send --task source-abc"));
+        assert!(prompt.contains("moat set-name"));
     }
 }

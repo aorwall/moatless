@@ -44,7 +44,7 @@ use crate::agent::codex_app_server::protocol::{
 use crate::agent::codex_app_server::{self, AppServerSession, ServerEvent};
 use crate::agent::types::{AgentRunRequest, ResumeSession};
 use crate::config::Config;
-use crate::credentials::recovery::{CredentialFailureDetector, CODEX_AUTH_JSON};
+use crate::credentials::recovery::{CODEX_AUTH_JSON, CredentialFailureDetector};
 
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
@@ -197,8 +197,13 @@ impl CodexProcess {
         self.normalizer.set_session(session.clone());
         if !self.session_ready {
             self.session_ready = true;
-            self.pending
-                .push_back(ProcessEvent::SessionReady { session });
+            // `open_turn` set `self.turn_id` from the `turn/start` response before
+            // this runs (submit and event reads never overlap), so a real turn's
+            // id is present. A driver-injected session has none, and reports None.
+            self.pending.push_back(ProcessEvent::SessionReady {
+                session,
+                agent_turn_id: self.turn_id.clone(),
+            });
         }
         if !self.input_accepted {
             self.input_accepted = true;
@@ -239,8 +244,21 @@ impl CodexProcess {
                 .await
                 .map_err(|error| classify::classify_startup_error(&error))?;
 
-        let thread_id = match &resume {
-            Some(ResumeSession::WithId(thread_id)) => {
+        let thread_id = match (&input.fork, &resume) {
+            // A fork's first turn branches a new thread off the parent's at the
+            // cut, then runs its prompt on the copy. The parent is untouched.
+            (Some(fork), _) => {
+                let params = codex_app_server::thread_fork_params(
+                    &config,
+                    &fork.source_session_id,
+                    fork.source_agent_turn_id.as_deref(),
+                );
+                session
+                    .fork_thread(params)
+                    .await
+                    .map_err(|error| classify::classify_request_error("thread/fork", &error))?
+            }
+            (None, Some(ResumeSession::WithId(thread_id))) => {
                 let params = codex_app_server::thread_resume_params(&config, &request, thread_id);
                 session
                     .resume_thread(params)
@@ -250,7 +268,7 @@ impl CodexProcess {
             // `resume --last` has no app-server equivalent and no caller:
             // `build_resume` only ever yields it for the Claude family. If one
             // ever appears, say so rather than resuming something unintended.
-            other => {
+            (None, other) => {
                 if other.is_some() {
                     warn!("Codex cannot resume the last thread by name; starting a fresh one");
                 }

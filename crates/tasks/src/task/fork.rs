@@ -1,0 +1,282 @@
+//! Forking a Task: where the cut lands, and what the pod needs to reproduce it.
+//!
+//! A fork is a Task branched off another Task at one of its completed turns. It
+//! starts holding a copy of everything the parent had said and done up to that
+//! turn (`crate::message::fork`), and its first turn resumes the parent's Claude
+//! session or Codex thread cut at the same point — which is what the
+//! `task_forks` row below carries.
+//!
+//! The session fork itself happens in the pod, on the fork's first turn: Codex's
+//! `thread/fork` is an app-server call only a pod can make, and a same-Sandbox
+//! fork copies no archive, so a backend-side rewrite would be a second
+//! implementation covering one of the two cases.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+
+use moatless_core::db::DbPool;
+use moatless_types::access_control::{ScopeContext, ScopedResource};
+
+use super::dao::TaskDao;
+use super::error::TaskError;
+use crate::message::dao::MessageDao;
+use crate::message::fork::{ForkAnchors, ForkCopyCounts};
+use crate::tag::dao::TagDao;
+use crate::task_turn::dao::TaskTurnDao;
+
+/// A `task_forks` row: the fork, the Task it branched from, and the three
+/// anchors the delivery path hands the pod until the fork has a session of its
+/// own.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TaskFork {
+    pub task_id: String,
+    pub source_task_id: String,
+    pub at_turn: Option<i32>,
+    pub source_session_id: String,
+    pub source_message_uuid: Option<String>,
+    pub source_agent_turn_id: Option<String>,
+}
+
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait TaskForkDao: Send + Sync {
+    async fn insert(&self, row: &TaskFork) -> Result<(), sqlx::Error>;
+
+    /// The fork row for a Task, or `None` when the Task is not a fork — which
+    /// is every Task but one in a hundred, so this is on the delivery path's
+    /// hot side and reads by primary key.
+    async fn find(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error>;
+}
+
+pub struct PgTaskForkDao(pub DbPool);
+
+#[async_trait]
+impl TaskForkDao for PgTaskForkDao {
+    async fn insert(&self, row: &TaskFork) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO task_forks
+                   (task_id, source_task_id, at_turn, source_session_id,
+                    source_message_uuid, source_agent_turn_id)
+               VALUES ($1, $2, $3, $4, $5, $6)
+               ON CONFLICT (task_id) DO NOTHING"#,
+        )
+        .bind(&row.task_id)
+        .bind(&row.source_task_id)
+        .bind(row.at_turn)
+        .bind(&row.source_session_id)
+        .bind(&row.source_message_uuid)
+        .bind(&row.source_agent_turn_id)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn find(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error> {
+        sqlx::query_as::<_, TaskFork>(
+            r#"SELECT task_id, source_task_id, at_turn, source_session_id,
+                      source_message_uuid, source_agent_turn_id
+               FROM task_forks WHERE task_id = $1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+}
+
+/// The parent's agent session at the cut, and the two anchors that name the cut
+/// inside it. One or the other is set, never both: Claude's transcript is keyed
+/// by Message uuid and carries no turn id, and Codex's `thread/fork` takes the
+/// cut as `lastTurnId` and knows nothing about Messages.
+#[derive(Debug, Clone)]
+pub struct ForkSession {
+    pub source_session_id: String,
+    pub source_message_uuid: Option<String>,
+    pub source_agent_turn_id: Option<String>,
+}
+
+/// A resolved fork: which Task, cut where, and what the pod will need.
+///
+/// Produced by [`TaskForkService::plan`] before anything is created, so every
+/// refusal happens with nothing to undo.
+#[derive(Debug, Clone)]
+pub struct ForkPlan {
+    /// The Task being forked.
+    pub source_task_id: String,
+    /// The turn the cut keeps. `None` when the parent has no turn at all — the
+    /// fork then carries whatever the parent said and no agent context.
+    pub at_turn: Option<i32>,
+    /// `None` when the parent's agent never ran at or before the cut. Such a
+    /// fork starts on a fresh session.
+    pub session: Option<ForkSession>,
+}
+
+/// Resolving a fork's cut point, and copying the parent's conversation onto it.
+///
+/// The create itself is not here: a fork is created through the same
+/// `service::normalize` → `TaskCreationService::create` pair as any other Task,
+/// so one credential check, one access check and one provisioning sequence
+/// serve both.
+pub struct TaskForkService {
+    tasks: Arc<dyn TaskDao>,
+    turns: Arc<dyn TaskTurnDao>,
+    messages: Arc<dyn MessageDao>,
+    tags: Arc<dyn TagDao>,
+}
+
+impl TaskForkService {
+    pub fn new(
+        tasks: Arc<dyn TaskDao>,
+        turns: Arc<dyn TaskTurnDao>,
+        messages: Arc<dyn MessageDao>,
+        tags: Arc<dyn TagDao>,
+    ) -> Self {
+        Self {
+            tasks,
+            turns,
+            messages,
+            tags,
+        }
+    }
+
+    /// The source Task's tag ids, for the fork to be created with.
+    ///
+    /// Best-effort: a fork that lands without its parent's tags is still the
+    /// fork the caller asked for, and tags are re-settable from the UI. Every
+    /// other tag assignment on the create path is best-effort for the same
+    /// reason.
+    pub async fn source_tag_ids(&self, source_task_id: &str) -> Vec<String> {
+        match self.tags.get_tags_for_task(source_task_id).await {
+            Ok(tags) => tags.into_iter().map(|tag| tag.tag_id).collect(),
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %source_task_id,
+                    error = %e,
+                    "Failed to read source task tags for fork; forking untagged"
+                );
+                Vec::new()
+            }
+        }
+    }
+
+    /// Resolve where a fork of `source_task_id` cuts, refusing before anything
+    /// is created.
+    ///
+    /// `at_turn` is the caller's selector; omitting it cuts after the parent's
+    /// newest turn that reached a terminal status.
+    pub async fn plan(
+        &self,
+        scope_ctx: &ScopeContext,
+        source_task_id: &str,
+        at_turn: Option<i32>,
+    ) -> Result<(super::models::Task, ForkPlan), TaskError> {
+        let source = self
+            .tasks
+            .find_by_id(source_task_id, scope_ctx)
+            .await?
+            .ok_or_else(|| TaskError::NotFound(source_task_id.to_string()))?;
+        if !scope_ctx.can_read(&ScopedResource::borrowed(
+            source.scope,
+            source
+                .owner_user_id
+                .as_deref()
+                .or(source.created_by.as_deref()),
+        )) {
+            // Existence hiding, as everywhere else: a Task the caller may not
+            // read is reported the same way as one that is not there.
+            return Err(TaskError::NotFound(source_task_id.to_string()));
+        }
+
+        let point = self.turns.fork_point(source_task_id, at_turn).await?;
+        if let Some(open) = point.open_turn {
+            return Err(TaskError::Conflict(format!(
+                "task {source_task_id} has turn {open} in flight; stop it or wait for it before forking"
+            )));
+        }
+        if at_turn.is_some() && point.turn.is_none() {
+            return Err(TaskError::NotFound(format!(
+                "task {source_task_id} has no turn {}",
+                at_turn.unwrap_or_default()
+            )));
+        }
+
+        let cut = point.turn;
+        let session = match self.messages.fork_anchors(source_task_id, cut).await? {
+            None => None,
+            Some(ForkAnchors {
+                session_id,
+                message_uuid,
+            }) => {
+                // Codex names the cut by turn id and Claude by Message uuid, so
+                // which anchor is load-bearing follows the parent's agent.
+                if source.agent_type.as_str() == "codex" {
+                    if cut.is_some() && point.agent_turn_id.is_none() {
+                        return Err(TaskError::Conflict(format!(
+                            "turn {} of task {source_task_id} has no recorded agent turn id; fork at head instead",
+                            cut.unwrap_or_default()
+                        )));
+                    }
+                    Some(ForkSession {
+                        source_session_id: session_id,
+                        source_message_uuid: None,
+                        source_agent_turn_id: point.agent_turn_id.clone(),
+                    })
+                } else {
+                    Some(ForkSession {
+                        source_session_id: session_id,
+                        source_message_uuid: message_uuid,
+                        source_agent_turn_id: None,
+                    })
+                }
+            }
+        };
+
+        Ok((
+            source,
+            ForkPlan {
+                source_task_id: source_task_id.to_string(),
+                at_turn: cut,
+                session,
+            },
+        ))
+    }
+
+    /// Copy the parent's conversation onto the fork's id.
+    ///
+    /// Runs before the fork's Task row exists, which is what puts the copied
+    /// Messages behind the fork's own first message rather than in front of it.
+    pub async fn copy_conversation(
+        &self,
+        plan: &ForkPlan,
+        fork_task_id: &str,
+    ) -> Result<ForkCopyCounts, TaskError> {
+        Ok(self
+            .messages
+            .fork_conversation(&plan.source_task_id, fork_task_id, plan.at_turn)
+            .await?)
+    }
+
+    /// Undo [`Self::copy_conversation`] when the create that was to follow it
+    /// fails, so a failed fork leaves no conversation rows behind the Task that
+    /// never came to exist.
+    ///
+    /// Best-effort and logged, not propagated: the caller is already returning
+    /// the create's error, and the copy's rows belong to a `task_id` no other
+    /// Task will ever mint, so what survives a failed sweep is inert until a
+    /// later retry sweeps it or the id is reaped. Call it only on the failure
+    /// path — a fork that created cleanly owns these rows.
+    pub async fn discard_conversation(&self, fork_task_id: &str) {
+        if let Err(error) = self
+            .messages
+            .discard_forked_conversation(fork_task_id)
+            .await
+        {
+            tracing::warn!(
+                task_id = %fork_task_id,
+                %error,
+                "Failed to discard a forked conversation after the fork's create failed; \
+                 the copied rows are orphaned until reaped"
+            );
+        }
+    }
+}

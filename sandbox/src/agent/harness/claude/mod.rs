@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use claude_agent_sdk::types::content::{ApiMessage, ContentBlock, Usage};
 use claude_agent_sdk::types::messages::{MessagePriority, ResultMessage, UserMessage};
-use claude_agent_sdk::{query, QueryHandle, SdkMessage};
+use claude_agent_sdk::{QueryHandle, SdkMessage, query};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -87,6 +87,7 @@ fn context_window(result: &ResultMessage, last_response: Option<&Usage>) -> Opti
 }
 
 mod classify;
+mod fork;
 mod normalize;
 mod persistent;
 mod session;
@@ -203,8 +204,12 @@ impl ClaudeProcess {
                 self.normalizer.set_session(session.clone());
                 if !self.session_ready {
                     self.session_ready = true;
-                    self.pending
-                        .push_back(ProcessEvent::SessionReady { session });
+                    // Claude carries no native turn id; a fork cuts its transcript
+                    // by Message uuid instead.
+                    self.pending.push_back(ProcessEvent::SessionReady {
+                        session,
+                        agent_turn_id: None,
+                    });
                 }
                 // The one-shot CLI accepted the prompt at spawn; the init proves
                 // the process is up, so acceptance is known now.
@@ -255,6 +260,26 @@ impl ClaudeProcess {
     /// on-disk transcript, because `--continue` against an empty project dir
     /// makes the CLI exit immediately.
     async fn resolve_resume(&self, input: &Input) -> Option<ResumeSession> {
+        // A fork's first Turn resumes a truncated copy of the parent's
+        // transcript, not the parent's Session, and rides ahead of `start_fresh`
+        // — which a fork also sets, as the version-skew guard for a pod too old
+        // to know the `fork` field. When the cut succeeds the copy is the resume
+        // target; when it cannot (no transcript on disk, or the anchor is
+        // missing) the fork falls through to a fresh Session.
+        if let Some(fork) = &input.fork {
+            if let Some(anchor) = &fork.source_message_uuid {
+                if let Some(new_session_id) = fork::write_forked_transcript(
+                    &self.cfg.config.workspace_dir,
+                    &fork.source_session_id,
+                    anchor,
+                )
+                .await
+                {
+                    return Some(ResumeSession::WithId(new_session_id));
+                }
+            }
+            return None;
+        }
         if input.start_fresh {
             return None;
         }

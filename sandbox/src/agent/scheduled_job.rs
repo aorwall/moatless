@@ -32,7 +32,7 @@ impl JobInjector for AgentHandle {
     fn inject(&self, text: String) {
         // The job has nothing to ack; drop the receiver so the lifecycle task
         // doesn't wait. The coordinator's session-id resolution still works.
-        drop(self.send(text, None, None, None, None, None, false));
+        drop(self.send(text, None, None, None, None, None, false, None));
     }
 }
 

@@ -12,38 +12,52 @@ use tracing::{debug, info, warn};
 
 use moatless_types::agent::AgentSubType;
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
-use sandbox_proto::{AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest, DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest, GetSystemPromptResponse, GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest, PublishEventResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse, TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadChunk, UploadTranscriptResponse};
+use sandbox_proto::{
+    AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
+    DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
+    GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
+    GetSystemPromptResponse, GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse,
+    InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest, PublishEventResponse,
+    RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
+    ReportWorkspaceSyncResponse, TranscriptChunk, UpdateCredentialRequest,
+    UpdateCredentialResponse, UploadChunk, UploadTranscriptResponse,
+};
 
 use moatless_types::access_control::ScopeContext;
 
 use crate::sandbox::event_dedup::Admission;
 use crate::sandbox::jwt;
 use crate::sandbox::lifecycle::orchestrator::LifecycleDao;
-use crate::sandbox::secrets::{TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets, resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials, resolve_workspace_env_vars};
+use crate::sandbox::secrets::{
+    TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets,
+    resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
+    resolve_workspace_env_vars,
+};
 use crate::sandbox::storage::sandbox_key;
+use moatless_backend_core::identity::GitHostTokenIssuer;
+use moatless_backend_core::sandbox::CodexCredentials;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::file_storage::dao::FileDao;
-use moatless_types::agent::AgentType;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::github::service::GitHubAppService;
-use moatless_types::user::UserRole;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
 use moatless_identity::auth::users::UserDao;
-use moatless_backend_core::identity::GitHostTokenIssuer;
 use moatless_s3 as file_s3;
 use moatless_tasks::agent::prompt;
-use moatless_backend_core::sandbox::CodexCredentials;
 use moatless_tasks::credential_sync::CredentialSync;
 use moatless_tasks::event_ingress::outbox::IngressOutbox;
 use moatless_tasks::event_ingress::{AdmissionError, AdmissionRequest, EventAdmission};
 use moatless_tasks::message::dao::MessageDao;
 use moatless_tasks::task::dao::TaskDao;
+use moatless_tasks::task::fork::TaskForkDao;
 use moatless_tasks::task::relations::TaskRelationDao;
 use moatless_tasks::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use moatless_tasks::task_turn::dao::{TaskTurnDao, TurnStateEvent};
 use moatless_tasks::task_turn::models::{TurnStatus, classify_turn_transition};
+use moatless_types::agent::AgentType;
+use moatless_types::user::UserRole;
 use moatless_workspaces::credentials::WriteSource;
 
 /// Known credential env var names.
@@ -137,6 +151,10 @@ pub struct HandlerDbPorts {
     pub provider_tokens: Arc<dyn ProviderTokenDao>,
     pub tasks: Arc<dyn TaskDao>,
     pub task_relations: Arc<dyn TaskRelationDao>,
+    /// Where a fork's first turn branches from. Read on every delivery built
+    /// for a fork until the fork's own session exists — by primary key, and on
+    /// a table with a row per fork rather than per Task.
+    pub task_forks: Arc<dyn TaskForkDao>,
     /// Provider token auth persistence for persisting refreshed tokens.
     pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     /// Scoped secret resolver for global/team/user secrets.
@@ -1023,10 +1041,44 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         })?;
 
         // Look up latest agent_session_id for --resume <id>
-        let task_resume_session_id = messages
+        let latest_agent_session_id = messages
             .get_latest_agent_session_id(&req.task_id)
             .await
             .unwrap_or(None);
+
+        // Fork intent, while the Task is a fork whose own session has not
+        // landed. The sentinel is that latest session id: a fresh fork's newest
+        // Message is a copy of the parent's and still carries the parent's
+        // session, so the two are equal until the fork's first turn reports one
+        // of its own. Nothing is stamped when intent is *sent*, because a first
+        // turn that died before a session landed would consume the stamp and
+        // leave the fork permanently unforked.
+        let fork_row = match (&latest_agent_session_id, self.handlers.as_ref()) {
+            (Some(_), Some(handlers)) => handlers.task_forks.find(&req.task_id).await,
+            _ => Ok(None),
+        };
+        let fork = match &latest_agent_session_id {
+            Some(session_id) => match fork_row {
+                Ok(Some(row)) if &row.source_session_id == session_id => {
+                    Some(sandbox_proto::ForkSession {
+                        source_session_id: row.source_session_id,
+                        source_message_uuid: row.source_message_uuid,
+                        source_agent_turn_id: row.source_agent_turn_id,
+                    })
+                }
+                Ok(_) => None,
+                Err(e) => {
+                    // A fork that loses its intent starts on a fresh session and
+                    // says so in its first answer; one that resumes the parent's
+                    // session id would write into the parent's transcript.
+                    warn!(error = %e, task_id = %req.task_id, "Failed to read fork anchors; first turn starts fresh");
+                    None
+                }
+            },
+            None => None,
+        };
+
+        let task_resume_session_id = latest_agent_session_id;
 
         // Check the last closed turn — a turn that ended `stopped` or `error`
         // cut its agent session off mid-flight, so the next run starts fresh
@@ -1106,7 +1158,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                         // Not an error: an unmapped writer is named by their
                         // Adapter handle instead, which stays true.
                         Ok(None) => debug!(
-                            adapter, sender_id, "sender is not mapped, <from> names their handle"
+                            adapter,
+                            sender_id, "sender is not mapped, <from> names their handle"
                         ),
                         Err(e) => warn!(
                             adapter, sender_id, error = %e,
@@ -1174,9 +1227,19 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 agent_mode: delivery.agent_mode,
                 effort: delivery.effort,
                 skills: delivery.skills,
-                resume_session_id: delivery.resume_session_id,
+                // A fork's first turn resumes nothing by id and asks for a
+                // fresh start, which is what a pod that does not know `fork`
+                // falls back to. The alternative — leaving `resume_session_id`
+                // set — would have such a pod resume the *parent's* session and
+                // write two Tasks into one transcript.
+                resume_session_id: if fork.is_some() {
+                    None
+                } else {
+                    delivery.resume_session_id.clone()
+                },
                 resume: delivery.resume,
-                start_fresh: delivery.start_fresh,
+                start_fresh: delivery.start_fresh || fork.is_some(),
+                fork: fork.clone(),
                 prompt_response: delivery.prompt_response.map(|response| {
                     sandbox_proto::PromptResponse {
                         tool_use_id: response.tool_use_id,
@@ -1345,8 +1408,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // The credential set the sandbox is handed needs only the Codex refresh
         // half of the orchestrator, so it takes the port rather than the
         // concrete service; `store` below still needs the whole thing.
-        let codex_credentials: Option<Arc<dyn CodexCredentials>> = handlers
-            .map(|h| h.credential_sync.clone() as Arc<dyn CodexCredentials>);
+        let codex_credentials: Option<Arc<dyn CodexCredentials>> =
+            handlers.map(|h| h.credential_sync.clone() as Arc<dyn CodexCredentials>);
         let actor = resolve_task_actor(
             handlers.map(|h| &h.workspace_resolver),
             targets.workspace_id.as_deref(),
@@ -2198,8 +2261,8 @@ mod tests {
 
     use moatless_identity::auth::users::{MockUserDao, User, UserDao};
     use moatless_tasks::task::dao::{MockTaskDao, TaskDao};
-    use moatless_types::task::Visibility;
     use moatless_tasks::task::models::Task;
+    use moatless_types::task::Visibility;
 
     fn epoch() -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::from_timestamp(0, 0).expect("epoch is a valid timestamp")

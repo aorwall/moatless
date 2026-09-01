@@ -471,6 +471,7 @@ async fn injected_input_ack_waits_for_following_source() {
         .expect("submit first");
     coord
         .handle_signal(Signal::ExecutionStarted {
+            agent_turn_id: None,
             session: SessionId("sess-1".to_string()),
             cause: Cause::Input(InputId("in-1".to_string())),
         })
@@ -517,8 +518,11 @@ async fn injected_input_ack_waits_for_following_source() {
 #[tokio::test]
 async fn resume_run_maps_recovery_events_onto_the_interrupted_turns_run_id() {
     let (events, received, _cancel) = recording_publisher();
-    let mut coord =
-        Coordinator::new(Harness::scripted(Script::new(vec![])), events.clone(), "task-1");
+    let mut coord = Coordinator::new(
+        Harness::scripted(Script::new(vec![])),
+        events.clone(),
+        "task-1",
+    );
 
     // The recovery path adopts the interrupted turn's run_id before the resumed
     // execution starts, so every event maps back to that turn instead of forking
@@ -532,6 +536,7 @@ async fn resume_run_maps_recovery_events_onto_the_interrupted_turns_run_id() {
         .expect("submit");
     coord
         .handle_signal(Signal::ExecutionStarted {
+            agent_turn_id: None,
             session: SessionId("sess-1".to_string()),
             cause: Cause::Input(InputId("in-1".to_string())),
         })
@@ -559,6 +564,7 @@ async fn injected_input_ack_resolves_on_following_activity() {
         .expect("submit first");
     coord
         .handle_signal(Signal::ExecutionStarted {
+            agent_turn_id: None,
             session: SessionId("sess-1".to_string()),
             cause: Cause::Input(InputId("in-1".to_string())),
         })
@@ -614,6 +620,7 @@ async fn multiple_injected_input_acks_resolve_on_one_following_source() {
         .expect("submit first");
     coord
         .handle_signal(Signal::ExecutionStarted {
+            agent_turn_id: None,
             session: SessionId("sess-1".to_string()),
             cause: Cause::Input(InputId("in-1".to_string())),
         })
@@ -680,6 +687,7 @@ async fn injected_input_ack_is_dropped_when_terminal_arrives_first() {
         .expect("submit first");
     coord
         .handle_signal(Signal::ExecutionStarted {
+            agent_turn_id: None,
             session: SessionId("sess-1".to_string()),
             cause: Cause::Input(InputId("in-1".to_string())),
         })
@@ -733,6 +741,7 @@ async fn injected_input_ack_is_dropped_when_cancelled_terminal_arrives_first() {
         .expect("submit first");
     coord
         .handle_signal(Signal::ExecutionStarted {
+            agent_turn_id: None,
             session: SessionId("sess-1".to_string()),
             cause: Cause::Input(InputId("in-1".to_string())),
         })
@@ -778,6 +787,7 @@ async fn injected_input_ack_is_dropped_at_next_execution_start() {
         .expect("submit first");
     coord
         .handle_signal(Signal::ExecutionStarted {
+            agent_turn_id: None,
             session: SessionId("sess-1".to_string()),
             cause: Cause::Input(InputId("in-1".to_string())),
         })
@@ -801,6 +811,7 @@ async fn injected_input_ack_is_dropped_at_next_execution_start() {
         .await;
     coord
         .handle_signal(Signal::ExecutionStarted {
+            agent_turn_id: None,
             session: SessionId("sess-2".to_string()),
             cause: Cause::Internal,
         })
@@ -1092,14 +1103,14 @@ fn build_resume_falls_back_to_continue_for_claude_only() {
 
 use std::collections::HashMap;
 
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::handle::AgentCommand;
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{JobInjector, LateInjector, ScheduledJobRegistry};
-use crate::config::{test_support::minimal_config, Config};
-use crate::credentials::recovery::{CredentialFailureDetector, CODEX_AUTH_JSON};
+use crate::config::{Config, test_support::minimal_config};
+use crate::credentials::recovery::{CODEX_AUTH_JSON, CredentialFailureDetector};
 use crate::credentials::{CredentialSink, Dispatcher};
 
 use super::CoordinatorService;
@@ -1218,6 +1229,7 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: ack_tx,
     })
     .expect("channel open");
@@ -1280,6 +1292,7 @@ async fn coordinator_service_sends_during_active_turn_into_running_harness() {
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: first_ack,
     })
     .expect("channel open");
@@ -1296,6 +1309,7 @@ async fn coordinator_service_sends_during_active_turn_into_running_harness() {
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: second_ack,
     })
     .expect("channel open");
@@ -1354,6 +1368,7 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: first_ack,
     })
     .expect("channel open");
@@ -1379,6 +1394,7 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: second_ack,
     })
     .expect("channel open");
@@ -1438,6 +1454,7 @@ async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: ack_tx,
     })
     .expect("channel open");
@@ -1514,6 +1531,7 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: ack_tx,
     })
     .expect("channel open");
@@ -1630,6 +1648,7 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: ack_tx,
     })
     .expect("channel open");
@@ -1696,6 +1715,7 @@ async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
             effort: None,
             resume_session_id: None,
             start_fresh: false,
+            fork: None,
             ack: ack_tx,
         })
         .expect("channel open");
@@ -1714,6 +1734,7 @@ async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: ack_tx,
     })
     .expect("channel open");
@@ -1769,6 +1790,7 @@ async fn start_turn_and_wait_running(
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: ack_tx,
     })
     .expect("channel open");
@@ -2180,6 +2202,7 @@ fn send_text(tx: &mpsc::UnboundedSender<AgentCommand>, text: &str) {
         effort: None,
         resume_session_id: None,
         start_fresh: false,
+        fork: None,
         ack: ack_tx,
     })
     .expect("channel open");

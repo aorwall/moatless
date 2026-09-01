@@ -478,6 +478,7 @@ pub fn spawn_grpc_server(
             workspace_resolver: p.workspace_resolver.clone(),
             tasks: p.tasks.clone(),
             task_relations: p.task_relations.clone(),
+            task_forks: p.task_forks.clone(),
             provider_token_auth: p.provider_token_auth.clone(),
             secrets: p.secrets.clone(),
             credential_sync,

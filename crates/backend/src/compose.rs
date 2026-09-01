@@ -9,7 +9,6 @@
 use std::sync::Arc;
 
 use crate::adapter_apps::dao::{AdapterAppDao, PgAdapterAppDao};
-use moatless_adapter_model::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::auth::api_keys::{ApiKeyDao, PgApiKeyDao};
 use crate::auth::github::registry::GitHubAppRegistry;
@@ -36,14 +35,12 @@ use crate::sandbox::lifecycle::{
     PgLifecycleDao, PgLifecycleLock, ProvisionDeps, Reconciler, ReconcilerConfig, ReconcilerDeps,
     S3WorkspaceArchive, SystemWallClock,
 };
-use moatless_sandbox_runtime::fleet::FleetObserver;
-use moatless_sandbox_runtime::runtime::SandboxRuntime;
 use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
 use crate::secret::dao::{PgSecretDao, SecretDao};
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher, SecretService};
 use crate::tag::dao::{PgTagDao, TagDao};
-use moatless_loops::bindings::dao::TaskBindingDao;
 use crate::task::dao::{PgTaskDao, TaskDao};
+use crate::task::fork::{PgTaskForkDao, TaskForkDao};
 use crate::task::relations::{PgTaskRelationDao, TaskRelationDao};
 use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
 use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
@@ -51,11 +48,15 @@ use crate::team::dao::{PgTeamDao, TeamDao};
 use crate::workspace::credentials::dao::{PgWorkspaceCredentialDao, WorkspaceCredentialDao};
 use crate::workspace::credentials::service::WorkspaceCredentialService;
 use crate::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
-use sandbox_proto::client::SandboxConnector;
+use moatless_adapter_model::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 use moatless_identity::git_host_tokens::GitHostTokens;
+use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_sandbox_runtime::fleet::FleetObserver;
+use moatless_sandbox_runtime::runtime::SandboxRuntime;
+use sandbox_proto::client::SandboxConnector;
 
 /// Bounded per-Task lock-acquire attempts before a lifecycle call surfaces
 /// `OperationInProgress`. The inline retry is only a latency fast path — the
@@ -80,6 +81,9 @@ pub struct Ports {
     /// ForwardAuth gate needs, over `TaskDao`, so identity holds no `task` import.
     pub task_access: Arc<dyn crate::extractors::TaskAccess>,
     pub task_relations: Arc<dyn TaskRelationDao>,
+    /// Where a fork's first turn branches from. Read by the creation service
+    /// that writes it and by the delivery path that spends it.
+    pub task_forks: Arc<dyn TaskForkDao>,
     /// Task↔external-subject bindings (`task_bindings`).
     pub task_bindings: Arc<dyn TaskBindingDao>,
     /// The binding store and the Loops that label its rows, behind the
@@ -236,7 +240,9 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
     // published `TaskReader` seam peer crates read.
     let task_dao = Arc::new(PgTaskDao::new(
         pool.clone(),
-        Arc::new(moatless_workspaces::ports::ShadowWorkspaces::new(pool.clone())),
+        Arc::new(moatless_workspaces::ports::ShadowWorkspaces::new(
+            pool.clone(),
+        )),
     ));
     let task_reader = Arc::new(moatless_tasks::ports::TaskProjection::new(task_dao.clone()));
 
@@ -256,16 +262,14 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
     // store — the `TaskBindings` seam the Task band reads.
     let task_bindings: Arc<dyn TaskBindingDao> = Arc::new(PgTaskBindingDao::new(pool.clone()));
     let loops = Arc::new(LoopDao::new(pool.clone()));
-    let binding_directory = Arc::new(BindingDirectory::new(
-        task_bindings.clone(),
-        loops.clone(),
-    ));
+    let binding_directory = Arc::new(BindingDirectory::new(task_bindings.clone(), loops.clone()));
 
     Ports {
         tasks: task_dao.clone(),
         task_access: task_dao,
         task_reader,
         task_relations: Arc::new(PgTaskRelationDao(pool.clone())),
+        task_forks: Arc::new(PgTaskForkDao(pool.clone())),
         task_bindings,
         binding_directory,
         task_events: Arc::new(PgTaskEventDao(pool.clone())),

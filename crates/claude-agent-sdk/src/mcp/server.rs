@@ -294,10 +294,12 @@ mod tests {
 
         let resp = server.handle_message(&msg).await;
         assert_eq!(resp["id"], 4);
-        assert!(resp["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("not found"));
+        assert!(
+            resp["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not found")
+        );
     }
 
     #[tokio::test]
@@ -324,10 +326,12 @@ mod tests {
         });
 
         let resp = server.handle_message(&msg).await;
-        assert!(resp["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("not found"));
+        assert!(
+            resp["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not found")
+        );
     }
 
     #[test]

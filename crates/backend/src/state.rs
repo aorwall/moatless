@@ -7,8 +7,6 @@
 use std::sync::Arc;
 
 use crate::adapter_installations::AdapterInstallations;
-use moatless_adapter_model::registry::Adapters;
-use moatless_adapter_model::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::self_echo::SelfEchoFilter;
 use crate::agent_harness_access::{AgentHarnessAccess, ProviderCodexDeviceLogin};
@@ -39,34 +37,37 @@ use crate::secret::service::SecretService;
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::TagDao;
-use moatless_backend_core::binding::TaskBindings;
-use moatless_adapter_model::binding::BindingProbe;
-use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_loops::bindings::ports::BindingDirectory;
 use crate::task::closer::TaskCloser;
 use crate::task::creation::TaskCreationService;
-use moatless_backend_core::sandbox::{PreflightPort, SandboxJoiner};
 use crate::task::dao::TaskDao;
-use moatless_types::task::CheckoutMode;
+use crate::task::fork::TaskForkService;
 use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelationDao;
-use moatless_backend_core::sandbox::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::team::dao::TeamDao;
 use crate::workspace::credentials::service::WorkspaceCredentialService;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::GitSyncService;
+use moatless_adapter_model::binding::BindingProbe;
+use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::registry::Adapters;
+use moatless_backend_core::binding::TaskBindings;
+use moatless_backend_core::identity::GitHostTokenIssuer;
 use moatless_backend_core::sandbox::SandboxError;
-use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
+use moatless_backend_core::sandbox::SandboxLifecycle;
+use moatless_backend_core::sandbox::{PreflightPort, SandboxJoiner};
 use moatless_core::config::{Config, S3Config};
-use moatless_types::agent::CodexOAuthConfig;
-use moatless_types::auth::AuthConfig;
-use moatless_types::secret::SecretsConfig;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 use moatless_identity::git_host_access::{GitHostAccess, ProviderGitHostTokenValidator};
-use moatless_backend_core::identity::GitHostTokenIssuer;
+use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::ports::BindingDirectory;
+use moatless_types::agent::CodexOAuthConfig;
+use moatless_types::auth::AuthConfig;
+use moatless_types::secret::SecretsConfig;
+use moatless_types::task::CheckoutMode;
+use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 
 /// Shared application state for task/message/agent/file routes.
 ///
@@ -158,6 +159,9 @@ pub struct AppState {
     /// Single owner of the create-then-provision sequence (short-id, preflight,
     /// insert, tags, relations, provision, first message, event).
     pub task_creation: Arc<TaskCreationService>,
+    /// Resolves where a fork cuts and copies the parent's conversation onto it.
+    /// The create itself still goes through `task_creation`.
+    pub task_fork: Arc<TaskForkService>,
     /// GitHub-token preflight, assembled once at the composition root. The
     /// task-start handler calls the same port `task_creation` runs rather than
     /// reassembling the credential handles and validator per request.
@@ -294,6 +298,7 @@ impl AppState {
             tasks,
             task_reader,
             task_relations,
+            task_forks,
             task_bindings,
             binding_directory,
             task_events,
@@ -456,10 +461,17 @@ impl AppState {
         let sandbox_joiner: Arc<dyn SandboxJoiner> = Arc::new(ConnectorSandboxJoiner {
             connector: connector.clone(),
         });
+        let task_fork = Arc::new(TaskForkService::new(
+            tasks.clone(),
+            task_turns.clone(),
+            messages.clone(),
+            tags.clone(),
+        ));
         let task_creation = Arc::new(TaskCreationService::new(
             tasks.clone(),
             tags.clone(),
             task_relations.clone(),
+            task_forks.clone(),
             repository_reader.clone(),
             events.clone(),
             lifecycle.clone(),
@@ -556,6 +568,7 @@ impl AppState {
             tasks,
             task_reader,
             task_creation,
+            task_fork,
             preflight,
             relation_recorder: Arc::new(moatless_tasks::ports::TaskRelations::new(
                 task_relations.clone(),
@@ -822,9 +835,7 @@ impl axum::extract::FromRef<AppState> for Arc<dyn moatless_backend_core::identit
     }
 }
 
-impl axum::extract::FromRef<AppState>
-    for Arc<dyn moatless_backend_core::identity::SecretResolver>
-{
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_backend_core::identity::SecretResolver> {
     fn from_ref(state: &AppState) -> Self {
         state.secrets.clone()
     }
@@ -948,7 +959,9 @@ impl axum::extract::FromRef<AppState> for Arc<dyn moatless_adapter_model::loops:
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<dyn moatless_adapter_model::delivery::DeliveryAdmission> {
+impl axum::extract::FromRef<AppState>
+    for Arc<dyn moatless_adapter_model::delivery::DeliveryAdmission>
+{
     fn from_ref(state: &AppState) -> Self {
         state.adapter_delivery.clone()
     }
@@ -1046,6 +1059,12 @@ impl From<&AppState> for crate::event_handler::agent_handlers::AgentErrorPorts {
 impl axum::extract::FromRef<AppState> for Arc<TaskPresenter> {
     fn from_ref(state: &AppState) -> Self {
         state.task_presenter.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<TaskForkService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_fork.clone()
     }
 }
 

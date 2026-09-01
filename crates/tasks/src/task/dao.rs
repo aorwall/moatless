@@ -11,10 +11,10 @@ use super::models::{
     CheckoutMode, SandboxDesiredState, SandboxIntentView, Task, TaskRow, TaskStatus, Visibility,
     sandbox_intent_epoch,
 };
-use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 use moatless_backend_core::db_enum::decode_optional;
 use moatless_backend_core::workspace::WorkspaceProvisioner;
 use moatless_core::db::DbPool;
+use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 use moatless_types::agent::AgentType;
 
 #[derive(sqlx::FromRow)]
@@ -366,9 +366,7 @@ impl TaskDao for PgTaskDao {
         // auto-follow below, so no creation path can silently skip it.
         let workspace_id = match row.workspace_id.clone() {
             Some(id) => id,
-            None => {
-                shadow_workspace(self.workspaces.as_ref(), &row.repository_id).await?
-            }
+            None => shadow_workspace(self.workspaces.as_ref(), &row.repository_id).await?,
         };
 
         let mut tx = self.pool.begin().await?;
@@ -620,9 +618,7 @@ impl TaskDao for PgTaskDao {
     ) -> Result<String, sqlx::Error> {
         match workspace_id {
             Some(id) => Ok(id),
-            None => {
-                shadow_workspace(self.workspaces.as_ref(), repository_id).await
-            }
+            None => shadow_workspace(self.workspaces.as_ref(), repository_id).await,
         }
     }
 
@@ -766,10 +762,12 @@ impl TaskDao for PgTaskDao {
                       WHERE tt.task_id = t.task_id
                         AND tg.name = $6
                   ))
+                  -- Both parent edges: a fork shows up under the Task it was
+                  -- branched off, exactly as a child shows up under its creator.
                   AND ($7::text IS NULL OR EXISTS (
                       SELECT 1 FROM task_relations tr
                       WHERE tr.from_task_id = t.task_id
-                        AND tr.relation_type = 'created_by'
+                        AND tr.relation_type IN ('created_by', 'forked_from')
                         AND tr.to_task_id = $7
                   ))
                   AND ($11::text IS NULL OR EXISTS (
@@ -1539,9 +1537,7 @@ pub async fn update_task(
     patch: &TaskPatch,
     ctx: &ScopeContext,
 ) -> Result<bool, sqlx::Error> {
-    store_over(pool)
-        .update_task(task_id, patch, ctx)
-        .await
+    store_over(pool).update_task(task_id, patch, ctx).await
 }
 
 /// Delete a task (convenience wrapper).

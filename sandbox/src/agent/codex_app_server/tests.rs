@@ -619,6 +619,32 @@ fn turn_params_carry_the_requested_effort() {
     assert_eq!(turn.effort.as_deref(), Some("minimal"));
 }
 
+/// A fork at a past turn cuts on `lastTurnId` and excludes the cut turn's own
+/// boundary; a fork at head omits `lastTurnId` to copy the whole thread.
+#[test]
+fn fork_params_carry_the_cut_and_exclude_the_boundary() {
+    let config = parity_config();
+
+    let at_turn = thread_fork_params(&config, "thread-1", Some("turn-7"));
+    assert_eq!(at_turn.thread_id, "thread-1");
+    assert_eq!(at_turn.last_turn_id.as_deref(), Some("turn-7"));
+    assert_eq!(at_turn.cwd.as_deref(), Some("/workspace"));
+    assert!(at_turn.exclude_turns);
+
+    let value = serde_json::to_value(&at_turn).expect("serialize");
+    assert_eq!(value["threadId"], "thread-1");
+    assert_eq!(value["lastTurnId"], "turn-7");
+    assert_eq!(value["excludeTurns"], true);
+
+    // At head there is no turn to cut on: `lastTurnId` must be absent, not null,
+    // so the server forks the whole thread rather than rejecting an empty id.
+    let at_head = thread_fork_params(&config, "thread-1", None);
+    assert!(at_head.last_turn_id.is_none());
+    let head_value = serde_json::to_value(&at_head).expect("serialize");
+    assert!(head_value.get("lastTurnId").is_none());
+    assert_eq!(head_value["excludeTurns"], true);
+}
+
 #[test]
 fn params_serialize_as_camel_case() {
     let value = serde_json::to_value(thread_resume_params(

@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
@@ -27,7 +27,7 @@ use crate::error::Result;
 use crate::types::content::Usage;
 use crate::types::messages::SdkMessage;
 
-use super::translator::{translate_record, Translated, TurnAccumulator};
+use super::translator::{Translated, TurnAccumulator, translate_record};
 
 /// Maps sub-agent id → the `tool_use_id` of the `Task` call that spawned it,
 /// as learned from the main transcript.

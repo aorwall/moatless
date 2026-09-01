@@ -52,12 +52,13 @@ use crate::types::messages::SdkMessage;
 use crate::types::options::ClaudeOptions;
 
 pub use self::session::has_resumable_transcript;
+pub use self::session::transcript_dir;
 
-use self::hooks::{spawn_reader, HookHarness, HookLine};
-use self::session::{list_jsonl_stems, resolve_project_dir, resolve_resume_target, TmuxSession};
+use self::hooks::{HookHarness, HookLine, spawn_reader};
+use self::session::{TmuxSession, list_jsonl_stems, resolve_project_dir, resolve_resume_target};
 use self::tailer::{
-    discover_transcript_path, spawn_hook_listener, spawn_lazy_supervisor, spawn_supervisor,
-    synth_system_init, HookState, TailTarget,
+    HookState, TailTarget, discover_transcript_path, spawn_hook_listener, spawn_lazy_supervisor,
+    spawn_supervisor, synth_system_init,
 };
 use self::trust::{scan_for_bypass_dialog, scan_for_trust_dialog};
 use self::writer::TmuxPasteWriter;

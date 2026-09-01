@@ -29,15 +29,15 @@ use super::schemas::CreateTaskRequest;
 use crate::agent::catalog;
 use crate::credential_sync::CredentialSync;
 use crate::message::send::MessageSendService;
-use moatless_types::task::Visibility;
-use moatless_backend_core::sandbox::SandboxLifecycle;
 use moatless_backend_core::access_control::ensure_can_use_repository;
-use moatless_types::access_control::{ScopeContext, ScopedResource};
+use moatless_backend_core::sandbox::SandboxLifecycle;
+use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
+use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_types::agent::AgentType;
-use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_types::repository::RepositoryKind;
+use moatless_types::task::Visibility;
 
 /// A create request plus the two things only an internal caller supplies.
 pub struct CreateTaskIntent {
@@ -276,8 +276,7 @@ pub async fn normalize(
         loop_id: None,
         workspace_id: req.workspace_id.clone(),
         sandbox_id: req.sandbox_id.clone(),
-        checkout_mode: req
-            .checkout_mode,
+        checkout_mode: req.checkout_mode,
         template_id: if is_template {
             Some(repository_id)
         } else {
@@ -294,6 +293,9 @@ pub async fn normalize(
             context: serde_json::json!({ "via": "create_task_request" }),
         }),
         related_to: None,
+        // A create request never forks: the fork handler builds its own
+        // `NewTaskRequest` on top of what this returns.
+        forked_from: None,
         // Skills alone are enough to start the agent: they frontload into the
         // first turn on the pod. So a first message is delivered whenever there is
         // text or a skill to activate — an empty prompt with skills still opens a
