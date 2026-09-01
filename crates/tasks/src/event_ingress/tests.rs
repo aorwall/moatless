@@ -69,8 +69,17 @@ impl TaskTurnDao for RecordingTurns {
         unreachable!("list_unclosed_active_turns is the reaper path")
     }
 
-    async fn list_settled_turns_with_later_activity(&self) -> Result<Vec<SettledTurn>, sqlx::Error> {
+    async fn list_settled_turns_with_later_activity(
+        &self,
+    ) -> Result<Vec<SettledTurn>, sqlx::Error> {
         unreachable!("list_settled_turns_with_later_activity is the reaper path")
+    }
+
+    async fn list_superseded_open_turns(
+        &self,
+        _older_than: DateTime<Utc>,
+    ) -> Result<Vec<UnclosedTurn>, sqlx::Error> {
+        unreachable!("list_superseded_open_turns is the reaper path")
     }
 
     async fn resolve_turn_for_run(

@@ -158,9 +158,20 @@ pub trait TaskTurnDao: Send + Sync {
     /// confirms against the agent itself; sweeping every running Sandbox would
     /// cost a gRPC round trip each per tick. `run_id` is the run recorded on
     /// the closed turn, for telling a newer run from one that contradicts it.
-    async fn list_settled_turns_with_later_activity(
+    async fn list_settled_turns_with_later_activity(&self)
+    -> Result<Vec<SettledTurn>, sqlx::Error>;
+
+    /// Open turns (`active`/`interrupted`) that a higher-numbered turn already
+    /// supersedes, started before `older_than`. A later turn proves the agent
+    /// moved on, so these will never resume and are settled directly rather
+    /// than by inspecting a sandbox — the one whose turn it was is long gone.
+    /// [`Self::list_unclosed_active_turns`] returns only a task's newest open
+    /// turn, so without this a stranded earlier turn stays open forever,
+    /// reporting the task busy to every reader of `task_turns`.
+    async fn list_superseded_open_turns(
         &self,
-    ) -> Result<Vec<SettledTurn>, sqlx::Error>;
+        older_than: DateTime<Utc>,
+    ) -> Result<Vec<UnclosedTurn>, sqlx::Error>;
 
     /// The turn number for a sandbox agent run, allocating it on first sight.
     ///
@@ -454,6 +465,46 @@ impl TaskTurnDao for PgTaskTurnDao {
                 turn_number,
                 agent_type,
                 run_id,
+            })
+            .collect())
+    }
+
+    async fn list_superseded_open_turns(
+        &self,
+        older_than: DateTime<Utc>,
+    ) -> Result<Vec<UnclosedTurn>, sqlx::Error> {
+        // The complement of `list_unclosed_active_turns`: open turns strictly
+        // below the task's high-water mark. That later turn is the proof of
+        // supersession, so no age of the row itself is required — the floor is
+        // only a guard against racing a terminal event still in flight.
+        let rows: Vec<(String, i32, Option<String>)> = sqlx::query_as(
+            r#"SELECT tt.task_id, tt.turn_number, tt.agent_type
+               FROM task_turns tt
+               WHERE tt.status IN ('active', 'interrupted')
+                 AND tt.started_at < $1
+                 AND tt.turn_number < GREATEST(
+                   COALESCE((
+                     SELECT MAX(later_tt.turn_number)
+                     FROM task_turns later_tt
+                     WHERE later_tt.task_id = tt.task_id
+                   ), 0),
+                   COALESCE((
+                     SELECT MAX(m.turn_number)
+                     FROM task_messages m
+                     WHERE m.task_id = tt.task_id
+                   ), 0)
+                 )"#,
+        )
+        .bind(older_than)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(task_id, turn_number, agent_type)| UnclosedTurn {
+                task_id,
+                turn_number: Some(turn_number),
+                agent_type,
             })
             .collect())
     }

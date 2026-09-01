@@ -769,7 +769,14 @@ async fn latest_running_signals_reads_the_newest_turn_and_the_newest_person(pool
 
     let ended = Utc::now() - Duration::minutes(30);
     seed_closed_turn(&pool, "task-a", 1, "completed", Some(ended)).await;
-    seed_closed_turn(&pool, "task-a", 2, "stopped", Some(ended + Duration::minutes(10))).await;
+    seed_closed_turn(
+        &pool,
+        "task-a",
+        2,
+        "stopped",
+        Some(ended + Duration::minutes(10)),
+    )
+    .await;
 
     let insert_message = |uuid: &'static str, message_type: &'static str, minutes_ago: i64| {
         let pool = pool.clone();
@@ -897,4 +904,111 @@ async fn a_running_newest_turn_still_blocks_a_fork(pool: PgPool) {
     let point = repo.fork_point("task-a", None).await.unwrap();
 
     assert_eq!(point.open_turn, Some(2));
+}
+
+/// The reaper's second turn pass. `list_unclosed_active_turns` returns only a
+/// task's newest open turn, so a turn a later turn ran past is invisible to it;
+/// this query is what finds those, keyed on being open and below the task's
+/// high-water mark.
+#[sqlx::test]
+async fn list_superseded_open_turns_returns_only_turns_a_later_turn_ran_past(pool: PgPool) {
+    let old = Utc::now() - Duration::hours(1);
+    let recent = Utc::now();
+
+    let seed = |task_id: &'static str,
+                turn_number: i32,
+                status: &'static str,
+                started_at: chrono::DateTime<Utc>| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query(
+                r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at)
+                   VALUES ($1, $2, $3, 'claude-code', $4)"#,
+            )
+            .bind(task_id)
+            .bind(turn_number)
+            .bind(status)
+            .bind(started_at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    };
+
+    // Superseded: turn 1 still open, turn 2 already finished.
+    seed("stranded", 1, "interrupted", old).await;
+    seed("stranded", 2, "completed", recent).await;
+    // The newest turn is the open one — the other pass owns this, not us.
+    seed("newest-open", 1, "completed", old).await;
+    seed("newest-open", 2, "active", old).await;
+    // Open and superseded but not yet past the age floor.
+    seed("too-recent", 1, "active", recent).await;
+    seed("too-recent", 2, "completed", recent).await;
+    // Superseded but already terminal — nothing to settle.
+    seed("already-done", 1, "completed", old).await;
+    seed("already-done", 2, "completed", recent).await;
+
+    let repo = PgTaskTurnDao(pool.clone());
+    let cutoff = Utc::now() - Duration::minutes(5);
+    let superseded = repo.list_superseded_open_turns(cutoff).await.unwrap();
+
+    let ids: Vec<(String, Option<i32>)> = superseded
+        .into_iter()
+        .map(|t| (t.task_id, t.turn_number))
+        .collect();
+    assert_eq!(ids, vec![("stranded".to_string(), Some(1))]);
+}
+
+/// Settling a superseded turn moves its row to terminal and takes it off the
+/// list, without disturbing the newest turn that superseded it.
+#[sqlx::test]
+async fn a_superseded_turn_settles_to_terminal_and_leaves_the_newest_alone(pool: PgPool) {
+    let old = Utc::now() - Duration::hours(1);
+    let repo = PgTaskTurnDao(pool.clone());
+
+    sqlx::query(
+        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at)
+           VALUES ('task-a', 1, 'interrupted', 'claude-code', $1),
+                  ('task-a', 2, 'completed',   'claude-code', $1)"#,
+    )
+    .bind(old)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let cutoff = Utc::now() - Duration::minutes(5);
+    assert_eq!(
+        repo.list_superseded_open_turns(cutoff).await.unwrap().len(),
+        1
+    );
+
+    repo.project_turn(
+        "task-a",
+        1,
+        Some("claude-code".to_string()),
+        TurnTransition::Terminal(TurnStatus::Stopped),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        turn_row(&pool, "task-a", 1)
+            .await
+            .map(|(s, ended, _)| (s, ended)),
+        Some(("stopped".to_string(), true)),
+        "the stranded turn is now terminal"
+    );
+    assert_eq!(
+        turn_row(&pool, "task-a", 2).await.map(|(s, _, _)| s),
+        Some("completed".to_string()),
+        "the newest turn is untouched"
+    );
+    assert!(
+        repo.list_superseded_open_turns(cutoff)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a settled turn is no longer listed"
+    );
 }

@@ -26,20 +26,20 @@ use tracing::{debug, info, warn};
 use crate::agent_event::AgentEvent;
 use crate::event_handler::agent_handlers::AgentErrorPorts;
 use crate::message::dao::MessageDao;
-use moatless_loops::bindings::dao::TaskBindingDao;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
-use moatless_types::sandbox::ArchiveRetention;
-use moatless_backend_core::sandbox::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{SettledTurn, TurnStatus, TurnTransition, UnclosedTurn};
-use sandbox_proto::client::SandboxConnector;
-use moatless_types::access_control::ScopeContext;
+use moatless_backend_core::sandbox::SandboxLifecycle;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::leader::LeaderGuard;
+use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_types::access_control::ScopeContext;
 use moatless_types::event::EventType;
+use moatless_types::sandbox::ArchiveRetention;
+use sandbox_proto::client::SandboxConnector;
 
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
 ///
@@ -267,11 +267,23 @@ impl TaskReaper {
 
         // The converse: turns closed while their run kept going. Same
         // best-effort contract.
-        match self.task_turns.list_settled_turns_with_later_activity().await {
+        match self
+            .task_turns
+            .list_settled_turns_with_later_activity()
+            .await
+        {
             Ok(settled) => self.reconcile_live_runs(&sandbox_ids, &settled).await,
             Err(e) => {
                 warn!(error = %e, "reconcile: failed to list settled turns with later activity");
             }
+        }
+
+        // Settle turns a later turn already ran past. These never reach the
+        // pass above — it lists only each task's newest open turn — so without
+        // this they stay open for good, reporting the task busy.
+        match self.task_turns.list_superseded_open_turns(cutoff).await {
+            Ok(superseded) => self.reconcile_superseded_turns(&superseded).await,
+            Err(e) => warn!(error = %e, "reconcile: failed to list superseded open turns"),
         }
 
         // Orphan-GC deletes only taskless resources. Desired Removed convergence
@@ -808,7 +820,11 @@ impl TaskReaper {
     /// itself — including when the run's own `taskTurn.active` lands first,
     /// which resolves to the same turn rather than a second one.
     async fn open_turn_for_live_run(&self, turn: &SettledTurn, run_id: &str) {
-        match self.task_turns.resolve_turn_for_run(&turn.task_id, run_id).await {
+        match self
+            .task_turns
+            .resolve_turn_for_run(&turn.task_id, run_id)
+            .await
+        {
             Ok(turn_number) => {
                 info!(
                     task_id = %turn.task_id,
@@ -837,6 +853,67 @@ impl TaskReaper {
                 warn!(task_id, error = %e, "reconcile: desired-state lookup failed");
                 false
             }
+        }
+    }
+
+    /// Settle turns a later turn already superseded.
+    ///
+    /// Unlike [`Self::reconcile_orphaned_turns`], no sandbox is consulted: a
+    /// higher-numbered turn is proof the agent moved on, so the row is settled
+    /// straight to a terminal status. The task itself is left alone — its
+    /// status follows its newest turn, which these are not — so no reopen and
+    /// no `taskTurn` event is published. The status is honest about how the
+    /// turn ended: `completed` when its final reply is on record and only the
+    /// terminal event was lost, `stopped` when it was genuinely cut off.
+    async fn reconcile_superseded_turns(&self, superseded: &[UnclosedTurn]) {
+        for turn in superseded {
+            let Some(turn_number) = turn.turn_number else {
+                continue;
+            };
+            let status = match self
+                .messages
+                .last_message_is_completed_reply(&turn.task_id, Some(turn_number))
+                .await
+            {
+                Ok(true) => TurnStatus::Completed,
+                Ok(false) => TurnStatus::Stopped,
+                Err(e) => {
+                    warn!(
+                        task_id = %turn.task_id,
+                        error = %e,
+                        "reconcile: failed to inspect superseded turn's last message; settling as stopped"
+                    );
+                    TurnStatus::Stopped
+                }
+            };
+
+            if let Err(e) = self
+                .task_turns
+                .project_turn(
+                    &turn.task_id,
+                    turn_number,
+                    turn.agent_type.clone(),
+                    TurnTransition::Terminal(status),
+                    Utc::now(),
+                )
+                .await
+            {
+                warn!(
+                    task_id = %turn.task_id,
+                    turn_number,
+                    error = %e,
+                    "reconcile: failed to settle superseded turn"
+                );
+                continue;
+            }
+
+            metrics::counter!("task_turns_reconciled_total").increment(1);
+            info!(
+                task_id = %turn.task_id,
+                turn_number,
+                status = status.as_str(),
+                "Settled a superseded open turn"
+            );
         }
     }
 }
