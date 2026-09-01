@@ -1217,6 +1217,12 @@ fn create_refusal(task_id: &str, error: TaskError) -> CommandRefusal {
             task_id: task_id.to_string(),
         },
         TaskError::BadRequest(message) => CommandRefusal::Rejected { message },
+        // Understood, and refused for something the person can act on — a turn
+        // still in flight, a lifecycle operation already holding the Sandbox.
+        // The message carries through because it names what to do next, and
+        // because the HTTP surface already answers these with the same string
+        // as its 409 body, so repeating it here discloses nothing further.
+        TaskError::Conflict(message) => CommandRefusal::Rejected { message },
         TaskError::RepoNotFound(id) => CommandRefusal::Rejected {
             message: format!("Repository {id} could not be found."),
         },
@@ -1284,6 +1290,42 @@ mod tests {
         assert!(matches!(
             provider_said_no,
             PullRequestError::Unavailable(message) if message == "PR is locked"
+        ));
+    }
+
+    /// A conflict is the one refusal a person can clear themselves, so it is
+    /// the one whose wording has to survive the trip. `Rejected` rather than
+    /// `Failed` because nothing failed: the request was understood and answered.
+    #[test]
+    fn a_conflict_keeps_the_message_that_says_how_to_clear_it() {
+        let refusal = create_refusal(
+            "task-a",
+            TaskError::Conflict(
+                "task task-a has turn 3 in flight; stop it or wait for it before forking".into(),
+            ),
+        );
+
+        assert!(matches!(
+            refusal,
+            CommandRefusal::Rejected { message }
+                if message
+                    == "task task-a has turn 3 in flight; stop it or wait for it before forking"
+        ));
+    }
+
+    /// The wildcard is what keeps a database or store failure from describing
+    /// this deployment's insides to a client, so pin it: a new `TaskError`
+    /// variant is only safe to name above once somebody has read its message.
+    #[test]
+    fn an_unclassified_failure_says_nothing_about_itself() {
+        let refusal = create_refusal(
+            "task-a",
+            TaskError::Internal("connection to 10.0.3.7:5432 refused".into()),
+        );
+
+        assert!(matches!(
+            refusal,
+            CommandRefusal::Failed { message } if message == "The action could not be completed."
         ));
     }
 
