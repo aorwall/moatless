@@ -16,7 +16,8 @@
 //! root. Items the provider and server bands consume across that boundary are
 //! `pub` here (the crate boundary widened them from `pub(crate)`); everything
 //! else stays as narrow as the loops band alone requires.
-pub mod common;
+pub mod access;
+pub mod projection;
 pub mod delivery;
 pub mod events;
 pub mod inbound_delivery;

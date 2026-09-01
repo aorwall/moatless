@@ -7,10 +7,10 @@ use moatless_api_schemas::adapters::{
 };
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 
-use super::common::{
-    AdapterFilter, adapter_connection_response, ensure_task_access_only, resolve_connection,
-    resolve_scope_for_adapter_create,
+use super::access::{
+    ensure_task_access_only, resolve_connection, resolve_scope_for_adapter_create,
 };
+use super::projection::{AdapterFilter, adapter_connection_response};
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::models::AdapterConnection;

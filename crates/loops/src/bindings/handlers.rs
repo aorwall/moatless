@@ -12,11 +12,11 @@ use moatless_api_schemas::message::{
 };
 
 use moatless_adapter_model::registry::Adapters;
-use crate::adapters::common::{
+use crate::adapters::access::{
     ensure_task_access_only, ensure_task_access_with, load_adapter_connection_for_auth_with,
     load_loop_for_auth_with,
-    task_binding_response,
 };
+use crate::adapters::projection::task_binding_response;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::bindings::dao::TaskBindingDao;

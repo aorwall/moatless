@@ -30,7 +30,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use moatless_backend_core::task::{ExternalEvent, TaskReader, TranscriptAppend};
-use moatless_loops::adapters::common::{ensure_task_access_only, ensure_task_access_with};
+use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_access_with};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::footer::FOOTER_MARKER;
 use moatless_adapter_model::capabilities::AdapterDestinationBuilder;

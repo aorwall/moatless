@@ -22,7 +22,7 @@ pub mod providers;
 pub mod routes;
 
 pub use moatless_loops::adapters::{
-    common, delivery, events, inbound_delivery, ingress, self_echo, subject_events,
+    access, delivery, events, inbound_delivery, ingress, projection, self_echo, subject_events,
 };
 
 /// Capability-matrix tests for the registry — they build the concrete providers,

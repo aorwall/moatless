@@ -27,7 +27,7 @@ use self::error::LoopError;
 use self::fetcher::{GitHubLoopFetcher, LoopFetcher};
 use self::models::{LoopFrontmatter, ParsedLoop};
 pub use self::parser::parse_loop;
-use crate::adapters::common::next_fire_at;
+use crate::adapters::projection::next_fire_at;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_types::loops::RoutingMode;
 use crate::loops::dao::{LoopDao, ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};

@@ -10,7 +10,8 @@ use moatless_api_schemas::loops::{ActivateLoopRequest, CreateLoopRequest, Loop, 
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::adapters::common::{LoopFilter, ensure_repository_exists, load_adapter_connection_for_auth_with, load_loop_for_auth_with, loop_response, next_fire_at, resolve_scope_for_adapter_create};
+use crate::adapters::access::{ensure_repository_exists, load_adapter_connection_for_auth_with, load_loop_for_auth_with, resolve_scope_for_adapter_create};
+use crate::adapters::projection::{LoopFilter, loop_response, next_fire_at};
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::models::parse_adapter_kind;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};

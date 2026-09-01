@@ -8,10 +8,8 @@ use moatless_types::access_control::ScopeContext;
 
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::registry::Adapters;
-use crate::adapters::common::{
-    binding_descriptor, binding_reply_target, ensure_task_access_with,
-    load_adapter_connection_for_auth_with,
-};
+use crate::adapters::access::{ensure_task_access_with, load_adapter_connection_for_auth_with};
+use crate::adapters::projection::{binding_descriptor, binding_reply_target};
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::bindings::outbound::{self, OutboundSender};

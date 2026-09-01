@@ -487,14 +487,14 @@ sequenceDiagram
     autonumber
     participant CLI as moat CLI / operator
     participant Routes as api_routes
-    participant ResolveConn as common::resolve_connection
+    participant ResolveConn as access::resolve_connection
     participant API as LinearAgentApi
     participant Bind as bindings::runtime::upsert_binding
-    participant TaskAccess as common::ensure_task_access
+    participant TaskAccess as access::ensure_task_access_only
 
     CLI->>Routes: POST /api/v1/linear/issues (title, team, ..., task_id?)
     Routes->>ResolveConn: resolve_connection(ctx, AdapterKind::Linear, connection_id?)
-    Routes->>TaskAccess: ensure_task_access(ctx, task_id) [if task_id]
+    Routes->>TaskAccess: ensure_task_access_only(ctx, task_id) [if task_id]
     Routes->>API: lookup(team/state/project/assignee/cycle/labels) → UUIDs
     Routes->>API: issueCreate(input)
     API-->>Routes: { id, identifier, url }
