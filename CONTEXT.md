@@ -65,6 +65,15 @@ A single repository's placement inside a Workspace — its branch override, moun
 name (subdir under the workspace directory), primary flag, and ordering. Exactly
 one placement is primary (the repo used for diffs, PRs, and AGENTS.md).
 
+**Repo checkout**:
+A WorkspaceRepo placement resolved for provisioning — `clone_url` taken from the
+repository row, `mount_name` settled to a single safe path segment. What the
+backend hands a Sandbox in the `WORKSPACE_REPOS` env var, one entry per checkout,
+primary first, whose directory is the sandbox's checkout. Distinct from
+**WorkspaceRepo** (the placement) and **RepoPlacement** (the resolved read under
+Workspace ports), both of which leave `mount_name` open. `RepoCheckout` in
+`moatless_types::workspace`.
+
 **Default workspace**:
 The single-repo Workspace automatically derived for a Repository, so a Repository
 is runnable without anyone authoring a Workspace by hand.

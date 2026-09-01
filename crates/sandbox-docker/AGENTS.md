@@ -29,3 +29,8 @@ is never named from here.
   crate's `client` module) must retain the underlying `tonic::Status` as the
   error source; the Docker connector surfaces gRPC failures through it rather
   than stringifying.
+- A runtime driver speaks the runtime contract (`moatless-sandbox-runtime`) and
+  the domain floor (`moatless-types`), never the wire contract
+  (`moatless-api-schemas`). A provisioning value the driver reads — a
+  `RepoCheckout`, `WORKSPACE_REPOS_ENV` — is domain data and lives in
+  `moatless_types::workspace`. `crate_deps.rs` fails the api-schemas edge.

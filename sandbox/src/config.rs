@@ -7,7 +7,7 @@ use std::env;
 
 use claude_agent_sdk::PermissionMode;
 use moatless_api_schemas::plugin::PluginDelivery;
-use moatless_api_schemas::sandbox::{derive_mount_name, RepoCheckout, WORKSPACE_REPOS_ENV};
+use moatless_types::workspace::{RepoCheckout, WORKSPACE_REPOS_ENV, derive_mount_name};
 use serde::Deserialize;
 
 /// Sandbox-private runtime directory.
@@ -783,9 +783,9 @@ fn parse_repo_config() -> ParsedRepoConfig {
 mod tests {
     use super::test_support::minimal_config;
     use super::{
-        default_upload_dir, env_flag_override, env_flag_value_enabled, is_safe_mount_name,
-        parse_permission_mode, parse_repo_checkouts, primary_checkout, resolve_agent_config,
-        PermissionMode, RepoConfigFile,
+        PermissionMode, RepoConfigFile, default_upload_dir, env_flag_override,
+        env_flag_value_enabled, is_safe_mount_name, parse_permission_mode, parse_repo_checkouts,
+        primary_checkout, resolve_agent_config,
     };
 
     /// Unset and empty are "no opinion", so a default-on setting falls through
@@ -1022,9 +1022,11 @@ mod tests {
         let mut config = minimal_config();
         config.workspace_dir = "/opt/moatless/workspace".to_string();
         config.data_dir = "/opt/moatless/data".to_string();
-        assert!(!config
-            .persisted_user_token_path()
-            .starts_with(&config.workspace_dir));
+        assert!(
+            !config
+                .persisted_user_token_path()
+                .starts_with(&config.workspace_dir)
+        );
     }
 
     #[test]

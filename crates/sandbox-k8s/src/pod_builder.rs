@@ -3,20 +3,29 @@
 //! Generates the full Pod spec in Rust code — no YAML template needed.
 //! Server containers are created dynamically from the repo config.
 
-use k8s_openapi::api::core::v1::{Affinity, Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction, HostPathVolumeSource, NodeAffinity, NodeSelectorRequirement, NodeSelectorTerm, PersistentVolumeClaimVolumeSource, Pod, PodSecurityContext, PodSpec, PreferredSchedulingTerm, Probe, ResourceRequirements, SeccompProfile, SecurityContext, TCPSocketAction, Toleration, Volume, VolumeMount};
+use k8s_openapi::api::core::v1::{
+    Affinity, Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
+    HostPathVolumeSource, NodeAffinity, NodeSelectorRequirement, NodeSelectorTerm,
+    PersistentVolumeClaimVolumeSource, Pod, PodSecurityContext, PodSpec, PreferredSchedulingTerm,
+    Probe, ResourceRequirements, SeccompProfile, SecurityContext, TCPSocketAction, Toleration,
+    Volume, VolumeMount,
+};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info, warn};
 
 use super::naming::generate_pod_name;
-use moatless_types::workspace::{Cpu, Memory, Port, ResourceConfig, ResourceQuantities, StorageMedium};
 use moatless_core::config::Config;
-use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_control::jwt::{self, MintedSandboxTokens};
+use moatless_sandbox_runtime::error::SandboxError;
+use moatless_sandbox_runtime::models::{ProvisionPlan, allocated_port};
 use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
-use moatless_sandbox_runtime::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV, allocated_port};
 use moatless_sandbox_runtime::server_runner::build_server_start_script;
+use moatless_types::workspace::{
+    Cpu, Memory, Port, ResourceConfig, ResourceQuantities, StorageMedium,
+};
+use moatless_types::workspace::{RepoCheckout, WORKSPACE_REPOS_ENV};
 
 /// Auth tokens delivered to a sandbox pod.
 ///
@@ -1489,8 +1498,8 @@ pub fn admitted_server_ports(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_types::workspace::ServerConfig;
     use moatless_sandbox_runtime::models::RepoConfig;
+    use moatless_types::workspace::ServerConfig;
 
     /// Build a `ResourceQuantities` from optional quantity spellings.
     fn quantities(cpu: Option<&str>, memory: Option<&str>) -> ResourceQuantities {
@@ -1530,9 +1539,7 @@ mod tests {
         let mut pod = Pod::default();
         stamp_operation_generation(
             &mut pod,
-            RuntimeOperationContext::new(moatless_sandbox_runtime::types::OperationGeneration(
-                31,
-            )),
+            RuntimeOperationContext::new(moatless_sandbox_runtime::types::OperationGeneration(31)),
         );
         assert_eq!(
             pod.metadata

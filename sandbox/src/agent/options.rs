@@ -10,7 +10,7 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::agent::handle::{resolve_agent_harness, AGENT_TYPE_CODEX};
+use crate::agent::handle::{AGENT_TYPE_CODEX, resolve_agent_harness};
 use crate::agent::types::AgentRunRequest;
 use crate::config::Config;
 use crate::events::GrpcEventPublisher;
@@ -408,12 +408,14 @@ fn build_repo_instructions_section(config: &Config) -> Option<String> {
         ));
     }
 
-    let mut sections = vec!["# Repository Instructions\n\n\
+    let mut sections = vec![
+        "# Repository Instructions\n\n\
          Each repository cloned into this workspace carries its own instruction file. \
          Each one is inlined below, under the path it came from — these are the \
          standing rules for that repository, already in front of you, so follow them \
          when working in it rather than re-reading the file."
-        .to_string()];
+            .to_string(),
+    ];
     sections.extend(paths.iter().map(|path| inline_repo_instructions(path)));
     Some(sections.join("\n\n"))
 }
@@ -433,14 +435,18 @@ fn inline_repo_instructions(path: &str) -> String {
                     limit = MAX_INLINED_INSTRUCTIONS_BYTES,
                     "Repo instruction file exceeds the inline cap; truncating"
                 );
-                format!("## `{path}`\n\n{body}\n\n_Truncated at {MAX_INLINED_INSTRUCTIONS_BYTES} bytes — read `{path}` for the rest._")
+                format!(
+                    "## `{path}`\n\n{body}\n\n_Truncated at {MAX_INLINED_INSTRUCTIONS_BYTES} bytes — read `{path}` for the rest._"
+                )
             } else {
                 format!("## `{path}`\n\n{body}")
             }
         }
         Err(error) => {
             warn!(path, %error, "Failed to read repo instruction file; pointing at it instead");
-            format!("## `{path}`\n\nThis file could not be read while assembling the prompt. Read it yourself before working in this repository.")
+            format!(
+                "## `{path}`\n\nThis file could not be read while assembling the prompt. Read it yourself before working in this repository."
+            )
         }
     }
 }
@@ -664,7 +670,7 @@ mod tests {
     use super::*;
 
     use crate::config::{AgentConfig, ProxyConfig};
-    use moatless_api_schemas::sandbox::RepoCheckout;
+    use moatless_types::workspace::RepoCheckout;
     use std::fs;
     use tempfile::tempdir;
 

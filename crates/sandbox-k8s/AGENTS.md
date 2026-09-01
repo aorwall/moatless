@@ -29,6 +29,11 @@ named from here.
   `ResourceConfig` doubles as the storage config, so a per-repo override merges
   per key onto the `K8S_RESOURCE_*` defaults rather than replacing the block — a
   storage-only or memory-only override must not leave the container BestEffort.
+- A runtime driver speaks the runtime contract (`moatless-sandbox-runtime`) and
+  the domain floor (`moatless-types`), never the wire contract
+  (`moatless-api-schemas`). A provisioning value the driver reads — a
+  `RepoCheckout`, `WORKSPACE_REPOS_ENV` — is domain data and lives in
+  `moatless_types::workspace`. `crate_deps.rs` fails the api-schemas edge.
 
 ## K8s Labels
 

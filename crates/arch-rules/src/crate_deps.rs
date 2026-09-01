@@ -5,8 +5,8 @@
 //! explains it, because a forbidden edge is only obvious to whoever wrote it
 //! down.
 
-use crate::workspace::Workspace;
 use crate::Violation;
+use crate::workspace::Workspace;
 
 pub const RULE: &str = "forbidden-crate-dep";
 
@@ -19,12 +19,18 @@ struct Forbidden {
     why: &'static str,
 }
 
-/// The two provider crates the Adapter kernel freed, and the driver rule.
+/// The two provider crates the Adapter kernel freed, the driver rule, and the
+/// wire-contract rule.
 ///
 /// The sqlx entries are the inverse of `TABLE_OWNERS` in
 /// `scripts/check-crate-seams.sh`: a crate that owns no table has no reason to
 /// compile a Postgres driver. Only direct declaration counts, because a crate
 /// that reaches sqlx through a table owner is not the one compiling it in.
+///
+/// The api-schemas entries are the same shape one band up: a runtime driver
+/// speaks the runtime contract (`sandbox-runtime`) and the domain floor
+/// (`types`), never the wire contract. `api-schemas` sits below the drivers, so
+/// no band-order rule forbids the edge; this one does, by privacy.
 const FORBIDDEN: &[Forbidden] = &[
     Forbidden {
         source: "moatless-adapter-slack",
@@ -37,6 +43,18 @@ const FORBIDDEN: &[Forbidden] = &[
         target: "moatless-loops",
         transitive: true,
         why: "the Adapter kernel freed this crate from the loops band — crates/adapter-model/AGENTS.md",
+    },
+    Forbidden {
+        source: "moatless-sandbox-docker",
+        target: "moatless-api-schemas",
+        transitive: false,
+        why: "a runtime driver speaks the runtime contract and the domain floor, never the wire contract — crates/sandbox-docker/AGENTS.md",
+    },
+    Forbidden {
+        source: "moatless-sandbox-k8s",
+        target: "moatless-api-schemas",
+        transitive: false,
+        why: "a runtime driver speaks the runtime contract and the domain floor, never the wire contract — crates/sandbox-k8s/AGENTS.md",
     },
     Forbidden {
         source: "moatless-types",
@@ -101,7 +119,11 @@ pub fn check(ws: &Workspace) -> Vec<Violation> {
                 "{} depends on {}{}: {}",
                 rule.source,
                 rule.target,
-                if rule.transitive { " (transitively)" } else { "" },
+                if rule.transitive {
+                    " (transitively)"
+                } else {
+                    ""
+                },
                 rule.why
             ),
             locations: vec![format!(

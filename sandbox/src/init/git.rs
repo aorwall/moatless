@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use moatless_api_schemas::sandbox::RepoCheckout;
+use moatless_types::workspace::RepoCheckout;
 use tokio::net::TcpStream;
 use tokio::process::Command;
 use tracing::{info, warn};

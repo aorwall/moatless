@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use moatless_api_schemas::sandbox::sanitize_mount_name;
+use moatless_types::workspace::sanitize_mount_name;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;

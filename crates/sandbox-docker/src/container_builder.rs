@@ -16,13 +16,11 @@ use super::naming::{
     generate_claude_config_host_path, generate_container_name, generate_data_host_path,
     generate_sandbox_host_path, generate_server_container_name,
 };
-use moatless_types::workspace::{Memory, Port, ServerConfig};
 use moatless_core::config::Config;
-use moatless_sandbox_runtime::runtime::{
-    OPERATION_GENERATION_LABEL, RuntimeOperationContext,
-};
-use moatless_sandbox_runtime::models::{ProvisionPlan, WORKSPACE_REPOS_ENV};
+use moatless_sandbox_runtime::models::ProvisionPlan;
+use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
 use moatless_sandbox_runtime::server_runner::build_server_start_script;
+use moatless_types::workspace::{Memory, Port, ServerConfig, WORKSPACE_REPOS_ENV};
 
 pub(crate) const CREATED_BY_LABEL: &str = "created-by";
 pub(crate) const CREATED_BY_VALUE: &str = "moatless";
@@ -757,14 +755,14 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repos = vec![
-            moatless_sandbox_runtime::models::RepoCheckout {
+            moatless_types::workspace::RepoCheckout {
                 clone_url: "https://github.com/test/repo.git".into(),
                 branch: Some("main".into()),
                 provider: "github".into(),
                 mount_name: "repo".into(),
                 is_primary: true,
             },
-            moatless_sandbox_runtime::models::RepoCheckout {
+            moatless_types::workspace::RepoCheckout {
                 clone_url: "https://github.com/test/shared.git".into(),
                 branch: None,
                 provider: "github".into(),
@@ -779,7 +777,7 @@ mod tests {
             .iter()
             .find_map(|e| e.strip_prefix(&format!("{WORKSPACE_REPOS_ENV}=")))
             .expect("WORKSPACE_REPOS present");
-        let parsed: Vec<moatless_sandbox_runtime::models::RepoCheckout> =
+        let parsed: Vec<moatless_types::workspace::RepoCheckout> =
             serde_json::from_str(raw).unwrap();
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[1].mount_name, "shared");
@@ -838,9 +836,7 @@ mod tests {
         let mut cc = build_container_config(&config, "task-1", &plan, None);
         stamp_operation_generation(
             &mut cc,
-            RuntimeOperationContext::new(moatless_sandbox_runtime::types::OperationGeneration(
-                17,
-            )),
+            RuntimeOperationContext::new(moatless_sandbox_runtime::types::OperationGeneration(17)),
         );
         assert_eq!(
             cc.labels
