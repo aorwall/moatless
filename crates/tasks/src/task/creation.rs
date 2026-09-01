@@ -421,33 +421,56 @@ impl TaskCreationService {
         // Join an existing sandbox before delivering a first message. The DB
         // membership row must exist first so the sandbox-bound token can
         // authorize this task on later per-task RPCs.
+        //
+        // A join against a shared sandbox that has idle-stopped fails `NotReady`:
+        // there is no pod to register the in-pod context on. That is not a
+        // create failure — the membership `insert_task` already wrote is the
+        // durable fact, and starting the shared sandbox below restores its
+        // checkout and re-registers every member, this one included. So a
+        // `NotReady` join defers to that start rather than 500-ing the create;
+        // every other join error stays fatal and takes the inserted task back
+        // down.
+        let mut join_deferred_to_start = false;
         if let Some(checkout_mode) = join_checkout_mode {
-            if let Err(error) = self.joiner.join_task(&task_id, checkout_mode).await {
-                tracing::warn!(
-                    task_id = %task_id,
-                    sandbox_id = ?row.sandbox_id,
-                    checkout_mode = checkout_mode.as_str(),
-                    error = %error,
-                    "Sandbox join failed during task creation"
-                );
-                let join_error = map_join_error(error);
-                if let Err(cleanup_error) = self
-                    .tasks
-                    .delete_inserted_task_after_join_failure(&task_id)
-                    .await
-                {
-                    tracing::error!(
+            match self.joiner.join_task(&task_id, checkout_mode).await {
+                Ok(()) => {}
+                Err(SandboxError::NotReady(reason)) => {
+                    tracing::info!(
                         task_id = %task_id,
                         sandbox_id = ?row.sandbox_id,
-                        error = %cleanup_error,
-                        "Failed to cleanup task after sandbox join failure"
+                        checkout_mode = checkout_mode.as_str(),
+                        reason = %reason,
+                        "Shared sandbox not ready at join; starting it and deferring registration to its init"
                     );
-                    return Err(TaskCreationError::SandboxJoinCleanup {
-                        join: join_error.to_string(),
-                        cleanup: cleanup_error.to_string(),
-                    });
+                    join_deferred_to_start = true;
                 }
-                return Err(join_error);
+                Err(error) => {
+                    tracing::warn!(
+                        task_id = %task_id,
+                        sandbox_id = ?row.sandbox_id,
+                        checkout_mode = checkout_mode.as_str(),
+                        error = %error,
+                        "Sandbox join failed during task creation"
+                    );
+                    let join_error = map_join_error(error);
+                    if let Err(cleanup_error) = self
+                        .tasks
+                        .delete_inserted_task_after_join_failure(&task_id)
+                        .await
+                    {
+                        tracing::error!(
+                            task_id = %task_id,
+                            sandbox_id = ?row.sandbox_id,
+                            error = %cleanup_error,
+                            "Failed to cleanup task after sandbox join failure"
+                        );
+                        return Err(TaskCreationError::SandboxJoinCleanup {
+                            join: join_error.to_string(),
+                            cleanup: cleanup_error.to_string(),
+                        });
+                    }
+                    return Err(join_error);
+                }
             }
         }
 
@@ -468,9 +491,14 @@ impl TaskCreationService {
         // Note this is not the same as "no first message": the bindings runtime
         // and the schedule runner create with `first_message: None` and deliver
         // it themselves, and they do need a sandbox.
-        let provision = if join_checkout_mode.is_some() {
+        // A same-sandbox join that landed needs no start: the shared pod is
+        // already running. One that deferred (`NotReady`) does — starting keys
+        // off this task's `sandbox_id`, which is the shared one, so it wakes the
+        // shared sandbox and its init registers this member. Both share the
+        // start-or-error handling with a normal provision.
+        let provision = if join_checkout_mode.is_some() && !join_deferred_to_start {
             ProvisionOutcome::Started
-        } else if req.provision {
+        } else if (join_checkout_mode.is_some() && join_deferred_to_start) || req.provision {
             match self.starter.start(&task_id).await {
                 Ok(()) => ProvisionOutcome::Started,
                 Err(e) => {
@@ -1139,7 +1167,9 @@ mod tests {
         let join_order = Arc::clone(&order);
         joiner.expect_join_task().times(1).returning(move |_, _| {
             join_order.lock().expect("order lock").push("join");
-            Err(SandboxError::NotReady("starting".to_string()))
+            // A genuine join failure — not `NotReady`, which defers to a start
+            // (covered by `shared_sandbox_join_not_ready_starts_the_shared_sandbox`).
+            Err(SandboxError::GrpcClient("connection refused".to_string()))
         });
         let publisher = Arc::new(RecordingPublisher::new());
         let svc = service(tasks, starter, joiner, preflight_ok(), publisher);
@@ -1169,6 +1199,75 @@ mod tests {
         assert_eq!(
             order.lock().expect("order lock").as_slice(),
             ["join", "cleanup"]
+        );
+    }
+
+    #[tokio::test]
+    async fn shared_sandbox_join_not_ready_starts_the_shared_sandbox() {
+        // A same-sandbox create whose target has idle-stopped: the join reports
+        // `NotReady` (no pod to register on), which must not fail the create. The
+        // membership row is already durable, so creation starts the shared
+        // sandbox — waking it — and still sends the first message.
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        expect_default_workspace_resolution(&mut tasks);
+        tasks
+            .expect_insert_task()
+            .times(1)
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+        // A deferred join never cleans up the inserted task.
+        tasks
+            .expect_delete_inserted_task_after_join_failure()
+            .never();
+
+        let mut starter = MockStarter::new();
+        let start_order = Arc::clone(&order);
+        starter.expect_start().times(1).returning(move |_| {
+            start_order.lock().expect("order lock").push("start");
+            Ok(())
+        });
+        let mut joiner = MockSandboxJoiner::new();
+        let join_order = Arc::clone(&order);
+        joiner.expect_join_task().times(1).returning(move |_, _| {
+            join_order.lock().expect("order lock").push("join");
+            Err(SandboxError::NotReady("Sandbox is stopped".to_string()))
+        });
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, joiner, preflight_ok(), publisher.clone());
+
+        let mut req = sample_request();
+        req.sandbox_id = Some("sandbox-1".to_string());
+        req.first_message = Some(FirstMessage {
+            text: "hello".into(),
+            model: None,
+            agent_mode: None,
+            effort: None,
+            file_ids: vec![],
+            contexts: vec![],
+            sent_by: Some("user1".into()),
+            message_uuid: None,
+            skills: vec![],
+        });
+
+        let message_order = Arc::clone(&order);
+        let outcome = svc
+            .create(req, empty_payload, move |_, _| {
+                let message_order = Arc::clone(&message_order);
+                async move {
+                    message_order.lock().expect("order lock").push("message");
+                }
+            })
+            .await
+            .expect("a not-ready shared sandbox is started, not rejected");
+
+        assert_eq!(outcome.provision, ProvisionOutcome::Started);
+        // The stopped shared sandbox produces no error event: it is being woken,
+        // not failing.
+        assert!(publisher.sandbox_statuses().is_empty());
+        assert_eq!(
+            order.lock().expect("order lock").as_slice(),
+            ["join", "message", "start"]
         );
     }
 
