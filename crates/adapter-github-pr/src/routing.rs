@@ -10,7 +10,11 @@ use moatless_types::access_control::ScopeContext;
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::error::AdapterError;
-use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, CONNECTED_THREAD_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_types::adapter::AdapterConnection;
+use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::RoutingMode;
 use moatless_adapter_model::metrics::{inbound_reason, record_inbound};
@@ -491,7 +495,7 @@ impl GithubPrInboundRouter {
             thread_id: None, // skip thread-context fetch (matches `opened`)
             message_thread_id: info.pr_number.to_string(),
             user_id,
-            author: moatless_adapter_model::models::author_handle(&info.sender_login),
+            author: moatless_types::adapter::author_handle(&info.sender_login),
             sender_external_id: None,
             text,
             file_ids: vec![],
@@ -566,7 +570,7 @@ impl GithubPrInboundRouter {
         // `source_matcher` event metadata; `related_to` is recorded by the caller
         // after creation succeeds, and the first message is delivered through the
         // binding.
-        let config = moatless_adapter_model::models::subscription_context(rule);
+        let config = moatless_adapter_model::loops::subscription_context(rule);
         // Self-resolve: github_pr's reply instructions are its own constant, so
         // read them off this adapter rather than the registry of all providers,
         // and pass them to the firing entry point as a value.
@@ -658,7 +662,7 @@ mod tests {
     use moatless_types::adapter::AdapterKind;
     use chrono::Utc;
     use moatless_types::access_control::Scope;
-    use moatless_adapter_model::models::AdapterConnection;
+    use moatless_types::adapter::AdapterConnection;
 
     use super::delivery_only_rule;
 

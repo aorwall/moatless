@@ -19,7 +19,7 @@ use crate::common;
 use chrono::Utc;
 use tower::ServiceExt;
 
-use moatless_adapter_model::models::AdapterConnection;
+use moatless_types::adapter::AdapterConnection;
 use moatless_backend::adapters::routes::adapter_router;
 use moatless_types::access_control::Scope;
 use moatless_backend::state::AppState;

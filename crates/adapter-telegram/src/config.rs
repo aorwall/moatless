@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use moatless_adapter_model::models::SourceAccessPolicy;
+use moatless_adapter_model::access::SourceAccessPolicy;
 use moatless_types::loops::LoopContext;
 
 /// Typed representation of `adapter_config` JSONB for Telegram channels.

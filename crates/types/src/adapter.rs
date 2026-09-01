@@ -47,6 +47,17 @@ impl AdapterKind {
             _ => None,
         }
     }
+
+    /// Parse a stored `adapter_kind`, treating an unrecognized value as
+    /// [`Webhook`](Self::Webhook). Lenient by design, for existing database rows
+    /// that the row decoders read. A caller that must reject an unknown value
+    /// uses [`parse`](Self::parse) and handles `None`.
+    pub fn parse_or_webhook(value: &str) -> Self {
+        Self::parse(value).unwrap_or_else(|| {
+            tracing::warn!(adapter_kind = value, "unrecognized adapter_kind, defaulting to webhook");
+            Self::Webhook
+        })
+    }
 }
 
 impl std::fmt::Display for AdapterKind {
@@ -159,6 +170,16 @@ pub struct InboundMessage {
     /// existed.
     #[serde(default)]
     pub audience: Audience,
+}
+
+/// The external system's handle for whoever wrote an inbound event, or `None`
+/// where it named nobody. This is what fills [`InboundMessage::author`].
+///
+/// Adapters read this off webhook fields that are `#[serde(default)]`, so a
+/// missing sender arrives as an empty string rather than as an absent one.
+pub fn author_handle(handle: &str) -> Option<String> {
+    let trimmed = handle.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// Who an inbound event is for, as stated by the adapter that parsed it.
@@ -565,6 +586,25 @@ impl std::fmt::Debug for LinearConfig {
 #[allow(clippy::expect_used, reason = "the assertions are the wire contract")]
 mod tests {
     use super::*;
+
+    /// The three shapes a webhook field arrives in. Whitespace and the empty
+    /// string are the same answer as an absent field: the origin chip names who
+    /// wrote it or names nobody, and never shows a blank.
+    #[test]
+    fn a_handle_that_names_nobody_is_nobody() {
+        assert_eq!(author_handle("alice").as_deref(), Some("alice"));
+        assert_eq!(author_handle("  alice  ").as_deref(), Some("alice"));
+        assert_eq!(author_handle(""), None);
+        assert_eq!(author_handle("   "), None);
+    }
+
+    /// An unrecognized `adapter_kind` decodes to `Webhook`, the lenient default
+    /// the row readers depend on; a known value round-trips.
+    #[test]
+    fn an_unknown_adapter_kind_decodes_to_webhook() {
+        assert_eq!(AdapterKind::parse_or_webhook("linear"), AdapterKind::Linear);
+        assert_eq!(AdapterKind::parse_or_webhook("slakc"), AdapterKind::Webhook);
+    }
 
     #[test]
     fn linear_config_debug_redacts_secrets() {

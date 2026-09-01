@@ -23,7 +23,9 @@ use tracing::{debug, info, warn};
 use moatless_core::config::Config;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
+use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
 use moatless_backend_core::task::{InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_backend_core::task::TaskFinisher;
@@ -643,7 +645,7 @@ pub(super) async fn insert_event_task(
     // it as `AccessDenied` so callers can post the reason back to Linear — the
     // service's error event alone stays invisible there because no turn gate is
     // open for a task that never got a binding.
-    let config = moatless_adapter_model::models::subscription_context(rule);
+    let config = moatless_adapter_model::loops::subscription_context(rule);
     let outcome = moatless_loops::loops::firing::inbound::create_task_from_loop(
         task_creation,
         &config,

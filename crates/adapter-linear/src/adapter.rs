@@ -10,7 +10,9 @@ use tracing::warn;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{
     AdapterKind, BindingContext, ExternalStatus, InboundMessage, OutboundReply,
 };

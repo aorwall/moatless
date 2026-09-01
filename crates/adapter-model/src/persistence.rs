@@ -1,14 +1,13 @@
-//! Persisted shapes for the Adapter, Loop, Subscription, and Binding
-//! entities, plus the adapter access-control vocabularies.
+//! The persisted shapes of the Adapter, Loop, Subscription, and Binding
+//! entities, and the decode from a stored row to its domain type.
 //!
 //! The domain types live in `moatless_types::adapter` and
 //! `moatless_types::loops`. What is here is the shape the tables have — an
-//! `adapter_kind` text column, an open `agent_type` string — and the decode
-//! from one to the other.
-
-use serde::{Deserialize, Serialize};
-
-use moatless_types::loops::LoopContext;
+//! `adapter_kind` text column, an open `agent_type` string — and the
+//! `From<…Row>` that turns one into the other. The decode of the `adapter_kind`
+//! column is [`AdapterKind::parse_or_webhook`], which lives with the type in
+//! `moatless-types`. The row shapes decode only when the store that reads them
+//! is compiled, so the whole module is gated on `postgres`.
 
 // The row shapes below decode into the domain types, so these names are only
 // reachable when the store that decodes them is compiled.
@@ -17,44 +16,11 @@ use chrono::{DateTime, Utc};
 #[cfg(feature = "postgres")]
 use moatless_types::access_control::Scope;
 #[cfg(feature = "postgres")]
+use moatless_types::adapter::{AdapterConnection, AdapterKind, TaskBinding};
+#[cfg(feature = "postgres")]
 use moatless_types::agent::AgentType;
 #[cfg(feature = "postgres")]
-use moatless_types::loops::RoutingMode;
-
-/// The entity vocabulary a caller reaches through this module.
-pub use moatless_types::adapter::{AdapterConnection, AdapterKind, BindingContext, TaskBinding};
-pub use moatless_types::loops::{LoopSpawnConfig, Schedule, SubscriptionMatch};
-
-
-
-
-/// Every `task_bindings.origin` value the system writes, and the whole of the
-/// role taxonomy: the direction in which the task and the external subject met.
-///
-/// [`ADAPTER_EVENT_BINDING_ORIGIN`] is the responder direction — the subject
-/// existed first and a loop spawned a task from it, so this is the one origin
-/// the router writes from an inbound event. **Every other origin is a producer**
-/// by direction: the task existed first and reached out. Routing decides the
-/// role by negating the responder rather than matching a list of producers
-/// (`recipients`, in the binding layer), so a fourth origin added here is classified
-/// correctly the day it is written rather than the day someone remembers to
-/// update a match. That is not hypothetical: `task_owned` lived as a private
-/// string inside the Linear API routes, and the recipient resolver — written
-/// against the two constants that were declared — read every Linear producer as
-/// a responder.
-///
-/// The stored values remain what they always were, for existing database rows
-/// and API compatibility.
-pub const ADAPTER_EVENT_BINDING_ORIGIN: &str = "ingress";
-/// Producer: the task replied into a subject, or was connected to one.
-pub const CONNECTED_THREAD_BINDING_ORIGIN: &str = "connected_thread";
-/// Producer: a CLI-driven endpoint filed the subject on the task's behalf.
-pub const TASK_OWNED_BINDING_ORIGIN: &str = "task_owned";
-
-
-// =============================================================================
-// Target architecture tables (DB)
-// =============================================================================
+use moatless_types::loops::{LoopSpawnConfig, RoutingMode, Schedule, SubscriptionMatch};
 
 /// Row from the `adapter_connections` table.
 #[cfg(feature = "postgres")]
@@ -79,7 +45,7 @@ pub struct AdapterConnectionRow {
 impl From<AdapterConnectionRow> for AdapterConnection {
     fn from(row: AdapterConnectionRow) -> Self {
         Self {
-            adapter_kind: parse_adapter_kind(&row.adapter_kind),
+            adapter_kind: AdapterKind::parse_or_webhook(&row.adapter_kind),
             id: row.id,
             connection_kind: row.connection_kind,
             scope_value: row.scope_value,
@@ -182,7 +148,7 @@ pub struct SubscriptionMatchRow {
 impl From<SubscriptionMatchRow> for SubscriptionMatch {
     fn from(row: SubscriptionMatchRow) -> Self {
         Self {
-            adapter_kind: parse_adapter_kind(&row.adapter_kind),
+            adapter_kind: AdapterKind::parse_or_webhook(&row.adapter_kind),
             agent_type: AgentType(row.agent_type),
             id: row.id,
             name: row.name,
@@ -258,7 +224,7 @@ pub struct TaskBindingRow {
 impl From<TaskBindingRow> for TaskBinding {
     fn from(row: TaskBindingRow) -> Self {
         Self {
-            adapter_kind: parse_adapter_kind(&row.adapter_kind),
+            adapter_kind: AdapterKind::parse_or_webhook(&row.adapter_kind),
             id: row.id,
             task_id: row.task_id,
             subject_kind: row.subject_kind,
@@ -327,148 +293,5 @@ impl From<ScheduleRow> for Schedule {
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
-    }
-}
-
-// =============================================================================
-// Domain types (internal, not serialized to API)
-// =============================================================================
-
-/// Normalize a stored `adapter_kind` string to its enum, treating an unknown
-/// value as `Webhook`.
-pub fn parse_adapter_kind(adapter_kind: &str) -> AdapterKind {
-    AdapterKind::parse(adapter_kind).unwrap_or(AdapterKind::Webhook)
-}
-
-/// Build a synthetic `LoopContext` from a subscription view for adapter
-/// trait methods that still accept a config-shaped value.
-pub fn subscription_context(subscription: &SubscriptionMatch) -> LoopContext {
-    LoopContext {
-        id: subscription.id.clone(),
-        adapter_kind: subscription.adapter_kind.as_str().to_string(),
-        source_id: subscription.source_matcher.clone(),
-        source_name: subscription.source_name.clone(),
-        repository_id: subscription.repository_id.clone(),
-        routing_mode: subscription.routing_mode,
-        prompt_template: subscription.prompt_template.clone(),
-        active: subscription.active,
-        allow_direct_send: subscription.allow_direct_send,
-        adapter_config: subscription.adapter_config.clone(),
-        ongoing_task_id: subscription.ongoing_task_id.clone(),
-        scope: subscription.scope,
-        task_name: subscription.task_name.clone(),
-        tag_ids: subscription.tag_ids.clone(),
-        skills: subscription.skills.clone(),
-        run_as_user_id: subscription.run_as_user_id.clone(),
-        agent_type: subscription.agent_type.clone(),
-        inactive_ttl_days: subscription.inactive_ttl_days,
-        created_by: subscription.created_by.clone(),
-        created_at: subscription.created_at,
-        updated_at: subscription.updated_at,
-    }
-}
-
-/// Build a provider binding context from a task binding. Never persist this row.
-pub fn binding_context(binding: &TaskBinding) -> BindingContext {
-    let mut destination_config = binding.destination_config.clone();
-    if let Some(obj) = destination_config.as_object_mut() {
-        if let Some(ext_id) = binding.last_external_event_id.as_ref() {
-            obj.insert("last_external_event_id".into(), serde_json::json!(ext_id));
-        }
-        if let Some(filter_uid) = binding.metadata.get("filter_user_id").cloned() {
-            obj.insert("filter_user_id".into(), filter_uid);
-        }
-    }
-
-    BindingContext {
-        binding_id: binding.id.clone(),
-        loop_id: binding.loop_id.clone(),
-        task_id: binding.task_id.clone(),
-        subject_kind: binding.subject_kind.clone(),
-        subject_key: binding.subject_key.clone(),
-        destination_config,
-        metadata: binding.metadata.clone(),
-        last_external_event_id: binding.last_external_event_id.clone(),
-        last_message_at: binding.last_event_at,
-        created_at: binding.created_at,
-    }
-}
-
-
-/// The external system's handle for whoever wrote an inbound event, or `None`
-/// where it named nobody.
-///
-/// Adapters read this off webhook fields that are `#[serde(default)]`, so a
-/// missing sender arrives as an empty string rather than as an absent one.
-pub fn author_handle(handle: &str) -> Option<String> {
-    let trimmed = handle.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
-}
-
-
-
-/// Info returned by `send_message` to create a new `BindingContext`.
-#[derive(Debug)]
-pub struct NewThreadInfo {
-    /// Adapter-specific thread/message ID (e.g., Slack message `ts`).
-    pub external_thread_id: String,
-    /// Adapter-specific properties for the thread (e.g., `channel`, `thread_ts`).
-    pub properties: serde_json::Value,
-}
-
-// =============================================================================
-// Shared access-control types (used by Telegram, Slack, and future providers)
-// =============================================================================
-
-/// Access policy for an external source (DM, group, or Slack channel).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum SourceAccessPolicy {
-    /// Accept messages from any source.
-    #[default]
-    Open,
-    /// Reject all messages.
-    Disabled,
-    /// Accept only from sources in the allowlist.
-    Allowlist,
-    /// Allowlist + prompt unknown users with a pairing code (DM only).
-    Pairing,
-}
-
-/// When to trigger processing of an inbound message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum MessageTrigger {
-    /// Only process messages that mention the bot.
-    #[default]
-    MentionOnly,
-    /// Process all messages in the source.
-    AllMessages,
-}
-
-/// Result of an access control check.
-#[derive(Debug)]
-pub enum AccessDecision {
-    /// Message is allowed through.
-    Allowed,
-    /// Message is blocked (silently dropped).
-    Blocked,
-    /// A pairing code was sent to the user; message is not processed.
-    PairingSent,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::author_handle;
-
-    /// The three shapes a webhook field arrives in. Whitespace and the empty
-    /// string are the same answer as an absent field: the origin chip names who
-    /// wrote it or names nobody, and never shows a blank.
-    #[test]
-    fn a_handle_that_names_nobody_is_nobody() {
-        assert_eq!(author_handle("alice").as_deref(), Some("alice"));
-        assert_eq!(author_handle("  alice  ").as_deref(), Some("alice"));
-        assert_eq!(author_handle(""), None);
-        assert_eq!(author_handle("   "), None);
     }
 }

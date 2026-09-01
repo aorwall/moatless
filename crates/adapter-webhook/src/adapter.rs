@@ -293,9 +293,9 @@ impl AdapterBindingReply for WebhookAdapter {
 impl AdapterMessageReply for WebhookAdapter {
     async fn reply_to_message(
         &self,
-        binding: &moatless_adapter_model::models::TaskBinding,
-        connection: &moatless_adapter_model::models::AdapterConnection,
-        rule: Option<&moatless_adapter_model::models::SubscriptionMatch>,
+        binding: &moatless_types::adapter::TaskBinding,
+        connection: &moatless_types::adapter::AdapterConnection,
+        rule: Option<&moatless_types::loops::SubscriptionMatch>,
         _target_external_id: &str,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {

@@ -22,7 +22,8 @@
 use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::LinearConfig;
 use std::sync::Arc;

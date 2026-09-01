@@ -4,8 +4,9 @@
 
 //! The Adapter kernel: the whole Adapter contract in one crate.
 //!
-//! What an Adapter offers ([`capabilities`]), what it speaks ([`models`],
-//! [`apps`], [`footer`], [`signature`]), what it can fail with ([`error`]),
+//! What an Adapter offers ([`capabilities`]), what it speaks ([`apps`],
+//! [`footer`], [`signature`]), the shapes it persists ([`persistence`]) and the
+//! access it gates on ([`access`]), what it can fail with ([`error`]),
 //! where its connections are stored ([`dao`]), how it hands inbound work over
 //! durably ([`delivery`]), and how a delivery ends ([`ingress`], [`routing`]).
 //! A provider crate implements the contract by naming this crate and nothing
@@ -17,6 +18,7 @@
 //! rendering of [`error::AdapterError`]. A consumer that neither reads rows nor
 //! answers requests compiles neither a database driver nor axum.
 
+pub mod access;
 pub mod apps;
 pub mod binding;
 pub mod capabilities;
@@ -28,7 +30,7 @@ pub mod ingress;
 pub mod loops;
 pub mod mentions;
 pub mod metrics;
-pub mod models;
+pub mod persistence;
 pub mod registry;
 pub mod routing;
 pub mod signature;

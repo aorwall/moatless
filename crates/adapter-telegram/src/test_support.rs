@@ -13,7 +13,7 @@ use axum::routing::any;
 use axum::{Json, Router};
 use moatless_types::access_control::Scope;
 
-use moatless_adapter_model::models::SubscriptionMatch;
+use moatless_types::loops::SubscriptionMatch;
 use moatless_types::loops::{LoopContext, RoutingMode};
 
 /// The Subscription's run-as user — the fallback identity an unmapped Telegram

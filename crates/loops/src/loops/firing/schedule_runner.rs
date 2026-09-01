@@ -8,7 +8,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::adapters::projection::next_fire_at;
-use moatless_adapter_model::models::{LoopSpawnConfig, Schedule};
+use moatless_types::loops::LoopSpawnConfig;
+use moatless_types::loops::Schedule;
 use moatless_types::adapter::{AdapterKind, Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;

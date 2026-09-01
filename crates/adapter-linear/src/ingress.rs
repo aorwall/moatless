@@ -47,7 +47,8 @@ use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::delivery::AdapterDeliveryRequest;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
 use moatless_adapter_model::loops::LoopReader;
 
 use super::adapter::LinearAdapter;

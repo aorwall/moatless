@@ -13,7 +13,7 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::delivery::inbound_delivery_request;
 use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_adapter_model::ingress::{IngressError, Outcome};
-use moatless_adapter_model::models::SubscriptionMatch;
+use moatless_types::loops::SubscriptionMatch;
 use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_core::db::DbPool;
 
@@ -123,7 +123,7 @@ pub(super) async fn receive(
         verify_secret(&subscription, secret_header).map_err(IngressError::Ingress)?;
     }
 
-    let config = moatless_adapter_model::models::subscription_context(&subscription);
+    let config = moatless_adapter_model::loops::subscription_context(&subscription);
     let tg_config = TelegramAdapterConfig::from_config(&config);
     let db = adapter.require_db().map_err(IngressError::Ingress)?;
     let api = adapter

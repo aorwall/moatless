@@ -13,7 +13,8 @@ use crate::dao::AdapterConnectionDao;
 use crate::error::AdapterError;
 use crate::loops::LoopReader;
 use crate::metrics::{inbound_reason, record_inbound};
-use crate::models::{AdapterConnection, SubscriptionMatch};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
 
 /// Resolve one inbound chat event to its connection and Subscription.
 ///

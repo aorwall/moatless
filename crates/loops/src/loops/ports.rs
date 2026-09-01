@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use moatless_backend_core::store::StoreError;
 
 use moatless_adapter_model::loops::LoopReader;
-use moatless_adapter_model::models::SubscriptionMatch;
+use moatless_types::loops::SubscriptionMatch;
 use crate::loops::dao::LoopDao;
 
 /// The Loop tables answer the Subscription reads directly: `LoopDao` is the

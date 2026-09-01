@@ -20,9 +20,10 @@ use tracing::{debug, info};
 
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::error::AdapterError;
-use moatless_adapter_model::models::{
-    ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding,
-};
+use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_loops::adapters::subject_events::{SubjectEvent, route_subject_event};
 use moatless_types::adapter::{Audience, InboundMessage};
 
@@ -179,7 +180,7 @@ impl GithubPrInboundRouter {
             thread_id: Some(merged.pr_number.to_string()),
             message_thread_id: merged.pr_number.to_string(),
             user_id: super::auth::resolve_sender_user(&merged.merged_by, rule, self.users.as_ref()).await,
-            author: moatless_adapter_model::models::author_handle(&merged.merged_by),
+            author: moatless_types::adapter::author_handle(&merged.merged_by),
             sender_external_id: None,
             text: merged_text(merged, &execution.owner, &execution.repo),
             file_ids: vec![],

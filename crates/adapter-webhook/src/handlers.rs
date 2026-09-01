@@ -62,7 +62,7 @@ pub async fn webhook_inbound(
     let signature = headers
         .get("x-webhook-signature")
         .and_then(|v| v.to_str().ok());
-    let config = moatless_adapter_model::models::subscription_context(&subscription);
+    let config = moatless_adapter_model::loops::subscription_context(&subscription);
     let delivery = WebhookAdapter::parse_inbound(&config, &body, signature)?;
     let message = delivery.message;
     let thread_id = message
@@ -123,7 +123,7 @@ mod tests {
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
 
-    use moatless_adapter_model::models::SubscriptionMatch;
+    use moatless_types::loops::SubscriptionMatch;
     use moatless_adapter_model::test_support::{
         FakeAdmission, FakeAdmissionAnswer, response_snapshot,
     };

@@ -1,6 +1,7 @@
 //! Slack access control — channel and user policy enforcement.
 
-use moatless_adapter_model::models::{AccessDecision, SourceAccessPolicy};
+use moatless_adapter_model::access::AccessDecision;
+use moatless_adapter_model::access::SourceAccessPolicy;
 
 use super::config::SlackAdapterConfig;
 

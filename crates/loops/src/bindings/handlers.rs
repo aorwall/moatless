@@ -24,7 +24,7 @@ use crate::bindings::reply::ExternalReplyService;
 use moatless_core::http_auth::AuthUser;
 use crate::loops::dao::LoopDao;
 use moatless_backend_core::task::TaskReader;
-use moatless_adapter_model::models::TaskBinding;
+use moatless_types::adapter::TaskBinding;
 
 #[utoipa::path(
     get,
@@ -184,7 +184,7 @@ pub async fn add_message_reaction(
         .as_ref()
         .ok_or_else(|| SharedAdapterError::AdapterNotConfigured("No adapters configured".into()))?;
     let adapter = providers.reactions_by_name(&provider_key)?;
-    let binding_ctx = moatless_adapter_model::models::binding_context(&binding);
+    let binding_ctx = moatless_adapter_model::binding::binding_context(&binding);
     let external_id = adapter
         .add_reaction(&binding_ctx, &ext_id, &req.emoji)
         .await?;
@@ -218,7 +218,7 @@ pub async fn remove_message_reaction(
         .as_ref()
         .ok_or_else(|| SharedAdapterError::AdapterNotConfigured("No adapters configured".into()))?;
     let adapter = providers.reactions_by_name(&provider_key)?;
-    let binding_ctx = moatless_adapter_model::models::binding_context(&binding);
+    let binding_ctx = moatless_adapter_model::binding::binding_context(&binding);
     adapter
         .remove_reaction(&binding_ctx, &ext_id, &emoji)
         .await?;

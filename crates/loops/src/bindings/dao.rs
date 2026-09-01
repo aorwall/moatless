@@ -11,7 +11,9 @@ use sqlx::AssertSqlSafe;
 
 use moatless_core::db::DbPool;
 
-use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding, TaskBindingRow};
+use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_types::adapter::TaskBinding;
+use moatless_adapter_model::persistence::TaskBindingRow;
 
 #[async_trait::async_trait]
 pub trait TaskBindingDao: Send + Sync {

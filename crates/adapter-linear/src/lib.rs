@@ -61,7 +61,7 @@ pub const SUBJECT_KIND_ISSUE: &str = "linear_issue";
 /// Linear's webhook payloads default every actor field, so an event that names
 /// nobody arrives with an empty name rather than no actor at all.
 fn actor_handle(actor: Option<&webhook_payloads::LinearActor>) -> Option<String> {
-    actor.and_then(|actor| moatless_adapter_model::models::author_handle(&actor.name))
+    actor.and_then(|actor| moatless_types::adapter::author_handle(&actor.name))
 }
 
 #[cfg(test)]

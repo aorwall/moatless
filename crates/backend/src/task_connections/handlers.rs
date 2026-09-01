@@ -18,7 +18,7 @@ use moatless_api_schemas::task::PaginationResponse;
 use moatless_api_schemas::task_connections::{Connection, GetTaskConnectionsQuery, ListTaskConnectionsQuery, TaskConnectionRow, TaskConnectionsResponse};
 use moatless_types::task::TaskStatus;
 
-use moatless_adapter_model::models::TaskBinding;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
 
 use moatless_adapter_model::capabilities::AdapterBindingStatus;
@@ -533,7 +533,7 @@ mod tests {
         TaskBinding {
             id: id.to_string(),
             task_id: "task_1".to_string(),
-            adapter_kind: moatless_adapter_model::models::parse_adapter_kind(provider),
+            adapter_kind: moatless_types::adapter::AdapterKind::parse_or_webhook(provider),
             subject_kind: subject_kind.to_string(),
             subject_key: subject_key.to_string(),
             connection_id: "conn_1".to_string(),

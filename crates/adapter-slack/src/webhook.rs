@@ -10,7 +10,8 @@
 use tracing::{debug, info, warn};
 
 use moatless_adapter_model::error::AdapterError;
-use moatless_adapter_model::models::{AccessDecision, MessageTrigger};
+use moatless_adapter_model::access::AccessDecision;
+use moatless_adapter_model::access::MessageTrigger;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
 use moatless_types::adapter::AdapterKind;
@@ -528,7 +529,7 @@ pub(super) async fn normalize(
             user_id,
             author: sender_handle
                 .as_deref()
-                .and_then(moatless_adapter_model::models::author_handle),
+                .and_then(moatless_types::adapter::author_handle),
             // Always the writer's own Slack id, unlike `user_id` above, which
             // falls back to the trigger owner when the writer is unmapped.
             sender_external_id: event.sender_external_id(),

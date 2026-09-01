@@ -9,7 +9,8 @@ use moatless_types::access_control::Actor;
 use moatless_types::repository::GitHostRepo;
 use moatless_backend_core::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::{SubscriptionMatch, TaskBinding};
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::BindingContext;
 
 use super::api::GithubPrApi;

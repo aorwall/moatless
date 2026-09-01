@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use moatless_types::adapter::AdapterKind;
+
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -13,7 +15,6 @@ use utoipa::ToSchema;
 use crate::adapters::access::{ensure_repository_exists, load_adapter_connection_for_auth_with, load_loop_for_auth_with, resolve_scope_for_adapter_create};
 use crate::adapters::projection::{LoopFilter, loop_response, next_fire_at};
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_adapter_model::models::parse_adapter_kind;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::loops::dao::{AdapterSourceUpdate, LoopDao, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource, UpdateLoopSource as StoreUpdateSource};
 use moatless_types::loops::LoopKind as DomainLoopKind;
@@ -89,7 +90,7 @@ fn map_recent_task_item(row: &LoopRecentTaskRow) -> LoopRecentTaskItem {
         ) => Some(TaskBindingResponse {
             id: id.clone(),
             task_id: row.task_id.clone(),
-            adapter_kind: (parse_adapter_kind(provider)),
+            adapter_kind: (AdapterKind::parse_or_webhook(provider)),
             connection_id: connection_id.clone(),
             loop_id: row.loop_id.clone(),
             subject_kind: subject_kind.clone(),

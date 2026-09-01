@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use moatless_adapter_model::binding::BindingProbe;
-use moatless_adapter_model::models::TaskBinding;
+use moatless_types::adapter::TaskBinding;
 use moatless_backend_core::binding::{TaskBindingSummary, TaskBindings};
 use moatless_backend_core::store::StoreError;
 
@@ -98,7 +98,7 @@ impl TaskBindings for BindingDirectory {
         for row in rows {
             out.entry(row.task_id).or_default().push(TaskBindingSummary {
                 loop_id: row.loop_id,
-                adapter_kind: moatless_adapter_model::models::parse_adapter_kind(&row.adapter_kind),
+                adapter_kind: moatless_types::adapter::AdapterKind::parse_or_webhook(&row.adapter_kind),
                 source_id: row.source_id,
                 source_name: row.source_name,
                 thread_id: None,
@@ -122,7 +122,7 @@ impl TaskBindings for BindingDirectory {
 /// One Binding as the API presents it, labelled by the Loop that owns it.
 fn summarize(
     binding: &TaskBinding,
-    subscription: Option<&moatless_adapter_model::models::SubscriptionMatch>,
+    subscription: Option<&moatless_types::loops::SubscriptionMatch>,
 ) -> TaskBindingSummary {
     let source_id = subscription.map_or_else(
         || binding.subject_key.clone(),

@@ -14,9 +14,9 @@
 //! differently would write a Binding nothing could find.
 
 use moatless_adapter_model::error::AdapterError;
-use moatless_adapter_model::models::{
-    AdapterConnection, SubscriptionMatch, TaskBinding,
-};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_adapter_model::loops::LoopReader;
 use moatless_loops::bindings::dao::TaskBindingDao;
 

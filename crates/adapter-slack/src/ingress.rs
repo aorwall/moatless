@@ -189,7 +189,7 @@ async fn resolve(
     };
 
     Ok(Routing::Verifiable(Verifiable::Routed(Box::new(Routed {
-        config: moatless_adapter_model::models::subscription_context(&subscription),
+        config: moatless_adapter_model::loops::subscription_context(&subscription),
         source_id: source_id.to_string(),
         connection_id: connection.id,
         app_key: moatless_adapter_model::apps::app_key_from_transport_config(&connection.transport_config)

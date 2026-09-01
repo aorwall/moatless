@@ -5,7 +5,8 @@ use cron::Schedule as CronSchedule;
 use serde::Deserialize;
 
 use moatless_adapter_model::error::{AdapterError, ReplyTarget, SharedAdapterError};
-use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::TaskBinding;
 use moatless_api_schemas::adapters::AdapterConnectionResponse;
 use moatless_api_schemas::bindings::{ReplyTargetDescriptor, TaskBindingResponse};
 use moatless_api_schemas::loops::{

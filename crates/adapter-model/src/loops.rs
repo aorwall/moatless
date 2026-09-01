@@ -6,14 +6,17 @@
 //! Loop store and its twenty-six functions.
 //!
 //! Declared in the Adapter kernel: every consumer already names this crate for
-//! the Adapter contract, and [`SubscriptionMatch`] — the value every read
-//! returns — is a kernel model, so a lower home would drag the model down or
-//! force a second shape over the same rows. The Loop store implements it in the
+//! the Adapter contract. [`SubscriptionMatch`], the value every read returns,
+//! lives in `moatless_types::loops`, so this seam publishes only the reader and
+//! the projection helper. The Loop store implements the reader in the
 //! `moatless-loops` crate, beside the tables it reads.
+//!
+//! [`subscription_context`] projects a Subscription into the config-shaped
+//! [`LoopContext`] the older adapter trait methods still accept.
 
 use async_trait::async_trait;
 
-use crate::models::SubscriptionMatch;
+use moatless_types::loops::{LoopContext, SubscriptionMatch};
 use moatless_types::store::StoreError;
 
 /// The Subscriptions an inbound provider event is matched against.
@@ -51,4 +54,32 @@ pub trait LoopReader: Send + Sync {
         &self,
         adapter_kind: &str,
     ) -> Result<Option<SubscriptionMatch>, StoreError>;
+}
+
+/// Build a synthetic `LoopContext` from a subscription view for adapter
+/// trait methods that still accept a config-shaped value.
+pub fn subscription_context(subscription: &SubscriptionMatch) -> LoopContext {
+    LoopContext {
+        id: subscription.id.clone(),
+        adapter_kind: subscription.adapter_kind.as_str().to_string(),
+        source_id: subscription.source_matcher.clone(),
+        source_name: subscription.source_name.clone(),
+        repository_id: subscription.repository_id.clone(),
+        routing_mode: subscription.routing_mode,
+        prompt_template: subscription.prompt_template.clone(),
+        active: subscription.active,
+        allow_direct_send: subscription.allow_direct_send,
+        adapter_config: subscription.adapter_config.clone(),
+        ongoing_task_id: subscription.ongoing_task_id.clone(),
+        scope: subscription.scope,
+        task_name: subscription.task_name.clone(),
+        tag_ids: subscription.tag_ids.clone(),
+        skills: subscription.skills.clone(),
+        run_as_user_id: subscription.run_as_user_id.clone(),
+        agent_type: subscription.agent_type.clone(),
+        inactive_ttl_days: subscription.inactive_ttl_days,
+        created_by: subscription.created_by.clone(),
+        created_at: subscription.created_at,
+        updated_at: subscription.updated_at,
+    }
 }

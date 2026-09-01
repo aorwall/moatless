@@ -6,7 +6,9 @@ use std::fmt::Write as _;
 use tracing::warn;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{
     BindingContext, DestinationPostResult, OutboundPresentation, OutboundReply, SlackBlock,
     SlackText, TaskProvenance,
@@ -147,7 +149,7 @@ impl AdapterBindingReply for SlackAdapter {
         let app_key =
             moatless_adapter_model::apps::app_key_from_transport_config(&_connection.transport_config);
         let app = self.app(app_key).await?;
-        let thread = moatless_adapter_model::models::binding_context(binding);
+        let thread = moatless_adapter_model::binding::binding_context(binding);
         let config = rule.map_or_else(
             || LoopContext {
                 id: binding.loop_id.clone().unwrap_or_default(),
@@ -175,7 +177,7 @@ impl AdapterBindingReply for SlackAdapter {
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
             },
-            moatless_adapter_model::models::subscription_context,
+            moatless_adapter_model::loops::subscription_context,
         );
         let coordinates = subject::thread_coordinates(&thread.destination_config);
         let channel = coordinates.channel.ok_or_else(|| {

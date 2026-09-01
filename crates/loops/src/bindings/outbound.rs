@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use moatless_adapter_model::models::TaskBinding;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{
     AdapterKind, OutboundFile, OutboundPresentation, OutboundReply, TaskOrigin, TaskProvenance,
 };
@@ -525,7 +525,7 @@ pub async fn resolve_files_with(
 #[cfg(test)]
 mod tests {
     use super::{task_link_already_sent, truncate_text};
-    use moatless_adapter_model::models::TaskBinding;
+    use moatless_types::adapter::TaskBinding;
 
     fn binding(metadata: serde_json::Value) -> TaskBinding {
         let now = chrono::Utc::now();

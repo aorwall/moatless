@@ -33,7 +33,7 @@ use moatless_backend::adapters::providers::linear::delivery;
 use moatless_backend::adapters::providers::linear::ingress::{
     IngressError, Outcome, Rejection, reason, receive,
 };
-use moatless_adapter_model::models::SubscriptionMatch;
+use moatless_types::loops::SubscriptionMatch;
 use moatless_types::loops::RoutingMode;
 use moatless_adapter_model::test_support::ProviderStub;
 use moatless_backend::repository::dao as repository_dao;

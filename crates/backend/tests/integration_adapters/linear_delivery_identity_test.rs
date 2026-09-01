@@ -37,7 +37,8 @@ use sha2::Sha256;
 use sqlx::PgPool;
 
 use moatless_types::access_control::Scope;
-use moatless_adapter_model::models::{SubscriptionMatch, TaskBinding};
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::loops::RoutingMode;
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_backend::repository::dao as repository_dao;

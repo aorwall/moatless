@@ -4,7 +4,7 @@
 //! [`LinearAdapter`](super::adapter::LinearAdapter) (which needs a database
 //! pool). The `Adapter` trait methods delegate here.
 
-use moatless_adapter_model::models::TaskBinding;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
 
 /// Linear `state.type` values that mean the issue is finished. A reactivated

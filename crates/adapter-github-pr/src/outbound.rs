@@ -2,7 +2,9 @@
 
 use moatless_types::repository::GitHostRepo;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{BindingContext, OutboundReply};
 use moatless_types::loops::LoopContext;
 use moatless_adapter_model::capabilities::{AdapterBindingReply, AdapterMessageReply};
@@ -122,7 +124,8 @@ mod tests {
     use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
-    use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
+    use moatless_types::adapter::AdapterConnection;
+    use moatless_types::adapter::TaskBinding;
     use moatless_types::adapter::OutboundReply;
     use moatless_adapter_model::capabilities::{AdapterBindingReply, AdapterMessageReply};
 

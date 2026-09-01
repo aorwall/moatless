@@ -12,7 +12,7 @@ use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 
 use crate::file_storage::error::FileStorageError;
-use moatless_adapter_model::models::TaskBinding;
+use moatless_types::adapter::TaskBinding;
 use crate::file_storage::store as file_store;
 use crate::message::error::MessageError;
 use crate::message::service as message_service;

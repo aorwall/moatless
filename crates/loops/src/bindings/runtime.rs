@@ -16,7 +16,12 @@ use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::inbound;
 use crate::loops::firing::receipts::EventReceiptDao;
-use moatless_adapter_model::models::{parse_adapter_kind, AdapterConnection, SubscriptionMatch, TaskBinding, binding_context, subscription_context};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::AdapterKind;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
+use moatless_adapter_model::binding::binding_context;
+use moatless_adapter_model::loops::subscription_context;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::RoutingMode;
 use moatless_types::task::TaskStatus;
@@ -30,7 +35,8 @@ use moatless_backend_core::task::{
 use moatless_backend_core::task::TaskReader;
 use moatless_backend_core::sandbox::{SandboxWaker, wake_for_message};
 
-pub use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT, CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD};
+pub use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT;
+pub use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD;
 
 /// The inbound-routing subgraph, owning the ports it reads so the routing logic
 /// names none of them through `AppState`.
@@ -883,7 +889,7 @@ pub async fn upsert_binding_into(
     let binding = TaskBinding {
         id: format!("ts_{}", uuid::Uuid::new_v4()),
         task_id: task_id.to_string(),
-        adapter_kind: parse_adapter_kind(provider),
+        adapter_kind: AdapterKind::parse_or_webhook(provider),
         subject_kind: subject_kind.to_string(),
         subject_key: subject_key.to_string(),
         connection_id: connection.id.clone(),

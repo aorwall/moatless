@@ -19,7 +19,7 @@ use moatless_types::access_control::ScopeContext;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::SharedAdapterError;
-use moatless_adapter_model::models::AdapterConnection;
+use moatless_types::adapter::AdapterConnection;
 
 use moatless_adapter_model::delivery::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryHandlers,

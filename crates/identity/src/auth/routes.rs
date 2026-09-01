@@ -2495,7 +2495,7 @@ async fn linear_callback_handler(
         .await?;
 
     // Upsert the workspace-level adapter_connections row.
-    use moatless_adapter_model::models::AdapterConnection;
+    use moatless_types::adapter::AdapterConnection;
     let conn_repo = &state.adapter_connections;
 
     let now = chrono::Utc::now();

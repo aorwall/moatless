@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::SubscriptionMatch;
+use moatless_types::loops::SubscriptionMatch;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_backend_core::identity::ProviderIdentityLink;
 
@@ -724,7 +724,7 @@ async fn inbound_message(
         thread_id,
         message_thread_id: pr_number.to_string(),
         user_id,
-        author: moatless_adapter_model::models::author_handle(context.sender_login),
+        author: moatless_types::adapter::author_handle(context.sender_login),
         sender_external_id: None,
         text,
         file_ids: vec![],

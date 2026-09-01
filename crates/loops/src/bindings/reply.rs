@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
+use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{OutboundPresentation, OutboundReply, TaskProvenance};
 use moatless_api_schemas::bindings::SendTaskReplyResponse;
 use moatless_api_schemas::message::ReplyToMessageResponse;
@@ -429,7 +430,7 @@ mod tests {
         TaskBinding {
             id: id.to_string(),
             task_id: "task_1".to_string(),
-            adapter_kind: moatless_adapter_model::models::parse_adapter_kind(provider),
+            adapter_kind: moatless_types::adapter::AdapterKind::parse_or_webhook(provider),
             subject_kind: "slack_thread".to_string(),
             subject_key: subject_key.to_string(),
             connection_id: "conn_1".to_string(),

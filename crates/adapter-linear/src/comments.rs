@@ -22,7 +22,8 @@ use tracing::{debug, info, warn};
 use moatless_core::config::Config;
 
 use moatless_adapter_model::error::AdapterError;
-use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::Audience;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_adapter_model::loops::LoopReader;
@@ -254,7 +255,8 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
+    use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+    use moatless_types::adapter::TaskBinding;
     use crate::subject::SUBJECT_KIND_SESSION as SUBJECT_KIND;
 
     // ---- Comment routing -------------------------------------------------
@@ -328,7 +330,7 @@ mod tests {
         linear_binding(
             task_id,
             crate::SUBJECT_KIND_ISSUE,
-            moatless_adapter_model::models::TASK_OWNED_BINDING_ORIGIN,
+            moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN,
         )
     }
 

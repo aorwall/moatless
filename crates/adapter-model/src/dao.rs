@@ -7,7 +7,7 @@
 use moatless_types::access_control::ScopeContext;
 use moatless_types::store::StoreError;
 
-use crate::models::AdapterConnection;
+use moatless_types::adapter::AdapterConnection;
 
 #[async_trait::async_trait]
 pub trait AdapterConnectionDao: Send + Sync {
@@ -64,7 +64,8 @@ mod postgres {
     use moatless_types::access_control::{ScopeContext, ScopedEntity};
     use moatless_types::store::StoreError;
 
-    use crate::models::{AdapterConnection, AdapterConnectionRow};
+    use moatless_types::adapter::AdapterConnection;
+    use crate::persistence::AdapterConnectionRow;
 
     use super::AdapterConnectionDao;
 

@@ -15,11 +15,12 @@ use sqlx::AssertSqlSafe;
 
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 
-use moatless_adapter_model::models::{
-    LoopSpawnConfig, LoopSpawnConfigRow, Schedule, SubscriptionMatch, SubscriptionMatchRow,
-};
+use moatless_types::loops::LoopSpawnConfig;
+use moatless_adapter_model::persistence::LoopSpawnConfigRow;
+use moatless_types::loops::Schedule;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_adapter_model::persistence::SubscriptionMatchRow;
 use moatless_backend_core::db_enum::decode_required;
-use moatless_adapter_model::models::parse_adapter_kind;
 use moatless_types::adapter::AdapterKind;
 use moatless_types::agent::AgentType;
 use moatless_types::loops::{LoopConfigSource, LoopKind, RoutingMode};
@@ -183,7 +184,7 @@ impl JoinedLoopRecordRow {
         let source = match kind {
             LoopKind::AdapterEvent => LoopSourceRow::AdapterEvent(SubscriptionRow {
                 loop_id: self.id,
-                adapter_kind: parse_adapter_kind(
+                adapter_kind: AdapterKind::parse_or_webhook(
                     self.adapter_kind.ok_or(sqlx::Error::RowNotFound)?.as_str(),
                 ),
                 connection_id: self.connection_id.ok_or(sqlx::Error::RowNotFound)?,
@@ -1226,7 +1227,7 @@ impl LoopDao {
         worker_id: &str,
         limit: i64,
     ) -> Result<Vec<Schedule>, sqlx::Error> {
-        let due_jobs = sqlx::query_as::<_, moatless_adapter_model::models::ScheduleRow>(
+        let due_jobs = sqlx::query_as::<_, moatless_adapter_model::persistence::ScheduleRow>(
             r#"SELECT t.id,
                       t.id AS loop_id,
                       sts.cron_expression,
@@ -1261,7 +1262,7 @@ impl LoopDao {
 
         let mut locked = Vec::new();
         for job in due_jobs {
-            let job_lock = sqlx::query_as::<_, moatless_adapter_model::models::ScheduleRow>(
+            let job_lock = sqlx::query_as::<_, moatless_adapter_model::persistence::ScheduleRow>(
                 r#"WITH locked_source AS (
                        UPDATE schedules
                        SET locked_by = $2,

@@ -16,7 +16,7 @@ use moka::future::Cache;
 use moatless_adapter_model::capabilities::AdapterBindingStatus;
 use moatless_adapter_model::registry::Adapters;
 use crate::bindings::dao::TaskBindingDao;
-use moatless_adapter_model::models::TaskBinding;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::ExternalStatus;
 
 /// Whether a binding's live external status is worth fetching again.
@@ -168,7 +168,7 @@ mod tests {
         TaskBinding {
             id: "b1".into(),
             task_id: "t1".into(),
-            adapter_kind: moatless_adapter_model::models::AdapterKind::Webhook,
+            adapter_kind: moatless_types::adapter::AdapterKind::Webhook,
             subject_kind: "stub_subject".into(),
             subject_key: "acme/web#7".into(),
             connection_id: "c1".into(),

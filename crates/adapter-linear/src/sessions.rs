@@ -26,7 +26,10 @@ use tracing::{info, warn};
 use moatless_core::config::Config;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::task::{InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_loops::bindings::dao::TaskBindingDao;

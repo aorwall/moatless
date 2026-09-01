@@ -13,7 +13,7 @@ use super::access::{
 use super::projection::{AdapterFilter, adapter_connection_response};
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::AdapterConnection;
+use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::OutboundReply;
 use crate::bindings::outbound::{checked_presentation, resolve_files_with, truncate_text};
 use crate::bindings::runtime::{ORIGIN_CONNECTED_THREAD, upsert_binding_into};

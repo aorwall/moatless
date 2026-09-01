@@ -7,7 +7,8 @@ use tracing::{debug, info, warn};
 
 use moatless_types::adapter::AdapterKind;
 use moatless_adapter_model::error::AdapterError;
-use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
 use moatless_types::adapter::{Audience, InboundMessage};
 
 use super::router::GithubPrInboundRouter;

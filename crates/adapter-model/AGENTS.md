@@ -11,8 +11,16 @@ items from the same paths.
 ## What the kernel holds
 
 - **What an Adapter offers** — `capabilities`, the traits a provider implements.
-- **What it speaks** — `models`, `apps`, `footer`, `signature`, `mentions`
+- **What it speaks** — `apps`, `footer`, `signature`, `mentions`
   (`render_mentions`).
+- **The shapes it persists** — `persistence`: the `*Row` structs and their
+  `From<…Row>` decode into the domain types, `postgres`-gated. The domain types
+  themselves live in `moatless-types`; name them from there, not through this
+  crate, and decode an `adapter_kind` column with
+  `moatless_types::adapter::AdapterKind::parse_or_webhook`.
+- **The access it gates on** — `access`: `SourceAccessPolicy`, `MessageTrigger`,
+  `AccessDecision`, the vocabulary a chat provider consults before it processes
+  an inbound message.
 - **What it can fail with** — `error`: both halves, `SharedAdapterError` and
   `AdapterError`, plus the `IntoResponse` renderer over them.
 - **Where its connections are stored** — `dao` (`AdapterConnectionDao`,

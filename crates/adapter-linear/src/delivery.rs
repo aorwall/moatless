@@ -78,7 +78,7 @@ use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_loops::adapters::delivery::{ConnectionDeliveryPayload, register_connection_delivery};
 use moatless_adapter_model::delivery::{AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::AdapterConnection;
+use moatless_types::adapter::AdapterConnection;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_adapter_model::loops::LoopReader;
 use moatless_backend_core::task::MessageAcceptor;

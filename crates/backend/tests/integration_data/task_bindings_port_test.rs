@@ -20,7 +20,8 @@ use chrono::Utc;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-use moatless_adapter_model::models::{AdapterConnection, TaskBinding};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::TaskBinding;
 use moatless_backend::repository::dao as repository_dao;
 use moatless_types::access_control::Scope;
 use moatless_backend::state::AppState;

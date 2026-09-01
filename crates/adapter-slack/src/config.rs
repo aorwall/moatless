@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use moatless_adapter_model::models::{MessageTrigger, SourceAccessPolicy};
+use moatless_adapter_model::access::MessageTrigger;
+use moatless_adapter_model::access::SourceAccessPolicy;
 use moatless_types::loops::LoopContext;
 
 /// Typed representation of `adapter_config` JSONB for Slack channels.

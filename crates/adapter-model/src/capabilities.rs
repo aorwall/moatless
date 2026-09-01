@@ -11,12 +11,22 @@
 //! without depending on whatever is orchestrating it.
 
 use crate::error::{AdapterError, SharedAdapterError};
-use crate::models::{binding_context, subscription_context};
+use crate::binding::binding_context;
+use crate::loops::subscription_context;
 use moatless_types::adapter::{
     AdapterConnection, AdapterKind, BindingContext, BindingDestination, DestinationPostResult,
     ExternalStatus, InboundMessage, OutboundReply, TaskBinding,
 };
 use moatless_types::loops::{LoopContext, SubscriptionMatch};
+
+/// Info returned by `send_message` to create a new `BindingContext`.
+#[derive(Debug)]
+pub struct NewThreadInfo {
+    /// Adapter-specific thread/message ID (e.g., Slack message `ts`).
+    pub external_thread_id: String,
+    /// Adapter-specific properties for the thread (e.g., `channel`, `thread_ts`).
+    pub properties: serde_json::Value,
+}
 
 /// Universal adapter identity kept for compatibility with typed provider
 /// registration and legacy name lookups.

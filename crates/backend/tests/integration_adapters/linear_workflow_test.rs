@@ -54,7 +54,8 @@ use sqlx::Row;
 use moatless_core::events::test_support::RecordingPublisher;
 use moatless_types::access_control::Scope;
 use moatless_types::task::TaskSubType;
-use moatless_adapter_model::models::{SubscriptionMatch, TaskBinding};
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::loops::RoutingMode;
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_adapter_model::test_support::ProviderStub;
@@ -375,7 +376,7 @@ async fn seed_bound_session(state: &AppState, pool: &PgPool) {
         SESSION,
         serde_json::json!({"session_id": SESSION, "issue_id": ISSUE}),
         Some(RULE),
-        moatless_adapter_model::models::ADAPTER_EVENT_BINDING_ORIGIN,
+        moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN,
     )
     .await;
 }
@@ -859,7 +860,7 @@ async fn an_issue_level_comment_reaches_the_issue_binding_not_the_session(pool: 
         ISSUE,
         serde_json::json!({"issue_id": ISSUE}),
         Some(RULE),
-        moatless_adapter_model::models::ADAPTER_EVENT_BINDING_ORIGIN,
+        moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN,
     )
     .await;
 
@@ -907,7 +908,7 @@ async fn a_reply_to_a_sessions_origin_comment_reaches_and_heartbeats_it(pool: Pg
             "origin_comment_id": "root-comment",
         }),
         Some(RULE),
-        moatless_adapter_model::models::ADAPTER_EVENT_BINDING_ORIGIN,
+        moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN,
     )
     .await;
 
@@ -957,7 +958,7 @@ async fn a_task_bound_twice_to_one_issue_receives_a_comment_once(pool: PgPool) {
             destination_config: serde_json::json!({"issue_id": ISSUE}),
             metadata: serde_json::json!({}),
             last_external_event_id: None,
-            origin: moatless_adapter_model::models::ADAPTER_EVENT_BINDING_ORIGIN
+            origin: moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN
                 .to_string(),
             created_at: now,
             last_event_at: now,
@@ -1245,7 +1246,7 @@ async fn a_task_with_another_binding_is_not_closed(pool: PgPool) {
             destination_config: serde_json::json!({"issue_id": "issue-other"}),
             metadata: serde_json::json!({}),
             last_external_event_id: None,
-            origin: moatless_adapter_model::models::ADAPTER_EVENT_BINDING_ORIGIN
+            origin: moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN
                 .to_string(),
             created_at: now,
             last_event_at: now,
@@ -1323,7 +1324,7 @@ async fn a_binding_from_a_different_rule_is_not_closed(pool: PgPool) {
         SESSION,
         serde_json::json!({"session_id": SESSION, "issue_id": ISSUE}),
         Some("trigger-linear-2"),
-        moatless_adapter_model::models::ADAPTER_EVENT_BINDING_ORIGIN,
+        moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN,
     )
     .await;
 

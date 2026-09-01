@@ -72,7 +72,8 @@ use tracing::info;
 use moatless_loops::adapters::delivery::register_typed_delivery;
 use moatless_adapter_model::delivery::{AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
 use moatless_types::adapter::InboundMessage;
 
 use super::router::GithubPrInboundRouter;

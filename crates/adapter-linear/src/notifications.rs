@@ -18,7 +18,7 @@ use tracing::debug;
 use moatless_core::config::Config;
 
 use moatless_adapter_model::error::AdapterError;
-use moatless_adapter_model::models::AdapterConnection;
+use moatless_types::adapter::AdapterConnection;
 use moatless_adapter_model::loops::LoopReader;
 use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_backend_core::task::TaskFinisher;

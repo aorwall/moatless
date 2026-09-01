@@ -3,7 +3,9 @@
 use std::fmt::Write;
 
 use moatless_adapter_model::error::AdapterError;
-use moatless_adapter_model::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{BindingContext, DestinationPostResult, OutboundReply};
 use moatless_types::loops::{LoopContext, RoutingMode};
 use moatless_adapter_model::capabilities::{AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply};
@@ -57,7 +59,7 @@ impl AdapterBindingReply for TelegramAdapter {
         rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        let thread = moatless_adapter_model::models::binding_context(binding);
+        let thread = moatless_adapter_model::binding::binding_context(binding);
         let app_key =
             moatless_adapter_model::apps::app_key_from_transport_config(&connection.transport_config);
         let api = self.app_api(app_key).await?;
@@ -90,7 +92,7 @@ impl AdapterBindingReply for TelegramAdapter {
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
             },
-            moatless_adapter_model::models::subscription_context,
+            moatless_adapter_model::loops::subscription_context,
         );
         let destination = TelegramDestination::from_thread_context(&thread.destination_config)?;
         api.send_message(
@@ -308,7 +310,7 @@ mod tests {
     #[tokio::test]
     async fn a_binding_reply_is_one_send_message_onto_the_thread() {
         let (provider, stub) = provider_with_stub().await;
-        let thread = moatless_adapter_model::models::binding_context(&binding(serde_json::json!({
+        let thread = moatless_adapter_model::binding::binding_context(&binding(serde_json::json!({
             "chat_id": "999",
             "message_id": 42,
             "forum_topic_id": 7,
