@@ -33,12 +33,17 @@ Codex/Claude harness options at Sandbox launch.
 
 ## 2. Full-text search across Tasks
 
-No search endpoint or index exists (`crates/tasks`, `crates/backend`,
-`crates/api-schemas`, frontend all checked). `dsh`'s `session-query` package
-runs SQLite FTS5 over the durable event log plus relationship/lineage tracing.
-Moatless's Message store is already durable and structured
-(`task_messages`, the `TranscriptAppend` port) — an FTS index over message
-content is additive, no schema redesign needed.
+A T3 UI-RPC conversation search already exists —
+`crates/t3code/src/dao.rs::search_conversations`, exposed as
+`orchestration.searchThreads` — matching followed open task names/messages via
+`ILIKE`. There is no indexed or product-wide search: it's unindexed
+substring matching, scoped to the T3 surface, with no equivalent endpoint or
+UI in the main frontend. `dsh`'s `session-query` package runs SQLite FTS5 over
+the durable event log plus relationship/lineage tracing. Moatless's Message
+store is already durable and structured (`task_messages`, the
+`TranscriptAppend` port) — an FTS index over message content, exposed as a
+main-product endpoint and UI, is additive on top of what `search_conversations`
+already proves out.
 
 ## 3. Task export
 
@@ -49,13 +54,20 @@ download (compliance, sharing, offline review).
 
 ## 4. Cross-task references
 
-No equivalent exists — `crates/adapter-model/src/mentions.rs` only mentions
-*people*, for outbound Adapter formatting. `dsh`'s `dsh-session:` URIs let one
-session reference another as a read-only snapshot injected as untrusted
-context. Moatless already threads multiple Tasks through one Workspace/Loop;
-letting a Task pull in another Task's transcript as reference context (e.g.
-"see what the previous audit Task found") fits that model and nothing else
-covers it today.
+Moatless already records that one Task relates to another —
+`task_relations` (`crates/tasks/src/task/relations.rs`, the
+`RelationRecorder` port) and per-message `source_task_id`
+(`crates/api-schemas/src/message.rs`) attribute inbound content to the Task it
+came from. What's missing is a user/agent-facing way to *inject* another
+Task's transcript as read-only reference context into the current one — the
+relation and attribution model records that a link exists, not the content on
+the other end of it. `crates/adapter-model/src/mentions.rs` only mentions
+*people*, for outbound Adapter formatting, so no existing surface fills this
+either. `dsh`'s `dsh-session:` URIs do this: one session references another
+and gets back a read-only snapshot injected as untrusted context. A moatless
+version should read through `task_relations`/`source_task_id` for the "is this
+Task allowed to see that one" question rather than inventing a second
+relation model.
 
 ## 5. Runtime invariant framework for Adapters and Plugins
 
