@@ -7,9 +7,11 @@
 //! then appends the fork's own Turns to a transcript that shares none of its id
 //! with the parent's, so the two never write each other's files.
 //!
-//! The cut anchor is a `task_messages.uuid`, which is the same `uuid` the CLI
-//! writes on the transcript line it produced — so "through this uuid" names one
-//! line unambiguously.
+//! The cut anchor is an assistant `task_messages.uuid`, which for a Claude turn
+//! holds the Anthropic message id. The CLI writes that id as `message.id` on
+//! every transcript line belonging to the message, so it is the one identifier
+//! the stored row and the transcript share. The line's own `uuid` is minted by
+//! the CLI and appears in no database row.
 
 use claude_agent_sdk::transcript_dir;
 use tracing::warn;
@@ -62,25 +64,45 @@ pub(super) async fn write_forked_transcript(
     Some(new_session_id)
 }
 
-/// Keep `body`'s lines through the one whose `uuid` is `through_uuid`, inclusive,
+/// Keep `body`'s lines through the last one the anchor names, inclusive,
 /// rewriting every `sessionId` to `session_id`.
 ///
-/// Returns the empty string when `through_uuid` is not present — the anchor names
-/// no line, so there is no defensible cut, and copying the whole session would
-/// hand the fork the parent's later Turns. An unparseable line is dropped: a
-/// transcript the CLI wrote is JSONL, and a line this cannot read cannot have its
-/// `sessionId` rewritten, so carrying it forward would leave the parent's id on
-/// the fork's transcript.
+/// The anchor is matched against `message.id` first and the line's own `uuid`
+/// second. `message.id` is the Anthropic message id, which is what a
+/// `task_messages` row for an assistant turn stores as its `uuid`; the line's
+/// `uuid` is minted by the CLI and appears in no database row, so matching it
+/// alone found nothing. One message spans up to four consecutive lines, so the
+/// cut runs to the *last* line carrying the anchor — stopping at the first would
+/// truncate the message the fork is supposed to keep.
+///
+/// Returns the empty string when the anchor names no line, because copying the
+/// whole session would hand the fork the parent's later Turns. An unparseable
+/// line is dropped: a transcript the CLI wrote is JSONL, and a line this cannot
+/// read cannot have its `sessionId` rewritten, so carrying it forward would
+/// leave the parent's id on the fork's transcript.
 fn cut_transcript(body: &str, through_uuid: &str, session_id: &str) -> String {
+    let parsed: Vec<serde_json::Value> = body
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .collect();
+
+    let anchors = |value: &serde_json::Value| {
+        let by_message_id = value
+            .get("message")
+            .and_then(|m| m.get("id"))
+            .and_then(|id| id.as_str())
+            == Some(through_uuid);
+        by_message_id || value.get("uuid").and_then(|u| u.as_str()) == Some(through_uuid)
+    };
+
+    let Some(last) = parsed.iter().rposition(anchors) else {
+        return String::new();
+    };
+
     let mut out = String::new();
-    let mut found = false;
-    for line in body.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
+    for value in parsed.into_iter().take(last + 1) {
+        let mut value = value;
         if let Some(obj) = value.as_object_mut() {
             if obj.contains_key("sessionId") {
                 obj.insert(
@@ -91,12 +113,8 @@ fn cut_transcript(body: &str, through_uuid: &str, session_id: &str) -> String {
         }
         out.push_str(&value.to_string());
         out.push('\n');
-        if value.get("uuid").and_then(|u| u.as_str()) == Some(through_uuid) {
-            found = true;
-            break;
-        }
     }
-    if found { out } else { String::new() }
+    out
 }
 
 #[cfg(test)]
@@ -105,6 +123,57 @@ mod tests {
 
     fn line(uuid: &str, session: &str, kind: &str) -> String {
         serde_json::json!({ "uuid": uuid, "sessionId": session, "type": kind }).to_string()
+    }
+
+    /// An assistant line as the CLI writes it: a per-line `uuid` no database row
+    /// holds, plus the `message.id` the `task_messages` row stores as its uuid.
+    fn assistant_line(uuid: &str, session: &str, message_id: &str) -> String {
+        serde_json::json!({
+            "uuid": uuid,
+            "sessionId": session,
+            "type": "assistant",
+            "message": { "id": message_id, "role": "assistant" }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn the_anchor_matches_the_message_id_the_database_stores() {
+        // The anchor is what `anchors()` returns: an assistant row's uuid, which
+        // is the Anthropic message id — never the CLI's per-line uuid.
+        let body = [
+            line("u1", "old", "user"),
+            assistant_line("cli-a", "old", "msg_01A"),
+            line("u2", "old", "user"),
+            assistant_line("cli-b", "old", "msg_01B"),
+        ]
+        .join("\n");
+
+        let cut = cut_transcript(&body, "msg_01A", "new");
+        assert_eq!(cut.lines().count(), 2, "keeps through the msg_01A line");
+        assert!(cut.contains("msg_01A"));
+        assert!(
+            !cut.contains("msg_01B"),
+            "nothing after the anchor survives"
+        );
+    }
+
+    #[test]
+    fn a_message_spanning_several_lines_is_kept_whole() {
+        // One assistant message occupies up to four consecutive transcript
+        // lines. Cutting at the first would truncate the message being kept.
+        let body = [
+            line("u1", "old", "user"),
+            assistant_line("cli-a", "old", "msg_01A"),
+            assistant_line("cli-b", "old", "msg_01A"),
+            assistant_line("cli-c", "old", "msg_01A"),
+            line("u2", "old", "user"),
+        ]
+        .join("\n");
+
+        let cut = cut_transcript(&body, "msg_01A", "new");
+        assert_eq!(cut.lines().count(), 4, "all three anchor lines are kept");
+        assert!(!cut.contains("\"u2\""), "the turn after the cut is dropped");
     }
 
     #[test]

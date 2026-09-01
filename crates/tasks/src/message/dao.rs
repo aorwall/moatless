@@ -1995,6 +1995,62 @@ mod db_tests {
         );
     }
 
+    /// A fork's cut is resolved from rows the production write path produced,
+    /// never from a hand-stamped fixture.
+    ///
+    /// `agent_session_id` is written only by `set_session_id_for_task` and
+    /// `acknowledge_messages`, both of which filter to `user`/`error`, so an
+    /// assistant row carries its session in `session_id` alone. An anchor query
+    /// keyed on `agent_session_id` therefore matched no assistant row and every
+    /// fork silently started on a fresh session. Seed the way ingest does —
+    /// acknowledge the user turn, then append the assistant row with
+    /// `session_id` set and `agent_session_id` left `None` — so this fails if
+    /// the anchor goes back to a column production never fills.
+    #[sqlx::test]
+    async fn the_fork_anchor_comes_off_the_assistant_row_ingest_actually_writes(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        append_user_message(&pool, "t1", "m1").await;
+
+        let dao = PgMessageDao(pool.clone());
+        dao.acknowledge_messages("t1", &["m1".to_string()], "sess-1", 1)
+            .await
+            .unwrap();
+
+        // The assistant row as ingest builds it: its uuid is the Anthropic
+        // message id, the session lands in `session_id`, and nothing sets
+        // `agent_session_id`.
+        let mut assistant = TaskMessage::new_user_message(
+            "t1".to_string(),
+            "msg_01ANCHOR".to_string(),
+            "done".to_string(),
+            Utc::now().to_rfc3339(),
+        );
+        assistant.message_type = MessageType::Assistant;
+        assistant.session_id = Some("sess-1".to_string());
+        assistant.agent_session_id = None;
+        assistant.turn_number = Some(1);
+        dao.append(
+            &assistant,
+            &[],
+            &crate::task_activities::mapping::ConversationWrite::default(),
+        )
+        .await
+        .unwrap();
+
+        let anchors = dao
+            .fork_anchors("t1", Some(1))
+            .await
+            .expect("anchor query runs")
+            .expect("a forkable turn resolves an anchor");
+
+        assert_eq!(anchors.session_id, "sess-1");
+        assert_eq!(
+            anchors.message_uuid.as_deref(),
+            Some("msg_01ANCHOR"),
+            "the anchor is the assistant message id the transcript repeats as message.id"
+        );
+    }
+
     /// An early clear drops work: acknowledging one Message must leave the
     /// signal up while another is still unacknowledged.
     #[sqlx::test]

@@ -22,11 +22,15 @@ use super::models::TaskMessage;
 /// lands on.
 #[derive(Debug, Clone)]
 pub struct ForkAnchors {
-    /// The parent's `agent_session_id` at the cut — the Claude session or Codex
-    /// thread the pod branches from.
+    /// The parent's `session_id` at the cut — the Claude session or Codex thread
+    /// the pod branches from. Read from `session_id` rather than
+    /// `agent_session_id`: only `user` and `error` rows are ever stamped with the
+    /// latter, so an assistant row carries the session in `session_id` alone.
     pub session_id: String,
-    /// The last agent-written `task_messages.uuid` at or before the cut, which
-    /// is the `uuid` the CLI wrote on the transcript line. `None` only when the
+    /// The last assistant `task_messages.uuid` at or before the cut. For a
+    /// Claude turn that is the Anthropic message id, which the CLI writes as
+    /// `message.id` on every transcript line belonging to the message — the one
+    /// identifier the stored row and the transcript share. `None` only when the
     /// session is known from a row that carries no usable uuid.
     pub message_uuid: Option<String>,
 }
@@ -75,12 +79,22 @@ pub async fn anchors(
     task_id: &str,
     at_turn: Option<i32>,
 ) -> Result<Option<ForkAnchors>, sqlx::Error> {
+    // `session_id`, not `agent_session_id`: the latter is written only by
+    // `set_session_id_for_task` and `acknowledge_messages`, both of which filter
+    // to `message_type IN ('user', 'error')`, so no assistant row has ever
+    // carried it and this predicate matched nothing.
+    //
+    // `assistant` alone, not `('assistant', 'system')`: the anchor has to name a
+    // line in the transcript, and only an assistant row's uuid does — it holds
+    // the Anthropic message id the CLI repeats as `message.id`. A `system` row
+    // sorting newest would otherwise win the `ORDER BY` and hand the pod an
+    // anchor no transcript line carries.
     let row: Option<(String, String)> = sqlx::query_as(concat!(
-        "SELECT agent_session_id, uuid
+        "SELECT session_id, uuid
            FROM task_messages
           WHERE task_id = $1
-            AND agent_session_id IS NOT NULL
-            AND message_type IN ('assistant', 'system')
+            AND session_id IS NOT NULL
+            AND message_type = 'assistant'
             AND parent_uuid IS NULL
             AND ",
         at_or_before_cut!(),
