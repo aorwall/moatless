@@ -1,40 +1,21 @@
 //! Linear webhook request policy and durable admission.
 //!
-//! The HTTP handler passes only transport facts — the signature header and the
-//! body. This module owns everything from there: signature policy, connection
-//! resolution, the delivery identity, the one effect that runs before the
-//! acknowledgment, and durable admission.
+//! The HTTP handler passes only transport facts; this module owns signature
+//! policy, connection resolution, the delivery identity, and admission. All five
+//! event kinds are admitted before the response, so nothing on the response path
+//! but the signature, the envelope and
+//! [`webhook::normalize`](super::webhook::normalize)'s shape guards — pure reads
+//! of the body. Keep it that way: nothing here may hold state between
+//! deliveries, or a refused delivery could dismiss the sender's next attempt as
+//! a duplicate.
 //!
-//! # Admission precedes acknowledgment
+//! [`Effect::SessionHeartbeat`](super::webhook::Effect) is the one effect before
+//! the `200`, so a new session's panel is alive inside Linear's 10-second
+//! window. Best-effort; its failure is logged, and the work behind it is
+//! admitted like everything else.
 //!
-//! Every one of the five event kinds Linear sends is admitted, so no routing,
-//! message forwarding, task creation or sandbox provisioning happens before the
-//! response. What is left on the response path is the part that decides whether
-//! a delivery carries any work at all: the signature, the envelope, and
-//! [`webhook::normalize`](super::webhook::normalize)'s payload-shape guards.
-//! Those are pure reads of the request body — they reach no task and no Linear
-//! API — so a redelivery repeats nothing but the parse.
-//!
-//! Deduplication is admission's, and only admission's. A redelivery is
-//! collapsed because its identity ([`dedup_key`]) is already in
-//! `adapter_delivery` — on whichever replica it lands, however long after the
-//! first attempt. Nothing here holds state between deliveries, which is what
-//! makes a withheld acknowledgment honest: a delivery refused below leaves no
-//! trace that could dismiss the sender's next attempt as a duplicate.
-//!
-//! The single exception is [`Effect::SessionHeartbeat`](super::webhook::Effect):
-//! a newly created agent session gets an ephemeral heartbeat activity posted to
-//! Linear before the `200`, so its panel is alive inside Linear's 10-second
-//! window. It is a best-effort notice whose failure is logged, not the work;
-//! the work behind it is admitted like everything else.
-//!
-//! # Reachable without an HTTP request
-//!
-//! [`receive`] takes the downward ports it reads (adapter connections, loops,
-//! app tokens, adapter apps, adapter delivery), an Adapter, a signature and a
-//! body. That is
-//! the seam: every decision below the route is drivable from a test that never
-//! builds a `Request`, and `backend/tests/integration_adapters/linear_ingress_test.rs` drives it.
+//! [`receive`] takes its downward ports directly, so every decision below the
+//! route is drivable without building a `Request`.
 
 use tracing::{info, warn};
 
@@ -512,26 +493,17 @@ pub(super) async fn resolve_rules_for_team(
         .collect())
 }
 
-/// Derive a stable dedup identity for a Linear webhook delivery.
+/// Derive a stable dedup identity for a Linear webhook delivery: the `event_id`
+/// of every record admitted below, formatted `"{event_type}:{action}:{id}"`.
 ///
-/// This is the only deduplication Linear has: it becomes the `event_id` of
-/// every record admitted below, and the durable unique index on
-/// `(adapter, kind, event_id)` is what collapses a retry — on any replica and
-/// after any restart.
+/// A genuine retry must carry the same key and two separately performed events
+/// must never share one. A resource id alone holds both only where the resource
+/// can be acted on once, so a session that can be re-prompted and an issue that
+/// can be moved again key on something the sender varies per event.
 ///
-/// Linear's `webhookId` is the *webhook-configuration* id — it is identical on
-/// every delivery, not unique per event — so keying on it (alone or with
-/// `event_type`) would recognise distinct events as duplicates of each other
-/// and drop them for the whole retention period. Instead we key on the most
-/// specific stable *resource* identity available, plus the action (so e.g.
-/// `created` vs `prompted` on one session don't collide).
-///
-/// The identity has to hold two properties at once: a genuine Linear retry
-/// carries the same one, and two events a person performed separately never
-/// do. A resource id alone only satisfies both when the resource can be acted
-/// on once — which is true of a comment and a session creation, and false of a
-/// session that can be prompted again and an issue that can be moved again.
-/// Those two therefore key on something the sender varies per event.
+/// Do not key on Linear's `webhookId`: it is the webhook-*configuration* id,
+/// identical on every delivery, so distinct events would collapse into one and
+/// be dropped for the whole retention period.
 ///
 /// Resource id by event type:
 /// - `AgentSessionEvent.prompted` → `agentActivity.id`, the activity carrying
@@ -548,8 +520,6 @@ pub(super) async fn resolve_rules_for_team(
 /// - `AppUserNotification` → `notification.id`
 /// - fallback (unknown / missing) → `webhook_id:webhook_timestamp`
 ///   (Linear resends the same `webhookTimestamp` on genuine retries).
-///
-/// Key format: `"{event_type}:{action}:{resource_id}"`.
 fn dedup_key(envelope: &LinearWebhookEnvelope) -> String {
     let resource_id = match envelope.event_type.as_str() {
         "AgentSessionEvent" if envelope.action == "prompted" => envelope

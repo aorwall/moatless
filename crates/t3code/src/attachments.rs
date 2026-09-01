@@ -1,35 +1,22 @@
 //! Chat attachment uploads: minting a URL for one, taking its bytes, and
 //! removing one that was abandoned.
 //!
-//! `attachments.createUploadUrl` is how the composer sends anything that is not
-//! text. It hands back an id and a URL; the client `POST`s the raw file to that
-//! URL and then names the id on the turn. That is the only way a non-image
-//! reaches a thread at all, and — once
-//! [`capabilities.attachmentUploads`](crate::descriptor) is reported — it is
-//! how images arrive too. The inline data-URL path in [`crate::commands`] stays
-//! for the clients that have not read that capability yet.
+//! `attachments.createUploadUrl` hands back an id and a URL; the client `POST`s
+//! the raw file there and names the id on the turn. It is the only way a
+//! non-image reaches a thread, and once
+//! [`capabilities.attachmentUploads`](crate::descriptor) is reported, how images
+//! arrive too.
 //!
-//! **The minted URL carries its own credential, and that is why it differs from
-//! [`crate::assets`].** An asset URL is a bare address that a same-site frame
-//! navigation earns with the session cookie it sends anyway. This one is a
-//! `POST`, and a cookie a browser attaches ambiently is exactly what CSRF is:
-//! the backend's auth middleware answers that by demanding an `X-CSRF-Token`
-//! header on every cookie-authenticated write, which a raw
-//! `xhr.send(file)` does not send. So the credential is in the URL instead — a
-//! short-lived JWT, signed with the same secret WebSocket tickets use, naming
-//! the viewer who minted it and the one attachment it may write. It is never
-//! attached ambiently, so a cross-site form cannot forge it, and the route is
-//! exempt from the cookie machinery for that reason and no other. It also means
-//! a client authenticating by API key can upload, which an asset URL cannot do.
+//! The credential is in the URL — a short-lived JWT naming the viewer and the
+//! one attachment it may write — rather than in a cookie, because a raw
+//! `xhr.send(file)` sends no `X-CSRF-Token` and an ambient cookie on a `POST` is
+//! exactly CSRF. That is the only reason this route is exempt from the cookie
+//! machinery, and it also lets an API-key client upload. [`crate::assets`]
+//! differs because a bare asset address is earned by a same-site navigation.
 //!
-//! **The declared metadata rides in the token.** The upload request carries no
-//! filename, and its `Content-Type` is whatever the client chose to put there.
-//! The name, the mime type and the size in the token are the ones this module
-//! validated against the contract's union at mint time and then signed, so the
-//! route trusts them and ignores the request's own headers. That is also what
-//! makes a mint that is never uploaded cost nothing: no row is reserved and
-//! nothing has to be swept, because until the bytes arrive the attachment is a
-//! string the client is holding.
+//! Name, mime type and size are validated against the contract's union at mint
+//! time and signed into the token, so the route ignores the request's own
+//! headers. A mint that is never uploaded costs nothing: no row is reserved.
 
 use axum::body::Body;
 use axum::extract::{Path, State};

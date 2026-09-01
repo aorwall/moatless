@@ -1023,9 +1023,9 @@ mod tests {
         }
     }
 
-    /// The four `UNRENDERED_BLOCK_TYPES` the old block writer skipped, and one
-    /// type nothing has ever seen. Two of the four are thinking, which now has a
-    /// row; the other two still become nothing.
+    /// The four `UNRENDERED_BLOCK_TYPES`, and one type nothing has ever seen.
+    /// Two of the four are thinking, which has a row; the other two become
+    /// nothing.
     #[test]
     fn a_block_this_conversation_does_not_store_is_silent() {
         for unstored in [

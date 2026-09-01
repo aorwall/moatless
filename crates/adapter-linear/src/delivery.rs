@@ -1,71 +1,19 @@
 //! Durable admission for every Linear webhook event kind.
 //!
-//! Everything a Linear delivery loops used to run on the response path:
-//! provisioning the task behind a new agent session was `tokio::spawn`ed, and
-//! the other four kinds — a follow-up prompt on an existing session, an issue
-//! state change, a comment, and a workspace notification — ran inline before
-//! the `200`. Either shape makes the acknowledgment a lie: Linear considers an
-//! acknowledged delivery finished and does not send it again, so a deploy, an
-//! out-of-memory kill, or a panic lost the work permanently and with no trace.
+//! Linear does not resend an acknowledged delivery, so all five kinds are
+//! admitted into [`moatless_loops::adapters::delivery`] before the response
+//! returns. Only signature verification, envelope parsing and the shape guards
+//! run on the response path; anything with an effect belongs in the worker.
 //!
-//! All five are now admitted into [`moatless_loops::adapters::delivery`] before the response
-//! is returned. The admission contract lives in that module and is not restated
-//! here; what this module owns is the Linear-specific half: the kinds, the
-//! payloads, and the idempotency key.
+//! `event_id` is the existing [`dedup_key`](super::ingress) string. Do not key
+//! on Linear's `webhookId`: it is the webhook *configuration* id, identical on
+//! every delivery. The kinds stay distinct because dedup and the retry budget
+//! are both per `(adapter, kind, event_id)`.
 //!
-//! # Idempotency key
-//!
-//! `event_id` is the *existing* [`dedup_key`](super::ingress) string —
-//! `{event_type}:{action}:{resource_id}` with the documented fallback chain
-//! ending at `webhook_id:webhook_timestamp`. It is deliberately not a new
-//! scheme: Linear's `webhookId` is the stable webhook-*configuration* id,
-//! identical on every delivery, so keying on it would collapse two distinct
-//! sessions into one record; and deriving a second key beside the existing one
-//! would let the same delivery dedup under one mechanism and not the other.
-//!
-//! # One kind per unit of work
-//!
-//! A Linear delivery carries one event type, so it becomes one record — but the
-//! kinds are still distinct rather than one shared `linear.webhook`, because
-//! dedup and the retry budget are both per `(adapter, kind, event_id)`. Folding
-//! them together would let a permanent failure in one spend the attempts of the
-//! others, which is the rule the GitHub kinds already follow.
-//!
-//! # What still runs on the response path
-//!
-//! Signature verification, envelope parsing, and the payload-shape guards that
-//! decide whether a delivery carries any work at all. Everything with an effect
-//! — resolving rules, reading bindings, calling Linear's API, forwarding a
-//! message, creating or closing a task — happens in the worker. Anything else
-//! appearing between the signature check and the response is a defect.
-//!
-//! # The only deduplication Linear has
-//!
-//! The unique index on `(adapter, kind, event_id)` — nothing else. The
-//! adapter used to also hold a 5-minute in-process cache, marked before the
-//! dispatch ran and evicted again whenever admission failed. Every kind now has
-//! a durable identity that survives a restart, a second replica, and the
-//! expiry, which is strictly more than the cache ever provided; it and the
-//! eviction compensating for it are gone. Nothing between the signature check
-//! and the response may swallow a delivery the sender is about to be asked to
-//! send again.
-//!
-//! # Execution deadline
-//!
-//! Provisioning is the slow work this seam exists for, and
-//! [`AdapterDeliveryPolicy::execution_timeout`](moatless_loops::adapters::delivery::AdapterDeliveryPolicy)
-//! is 2 minutes. If it is exceeded the attempt is abandoned and retried, and
-//! the retry converges on the binding guard in `provision_session_task` rather
-//! than creating a second task. The uncovered window is a timeout landing
-//! between task creation and that binding write; the spawned path lost the
-//! session outright in the same window.
-//!
-//! The other four kinds are at-least-once too, and each converges on an
-//! identity it does not invent: a prompt on `linear:prompt:{activity_id}`, a
-//! comment on `linear:comment:{comment_id}`, and an issue state change on
-//! `linear:issue-state:{issue_id}:{transition_id}` — which is why the
-//! transition id is carried in the payload rather than rebuilt later from a
-//! webhook attempt timestamp the worker cannot see.
+//! Each kind converges on an identity it does not invent — `linear:prompt:`,
+//! `linear:comment:`, `linear:issue-state:` — so a retry after the execution
+//! timeout is a no-op. The uncovered window is a timeout landing between task
+//! creation and the binding write in `provision_session_task`.
 
 use std::sync::Arc;
 

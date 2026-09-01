@@ -17,13 +17,11 @@ use super::contexts::message_context_input_to_row;
 use super::error::MessageError;
 use moatless_types::task::ExternalOrigin;
 
-/// The message domain's one question of the adapter registry, named here so the
-/// send flows no longer reach `Adapters` directly: self-echo deduplication.
-/// Given an inbound event, has it already been sent from here, and what ids
-/// could it be stored under — the boundary the plan (Step 5) mandates for this
-/// file. The concrete filter that holds the in-memory race-window cache and the
-/// adapter registry lives up-band in `adapters/self_echo.rs` and implements
-/// this port.
+/// The message domain's one question of the adapter registry: given an inbound
+/// event, has it already been sent from here, and what ids could it be stored
+/// under. Send flows read this port, never `Adapters`. The filter holding the
+/// in-memory race-window cache and the registry lives up-band in
+/// `adapters/self_echo.rs`.
 pub trait SelfEchoGuard: Send + Sync {
     /// In-memory race-window check — catches webhooks that land before
     /// `set_external_event_id` has committed.

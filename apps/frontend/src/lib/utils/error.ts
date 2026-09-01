@@ -19,7 +19,7 @@ function getApiErrorMessage(data: Record<string, unknown>): string | null {
       return nestedError['message']
     }
   }
-  // Check for error as string (legacy format)
+  // Check for error as string (string form)
   if (typeof errorField === 'string') {
     return errorField
   }

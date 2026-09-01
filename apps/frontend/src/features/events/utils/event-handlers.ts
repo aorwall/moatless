@@ -14,8 +14,7 @@ type InvalidationMapping = Readonly<Record<string, readonly InvalidationKeyFunct
 //
 // IMPORTANT: messages are NOT invalidated here. Invalidating an infinite
 // query refetches every loaded page and resets the user's scroll position.
-// The set of events that previously triggered messages-key invalidation now
-// triggers a targeted refetch of the newest page via
+// Events that affect messages take a targeted refetch of the newest page via
 // `invalidateMessagesForEvent` below.
 
 export const EVENT_INVALIDATION_MAP = {
@@ -133,8 +132,8 @@ const TOOL_INVALIDATION_REGISTRY: Readonly<
   MultiEdit: invalidateFiles,
   Write: invalidateFiles,
   // A shell command can add, move or delete files just as readily (installs,
-  // git checkouts, generators). The file tree used to catch those on a 30s
-  // poll; it now refreshes from this event instead.
+  // git checkouts, generators), and this event is what refreshes the file tree
+  // for them.
   Bash: invalidateFiles,
   // Task metadata updates - invalidate task detail (using clean tool name)
   updateTaskMetadata: (taskId, queryClient) => {

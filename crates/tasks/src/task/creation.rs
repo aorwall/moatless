@@ -3,10 +3,10 @@
 //!
 //! Creating a task means: generate a unique short id, run the GitHub-token
 //! preflight, insert the task row, assign tags, record relations, send an
-//! optional first message, provision the sandbox, and publish a task event. This
-//! sequence used to be copy-pasted across the HTTP handler and three
-//! loop/adapter paths; [`TaskCreationService`] collapses it behind one entry
-//! point so a provisioning fix lands once instead of four times.
+//! optional first message, provision the sandbox, and publish a task event.
+//! [`TaskCreationService`] is the one entry point for that sequence — the HTTP
+//! handler and the loop/adapter paths all go through it — so a provisioning fix
+//! lands once.
 //!
 //! Callers normalise their domain input (HTTP payload, webhook, loop config)
 //! into a [`NewTaskRequest`] and hand the service the two `AppState`-coupled

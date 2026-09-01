@@ -10,12 +10,10 @@
 //!   blob to every open codex sandbox in scope — needs `TaskDao` (to list them)
 //!   and `CredentialBroadcast` (to reach them).
 //!
-//! Its deps floor at `TaskDao` (tasks, band 5) and its callers — `task::service`,
-//! `sandbox::secrets`, the gRPC `update_credential` handler, the settings UI —
-//! ceiling at the same band, so this is the tasks crate (9c). The `tasks` field
-//! is a non-optional `Arc<dyn TaskDao>`: the old `Option<BroadcastContext>` let
-//! an unwired context silently disable the guard (a `None` read as "no task in
-//! flight"), which this construction makes impossible.
+//! Its deps floor at `TaskDao` (tasks, band 5) and its callers ceiling at the
+//! same band, which is why it lives in the tasks crate. `tasks` is a
+//! non-optional `Arc<dyn TaskDao>`, so an unwired context cannot silently
+//! disable the guard by reading `None` as "no task in flight".
 
 pub mod refresher;
 

@@ -20,9 +20,9 @@ use crate::agent_event::AgentEvent;
 
 /// Handle `agent.completed` event.
 ///
-/// The final assistant message already carries the response text and usage,
-/// so we no longer persist a separate result row here. We update task status /
-/// cost from the SDK result, emit follow-up events, and finalize any active
+/// The final assistant message already carries the response text and usage, so
+/// no separate result row is persisted here. Updates task status /
+/// cost from the SDK result, emits follow-up events, and finalizes any active
 /// Linear agent session by posting a `response` activity carrying the body of
 /// the last assistant message (per
 /// <https://linear.app/developers/agent-interaction#activity-content-payload>).

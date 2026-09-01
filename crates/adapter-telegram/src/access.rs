@@ -18,10 +18,9 @@ pub(super) struct DmSender<'a> {
 
 /// What the DM policy decided.
 ///
-/// [`AccessDecision`] cannot express the third case, because raising a pairing
-/// request is work rather than a verdict — and this function no longer does
-/// work. The caller turns it into a
-/// [`super::webhook::Effect::RequestPairing`].
+/// [`AccessDecision`] cannot express the third case: raising a pairing request
+/// is work rather than a verdict, and this function does no work. The caller
+/// turns it into a [`super::webhook::Effect::RequestPairing`].
 pub(super) enum DmDecision {
     Allowed,
     Blocked,

@@ -70,8 +70,7 @@ function metricsFromHandle(
  * Scroll behaviours reuse the same pure logic as the non-virtual path
  * (`message-history-scroll.ts`); the geometry is read from the VList
  * handle (`scrollOffset` / `scrollSize` / `viewportSize`) instead of a DOM
- * element. Prepend uses VList's `shift` prop, which replaces the hand-rolled
- * anchor-restore of the non-virtual path.
+ * element. Prepend uses VList's `shift` prop rather than an anchor-restore.
  */
 export function MessageHistoryVirtualList({
   rows,

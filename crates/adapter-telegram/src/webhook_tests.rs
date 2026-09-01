@@ -85,9 +85,9 @@ async fn normalize(
     )
     .await?;
 
-    // Normalization no longer performs its effects, so the helper does what
+    // Normalization does not perform its effects, so the helper does what
     // ingress does — otherwise the Bot API and pairing-row counts below would
-    // be measuring the move rather than the behaviour.
+    // measure the wiring rather than the behaviour.
     let (outcome, effects) = match normalized {
         Normalization::Message { message, effects } => (Normalized::Message(message), effects),
         Normalization::Ignored { effects, .. } => (Normalized::Ignored, effects),

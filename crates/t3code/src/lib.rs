@@ -1,30 +1,21 @@
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
 //! Opt-in T3 Code UI compatibility routes.
 //!
-//! This module is the anti-corruption layer between T3's contract and Moatless
-//! state: it is the only place in the backend that knows T3's vocabulary, and
-//! that vocabulary appears on the wire and nowhere behind it. The shell listing
-//! reads the conversations a viewer follows and the workspaces they run
-//! against, projects both onto T3's shapes, and reports the position it read
-//! them at. A subscription then watches the listing change feed and sends each
-//! changed conversation's row, re-read and whole.
+//! The anti-corruption layer between T3's contract and Moatless state: the only
+//! place in the backend that knows T3's vocabulary, which appears on the wire
+//! and nowhere behind it.
 //!
-//! A client that reconnects passes the position it already holds —
-//! `afterSequence` — and is replayed from it rather than rebuilt, for as long
-//! as the changes it missed are still retained. Past that it is handed a fresh
-//! listing, which is a different member of the contract's stream union and not
-//! an empty answer. Only turn transitions enter the feed so far; writes remain
-//! unimplemented.
+//! The shell listing projects the conversations a viewer follows and the
+//! workspaces they run against, and reports the position it read them at. A
+//! reconnecting client passes that position as `afterSequence` and is replayed
+//! from it while the changes it missed are retained; past that it is handed a
+//! fresh listing, a different member of the stream union rather than an empty
+//! answer.
 //!
-//! Opening one conversation reads its transcript and projects it into the two
-//! collections T3 renders — what was *said* as messages, what was *done* as a
-//! work log — over the same route in both directions: an HTTP snapshot the
-//! client hydrates from, and a subscription that keeps it current. That
-//! subscription reads a change feed of its own (`task_activities`) and sends
-//! the contract's own events, so a conversation that moves costs the row that
-//! moved rather than the whole transcript. It resumes on the same terms as the
-//! shell's, in its own numbering: a conversation's positions are not the
-//! listing's, and a cursor from one is refused by the other. See
+//! Opening a conversation projects its transcript into the two collections T3
+//! renders — what was said as messages, what was done as a work log — over an
+//! HTTP snapshot plus a subscription on its own `task_activities` change feed.
+//! Positions are per feed: a cursor from one is refused by the other. See
 //! [`ThreadFeed`].
 
 pub mod activity;
@@ -303,8 +294,8 @@ struct UiRpcState {
     /// auth badge. Read per request because credentials come and go without a
     /// restart.
     source_control_auth: Arc<dyn ports::SourceControlAuthSource>,
-    /// Carries out the commands the T3 client dispatches. No longer this
-    /// module's only write: a git action reaches a Sandbox through `sandboxes`.
+    /// Carries out the commands the T3 client dispatches. Not this module's only
+    /// write: a git action reaches a Sandbox through `sandboxes`.
     commands: Arc<dyn ports::ThreadCommandSink>,
     /// Where a chat attachment's bytes go, for the upload route and for
     /// `attachments.delete`.
@@ -494,44 +485,17 @@ pub struct UiRpcDependencies {
 /// The identity this deployment presents itself by: a configured name, and a
 /// digest of the database behind it.
 ///
-/// **This is the half of the spec's Decision 7 that does not run on this side
-/// of the wire.** T3 keys everything it caches for an environment — the shell
-/// listing included — on this string
-/// (`client-runtime/src/platform/persistence.ts:59-63`, read at
-/// `state/shell.ts:56-70` before the first frame arrives). What a client does
-/// when the string changes depends on how it reached us, and it is worth being
-/// exact about both, because only one of them is silent:
+/// T3 keys everything it caches for an environment on this string, read once
+/// per page load, so it moves at reload rather than at reconnect. Same-origin
+/// clients build their connection from the descriptor, so a changed id starts
+/// the shell empty; a registered connection stored the id at onboarding and
+/// refuses to connect on a mismatch. The guards in [`task_listing::resume`] and
+/// [`ShellFeed::poll`](feed::ShellFeed::poll) make a mid-session replacement
+/// safe.
 ///
-/// - **Same-origin, which is how Moatless is reached.** The web application
-///   builds its primary connection *from* the descriptor — it does not hold an
-///   id and check ours against it (`apps/web/src/connection/platform.ts:286-300`).
-///   So a changed id becomes the client's id, no cached listing exists under
-///   it, and the shell starts empty. Nothing is sent and nothing the client
-///   holds has to be believed.
-/// - **Registered connections — bearer, relay, SSH.** These stored our id at
-///   onboarding and compare it against the descriptor on every connection
-///   attempt, refusing to connect on a mismatch:
-///   *"Connected environment X does not match Y."*
-///   (`client-runtime/src/connection/errors.ts:25-33`, reached from
-///   `authorization/service.ts:114` and `connection/resolver.ts:106`.) A
-///   database replacement therefore requires re-onboarding such a connection.
-///   That is loud rather than silent, which is the property this ticket is
-///   about; it is not free, and it is written down here rather than discovered
-///   during an incident.
-///
-/// The id is read once per page load and held for the session, so it moves at
-/// reload, not at reconnect. This is why it is the outer layer and not the
-/// mechanism: the guards in [`task_listing::resume`] and
-/// [`ShellFeed::poll`](feed::ShellFeed::poll) are what actually make a
-/// mid-session replacement safe, and they run entirely on this side. The
-/// property the identity buys on top of them is that a mismatch after a restore
-/// — which from the client's side is indistinguishable from a first connection
-/// — *becomes* a first connection, rather than a claim the client is asked to
-/// check about itself.
-///
-/// The name ([`T3_ENVIRONMENT_NAME`]) is the readable half; the digest is what
-/// tells one environment from another. Two deployments sharing a database are
-/// one environment — the same conversations at the same positions.
+/// The name ([`T3_ENVIRONMENT_NAME`]) is the readable half; the digest tells one
+/// environment from another. Two deployments sharing a database are one
+/// environment.
 fn environment_id(identity: &UiRpcEnvironmentIdentity) -> String {
     format!("{T3_ENVIRONMENT_NAME}-{}", identity.digest())
 }
@@ -774,32 +738,19 @@ pub async fn shell_snapshot(
 
 /// Assemble one conversation as the thread view carries it.
 ///
-/// `Ok(None)` is every way a conversation can be absent for this viewer —
-/// deleted, no longer readable, at a status neither listing claims, or grouped
-/// under a workspace that is not listable — collapsed into one answer, because
-/// they are one answer to the client and distinguishing them would disclose
-/// which.
+/// `Ok(None)` collapses every way a conversation can be absent for this viewer
+/// into one answer; distinguishing them would disclose which.
 ///
-/// The conversation row is resolved by **access**
-/// ([`ConversationDao::readable_by_id`]), not by Follow: a URL is about who may
-/// read a Task, so someone handed a link to one they may read opens it instead
-/// of being told it does not exist. The sidebar stays narrowed to Follows, and
-/// the two are allowed to differ here — a conversation opened this way is not on
-/// the reader's sidebar until they write to it, which is what acquires the
-/// Follow (`message::service`).
+/// The row is resolved by access ([`ConversationDao::readable_by_id`]), not by
+/// Follow, so a link to a readable Task opens. The sidebar stays narrowed to
+/// Follows until the reader writes. Reading is the whole of that widening —
+/// running a turn resolves through [`commands::require_controllable`].
 ///
-/// Reading is the whole of that widening. Running a turn resolves through the
-/// control gate ([`commands::require_controllable`]), so this opens a
-/// conversation without granting anything else about it.
-///
-/// # Read order
-///
-/// The conversation's change position comes before the rows, for the reason
-/// given on [`shell_snapshot`]: read afterwards it would sit above a change the
-/// rows already reflect, and the event carrying that change would be discarded
-/// by the client as stale — one conversation frozen, silently. Read first, the
-/// worst case is a change delivered twice, and every event this feed sends is
-/// an upsert, so twice is the same as once.
+/// Read the change position **before** the rows, as [`shell_snapshot`] does:
+/// read afterwards it sits above a change the rows already reflect and the
+/// client discards that event as stale, freezing the conversation. Read first,
+/// the worst case is one change delivered twice, and every event here is an
+/// upsert.
 pub async fn thread_snapshot(
     workspaces: &dyn T3WorkspaceDao,
     conversations: &dyn ConversationDao,
@@ -1044,24 +995,16 @@ pub struct ShellSubscription {
 ///   with it outright (`shell.ts:150-152`), which is what "freshly built
 ///   listing" means on that side.
 ///
-/// So an un-replayable gap is never an empty answer. It is the same frame a
-/// client with no snapshot at all receives, and the reference server resolves
-/// it identically (`apps/server/src/ws.ts:1297-1305`: a gap past
-/// `SHELL_RESUME_MAX_GAP`, or a cursor ahead of the head, returns
-/// `Stream.make({ kind: "snapshot" })` instead of the replay).
+/// So an un-replayable gap is never an empty answer — it is the same frame a
+/// client with no snapshot at all receives (`apps/server/src/ws.ts:1297-1305`).
 ///
-/// # Why the catch-up is one ordinary poll
+/// # The catch-up is one ordinary poll
 ///
-/// Replay reads through [`ShellFeed::poll`] — the same call the live
-/// subscription makes every interval, with the same coalescing, the same
-/// re-read of each whole row, and the same two access filters. A resuming
-/// client is therefore told exactly what a client that never disconnected would
-/// have been told, and there is no second delivery path to drift from the first.
-///
-/// The poll's own cap is what bounds the catch-up, and there is no window in
-/// which a change can be lost between the two: the feed's cursor advances only
-/// over records it read, and the same feed continues live. Anything left over
-/// arrives on the next poll.
+/// Replay reads through [`ShellFeed::poll`], the same call the live
+/// subscription makes every interval, so there is no second delivery path to
+/// drift from the first. The poll's cap bounds the catch-up, and nothing can be
+/// lost between the two: the feed's cursor advances only over records it read
+/// and the same feed continues live, so anything left over arrives next poll.
 pub async fn shell_subscription(
     workspaces: &dyn T3WorkspaceDao,
     conversations: &dyn ConversationDao,
@@ -1132,32 +1075,26 @@ pub async fn shell_subscription(
 /// fresh listing, and getting it wrong costs a snapshot in one direction and a
 /// row the client renders nowhere in the other.
 ///
-/// # Why the viewer's readable projects are a sound answer, and their listing
-/// is not
-///
-/// A resuming client is not holding nothing. It re-fetches the whole shell
-/// snapshot over HTTP on every resubscribe and applies it *before* it
-/// subscribes, and the `afterSequence` it sends is that snapshot's own sequence
-/// (`client-runtime/src/state/shell.ts:204-212`). So its projects are the ones
-/// [`shell_snapshot`] returned moments ago, and [`shell_snapshot`] returns
-/// **every workspace the viewer may read**, unconditionally, plus the ones a
-/// listed conversation references.
+/// A resuming client re-fetches the whole shell snapshot over HTTP and applies
+/// it *before* it subscribes, sending that snapshot's own sequence as
+/// `afterSequence` (`client-runtime/src/state/shell.ts:204-212`). So its
+/// projects are the ones [`shell_snapshot`] returned, which is **every
+/// workspace the viewer may read**, plus the ones a listed conversation
+/// references.
 ///
 /// This reads back the first half and not the second, and the asymmetry is the
 /// point:
 ///
 /// - A project the viewer may read now was in that snapshot unless it became
-///   readable in between. A changed conversation entering such a project is
-///   handled by `ShellFeed::resynchronize`, which sends the whole listing.
-/// - A project held only because a conversation *references* it is deliberately
-///   left out. That is precisely the case where a conversation can arrive under
-///   a project the client has never been sent, and it is what
-///   `ShellFeed::resynchronize` exists to answer with a whole listing.
+///   readable in between, and `ShellFeed::resynchronize` sends the whole
+///   listing for a changed conversation entering it.
+/// - A project held only because a conversation *references* it is left out.
+///   That is the case where a conversation can arrive under a project the
+///   client has never been sent, which `resynchronize` answers the same way.
 ///
-/// What this does not cover is the viewer's own scope widening between their
-/// snapshot request and their subscribe. The window is one round trip, and the
-/// cost is one row not rendered until the next rebuild rather than anything
-/// disclosed.
+/// Not covered: the viewer's own scope widening between their snapshot request
+/// and their subscribe. The window is one round trip and the cost is one row
+/// not rendered until the next rebuild, not a disclosure.
 async fn resume_grouping(
     workspaces: &dyn T3WorkspaceDao,
     viewer: &ScopeContext,
@@ -2704,10 +2641,9 @@ impl ProtocolSession {
                     Err(error) => vec![pull_request_failure_exit(&id, &tag, &error, identity)],
                 }
             }
-            // `subscribeDiscoveredLocalServers` used to open a stream that
-            // never said anything, which reads to a client as "connected,
-            // nothing to report". There is no local-server discovery here, so
-            // it falls through and says so.
+            // `subscribeDiscoveredLocalServers` falls through here and says so:
+            // there is no local-server discovery, and a stream that never says
+            // anything reads to a client as "connected, nothing to report".
             _ => vec![unsupported_exit(&id, &tag)],
         }
     }

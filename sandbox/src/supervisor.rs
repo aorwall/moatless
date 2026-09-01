@@ -1,48 +1,22 @@
 //! Root supervision for the sandbox's long-lived tasks.
 //!
-//! Every server, durability loop, and lifecycle task the pod starts is
-//! registered with the single [`Supervisor`] built in `main`, together with a
-//! declared [`Criticality`]. The supervisor owns the [`JoinHandle`]s, so a task
-//! that returns early or panics becomes a structured [`TaskExit`] instead of
-//! vanishing into a discarded handle, and the declared policy — not the absence
-//! of a handle — decides what that termination means:
+//! Every server, durability loop and lifecycle task registers with the single
+//! [`Supervisor`] built in `main` under a declared [`Criticality`]. The
+//! supervisor owns the [`JoinHandle`]s, so an early return or a panic becomes a
+//! [`TaskExit`] rather than vanishing:
 //!
-//! - [`Criticality::Fatal`] — cancel everything and fail the process. One pod
-//!   runs one agent, so a sandbox that cannot do its job helps nobody by
-//!   staying alive: exiting hands the pod straight back to the kubelet.
-//! - [`Criticality::Liveness`] — keep serving the current turn, but report the
-//!   pod as not live on `/livez` so Kubernetes restarts it (see below).
+//! - [`Criticality::Fatal`] — cancel everything and fail the process; one pod
+//!   runs one agent, so exiting hands it back to the kubelet.
+//! - [`Criticality::Liveness`] — finish the turn, report not-live on `/livez`.
+//!   That is the only post-startup probe (`/health` is a startup probe), and it
+//!   is opt-in via `K8S_SANDBOX_LIVENESS_ENABLED` — where a restart must happen
+//!   regardless, declare [`Criticality::Fatal`].
 //! - [`Criticality::Optional`] — log and carry on.
 //!
-//! Termination *after* root cancellation is the normal shutdown path and is
-//! never treated as a failure. [`Supervisor::run`] drives both phases: it
-//! watches until a fatal exit or cancellation, then joins the remaining tasks
-//! within [`SHUTDOWN_JOIN_DEADLINE`] and names the stragglers that outlived it.
-//!
-//! # Relationship to the backend's supervisor
-//!
-//! This is a deliberate duplicate of `backend/src/supervisor.rs`, not an
-//! extraction: the sandbox does not depend on the backend's crates, and sharing
-//! one would couple two independently-deployed binaries for ~250 lines. The
-//! vocabulary is kept identical — `Criticality` declared at registration rather
-//! than inferred from a dropped handle, the same `ExitCause`/`TaskExit` shape,
-//! the same two-phase `run` — so a later extraction is mechanical.
-//!
-//! Two differences are load-bearing and are why this is not a copy:
-//!
-//! 1. **`Liveness`, not `Readiness`.** The backend's middle tier flips `/ready`
-//!    so a replica sheds traffic to its peers; the sandbox has no peers and
-//!    serves no `/ready`. Its `/health` is a *startup* probe only (see
-//!    `backend/src/sandbox/k8s/pod_builder.rs`), so flipping it after startup
-//!    changes nothing. `/livez` is the sandbox's only post-startup probe, and it
-//!    is the one that makes a restart happen — which is the remedy a
-//!    single-agent pod actually wants. Note it is opt-in
-//!    (`K8S_SANDBOX_LIVENESS_ENABLED`): where a restart must happen regardless
-//!    of that setting, the policy is [`Criticality::Fatal`].
-//! 2. **Late registration.** The sandbox's durability loops are spawned from
-//!    inside `init::run_init`, which is itself a supervised task, so
-//!    registration cannot be a `Vec` filled before `run`. [`Registrar`] is a
-//!    cloneable handle that feeds the running supervisor.
+//! Termination after root cancellation is normal shutdown, never a failure.
+//! [`Supervisor::run`] joins the rest within [`SHUTDOWN_JOIN_DEADLINE`] and
+//! names the stragglers. Registration is a cloneable [`Registrar`] handle
+//! because the durability loops are spawned from inside a supervised task.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

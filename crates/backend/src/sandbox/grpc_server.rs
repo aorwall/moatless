@@ -1851,7 +1851,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // without a durable event a workspace that has stopped reaching S3 is
         // invisible to `moat events`, `moat tasks diagnose` and the UI — and the
         // agent goes on being told its working tree survives a restart when it
-        // no longer does.
+        // does not.
         if req.direction == "upload" {
             if let Some(task_events) = self.ingress.as_ref().map(|i| &i.task_events) {
                 let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);

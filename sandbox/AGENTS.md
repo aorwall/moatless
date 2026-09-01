@@ -54,7 +54,7 @@ CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --
 
 - `SandboxState` is shared through axum `State`; keep fields cheap to clone (`Arc` or internally shared).
 - Long-lived tasks register with the root supervisor and use lifecycle cancellation.
-- Event publishing goes through `EventOutbox`; do not bypass its bounded retry and drop accounting policy.
+- Event publishing goes through `EventOutbox`; do not bypass its bounded retry and drop accounting policy. At capacity it evicts the oldest evictable event (`dropped_overflow`), refuses the incoming one once only lifecycle events (`taskTurn.*`, terminal `agent.*`) remain (`rejected_saturated`), and always keeps a single event even if it alone exceeds the byte cap. Lifecycle events are preferred but share the same `MAX_QUEUE_EVENTS`/`MAX_QUEUE_BYTES` budget, so the newest is refused rather than the oldest: FIFO makes an older event the prefix that keeps the later ones interpretable. An event the backend *permanently* refuses is dropped, not retried — one in-order drainer would otherwise never clear its head and would take the task's whole remaining stream with it, so that one event is at-most-once. Each of the four loss causes has its own counter (`dropped_overflow`, `rejected_saturated`, `dropped_terminal`, `dropped_unrepresentable`) because they are a load condition, a load condition, a wire-contract violation and a bug in this process respectively.
 - `dispatch_pending_messages()` is the only pending-message fetch/submit/ack path; call it from init, gRPC notify, and post-agent completion.
 - `CoordinatorService` mints a `run_id` (UUID) whenever a run
   starts while the agent is idle, and holds it for the run's lifetime. Every

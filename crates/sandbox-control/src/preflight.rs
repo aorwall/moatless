@@ -1,30 +1,19 @@
 //! Pre-provision validation of a task's sandbox credentials.
 //!
-//! Runs synchronously before lifecycle provisions the sandbox so that a task
-//! whose pod could never authenticate fails fast — no Deployment, PVC, or pod
-//! is ever created — and the failure is surfaced as a single clear
-//! `sandbox.error` event on the task instead of a buried `Sandbox stopped:
-//! permanent init failure.` log dump from the pod watcher.
+//! Runs synchronously before provisioning, so a task whose pod could never
+//! authenticate fails fast — no Deployment, PVC or pod — as one `sandbox.error`
+//! event rather than a permanent init failure in the pod watcher's log.
 //!
-//! Two checks run, in order:
+//! Two checks, in order. **Task write** evaluates `ScopeContext::can_write` on
+//! the task row up front, the same predicate the gRPC write gate applies to the
+//! pod authenticating as `created_by`, so the two cannot drift. **GitHub
+//! credentials** probes `GET /repos/{owner}/{repo}` — installation tokens are
+//! repository credentials and cannot use the user-only `/user` endpoint — and
+//! only when the repo URL parses as a `github.com` URL.
 //!
-//! 1. **Task write** — the pod authenticates back to the backend as the
-//!    task's `created_by`, and the gRPC write gate then requires
-//!    `ScopeContext::can_write` on the task row. This evaluates the same
-//!    predicate up front so the two cannot drift.
-//! 2. **GitHub credentials** — the token the pod will be handed exists and can
-//!    see the repository.
-//!
-//! The GitHub check probes `GET /repos/{owner}/{repo}` directly. Installation
-//! tokens are repository credentials and cannot use the user-only `/user`
-//! endpoint. The probe runs only when the repo URL is a parseable `github.com`
-//! URL.
-//!
-//! Token resolution mirrors `resolve_task_credentials`: the persisted
-//! repository scope selects exactly one credential row. User repositories use
-//! the immutable owner's PAT/OAuth credential; Team and Global repositories
-//! use only their bound GitHub App installation. Scoped `GITHUB_TOKEN` secrets
-//! are never fallback credentials.
+//! Token resolution mirrors `resolve_task_credentials`: the persisted repository
+//! scope selects exactly one credential row, and a scoped `GITHUB_TOKEN` secret
+//! is never a fallback.
 
 use std::sync::Arc;
 

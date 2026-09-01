@@ -203,8 +203,8 @@ where
 /// Spawn the Prometheus metrics server on a dedicated port.
 ///
 /// Returned for the root supervisor to own: a bind failure or an early end to
-/// `serve` returns from the task, and the supervisor turns that into the
-/// process-level failure the old `expect` was reaching for.
+/// `serve` returns from the task, and the supervisor turns that into a
+/// process-level failure.
 pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<()> {
     let handle = metrics::init_metrics();
     moatless_core::events::describe_event_metrics();

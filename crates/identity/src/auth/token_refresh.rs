@@ -25,11 +25,9 @@ use crate::auth::provider_tokens::ProviderTokenAuthDao;
 /// This function does NOT serialize concurrent callers — two parallel
 /// invocations for the same user would both attempt to refresh, and the loser
 /// would get `bad_refresh_token` because GitHub invalidates the prior refresh
-/// token on every successful exchange. The generic per-`(user, key)` mutex
-/// wrapper that used to sit in front of this (`CredentialService::ensure_fresh`)
-/// was removed in 9c along with the rest of the unused generic refresh path —
-/// it had no callers — so the GitHub token path is currently unserialized. The
-/// Codex path keeps its own per-scope serialization in `credentials::codex`.
+/// token on every successful exchange. Nothing serializes the GitHub token
+/// path; the Codex path keeps its own per-scope serialization in
+/// `credentials::codex`.
 pub async fn ensure_fresh_token(
     token_dao: &dyn ProviderTokenDao,
     token_auth: &dyn ProviderTokenAuthDao,

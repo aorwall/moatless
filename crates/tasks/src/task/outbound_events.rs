@@ -1,37 +1,18 @@
 //! The external events a Task caused.
 //!
-//! When a Task changes a provider — posts a comment, submits a review, pushes a
-//! commit — the provider webhooks that change straight back. Something has to
-//! say "this is the Task's own work", or the Task reads its own comment as a
-//! new inbound message and answers it.
+//! A provider webhooks a Task's own change straight back, so without this table
+//! the Task reads its own comment as a new inbound message and answers it.
 //!
-//! This table says it. A row is a fact about the Task, so nothing here names
-//! the Message or the tool call that made the change: the `moat` command that
-//! records one runs in a sandbox shell and holds `TASK_ID` and the user token,
-//! and nothing that names the call it is running inside.
+//! Every row is outbound, and is written under the id the *inbound* event will
+//! carry, so matching an arriving webhook is equality on one column. Where the
+//! writer cannot know that id the Adapter maps between the two in one place: a
+//! GitHub push records `github:commit:<sha>` and the following
+//! `pull_request.synchronize` aliases to it.
 //!
-//! It is the second of the two ways a Task connects to external things.
-//! `task_bindings` holds the *subject* — an issue, a pull request, a channel —
-//! and routes delivery to it. This holds the individual events caused under
-//! those subjects. Both last as long as the Task.
-//!
-//! # Direction
-//!
-//! Every row here is outbound. The inbound side is
-//! `task_messages.external_event_id`, the external event a Message arrived as.
-//! The two answer different questions — "I already received this" against "I
-//! caused this" — and a reader that cannot tell them apart cannot tell a
-//! redelivered webhook from its own echo.
-//!
-//! A row is written under the id the *inbound* event will carry, so matching an
-//! arriving webhook is equality on one column. Where the writer cannot know
-//! that id, the Adapter maps between the two in one place: for GitHub a push
-//! records `github:commit:<sha>`, and the `pull_request.synchronize` that
-//! follows aliases to it, because the pusher cannot know the pull request
-//! number the notification will be keyed on.
-//!
-//! Read by three callers on [`MessageDao`](crate::message::dao::MessageDao):
-//! the dedup gate, provenance routing, and the thread-context exclusion list.
+//! A row is a fact about the Task, so nothing here names the Message or tool
+//! call behind it. The inbound side is `task_messages.external_event_id`; a
+//! reader that cannot tell the two apart cannot tell a redelivered webhook from
+//! its own echo.
 
 use moatless_core::db::DbPool;
 

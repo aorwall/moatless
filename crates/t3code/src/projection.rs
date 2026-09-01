@@ -436,27 +436,11 @@ fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<V
 /// does not hold — deleted, or never rendered — says nothing, which is a
 /// complete answer rather than a failure.
 ///
-/// # What a change to one Message tells the client
-///
-/// Two things, both about the rows the change names:
-///
-/// 1. The Message's bubble, as `thread.message-sent`. The client upserts on the
-///    message id, so re-sending an unchanged bubble is free, and the appends
-///    that assemble one Message's text from its blocks are exactly why it is
-///    re-sent.
-/// 2. Its work-log rows, as `thread.activity-appended`. Also an upsert, keyed
-///    on the activity id — which is what makes a tool result cheap here: the
-///    result settles the row the call already wrote, and re-sending that row
-///    under the same id flips the card from running to finished. There is no
-///    third case for resolving rows the change answers, and no run of earlier
-///    Messages to read in order to find them.
-///
-/// A change can name a uuid with no Message row at all: a turn that only called
-/// tools said nothing. Then only the second half fires.
-///
-/// A change that names an activity rather than a Message — a Sandbox lifecycle
-/// change, a context-window reading — is the third case: that one row alone, and
-/// no `session_set`, because nothing about the conversation's own session moved.
+/// A change to one Message emits its bubble (`thread.message-sent`) and its
+/// work-log rows (`thread.activity-appended`), both upserts keyed on their own
+/// ids. A change naming a uuid with no Message row — a turn that only called
+/// tools — emits the activities alone. A change naming an activity rather than a
+/// Message emits that row alone and no `session_set`.
 pub(super) fn change_events(
     conversation: &Conversation,
     change: &ConversationChange,
@@ -1505,24 +1489,19 @@ fn provider_instance(conversation: &Conversation) -> &'static str {
 ///
 /// The listing's projects are a union: the Workspaces this viewer may read,
 /// plus the Workspaces a listed conversation references whether or not they may
-/// read them (Decision 5). The widening is load-bearing — a conversation whose
-/// project is absent is dropped by the client in silence — and it is justified
-/// by the *names*: "seeing the names gives a person the shape of the deployment
-/// they work in".
+/// read them. The widening is load-bearing — a conversation whose project is
+/// absent is dropped by the client in silence — and what justifies it is the
+/// *names*.
 ///
-/// A start command is not a name. It carries paths, flags and whatever else
-/// someone put in a server config, and projecting both halves alike handed all
-/// of it to anyone who followed a single conversation running in a private
-/// Workspace. So the widened half is projected down to what the contract needs
-/// in order to render a group and no more, and
-/// [`UiRpcListedWorkspace`](crate::workspace::UiRpcListedWorkspace) is what makes
-/// the difference available here rather than re-derived.
+/// A start command is not a name: it carries paths, flags and whatever else is
+/// in a server config, so the widened half is projected down to what the
+/// contract needs to render a group and no more.
+/// [`UiRpcListedWorkspace`](crate::workspace::UiRpcListedWorkspace) carries the
+/// difference rather than having it re-derived.
 ///
-/// What that minimum still discloses, stated rather than implied: the id, the
-/// name, the root synthesized *from* the id, and the two timestamps. The
-/// timestamps stay because the contract requires them and supplies no empty
-/// value for either, and an invented one would be the sort of plausible
-/// stand-in this module refuses everywhere else.
+/// That minimum still discloses the id, the name, the root synthesized *from*
+/// the id, and the two timestamps. The timestamps stay because the contract
+/// requires them and supplies no empty value for either.
 fn project(listed: &UiRpcListedWorkspace) -> Value {
     let workspace = &listed.workspace;
     json!({
@@ -2484,8 +2463,7 @@ mod tests {
     fn declared_scripts_become_scripts_and_servers_do_not() {
         let mut ws = workspace("ws-a", "Alpha");
         ws.workspace.setup_commands = Some(json!(["bun install"]));
-        // Servers must no longer contribute a single script — the old fake did,
-        // and pressing one was a bug.
+        // Servers must contribute no script at all: pressing one is a bug.
         ws.workspace.servers = Some(json!([
             { "name": "dev", "port": 3000, "startCommands": ["bun run dev"], "default": true }
         ]));

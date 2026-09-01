@@ -128,7 +128,6 @@ impl LifecycleError {
     }
 }
 
-
 /// How a lifecycle failure reaches an HTTP caller. Three map to a client-visible
 /// status; everything else keeps the whole chain behind a 500.
 impl From<LifecycleError> for SandboxError {

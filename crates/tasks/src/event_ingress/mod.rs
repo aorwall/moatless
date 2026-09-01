@@ -12,21 +12,14 @@
 //! | `agent.message` | the full payload is written to the [transactional ingress outbox](outbox) | `task_events` holds no Message payload or skeleton, so the outbox is its only durable home until the conversation commits |
 //! | everything else | the full payload is committed to `task_events` | `task_events` is the event history; Redis is a disposable live tail |
 //!
-//! Publication to Redis happens **after** durable admission and never gates it:
-//! a failed publish leaves an already-durable payload that the
-//! [relay](relay::IngressRelay) (for `agent.message`) or the committed row (for
-//! everything else) still accounts for. What *does* fail admission is a missing
-//! or failing durability path, and an event transport that is disabled when the
-//! payload has no durable substitute without it — see [`AdmissionError`].
-//! Consumer *presence* is deliberately not part of that predicate; see the note
-//! in [`EventAdmission::admit`] for why it cannot be checked here and where a
-//! consumer-less deployment surfaces instead.
+//! Publication to Redis happens after durable admission and never gates it. What
+//! fails admission is a missing or failing durability path — see
+//! [`AdmissionError`]. Consumer *presence* is deliberately not part of that
+//! predicate; [`EventAdmission::admit`] says where a consumer-less deployment
+//! surfaces instead.
 //!
-//! # Terminology
-//!
-//! "Transactional outbox" in this codebase names exactly one thing: the durable
-//! payload-and-relay path in [`outbox`] + [`relay`]. The ordering guarantee that
-//! commits state before publishing is *commit-before-fan-out*, not an outbox.
+//! "Transactional outbox" names exactly one thing here: the durable
+//! payload-and-relay path in [`outbox`] + [`relay`].
 
 pub mod outbox;
 pub mod relay;

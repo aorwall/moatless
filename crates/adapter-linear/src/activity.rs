@@ -11,15 +11,12 @@
 //! It may reach [`auth`](super::auth), [`subject`](super::subject) and
 //! [`agent_api`](super::agent_api), and nothing else in the Adapter — not
 //! `ingress`, not `webhook`, not `delivery`, and not one of the five workflow
-//! modules. That direction is deliberate and is spec Decision 6: the event
-//! pipeline depends on this module, so every compile of the event pipeline
-//! would otherwise pull in session provisioning, the issue workflows and the
-//! close path. Keeping the dependency one-directional is what makes this the
-//! one module of the Linear Adapter the pipeline gets to see.
+//! modules. The event pipeline depends on this module, so any other edge would
+//! pull session provisioning, the issue workflows and the close path into every
+//! compile of the pipeline.
 //!
-//! [`ActivityKind`] is re-exported for the same reason: a caller that has to
-//! name `agent_api` to say which kind of activity it wants is a second import,
-//! and the pipeline is meant to have exactly one.
+//! [`ActivityKind`] is re-exported for the same reason: naming `agent_api` to
+//! say which kind of activity is wanted would be a second import.
 //!
 //! # Everything here is best-effort
 //!

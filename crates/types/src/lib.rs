@@ -15,34 +15,28 @@
 //! - neither its body nor its impls name a foreign crate.
 //!
 //! A type named by only one or two neighbours is that subsystem's vocabulary
-//! and stays with the subsystem. A type whose impls reach a foreign crate —
-//! an `sqlx::FromRow` row, an error with a `#[from] sqlx::Error` variant —
-//! stays with the code that does the I/O.
+//! and stays there. A type whose impls reach a foreign crate — an
+//! `sqlx::FromRow` row, an error with a `#[from] sqlx::Error` variant — stays
+//! with the code that does the I/O.
 //!
 //! ## Domain models and rows
 //!
-//! An entity that clears the bar lives here as its domain model: every field
-//! is the value the codebase reads, not the shape a column happens to have. A
-//! timestamp is a `DateTime<Utc>`, a closed set is its enum, a JSON blob is
-//! the type it decodes to, and a persistence artifact — a raw text twin, a
-//! nullable flag standing in for a `bool` — is not a field at all.
+//! An entity lives here as its domain model: every field is the value the
+//! codebase reads, not the shape a column has. A timestamp is a
+//! `DateTime<Utc>`, a closed set is its enum, a JSON blob is the type it
+//! decodes to, and a persistence artifact is not a field at all.
 //!
 //! The row that backs it stays in the crate that owns the query, as `XRow`
 //! with the `sqlx::FromRow` derive and a `From`/`TryFrom<XRow> for X` beside
-//! it. That conversion is the one place a column is decoded, so a call site
-//! never re-parses and a lenient read never turns into a silent default by
-//! accident. Where a decode is deliberately lenient, its log is what makes it
-//! recoverable; say so at the conversion.
+//! it. That conversion is the one place a column is decoded. Where a decode is
+//! deliberately lenient, say so at the conversion and keep its log.
 //!
 //! ## Where it goes
 //!
-//! The module is the domain, and the domain is named from `CONTEXT.md`. A
-//! reader looking for a type opens the module for the thing the type is about,
-//! not for the kind of thing it is: there is no `config`, no `error`, no
-//! `kind` module, because none of those is a domain.
-//!
-//! A type sits with the domain that owns it even when a neighbouring module
-//! reads more obvious at a glance. Say why in the module doc when it does.
+//! The module is the domain, named from `CONTEXT.md`. There is no `config`, no
+//! `error`, no `kind` module, because none of those is a domain. A type sits
+//! with the domain that owns it even when a neighbouring module reads more
+//! obvious; say why in the module doc when it does.
 
 // Test code asserts a parse succeeded; production code keeps the workspace deny.
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]

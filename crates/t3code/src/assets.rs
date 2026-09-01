@@ -2,36 +2,27 @@
 //! a browser can render it, and one chat attachment, addressed at the upload
 //! route that already serves it.
 //!
-//! T3 asks for a *URL* rather than for content, because what it does with the
-//! answer is point a frame at it — an HTML page in the preview tab, an `<img>`
-//! in the file panel, an `<img>` in a message bubble. So this module answers
-//! with a path and then serves it where the path is its own, and three things
-//! about that are deliberate.
+//! T3 asks for a *URL* rather than for content because it points a frame at the
+//! answer. Three properties of that are deliberate.
 //!
-//! **The URL carries no credential.** Moatless is reached on one hostname, and
-//! the frame that loads this is same-site: the session cookie the rest of the
-//! API is read with is sent with the request, and the backend's auth middleware
-//! has already run by the time [`serve`] is entered. Minting is therefore a
-//! pure string operation with nothing to sign, and [`serve`] — not
-//! [`create_url`] — is where a viewer is checked against the Task, through the
-//! same follow-and-access read every other file surface goes through. A URL
-//! this module hands out is not a capability; it is an address that still has
-//! to be earned on use. A client authenticating by API key instead of a cookie
-//! cannot use these URLs at all, because a frame navigation sends no headers.
+//! **The URL carries no credential.** The frame that loads it is same-site, so
+//! the session cookie is sent and the auth middleware has run by the time
+//! [`serve`] is entered. [`serve`] — not [`create_url`] — checks the viewer
+//! against the Task, through the same follow-and-access read every other file
+//! surface uses: the URL is an address that still has to be earned on use, not
+//! a capability. A client authenticating by API key cannot use these URLs at
+//! all, because a frame navigation sends no headers.
 //!
-//! **The document is served into a sandbox.** What is behind these URLs is
-//! whatever an agent wrote, executing in a frame on the application's own
-//! origin, which without help would be able to call the rest of the API as the
-//! person watching. `Content-Security-Policy: sandbox` drops it into an opaque
-//! origin instead: it still renders, and it still loads its own stylesheets and
-//! scripts, but it is no longer same-origin with anything and its requests are
-//! no longer same-site, so the cookie does not follow them.
+//! **The document is served into a sandbox.** Behind these URLs is whatever an
+//! agent wrote, in a frame on the application's own origin.
+//! `Content-Security-Policy: sandbox` drops it into an opaque origin: it still
+//! renders and loads its own stylesheets and scripts, but it is no longer
+//! same-origin with anything and the cookie does not follow its requests.
 //!
-//! **The path in the URL is the path on disk.** No directory claim is issued
-//! and none is needed: a page's own `./style.css` resolves against its URL and
-//! arrives here as the sibling path it is. That is also what makes the
-//! checkout-relative resolution [`crate::files`] does safe to repeat here — a
-//! page found inside a checkout resolves its siblings into the same one.
+//! **The path in the URL is the path on disk.** A page's own `./style.css`
+//! resolves against its URL and arrives here as the sibling path it is, which
+//! is what makes the checkout-relative resolution [`crate::files`] does safe to
+//! repeat here.
 
 use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderValue, StatusCode, header};

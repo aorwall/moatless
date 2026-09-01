@@ -1,21 +1,13 @@
 //! Live control channel for preview-server sidecars.
 //!
-//! Preview servers run as sidecar containers whose start command and env are
-//! baked into the pod/container spec, so changing either normally means
-//! rebuilding the pod — which restarts the agent container too. This module is
-//! the other half of the escape hatch: the sandbox writes an override into the
-//! workspace volume that every sidecar mounts, and the sidecar's supervisor
-//! wrapper re-reads it whenever the generation counter changes.
+//! A sidecar's start command and env are baked into its container spec, so the
+//! sandbox writes an override into the workspace volume every sidecar mounts and
+//! the sidecar's supervisor re-reads it when the generation counter changes.
 //!
-//! **These files are the record.** There is no database copy to replay from:
-//! an override is workspace state, and it lives exactly where the rest of the
-//! workspace lives. On the `ebs` tier that is the PVC; on `s3` it is the
-//! whole-workspace tar; in Docker it is the host bind mount. On `ephemeral` it
-//! is gone when the pod is — which is that tier's contract, the repo checkout
-//! goes with it.
-//!
-//! They sit in a dot-directory at the workspace root, a sibling of the repo
-//! checkouts rather than inside one, so they are never mistaken for repo content.
+//! **These files are the record** — there is no database copy to replay from, so
+//! an override lives and dies with the workspace tier. They sit in a
+//! dot-directory at the workspace root, a sibling of the repo checkouts, so they
+//! are never mistaken for repo content.
 //!
 //! Layout under `<workspace_dir>/.moatless/servers/<name>/`:
 //!
@@ -26,13 +18,12 @@
 //! | `env` | shell fragment sourced after `server.env`; absent = no override | sidecar |
 //! | `generation` | monotonic counter — a bump means "restart the child" | sidecar + this module |
 //!
-//! `command` and `env` are *derived* from `override.json` for the sidecar's
-//! benefit: its supervisor is bash in an arbitrary `docker_image` and cannot be
-//! assumed to have a JSON parser. `override.json` is what [`read_all`] reads
-//! back, because re-parsing the rendered shell fragment would not round-trip.
+//! `command` and `env` are derived from `override.json` for a sidecar supervisor
+//! that is bash in an arbitrary image and may have no JSON parser. [`read_all`]
+//! reads `override.json` back — the rendered shell fragment does not round-trip.
 //!
-//! The override is whole-state, not a delta: callers always send the complete
-//! set, so this module never merges.
+//! The override is whole-state, not a delta: callers send the complete set, so
+//! this module never merges.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

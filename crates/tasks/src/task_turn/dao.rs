@@ -362,12 +362,11 @@ impl TaskTurnDao for PgTaskTurnDao {
         transition: TurnTransition,
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
-        // A transaction for what used to be one statement: the projection and
-        // its listing record have to land together or not at all. This path is
-        // the consumer's backstop and the reaper's stuck-turn close, and the
-        // reaper's is the one place a turn reaches a terminal state without any
-        // event committing for it — so without this the sidebar would keep
-        // showing a reconciled turn as running until something else moved it.
+        // The projection and its listing record have to land together or not at
+        // all. This path is the consumer's backstop and the reaper's stuck-turn
+        // close, and the reaper's is the one place a turn reaches a terminal
+        // state without any event committing for it — so a partial write leaves
+        // the sidebar showing a reconciled turn as running.
         let mut tx = self.0.begin().await?;
         let projected =
             turn_projection_query(task_id, turn_number, agent_type.as_deref(), transition, at)

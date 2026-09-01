@@ -434,8 +434,7 @@ fn attributed_text(text: &str, source_task_id: Option<&str>) -> String {
 /// Message only creates something that can disagree with them. This rebuilds it
 /// from those rows on the way to the sandbox.
 ///
-/// It is the read-side twin of [`build_content_blocks`], which the send path
-/// used to call before writing the result down.
+/// It is the read-side twin of [`build_content_blocks`].
 pub async fn build_pending_content_blocks(
     files: &dyn FileDao,
     config: &Config,

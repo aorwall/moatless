@@ -1,72 +1,20 @@
 //! The Moatless agent catalog, as T3's provider list.
 //!
-//! # Why two instances and not five
+//! Two instances, not five: `instanceId` is a routing key the thread projection
+//! derives from a Task's agent kind (`projection::provider_instance`), so one
+//! instance per catalog agent would rewrite it on every thread on screen. The
+//! transport is chosen at Task creation and immutable, which is why a model
+//! belonging to the other instance cannot be honoured on an existing thread.
 //!
-//! Moatless has five catalog agents; four of them are Claude over different
-//! transports (`claude-code`, `claude-code-tui`, `claude-code-cli`,
-//! `claude-code-fable`). T3's `instanceId` is a *routing key*: it is what a
-//! thread is pinned to and what the composer resolves a model against. The
-//! thread projection already derives `claudeAgent`/`codex` from a Task's agent
-//! kind (`projection::provider_instance`), so publishing one instance per
-//! catalog agent would rewrite `instanceId` on every thread already on screen
-//! and put four near-identical rows in a picker where a person is choosing an
-//! agent, not a transport.
+//! Publish T3's canonical slugs and display names, not ours, and translate back
+//! on the way in: T3 seeds its own defaults (`claude-sonnet-5`,
+//! `claude-haiku-4-5`) and its alias table maps only towards the canonical
+//! slugs, so a selection stored under a Moatless id would silently fall back to
+//! the instance default. Codex ids need no translation.
 //!
-//! The transport is therefore not selectable from T3. It is chosen at Task
-//! creation and is immutable afterwards, which is also why a model belonging to
-//! the *other* instance cannot be honoured on an existing thread.
-//!
-//! # Why the published slugs and names are T3's, not ours
-//!
-//! T3 resolves a stored selection against the published list in three steps
-//! (`packages/shared/src/model.ts:resolveSelectableModel`): exact slug, then
-//! case-insensitive `name`, then the slug rewritten through
-//! `MODEL_SLUG_ALIASES_BY_PROVIDER`. Nothing matching falls back to the
-//! instance default with nothing on screen to say so
-//! (`apps/web/src/modelSelection.ts:resolveAppModelSelectionForInstance`).
-//!
-//! Publishing our own ids would survive step one for a selection *we* stored —
-//! but not for the slugs T3 itself seeds. `DEFAULT_MODEL_BY_PROVIDER` and
-//! `DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER` (`packages/contracts/src/model.ts`)
-//! hand out `claude-sonnet-5` and `claude-haiku-4-5` as the client's own
-//! defaults, and a selection carried over from a standalone T3 is in the same
-//! vocabulary. A list published as `opus`/`sonnet`/`haiku` resolves none of
-//! them: the alias table maps *towards* the canonical slugs, never away, so
-//! step three cannot get back to ours either.
-//!
-//! So the canonical slugs go out and are translated back on the way in, and the
-//! display names go out with them. T3's own Claude driver names these models
-//! with their versions — "Claude Opus 5", not "Claude Sonnet"
-//! (`apps/server/src/provider/Layers/ClaudeProvider.ts`) — and T3 renders
-//! whatever `name` a provider sends, with no table of its own to fall back on.
-//! Publishing the catalogue's version-free labels beside a versioned slug put
-//! two different claims about the same model on one row.
-//!
-//! What the version in that name does *not* promise is a pinned model. The
-//! catalogue id behind it is an alias (`opus`), which Claude Code resolves to
-//! the current Opus at run time. The name follows the slug, and the slug is
-//! T3's; if Anthropic moves what `opus` means, this table is what has to move
-//! with it.
-//!
-//! No Codex alias rewrites any of our Codex ids, and the Moatless catalogue
-//! already names them with versions, so that side needs no translation at all.
-//!
-//! # Why `default` is not published
-//!
-//! The catalogue's first entry for both agents is `default`, which names no
-//! model: it means *whatever this agent picks*, is resolved inside the Sandbox
-//! at run time, and is never written back. The thread projection already
-//! refuses to report it for exactly that reason
-//! (`projection::UNRESOLVED_MODEL_CHOICE`) — a row reading "Default" tells
-//! nobody what ran. Offering it in the picker while refusing to display it is
-//! the same contradiction seen from the other end, and T3 has no such concept
-//! of its own: its default is `isDefault` on a real model.
-//!
-//! So the sentinel is dropped here and `isDefault` moves onto the model the
-//! deployment actually falls back to — the same `AgentModelDefaults` the
-//! projection resolves a model-less thread with. That is what makes the picker
-//! and the thread agree: a conversation nobody chose a model for reports
-//! `claude-opus-5`, and `claude-opus-5` is the row marked default.
+//! The catalogue's `default` sentinel names no model and is not published;
+//! `isDefault` moves onto the model `AgentModelDefaults` falls back to, which is
+//! what makes the picker and the thread agree.
 
 use serde_json::{Value, json};
 

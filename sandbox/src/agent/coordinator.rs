@@ -1,44 +1,29 @@
 //! The harness-neutral coordinator.
 //!
-//! The coordinator drives a fixed [`Harness`] purely through its command/signal
-//! seam: it submits input, cancels the active execution, and reacts to the
-//! ordered [`Signal`] stream. It never sees a Claude or Codex handle and never
-//! matches on the selected harness (the fixed-harness decision, the harness-outcome boundary).
+//! The coordinator drives a fixed [`Harness`] through its command/signal seam
+//! alone: it never sees a Claude or Codex handle and never matches on the
+//! selected harness.
 //!
-//! What the coordinator owns (the invariants this module enforces):
-//! - **Run identity** — a fresh Run id is minted on every
-//!   [`Signal::ExecutionStarted`], for both input-opened and harness-internal
-//!   executions, and stamped on every event and acknowledgement of that Run.
-//! - **Acknowledgement** — a pending Message that opens an execution is
-//!   acknowledged only after [`Signal::InputAccepted`]. A pending Message
-//!   injected into an already-running execution is acknowledged only after a
-//!   later non-terminal agent signal proves that execution continued past the
-//!   injection point. If the next signal is terminal, the ack is dropped so the
-//!   backend delivery remains unacknowledged and can be redispatched.
-//! - **Backend publication** — each [`Signal::Source`] is published as one
-//!   per-block `agent.message` in the shape the backend assembler consumes
-//!   (server-owned assembly): a native block plus its `blockIndex`, grouped by `uuid`. The
-//!   coordinator forwards blocks; it never assembles a Message.
-//! - **Context-loss recovery** — a resume the harness reports as
-//!   [`SessionImpact::Lost`] never silently drops the Message. The coordinator
-//!   publishes the user-visible `session_context_lost` notice and re-drives one
-//!   fresh recovery Turn (same logical Run) whose prompt tells the Agent to
-//!   rebuild the prior conversation, keeping the pending ack alive. This is the
-//!   seam owner of the "resume failure never silently creates a fresh Session"
-//!   invariant — the harness refuses to start fresh; the coordinator decides to,
-//!   explicitly and once.
+//! Invariants it enforces:
+//! - A fresh Run id is minted on every [`Signal::ExecutionStarted`] and stamped
+//!   on every event and acknowledgement of that Run.
+//! - A Message opening an execution is acknowledged only after
+//!   [`Signal::InputAccepted`]; one injected into a running execution only after
+//!   a later non-terminal signal proves the execution continued past the
+//!   injection. On a terminal signal the ack is dropped, so the backend
+//!   redispatches.
+//! - Each [`Signal::Source`] is published as one per-block `agent.message`
+//!   grouped by `uuid`. The coordinator forwards blocks; it never assembles a
+//!   Message.
+//! - A resume reported as [`SessionImpact::Lost`] publishes the
+//!   `session_context_lost` notice and re-drives one recovery Turn under the
+//!   same Run, keeping the pending ack alive. The harness refuses to start
+//!   fresh; the coordinator decides to, once.
 //!
-//! The harness-neutral [`Coordinator`] above owns only the seam mapping. The
-//! production lifecycle policy lives in
-//! [`CoordinatorService`] (also in this module): transient-error **retry** with
-//! backoff (same Run id), the consecutive-error **circuit breaker**, **wakeup
-//! and background-watch scheduling** (armed from Source blocks at turn end),
-//! **credential-recovery retry** (pull fresh credentials and re-drive the same
-//! prompt/Run after a stale-credential failure, or surface one reconnect error
-//! when nothing fresher is available), and **`AgentState` status transitions**.
-//! `handle::spawn_agent` now routes every valid AGENT_TYPE pod through
-//! [`CoordinatorService`]; missing or unsupported selections are classified as
-//! invalid configuration at startup.
+//! [`Coordinator`] owns the seam mapping only. [`CoordinatorService`], also in
+//! this module, owns the lifecycle policy: retry with backoff, the
+//! consecutive-error circuit breaker, wakeup and background-watch scheduling,
+//! credential-recovery retry, and `AgentState` transitions.
 
 use std::collections::HashMap;
 use std::sync::Arc;

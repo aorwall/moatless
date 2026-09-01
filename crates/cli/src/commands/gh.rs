@@ -1,37 +1,22 @@
 //! `moat gh` — GitHub proxy for sandbox agents.
 //!
-//! Intercepts the mutations that need backend side effects (task↔PR
-//! binding, `Moatless task:` footer, webhook echo dedup) and routes them
-//! through the typed `/api/v1/github/*` endpoints:
-//! - `moat gh pr create …`
-//! - `moat gh pr comment <number> …`
-//! - `moat gh issue comment <number> …`
-//! - `moat gh pr reply <number> <comment_id> …` (moat-only; real `gh` has no
-//!   such subcommand, so a parse failure falls through and errors there)
-//! - `moat gh stack …` runs the official `gh stack` extension with the
-//!   sandbox's fresh GitHub token when one is available, then binds stack PRs
-//!   to the task after `stack link` / `stack submit`.
+//! The mutations needing backend side effects (task↔PR binding, the
+//! `Moatless task:` footer, webhook echo dedup) route through the typed
+//! `/api/v1/github/*` endpoints: `pr create`, `pr comment`, `issue comment`,
+//! `pr reply` (moat-only), and `stack`, which runs the official extension with
+//! the sandbox's token and binds the stack's PRs afterwards.
 //!
-//! `moat gh api …` is different: the endpoint surface of `gh api` is far too
-//! wide to type, so it stays a passthrough — but a POST that creates a review
-//! comment, a review, or an issue comment has its response captured and the id
-//! it names recorded through `/api/v1/github/external-events`. Those three
-//! shapes carry no `Moatless task:` footer and go through no proxy, so without
-//! the record the webhook echoing them back reaches the task as somebody
-//! else's edit.
+//! `gh api` stays a passthrough — its surface is too wide to type — but a POST
+//! creating a review comment, a review or an issue comment has its response
+//! captured and the id recorded through `/api/v1/github/external-events`. Those
+//! three carry no footer and pass no proxy, so without the record the webhook
+//! echoing them back reaches the task as somebody else's edit.
 //!
-//! Everything else — and any of these with flags the typed parser doesn't
-//! understand (`--fill`, `--label`, …) — passes through verbatim to the local
-//! `gh` binary so an agent is never stuck. Typed-path API failures are
-//! reported as errors WITHOUT falling back to raw `gh`, to avoid
-//! double-posting.
-//!
-//! For the intercepted subcommands that fall-through is a *demotion*, not a
-//! neutral passthrough: the call still succeeds and still prints a URL, while
-//! the binding, the footer and the dedup are gone. It is therefore announced
-//! on stderr — see `warn_on_demotion`. `--body-file` used to be one of these
-//! and no longer is: it is the flag a body long enough to need a file arrives
-//! with, so every substantial PR took the untyped path.
+//! Everything else passes through verbatim, including an intercepted subcommand
+//! carrying flags the typed parser does not understand. That fall-through is a
+//! demotion — the call succeeds and prints a URL while the binding, footer and
+//! dedup are gone — so `warn_on_demotion` announces it on stderr. A typed-path
+//! API failure is an error and never falls back, to avoid double-posting.
 
 use clap::Parser;
 use moatless_api_schemas::github::{

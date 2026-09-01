@@ -30,16 +30,13 @@
 //!
 //! Taking the listing counter last makes it the innermost lock of everything
 //! that touches it: a total order by construction, needing no agreement between
-//! callers. Each feed's own docs restate the half of this that its callers must
-//! obey; this is the statement they are restating.
+//! callers.
 //!
 //! # What is not here
 //!
-//! Pruning. Both feeds are bounded by a background worker that deletes what has
-//! fallen out of the retention window, and those workers are timers registered
-//! with the root `Supervisor` — a scheduling concern in the band that owns
-//! supervision, not part of the primitive. They live beside the domain they
-//! prune and call the `prune_changes` in each module here.
+//! Pruning. Both feeds are bounded by a background worker registered with the
+//! root `Supervisor`; those workers live beside the domain they prune and call
+//! the `prune_changes` in each module here.
 
 pub mod conversation;
 pub mod listing;

@@ -1,31 +1,17 @@
 //! `orchestration.dispatchCommand` — the one write the T3 client makes.
 //!
-//! T3's command union is much wider than Moatless. This module is the table
-//! that says, for each command, whether it is carried out, discarded, or
-//! refused, and it is deliberately explicit about all three: a command that is
-//! silently discarded and a command that is refused look identical from here and
+//! T3's command union is wider than Moatless, so this module is the table
+//! saying, per command, whether it is carried out, discarded or refused. State
+//! all three explicitly: discarding and refusing look identical from here and
 //! completely different to the person holding the mouse.
 //!
-//! Three commands are **discarded on purpose**:
+//! Three are discarded on purpose: `thread.runtime-mode.set` (no Moatless
+//! meaning), `thread.interaction-mode.set` (the Build/Plan choice rides the turn
+//! itself), and `bootstrap.prepareWorktree` / `runSetupScript` (the Sandbox's
+//! business). Everything else refused is refused because it cannot be honoured.
 //!
-//! - `thread.runtime-mode.set` — T3's access mode has no Moatless meaning.
-//!   Refusing would put an error behind a dropdown that, from the person's side,
-//!   simply does nothing.
-//! - `thread.interaction-mode.set` — the Build/Plan choice is carried on the
-//!   turn itself and applied there, so the separate command is redundant rather
-//!   than meaningful.
-//! - `bootstrap.prepareWorktree` / `runSetupScript` on a turn — worktrees are
-//!   the Sandbox's business, not the client's.
-//!
-//! Everything refused is refused because it cannot be honoured, not because it
-//! has not been written yet: Moatless has no delete that leaves the Task
-//! recoverable, Workspaces are not authored from here, and approvals and
-//! checkpoints are never projected in the first place, so no control raises
-//! them.
-//!
-//! Archiving is the one command whose two vocabularies differ: T3 archives a
-//! thread, Moatless closes a Task, and they are the same act — see
-//! [`ThreadCommandSink::archive`](super::ports::ThreadCommandSink::archive).
+//! Archiving is the one command whose vocabularies differ: T3 archives a thread,
+//! Moatless closes a Task, and they are the same act.
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};

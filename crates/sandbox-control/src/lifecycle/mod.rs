@@ -1,37 +1,26 @@
 //! Durable lifecycle intent and orchestration for a Task's Sandbox.
 //!
-//! A deep module: callers identify a Task and request a lifecycle transition;
-//! the module resolves intent, persists it before any runtime effect,
-//! serializes per Task, invokes the runtime adapter behind the
-//! [`SandboxRuntime`] seam, records bookkeeping, publishes operation-level
-//! events, and returns a typed [`LifecycleOutcome`]. Callers never supply a
-//! provision request, DAOs, an event publisher, or the runtime adapter
-//! — the curated re-exports below are the whole surface, and the decision and
-//! implementation submodules are `pub(crate)` so a lifecycle mutation cannot
-//! bypass [`Lifecycle`].
+//! Callers identify a Task and request a transition; the module resolves intent,
+//! persists it, serializes per Task, invokes the [`SandboxRuntime`] seam, and
+//! returns a [`LifecycleOutcome`]. The curated re-exports below are the whole
+//! surface — the decision and implementation submodules are `pub(crate)`, so a
+//! lifecycle mutation cannot bypass [`Lifecycle`].
 //!
 //! Guarantees:
-//!
-//! - **Intent before effect.** Desired state, stop reason, retention, and the
-//!   correlation marker are written atomically before the runtime effect; a
+//! - **Intent before effect.** Desired state, stop reason, retention and the
+//!   correlation marker are written atomically before the runtime effect, so a
 //!   runtime failure leaves the requested target for recovery.
-//! - **Deterministic, deduplicated events.** Operation events use the id
-//!   `sandbox:{task}:{operation_generation}:{fact}` over idempotent persistence,
-//!   so at-least-once retries of one generation persist once. Completion facts
-//!   (`Stopped`/`Removed`) are persisted and the marker cleared in one
-//!   transaction before publication.
+//! - **Deduplicated events.** Operation events use the id
+//!   `sandbox:{task}:{operation_generation}:{fact}`, and a completion fact is
+//!   persisted with the marker cleared in one transaction before publication.
 //! - **Strict removal.** A remove reports success only on observed absence of
-//!   every resource (PVC included) and durable persistence of its completion
-//!   fact; the remove marker survives — never age-cleared — until then.
-//! - **Correlation.** The operation generation is threaded to every runtime
-//!   mutation and carried on watcher events, so superseded observations are
-//!   distinguished by identity, not the clock.
+//!   every resource, PVC included; its marker is never age-cleared.
+//! - **Correlation.** The operation generation rides every runtime mutation and
+//!   watcher event, so superseded observations are told apart by identity rather
+//!   than by the clock.
 //!
-//! The decision logic lives in [`convergence`] (reconciler desired/observed
-//! map), [`classify`] (watcher four-case classification), [`marker`] (per-class
-//! acknowledgement), [`wake`] (message-wake causal precedence), [`reconcile`]
-//! (per-Task reconcile decision combining wake and convergence), [`events`]
-//! (event derivation), and [`attempt`] (attempt cap + backoff).
+//! Decision logic: [`convergence`], [`classify`], [`marker`], [`wake`],
+//! [`reconcile`], [`events`], [`attempt`].
 
 // Decision modules driven by the desired-state reconciler (wired in `main`).
 // `reconciler`, `watcher`, `observe`, `orchestrator` and `error` are `pub` (not

@@ -134,31 +134,17 @@ fn assign_missing_ports(servers: &mut [ServerConfig]) {
 
 /// Build a `ProvisionRequest` from database state.
 ///
-/// Provider-agnostic: works for both K8s and Docker sandboxes.
+/// Provider-agnostic, and every path to a pod builds its plan here — first
+/// start, wake, restart, reconciler retry, scale-up of a reaped sandbox. That is
+/// why the control check rejects as [`SandboxError::Forbidden`], which lifecycle
+/// classifies as permanent: a sandbox whose pod would be refused its credentials
+/// must not be re-provisioned indefinitely.
 ///
-/// Steps:
-/// 1. Read the Sandbox row for the pod's shape: its workspace, branch, harness,
-///    headless flag, and the two identities it carries
-/// 2. Resolve the workspace's primary repository and read its row for repo config
-/// 3. Check the identity the pod authenticates as can control the Sandbox
-/// 4. Assemble the ProvisionRequest. Runtime credentials are fetched later
-///    over gRPC by the sandbox.
-///
-/// Every path to a pod builds its plan here — a first start, a wake, a restart,
-/// a reconciler retry, the scale-up of a reaped sandbox — so step 3 is what
-/// keeps a sandbox whose pod would be refused its credentials from being
-/// re-provisioned indefinitely. It rejects as [`SandboxError::Forbidden`],
-/// which lifecycle classifies as permanent, so the failure is published once
-/// instead of retried.
-///
-/// The Closed guard is not here: it is per-Task, and a Sandbox has members
-/// rather than a status. `Lifecycle::guard_toward_running` applies it to the
-/// Task actually driving the operation.
-///
-/// Only the control half of the preflight runs here. The GitHub probe stays on
-/// creation and task-start: this function also runs on every message wake of an
-/// already-running sandbox, and a network call on that path would put message
-/// delivery behind GitHub's availability.
+/// Two checks deliberately do not run here. The Closed guard is per-Task, so
+/// `Lifecycle::guard_toward_running` applies it to the Task driving the
+/// operation. The GitHub probe stays on creation and task-start, because this
+/// also runs on every message wake and would put delivery behind GitHub's
+/// availability.
 pub async fn build_provision_request(
     sandboxes: &dyn LifecycleDao,
     workspaces: &dyn WorkspaceResolver,

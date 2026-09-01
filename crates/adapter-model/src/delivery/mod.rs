@@ -1,11 +1,10 @@
 //! The contract an Adapter delivery is admitted and executed against.
 //!
-//! What an inbound delivery sets off cannot honestly finish on the HTTP
-//! response path: routing an inbound message can create a task and provision a
-//! sandbox, and a sender that waits three seconds for a 200 will not wait for
-//! that. So an Adapter hands the work over durably before it acknowledges, and
-//! this module is the vocabulary of that handover: the request an Adapter
-//! submits ([`AdapterDeliveryRequest`]), what admission did with it
+//! An Adapter hands inbound work over durably before it acknowledges, because
+//! routing an inbound message can create a task and provision a sandbox and a
+//! sender will not wait for that. This module is the vocabulary of that
+//! handover: the request an Adapter submits
+//! ([`AdapterDeliveryRequest`]), what admission did with it
 //! ([`Admission`], [`AdmitError`]), the record a handler receives
 //! ([`AdapterDelivery`]), how a handler reports failure
 //! ([`AdapterDeliveryFailure`]), and the registry that joins a `kind` to the

@@ -238,8 +238,6 @@ function renderCompletedTaskContent(
     return <TodoList todos={latestTodos} showSpinner={false} />
   }
 
-  // Screenshots are no longer stored at the task level
-  // Just show the description
   return (
     <p className="text-sm text-muted-foreground line-clamp-3">
       {task.description || 'No result available'}

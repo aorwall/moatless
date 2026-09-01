@@ -1,82 +1,15 @@
 //! At-least-once send buffer for the sandbox → backend event hop.
 //!
-//! The hop is at-least-once **for every event the backend can accept**. `enqueue`
-//! is non-blocking and never fails the caller; a single background drainer task
-//! sends events in order with exponential backoff
-//! (capped at 30s), preserving per-task ordering and assigning a monotonically
-//! increasing `sequence` in transmission order so the backend can spot
-//! duplicates/restarts. An event the backend *permanently refuses* is the
-//! exception, and it is a deliberate one — see "What this does not promise".
+//! In-memory, ordered, non-durable across process death: losing it loses
+//! events. [`EventOutbox::enqueue`] is non-blocking, never fails the caller, and
+//! is where capacity is enforced, so a stalled drainer cannot grow the queue. A
+//! single drainer sends in FIFO order with capped exponential backoff, assigning
+//! a monotonic `sequence` in transmission order.
 //!
-//! This is a **local send buffer**: in-memory, ordered, and non-durable across
-//! process death. Losing it loses events. It is deliberately *not* a
-//! transactional outbox — that phrase names exactly one thing in this
-//! repository, the durable payload-and-relay path in the backend's
-//! `event_ingress` module.
-//!
-//! # Admission and overload
-//!
-//! Capacity is enforced **where the producer submits**, not where the drainer
-//! reads: [`EventOutbox::enqueue`] takes the buffer lock, applies the policy,
-//! and returns. A stalled drainer therefore cannot let the queue grow — there
-//! is no second, unbounded staging area behind the caps.
-//!
-//! | at capacity | policy |
-//! |---|---|
-//! | a non-lifecycle event can be evicted | evict the oldest one, count it under [`OutboxMetrics::dropped_overflow`] |
-//! | only lifecycle events remain | **refuse the incoming event** ([`OutboxMetrics::rejected_saturated`]) |
-//! | the buffer holds exactly one event | keep it, even if it alone exceeds the byte cap |
-//!
-//! Lifecycle events (`taskTurn.*`, terminal `agent.*`) are still preferred over
-//! everything else, but the class is *finite*: it is capped by the same
-//! [`MAX_QUEUE_EVENTS`] / [`MAX_QUEUE_BYTES`] budget as everything else. When
-//! that budget is exhausted by lifecycle events the **newest** one is refused,
-//! not the oldest: the drainer sends in FIFO order, so an older lifecycle event
-//! is the prefix that makes every later one interpretable, while the tail's loss
-//! leaves the backend with a consistent-but-stale view. That view is one the
-//! turn reaper can close — but only in K8s mode with the idle reaper enabled;
-//! in Docker mode no reaper runs, so the stale turn this policy deliberately
-//! creates stays open. Refusing the newest is still the better end to lose (the
-//! reaper keys off the unclosed `taskTurn/active` row, so dropping the *oldest*
-//! would leave a stuck turn it could never see), but it is not an unconditional
-//! backstop. Worst-case residency is `MAX_QUEUE_BYTES` plus one oversized event
-//! plus the one event in flight.
-//!
-//! # Drops are measured, never silent
-//!
-//! Four categorically different things can lose an event, and an operator has to
-//! be able to tell them apart: capacity eviction
-//! ([`OutboxMetrics::dropped_overflow`]) and a refusal at lifecycle saturation
-//! ([`OutboxMetrics::rejected_saturated`]) are load conditions, a terminal
-//! backend rejection ([`OutboxMetrics::dropped_terminal`]) is a wire-contract
-//! violation, and an unrepresentable event type
-//! ([`OutboxMetrics::dropped_unrepresentable`]) is a bug in this process. All
-//! four feed one accounting seam: they increment their own counter and the
-//! drainer announces the gap in stream order with a synthetic
-//! [`EVENTS_DROPPED_SUB_TYPE`] marker carrying the reason.
-//!
-//! A refusal is included deliberately, and it is the one that matters most: by
-//! the eviction policy's invariant it is *always* a lifecycle event, so leaving
-//! it counter-only would have made the most severe loss the least visible one.
-//! Markers are drainer-generated and never enter the buffer, so a saturated
-//! buffer cannot block announcing its own saturation.
-//!
-//! # Boundaries
-//!
-//! - **A lifecycle event can be refused at saturation.** The refusal is loud:
-//!   an error log, a counter, and its own marker on the stream. Callers still
-//!   cannot fail on it: `enqueue` does not report it.
-//! - **An event the backend permanently refuses is dropped, not retried.** For
-//!   that one event the hop is at-most-once. Retrying is what would be wrong:
-//!   the head of a single in-order drainer never clears, so one refused event
-//!   would take the task's whole remaining stream with it. The gap is announced
-//!   like any other.
-//! - **Producer activity does not cut a retry backoff short.** After backend
-//!   recovery, the next attempt can be up to a full backoff away. Shutdown is
-//!   unaffected: [`EventOutbox::flush`] nudges the drainer awake.
-//! - **Cancellation is the drainer's only termination condition.** The handle
-//!   lives in `SandboxState` for the whole process lifetime and is supervised
-//!   through [`OutboxDrainerHandle`].
+//! Every lost event is counted and announced on the stream as an
+//! [`EVENTS_DROPPED_SUB_TYPE`] marker. Markers are drainer-generated and never
+//! enter the buffer, so a saturated buffer can still announce its saturation.
+//! `sandbox/AGENTS.md` states the eviction and terminal-rejection policy.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};

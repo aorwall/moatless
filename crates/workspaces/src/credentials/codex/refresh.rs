@@ -1,12 +1,10 @@
 //! Codex-specific refresh path for [`CredentialService`] — the pure half.
 //!
-//! This file adds a second `impl CredentialService` block holding the raw
-//! Codex refresh (`refresh_codex_locked`) and raw read (`read_raw_codex`).
-//! The struct itself is declared in `credentials/mod.rs` — Rust allows multiple
-//! `impl` blocks for the same type across modules within a crate. The in-flight
-//! guard, the scope-precedence walk and the sandbox broadcast that used to live
-//! here moved up to the tasks-band `CredentialSync` (9c); this module names
-//! neither `TaskDao` nor `SandboxConnector`.
+//! A second `impl CredentialService` block holding the raw Codex refresh
+//! (`refresh_codex_locked`) and raw read (`read_raw_codex`); the struct is
+//! declared in `credentials/mod.rs`. The in-flight guard, the scope-precedence
+//! walk and the sandbox broadcast belong to the tasks-band `CredentialSync`, so
+//! this module names neither `TaskDao` nor `SandboxConnector`.
 //!
 //! `provider_tokens` belongs to `identity`. This module holds the policy half —
 //! the staleness rule and the OpenAI call — behind `CodexBlobRefresher`, and

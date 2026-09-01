@@ -731,9 +731,9 @@ impl TaskDao for PgTaskDao {
         //
         // It holds exactly one row per matching task. The tag, parent-relation
         // and followed-by filters are all `EXISTS` subqueries rather than joins,
-        // so a task carrying several tags is not fanned out into several rows
-        // (which is what made the old `COUNT(*) OVER()` over-count). When a
-        // filter is unset its subquery is skipped entirely (`$n IS NULL`).
+        // so a task carrying several tags is not fanned out into several rows,
+        // which would over-count the total. When a filter is unset its subquery
+        // is skipped entirely (`$n IS NULL`).
         //
         // `total LEFT JOIN page ON TRUE` is what keeps the total available when
         // the page is empty: `total` is an ungrouped aggregate and therefore

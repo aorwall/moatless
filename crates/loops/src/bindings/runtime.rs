@@ -605,16 +605,14 @@ impl RoutingService {
             return Ok(task_id);
         }
 
-        // Nothing was bound to the subject, so nothing was expected of this event.
-        // The word stays what it has always been for this case — the caller decides
-        // whether a subject with nothing on it is a failure of its own.
+        // Nothing was bound to the subject, so nothing was expected of this
+        // event. The caller decides whether that is a failure of its own.
         if passed_over.is_empty() {
             return Err(SharedAdapterError::ConfigNotFound(subscription.id.clone()).into());
         }
 
-        // Something *was* expected and no task got it. This used to be a `debug!`
-        // and a bare `Ok(())` on the GitHub PR path, which is how a real review
-        // reached nobody and looked exactly like a quiet day.
+        // Something *was* expected and no task got it. Report it as an error: at
+        // debug level a real review reaching nobody looks like a quiet day.
         let reasons = passed_over
             .iter()
             .map(|(task_id, reason)| format!("{task_id}={reason}"))

@@ -24,8 +24,7 @@ use crate::bindings::dao::TaskBindingDao;
 /// Holds the four ports this module reads as typed fields — the GitHub PR
 /// destination builder (`github_destination`), the adapter-connection DAO
 /// (`adapter_connections`), the Subscription reads (`loops`), and the
-/// task-binding DAO (`task_bindings`). Read ports through those fields; this
-/// module no longer names `AppState`.
+/// task-binding DAO (`task_bindings`). Read ports through those fields.
 ///
 /// `github_destination` is the *concrete* GitHub PR
 /// [`AdapterDestinationBuilder`], not the adapter registry. A registry field

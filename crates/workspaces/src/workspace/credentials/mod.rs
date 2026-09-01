@@ -13,21 +13,14 @@
 //! `sandbox-control`'s `secrets::resolve_task_credentials`.
 //!
 //! A pin for a git host ([`WorkspaceCredentialProvider::GIT_HOSTS`]) governs
-//! backend-side calls too, not just what the sandbox holds: an actor carrying
-//! the Workspace resolves it through
-//! `moatless_identity::git_host_tokens::GitHostTokens`, which is the one way to
-//! a git-host token. Both sides therefore present the same account — the
-//! sandbox cloning and pushing, and the backend opening the pull request.
-//!
-//! A read made before any Task exists names the Workspace explicitly. The
-//! branch picker is the one that does, through `GET /branches`'s `workspaceId`
-//! and [`crate::repository::handlers::list_branches`], which gates it: the
-//! caller must be able to read the Workspace, and the repository must be one of
-//! its own, so a pin reaches only the repositories it was pinned for.
+//! backend-side calls too: an actor carrying the Workspace resolves it through
+//! `moatless_identity::git_host_tokens::GitHostTokens`, so the sandbox cloning
+//! and the backend opening the pull request present the same account.
 //!
 //! Values are envelope-encrypted with the cipher the `secrets` table uses, and
-//! no read path returns one: [`service::WorkspaceCredentialService::resolve_env`]
-//! decrypts for the sandbox, everything else returns metadata.
+//! no read path returns one: only
+//! [`service::WorkspaceCredentialService::resolve_env`] decrypts, for the
+//! sandbox.
 
 pub mod dao;
 pub mod handlers;

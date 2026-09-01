@@ -101,13 +101,11 @@ fn or_everyone<'b>(
 
 /// A binding formed task-to-subject: the task existed first and reached out.
 ///
-/// Stated as the negation of the responder direction, which is deliberate and
-/// is the taxonomy's own rule — see the origin constants in
-/// [`moatless_adapter_model::binding`]. The responder has exactly one origin, the one
-/// the router writes from an inbound event; every other origin means the task
-/// reached out first. Matching a list of producers instead is what went stale
-/// once, when `task_owned` existed but was not declared, and every Linear
-/// producer was read as a responder.
+/// Stated as the negation of the responder direction, deliberately: the
+/// responder has exactly one origin, the one the router writes from an inbound
+/// event, and `origin` is an open column. Matching a list of producers instead
+/// would read an undeclared origin as a responder. See the origin constants in
+/// [`moatless_adapter_model::binding`].
 fn is_producer(binding: &TaskBinding) -> bool {
     binding.origin != ADAPTER_EVENT_BINDING_ORIGIN
 }

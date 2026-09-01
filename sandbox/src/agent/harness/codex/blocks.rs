@@ -1,36 +1,18 @@
 //! Native Codex thread item → canonical Anthropic-shaped content block(s).
 //!
-//! Codex reports native item families (`agentMessage`, `commandExecution`, …)
-//! whose type strings the backend assembler and UI do not understand, so a
-//! forwarded native block renders as nothing. This maps each family into the
-//! same `text` / `tool_use` / `tool_result` blocks the coordinator publishes,
-//! so a Codex turn renders identically through the harness. Tool families expand
-//! to a `tool_use` block plus, when the item carries output, a paired
-//! `tool_result` block carrying the typed Codex result for backend enrichment.
+//! The backend assembler and UI do not understand Codex's native item families,
+//! so a forwarded native block renders as nothing. Each family maps to the same
+//! `text` / `tool_use` / `tool_result` blocks the coordinator publishes, through
+//! the shared [`CanonicalContentBlock`] enum the Claude harness also normalizes
+//! into. Tool families expand to a `tool_use` plus, where the item carries
+//! output, a paired `tool_result` under one tool-use id.
 //!
-//! The block-shaping itself lives in the pure `handle::codex_payloads` builders;
-//! this module only wires those shapes into
-//! canonical blocks with the right tool name, role, and shared tool-use id.
-//!
-//! Blocks are built through the shared [`CanonicalContentBlock`] enum the Claude
-//! harness also normalizes into, so both agents converge on one type-checked
-//! canonical format rather than parallel hand-rolled JSON.
-//!
-//! ## Families that produce nothing
-//!
-//! Three outcomes are possible, and they are not the same thing:
-//!
-//! - a family maps to canonical blocks;
-//! - a family is **deliberately dropped** — [`item_blocks`] returns an empty
-//!   list, so the item is understood and contributes nothing;
-//! - a family is **unknown** — `None`, which the caller forwards as a raw block
-//!   with bounded diagnostics so an upstream addition is visible.
-//!
-//! Which families are dropped and why is settled in the spec
-//! (`.plans/codex-app-server-harness.md`, *Data model*); the short version is
-//! that the canonical vocabulary here is `text` plus a fixed set of `codex.*`
-//! tool names, and inventing assistant text or a fake tool call for a status
-//! notice reads worse to the person watching than the notice being absent.
+//! [`item_blocks`] distinguishes three outcomes: blocks, an empty list for a
+//! family deliberately dropped, and `None` for an unknown family — which the
+//! caller forwards as a raw block with bounded diagnostics, so an upstream
+//! addition is visible. The canonical vocabulary is `text` plus a fixed set of
+//! `codex.*` tool names; a status notice is dropped rather than rendered as
+//! invented assistant text or a fake tool call.
 
 use crate::agent::harness::content::CanonicalContentBlock;
 use serde_json::{json, Value};

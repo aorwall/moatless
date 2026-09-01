@@ -1,36 +1,18 @@
 //! Ingress deduplication for sandbox-published events.
 //!
-//! The sandbox event outbox delivers at-least-once: on a failure — including a
-//! response lost after the backend already admitted the event — it retries the
-//! same event under the same `event_id` and `sequence`. This module makes that
-//! retry converge instead of duplicating.
+//! The sandbox outbox retries a failed delivery under the same `event_id` and
+//! `sequence`. This cache records **admission, not receipt**: a delivery claims
+//! its id, the claim lasts only once the complete payload is durably admitted,
+//! and a failed admission releases it. A duplicate arriving while the first is
+//! in flight is answered as retryable, because the winner may yet fail.
 //!
-//! Deduplication records **admission, not receipt** (the durable-ingress decision). A delivery
-//! claims its event id, and the claim only becomes a lasting "already admitted"
-//! once the complete payload is durably admitted; a failed admission releases
-//! the claim so the retry gets a real second attempt. A duplicate that arrives
-//! while the first delivery is still in flight is answered as retryable rather
-//! than acknowledged, because the winner's admission may yet fail.
-//!
-//! # This cache is a suppressor, not the guarantee
-//!
-//! An entry expires after [`EVENT_ID_TTL`] and does not survive a backend
-//! restart, while the sandbox retries indefinitely. A retry that outlives its
-//! entry — a link down longer than the TTL, or a restarted backend — therefore
-//! re-runs admission and fans the event out a second time.
-//!
-//! That is deliberate, because suppressing it here would buy nothing: Redis
-//! Streams redeliver from the consumer's pending list after a disconnect, so
-//! every consumer must already be idempotent under duplicate dispatch no matter
-//! what this cache does. Convergence is owned durably downstream instead —
+//! It is a suppressor, not the guarantee. An entry expires after
+//! [`EVENT_ID_TTL`] and does not survive a restart, so a retry that outlives one
+//! re-runs admission. Convergence is owned durably downstream —
 //! `ON CONFLICT (event_id) DO NOTHING` on `task_events`, `ON CONFLICT (uuid) DO
-//! UPDATE` plus in-place block-index merge on `task_messages`, and the monotonic
-//! `WHERE` guards on `task_turns`. This cache only keeps the common, cheap case
-//! off the live stream twice.
-//!
-//! What *is* durable is admission itself: the complete payload is committed to
-//! Postgres before the ack, so a re-run re-admits the same bytes and the event
-//! cannot be lost.
+//! UPDATE` plus block-index merge on `task_messages`, the monotonic `WHERE`
+//! guards on `task_turns` — and every consumer must be idempotent anyway,
+//! because Redis Streams redeliver from the pending list after a disconnect.
 
 use std::time::Duration;
 

@@ -72,6 +72,12 @@ editing.
 Put durable provider work behind `delivery`. Put "mirror what is happening back
 to the provider" behind `events`.
 
+A delivery handler still emits its own `record_webhook`
+(`moatless_adapter_model::metrics`). The delivery metric is deliberately
+low-cardinality — `{adapter, kind, outcome}` — so it cannot show a single broken
+connection; `record_webhook` carries `event_type`, `loop_id` and
+`connection_id`, and is what makes one visible.
+
 `AdmitError::Store` is wrapped at its raise site in `delivery/store.rs`, so the
 `sqlx::Error` survives as a `StoreError` source without entering the type
 providers match on. The driver-free error rule itself is stated in

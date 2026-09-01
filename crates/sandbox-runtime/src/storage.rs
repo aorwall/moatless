@@ -4,18 +4,14 @@
 //! switches, each resolved from `resources.pvc_enabled` / `resources.s3_enabled`
 //! with a per-deployment default when the repo leaves one unset:
 //!
-//! - **PVC** ([`StorageBackend::pvc`]) — a per-task `ReadWriteOnce` PVC owned by
-//!   the Deployment. It is the live copy: it survives pod restarts, forces
-//!   `strategy: Recreate` plus a drain wait on every restart, and is deleted when
-//!   the sandbox is removed. Without it the workspace is a node-local `emptyDir`
-//!   that dies with the pod.
-//! - **S3** ([`StorageBackend::s3`]) — the copy that outlives the Deployment. The
-//!   sandbox tars **everything under `WORKSPACE_DIR`** and transfers it directly
-//!   to S3 via presigned URLs. That is every repo checkout *with its `.git`*,
-//!   plus loose files outside any repo; only gitignored paths inside a repo are
-//!   skipped. See `sandbox/src/init/workspace_sync.rs` for the exact file set.
+//! - **PVC** ([`StorageBackend::pvc`]) — the live copy: a per-task
+//!   `ReadWriteOnce` PVC that survives pod restarts, forces `strategy: Recreate`
+//!   plus a drain wait, and is deleted with the sandbox. Without it the
+//!   workspace is a node-local `emptyDir` that dies with the pod.
+//! - **S3** ([`StorageBackend::s3`]) — the copy that outlives the Deployment;
+//!   `sandbox/src/init/workspace_sync.rs` owns the file set.
 //!
-//! The pair they form decides how a start treats the volume it finds:
+//! The pair decides how a start treats the volume it finds:
 //!
 //! | pvc | s3 | Volume | On start |
 //! |---|---|---|---|
@@ -25,9 +21,8 @@
 //! | off | off | emptyDir | always clone |
 //!
 //! [`StorageBackend::restore_if_empty`] is that distinction: with a durable
-//! volume the snapshot is a *fallback*, read only when the PVC is fresh, was
-//! recreated, or could not attach. Without one it is the only persistence there
-//! is, so it is read every time.
+//! volume the snapshot is a fallback; without one it is the only persistence
+//! there is.
 
 use crate::models::ProvisionPlan;
 

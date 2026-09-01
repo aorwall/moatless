@@ -179,33 +179,20 @@ pub async fn search_entries(
 /// A file written into the conversation's own worktree, in the shape the
 /// contract's `projects.writeFile` returns.
 ///
-/// **The one write this surface makes outside its own database**, and two
-/// things about it are deliberate.
+/// The one write this surface makes outside its own database.
 ///
-/// There is no conflict detection. The contract's input carries no expected
-/// version or hash, so there is nothing to compare and no way for the client to
-/// participate in a check; a person and a running agent editing the same file
-/// race, and the last writer wins. Refusing writes while a turn is open — the
-/// only server-side alternative — would disable the save control in exactly the
-/// situation someone reaches for it.
+/// No conflict detection: the contract's input carries no expected version or
+/// hash, so a person and a running agent editing one file race and the last
+/// writer wins.
 ///
-/// Path containment is the Sandbox's, as it already is for [`read_file`]: the
-/// path goes through as the client sent it and the Sandbox resolves it against
-/// its workspace root, rather than this module keeping a second copy of that
-/// rule to drift. What makes that safe is
-/// [`workspace::controlled_conversation`], which is what stops a caller
-/// addressing a *different* conversation's Sandbox at all — a Sandbox holds one
-/// conversation's checkout and nothing else. It is `controlled_` and not
-/// `addressed_` because a write puts bytes on someone else's disk: reading a
-/// public conversation's checkout is part of what it shares, and editing it is
-/// not.
+/// Path containment is the Sandbox's, as for [`read_file`]. The gate is
+/// [`workspace::controlled_conversation`] — `controlled_`, not `addressed_`,
+/// because a write puts bytes on someone else's disk, and reading a public
+/// conversation's checkout is part of what it shares while editing it is not.
 ///
-/// It is also why the resolution [`read_file`] does is not done here. A write
-/// creates what is missing, so "no file at this path" is the normal case and
-/// not a miss to recover from: applying the same rule would turn saving a new
-/// `docs/notes.md` at the root into overwriting a checkout's existing one. A
-/// client that opened a file this module resolved writes back to the path the
-/// read answered with.
+/// Do not resolve the path the way [`read_file`] does. A write creates what is
+/// missing, so the same rule would turn saving a new root `docs/notes.md` into
+/// overwriting a checkout's existing one.
 pub async fn write_file(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,

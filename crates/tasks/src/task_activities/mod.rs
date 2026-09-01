@@ -21,10 +21,7 @@
 //! for the whole deployment — a per-activity record through it would put every
 //! conversation write in the deployment behind one lock.
 //!
-//! A `bigserial` will not do, for the reason spelled out on that sibling module:
-//! an id assigned at INSERT and made visible at COMMIT can be read out of order,
-//! so a reader polling past a position that had not committed yet never sees it,
-//! silently, while reporting itself up to date.
+//! A `bigserial` will not do; `moatless_backend_core::change_feed` states why.
 //!
 //! No T3 vocabulary appears here — [`moatless_t3code`] turns a row into the event
 //! that surface carries, which is also why a change record names a Message rather

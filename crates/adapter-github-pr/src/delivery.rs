@@ -1,67 +1,23 @@
 //! Durable admission for the GitHub PR work that must not be lost.
 //!
-//! One GitHub webhook can loop several units of work that must not be lost:
-//! routing an inbound PR message (which can create a task and provision a
-//! sandbox), closing the tasks a merged PR created, telling the tasks that
-//! outlive it that it merged, the post-merge CI notice, and the merge-conflict
-//! check. None of them can run under GitHub's response deadline, and a deploy,
-//! an OOM kill, or a panic must not lose work the sender was already told was
-//! accepted.
+//! One webhook can loop several units of work — routing an inbound PR message,
+//! closing the tasks a merged PR created, notifying the ones that outlive it,
+//! the post-merge CI notice, the merge-conflict check — each admitted into
+//! [`moatless_loops::adapters::delivery`] inside the request handler under its
+//! own kind, so they retry and fail independently.
 //!
-//! Each is admitted into [`moatless_loops::adapters::delivery`] inside the request
-//! handler and executed by the supervised worker. The admission contract —
-//! when the producer may be acknowledged, what is durable, how retries and
-//! deduplication work, what happens at capacity, and how shutdown drains — is
-//! stated once in that module and is not restated here. What this module owns
-//! is the GitHub-specific half: the stable kinds and payloads.
+//! The durable unique index is the only dedup mechanism, and it is authoritative
+//! for effects. It does not cover ingress's read-only work, nor the two
+//! best-effort status projections ingress schedules (both overwrite a value
+//! derived from the payload, so a redelivery lands on what is already there).
+//! GitHub's 30-day manual redelivery window outlives `succeeded_retention`, so a
+//! hand-replayed delivery runs again; every effect downstream is separately
+//! idempotent, and a late redelivery can overwrite newer PR state.
 //!
-//! Ingress supplies the sender delivery identity. Dedup is per
-//! `(adapter, kind, event_id)`, so one delivery that loops both a message and
-//! a merge-conflict check is two records that retry and fail independently.
-//!
-//! # The only deduplication mechanism
-//!
-//! The durable unique index is it. There was once a 5-minute in-process cache
-//! of delivery ids on [`GithubPrAdapter`](super::adapter::GithubPrAdapter) as
-//! well; it is gone, along with the compensating eviction a failed admission
-//! needed to undo it. What is left is authoritative for *effects* — whether
-//! these units of work run twice — on any replica, after any restart, and
-//! past any expiry, which is strictly more than the cache ever covered.
-//!
-//! What the cache did cover and the index does not is the work the ingress path
-//! does *before* admitting: signature verification, parsing, and the
-//! subscription / binding reads, all read-only; and the two best-effort status
-//! projections scheduled by ingress that derive a value from the delivery
-//! payload and overwrite it (PR external status, review decision). The same
-//! payload derives the same value, so a redelivery re-runs them and lands on
-//! what is already there. That costs a little work and changes nothing, which
-//! is why this is a performance question rather than a correctness one.
-//!
-//! One consequence must be stated rather than assumed away: GitHub's manual
-//! redelivery window is 30 days, which is longer than
-//! [`AdapterDeliveryPolicy::succeeded_retention`](moatless_loops::adapters::delivery::AdapterDeliveryPolicy)
-//! (7 days). A manual redelivery past that horizon is not a duplicate to the
-//! index and the work runs again. That is acceptable because every effect
-//! downstream is separately idempotent (per-binding event receipts keyed on
-//! `external_event_id`, the adapter-event-task guard, per-run-id and
-//! per-head-sha notice dedup) — not because it cannot happen. A *late*
-//! redelivery of an older event can also overwrite newer PR state with the
-//! state the old payload carries; that exposure is pre-existing and unrelated
-//! to the cache, which expired in five minutes against a 30-day window.
-//!
-//! # Execution deadline
-//!
-//! [`AdapterDeliveryPolicy::execution_timeout`](moatless_loops::adapters::delivery::AdapterDeliveryPolicy)
-//! is 2 minutes. [`kind::PR_MESSAGE`] is the one kind that can plausibly reach
-//! it, because routing a `pull_request.opened` event creates a task and starts
-//! its sandbox. If it does, the attempt is abandoned at the deadline and
-//! retried, and the retry converges rather than duplicating: task creation is
-//! guarded by `find_provider_event_created_for_subject` and delivery by the
-//! event-receipt table. The one window that is not covered is a timeout landing
-//! between task creation and the binding write that records it — a retry then
-//! creates a second task. The spawned path lost the work outright in that same
-//! window, so this is a narrower failure than the one it replaces, but it is
-//! not zero.
+//! [`kind::PR_MESSAGE`] is the one kind that can reach the 2-minute execution
+//! timeout, because routing `pull_request.opened` creates a task and starts its
+//! sandbox. A retry converges except when the timeout lands between task
+//! creation and the binding write, which creates a second task.
 
 use std::sync::Arc;
 

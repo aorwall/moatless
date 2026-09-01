@@ -264,8 +264,8 @@ function MessageHistoryComponent({
   // Re-arms the previous-page fetch trigger only after the user scrolls past
   // `FETCH_THRESHOLD`. Prevents a runaway fetch loop when the prepended page
   // is short enough that the anchor-restored scroll position lands back
-  // inside the fetch zone — which used to fire `fetchPreviousPage` again on
-  // the next scroll event with no user intent.
+  // inside the fetch zone, firing `fetchPreviousPage` again on the next scroll
+  // event with no user intent.
   const fetchArmedRef = useRef(true)
 
   const toggleToolCallExpansion = (toolUseId: string) => {
@@ -334,9 +334,9 @@ function MessageHistoryComponent({
   // bottom JUST BEFORE this commit's data change. We compare prev-commit
   // metrics (captured below in the snapshot effect, and updated eagerly by
   // `handleScroll`) to dodge the race where a queued `scroll` event hasn't
-  // fired yet when an SSE-driven re-render lands — the old `stickToBottomRef`
-  // approach would yank the user down mid-scroll because the ref still held
-  // its previous value.
+  // fired yet when an SSE-driven re-render lands. Reading a single
+  // stick-to-bottom ref here instead yanks the user down mid-scroll, because
+  // the ref still holds its previous value.
   // biome-ignore lint/correctness/useExhaustiveDependencies: explicit length dep
   useLayoutEffect(() => {
     const el = scrollContainerRef.current

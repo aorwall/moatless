@@ -55,6 +55,11 @@ Every queue or asynchronous handoff must state:
 Do not claim hard boundedness while allowing an unbounded ingress or an uncapped
 priority class.
 
+These are properties the code must have, not prose it must carry. Where a named
+policy field, a type, or a test already states one, that is where it is stated;
+what is left over goes in the nearest `AGENTS.md`, once. A module doc narrating
+all five is the essay the root `AGENTS.md` comment rule forbids.
+
 ### Preserve error causes
 
 Reusable and domain APIs expose meaningful error variants and retain underlying

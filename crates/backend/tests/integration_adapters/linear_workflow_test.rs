@@ -16,26 +16,22 @@
 //! # Why the call budgets
 //!
 //! Half of this file asserts *how many* Linear calls a workflow made, and in
-//! what order. That is not incidental rigour: `agent_api.rs` had no base-URL
-//! injection until this stage, so no test could observe a Linear call at all,
-//! and a refactor that added a round trip to an unchanged workflow passed every
-//! test in the repository. The budgets in the plan's API-call table are the
-//! only thing that catches it — a heartbeat emitted twice, an issue fetched per
-//! rule instead of once, an attachment linked on a path that used not to.
+//! what order. The budgets are what catch a refactor that adds a round trip to
+//! an unchanged workflow — a heartbeat emitted twice, an issue fetched per rule
+//! instead of once.
 //!
 //! Every call goes to `POST /graphql`, so the budget is read off the GraphQL
 //! operation in each recorded body (`ProviderStub::graphql_operations`). A call
 //! that is not GraphQL — an OAuth token refresh, say — is reported by its path
 //! rather than hidden, because it is still a round trip.
 //!
-//! # Why a stub and not an unreachable address
+//! # A stub, not an unreachable address
 //!
 //! The neighbouring identity tests point Linear at a dead port, which proves
-//! the forwards survive an unreachable sender. That cannot show what was
-//! *attempted*. Here the sender answers, so the attempts are observable — and
-//! so the success paths downstream of a call (the binding written after
-//! `agentSessionUpdate`, the comment id returned by `commentCreate`) actually
-//! run.
+//! the forwards survive an unreachable sender but cannot show what was
+//! *attempted*. Here the sender answers, so the attempts are observable and the
+//! success paths downstream of a call (the binding written after
+//! `agentSessionUpdate`, the comment id returned by `commentCreate`) run.
 
 use moatless_types::adapter::AdapterKind;
 use crate::common;

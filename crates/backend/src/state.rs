@@ -251,7 +251,7 @@ pub struct AppState {
     /// reconcile tree would otherwise thread through every frame.
     pub loop_sync: Arc<LoopSyncService>,
     /// The message-send flows over the ports they read; holds the self-echo
-    /// dedup filter so the message domain no longer names the adapter registry.
+    /// dedup filter, so the message domain does not name the adapter registry.
     pub message_send: Arc<MessageSendService>,
     /// Presents a task row as a `TaskResponse`; holds the eight ports the
     /// response is assembled from so presenting handlers name one service

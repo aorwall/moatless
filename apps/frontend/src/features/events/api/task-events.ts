@@ -8,9 +8,9 @@ import { toLifecycleEvent } from '../utils/to-lifecycle-event'
  * returns the newest `limit` rows (oldest-first), so this is a tail window, not
  * a truncation of the start.
  *
- * Kept small on purpose: each event carries an arbitrary JSON payload, and a
- * 2000-event window across several visited tasks was a measurable share of the
- * multi-second cycle-collection pauses this view used to cause.
+ * Kept small on purpose: each event carries an arbitrary JSON payload, so a
+ * larger window across several visited tasks costs multi-second
+ * cycle-collection pauses.
  */
 const HISTORY_LIMIT = 300
 
