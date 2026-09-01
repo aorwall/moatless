@@ -35,7 +35,8 @@ mod attachments;
 pub mod auth;
 mod commands;
 pub mod dao;
-pub mod data;
+pub mod task_dao;
+pub mod workspace_dao;
 mod feed;
 pub mod files;
 mod git_actions;
@@ -84,7 +85,8 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::agent::catalog::UiRpcAgentKind;
 use crate::dao::{ConversationDao, Transcript};
-use crate::data::{T3TaskDao, T3WorkspaceDao};
+use crate::task_dao::T3TaskDao;
+use crate::workspace_dao::T3WorkspaceDao;
 use crate::listing::{UiRpcEnvironmentIdentity, UiRpcResume};
 use crate::preview::{PreviewError, PreviewState};
 use crate::preview_tabs::PreviewTabDao;
@@ -3722,7 +3724,8 @@ fn connection_defect(defect: impl Into<String>) -> Value {
 mod tests {
     use super::*;
     use crate::dao::MockConversationDao;
-    use crate::data::{MockT3TaskDao, MockT3WorkspaceDao, TaskView};
+    use crate::task_dao::{MockT3TaskDao, TaskView};
+    use crate::workspace_dao::MockT3WorkspaceDao;
     use crate::listing::UiRpcListingHead;
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};

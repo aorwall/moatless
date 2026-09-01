@@ -19,7 +19,7 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::data::T3TaskDao;
+use crate::task_dao::T3TaskDao;
 use crate::preview_tabs::{PreviewTab, PreviewTabDao, PreviewTabError};
 use moatless_types::access_control::ScopeContext;
 
@@ -350,7 +350,7 @@ pub fn typed_error(error: &PreviewError) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{MockT3TaskDao, TaskView};
+    use crate::task_dao::{MockT3TaskDao, TaskView};
     use crate::preview_tabs::InMemoryPreviewTabDao;
 
     fn viewer() -> ScopeContext {

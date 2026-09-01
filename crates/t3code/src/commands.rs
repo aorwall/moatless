@@ -42,7 +42,7 @@ use super::ports::{
 };
 use super::providers;
 use crate::agent::catalog;
-use crate::data::T3WorkspaceDao;
+use crate::workspace_dao::T3WorkspaceDao;
 use crate::scripts::{self, ScriptsWriteError};
 use moatless_types::agent::AgentMode;
 use moatless_backend_core::activity as mapping;
@@ -884,7 +884,7 @@ fn missing(field: &str) -> CommandRefusal {
 mod tests {
     use super::*;
     use crate::dao::{InteractiveCall, MockConversationDao};
-    use crate::data::{MockT3WorkspaceDao, ScriptsWriteTarget};
+    use crate::workspace_dao::{MockT3WorkspaceDao, ScriptsWriteTarget};
     use moatless_api_schemas::repository::ScriptConfig;
     use crate::listing::{UiRpcEnvironmentIdentity, UiRpcListingHead};
     use async_trait::async_trait;

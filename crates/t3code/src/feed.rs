@@ -26,7 +26,7 @@ use tracing::{debug, warn};
 
 use super::dao::ConversationDao;
 use super::{AgentModelDefaults, projection};
-use crate::data::T3WorkspaceDao;
+use crate::workspace_dao::T3WorkspaceDao;
 use crate::listing::UiRpcEnvironmentIdentity;
 use moatless_types::access_control::ScopeContext;
 

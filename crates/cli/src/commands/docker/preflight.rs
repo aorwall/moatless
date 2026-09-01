@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::helpers::{
+use super::compose::{
     cache_compose_dir, detect_compose_cmd, port_in_use, require_binary, resolve_compose_dir,
     ComposeDirSource, COMPOSE_FILE, ENV_FILE,
 };

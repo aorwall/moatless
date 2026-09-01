@@ -29,7 +29,7 @@ CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk --test smoke -- --ignored --noca
 The smoke test (`tests/smoke.rs`) asserts the on-PATH `claude --version` matches the pin in `docker/Dockerfile.sandbox-base`, then runs a roundtrip and a 2-turn `--resume <session_id>` (mirroring the sandbox's per-turn dispatch in `sandbox/src/agent/options.rs`). Use as a fast pre-release check.
 
 ## Module layout
-`query.rs` (`query()` + `query_streaming()` + `QueryHandle`), `client.rs` (`ClaudeClient` multi-turn), `error.rs` (`SdkError`), `mcp/` (in-process `SdkMcpServer` + tools), `types/` (messages, content, options, control, permissions, hooks, mcp, agents), `transport/` (`Transport`/`StdinWriter` traits + `SubprocessTransport` + mocks), `protocol/` (orchestrator: background reader, message/MCP routing, permission/hook dispatch; `request_tracker` for control-request ID correlation), `tmux/` (TUI backend — see below).
+`query.rs` (`query()` + `query_streaming()` + `QueryHandle`), `client.rs` (`ClaudeClient` multi-turn), `error.rs` (`SdkError`), `mcp/` (in-process `SdkMcpServer` + tools), `api/` (messages, content, options, control, permissions, hooks, mcp, agents), `transport/` (`Transport`/`StdinWriter` traits + `SubprocessTransport` + mocks), `protocol/` (orchestrator: background reader, message/MCP routing, permission/hook dispatch; `request_tracker` for control-request ID correlation), `tmux/` (TUI backend — see below).
 
 ## Tmux backend lifecycle (hook-driven)
 

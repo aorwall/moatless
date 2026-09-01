@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use tokio::time::timeout;
 
-use claude_agent_sdk::types::messages::ResultMessage;
+use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::{query, ClaudeOptions, SdkMessage};
 
 /// MUST match `CLAUDE_CLI_VERSION` in `docker/Dockerfile.sandbox-base`.

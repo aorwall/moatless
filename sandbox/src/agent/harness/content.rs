@@ -15,7 +15,7 @@
 //! preserves a native block whose kind the harness does not yet map, so an
 //! upstream CLI addition is never silently dropped.
 
-use claude_agent_sdk::types::content::ImageSource;
+use claude_agent_sdk::api::content::ImageSource;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

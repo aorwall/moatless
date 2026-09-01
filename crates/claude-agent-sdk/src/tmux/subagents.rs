@@ -24,8 +24,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::error::Result;
-use crate::types::content::Usage;
-use crate::types::messages::SdkMessage;
+use crate::api::content::Usage;
+use crate::api::messages::SdkMessage;
 
 use super::translator::{Translated, TurnAccumulator, translate_record};
 
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn set_parent_threads_assistant_and_user_messages() {
-        use crate::types::content::ApiMessage;
+        use crate::api::content::ApiMessage;
 
         let api = || ApiMessage {
             id: None,
@@ -350,7 +350,7 @@ mod tests {
             usage: None,
         };
 
-        let mut assistant = SdkMessage::Assistant(crate::types::messages::AssistantMessage {
+        let mut assistant = SdkMessage::Assistant(crate::api::messages::AssistantMessage {
             uuid: "u1".to_string(),
             session_id: "s".to_string(),
             message: api(),

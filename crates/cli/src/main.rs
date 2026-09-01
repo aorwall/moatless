@@ -480,7 +480,11 @@ async fn run_shared(
             if json {
                 output::print_json_typed(&tags);
             } else {
-                commands::misc::format_tags(&tags);
+                let rows: Vec<Vec<String>> = tags
+                    .iter()
+                    .map(|t| vec![t.tag_id.clone(), t.name.clone()])
+                    .collect();
+                output::print_table(&["TAG_ID", "NAME"], &rows);
             }
         }
         SharedCommands::K8s { action } => {

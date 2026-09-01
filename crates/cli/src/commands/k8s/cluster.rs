@@ -1,4 +1,4 @@
-//! Shared kubectl / helm subprocess helpers.
+//! `kubectl` and `helm` subprocess plumbing for the `moat k8s` subcommands.
 
 use std::process::Stdio;
 

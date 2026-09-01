@@ -6,7 +6,7 @@ use dialoguer::{Input, Select, theme::ColorfulTheme};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::helpers::{DEFAULT_NAMESPACE, DEFAULT_VALUES_FILE, KubeTarget};
+use super::cluster::{DEFAULT_NAMESPACE, DEFAULT_VALUES_FILE, KubeTarget};
 use super::{InitArgs, Provider};
 use crate::client::ClientError;
 
@@ -56,7 +56,7 @@ pub(super) async fn run(args: InitArgs, json_out: bool) -> Result<(), ClientErro
         validate_handoff_override("context", args.context.as_deref(), &handoff.context)?;
         let selected_context = match args.context.as_deref() {
             Some(context) => context.to_string(),
-            None => super::helpers::current_context().await?.unwrap_or_default(),
+            None => super::cluster::current_context().await?.unwrap_or_default(),
         };
         if selected_context != handoff.context {
             return Err(ClientError::Other(format!(
@@ -436,7 +436,7 @@ fn build_values(input: &ValuesInput<'_>) -> serde_json::Value {
         "secrets": { "create": false },
         "externalSecrets": {
             "enabled": true,
-            "secretName": super::helpers::SECRET_NAME,
+            "secretName": super::cluster::SECRET_NAME,
         },
     });
 

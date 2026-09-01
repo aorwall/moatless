@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use claude_agent_sdk::types::messages::ResultMessage;
+use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::{query, ClaudeOptions, PermissionMode, SdkMessage};
 use tokio_util::sync::CancellationToken;
 
@@ -674,9 +674,9 @@ async fn test_mid_turn_injection_joins_the_running_turn() {
 fn injected_user_message(
     text: &str,
     session_id: &str,
-) -> claude_agent_sdk::types::messages::UserMessage {
-    use claude_agent_sdk::types::content::{ApiMessage, ContentBlock};
-    use claude_agent_sdk::types::messages::{MessagePriority, UserMessage};
+) -> claude_agent_sdk::api::messages::UserMessage {
+    use claude_agent_sdk::api::content::{ApiMessage, ContentBlock};
+    use claude_agent_sdk::api::messages::{MessagePriority, UserMessage};
 
     UserMessage {
         uuid: None,

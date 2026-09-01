@@ -24,7 +24,7 @@ use super::dao::ConversationDao;
 use super::ports::{BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource};
 use super::projection;
 use super::workspace::{self, WorkspaceAccessError};
-use crate::data::T3WorkspaceDao;
+use crate::workspace_dao::T3WorkspaceDao;
 use moatless_api_schemas::repository::{BranchEntry, BranchListResponse};
 use moatless_backend_core::sandbox::SandboxError;
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
@@ -860,7 +860,7 @@ mod tests {
 
     // -- workspace_branches: the draft-thread branch listing ------------------
 
-    use crate::data::MockT3WorkspaceDao;
+    use crate::workspace_dao::MockT3WorkspaceDao;
     use async_trait::async_trait;
     use std::sync::Mutex;
 

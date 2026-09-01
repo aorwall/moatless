@@ -1,18 +1,7 @@
-//! Miscellaneous commands: tags list, plus shared CLI helpers.
-
-use moatless_api_schemas::tag::TagResponse;
+//! Gathering command input: message text from `--text` or stdin, JSON
+//! arguments given inline or as `@file`, and file uploads.
 
 use crate::client::MoatClient;
-use crate::output;
-
-pub fn format_tags(tags: &[TagResponse]) {
-    let rows: Vec<Vec<String>> = tags
-        .iter()
-        .map(|t| vec![t.tag_id.clone(), t.name.clone()])
-        .collect();
-
-    output::print_table(&["TAG_ID", "NAME"], &rows);
-}
 
 /// Resolve the outbound message text from `--text` or stdin.
 ///

@@ -7,7 +7,7 @@ use std::fmt::Write;
 use async_trait::async_trait;
 
 use crate::error::Result;
-use crate::types::control::RawStdoutMessage;
+use crate::api::control::RawStdoutMessage;
 
 /// Trait for reading messages from the CLI transport.
 #[async_trait]

@@ -1,7 +1,8 @@
-//! Shared Docker / docker compose subprocess helpers.
+//! Docker and `docker compose` subprocess plumbing for the `moat docker`
+//! subcommands.
 //!
 //! Centralises binary detection, compose-dir resolution, `.env` management,
-//! and subprocess plumbing shared by the `moat docker` subcommands.
+//! and subprocess invocation shared across those subcommands.
 
 use std::fs;
 use std::path::{Path, PathBuf};

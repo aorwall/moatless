@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::helpers::{KubeTarget, helm, require_binary};
+use super::cluster::{KubeTarget, helm, require_binary};
 use super::{InstallArgs, UpgradeArgs};
 use crate::client::ClientError;
 use crate::output;

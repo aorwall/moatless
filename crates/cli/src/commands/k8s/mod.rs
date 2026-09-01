@@ -8,7 +8,7 @@ use clap::{Subcommand, ValueEnum};
 
 use crate::client::ClientError;
 
-mod helpers;
+mod cluster;
 mod init;
 mod install;
 mod preflight;
@@ -166,19 +166,19 @@ pub struct InstallArgs {
     pub context: Option<String>,
 
     /// Helm release name
-    #[arg(long, default_value = helpers::DEFAULT_RELEASE)]
+    #[arg(long, default_value = cluster::DEFAULT_RELEASE)]
     pub release: String,
 
     /// Namespace to install into
-    #[arg(long, short = 'n', default_value = helpers::DEFAULT_NAMESPACE)]
+    #[arg(long, short = 'n', default_value = cluster::DEFAULT_NAMESPACE)]
     pub namespace: String,
 
     /// Path to the Helm chart
-    #[arg(long, default_value = helpers::DEFAULT_CHART_PATH)]
+    #[arg(long, default_value = cluster::DEFAULT_CHART_PATH)]
     pub chart: String,
 
     /// Values file (defaults to `values.local.yaml`)
-    #[arg(long, short = 'f', default_value = helpers::DEFAULT_VALUES_FILE)]
+    #[arg(long, short = 'f', default_value = cluster::DEFAULT_VALUES_FILE)]
     pub values: String,
 
     /// Render only — don't apply to the cluster
@@ -201,11 +201,11 @@ pub struct UpgradeArgs {
     pub context: Option<String>,
 
     /// Helm release name
-    #[arg(long, default_value = helpers::DEFAULT_RELEASE)]
+    #[arg(long, default_value = cluster::DEFAULT_RELEASE)]
     pub release: String,
 
     /// Namespace
-    #[arg(long, short = 'n', default_value = helpers::DEFAULT_NAMESPACE)]
+    #[arg(long, short = 'n', default_value = cluster::DEFAULT_NAMESPACE)]
     pub namespace: String,
 
     /// New image tag to roll out
@@ -220,11 +220,11 @@ pub struct StatusArgs {
     pub context: Option<String>,
 
     /// Namespace to inspect
-    #[arg(long, short = 'n', default_value = helpers::DEFAULT_NAMESPACE)]
+    #[arg(long, short = 'n', default_value = cluster::DEFAULT_NAMESPACE)]
     pub namespace: String,
 
     /// Helm release name
-    #[arg(long, default_value = helpers::DEFAULT_RELEASE)]
+    #[arg(long, default_value = cluster::DEFAULT_RELEASE)]
     pub release: String,
 }
 
@@ -235,11 +235,11 @@ pub struct UninstallArgs {
     pub context: Option<String>,
 
     /// Helm release name
-    #[arg(long, default_value = helpers::DEFAULT_RELEASE)]
+    #[arg(long, default_value = cluster::DEFAULT_RELEASE)]
     pub release: String,
 
     /// Namespace
-    #[arg(long, short = 'n', default_value = helpers::DEFAULT_NAMESPACE)]
+    #[arg(long, short = 'n', default_value = cluster::DEFAULT_NAMESPACE)]
     pub namespace: String,
 
     /// Also delete the `vibe-secrets` Secret and orphaned PVCs

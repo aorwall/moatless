@@ -19,7 +19,7 @@
 //! `tmux attach -t claude-sdk-<8 hex>` (run `tmux ls` to find the name) to
 //! observe the TUI; the SDK consumer will still see all messages.
 
-use claude_agent_sdk::types::messages::ResultMessage;
+use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::{query_tmux, ClaudeOptions, ContentBlock, SdkMessage};
 
 #[tokio::main]

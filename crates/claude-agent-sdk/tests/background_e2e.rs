@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use claude_agent_sdk::types::messages::ResultMessage;
+use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::{query, query_tmux, ClaudeOptions, ContentBlock, SdkMessage};
 
 const TEST_MODEL: &str = "claude-haiku-4-5-20251001";

@@ -12,7 +12,7 @@
 //! cargo run -p claude-agent-sdk --example streaming_client
 //! ```
 
-use claude_agent_sdk::types::messages::ResultMessage;
+use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::{ClaudeClient, ClaudeOptions, ContentBlock, SdkMessage};
 
 #[tokio::main]

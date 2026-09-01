@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::data::{T3TaskDao, TaskView};
+use crate::task_dao::{T3TaskDao, TaskView};
 use moatless_backend_core::sandbox::{
     LogOptions, SandboxError, SandboxIntentReader, SandboxObserver, ServerEntry,
 };

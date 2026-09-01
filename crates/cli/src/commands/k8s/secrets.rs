@@ -15,7 +15,7 @@ use dialoguer::{Confirm, Input, Password, theme::ColorfulTheme};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::helpers::{DEFAULT_NAMESPACE, KubeTarget, PULL_SECRET_NAME, SECRET_NAME};
+use super::cluster::{DEFAULT_NAMESPACE, KubeTarget, PULL_SECRET_NAME, SECRET_NAME};
 use crate::client::ClientError;
 use crate::output;
 
@@ -45,7 +45,7 @@ pub struct BootstrapArgs {
     pub namespace: String,
 
     /// Path to a values file — used to scope which keys are prompted for
-    #[arg(long, default_value = super::helpers::DEFAULT_VALUES_FILE)]
+    #[arg(long, default_value = super::cluster::DEFAULT_VALUES_FILE)]
     pub values: String,
 
     /// Read known keys from this file instead of auto-discovering `.env*`

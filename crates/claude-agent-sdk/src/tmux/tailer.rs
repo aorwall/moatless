@@ -16,8 +16,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::error::{Result, SdkError};
-use crate::types::messages::{ApiKeySource, SdkMessage, SystemInitMessage};
-use crate::types::options::ClaudeOptions;
+use crate::api::messages::{ApiKeySource, SdkMessage, SystemInitMessage};
+use crate::api::options::ClaudeOptions;
 
 use super::hooks::{
     HookEvent, HookLine, extract_last_assistant_message, extract_session_id,
@@ -689,11 +689,11 @@ pub(crate) fn synth_system_init(session_id: &str, options: &ClaudeOptions) -> Sy
         tools: Vec::new(),
         model: options.model.clone().unwrap_or_default(),
         mcp_servers: Vec::new(),
-        permission_mode: crate::types::permissions::PermissionMode::BypassPermissions,
+        permission_mode: crate::api::permissions::PermissionMode::BypassPermissions,
         cwd: options.cwd.clone().unwrap_or_default(),
         api_key_source: ApiKeySource::None,
         slash_commands: Vec::new(),
-        output_style: crate::types::messages::OutputStyle::Normal,
+        output_style: crate::api::messages::OutputStyle::Normal,
         skills: Vec::new(),
         plugins: Vec::new(),
         agents: None,

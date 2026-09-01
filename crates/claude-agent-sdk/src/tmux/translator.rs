@@ -21,8 +21,8 @@ use std::collections::HashSet;
 use serde_json::Value;
 use tracing::{debug, warn};
 
-use crate::types::content::Usage;
-use crate::types::messages::{
+use crate::api::content::Usage;
+use crate::api::messages::{
     CompactBoundaryMessage, CompactMetadata, CompactTrigger, ResultMessage, ResultSuccess,
     SdkMessage,
 };
@@ -241,7 +241,7 @@ pub(crate) fn translate_record(value: Value, acc: &mut TurnAccumulator) -> Trans
 fn translate_assistant(mut value: Value, acc: &mut TurnAccumulator) -> Translated {
     rename_top_level_key(&mut value, "sessionId", "session_id");
 
-    match serde_json::from_value::<crate::types::messages::AssistantMessage>(value.clone()) {
+    match serde_json::from_value::<crate::api::messages::AssistantMessage>(value.clone()) {
         Ok(msg) => {
             // An API error (e.g. 404 model_not_found) must surface as a failed
             // turn, not a silent empty success. Flag it so the synthesized
@@ -252,7 +252,7 @@ fn translate_assistant(mut value: Value, acc: &mut TurnAccumulator) -> Translate
             // Pull out the most recent text block for the synthesized Result
             // and accumulate usage.
             let last_text = msg.message.content.iter().rev().find_map(|b| match b {
-                crate::types::content::ContentBlock::Text { text } => Some(text.clone()),
+                crate::api::content::ContentBlock::Text { text } => Some(text.clone()),
                 _ => None,
             });
             if let Some(usage) = &msg.message.usage {
@@ -338,7 +338,7 @@ fn translate_user(mut value: Value) -> Translated {
     rename_top_level_key(&mut value, "sessionId", "session_id");
     normalize_tool_result_content(&mut value);
 
-    match serde_json::from_value::<crate::types::messages::UserMessage>(value.clone()) {
+    match serde_json::from_value::<crate::api::messages::UserMessage>(value.clone()) {
         Ok(msg) => Translated::One(Box::new(SdkMessage::User(msg))),
         Err(e) => {
             warn!(error = %e, raw = %value, "Failed to deserialize JSONL user record");
@@ -740,7 +740,7 @@ mod tests {
             Translated::One(boxed) => match *boxed {
                 SdkMessage::User(u) => {
                     let block = &u.message.content[0];
-                    if let crate::types::content::ContentBlock::ToolResult { content, .. } = block {
+                    if let crate::api::content::ContentBlock::ToolResult { content, .. } = block {
                         let s = content.as_ref().expect("content present");
                         let text = s.as_str().expect("content was normalized to a string");
                         assert_eq!(text, "Line one\nLine two");

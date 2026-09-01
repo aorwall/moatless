@@ -5,7 +5,7 @@ use serde_json::json;
 use std::io::IsTerminal;
 
 use super::UninstallArgs;
-use super::helpers::{KubeTarget, SECRET_NAME, require_binary};
+use super::cluster::{KubeTarget, SECRET_NAME, require_binary};
 use crate::client::ClientError;
 use crate::output;
 

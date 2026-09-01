@@ -9,10 +9,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
 use crate::error::{Result, SdkError};
-use crate::types::content::ContentBlock;
-use crate::types::control::{ControlResponseInner, IncomingControlRequestInner, RawStdoutMessage};
-use crate::types::messages::{ResultMessage, SdkMessage};
-use crate::types::options::{ClaudeOptions, OutputFormat, SystemPrompt};
+use crate::api::content::ContentBlock;
+use crate::api::control::{ControlResponseInner, IncomingControlRequestInner, RawStdoutMessage};
+use crate::api::messages::{ResultMessage, SdkMessage};
+use crate::api::options::{ClaudeOptions, OutputFormat, SystemPrompt};
 
 /// Manages the Claude CLI subprocess: spawning, reading NDJSON, writing, and cleanup.
 pub(crate) struct SubprocessTransport {
@@ -875,7 +875,7 @@ fn truncate(s: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::permissions::PermissionMode;
+    use crate::api::permissions::PermissionMode;
     use std::collections::HashMap;
 
     #[test]
@@ -1067,7 +1067,7 @@ mod tests {
 
     #[test]
     fn build_args_with_mcp_config() {
-        use crate::types::mcp::McpServerConfig;
+        use crate::api::mcp::McpServerConfig;
 
         let mut servers = HashMap::new();
         servers.insert(
@@ -1117,7 +1117,7 @@ mod tests {
 
     #[test]
     fn build_args_with_permission_handler_sets_stdio() {
-        use crate::types::permissions::{PermissionContext, PermissionHandler, PermissionResult};
+        use crate::api::permissions::{PermissionContext, PermissionHandler, PermissionResult};
         use std::sync::Arc;
 
         struct TestHandler;
@@ -1150,7 +1150,7 @@ mod tests {
 
     #[test]
     fn build_args_permission_handler_takes_precedence_over_tool_name() {
-        use crate::types::permissions::{PermissionContext, PermissionHandler, PermissionResult};
+        use crate::api::permissions::{PermissionContext, PermissionHandler, PermissionResult};
         use std::sync::Arc;
 
         struct TestHandler;
@@ -1195,7 +1195,7 @@ mod tests {
 
     #[test]
     fn build_args_with_agents() {
-        use crate::types::agents::AgentDefinition;
+        use crate::api::agents::AgentDefinition;
 
         let mut agents = HashMap::new();
         agents.insert(

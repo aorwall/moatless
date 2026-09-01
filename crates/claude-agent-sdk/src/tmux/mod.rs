@@ -48,8 +48,8 @@ use tracing::{debug, warn};
 use crate::error::{Result, SdkError};
 use crate::query::QueryHandle;
 use crate::transport::StdinWriter;
-use crate::types::messages::SdkMessage;
-use crate::types::options::ClaudeOptions;
+use crate::api::messages::SdkMessage;
+use crate::api::options::ClaudeOptions;
 
 pub use self::session::has_resumable_transcript;
 pub use self::session::transcript_dir;

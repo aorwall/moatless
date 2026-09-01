@@ -1,6 +1,6 @@
 //! `moat docker logs` — stream logs from one or all services.
 
-use super::helpers::{detect_compose_cmd, resolve_compose_dir, run_compose_streaming};
+use super::compose::{detect_compose_cmd, resolve_compose_dir, run_compose_streaming};
 use super::LogsArgs;
 use crate::client::ClientError;
 

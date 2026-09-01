@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use claude_agent_sdk::types::content::{ApiMessage, ContentBlock, ModelUsage, Usage};
-use claude_agent_sdk::types::messages::{
+use claude_agent_sdk::api::content::{ApiMessage, ContentBlock, ModelUsage, Usage};
+use claude_agent_sdk::api::messages::{
     AssistantMessage, ResultError, ResultMessage, ResultSuccess, SystemInitMessage,
     ToolProgressMessage,
 };
@@ -79,9 +79,9 @@ fn system_init(session: &str) -> SystemInitMessage {
         mcp_servers: vec![],
         permission_mode: claude_agent_sdk::PermissionMode::Default,
         cwd: "/workspace".to_string(),
-        api_key_source: claude_agent_sdk::types::messages::ApiKeySource::None,
+        api_key_source: claude_agent_sdk::api::messages::ApiKeySource::None,
         slash_commands: vec![],
-        output_style: claude_agent_sdk::types::messages::OutputStyle::Normal,
+        output_style: claude_agent_sdk::api::messages::OutputStyle::Normal,
         skills: vec![],
         plugins: vec![],
         agents: None,

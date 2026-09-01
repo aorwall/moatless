@@ -10,7 +10,7 @@ use moatless_api_schemas::shared::AgentMode;
 use moatless_api_schemas::user::SendDmRequest;
 
 use crate::client::MoatClient;
-use crate::commands::misc::{read_json_arg, read_text_or_stdin, upload_files};
+use crate::commands::input::{read_json_arg, read_text_or_stdin, upload_files};
 use crate::config::Config;
 use crate::output;
 

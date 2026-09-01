@@ -12,7 +12,7 @@ pub mod k8s;
 pub mod linear;
 pub mod loops;
 pub mod messages;
-pub mod misc;
+pub mod input;
 pub mod plugins;
 pub mod repos;
 pub mod secrets;

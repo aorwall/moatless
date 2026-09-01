@@ -14,7 +14,7 @@
 //! cargo run -p claude-agent-sdk --example simple_query
 //! ```
 
-use claude_agent_sdk::types::messages::ResultMessage;
+use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::{query, ClaudeOptions, ContentBlock, SdkMessage};
 
 #[tokio::main]

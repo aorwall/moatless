@@ -4,7 +4,7 @@
 //! Moatless Vibe locally via Docker Compose. Shells out to `docker` /
 //! `docker compose`; the compose assets (`docker-compose.yml`, `.env.example`,
 //! `nginx.conf`) are embedded in the binary and seeded into the work dir on
-//! `init` (see `helpers::INSTALL_ASSETS`).
+//! `init` (see `compose::INSTALL_ASSETS`).
 
 use std::path::PathBuf;
 
@@ -14,7 +14,7 @@ use crate::client::ClientError;
 
 mod env;
 mod env_file;
-mod helpers;
+mod compose;
 mod init;
 mod install;
 mod logs;

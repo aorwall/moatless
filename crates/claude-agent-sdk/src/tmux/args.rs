@@ -8,7 +8,7 @@
 
 use tracing::warn;
 
-use crate::types::options::{ClaudeOptions, SystemPrompt};
+use crate::api::options::{ClaudeOptions, SystemPrompt};
 
 /// Build CLI args appropriate for running `claude` inside a tmux session
 /// (interactive TUI, no stream-json plumbing).

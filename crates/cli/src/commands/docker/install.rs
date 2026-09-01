@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use super::helpers::{
+use super::compose::{
     detect_compose_cmd, resolve_compose_dir, run_compose_streaming, ComposeDirSource, ENV_FILE,
 };
 use super::InstallArgs;

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use claude_agent_sdk::types::options::{PluginConfig, SystemPrompt};
+use claude_agent_sdk::api::options::{PluginConfig, SystemPrompt};
 use claude_agent_sdk::{ClaudeOptions, PermissionMode};
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;

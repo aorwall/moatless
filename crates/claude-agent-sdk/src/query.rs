@@ -10,11 +10,11 @@ use crate::mcp::SdkMcpServer;
 use crate::protocol::orchestrator::Orchestrator;
 use crate::protocol::request_tracker::RequestTracker;
 use crate::transport::{ChildStdinWriter, StdinWriter, SubprocessTransport};
-use crate::types::control::{ControlRequestEnvelope, OutgoingControlRequest};
-use crate::types::mcp::McpServerConfig;
-use crate::types::messages::{SdkMessage, UserMessage};
-use crate::types::options::ClaudeOptions;
-use crate::types::permissions::PermissionMode;
+use crate::api::control::{ControlRequestEnvelope, OutgoingControlRequest};
+use crate::api::mcp::McpServerConfig;
+use crate::api::messages::{SdkMessage, UserMessage};
+use crate::api::options::ClaudeOptions;
+use crate::api::permissions::PermissionMode;
 
 /// Channel capacity for the message stream.
 const CHANNEL_CAPACITY: usize = 256;
@@ -503,12 +503,12 @@ fn build_initialize_request(
     sdk_mcp_server_names: Option<Vec<String>>,
 ) -> OutgoingControlRequest {
     let system_prompt = match &options.system_prompt {
-        Some(crate::types::options::SystemPrompt::Replace(text)) => Some(text.clone()),
+        Some(crate::api::options::SystemPrompt::Replace(text)) => Some(text.clone()),
         _ => None,
     };
 
     let append_system_prompt = match &options.system_prompt {
-        Some(crate::types::options::SystemPrompt::Preset { append, .. }) => append.clone(),
+        Some(crate::api::options::SystemPrompt::Preset { append, .. }) => append.clone(),
         _ => None,
     };
 
@@ -516,7 +516,7 @@ fn build_initialize_request(
     let json_schema = options
         .output_format
         .as_ref()
-        .map(|crate::types::options::OutputFormat::JsonSchema { schema }| schema.clone());
+        .map(|crate::api::options::OutputFormat::JsonSchema { schema }| schema.clone());
 
     // Serialize hook definitions in the CLI-expected format:
     // Record<HookEvent, Array<{hookCallbackIds: string[], matcher?: string, timeout?: number}>>

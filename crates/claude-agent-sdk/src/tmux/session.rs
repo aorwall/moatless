@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
 use crate::error::{Result, SdkError};
-use crate::types::options::ClaudeOptions;
+use crate::api::options::ClaudeOptions;
 
 use super::args::build_tmux_cli_args;
 
@@ -846,7 +846,7 @@ mod tests {
             cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
             model: Some("claude-opus-4-8".to_string()),
             disallowed_tools: Some(vec!["AskUserQuestion".to_string()]),
-            system_prompt: Some(crate::types::options::SystemPrompt::Preset {
+            system_prompt: Some(crate::api::options::SystemPrompt::Preset {
                 prompt_type: "preset".to_string(),
                 preset: "claude_code".to_string(),
                 append: Some(realistic_append_system_prompt()),
@@ -875,7 +875,7 @@ mod tests {
             cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
             model: Some("claude-opus-4-8".to_string()),
             disallowed_tools: Some(vec!["AskUserQuestion".to_string()]),
-            system_prompt: Some(crate::types::options::SystemPrompt::Preset {
+            system_prompt: Some(crate::api::options::SystemPrompt::Preset {
                 prompt_type: "preset".to_string(),
                 preset: "claude_code".to_string(),
                 append: Some(realistic_append_system_prompt()),

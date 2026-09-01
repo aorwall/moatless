@@ -15,9 +15,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use claude_agent_sdk::types::hooks::SyncHookOutput;
-use claude_agent_sdk::types::messages::ResultMessage;
-use claude_agent_sdk::types::permissions::PermissionContext;
+use claude_agent_sdk::api::hooks::SyncHookOutput;
+use claude_agent_sdk::api::messages::ResultMessage;
+use claude_agent_sdk::api::permissions::PermissionContext;
 use claude_agent_sdk::{
     query, ClaudeOptions, ContentBlock, HookHandler, HookOutput, PermissionHandler, PermissionMode,
     PermissionResult, SdkMessage,

@@ -4,7 +4,7 @@ use clap::Subcommand;
 use moatless_api_schemas::message::{AddMessageReactionRequest, ReplyToMessageRequest, UiMessage};
 
 use crate::client::MoatClient;
-use crate::commands::misc::{read_json_arg, read_text_or_stdin, upload_files};
+use crate::commands::input::{read_json_arg, read_text_or_stdin, upload_files};
 use crate::output;
 
 #[derive(Subcommand)]

@@ -4,7 +4,7 @@
 //! [`HarnessError`] facts (class + Session impact + stage) so the coordinator
 //! drives policy without learning Claude-native error shapes.
 
-use claude_agent_sdk::types::messages::ResultMessage;
+use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::SdkError;
 
 use super::super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};

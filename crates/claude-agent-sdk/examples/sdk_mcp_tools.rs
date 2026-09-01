@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 
 use claude_agent_sdk::mcp::{SdkMcpServer, SdkMcpTool, ToolResult};
-use claude_agent_sdk::types::messages::ResultMessage;
+use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::{query, ClaudeOptions, ContentBlock, SdkMessage};
 
 #[tokio::main]

@@ -6,7 +6,7 @@ use dialoguer::{theme::ColorfulTheme, Password};
 use serde::{Deserialize, Serialize};
 
 use super::env_file::{is_placeholder, read_env_map, set_env, write_env_file};
-use super::helpers::{
+use super::compose::{
     resolve_compose_dir, seed_assets, ComposeDirSource, ENV_EXAMPLE_FILE, ENV_FILE, INSTALL_ASSETS,
 };
 use super::InitArgs;
@@ -216,7 +216,7 @@ fn print_human(r: &InitReport, source: ComposeDirSource) {
 mod tests {
     use std::fs;
 
-    use super::super::helpers::{COMPOSE_FILE, NGINX_CONF_FILE};
+    use super::super::compose::{COMPOSE_FILE, NGINX_CONF_FILE};
     use super::super::InitArgs;
     use super::run;
 

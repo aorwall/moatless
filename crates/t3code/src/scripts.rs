@@ -26,7 +26,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use crate::dao::ConversationDao;
-use crate::data::T3WorkspaceDao;
+use crate::workspace_dao::T3WorkspaceDao;
 use crate::projection;
 use crate::terminal::{self, TerminalError, TerminalHub};
 use moatless_api_schemas::repository::ScriptConfig;

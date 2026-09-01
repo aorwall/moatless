@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::data::{T3TaskDao, TaskView};
+use crate::task_dao::{T3TaskDao, TaskView};
 use moatless_types::sandbox::SandboxStopReason;
 use moatless_backend_core::sandbox::{
     ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxStarter,
@@ -212,7 +212,7 @@ mod tests {
     };
     use moatless_types::task::TaskStatus;
 
-    use crate::data::{MockT3TaskDao, TaskView};
+    use crate::task_dao::{MockT3TaskDao, TaskView};
 
     /// Reports `Initializing` until `moved` is set, then `Ready`.
     struct MovingStatus {

@@ -10,12 +10,12 @@ mod tests {
     use crate::protocol::orchestrator::Orchestrator;
     use crate::protocol::request_tracker::RequestTracker;
     use crate::transport::mock::{MockStdinWriter, MockTransport};
-    use crate::types::control::{
+    use crate::api::control::{
         ControlResponseInner, IncomingControlRequestInner, RawStdoutMessage,
     };
-    use crate::types::hooks::{HookHandler, HookOutput, SyncHookOutput};
-    use crate::types::messages::SdkMessage;
-    use crate::types::permissions::{
+    use crate::api::hooks::{HookHandler, HookOutput, SyncHookOutput};
+    use crate::api::messages::SdkMessage;
+    use crate::api::permissions::{
         PermissionContext, PermissionHandler, PermissionResult, PermissionUpdate,
     };
 
@@ -862,8 +862,8 @@ mod tests {
                 updated_input: Some(updated),
                 updated_permissions: Some(vec![PermissionUpdate::AddRules {
                     rules: vec![],
-                    behavior: crate::types::permissions::PermissionBehavior::Allow,
-                    destination: crate::types::permissions::PermissionUpdateDestination::Session,
+                    behavior: crate::api::permissions::PermissionBehavior::Allow,
+                    destination: crate::api::permissions::PermissionUpdateDestination::Session,
                 }]),
             }
         }

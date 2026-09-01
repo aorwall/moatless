@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::StatusArgs;
-use super::helpers::KubeTarget;
+use super::cluster::KubeTarget;
 use crate::client::ClientError;
 use crate::output;
 

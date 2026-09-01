@@ -169,7 +169,7 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
         &self,
         tool_name: &str,
         input: &serde_json::Map<String, serde_json::Value>,
-        context: claude_agent_sdk::types::permissions::PermissionContext,
+        context: claude_agent_sdk::api::permissions::PermissionContext,
     ) -> claude_agent_sdk::PermissionResult {
         // Check if this is an interactive prompt tool
         if let Some(prompt_tool) = PromptToolName::from_tool_name(tool_name) {
@@ -280,7 +280,7 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use claude_agent_sdk::types::permissions::PermissionContext;
+    use claude_agent_sdk::api::permissions::PermissionContext;
     use claude_agent_sdk::PermissionHandler;
 
     fn test_context() -> PermissionContext {

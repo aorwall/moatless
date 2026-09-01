@@ -60,9 +60,9 @@ use tokio::sync::Mutex;
 use tokio::time::timeout;
 
 use claude_agent_sdk::mcp::{SdkMcpServer, SdkMcpTool, ToolResult};
-use claude_agent_sdk::types::agents::{AgentDefinition, AgentModel};
-use claude_agent_sdk::types::messages::ResultMessage;
-use claude_agent_sdk::types::permissions::PermissionContext;
+use claude_agent_sdk::api::agents::{AgentDefinition, AgentModel};
+use claude_agent_sdk::api::messages::ResultMessage;
+use claude_agent_sdk::api::permissions::PermissionContext;
 use claude_agent_sdk::{
     query, query_streaming, query_tmux, query_tmux_streaming, ClaudeClient, ClaudeOptions,
     ContentBlock, HookDefinition, HookEvent, HookHandler, HookOutput, PermissionHandler,

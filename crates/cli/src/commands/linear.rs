@@ -12,7 +12,7 @@ use moatless_api_schemas::linear::{
 use serde_json::Value;
 
 use crate::client::MoatClient;
-use crate::commands::misc::read_text_or_stdin;
+use crate::commands::input::read_text_or_stdin;
 use crate::config::Config;
 use crate::output;
 

@@ -15,8 +15,8 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use claude_agent_sdk::types::content::{ApiMessage, ContentBlock};
-use claude_agent_sdk::types::messages::{MessagePriority, UserMessage};
+use claude_agent_sdk::api::content::{ApiMessage, ContentBlock};
+use claude_agent_sdk::api::messages::{MessagePriority, UserMessage};
 use claude_agent_sdk::{QueryHandle, SdkMessage, query_tmux_streaming};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;

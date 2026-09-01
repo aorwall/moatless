@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::helpers::{DEFAULT_NAMESPACE, KubeTarget, require_binary};
+use super::cluster::{DEFAULT_NAMESPACE, KubeTarget, require_binary};
 use super::{ComputeMode, PreflightArgs, Provider, StorageMode};
 use crate::client::ClientError;
 use crate::output;
@@ -86,7 +86,7 @@ async fn gather(namespace: &str, args: &PreflightArgs) -> Result<PreflightReport
     helm_ok?;
 
     // Context
-    let current_context = super::helpers::current_context().await.ok().flatten();
+    let current_context = super::cluster::current_context().await.ok().flatten();
     let context = args.context.clone().or(current_context);
     let target = KubeTarget::new(args.context.clone());
     checks.push(Check {

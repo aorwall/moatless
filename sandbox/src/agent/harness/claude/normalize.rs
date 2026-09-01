@@ -7,8 +7,8 @@
 //! this normalizer, so neither owns a second copy of the native mapping.
 
 use crate::agent::harness::content::CanonicalContentBlock;
-use claude_agent_sdk::types::content::ContentBlock;
-use claude_agent_sdk::types::messages::{AssistantMessage, ToolProgressMessage, UserMessage};
+use claude_agent_sdk::api::content::ContentBlock;
+use claude_agent_sdk::api::messages::{AssistantMessage, ToolProgressMessage, UserMessage};
 
 use super::super::signal::{Activity, SessionId};
 use super::super::source::{NativeMessageId, Role, SourceEvent, SourceId};

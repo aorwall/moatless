@@ -32,13 +32,8 @@
   "duplicate-type-name::WriteFileRequestBody in moatless-api-schemas, moatless-sandbox-runtime",
   "generic-module-name::crates/adapter-model/src/models",
   "generic-module-name::crates/api-schemas/src/shared",
-  "generic-module-name::crates/claude-agent-sdk/src/types",
-  "generic-module-name::crates/cli/src/commands/docker/helpers",
-  "generic-module-name::crates/cli/src/commands/k8s/helpers",
-  "generic-module-name::crates/cli/src/commands/misc",
   "generic-module-name::crates/loops/src/adapters/common",
   "generic-module-name::crates/sandbox-runtime/src/models",
   "generic-module-name::crates/sandbox-runtime/src/schemas",
-  "generic-module-name::crates/sandbox-runtime/src/types",
-  "generic-module-name::crates/t3code/src/data"
+  "generic-module-name::crates/sandbox-runtime/src/types"
 ]

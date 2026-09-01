@@ -26,8 +26,8 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use claude_agent_sdk::types::content::{ApiMessage, ContentBlock, Usage};
-use claude_agent_sdk::types::messages::{MessagePriority, ResultMessage, UserMessage};
+use claude_agent_sdk::api::content::{ApiMessage, ContentBlock, Usage};
+use claude_agent_sdk::api::messages::{MessagePriority, ResultMessage, UserMessage};
 use claude_agent_sdk::{QueryHandle, SdkMessage, query};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
