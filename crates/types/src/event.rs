@@ -95,7 +95,30 @@ pub struct StreamEvent {
     pub agent_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_number: Option<i32>,
+    /// What this event says about whether the agent is working, if anything.
+    ///
+    /// Absent means *this event does not say*, so the client leaves whatever it
+    /// last knew alone. It never means "not working". See [`agent_working`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_working: Option<bool>,
     pub payload: serde_json::Value,
+}
+
+/// What one event says about whether the agent is working.
+///
+/// An event knows only the turn half of the question, so this is
+/// `moatless_backend_core::running::derive_running` reduced to what a turn
+/// state alone implies. It lives here, below that crate, because the event
+/// publisher does. `agent.started`/`message`/`activity` move no turn row, but a
+/// run that is emitting is a run that is working.
+pub fn agent_working(event_type: &str, sub_type: &str) -> Option<bool> {
+    if let Some(status) = crate::task::TurnStatus::from_event(event_type, sub_type) {
+        return Some(status.is_open());
+    }
+    match (event_type, sub_type) {
+        ("agent", "started" | "message" | "activity") => Some(true),
+        _ => None,
+    }
 }
 
 /// A typed sub-type that can be any of the specific sub-type enums.
@@ -183,6 +206,88 @@ impl From<MessageSubType> for SubType {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_turn_bearing_event_says_whether_its_turn_is_open() {
+        for (event_type, sub_type) in [
+            ("taskTurn", "active"),
+            // Interrupted resumes on the same row — the pod went away, the turn
+            // did not end. Reading it as settled is what makes a resuming turn
+            // look finished.
+            ("taskTurn", "turn_interrupted"),
+        ] {
+            assert_eq!(
+                agent_working(event_type, sub_type),
+                Some(true),
+                "{event_type}.{sub_type}"
+            );
+        }
+
+        for (event_type, sub_type) in [
+            ("taskTurn", "completed"),
+            ("taskTurn", "error"),
+            ("taskTurn", "stopped"),
+            ("agent", "completed"),
+            ("agent", "error"),
+            ("agent", "stopped"),
+        ] {
+            assert_eq!(
+                agent_working(event_type, sub_type),
+                Some(false),
+                "{event_type}.{sub_type}"
+            );
+        }
+    }
+
+    #[test]
+    fn output_from_a_run_in_flight_says_working() {
+        for sub_type in ["started", "message", "activity"] {
+            assert_eq!(agent_working("agent", sub_type), Some(true), "{sub_type}");
+        }
+    }
+
+    #[test]
+    fn an_event_that_says_nothing_says_nothing_rather_than_not_working() {
+        // The distinction the whole field rests on: `None` leaves the client's
+        // last answer standing. Collapsing it to `false` would make every
+        // sandbox event settle a running thread.
+        for (event_type, sub_type) in [
+            ("agent", "session_init"),
+            ("agent", "retrying"),
+            ("sandbox", "ready"),
+            ("sandbox", "stopped"),
+            ("task", "metadata.updated"),
+            ("message", "upsert"),
+        ] {
+            assert_eq!(
+                agent_working(event_type, sub_type),
+                None,
+                "{event_type}.{sub_type}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_envelope_omits_the_answer_it_does_not_have() {
+        let event = StreamEvent {
+            event_id: "evt-1".to_string(),
+            event_type: EventType::Sandbox,
+            sub_type: "ready".to_string(),
+            task_id: "task-1".to_string(),
+            timestamp: "2026-09-01T00:00:00.000Z".to_string(),
+            is_error: false,
+            agent_type: None,
+            turn_number: None,
+            agent_working: agent_working("sandbox", "ready"),
+            payload: serde_json::json!({}),
+        };
+        let wire = serde_json::to_value(&event).unwrap();
+
+        assert!(
+            wire.get("agentWorking").is_none(),
+            "an absent answer is an absent key, not a null: {wire}"
+        );
+    }
 
     #[test]
     fn event_type_serializes_to_camel_case() {

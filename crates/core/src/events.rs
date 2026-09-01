@@ -412,6 +412,7 @@ impl RedisEventPublisher {
             is_error,
             agent_type: agent_type.map(std::string::ToString::to_string),
             turn_number,
+            agent_working: moatless_types::event::agent_working(event_type, sub_type),
             payload,
         };
 
@@ -728,6 +729,7 @@ mod tests {
             is_error: false,
             agent_type: Some("claude-code".to_string()),
             turn_number: Some(1),
+            agent_working: Some(true),
             payload: serde_json::json!({ "text": "x".repeat(n) }),
         }
     }

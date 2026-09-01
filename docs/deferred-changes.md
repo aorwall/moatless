@@ -322,6 +322,7 @@ an isolated Codex Fork errors on `thread/fork`; `sameSandbox` is the working pat
 | A sandbox readiness test intermittently hangs to the CI timeout | `sandbox/src/init/replacement_test/readiness.rs::sustained_ack_failure_never_re_runs_and_aborts_on_shutdown` | When it fires a second time on `main`, or when anyone next works in `sandbox/src/init` |
 | Nothing holds a removed crate edge removed | `ci.yml`; `crates/backend-core/Cargo.toml` can regain `sandbox-proto` and `crates/core/Cargo.toml` can regain `moatless-api-schemas` with no gate objecting | A `cargo metadata` check over a forbidden-edge list, sized so one line per edge is the whole cost of adding one |
 | Committed OpenAPI spec and TS client lag the backend | `openapi-specs.json` and `packages/api-client/src/**` lack the `fork_task` operation (`POST /api/v1/tasks/{task_id}/fork`) the tasks routes register | Run `task generate` alongside the next change touching the API surface, or on its own when the frontend first consumes the fork endpoint. Harmless until then: `build-rust` regenerates the spec fresh on every push (the `Generate OpenAPI spec` step in `ci.yml`), so `main` stays green while nothing references the missing types |
+| 51 db-tests fail on `main`, and nothing runs them | `ci.yml` links the tier with `cargo nextest run --features db-tests --no-run`; no workflow starts a Postgres | Fix the fixtures and start a database in CI together, so the tier starts green. Sizing it first is the cheap half — see below |
 
 **Route literals.** The suite already imports generated *types* from
 `@moatless/api-client` (`tests/shared/types.ts`, `tests/shared/wait-helpers.ts`),
@@ -331,6 +332,31 @@ single upstream change fans out into a cluster of red tests rather than one
 compile error — `PUT` vs `PATCH` and `/reset` vs `/reset-git` both reached CI
 this way. Driving the routes off the generated client is the change; it is
 sizeable and belongs on its own.
+
+**The db-tests tier.** Linking it rather than running it is a deliberate
+build-cost decision (`references/build-costs.md`), and the tier is where every
+SQL statement in the codebase is exercised — so what it does not run, nothing
+runs. Measured against Postgres 16.2 on 2026-09-01: **51 failures on
+`origin/main`** — 4 in `integration_adapters`, 11 in `integration_data`, 36 in
+`integration_surface`. None are subtle. They are stale fixtures and stale
+expectations: a `users` row that predates the `users_human_email_required`
+constraint, an adapter kind list missing `github.pr_merged`, a projection
+emitting `scriptsEditable` against a contract that does not declare it, seed
+rows colliding on `sandboxes_pkey`. Each is a test asserting a shape the code
+moved past, invisible because nothing has looked.
+
+Two properties make this worth sizing before scheduling. The failures are
+concentrated — three files hold 47 of the 51 — so the fix is narrower than the
+count suggests. And the tier is otherwise healthy: 415 db-tests pass. Running it
+locally needs only a throwaway server, so anyone can reproduce the list:
+
+```
+DATABASE_URL=postgres://…  cargo test -p moatless-backend --features db-tests
+```
+
+`task_listing_position_test::no_mutation_holds_the_counter_while_it_waits_for_another_lock`
+is timing-dependent and flaked once across the runs above; count it as a
+candidate for the flaky list rather than as a fixture fix.
 
 ## Dead or misleading
 

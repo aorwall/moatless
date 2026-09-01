@@ -124,12 +124,22 @@ pub struct Coordinator {
     /// failure, so the user sees `retrying` (published by the service) instead of
     /// a terminal error.
     suppress_failure_event: bool,
-    /// Where an interactive call is recorded as published, whichever route
-    /// published it. The permission handler publishes the ones it parks on so a
-    /// person can see what they are being asked; publishing the block again
-    /// would write a second row for one call. `None` in tests that drive a
-    /// coordinator with no agent behind it, where nothing else publishes.
-    prompt_claims: Option<Arc<AgentState>>,
+    /// The state machine this coordinator drives.
+    ///
+    /// Held here so a signal reaches the state machine and the event stream as
+    /// one act; a turn open in one and not the other is what the backend then
+    /// has to reconcile. It also records an interactive call as published,
+    /// whichever route published it, so one call writes one row.
+    ///
+    /// `None` in tests that drive a coordinator with no agent behind it.
+    agent_state: Option<Arc<AgentState>>,
+    /// Root of the run's cancellation tree, from which each turn's token is
+    /// minted. Bound by [`CoordinatorService::new`], which owns the root.
+    /// `None` for the same coordinators `agent_state` is `None` for.
+    run_cancel: Option<CancellationToken>,
+    /// Whether a turn is open, as the same act that opened or closed it left
+    /// it. The service reads it rather than tracking its own copy.
+    turn_active: bool,
 }
 
 impl Coordinator {
@@ -150,17 +160,37 @@ impl Coordinator {
             last_activity_publish: None,
             hold_run_id: false,
             suppress_failure_event: false,
-            prompt_claims: None,
+            agent_state: None,
+            run_cancel: None,
+            turn_active: false,
         }
     }
 
-    /// Share the state the permission handler claims its announcements in, so a
-    /// call it already published is not published a second time when the block
-    /// holding it drains from the harness.
+    /// Share the state machine with a coordinator that has no service behind
+    /// it — the permission-dedup tests. A service binds it itself, along with
+    /// the cancellation root a turn transition also needs; see [`Self::bind`].
     #[must_use]
-    pub fn deduping_announced_prompts(mut self, agent_state: Arc<AgentState>) -> Self {
-        self.prompt_claims = Some(agent_state);
+    #[cfg(test)]
+    pub fn driving(mut self, agent_state: Arc<AgentState>) -> Self {
+        self.agent_state = Some(agent_state);
         self
+    }
+
+    /// Bind the state machine and the run's cancellation root.
+    ///
+    /// Called by [`CoordinatorService::new`] with the very `AgentState` the
+    /// service holds, so a coordinator and its service can never end up driving
+    /// two different state machines — which is the disagreement this pairing
+    /// exists to prevent. Binding the cancellation root here too means the
+    /// turn's token is minted where the turn is opened.
+    pub(crate) fn bind(&mut self, agent_state: Arc<AgentState>, run_cancel: CancellationToken) {
+        self.agent_state = Some(agent_state);
+        self.run_cancel = Some(run_cancel);
+    }
+
+    /// Whether a turn is currently open.
+    pub(crate) fn turn_active(&self) -> bool {
+        self.turn_active
     }
 
     /// Submit input and register its acknowledgement. Opening-turn inputs ack
@@ -251,8 +281,13 @@ impl Coordinator {
         self.suppress_failure_event = true;
     }
 
-    /// Map one signal onto Run/ack/publication effects.
-    pub(crate) async fn handle_signal(&mut self, signal: Signal) {
+    /// Map one signal onto Run/ack/state/publication effects.
+    ///
+    /// Returns the cancellation token of a turn this signal opened, for the run
+    /// loop to adopt as its cancellation arm. `None` for every other signal, and
+    /// for a coordinator with no state machine behind it.
+    pub(crate) async fn handle_signal(&mut self, signal: Signal) -> Option<CancellationToken> {
+        let mut opened = None;
         match signal {
             Signal::ExecutionStarted {
                 session,
@@ -277,6 +312,10 @@ impl Coordinator {
                 };
                 self.hold_run_id = false;
                 self.block_indices.clear();
+                // The state machine enters the turn *before* the events say it
+                // has: a reader that catches the gap sees a not-yet-started
+                // turn, never a started turn whose agent reports idle.
+                opened = self.open_turn().await;
                 self.publish_turn_start().await;
                 self.run_events()
                     .publish_agent_event(
@@ -332,6 +371,12 @@ impl Coordinator {
             Signal::ContextWindow(window) => self.publish_context_window(window).await,
             Signal::ExecutionFinished { outcome } => {
                 self.drop_accepted_injected_acks("execution finished before non-terminal output");
+                // Leave the turn *before* the events say it ended, for the same
+                // reason opening enters it first: the observable gap must be
+                // the harmless direction. This is the pairing whose absence put
+                // task `0d48056e` in the state the reaper had no arm for — the
+                // agent reporting `running` under a turn the events had closed.
+                self.close_turn(&outcome).await;
                 self.publish_outcome(outcome).await;
             }
             Signal::InputRejected { input, reason } => {
@@ -369,6 +414,44 @@ impl Coordinator {
                 }
             }
         }
+        opened
+    }
+
+    /// Move the state machine into the turn this signal opened, and mint that
+    /// turn's cancellation token — so `agent_state.stop()` cancels the token,
+    /// which the run loop's cancellation arm turns into a harness cancel.
+    ///
+    /// `None` when there is no state machine behind this coordinator, which is
+    /// also when there is no turn to cancel.
+    async fn open_turn(&mut self) -> Option<CancellationToken> {
+        let (Some(state), Some(run_cancel)) = (&self.agent_state, &self.run_cancel) else {
+            return None;
+        };
+        let turn_cancel = run_cancel.child_token();
+        state.set_session_id(self.session_id.clone()).await;
+        state.set_run_id(self.run_id.clone()).await;
+        state.set_running(turn_cancel.clone()).await;
+        self.turn_active = true;
+        Some(turn_cancel)
+    }
+
+    /// Move the state machine out of the turn this outcome ended.
+    ///
+    /// Only the status is decided here; retry budget, the breaker, scheduled
+    /// jobs and workspace sync stay the service's. A failure is the exception —
+    /// the service settles the status before handing the signal over, so this
+    /// leaves it alone. Either way the turn is left before any event says it
+    /// ended.
+    async fn close_turn(&mut self, outcome: &Outcome) {
+        self.turn_active = false;
+        let Some(state) = &self.agent_state else {
+            return;
+        };
+        match outcome {
+            Outcome::Completed => state.set_idle().await,
+            Outcome::Cancelled => state.set_stopped().await,
+            Outcome::Failed(_) => {}
+        }
     }
 
     /// Publisher scoped to the Run currently in flight.
@@ -396,7 +479,7 @@ impl Coordinator {
     /// of the two publishes it, and it is whichever got here first.
     async fn published_as_a_prompt(&self, block: &CanonicalContentBlock) -> bool {
         let (Some(state), CanonicalContentBlock::ToolUse { id, name, .. }) =
-            (&self.prompt_claims, block)
+            (&self.agent_state, block)
         else {
             return false;
         };
@@ -792,11 +875,6 @@ pub(crate) struct CoordinatorService {
     /// rather than `stopped` (terminal). `AgentCommand::Stop` is the only writer,
     /// so `None` at a `Cancelled` outcome *is* the shutdown signature.
     pending_stop_source: Option<StopSource>,
-    /// Whether a harness execution is currently in flight (set on
-    /// `ExecutionStarted`, cleared on the terminal outcome). Lets the Stop
-    /// handler pick the active vs. idle path without an async `AgentState` read.
-    turn_active: bool,
-
     // ── Workspace sync ───────────────────────────────────────────────────────
     /// The pod-wide upload baseline. Turn boundaries are the primary durability
     /// point on the PVC tier (where the periodic loop is off), and sharing this
@@ -829,6 +907,13 @@ impl CoordinatorService {
         credential_dispatcher: Arc<Dispatcher>,
         workspace_sync: WorkspaceSyncTracker,
     ) -> Self {
+        // The root lives here, but each turn's token is minted where the turn
+        // is opened — inside the coordinator, in the same act as the state
+        // transition and the publish.
+        let run_cancel = CancellationToken::new();
+        let mut coordinator = coordinator;
+        coordinator.bind(Arc::clone(&agent_state), run_cancel.clone());
+
         Self {
             coordinator,
             agent_state,
@@ -836,7 +921,7 @@ impl CoordinatorService {
             credentials,
             backend_client,
             system_prompt_cache,
-            run_cancel: CancellationToken::new(),
+            run_cancel,
             last_text: None,
             last_model: None,
             last_agent_mode: None,
@@ -855,7 +940,6 @@ impl CoordinatorService {
             stopping: false,
             pending_stop_ack: None,
             pending_stop_source: None,
-            turn_active: false,
             workspace_sync,
         }
     }
@@ -902,14 +986,10 @@ impl CoordinatorService {
 
                 maybe_signal = self.coordinator.next_signal() => {
                     if let Some(signal) = maybe_signal {
-                        // Extract turn-cancel side-effects before handing
-                        // ownership to handle_signal.
-                        let new_session = if let Signal::ExecutionStarted { ref session, .. } = signal {
-                            Some(session.clone())
-                        } else {
-                            None
-                        };
-
+                        // Copy out what the service's own bookkeeping needs
+                        // before handing ownership to `handle_signal`. The turn
+                        // transition is not among them: that travels with the
+                        // signal.
                         let outcome_ref = match &signal {
                             Signal::ExecutionFinished { outcome } => Some(outcome.clone()),
                             _ => None,
@@ -959,34 +1039,35 @@ impl CoordinatorService {
                                 && self.retry_attempt < MAX_RETRIES
                             {
                                 self.coordinator.suppress_next_failure_event();
+                                // Record last_error but undo the +1 that
+                                // set_error adds to AgentState's own
+                                // consecutive-error count (read by the
+                                // dispatcher) — a retryable error must not
+                                // count until retries are exhausted (mirrors
+                                // actor.rs:462). The service's own breaker
+                                // counter is only incremented for terminal
+                                // failures below, so it is left untouched here.
+                                self.agent_state.set_error(err.diagnostic.clone()).await;
+                                self.agent_state.undo_error_increment().await;
+                            } else {
+                                // Non-retryable, or retries exhausted: this
+                                // failure is terminal.
+                                self.consecutive_errors += 1;
+                                self.agent_state.set_error(err.diagnostic.clone()).await;
                             }
                         }
 
-                        // Let the coordinator update Run identity, acks,
-                        // and publish backend events.
-                        self.coordinator.handle_signal(signal).await;
-
-                        // --- Increment 4: AgentState transitions ----------
-
-                        if let Some(session) = new_session {
-                            // Mint a fresh per-turn cancel token (child of
-                            // run_cancel) so `agent_state.stop()` → token
-                            // cancel → the turn_cancel arm below → harness
-                            // cancel.
-                            turn_cancel = self.run_cancel.child_token();
-                            self.agent_state.set_session_id(session.0.clone()).await;
-                            self.agent_state
-                                .set_run_id(self.coordinator.current_run_id().to_string())
-                                .await;
-                            self.agent_state
-                                .set_running(turn_cancel.clone())
-                                .await;
-                            self.turn_active = true;
+                        // The coordinator updates Run identity and acks, moves
+                        // the state machine, and publishes — one act per
+                        // signal, so the turn the events describe and the turn
+                        // the agent reports are the same turn. What is left
+                        // below is what the *service* owns: retry budget, the
+                        // breaker, scheduled jobs, workspace sync.
+                        if let Some(opened) = self.coordinator.handle_signal(signal).await {
+                            turn_cancel = opened;
                         }
 
                         if let Some(outcome) = outcome_ref {
-                            // The execution reached its terminal signal.
-                            self.turn_active = false;
                             match outcome {
                                 Outcome::Completed => {
                                     // Successful completion resets retry and breaker state.
@@ -994,7 +1075,6 @@ impl CoordinatorService {
                                     self.retry_at = None;
                                     self.consecutive_errors = 0;
                                     self.credential_recovery_attempts = 0;
-                                    self.agent_state.set_idle().await;
                                     // Arm any self-scheduled jobs the completed Turn requested.
                                     self.arm_scheduled_jobs(&task_id).await;
                                     workspace_sync::upload_after_turn(
@@ -1021,7 +1101,9 @@ impl CoordinatorService {
                                     // instead, leaving the Turn open for the
                                     // replacement pod's `recover_interrupted_run` to
                                     // resume. See `interrupted_turn_payload`.
-                                    self.agent_state.set_stopped().await;
+                                    // `close_turn` already left `Running`; only
+                                    // *which* terminal event says so is decided
+                                    // here.
                                     let run_events = self
                                         .coordinator
                                         .events
@@ -1074,17 +1156,6 @@ impl CoordinatorService {
                                         let attempt = self.retry_attempt;
                                         self.retry_attempt = attempt + 1;
 
-                                        // Record last_error but undo the +1 that
-                                        // set_error adds to AgentState's own
-                                        // consecutive-error count (read by the
-                                        // dispatcher) — a retryable error must not
-                                        // count until retries are exhausted (mirrors
-                                        // actor.rs:462). The service's own breaker
-                                        // counter is only incremented for terminal
-                                        // failures below, so it is left untouched here.
-                                        self.agent_state.set_error(err.diagnostic.clone()).await;
-                                        self.agent_state.undo_error_increment().await;
-
                                         let backoff = compute_backoff(attempt);
                                         info!(
                                             attempt,
@@ -1109,10 +1180,10 @@ impl CoordinatorService {
                                             .await;
                                     } else {
                                         // Non-retryable or retries exhausted: terminal error.
+                                        // The status and the breaker count were
+                                        // settled before the publish, above.
                                         self.retry_at = None;
                                         self.retry_attempt = 0;
-                                        self.consecutive_errors += 1;
-                                        self.agent_state.set_error(err.diagnostic.clone()).await;
                                         workspace_sync::upload_after_turn(
                                             &self.config,
                                             self.backend_client.as_ref(),
@@ -1279,7 +1350,7 @@ impl CoordinatorService {
                             self.pending_wakeup = None;
                             self.scheduled_jobs.cancel_all().await;
 
-                            if self.turn_active {
+                            if self.coordinator.turn_active() {
                                 // Active stop: interrupt the harness and keep
                                 // driving signals. The terminal `Cancelled`
                                 // (handled above) publishes the one `Stopped` and

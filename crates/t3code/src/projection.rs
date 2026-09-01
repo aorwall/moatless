@@ -17,34 +17,14 @@ use crate::agent::catalog::{self, UiRpcAgentKind};
 use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
 use moatless_backend_core::change_feed::conversation::{ConversationChange, EVENTS_PER_CHANGE};
 use moatless_types::message::MessageType;
-use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+use moatless_types::sandbox::SandboxDesiredState;
+use moatless_types::task::TurnStatus;
 use moatless_backend_core::activity::Activity;
 use moatless_backend_core::activity::ActivityKind;
 use moatless_backend_core::activity::ActivityView;
+use moatless_backend_core::running::{RunningInputs, Working, derive_running};
 
 const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
-
-#[derive(Clone, Copy)]
-enum UiRpcTurnStatus {
-    Active,
-    Completed,
-    Stopped,
-    Interrupted,
-    Error,
-}
-
-impl UiRpcTurnStatus {
-    fn parse(status: &str) -> Option<Self> {
-        match status {
-            "active" => Some(Self::Active),
-            "completed" => Some(Self::Completed),
-            "stopped" => Some(Self::Stopped),
-            "interrupted" => Some(Self::Interrupted),
-            "error" => Some(Self::Error),
-            _ => None,
-        }
-    }
-}
 
 /// The fields a script is read out of, narrowed from the workspace's stored
 /// script config. Every field the canonical `ScriptConfig` defaults is optional
@@ -1293,11 +1273,11 @@ fn latest_turn(conversation: &Conversation) -> Value {
 /// `None` for a status this build does not know — a row written by a newer
 /// backend, which has no honest counterpart.
 fn turn_state(status: &str) -> Option<&'static str> {
-    Some(match UiRpcTurnStatus::parse(status)? {
-        UiRpcTurnStatus::Active | UiRpcTurnStatus::Interrupted => "running",
-        UiRpcTurnStatus::Completed => "completed",
-        UiRpcTurnStatus::Error => "error",
-        UiRpcTurnStatus::Stopped => "interrupted",
+    Some(match TurnStatus::parse(status)? {
+        TurnStatus::Active | TurnStatus::Interrupted => "running",
+        TurnStatus::Completed => "completed",
+        TurnStatus::Error => "error",
+        TurnStatus::Stopped => "interrupted",
     })
 }
 
@@ -1308,44 +1288,28 @@ fn turn_is_open(conversation: &Conversation) -> bool {
     conversation
         .turn_status
         .as_deref()
-        .and_then(UiRpcTurnStatus::parse)
-        .is_some_and(|status| {
-            matches!(
-                status,
-                UiRpcTurnStatus::Active | UiRpcTurnStatus::Interrupted
-            )
-        })
+        .and_then(TurnStatus::parse)
+        .is_some_and(TurnStatus::is_open)
 }
 
-/// Whether a person is waiting for a turn that has not opened yet.
+/// The signals the running rule reads, as this projection can see them.
 ///
-/// A turn opens on `taskTurn.active`, which the agent process publishes from
-/// inside the Sandbox — so between a person sending and the agent starting there
-/// is a window with no open turn and work plainly in flight. It is the Sandbox
-/// coming up, and it lasts as long as that takes: seconds on a warm pod, minutes
-/// when scheduling is slow. Reporting the session idle across it is what left a
-/// person watching a thread that looked like nothing was happening.
-///
-/// A message newer than the newest turn's end is the signal, because that is
-/// exactly what "asked for, not yet answered" is. A turn that finished without
-/// recording when says nothing either way and is read as settled, rather than
-/// leaving the session running on a row that will never be corrected.
-fn turn_is_owed(conversation: &Conversation) -> bool {
-    let Some(asked) = conversation.latest_user_message_at else {
-        return false;
-    };
-    match conversation
-        .turn_status
-        .as_deref()
-        .and_then(UiRpcTurnStatus::parse)
-    {
-        // Open already, which the caller asks about separately.
-        Some(UiRpcTurnStatus::Active | UiRpcTurnStatus::Interrupted) => false,
-        Some(_) => conversation
-            .turn_ended_at
-            .is_some_and(|ended| asked > ended),
-        // Nothing has ever run here, so the first turn is still owed.
-        None => true,
+/// A listing reads rows and never the runtime, so `agent` is `None` — the
+/// heartbeat reaches these rows through the reaper rather than through a
+/// per-conversation call this poll could not afford. `sandbox_up` is read from
+/// `sandbox_started_at` for the same reason: no observed pod state is at hand.
+fn running_inputs(
+    conversation: &Conversation,
+    desired_state: SandboxDesiredState,
+) -> RunningInputs {
+    RunningInputs {
+        desired_state: Some(desired_state),
+        stop_reason: conversation.sandbox_stop_reason(),
+        sandbox_up: Some(conversation.sandbox_started_at.is_some()),
+        turn_status: conversation.turn_status.as_deref().and_then(TurnStatus::parse),
+        turn_ended_at: conversation.turn_ended_at,
+        latest_user_message_at: conversation.latest_user_message_at,
+        agent: None,
     }
 }
 
@@ -1399,30 +1363,19 @@ fn session(conversation: &Conversation) -> Value {
     })
 }
 
-/// Sandbox lifecycle intent in T3's session vocabulary.
+/// What the agent is doing, in T3's session vocabulary.
+///
+/// The rule itself is [`derive_running`], shared with the REST live-status
+/// route so the two surfaces cannot disagree. This function is only the
+/// translation: T3 has no separate word for a run parked on a person, and
+/// spends `ready` on a Sandbox that is up with nothing in flight.
 fn session_status(conversation: &Conversation, desired_state: SandboxDesiredState) -> &'static str {
-    match desired_state {
-        // A running Sandbox with a turn open — or one owed — is the agent
-        // working. Without either it is a session waiting for input, unless it
-        // has not come up yet, which the client renders as connecting rather
-        // than idle.
-        SandboxDesiredState::Running => {
-            if turn_is_open(conversation) || turn_is_owed(conversation) {
-                "running"
-            } else if conversation.sandbox_started_at.is_none() {
-                "starting"
-            } else {
-                "ready"
-            }
-        }
-        // A Sandbox stood down after a failure is the one stop the client has
-        // a distinct rendering for, and it is the one worth showing.
-        SandboxDesiredState::Stopped | SandboxDesiredState::Removed => {
-            match conversation.sandbox_stop_reason() {
-                Some(SandboxStopReason::Error) => "error",
-                _ => "stopped",
-            }
-        }
+    match derive_running(&running_inputs(conversation, desired_state)) {
+        Working::Running | Working::Waiting => "running",
+        Working::Starting => "starting",
+        Working::Idle => "ready",
+        Working::Stopped => "stopped",
+        Working::Error => "error",
     }
 }
 
@@ -1806,6 +1759,7 @@ mod tests {
     use moatless_types::agent::AgentType;
     use moatless_types::message::MessageRole;
     use moatless_types::access_control::Scope;
+    use moatless_types::sandbox::SandboxStopReason;
     use moatless_backend_core::activity::{ActivityKind, ActivityStatus};
 
     fn matched(workspace_id: Option<&str>, from_user: bool, text: &str) -> ConversationMatch {

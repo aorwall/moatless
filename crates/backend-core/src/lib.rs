@@ -20,6 +20,7 @@ pub mod change_feed;
 #[cfg(feature = "database")]
 pub mod db_enum;
 pub mod identity;
+pub mod running;
 pub mod sandbox;
 /// The error every published store seam returns. Defined in `moatless_types`
 /// so the floor can name it; re-exported here because the ports do.

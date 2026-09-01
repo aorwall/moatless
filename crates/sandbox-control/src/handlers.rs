@@ -14,6 +14,7 @@ use tracing::{error, info, warn};
 
 use moatless_sandbox_runtime::access::LogOptions;
 use moatless_sandbox_runtime::error::SandboxError;
+use moatless_sandbox_runtime::live_status::apply_running_rule;
 use moatless_sandbox_runtime::types::ArchiveRetention;
 
 use super::lifecycle::{Lifecycle, TaskIntent};
@@ -89,14 +90,40 @@ pub async fn live_status_handler(
         Err(e) => return e.into_response(),
     };
 
-    match state
+    let status = match state
         .observer
         .live_status(&task_id, intent.status, intent.desired_state)
         .await
     {
-        Ok(status) => Json(status).into_response(),
-        Err(e) => e.into_response(),
-    }
+        Ok(status) => status,
+        Err(e) => return e.into_response(),
+    };
+
+    // The runtime saw the pod and the heartbeat. The turn rows are the other
+    // half of the same question, and putting both through `derive_running` is
+    // what keeps this surface and the conversation list from disagreeing about
+    // whether an agent is working. A failed turn read degrades to the runtime's
+    // own answer rather than to an error: a status endpoint that 500s is worse
+    // than one that is momentarily as narrow as it used to be.
+    let turns = match state.turns.as_deref() {
+        Some(reader) => match reader.turn_signals(&task_id).await {
+            Ok(signals) => Some(signals),
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "live status: turn signals unavailable");
+                None
+            }
+        },
+        None => None,
+    };
+
+    let status = match turns {
+        Some(turns) => {
+            apply_running_rule(status, intent.desired_state, intent.stop_reason, turns)
+        }
+        None => status,
+    };
+
+    Json(status).into_response()
 }
 
 /// Get full sandbox status including servers and Agent status.

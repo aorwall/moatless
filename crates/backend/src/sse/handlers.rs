@@ -285,6 +285,11 @@ pub(crate) async fn task_events_handler(
 /// when absent), so the payload is byte-for-byte compatible with what the old
 /// Redis `XRANGE` replay produced — the frontend needs no changes.
 fn event_row_to_json(row: TaskEvent) -> serde_json::Value {
+    // Derived, not stored: the row predates the field, and the answer is a
+    // function of `(type, sub_type)` alone, so replay and live stream agree
+    // without a migration.
+    let working = moatless_types::event::agent_working(&row.event_type, &row.sub_type);
+
     let mut map = serde_json::Map::new();
     map.insert("eventId".to_string(), row.event_id.into());
     map.insert("type".to_string(), row.event_type.into());
@@ -297,6 +302,9 @@ fn event_row_to_json(row: TaskEvent) -> serde_json::Value {
     }
     if let Some(turn_number) = row.turn_number {
         map.insert("turnNumber".to_string(), turn_number.into());
+    }
+    if let Some(working) = working {
+        map.insert("agentWorking".to_string(), working.into());
     }
     map.insert("payload".to_string(), row.payload);
     serde_json::Value::Object(map)

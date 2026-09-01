@@ -33,7 +33,7 @@ use moatless_types::sandbox::ArchiveRetention;
 use moatless_backend_core::sandbox::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
-use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
+use crate::task_turn::models::{SettledTurn, TurnStatus, TurnTransition, UnclosedTurn};
 use sandbox_proto::client::SandboxConnector;
 use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
@@ -182,6 +182,14 @@ impl TaskReaper {
             "task_turns_reconciled_total",
             "Active task turns force-closed by the reaper after a lost terminal event"
         );
+        metrics::describe_counter!(
+            "task_turns_reopened_total",
+            "Turns allocated by the reaper for a live agent run whose open event was lost"
+        );
+        metrics::describe_counter!(
+            "task_turns_disagreed_total",
+            "Heartbeats reporting a run the turn row says already ended — a coordinator defect, not a lost event"
+        );
         let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
         let interval = Duration::from_secs(self.config.sandbox.idle_check_interval_secs);
         let default_ttl_minutes = self.config.sandbox.idle_timeout_minutes as i32;
@@ -256,6 +264,15 @@ impl TaskReaper {
         // failure here never blocks them.
         self.reconcile_orphaned_turns(&sandbox_ids, &stuck_turns)
             .await;
+
+        // The converse: turns closed while their run kept going. Same
+        // best-effort contract.
+        match self.task_turns.list_settled_turns_with_later_activity().await {
+            Ok(settled) => self.reconcile_live_runs(&sandbox_ids, &settled).await,
+            Err(e) => {
+                warn!(error = %e, "reconcile: failed to list settled turns with later activity");
+            }
+        }
 
         // Orphan-GC deletes only taskless resources. Desired Removed convergence
         // for existing Tasks belongs to the Sandbox reconciler.
@@ -729,6 +746,90 @@ impl TaskReaper {
         }
     }
 
+    /// Reconcile turns closed while their run kept going.
+    ///
+    /// The converse of [`Self::reconcile_orphaned_turns`]. The heartbeat's
+    /// `run_id` decides the case: a run newer than the closed row means that
+    /// row's open event was lost, so the turn is allocated through the sole
+    /// allocator. The same run the row already closed is a contradiction, and
+    /// an absent `run_id` is unattributable; both are counted and neither is
+    /// written, so the defect stays visible.
+    async fn reconcile_live_runs(&self, running_sandbox_ids: &[String], settled: &[SettledTurn]) {
+        if settled.is_empty() {
+            return;
+        }
+
+        let running: HashSet<&str> = running_sandbox_ids.iter().map(String::as_str).collect();
+
+        for turn in settled {
+            // No Deployment means nothing can be driving a run, whatever the
+            // activity floor says.
+            if !running.contains(turn.task_id.as_str()) {
+                continue;
+            }
+            if !self.task_desires_running(&turn.task_id).await {
+                continue;
+            }
+
+            let Some(status) = agent_status_snapshot(self.connector.as_ref(), &turn.task_id).await
+            else {
+                // Unreachable is not evidence of anything. Same conservative
+                // reading as the orphaned-turn pass.
+                continue;
+            };
+
+            match classify_live_run(
+                &status.status,
+                status.run_id.as_deref(),
+                turn.run_id.as_deref(),
+            ) {
+                LiveRunVerdict::OpenTurn(run_id) => {
+                    self.open_turn_for_live_run(turn, run_id).await;
+                }
+                LiveRunVerdict::Contradiction => {
+                    warn!(
+                        task_id = %turn.task_id,
+                        turn_number = turn.turn_number,
+                        run_id = ?turn.run_id,
+                        agent_status = %status.status,
+                        "reconcile: agent reports a run this turn already closed"
+                    );
+                    metrics::counter!("task_turns_disagreed_total").increment(1);
+                }
+                LiveRunVerdict::Ignore => {}
+            }
+        }
+    }
+
+    /// Allocate the turn a live run is working under.
+    ///
+    /// [`TaskTurnDao::resolve_turn_for_run`] is the sole allocator, so a
+    /// reaper-allocated turn is indistinguishable from one the run opened
+    /// itself — including when the run's own `taskTurn.active` lands first,
+    /// which resolves to the same turn rather than a second one.
+    async fn open_turn_for_live_run(&self, turn: &SettledTurn, run_id: &str) {
+        match self.task_turns.resolve_turn_for_run(&turn.task_id, run_id).await {
+            Ok(turn_number) => {
+                info!(
+                    task_id = %turn.task_id,
+                    turn_number,
+                    run_id,
+                    closed_turn = turn.turn_number,
+                    "reconcile: opened a turn for a live run whose start was never recorded"
+                );
+                metrics::counter!("task_turns_reopened_total").increment(1);
+            }
+            Err(e) => {
+                warn!(
+                    task_id = %turn.task_id,
+                    run_id,
+                    error = %e,
+                    "reconcile: failed to open a turn for a live run"
+                );
+            }
+        }
+    }
+
     async fn task_desires_running(&self, task_id: &str) -> bool {
         match self.sandbox.desired_state(task_id).await {
             Ok(desired) => desired == SandboxDesiredState::Running,
@@ -737,6 +838,43 @@ impl TaskReaper {
                 false
             }
         }
+    }
+}
+
+/// What a live heartbeat means for a turn whose row says it already closed.
+#[derive(Debug, PartialEq, Eq)]
+enum LiveRunVerdict<'a> {
+    /// A run is in flight that this row never covered — open its turn.
+    OpenTurn(&'a str),
+    /// The heartbeat and the row describe the same run and disagree about
+    /// whether it ended. Neither can be trusted over the other here.
+    Contradiction,
+    /// Nothing is in flight, or nothing can be said about what is.
+    Ignore,
+}
+
+/// Decide what a heartbeat means against the run its turn row recorded.
+///
+/// Split out from the reconcile loop because it is the whole of the decision:
+/// everything around it is a lookup, and this is what a reader has to be able
+/// to check.
+fn classify_live_run<'a>(
+    agent_status: &str,
+    live_run_id: Option<&'a str>,
+    recorded_run_id: Option<&str>,
+) -> LiveRunVerdict<'a> {
+    if agent_turn_is_over(agent_status) {
+        return LiveRunVerdict::Ignore;
+    }
+    match (live_run_id, recorded_run_id) {
+        // A run that names itself, and it is not the one this row closed.
+        (Some(live), Some(recorded)) if live != recorded => LiveRunVerdict::OpenTurn(live),
+        // The row predates run attribution, so it can only be about earlier
+        // work; the live run names itself and is the newer of the two.
+        (Some(live), None) => LiveRunVerdict::OpenTurn(live),
+        // Same run, or a heartbeat that cannot say which run it describes —
+        // an older sandbox image. Neither is a lost open event.
+        _ => LiveRunVerdict::Contradiction,
     }
 }
 
@@ -1212,6 +1350,70 @@ mod tests {
     /// A turn parked on a person is not a finished turn: it continues where it
     /// left off the moment the answer lands, so the reconciler leaves its turn
     /// open even though the reaper may reclaim the sandbox under it.
+    /// The case this pass exists for: the run's `taskTurn.active` was lost, so
+    /// the row still names the previous run while the agent works under a new
+    /// one. Every reader shows a settled thread until this opens the turn.
+    #[test]
+    fn a_live_run_the_row_never_covered_opens_a_turn() {
+        assert_eq!(
+            classify_live_run("running", Some("run-2"), Some("run-1")),
+            LiveRunVerdict::OpenTurn("run-2")
+        );
+    }
+
+    /// A parked run is still a run — the same reading `agent_turn_is_over`
+    /// already applies on the orphaned-turn side.
+    #[test]
+    fn a_waiting_run_still_opens_a_turn() {
+        assert_eq!(
+            classify_live_run("waiting", Some("run-2"), Some("run-1")),
+            LiveRunVerdict::OpenTurn("run-2")
+        );
+    }
+
+    #[test]
+    fn a_turn_row_from_before_run_attribution_yields_to_a_named_run() {
+        assert_eq!(
+            classify_live_run("running", Some("run-2"), None),
+            LiveRunVerdict::OpenTurn("run-2")
+        );
+    }
+
+    /// Both records describe one run and disagree about whether it ended.
+    /// Writing either way would bury a coordinator defect.
+    #[test]
+    fn the_same_run_on_both_sides_is_a_contradiction_not_a_repair() {
+        assert_eq!(
+            classify_live_run("running", Some("run-1"), Some("run-1")),
+            LiveRunVerdict::Contradiction
+        );
+    }
+
+    /// An older sandbox image sends no `run_id`, so nothing can be attributed.
+    /// Opening a turn on that would double-count every long run.
+    #[test]
+    fn an_unattributable_heartbeat_never_opens_a_turn() {
+        assert_eq!(
+            classify_live_run("running", None, Some("run-1")),
+            LiveRunVerdict::Contradiction
+        );
+        assert_eq!(
+            classify_live_run("running", None, None),
+            LiveRunVerdict::Contradiction
+        );
+    }
+
+    #[test]
+    fn a_finished_agent_is_left_alone_whatever_the_run_ids_say() {
+        for status in ["idle", "stopped"] {
+            assert_eq!(
+                classify_live_run(status, Some("run-2"), Some("run-1")),
+                LiveRunVerdict::Ignore,
+                "{status}"
+            );
+        }
+    }
+
     #[test]
     fn a_waiting_agents_turn_is_not_over() {
         assert!(!agent_turn_is_over("waiting"));

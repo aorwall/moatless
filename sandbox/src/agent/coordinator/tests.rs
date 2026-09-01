@@ -242,6 +242,74 @@ async fn fresh_turn_publishes_ordered_events_and_acks_after_acceptance() {
     }
 }
 
+/// A signal moves the state machine and the event stream as one act.
+///
+/// The invariant, checked after *every* signal rather than at the end: the
+/// agent reports `Running` for exactly the span the events say the turn is
+/// open. It fails against the arrangement this replaced, where the transitions
+/// lived in the service's run loop — a coordinator driven directly moved no
+/// state at all, and in the loop the terminal event was published before
+/// `set_idle`, which is the window a reader caught as "agent running, turn
+/// completed".
+#[tokio::test]
+async fn a_turn_moves_the_state_machine_and_the_event_stream_together() {
+    use crate::agent::agent_state::AgentState;
+    use crate::agent::types::AgentStatus;
+
+    let (events, received, _cancel) = recording_publisher();
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-1".to_string())),
+        Step::AcceptInput,
+        Step::Block(block("msg-1", text_block("hello"), Role::Assistant)),
+        Step::Completed,
+    ]);
+    let agent_state = Arc::new(AgentState::new());
+    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    coord.bind(Arc::clone(&agent_state), CancellationToken::new());
+
+    assert_eq!(
+        agent_state.status().await,
+        AgentStatus::Idle,
+        "before the turn"
+    );
+
+    let (ack_tx, _ack_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "hi"), ack_tx)
+        .await
+        .expect("submit");
+
+    while let Some(signal) = coord.next_signal().await {
+        let terminal = matches!(signal, Signal::ExecutionFinished { .. });
+        coord.handle_signal(signal).await;
+        flush(&events).await;
+
+        let published = sub_types(&received);
+        let turn_is_open = published.contains(&"active".to_string())
+            && !published.contains(&"completed".to_string());
+        assert_eq!(
+            agent_state.status().await == AgentStatus::Running,
+            turn_is_open,
+            "state machine disagrees with the events after {published:?}"
+        );
+
+        if terminal {
+            break;
+        }
+    }
+
+    assert_eq!(
+        sub_types(&received),
+        vec!["started", "active", "session_init", "message", "completed"],
+    );
+    assert_eq!(agent_state.status().await, AgentStatus::Idle);
+    assert_eq!(
+        agent_state.current_run_id().await.as_deref(),
+        Some(coord.current_run_id()),
+        "the state machine names the Run the events were stamped with"
+    );
+}
+
 #[tokio::test]
 async fn per_block_message_payload_matches_backend_assembly_contract() {
     let (events, received, _cancel) = recording_publisher();
@@ -313,7 +381,7 @@ async fn a_call_the_permission_handler_announced_is_not_published_again() {
     assert!(agent_state.claim_prompt_publication("toolu_plan").await);
 
     let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1")
-        .deduping_announced_prompts(Arc::clone(&agent_state));
+        .driving(Arc::clone(&agent_state));
     let (ack_tx, _ack_rx) = oneshot::channel();
     coord
         .submit(Input::text("in-1", "hi"), ack_tx)
@@ -359,7 +427,7 @@ async fn a_call_that_arrives_first_publishes_and_takes_the_claim() {
     ]);
     let agent_state = Arc::new(crate::agent::agent_state::AgentState::new());
     let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1")
-        .deduping_announced_prompts(Arc::clone(&agent_state));
+        .driving(Arc::clone(&agent_state));
     let (ack_tx, _ack_rx) = oneshot::channel();
     coord
         .submit(Input::text("in-1", "hi"), ack_tx)

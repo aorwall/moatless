@@ -670,6 +670,12 @@ message GetAgentStatusResponse {
   // control-panel UI. Empty in tmux mode and on older sandbox images (an
   // absent repeated field decodes as an empty list = pre-existing behavior).
   repeated BackgroundProcess background_processes = 6;
+  // The agent run this status describes, matching the `run_id` the backend
+  // recorded on the turn row it opened. Lets a reader tell "still working on
+  // the turn you know about" from "working on one whose open event was lost",
+  // which a bare status cannot. Absent on older sandbox images, where a reader
+  // must fall back to treating the status as unattributed.
+  optional string run_id = 7;
 }
 
 // One live descendant process of the sandbox (a background job).

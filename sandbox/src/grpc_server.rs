@@ -249,6 +249,7 @@ impl SandboxService for SandboxServiceImpl {
             scheduled_jobs,
             busy_processes,
             background_processes,
+            run_id: context.agent.current_run_id().await,
         }))
     }
 

@@ -5,52 +5,39 @@
 //! ingress so it is authoritative rather than derived from the event log.
 
 /// Lifecycle status of a single task turn — the `task_turns.status` column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TurnStatus {
-    /// The agent is processing the turn.
-    Active,
-    /// The agent finished successfully.
-    Completed,
-    /// The agent run errored (harness or agent-level).
-    Error,
-    /// The user stopped the turn.
-    Stopped,
-    /// The pod was interrupted mid-turn (still non-terminal — it resumes on
-    /// reschedule, or the reaper reconciles it as a backstop).
-    Interrupted,
+///
+/// Defined in `moatless_types` so `moatless_backend_core::running` can name it:
+/// the rule that decides whether an agent is working reads a turn's state, and
+/// that rule sits below this crate.
+pub use moatless_types::task::TurnStatus;
+
+use chrono::{DateTime, Utc};
+
+/// A task's newest turn, closed, with activity recorded after it closed.
+///
+/// The candidate shape for the converse of an orphaned turn: the row says the
+/// run finished, and something has happened since. Only the agent itself can
+/// say whether that means a run is still in flight.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettledTurn {
+    pub task_id: String,
+    pub turn_number: i32,
+    pub agent_type: Option<String>,
+    /// The run recorded on this closed turn, where one was. A heartbeat naming
+    /// a different run describes work this row never covered.
+    pub run_id: Option<String>,
 }
 
-impl TurnStatus {
-    /// The `status` string stored in `task_turns`.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Active => "active",
-            Self::Completed => "completed",
-            Self::Error => "error",
-            Self::Stopped => "stopped",
-            Self::Interrupted => "interrupted",
-        }
-    }
-
-    /// Parse a `task_turns.status` string back into the enum. `None` for a
-    /// value this build doesn't know (a row written by a newer backend).
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "active" => Some(Self::Active),
-            "completed" => Some(Self::Completed),
-            "error" => Some(Self::Error),
-            "stopped" => Some(Self::Stopped),
-            "interrupted" => Some(Self::Interrupted),
-            _ => None,
-        }
-    }
-
-    /// Whether a turn that ended in this state left the agent session cut off
-    /// mid-flight. Resuming such a session replays a transcript whose last
-    /// entry is an unanswered tool call, so the next run must start fresh.
-    pub fn cut_off_session(self) -> bool {
-        matches!(self, Self::Error | Self::Stopped)
-    }
+/// The Task band's half of the running rule, for one task.
+///
+/// The fields of [`moatless_backend_core::running::RunningInputs`] this band
+/// owns. Optional in the same sense the rule means — "this reader cannot say" —
+/// so a task with no turns and no messages is a legal, empty answer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TurnSignals {
+    pub turn_status: Option<TurnStatus>,
+    pub turn_ended_at: Option<DateTime<Utc>>,
+    pub latest_user_message_at: Option<DateTime<Utc>>,
 }
 
 /// A turn state transition derived from an inbound event's `(type, sub_type)`.
@@ -81,19 +68,14 @@ impl TurnTransition {
 /// the gRPC ingress (which writes transactionally) and the Redis consumer
 /// (which re-applies it as an idempotent fallback).
 pub fn classify_turn_transition(event_type: &str, sub_type: &str) -> Option<TurnTransition> {
-    match (event_type, sub_type) {
-        ("taskTurn", "active") => Some(TurnTransition::Open),
-        ("taskTurn", "turn_interrupted") => Some(TurnTransition::Interrupted),
-        ("taskTurn", "completed") | ("agent", "completed") => {
-            Some(TurnTransition::Terminal(TurnStatus::Completed))
-        }
-        ("taskTurn", "error") | ("agent", "error") => {
-            Some(TurnTransition::Terminal(TurnStatus::Error))
-        }
-        ("taskTurn", "stopped") | ("agent", "stopped") => {
-            Some(TurnTransition::Terminal(TurnStatus::Stopped))
-        }
-        _ => None,
+    // The `(type, sub_type)` table itself lives on `TurnStatus::from_event`,
+    // because the event publisher reads the same one to say whether an event
+    // reports a working agent. What is added here is what each state *does* to
+    // the row, which is this band's alone.
+    match TurnStatus::from_event(event_type, sub_type)? {
+        TurnStatus::Active => Some(TurnTransition::Open),
+        TurnStatus::Interrupted => Some(TurnTransition::Interrupted),
+        terminal => Some(TurnTransition::Terminal(terminal)),
     }
 }
 

@@ -58,14 +58,25 @@ function isSandboxStatus(value: string): value is SandboxStatus {
   return SANDBOX_STATUSES.includes(value as SandboxStatus)
 }
 
+/**
+ * The envelope states whether the event reports a working agent; the client
+ * reads that answer rather than deriving one from `subType`. An event carrying
+ * no answer leaves the status where it was.
+ *
+ * Whether it also says anything about the sandbox depends on who published it.
+ * Only the pod emits `agent.*`, so one of those proves the pod is up. The
+ * backend emits `taskTurn.*` — including the reaper's close of a turn whose pod
+ * is already gone — so those report the agent and must leave the sandbox alone.
+ */
 function updateAgentLiveStatus(event: Event, current: LiveStatus): LiveStatus {
-  if (event.subType === 'started') {
-    return { ...current, sandboxStatus: 'ready', agentStatus: 'running' }
+  const working = event.agentWorking ?? null
+  if (working === null) {
+    return current
   }
-  if (event.subType === 'completed' || event.subType === 'stopped' || event.subType === 'error') {
-    return { ...current, sandboxStatus: 'ready', agentStatus: 'idle' }
-  }
-  return current
+  const agentStatus = working ? 'running' : 'idle'
+  return event.type === 'agent'
+    ? { ...current, sandboxStatus: 'ready', agentStatus }
+    : { ...current, agentStatus }
 }
 
 function sandboxErrorFromEvent(event: Event, sandboxStatus: SandboxStatus): string | null {
@@ -98,11 +109,11 @@ function updateLiveStatus(event: Event, old: LiveStatus | undefined): LiveStatus
 
   switch (event.type) {
     case 'agent':
+    case 'taskTurn':
       return updateAgentLiveStatus(event, current)
     case 'sandbox':
       return updateSandboxLiveStatus(event, current)
     case 'task':
-    case 'taskTurn':
     case 'server':
     case 'resources':
     case 'navigation':
@@ -214,8 +225,10 @@ export function GlobalEventStreamProvider({
       return // Handled directly (or via fallback); skip generic paths
     }
 
-    // Apply optimistic updates for sandbox status events
-    if (event.type === 'agent' || event.type === 'sandbox') {
+    // Apply optimistic updates for sandbox status events. `taskTurn` is here
+    // because it carries `agentWorking` too, and it is the only carrier when
+    // the reaper closes a turn on behalf of a pod that can no longer speak.
+    if (event.type === 'agent' || event.type === 'taskTurn' || event.type === 'sandbox') {
       queryClient.setQueryData(
         queryKeys.tasks.liveStatus(event.taskId),
         (old: LiveStatus | undefined) => updateLiveStatus(event, old),

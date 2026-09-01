@@ -25,13 +25,21 @@ use crate::sandbox::status_reader::SandboxStatusReader;
 /// functions below narrow to. This is the single seam where that narrowing
 /// happens, so the projection sits beside the contract rather than being
 /// repeated inside each provider's port implementation.
+/// `turns` is the Task band's half of the running rule. It is folded into
+/// `live_status` here, at the composition root, so T3's sandbox panel and the
+/// REST live-status endpoint answer "is the agent working" from the same rule
+/// — the runtime reader below can only see the pod and the heartbeat.
 pub fn contract_observer(
     reader: Arc<dyn SandboxStatusReader>,
+    turns: Option<Arc<dyn moatless_backend_core::task::TurnStateReader>>,
 ) -> Arc<dyn core_sandbox::SandboxObserver> {
-    Arc::new(ContractObserver(reader))
+    Arc::new(ContractObserver { reader, turns })
 }
 
-struct ContractObserver(Arc<dyn SandboxStatusReader>);
+struct ContractObserver {
+    reader: Arc<dyn SandboxStatusReader>,
+    turns: Option<Arc<dyn moatless_backend_core::task::TurnStateReader>>,
+}
 
 #[async_trait]
 impl core_sandbox::SandboxObserver for ContractObserver {
@@ -41,7 +49,7 @@ impl core_sandbox::SandboxObserver for ContractObserver {
         task_status: crate::task::models::TaskStatus,
         desired_state: crate::task::models::SandboxDesiredState,
     ) -> Result<core_sandbox::ContractSandboxStatus, core_sandbox::SandboxError> {
-        self.0
+        self.reader
             .sandbox_status(task_id, task_status, desired_state)
             .await
             .map(sandbox_status)
@@ -54,11 +62,35 @@ impl core_sandbox::SandboxObserver for ContractObserver {
         task_status: crate::task::models::TaskStatus,
         desired_state: crate::task::models::SandboxDesiredState,
     ) -> Result<core_sandbox::LiveStatus, core_sandbox::SandboxError> {
-        self.0
+        let status = self
+            .reader
             .live_status(task_id, task_status, desired_state)
             .await
             .map(live_status)
-            .map_err(SandboxError::into_contract)
+            .map_err(SandboxError::into_contract)?;
+
+        // A failed turn read degrades to the runtime's own answer rather than
+        // to an error, exactly as the REST handler does: a status call that
+        // fails is worse than one that is momentarily as narrow as it was.
+        let Some(turns) = self.turns.as_deref() else {
+            return Ok(status);
+        };
+        let signals = match turns.turn_signals(task_id).await {
+            Ok(signals) => signals,
+            Err(e) => {
+                tracing::warn!(task_id, error = %e, "live status: turn signals unavailable");
+                return Ok(status);
+            }
+        };
+
+        // The stop reason is not known here, and does not need to be: it only
+        // splits `Stopped` from `Error`, and both leave the agent field alone.
+        Ok(moatless_sandbox_runtime::live_status::apply_running_rule(
+            status,
+            desired_state,
+            None,
+            signals,
+        ))
     }
 
     async fn server_logs(
@@ -67,7 +99,7 @@ impl core_sandbox::SandboxObserver for ContractObserver {
         server_name: &str,
         options: core_sandbox::LogOptions,
     ) -> Result<core_sandbox::ServerLogStream, core_sandbox::SandboxError> {
-        self.0
+        self.reader
             .server_logs(task_id, server_name, log_options(options))
             .await
             .map(|stream| {

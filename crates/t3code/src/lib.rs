@@ -3037,6 +3037,11 @@ fn descriptor(config: &UiRpcConfig) -> Value {
             // has to poll `sandbox.status` to notice a sandbox that started
             // after its panel opened, so this is what lets it stop.
             "sandboxStatusPush": true,
+            // Whether `sandbox.status` reports `agentStatus` alongside the
+            // lifecycle state. Absent, a client cannot tell "this server does
+            // not say" from "this agent is idle", so the panel has nothing to
+            // show; present, the key is there whenever the sandbox is up.
+            "sandboxAgentStatus": true,
             // Whether `scripts.run` is understood. A workspace's scripts are
             // still listed on the project without this — they are read out of
             // the workspace either way — but a client only shows the control
@@ -4542,6 +4547,22 @@ mod tests {
 
         assert_eq!(
             output.frames[0]["exit"]["value"]["environment"]["capabilities"]["sandboxStatusPush"],
+            json!(true)
+        );
+    }
+
+    /// `agentStatus` is `optionalKey` and absent whenever the sandbox is not
+    /// up, so its absence from one answer says nothing about the server. The
+    /// capability is the only thing that distinguishes a server that reports it
+    /// from one that never will.
+    #[tokio::test]
+    async fn the_descriptor_advertises_the_sandbox_agent_status() {
+        let frame = request("1", "server.getConfig", json!({}));
+        let mut session = session();
+        let output = session.handle_json(&frame, &state(), &viewer()).await;
+
+        assert_eq!(
+            output.frames[0]["exit"]["value"]["environment"]["capabilities"]["sandboxAgentStatus"],
             json!(true)
         );
     }

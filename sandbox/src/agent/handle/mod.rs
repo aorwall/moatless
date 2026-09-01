@@ -305,8 +305,7 @@ pub fn spawn_agent(
                 harness,
                 events.clone(),
                 config.task_id.clone(),
-            )
-            .deduping_announced_prompts(Arc::clone(&agent_state));
+            );
             let service = super::coordinator::CoordinatorService::new(
                 coordinator,
                 Arc::clone(&agent_state),

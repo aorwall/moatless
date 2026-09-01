@@ -17,7 +17,7 @@ use moatless_backend::task::dao::{self as task_dao};
 use moatless_backend::task::models::TaskStatus;
 use moatless_backend::task_activities::mapping::ConversationWrite;
 use moatless_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
-use moatless_backend::task_turn::models::{TurnStatus, TurnTransition};
+use moatless_backend::task_turn::models::{TurnSignals, TurnStatus, TurnTransition};
 use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row};
@@ -668,5 +668,152 @@ async fn latest_closed_turn_status_tracks_the_newest_closed_turn(pool: PgPool) {
         repo.latest_closed_turn_status("task-a").await.unwrap(),
         Some(TurnStatus::Completed),
         "a clean turn after a stop makes the session resumable again"
+    );
+}
+
+// ── the running rule's two reads ────────────────────────────────────────────
+
+/// Seed a closed turn directly, with the `ended_at` the candidate query compares.
+async fn seed_closed_turn(
+    pool: &PgPool,
+    task_id: &str,
+    turn_number: i32,
+    status: &str,
+    ended_at: Option<chrono::DateTime<Utc>>,
+) {
+    sqlx::query(
+        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at, ended_at, run_id)
+           VALUES ($1, $2, $3, 'claude-code', now() - interval '1 hour', $4, $5)"#,
+    )
+    .bind(task_id)
+    .bind(turn_number)
+    .bind(status)
+    .bind(ended_at)
+    .bind(format!("{task_id}-run-{turn_number}"))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Seed one event dated by `created_at`, which is the column the candidate query
+/// reads. `timestamp` is deliberately left free-form: nothing may parse it.
+async fn seed_event(pool: &PgPool, task_id: &str, sub_type: &str, minutes_ago: i64) {
+    sqlx::query(
+        r#"INSERT INTO task_events
+               (event_id, task_id, type, sub_type, turn_number, agent_type, timestamp, created_at)
+           VALUES ($1, $2, 'agent', $3, 1, 'claude-code', 'not-a-timestamp', $4)"#,
+    )
+    .bind(format!("{task_id}-{sub_type}-{minutes_ago}"))
+    .bind(task_id)
+    .bind(sub_type)
+    .bind(Utc::now() - Duration::minutes(minutes_ago))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test]
+async fn settled_turns_with_later_activity_are_the_only_candidates(pool: PgPool) {
+    let closed = Utc::now() - Duration::minutes(30);
+
+    // The candidate: newest turn closed, and the agent has spoken since.
+    seed_closed_turn(&pool, "candidate", 1, "completed", Some(closed)).await;
+    seed_event(&pool, "candidate", "activity", 5).await;
+
+    // Closed, but nothing has happened since it closed.
+    seed_closed_turn(&pool, "quiet", 1, "completed", Some(closed)).await;
+    seed_event(&pool, "quiet", "activity", 45).await;
+
+    // Activity since, but the turn is still open — the orphan arm's business.
+    seed_closed_turn(&pool, "still-open", 1, "active", None).await;
+    seed_event(&pool, "still-open", "activity", 5).await;
+
+    // Closed with no `ended_at`: nothing to compare against, never a candidate.
+    seed_closed_turn(&pool, "no-ended-at", 1, "stopped", None).await;
+    seed_event(&pool, "no-ended-at", "activity", 5).await;
+
+    // The newest turn is open, so the closed one below it is not the task's state.
+    seed_closed_turn(&pool, "superseded", 1, "completed", Some(closed)).await;
+    seed_closed_turn(&pool, "superseded", 2, "active", None).await;
+    seed_event(&pool, "superseded", "activity", 5).await;
+
+    // A later event that is not agent activity says nothing about a live run.
+    seed_closed_turn(&pool, "wrong-event", 1, "completed", Some(closed)).await;
+    seed_event(&pool, "wrong-event", "message", 5).await;
+
+    let repo = PgTaskTurnDao(pool.clone());
+    let settled = repo.list_settled_turns_with_later_activity().await.unwrap();
+
+    let mut ids: Vec<String> = settled.iter().map(|t| t.task_id.clone()).collect();
+    ids.sort();
+    assert_eq!(ids, vec!["candidate"]);
+    let found = &settled[0];
+    assert_eq!(found.turn_number, 1);
+    assert_eq!(found.agent_type.as_deref(), Some("claude-code"));
+    assert_eq!(
+        found.run_id.as_deref(),
+        Some("candidate-run-1"),
+        "the closed turn's run is what a heartbeat is compared against"
+    );
+}
+
+#[sqlx::test]
+async fn latest_running_signals_reads_the_newest_turn_and_the_newest_person(pool: PgPool) {
+    let repo = PgTaskTurnDao(pool.clone());
+
+    assert_eq!(
+        repo.latest_running_signals("nothing-here").await.unwrap(),
+        TurnSignals::default(),
+        "a task with no turns and no messages is an empty answer, not an error"
+    );
+
+    let ended = Utc::now() - Duration::minutes(30);
+    seed_closed_turn(&pool, "task-a", 1, "completed", Some(ended)).await;
+    seed_closed_turn(&pool, "task-a", 2, "stopped", Some(ended + Duration::minutes(10))).await;
+
+    let insert_message = |uuid: &'static str, message_type: &'static str, minutes_ago: i64| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query(
+                r#"INSERT INTO task_messages (task_id, uuid, message_type, user_type, timestamp,
+                                              message_role, message_content, created_at)
+                   VALUES ('task-a', $1, $2, 'human', '', $2, '{}'::jsonb, $3)"#,
+            )
+            .bind(uuid)
+            .bind(message_type)
+            .bind(Utc::now() - Duration::minutes(minutes_ago))
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    };
+    insert_message("m1", "user", 40).await;
+    insert_message("m2", "user", 20).await;
+    // An assistant message is newer than either, and must not be mistaken for
+    // the person's — a reply is not a new request.
+    insert_message("m3", "assistant", 1).await;
+
+    let signals = repo.latest_running_signals("task-a").await.unwrap();
+    assert_eq!(
+        signals.turn_status,
+        Some(TurnStatus::Stopped),
+        "the newest turn by number is the task's state"
+    );
+    let turn_ended = signals.turn_ended_at.expect("closed turn stamps ended_at");
+    assert!(
+        (turn_ended - (ended + Duration::minutes(10)))
+            .num_seconds()
+            .abs()
+            < 2
+    );
+    let asked = signals
+        .latest_user_message_at
+        .expect("a task with user messages reports one");
+    assert!(
+        (asked - (Utc::now() - Duration::minutes(20)))
+            .num_seconds()
+            .abs()
+            < 5,
+        "the newest user message, not the newest message"
     );
 }

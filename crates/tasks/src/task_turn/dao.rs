@@ -17,7 +17,7 @@ use sqlx::Postgres;
 use sqlx::postgres::PgArguments;
 use sqlx::query::Query;
 
-use super::models::{TurnStatus, TurnTransition, UnclosedTurn};
+use super::models::{SettledTurn, TurnSignals, TurnStatus, TurnTransition, UnclosedTurn};
 use crate::task::dao as task_dao;
 use moatless_core::db::DbPool;
 
@@ -150,6 +150,18 @@ pub trait TaskTurnDao: Send + Sync {
         older_than: DateTime<Utc>,
     ) -> Result<Vec<UnclosedTurn>, sqlx::Error>;
 
+    /// Tasks whose newest turn is closed, yet which have recorded activity
+    /// since it closed — the signature of an agent still working under a turn
+    /// row that says it finished.
+    ///
+    /// One query narrows the fleet to a handful of candidates, which the caller
+    /// confirms against the agent itself; sweeping every running Sandbox would
+    /// cost a gRPC round trip each per tick. `run_id` is the run recorded on
+    /// the closed turn, for telling a newer run from one that contradicts it.
+    async fn list_settled_turns_with_later_activity(
+        &self,
+    ) -> Result<Vec<SettledTurn>, sqlx::Error>;
+
     /// The turn number for a sandbox agent run, allocating it on first sight.
     ///
     /// This is the sole allocator of turn numbers. A turn is one agent run, so
@@ -160,6 +172,14 @@ pub trait TaskTurnDao: Send + Sync {
     /// first (the ack, `taskTurn.active`, or a terminal event that overtook
     /// them in the Sandbox's send queue) allocates, and the rest join.
     async fn resolve_turn_for_run(&self, task_id: &str, run_id: &str) -> Result<i32, sqlx::Error>;
+
+    /// The Task band's half of the running rule, for one task, in one query.
+    ///
+    /// The newest turn's state and when the newest user message arrived travel
+    /// together because the rule reads them together: a turn that closed before
+    /// the newest user message is a turn that is owed, and neither half says
+    /// that alone.
+    async fn latest_running_signals(&self, task_id: &str) -> Result<TurnSignals, sqlx::Error>;
 
     /// The task's highest turn number, or `None` when it has none yet.
     ///
@@ -392,6 +412,90 @@ impl TaskTurnDao for PgTaskTurnDao {
                 agent_type,
             })
             .collect())
+    }
+
+    async fn list_settled_turns_with_later_activity(
+        &self,
+    ) -> Result<Vec<SettledTurn>, sqlx::Error> {
+        // `ended_at IS NOT NULL` is load-bearing, not defensive: a turn closed
+        // without recording when cannot be compared against anything, and
+        // treating it as infinitely old would make every such row a candidate
+        // forever.
+        //
+        // The activity is dated by `created_at` (timestamptz), not by
+        // `timestamp`, which is free-form text a publisher chooses.
+        let rows: Vec<(String, i32, Option<String>, Option<String>)> = sqlx::query_as(
+            r#"SELECT tt.task_id, tt.turn_number, tt.agent_type, tt.run_id
+               FROM task_turns tt
+               WHERE tt.status IN ('completed', 'error', 'stopped')
+                 AND tt.ended_at IS NOT NULL
+                 AND tt.turn_number = (
+                   SELECT MAX(later_tt.turn_number)
+                   FROM task_turns later_tt
+                   WHERE later_tt.task_id = tt.task_id
+                 )
+                 AND EXISTS (
+                   SELECT 1
+                   FROM task_events e
+                   WHERE e.task_id = tt.task_id
+                     AND e.type = 'agent'
+                     AND e.sub_type = 'activity'
+                     AND e.created_at > tt.ended_at
+                 )"#,
+        )
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(task_id, turn_number, agent_type, run_id)| SettledTurn {
+                task_id,
+                turn_number,
+                agent_type,
+                run_id,
+            })
+            .collect())
+    }
+
+    async fn latest_running_signals(&self, task_id: &str) -> Result<TurnSignals, sqlx::Error> {
+        // One row, three scalars, so the answer is a single consistent read
+        // rather than three that can interleave with a turn opening.
+        let row: Option<(Option<String>, Option<DateTime<Utc>>, Option<DateTime<Utc>>)> =
+            sqlx::query_as(
+                r#"SELECT
+                       turn.status,
+                       turn.ended_at,
+                       person.created_at
+                   FROM (SELECT $1::text AS task_id) t
+                   LEFT JOIN LATERAL (
+                       SELECT tt.status, tt.ended_at
+                       FROM task_turns tt
+                       WHERE tt.task_id = t.task_id
+                       ORDER BY tt.turn_number DESC
+                       LIMIT 1
+                   ) turn ON TRUE
+                   LEFT JOIN LATERAL (
+                       SELECT m.created_at
+                       FROM task_messages m
+                       WHERE m.task_id = t.task_id
+                         AND m.message_type = 'user'
+                       ORDER BY m.created_at DESC
+                       LIMIT 1
+                   ) person ON TRUE"#,
+            )
+            .bind(task_id)
+            .fetch_optional(&self.0)
+            .await?;
+
+        let (status, ended_at, latest_user_message_at) = row.unwrap_or((None, None, None));
+        Ok(TurnSignals {
+            // An unrecognised status is `None` — "this reader cannot say" —
+            // rather than a guess. The running rule already treats that as
+            // "not known to this caller".
+            turn_status: status.as_deref().and_then(TurnStatus::parse),
+            turn_ended_at: ended_at,
+            latest_user_message_at,
+        })
     }
 
     async fn resolve_turn_for_run(&self, task_id: &str, run_id: &str) -> Result<i32, sqlx::Error> {

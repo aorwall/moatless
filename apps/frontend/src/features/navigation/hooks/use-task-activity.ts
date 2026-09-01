@@ -115,26 +115,13 @@ export function extractMessagePreview(event: Event): string | null {
   return null
 }
 
-/** Whether an event marks the agent as having started working on a task. */
-function isRunningStart(event: Event): boolean {
-  if (event.type === 'agent') {
-    return event.subType === 'started' || event.subType === 'message'
-  }
-  if (event.type === 'taskTurn') {
-    return event.subType === 'active'
-  }
-  return false
-}
-
-/** Whether an event marks the agent as having stopped working on a task. */
-function isRunningStop(event: Event): boolean {
-  if (event.type === 'agent') {
-    return event.subType === 'completed' || event.subType === 'stopped' || event.subType === 'error'
-  }
-  if (event.type === 'taskTurn') {
-    return event.subType === 'completed' || event.subType === 'error'
-  }
-  return false
+/**
+ * What an event says about whether the agent is working, or `null` when it says
+ * nothing and the previous answer stands. The server decides this and carries
+ * it on the event; this only reads it.
+ */
+function agentWorkingFromEvent(event: Event): boolean | null {
+  return event.agentWorking ?? null
 }
 
 /**
@@ -165,7 +152,7 @@ function nextSandboxPhase(
   }
   // An agent can only run against a ready sandbox — infer readiness so the row
   // stays in the running section as "sandbox running" after the agent stops.
-  if (isRunningStart(event)) {
+  if (agentWorkingFromEvent(event) === true) {
     return 'ready'
   }
   return current
@@ -173,7 +160,7 @@ function nextSandboxPhase(
 
 /** Whether an event can affect a task's activity, beyond message previews. */
 function affectsActivity(event: Event): boolean {
-  return isRunningStart(event) || isRunningStop(event) || event.type === 'sandbox'
+  return agentWorkingFromEvent(event) !== null || event.type === 'sandbox'
 }
 
 /**
@@ -207,9 +194,7 @@ export function useTaskActivity(): Map<string, TaskActivity> {
           recentMessages: [],
         }
 
-        const agentWorking = isRunningStop(event)
-          ? false
-          : isRunningStart(event) || current.agentWorking
+        const agentWorking = agentWorkingFromEvent(event) ?? current.agentWorking
 
         const next: TaskActivity = {
           agentWorking,

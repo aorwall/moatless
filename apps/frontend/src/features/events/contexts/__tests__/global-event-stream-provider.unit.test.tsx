@@ -81,7 +81,13 @@ function renderWithProviders(children: React.ReactNode, queryClient: QueryClient
 }
 
 /** A valid StreamEvent envelope for the given type/subType/taskId */
-function makeEvent(overrides: { type: string; subType: string; taskId: string; payload?: object }) {
+function makeEvent(overrides: {
+  type: string
+  subType: string
+  taskId: string
+  payload?: object
+  agentWorking?: boolean
+}) {
   return {
     eventId: `evt-${Math.random().toString(36).slice(2)}`,
     type: overrides.type,
@@ -90,6 +96,9 @@ function makeEvent(overrides: { type: string; subType: string; taskId: string; p
     isError: false,
     timestamp: new Date().toISOString(),
     payload: overrides.payload ?? {},
+    // Omitted, not null, when the caller has no answer to carry — the server
+    // omits the key for an event that does not report on the agent.
+    ...(overrides.agentWorking === undefined ? {} : { agentWorking: overrides.agentWorking }),
   }
 }
 
@@ -285,6 +294,63 @@ describe('GlobalEventStreamProvider — query invalidation (unit)', () => {
       expect(queryClient.getQueryData(queryKeys.tasks.liveStatus('task-live'))).toEqual({
         sandboxStatus: 'stopped',
         agentStatus: null,
+        sandboxError: null,
+      })
+    })
+  })
+
+  it('reads the working answer off the envelope rather than off the subType', async () => {
+    queryClient.setQueryData<LiveStatus>(queryKeys.tasks.liveStatus('task-envelope'), {
+      sandboxStatus: 'ready',
+      agentStatus: 'idle',
+      sandboxError: null,
+    })
+    // `agent.message` is not a lifecycle sub-type, so a subType table would
+    // ignore it. The envelope says the agent is working, which is the answer.
+    global.fetch = createEventStreamFetch([
+      makeEvent({
+        type: 'agent',
+        subType: 'message',
+        taskId: 'task-envelope',
+        agentWorking: true,
+      }),
+    ]) as any
+
+    renderWithProviders(<div />, queryClient)
+
+    await waitFor(() => {
+      expect(queryClient.getQueryData(queryKeys.tasks.liveStatus('task-envelope'))).toEqual({
+        sandboxStatus: 'ready',
+        agentStatus: 'running',
+        sandboxError: null,
+      })
+    })
+  })
+
+  it('lets a taskTurn close the agent without claiming its pod is back', async () => {
+    // The reaper's case: the pod stopped mid-turn, so the last thing the cache
+    // heard from the agent was that it was running. Only the backend can close
+    // that turn, and it does so with a `taskTurn` event.
+    queryClient.setQueryData<LiveStatus>(queryKeys.tasks.liveStatus('task-reaped'), {
+      sandboxStatus: 'stopped',
+      agentStatus: 'running',
+      sandboxError: null,
+    })
+    global.fetch = createEventStreamFetch([
+      makeEvent({
+        type: 'taskTurn',
+        subType: 'completed',
+        taskId: 'task-reaped',
+        agentWorking: false,
+      }),
+    ]) as any
+
+    renderWithProviders(<div />, queryClient)
+
+    await waitFor(() => {
+      expect(queryClient.getQueryData(queryKeys.tasks.liveStatus('task-reaped'))).toEqual({
+        sandboxStatus: 'stopped',
+        agentStatus: 'idle',
         sandboxError: null,
       })
     })

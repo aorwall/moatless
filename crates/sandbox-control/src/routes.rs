@@ -14,6 +14,7 @@ use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+use moatless_backend_core::task::TurnStateReader;
 use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
 use moatless_sandbox_runtime::client::SandboxConnector;
 use super::file_handlers;
@@ -30,6 +31,12 @@ pub struct SandboxApiState {
     /// drive transitions through it. `None` only in the no-database mode, where
     /// those handlers return a clean "unavailable" error.
     pub lifecycle: Option<Arc<Lifecycle>>,
+    /// The Task band's half of the running rule. `live_status` folds it into
+    /// the runtime's answer so this surface and the T3 conversation list decide
+    /// "is the agent working" from the same rule. `None` in the no-database
+    /// mode, where there are no turn rows to read and the raw heartbeat is all
+    /// there is.
+    pub turns: Option<Arc<dyn TurnStateReader>>,
 }
 
 #[derive(OpenApi)]

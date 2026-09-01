@@ -15908,6 +15908,13 @@
               "null"
             ]
           },
+          "agentWorking": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "What this event says about whether the agent is working, if anything.\n\nAbsent means *this event does not say* — the client leaves whatever it\nlast knew alone. It never means \"not working\". Also absent on every\nevent a server that predates this field published, which is the same\ninstruction and needs no version check.\n\nCarried so a client applies the answer rather than inferring it from\nsub-types; see [`agent_working`]."
+          },
           "eventId": {
             "type": "string"
           },

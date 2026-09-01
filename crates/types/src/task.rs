@@ -245,6 +245,70 @@ crate::string_enum!(
 );
 
 crate::string_enum!(
+    /// Lifecycle status of a single task turn — the `task_turns.status` column.
+    ///
+    /// A *turn* is one user-message-and-agent-response cycle. This state is
+    /// written transactionally at the gRPC event ingress, so it is authoritative
+    /// rather than derived from the event log.
+    TurnStatus {
+        /// The agent is processing the turn.
+        Active => "active",
+        /// The agent finished successfully.
+        Completed => "completed",
+        /// The agent run errored (harness or agent-level).
+        Error => "error",
+        /// The user stopped the turn.
+        Stopped => "stopped",
+        /// The pod was interrupted mid-turn (still non-terminal — it resumes on
+        /// reschedule, or the reaper reconciles it as a backstop).
+        Interrupted => "interrupted",
+    }
+);
+
+impl TurnStatus {
+    /// Parse a `task_turns.status` string. `None` for a value this build does
+    /// not know — a row written by a newer backend, which has no honest
+    /// counterpart here.
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::try_from(s).ok()
+    }
+
+    /// Whether a turn in this state is still running.
+    ///
+    /// `Interrupted` counts: the pod went away mid-turn and the run resumes on
+    /// the same row. Reading it as ended would show a turn that is about to
+    /// carry on as a turn that finished.
+    pub fn is_open(self) -> bool {
+        matches!(self, Self::Active | Self::Interrupted)
+    }
+
+    /// The turn state an event's `(type, sub_type)` reports, or `None` for an
+    /// event that does not bear turn state.
+    ///
+    /// The single table for that mapping. `moatless_tasks` reads it to decide
+    /// what an inbound event writes to `task_turns`; the event publisher reads
+    /// it to stamp what the event says about a working agent. Two readers of
+    /// one table, rather than two tables that have to be kept in step.
+    pub fn from_event(event_type: &str, sub_type: &str) -> Option<Self> {
+        match (event_type, sub_type) {
+            ("taskTurn", "active") => Some(Self::Active),
+            ("taskTurn", "turn_interrupted") => Some(Self::Interrupted),
+            ("taskTurn" | "agent", "completed") => Some(Self::Completed),
+            ("taskTurn" | "agent", "error") => Some(Self::Error),
+            ("taskTurn" | "agent", "stopped") => Some(Self::Stopped),
+            _ => None,
+        }
+    }
+
+    /// Whether a turn that ended in this state left the agent session cut off
+    /// mid-flight. Resuming such a session replays a transcript whose last
+    /// entry is an unanswered tool call, so the next run must start fresh.
+    pub fn cut_off_session(self) -> bool {
+        matches!(self, Self::Error | Self::Stopped)
+    }
+}
+
+crate::string_enum!(
     /// Type of a directional link between two tasks. The `from` task points at the
     /// `to` task via this relation (e.g. a child `created_by` its parent).
     ///

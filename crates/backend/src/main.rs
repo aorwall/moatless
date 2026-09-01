@@ -382,6 +382,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         observer: sandbox_observer.clone(),
         connector: sandbox_connector.clone(),
         lifecycle: lifecycle.clone(),
+        turns: ports
+            .as_ref()
+            .map(|p| p.turn_counter.clone() as Arc<dyn moatless_backend_core::task::TurnStateReader>),
     };
     let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);
 
@@ -489,7 +492,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 workspaces: ui_rpc_conversations.clone(),
                 conversations: ui_rpc_conversations.clone(),
                 sandboxes: sandbox_connector.clone(),
-                observer: t3code::projection::contract_observer(sandbox_observer.clone()),
+                observer: t3code::projection::contract_observer(
+                    sandbox_observer.clone(),
+                    Some(ports.turn_counter.clone()),
+                ),
                 diagnostics: cluster_diagnostics.clone(),
                 ports: sandbox_port_publisher.clone(),
                 tasks: ui_rpc_conversations,

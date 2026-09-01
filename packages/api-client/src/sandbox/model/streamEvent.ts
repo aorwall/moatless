@@ -16,6 +16,19 @@ receives this shape and dispatches on `event_type` + `sub_type`.
 export interface StreamEvent {
   /** @nullable */
   agentType?: string | null;
+  /**
+   * What this event says about whether the agent is working, if anything.
+
+Absent means *this event does not say* — the client leaves whatever it
+last knew alone. It never means "not working". Also absent on every
+event a server that predates this field published, which is the same
+instruction and needs no version check.
+
+Carried so a client applies the answer rather than inferring it from
+sub-types; see [`agent_working`].
+   * @nullable
+   */
+  agentWorking?: boolean | null;
   eventId: string;
   isError: boolean;
   payload: unknown;

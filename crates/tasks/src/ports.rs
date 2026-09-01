@@ -15,6 +15,7 @@ use moatless_backend_core::task::{
     NewTask, PendingWorkReader, RelationRecorder, SandboxProvision, TagResolver, TaskDescriptor,
     TaskFinisher, TaskOpenError, TaskOpened, TaskOpener, TaskReader, ToolCallRecord,
     TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TranscriptOrigin, TurnCounter,
+    TurnSignals, TurnStateReader,
 };
 use moatless_types::access_control::ScopeContext;
 use moatless_types::task::RelatedTask;
@@ -223,7 +224,8 @@ impl TranscriptAppend for Transcript {
     }
 }
 
-/// The `task_turns` table, narrowed to the Turn a row appended now belongs to.
+/// The `task_turns` table, narrowed to the two questions peers ask of it: which
+/// Turn a row appended now belongs to, and whether one is in flight.
 pub struct TurnLedger {
     turns: Arc<dyn TaskTurnDao>,
 }
@@ -241,6 +243,24 @@ impl TurnCounter for TurnLedger {
             .latest_turn_number(task_id)
             .await
             .map_err(|e| StoreError::with_source(format!("read the turn number of {task_id}"), e))
+    }
+}
+
+#[async_trait]
+impl TurnStateReader for TurnLedger {
+    async fn turn_signals(&self, task_id: &str) -> Result<TurnSignals, StoreError> {
+        let signals = self
+            .turns
+            .latest_running_signals(task_id)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(format!("read the running signals of {task_id}"), e)
+            })?;
+        Ok(TurnSignals {
+            turn_status: signals.turn_status,
+            turn_ended_at: signals.turn_ended_at,
+            latest_user_message_at: signals.latest_user_message_at,
+        })
     }
 }
 

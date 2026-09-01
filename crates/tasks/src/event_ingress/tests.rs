@@ -8,7 +8,7 @@ use chrono::{DateTime, Duration, Utc};
 
 use crate::task_event::dao::MockTaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
-use crate::task_turn::models::{TurnTransition, UnclosedTurn};
+use crate::task_turn::models::{SettledTurn, TurnSignals, TurnTransition, UnclosedTurn};
 use moatless_core::events::EventPublisher;
 use moatless_core::events::test_support::RecordingPublisher;
 
@@ -69,12 +69,20 @@ impl TaskTurnDao for RecordingTurns {
         unreachable!("list_unclosed_active_turns is the reaper path")
     }
 
+    async fn list_settled_turns_with_later_activity(&self) -> Result<Vec<SettledTurn>, sqlx::Error> {
+        unreachable!("list_settled_turns_with_later_activity is the reaper path")
+    }
+
     async fn resolve_turn_for_run(
         &self,
         _task_id: &str,
         _run_id: &str,
     ) -> Result<i32, sqlx::Error> {
         Ok(1)
+    }
+
+    async fn latest_running_signals(&self, _task_id: &str) -> Result<TurnSignals, sqlx::Error> {
+        unreachable!("latest_running_signals is the live-status path, not ingress")
     }
 
     async fn latest_turn_number(&self, _task_id: &str) -> Result<Option<i32>, sqlx::Error> {

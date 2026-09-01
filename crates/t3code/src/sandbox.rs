@@ -96,9 +96,17 @@ pub async fn status(
         .live_status(task_id, task.status, desired)
         .await
         .map_err(SandboxRpcError::Sandbox)?;
-    Ok(json!({
+    let mut payload = json!({
         "sandboxStatus": status.sandbox_status.as_str(),
-    }))
+    });
+    // Absent, not null, when the runtime has no answer — a sandbox that is not
+    // `Ready` has no agent to report on, and a `null` fails the client's decode
+    // of the whole result. The key is `optionalKey` in the contract for the
+    // same reason, and a client that has not read it is unaffected.
+    if let Some(agent) = status.agent_status {
+        payload["agentStatus"] = json!(agent.as_str());
+    }
+    Ok(payload)
 }
 
 /// Push a Task's sandbox status for as long as the subscription lives.
@@ -214,9 +222,27 @@ mod tests {
 
     use crate::task_dao::{MockT3TaskDao, TaskView};
 
-    /// Reports `Initializing` until `moved` is set, then `Ready`.
+    /// Reports `Initializing` until `moved` is set, then `Ready`. Once `Ready`,
+    /// it also reports the agent it is asked to report.
     struct MovingStatus {
         moved: AtomicBool,
+        agent: Option<moatless_backend_core::sandbox::AgentStatus>,
+    }
+
+    impl MovingStatus {
+        fn at(moved: bool) -> Self {
+            Self {
+                moved: AtomicBool::new(moved),
+                agent: None,
+            }
+        }
+
+        fn reporting(agent: moatless_backend_core::sandbox::AgentStatus) -> Self {
+            Self {
+                moved: AtomicBool::new(true),
+                agent: Some(agent),
+            }
+        }
     }
 
     #[async_trait]
@@ -249,7 +275,7 @@ mod tests {
                 } else {
                     SandboxStatus::Initializing
                 },
-                agent_status: None,
+                agent_status: self.agent,
                 sandbox_error: None,
             })
         }
@@ -324,9 +350,7 @@ mod tests {
     /// moved" would be false for exactly the case it is meant to cover.
     #[tokio::test(start_paused = true)]
     async fn a_status_that_has_not_moved_since_the_seed_sends_nothing() {
-        let observer = Arc::new(MovingStatus {
-            moved: AtomicBool::new(false),
-        });
+        let observer = Arc::new(MovingStatus::at(false));
         let (frames, mut received) = mpsc::channel(8);
         let request_id: crate::RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
         let watcher = tokio::spawn(watch_status(
@@ -350,5 +374,38 @@ mod tests {
         assert_eq!(frame["values"][0]["sandboxStatus"], "ready");
 
         watcher.abort();
+    }
+
+    /// The key is present when there is an agent to report on, and *absent* —
+    /// never null — when there is not. A client decodes the whole result or
+    /// none of it, so a null here would cost it the lifecycle state too.
+    #[tokio::test]
+    async fn the_agent_is_reported_when_there_is_one_and_omitted_when_there_is_not() {
+        for (agent, expected) in [
+            (
+                Some(moatless_backend_core::sandbox::AgentStatus::Running),
+                Some("running"),
+            ),
+            (
+                Some(moatless_backend_core::sandbox::AgentStatus::Unknown),
+                Some("unknown"),
+            ),
+            (None, None),
+        ] {
+            let observer = Arc::new(match agent {
+                Some(agent) => MovingStatus::reporting(agent),
+                None => MovingStatus::at(true),
+            });
+            let payload = status(&watched_state(observer), &viewer(), "task-1")
+                .await
+                .expect("a readable task");
+
+            assert_eq!(payload["sandboxStatus"], "ready");
+            assert_eq!(
+                payload.get("agentStatus").and_then(Value::as_str),
+                expected,
+                "{agent:?}"
+            );
+        }
     }
 }
