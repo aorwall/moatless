@@ -322,7 +322,6 @@ an isolated Codex Fork errors on `thread/fork`; `sameSandbox` is the working pat
 | A sandbox readiness test intermittently hangs to the CI timeout | `sandbox/src/init/replacement_test/readiness.rs::sustained_ack_failure_never_re_runs_and_aborts_on_shutdown` | When it fires a second time on `main`, or when anyone next works in `sandbox/src/init` |
 | Nothing holds a removed crate edge removed | `ci.yml`; `crates/backend-core/Cargo.toml` can regain `sandbox-proto` and `crates/core/Cargo.toml` can regain `moatless-api-schemas` with no gate objecting | A `cargo metadata` check over a forbidden-edge list, sized so one line per edge is the whole cost of adding one |
 | Committed OpenAPI spec and TS client lag the backend | `openapi-specs.json` and `packages/api-client/src/**` lack the `fork_task` operation (`POST /api/v1/tasks/{task_id}/fork`) the tasks routes register | Run `task generate` alongside the next change touching the API surface, or on its own when the frontend first consumes the fork endpoint. Harmless until then: `build-rust` regenerates the spec fresh on every push (the `Generate OpenAPI spec` step in `ci.yml`), so `main` stays green while nothing references the missing types |
-| 51 db-tests fail on `main`, and nothing runs them | `ci.yml` links the tier with `cargo nextest run --features db-tests --no-run`; no workflow starts a Postgres | Fix the fixtures and start a database in CI together, so the tier starts green. Sizing it first is the cheap half — see below |
 
 **Route literals.** The suite already imports generated *types* from
 `@moatless/api-client` (`tests/shared/types.ts`, `tests/shared/wait-helpers.ts`),
@@ -333,41 +332,37 @@ compile error — `PUT` vs `PATCH` and `/reset` vs `/reset-git` both reached CI
 this way. Driving the routes off the generated client is the change; it is
 sizeable and belongs on its own.
 
-**The db-tests tier.** Linking it rather than running it is a deliberate
-build-cost decision (`references/build-costs.md`), and the tier is where every
-SQL statement in the codebase is exercised — so what it does not run, nothing
-runs. Measured against Postgres 16.2 on 2026-09-01: **51 failures on
-`origin/main`** — 4 in `integration_adapters`, 11 in `integration_data`, 36 in
-`integration_surface`. None are subtle. They are stale fixtures and stale
-expectations: a `users` row that predates the `users_human_email_required`
-constraint, an adapter kind list missing `github.pr_merged`, a projection
-emitting `scriptsEditable` against a contract that does not declare it, seed
-rows colliding on `sandboxes_pkey`. Each is a test asserting a shape the code
-moved past, invisible because nothing has looked.
+## Dead or misleading
 
-Two properties make this worth sizing before scheduling. The failures are
-concentrated — three files hold 47 of the 51 — so the fix is narrower than the
-count suggests. And the tier is otherwise healthy: 415 db-tests pass. Running it
-locally needs only a throwaway server, so anyone can reproduce the list:
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| No CI job executes the db-backed integration tests | The db-tests leg is `cargo nextest run --no-run` and no job provides a database, so `crates/backend/tests/integration_*/` compiles and is never run. A change that renames a table, a payload field, a route or an event identity therefore leaves these tests asserting the old one and CI still green; the drift is only visible to whoever next points a Postgres at them. Last count: 51, measured against Postgres 16.2 on 2026-09-01 — see below | Standing up a Postgres service for the db-tests leg, which is the change that stops this recurring |
+| The `AdapterNewThread` outbound capability is dead in production, live in tests | `bindings/outbound.rs::direct_send_to_rule` (sole production caller) reaching `capabilities.rs::{AdapterNewThread::send_message, binding_destination_from_new_thread}`, `registry/mod.rs::{Registry::outbound_for_new_thread_by_name, OutboundOperation::NewThread}`, both impl'd by `providers/{slack,telegram}/outbound.rs` | Is subscription-based new-thread outbound being finished or abandoned? See below |
+| The sandbox images are documented as two products | `docs/docker-builds.md`, `docs/sandbox-architecture.md`, `docker-compose/README.md`, the `docker-install` and `docker-testing` skills, and the commented alternative in both `.env.example` files | Any pass over the sandbox image docs |
+| Two crates mint the same WebSocket ticket | `identity/src/auth/jwt.rs::generate_ws_ticket_jwt` and `t3code/src/auth.rs::generate_ws_ticket_jwt` — same `moatless-vibe-backend/ws-ticket` issuer, same 60s TTL, same claim fields under two names (`SessionClaims`, `UiRpcSessionClaims`); they differ only in which identity type they take | Any change to the ticket's issuer, TTL or claim shape, because that change has to land in both and nothing makes the second copy visible |
+| `DownloadUpload` is served for nobody the repo still builds | `sandbox.proto::BackendSandboxService.DownloadUpload` and `grpc_server.rs::download_upload` — the single-message upload RPC. No sandbox built from this tree calls it; it exists because a running pod keeps the image it was provisioned with, so pods older than `DownloadUploadChunked` still do. Removing it takes the RPC, the handler, and `DownloadUploadResponse` (the sandbox's `BackendClient::download_upload` returns that message but reassembles a chunk stream to build it) | When no sandbox pod predating `DownloadUploadChunked` can still be running — the horizon is the longest-lived task's sandbox, so a deployment-wide redeploy settles it immediately |
+| The secret store holds values that are not secrets | The `secrets` table, `crates/identity/src/secret/`, `SecretService`, `/api/v1/secrets`, `moat secrets`, `apps/frontend/src/features/secrets/` — the store is scoped, keyed and delivered into sandbox runtimes, and a Secret is one flavor of what it holds. The other flavor is a **Variable**: readable, listable, non-sensitive configuration such as the Claude Code toggles in `sandbox/src/init/claude_code_settings.rs`. `Variable` is the agreed umbrella name; `Secret` stays the sensitive flavor | When a wire-contract release is already breaking `/api/v1/secrets`, or when the plain flavor grows enough surface that "secret" misleads whoever reads it next. The rename is mechanical but wide — ~204 files, a table rename, and a breaking change to both the public API and the `moat` CLI — so it is not worth a pass of its own |
+
+**The db-tests count.** The tier is where every SQL statement in the codebase is
+exercised, so what it does not run, nothing runs. The 51 break down as 4 in
+`integration_adapters`, 11 in `integration_data`, 36 in `integration_surface`;
+415 db-tests pass. None of the failures are subtle — a `users` row that predates
+the `users_human_email_required` constraint, an adapter kind list missing
+`github.pr_merged`, a projection emitting `scriptsEditable` against a contract
+that does not declare it, seed rows colliding on `sandboxes_pkey`. Each is a test
+asserting a shape the code moved past.
+
+Two things make this cheaper to schedule than the count suggests: the failures
+are concentrated, with three files holding 47 of the 51, and reproducing the list
+needs only a throwaway server —
 
 ```
 DATABASE_URL=postgres://…  cargo test -p moatless-backend --features db-tests
 ```
 
 `task_listing_position_test::no_mutation_holds_the_counter_while_it_waits_for_another_lock`
-is timing-dependent and flaked once across the runs above; count it as a
-candidate for the flaky list rather than as a fixture fix.
-
-## Dead or misleading
-
-| Deferred | Anchor | Entry condition |
-|---|---|---|
-| No CI job executes the db-backed integration tests | The db-tests leg is `cargo nextest run --no-run` and no job provides a database, so `crates/backend/tests/integration_*/` compiles and is never run. A change that renames a table, a payload field, a route or an event identity therefore leaves these tests asserting the old one and CI still green; the drift is only visible to whoever next points a Postgres at them. Last count: 29, three of which were added by work merged while the other 26 were being fixed | Standing up a Postgres service for the db-tests leg, which is the change that stops this recurring |
-| The `AdapterNewThread` outbound capability is dead in production, live in tests | `bindings/outbound.rs::direct_send_to_rule` (sole production caller) reaching `capabilities.rs::{AdapterNewThread::send_message, binding_destination_from_new_thread}`, `registry/mod.rs::{Registry::outbound_for_new_thread_by_name, OutboundOperation::NewThread}`, both impl'd by `providers/{slack,telegram}/outbound.rs` | Is subscription-based new-thread outbound being finished or abandoned? See below |
-| The sandbox images are documented as two products | `docs/docker-builds.md`, `docs/sandbox-architecture.md`, `docker-compose/README.md`, the `docker-install` and `docker-testing` skills, and the commented alternative in both `.env.example` files | Any pass over the sandbox image docs |
-| Two crates mint the same WebSocket ticket | `identity/src/auth/jwt.rs::generate_ws_ticket_jwt` and `t3code/src/auth.rs::generate_ws_ticket_jwt` — same `moatless-vibe-backend/ws-ticket` issuer, same 60s TTL, same claim fields under two names (`SessionClaims`, `UiRpcSessionClaims`); they differ only in which identity type they take | Any change to the ticket's issuer, TTL or claim shape, because that change has to land in both and nothing makes the second copy visible |
-| `DownloadUpload` is served for nobody the repo still builds | `sandbox.proto::BackendSandboxService.DownloadUpload` and `grpc_server.rs::download_upload` — the single-message upload RPC. No sandbox built from this tree calls it; it exists because a running pod keeps the image it was provisioned with, so pods older than `DownloadUploadChunked` still do. Removing it takes the RPC, the handler, and `DownloadUploadResponse` (the sandbox's `BackendClient::download_upload` returns that message but reassembles a chunk stream to build it) | When no sandbox pod predating `DownloadUploadChunked` can still be running — the horizon is the longest-lived task's sandbox, so a deployment-wide redeploy settles it immediately |
-| The secret store holds values that are not secrets | The `secrets` table, `crates/identity/src/secret/`, `SecretService`, `/api/v1/secrets`, `moat secrets`, `apps/frontend/src/features/secrets/` — the store is scoped, keyed and delivered into sandbox runtimes, and a Secret is one flavor of what it holds. The other flavor is a **Variable**: readable, listable, non-sensitive configuration such as the Claude Code toggles in `sandbox/src/init/claude_code_settings.rs`. `Variable` is the agreed umbrella name; `Secret` stays the sensitive flavor | When a wire-contract release is already breaking `/api/v1/secrets`, or when the plain flavor grows enough surface that "secret" misleads whoever reads it next. The rename is mechanical but wide — ~204 files, a table rename, and a breaking change to both the public API and the `moat` CLI — so it is not worth a pass of its own |
+is timing-dependent and flaked once across those runs; it belongs on the flaky
+list rather than in a fixture pass.
 
 **Subscription-based new-thread outbound.** `direct_send_to_rule` — documented as
 "the subscription-based replacement for direct sends to Slack/Telegram adapter
