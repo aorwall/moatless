@@ -252,7 +252,7 @@ pub trait TaskTurnDao: Send + Sync {
     /// Where a fork of `task_id` would cut, and the harness id that names it.
     ///
     /// One read rather than three, because the three answers are one decision:
-    /// a Task with a turn in flight cannot be forked at all, and the cut and its
+    /// whether the cut clears the turn still in flight, and the cut and its
     /// `agent_turn_id` come off the same row.
     async fn fork_point(
         &self,
@@ -275,10 +275,10 @@ pub trait TaskTurnDao: Send + Sync {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ForkPoint {
     /// The Task's newest turn, when that turn has not reached a terminal
-    /// status. A fork is refused while one exists: its transcript ends on an
-    /// unanswered call, and the turn is still writing rows the copy would race.
-    /// Only the newest turn qualifies, matching how every other reader of
-    /// `task_turns` decides whether a Task is busy.
+    /// status. A cut that reaches this turn is refused: its transcript ends on
+    /// an unanswered call, and it is still writing rows the copy would race. A
+    /// cut below it is allowed. Only the newest turn qualifies, matching how
+    /// every other reader of `task_turns` decides whether a Task is busy.
     pub open_turn: Option<i32>,
     /// The turn the cut keeps — the requested one, or the newest terminal one.
     /// `None` means the requested turn has no row, or the Task has no terminal

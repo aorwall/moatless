@@ -23,7 +23,7 @@ use super::error::TaskError;
 use crate::message::dao::MessageDao;
 use crate::message::fork::{ForkAnchors, ForkCopyCounts};
 use crate::tag::dao::TagDao;
-use crate::task_turn::dao::TaskTurnDao;
+use crate::task_turn::dao::{ForkPoint, TaskTurnDao};
 
 /// A `task_forks` row: the fork, the Task it branched from, and the three
 /// anchors the delivery path hands the pod until the fork has a session of its
@@ -111,6 +111,23 @@ pub struct ForkPlan {
     pub session: Option<ForkSession>,
 }
 
+/// The in-flight turn a cut is not allowed to reach, if there is one.
+///
+/// A cut strictly below the open turn is allowed. That turn has finished
+/// writing: the copy filters on `turn_number <= cut`, so the open turn's rows
+/// are never in it, and the pod branches the parent's transcript into a file
+/// under a fresh session id rather than resuming the one the parent is still
+/// appending to. A cut that reaches the open turn is refused — its transcript
+/// ends on an unanswered call. `turn: None` alongside an open turn is a Task
+/// whose only content is that turn, so there is nothing below it to cut at.
+fn blocking_open_turn(point: &ForkPoint) -> Option<i32> {
+    let open = point.open_turn?;
+    match point.turn {
+        Some(cut) if cut < open => None,
+        _ => Some(open),
+    }
+}
+
 /// Resolving a fork's cut point, and copying the parent's conversation onto it.
 ///
 /// The create itself is not here: a fork is created through the same
@@ -188,15 +205,15 @@ impl TaskForkService {
         }
 
         let point = self.turns.fork_point(source_task_id, at_turn).await?;
-        if let Some(open) = point.open_turn {
-            return Err(TaskError::Conflict(format!(
-                "task {source_task_id} has turn {open} in flight; stop it or wait for it before forking"
-            )));
-        }
         if at_turn.is_some() && point.turn.is_none() {
             return Err(TaskError::NotFound(format!(
                 "task {source_task_id} has no turn {}",
                 at_turn.unwrap_or_default()
+            )));
+        }
+        if let Some(open) = blocking_open_turn(&point) {
+            return Err(TaskError::Conflict(format!(
+                "task {source_task_id} has turn {open} in flight; fork at a turn before it, or wait for it to finish"
             )));
         }
 
@@ -278,5 +295,41 @@ impl TaskForkService {
                  the copied rows are orphaned until reaped"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn point(open_turn: Option<i32>, turn: Option<i32>) -> ForkPoint {
+        ForkPoint {
+            open_turn,
+            turn,
+            agent_turn_id: None,
+        }
+    }
+
+    #[test]
+    fn a_quiet_task_blocks_nothing() {
+        assert_eq!(blocking_open_turn(&point(None, Some(4))), None);
+    }
+
+    #[test]
+    fn a_cut_below_the_running_turn_is_allowed() {
+        assert_eq!(blocking_open_turn(&point(Some(2), Some(1))), None);
+    }
+
+    #[test]
+    fn a_cut_at_the_running_turn_is_refused() {
+        assert_eq!(blocking_open_turn(&point(Some(2), Some(2))), Some(2));
+    }
+
+    /// `fork_point` resolves a cut at head to the newest turn that *ended*, so
+    /// `turn: None` here means no turn ever ended — the running turn is all
+    /// there is, and a fork of it would carry the in-flight rows.
+    #[test]
+    fn a_task_whose_only_turn_is_running_is_refused() {
+        assert_eq!(blocking_open_turn(&point(Some(1), None)), Some(1));
     }
 }

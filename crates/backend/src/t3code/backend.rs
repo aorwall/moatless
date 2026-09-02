@@ -1401,7 +1401,7 @@ mod tests {
         let refusal = create_refusal(
             "task-a",
             TaskError::Conflict(
-                "task task-a has turn 3 in flight; stop it or wait for it before forking".into(),
+                "task task-a has turn 3 in flight; fork at a turn before it, or wait for it to finish".into(),
             ),
         );
 
@@ -1409,7 +1409,7 @@ mod tests {
             refusal,
             CommandRefusal::Rejected { message }
                 if message
-                    == "task task-a has turn 3 in flight; stop it or wait for it before forking"
+                    == "task task-a has turn 3 in flight; fork at a turn before it, or wait for it to finish"
         ));
     }
 

@@ -155,7 +155,7 @@ pub async fn create_task(
         (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
         (status = 403, description = "No access to the source task's repository", body = moatless_api_schemas::error::ErrorBody),
         (status = 404, description = "Task or turn not found", body = moatless_api_schemas::error::ErrorBody),
-        (status = 409, description = "A turn is in flight, or the turn has no agent turn id", body = moatless_api_schemas::error::ErrorBody)
+        (status = 409, description = "The cut reaches a turn still in flight, or the turn has no agent turn id", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[expect(

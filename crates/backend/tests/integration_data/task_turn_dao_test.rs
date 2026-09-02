@@ -827,8 +827,7 @@ async fn latest_running_signals_reads_the_newest_turn_and_the_newest_person(pool
 /// A turn left `interrupted` behind later completed turns is a lost terminal
 /// event, not work in flight. Task 062dc4f6 sat like this: turn 1 interrupted,
 /// turns 2 through 8 completed, sandbox stopped. Reading the lowest open turn
-/// refused every fork of it with "turn 1 in flight; stop it or wait for it",
-/// which nothing could ever clear.
+/// reported turn 1 as in flight, which nothing could ever clear.
 #[sqlx::test]
 async fn a_stale_open_turn_behind_a_finished_one_does_not_block_a_fork(pool: PgPool) {
     seed_task(&pool, "task-a").await;

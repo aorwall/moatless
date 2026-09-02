@@ -124,9 +124,11 @@ pub async fn copy_conversation(
     dest_task_id: &str,
     at_turn: Option<i32>,
 ) -> Result<ForkCopyCounts, sqlx::Error> {
-    // Read outside the transaction: the parent is quiescent (a Task with a turn
-    // in flight is refused before this runs), and the write below is what needs
-    // to be atomic.
+    // Read outside the transaction: every row it can return belongs to a turn
+    // at or below the cut, and those turns have ended — a turn still in flight
+    // is above the cut or the fork was refused. So a parent running a later
+    // turn cannot change what this reads. The write below is what needs to be
+    // atomic.
     let sources: Vec<TaskMessage> = sqlx::query_as(concat!(
         "SELECT * FROM task_messages
           WHERE task_id = $1
