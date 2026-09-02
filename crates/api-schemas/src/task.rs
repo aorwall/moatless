@@ -85,12 +85,9 @@ pub struct ForkTaskRequest {
     /// fork idle, and send to it later.
     pub message: Option<String>,
     /// Join the source Task's Sandbox on its shared checkout instead of
-    /// provisioning one from a copy of its workspace archive. One working tree,
-    /// so `branch` is refused alongside it.
+    /// provisioning one from a copy of its workspace archive.
     #[serde(default)]
     pub same_sandbox: Option<bool>,
-    /// Branch for the fork's own checkout. Omit to keep the source Task's.
-    pub branch: Option<String>,
     /// Reasoning effort for the first turn, in the agent's own vocabulary.
     pub effort: Option<String>,
     pub model: Option<String>,

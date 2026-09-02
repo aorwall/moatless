@@ -21,7 +21,6 @@ use crate::repository::handlers::list_branches;
 use crate::state::AppState;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::error::TaskError;
-use crate::task::fork::TaskForkService;
 use crate::task::handlers as task_handlers;
 use crate::task::models::TaskStatus;
 use crate::task::service as task_service;
@@ -959,9 +958,6 @@ impl ThreadCommandSink for AppStateCommands {
     }
 
     async fn fork(&self, viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal> {
-        TaskForkService::validate_checkout(fork.same_sandbox, fork.branch.as_deref())
-            .map_err(|e| create_refusal(&fork.new_task_id, e))?;
-
         // Same reason `create_thread` checks this first: the id arrives from
         // the client, and `copy_conversation` below writes rows keyed on it
         // before any Task row exists to claim it.
@@ -994,7 +990,7 @@ impl ThreadCommandSink for AppStateCommands {
             agent_type: Some(source.agent_type.clone()),
             name: None,
             description: None,
-            branch: fork.branch.clone().or_else(|| source.branch.clone()),
+            branch: source.branch.clone(),
             message: fork.message.clone(),
             model: fork.model.clone().or_else(|| source.model.clone()),
             agent_mode: fork.agent_mode.clone(),

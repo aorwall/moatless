@@ -855,7 +855,6 @@ fn fork(new_task_id: &str, source_task_id: &str) -> ForkThread {
         at_turn: None,
         message: None,
         same_sandbox: false,
-        branch: None,
         model: None,
         agent_mode: None,
         effort: None,
@@ -888,37 +887,6 @@ async fn a_fork_is_created_under_the_clients_id_referencing_its_source(pool: PgP
         .expect("the fork's task_forks row names its source");
     assert_eq!(source_task_id, "t-source");
     assert_eq!(at_turn, None);
-}
-
-/// `sameSandbox` joins the source's one working tree, so a `branch` alongside
-/// it is refused before any row is written — the same rule the HTTP endpoint
-/// enforces, now reached through the sink instead.
-#[sqlx::test]
-async fn a_fork_with_same_sandbox_and_a_branch_is_refused_before_anything_is_created(
-    pool: PgPool,
-) {
-    seed_project(&pool, USER_1).await;
-    seed_task(&pool, "t-source", USER_1).await;
-
-    let fork_id = "11112222-3333-4444-8555-666677778888";
-    let mut request = fork(fork_id, "t-source");
-    request.same_sandbox = true;
-    request.branch = Some("feat/try-again".into());
-
-    let error = sink(&pool)
-        .fork(&viewer(USER_1), request)
-        .await
-        .expect_err("branch cannot be set with sameSandbox");
-    assert!(matches!(error, CommandRefusal::Rejected { .. }));
-
-    assert!(
-        moatless_backend::task::dao::store_over(&pool)
-            .find_by_id(fork_id, &viewer(USER_1))
-            .await
-            .unwrap()
-            .is_none(),
-        "a refused fork left no Task behind"
-    );
 }
 
 /// A viewer who cannot read the source Task gets the same answer as one that

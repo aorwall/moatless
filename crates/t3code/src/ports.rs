@@ -178,10 +178,8 @@ pub struct ForkThread {
     /// The fork's own first message. `None` creates it idle.
     pub message: Option<String>,
     /// Join the source Task's Sandbox on its shared checkout instead of
-    /// provisioning one from a copy of its workspace archive. Refused
-    /// alongside `branch` by the sink, one working tree either way.
+    /// provisioning one from a copy of its workspace archive.
     pub same_sandbox: bool,
-    pub branch: Option<String>,
     /// A catalog model id, already translated out of T3's published slug.
     pub model: Option<String>,
     pub agent_mode: Option<AgentMode>,

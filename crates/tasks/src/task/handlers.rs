@@ -176,8 +176,6 @@ pub async fn fork_task(
     Json(req): Json<ForkTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     let same_sandbox = req.same_sandbox.unwrap_or(false);
-    TaskForkService::validate_checkout(same_sandbox, req.branch.as_deref())?;
-
     let user_id = auth.user_id.to_string();
     let scope_ctx = auth.scope_context();
     let (source, plan) = task_fork.plan(&scope_ctx, &task_id, req.at_turn).await?;
@@ -200,7 +198,7 @@ pub async fn fork_task(
         agent_type: Some(source.agent_type.clone()),
         name: None,
         description: None,
-        branch: req.branch.clone().or_else(|| source.branch.clone()),
+        branch: source.branch.clone(),
         message: req.message.clone(),
         model: req.model.clone().or_else(|| source.model.clone()),
         agent_mode: req.agent_mode.clone(),

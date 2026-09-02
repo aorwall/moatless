@@ -54,9 +54,6 @@ pub enum TaskAction {
         /// provisioning one from a copy of its workspace
         #[arg(long)]
         same_sandbox: bool,
-        /// Branch for the fork's own checkout. Omit to keep the source task's
-        #[arg(long, conflicts_with = "same_sandbox")]
-        branch: Option<String>,
     },
     /// Create a new task (starts the sandbox and, if --message is provided, the agent)
     Create {
@@ -443,7 +440,6 @@ pub async fn run(
             at_turn,
             message,
             same_sandbox,
-            branch,
         } => {
             let source_task_id = resolve_task_id(client, &task_id).await?;
             let has_message = message.is_some();
@@ -451,7 +447,6 @@ pub async fn run(
                 at_turn,
                 message,
                 same_sandbox: same_sandbox.then_some(true),
-                branch,
                 effort: None,
                 model: None,
                 // The CLI always drives the agent in edit mode; plan mode is a

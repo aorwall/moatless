@@ -468,7 +468,6 @@ async fn fork_thread(
                     .get("sameSandbox")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
-                branch: branch(command),
                 model,
                 agent_mode: interaction_mode(command),
                 effort: selected_effort(command),
@@ -905,7 +904,6 @@ mod tests {
             at_turn: Option<i32>,
             message: Option<String>,
             same_sandbox: bool,
-            branch: Option<String>,
             model: Option<String>,
             agent_mode: Option<String>,
             effort: Option<String>,
@@ -1011,7 +1009,6 @@ mod tests {
                 at_turn: fork.at_turn,
                 message: fork.message,
                 same_sandbox: fork.same_sandbox,
-                branch: fork.branch,
                 model: fork.model,
                 agent_mode: fork.agent_mode.map(|m| m.0),
                 effort: fork.effort,
@@ -1770,7 +1767,6 @@ mod tests {
                 at_turn: None,
                 message: None,
                 same_sandbox: false,
-                branch: None,
                 model: None,
                 agent_mode: None,
                 effort: None,
@@ -1778,10 +1774,11 @@ mod tests {
         );
     }
 
-    /// `atTurn`, `sameSandbox`, `branch` and `message` all reach the sink
-    /// verbatim — the same shape the HTTP fork request carries.
+    /// `atTurn`, `sameSandbox` and `message` reach the sink verbatim — the
+    /// same shape the HTTP fork request carries. A `branch` in the command is
+    /// dropped: a fork runs on the branch its source is already on.
     #[tokio::test]
-    async fn a_fork_carries_at_turn_same_sandbox_branch_and_message() {
+    async fn a_fork_carries_at_turn_same_sandbox_and_message_but_not_branch() {
         let mut command = fork_command();
         command["atTurn"] = json!(3);
         command["sameSandbox"] = json!(false);
@@ -1797,7 +1794,6 @@ mod tests {
                 at_turn: Some(3),
                 message: Some("try a different approach".to_string()),
                 same_sandbox: false,
-                branch: Some("feat/try-again".to_string()),
                 model: None,
                 agent_mode: None,
                 effort: None,

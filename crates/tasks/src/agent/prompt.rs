@@ -358,9 +358,7 @@ fn build_parent_task_section(parent: ParentTask<'_>) -> String {
                  This task was forked from `{task_id}` {cut}. The conversation above it is a copy \
                  of that task's, up to the fork point — you are continuing from there along a \
                  different path, and anything `{task_id}` did after the fork is not yours.\n\n\
-                 Nothing is waiting on your result, so do not report back. This task has no name \
-                 or description yet: once you know what you are doing here, set them with \
-                 `moat set-name \"<name>\"`."
+                 Nothing is waiting on your result, so do not report back."
             )
         }
     }
@@ -570,6 +568,32 @@ mod tests {
         assert!(prompt.contains("turn 4"));
         assert!(!prompt.contains("# Parent Task"));
         assert!(!prompt.contains("moat send --task source-abc"));
+    }
+
+    /// The fork section restating the naming rule is what stopped forks from
+    /// getting named: it read "once you know what you are doing here", which
+    /// licenses deferring the `MUST` that `# Required First Actions` states
+    /// above it, and pointed at a `set-name` that cannot set a description.
+    #[test]
+    fn the_fork_section_leaves_naming_to_the_required_first_actions() {
+        let section = build_parent_task_section(ParentTask::ForkedFrom {
+            task_id: "source-abc",
+            at_turn: Some(4),
+        });
+        assert!(!section.contains("set-name"));
+    }
+
+    #[test]
+    fn an_unnamed_fork_is_told_to_name_itself_before_it_replies() {
+        let inputs = PromptInputs {
+            parent: Some(ParentTask::ForkedFrom {
+                task_id: "source-abc",
+                at_turn: Some(4),
+            }),
+            ..base_inputs("task-123")
+        };
+        let prompt = build_append_system_prompt(&inputs);
+        assert!(prompt.contains("# Required First Actions"));
         assert!(prompt.contains("moat set-name"));
     }
 }
