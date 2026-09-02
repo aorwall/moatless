@@ -18,7 +18,7 @@ use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
 use moatless_backend_core::change_feed::conversation::{ConversationChange, EVENTS_PER_CHANGE};
 use moatless_types::message::MessageType;
 use moatless_types::sandbox::SandboxDesiredState;
-use moatless_types::task::TurnStatus;
+use moatless_types::task::{TaskRelationType, TurnStatus};
 use moatless_backend_core::activity::Activity;
 use moatless_backend_core::activity::ActivityKind;
 use moatless_backend_core::activity::ActivityView;
@@ -381,6 +381,78 @@ pub(super) fn thread_detail(
     );
     row.insert("checkpoints".into(), Value::Array(Vec::new()));
     Value::Object(row)
+}
+
+/// One child Task, in the shape `Subtask` has on the wire
+/// (`packages/contracts/src/subtasks.ts`).
+///
+/// Deliberately not a thread row. A subtask is rendered as a fleet member
+/// beside the subagents of the Task it belongs to, so it carries what that row
+/// shows and a `threadId` to open it by, and none of the model, worktree or
+/// session fields a thread carries — the client that follows the link gets
+/// those from the thread itself.
+pub(super) fn subtask(conversation: &Conversation, relation: TaskRelationType) -> Value {
+    json!({
+        "threadId": conversation.task_id,
+        "title": conversation
+            .name
+            .as_deref()
+            .and_then(non_empty)
+            .unwrap_or_else(|| "New thread".to_string()),
+        "relation": match relation {
+            TaskRelationType::ForkedFrom => "forkedFrom",
+            // `related_to` is not a parent edge and never reaches this
+            // projection; the listing filters it out before projecting.
+            _ => "createdBy",
+        },
+        "status": subtask_status(conversation),
+        // Both are the agent parked on a person's answer, and a subtask's row
+        // says so rather than reporting the run as still working.
+        "awaitingInput": conversation.pending_question || conversation.pending_plan,
+        "agentType": conversation.agent_type.as_str(),
+        "branch": conversation
+            .branch
+            .as_deref()
+            .and_then(non_empty)
+            .map_or(Value::Null, Value::String),
+        // The newest turn's number is how many turns have run, which is what a
+        // fleet row shows as the child's depth of work.
+        "turnCount": conversation.turn_number.unwrap_or(0).max(0),
+        "createdAt": instant(created_at(conversation)),
+        "updatedAt": instant(conversation.updated_at.unwrap_or_else(|| created_at(conversation))),
+        "archivedAt": nullable_instant(conversation.closed_at),
+    })
+}
+
+/// A child Task's state in the agents panel's own status vocabulary, so a
+/// subtask row and a subagent row read the same.
+///
+/// Closing is Moatless's way of saying the work is done, so it outranks the
+/// newest turn: a closed Task whose last turn errored is finished, not failing.
+/// A Task that has never run is `pending`, and one whose last turn completed
+/// while the Task is still open is `idle` — it can be resumed, which is exactly
+/// what the panel's idle row means.
+fn subtask_status(conversation: &Conversation) -> &'static str {
+    if conversation.closed_at.is_some() {
+        return "completed";
+    }
+    let Some(status) = conversation.turn_status.as_deref() else {
+        return "pending";
+    };
+    let Some(parsed) = TurnStatus::parse(status) else {
+        warn!(
+            task_id = %conversation.task_id,
+            status,
+            "Turn status has no T3 counterpart; reporting the subtask as pending"
+        );
+        return "pending";
+    };
+    match parsed {
+        TurnStatus::Active | TurnStatus::Interrupted => "running",
+        TurnStatus::Completed => "idle",
+        TurnStatus::Error => "failed",
+        TurnStatus::Stopped => "interrupted",
+    }
 }
 
 /// The plans the agent proposed and nobody has answered.
@@ -4417,5 +4489,130 @@ mod tests {
             workspace_id_from_project_root("/moatless/workspaces/"),
             None
         );
+    }
+
+    /// Field for field against `Subtask` in
+    /// `packages/contracts/src/subtasks.ts`. Every field there is required, and
+    /// the three nullable ones are written as null rather than skipped: a
+    /// client decoding a struct does not get to treat an absent key as null.
+    #[test]
+    fn a_subtask_carries_every_field_the_contract_requires() {
+        let mut child = running_conversation("task-child", "ws-1");
+        child.name = Some("Migrate the callers".to_string());
+        child.created_at = "2026-07-01T09:05:00.000Z".to_string();
+        child.created_at_db = Some(instant_at("2026-07-01T09:05:00.000Z"));
+        child.updated_at = Some(instant_at("2026-07-01T09:11:30.000Z"));
+
+        assert_eq!(
+            subtask(&child, TaskRelationType::CreatedBy),
+            json!({
+                "threadId": "task-child",
+                "title": "Migrate the callers",
+                "relation": "createdBy",
+                "status": "running",
+                "awaitingInput": false,
+                "agentType": "claude-code",
+                "branch": "feat/checkout",
+                "turnCount": 3,
+                "createdAt": "2026-07-01T09:05:00.000Z",
+                "updatedAt": "2026-07-01T09:11:30.000Z",
+                "archivedAt": Value::Null,
+            })
+        );
+    }
+
+    /// A fork is a child too, and the row says which kind it is because the two
+    /// mean different things to a reader.
+    #[test]
+    fn a_forked_child_is_labelled_as_one() {
+        assert_eq!(
+            subtask(&conversation("task-fork", "ws-1"), TaskRelationType::ForkedFrom)["relation"],
+            "forkedFrom"
+        );
+    }
+
+    /// Closing outranks the newest turn. A child whose last turn errored and
+    /// which was then closed is finished, and reporting it as failing would
+    /// keep a settled fleet looking broken.
+    #[test]
+    fn subtask_status_reads_closing_before_the_newest_turn() {
+        let mut child = running_conversation("task-child", "ws-1");
+        child.turn_status = Some("error".to_string());
+        assert_eq!(subtask(&child, TaskRelationType::CreatedBy)["status"], "failed");
+
+        child.closed_at = Some(Utc::now());
+        assert_eq!(
+            subtask(&child, TaskRelationType::CreatedBy)["status"],
+            "completed"
+        );
+    }
+
+    /// The four turn states a child can settle in, and the one it sits at
+    /// before it has ever run.
+    #[test]
+    fn every_turn_state_maps_onto_the_panels_vocabulary() {
+        let mut child = running_conversation("task-child", "ws-1");
+        for (turn_status, expected) in [
+            ("active", "running"),
+            // The Sandbox went away mid-turn; the run resumes, so it is working.
+            ("interrupted", "running"),
+            ("completed", "idle"),
+            ("error", "failed"),
+            ("stopped", "interrupted"),
+            // A status this build does not know is not reported as a state it
+            // is not in.
+            ("something-newer", "pending"),
+        ] {
+            child.turn_status = Some(turn_status.to_string());
+            assert_eq!(
+                subtask(&child, TaskRelationType::CreatedBy)["status"],
+                expected,
+                "turn status {turn_status}"
+            );
+        }
+
+        child.turn_status = None;
+        assert_eq!(
+            subtask(&child, TaskRelationType::CreatedBy)["status"],
+            "pending"
+        );
+    }
+
+    /// Waiting on a person is not a state of the run, so it rides beside the
+    /// status rather than replacing it.
+    #[test]
+    fn awaiting_input_is_reported_beside_a_running_status() {
+        let mut child = running_conversation("task-child", "ws-1");
+        child.pending_question = true;
+        let row = subtask(&child, TaskRelationType::CreatedBy);
+        assert_eq!(row["awaitingInput"], true);
+        assert_eq!(row["status"], "running");
+
+        child.pending_question = false;
+        child.pending_plan = true;
+        assert_eq!(
+            subtask(&child, TaskRelationType::CreatedBy)["awaitingInput"],
+            true
+        );
+    }
+
+    /// An unnamed child gets the contract's placeholder: `title` refuses a
+    /// blank string, and `tasks.name` is nullable.
+    #[test]
+    fn an_unnamed_subtask_falls_back_to_the_contracts_placeholder() {
+        let mut child = conversation("task-child", "ws-1");
+        child.name = Some("   ".to_string());
+        child.branch = None;
+        child.turn_number = None;
+        let row = subtask(&child, TaskRelationType::CreatedBy);
+        assert_eq!(row["title"], "New thread");
+        assert_eq!(row["branch"], Value::Null);
+        assert_eq!(row["turnCount"], 0);
+    }
+
+    fn instant_at(value: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(value)
+            .expect("a well-formed instant")
+            .with_timezone(&Utc)
     }
 }

@@ -42,6 +42,7 @@ mod review;
 mod sandbox;
 mod scripts;
 mod servers;
+mod subtasks;
 mod terminal;
 pub mod workspace;
 
@@ -84,6 +85,7 @@ use crate::preview_tabs::PreviewTabDao;
 use crate::sandbox::{SandboxRpcError, SandboxState};
 use crate::scripts::{ScriptsError, ScriptsState};
 use crate::servers::{ServersError, ServersState};
+use crate::subtasks::{SubtasksError, SubtasksState};
 use crate::workspace::WorkspaceAccessError;
 use moatless_backend_core::change_feed::conversation::{ConversationHead, Resume, resume};
 use moatless_types::access_control::ScopeContext;
@@ -277,6 +279,9 @@ struct UiRpcState {
     scripts: ScriptsState,
     /// What a Task's Sandbox lifecycle is doing, and lifecycle commands.
     sandbox: SandboxState,
+    /// The Tasks a Task spawned. A second fleet beside its subagents, and not
+    /// the same kind of thing: each one is a Thread of its own.
+    subtasks: SubtasksState,
     /// The browser tabs open on a Task, and the fan-out that tells every
     /// replica when one changes.
     preview: PreviewState,
@@ -357,6 +362,7 @@ pub async fn router_from_env(
         model_defaults,
         agents,
         branches,
+        relations,
         pull_requests,
         source_control_auth,
         commands,
@@ -390,7 +396,7 @@ pub async fn router_from_env(
         session_jwt_secret: session_jwt_secret.map(Arc::from),
         pairing,
         workspaces: workspaces.clone(),
-        conversations,
+        conversations: conversations.clone(),
         sandboxes,
         servers: ServersState {
             observer: observer.clone(),
@@ -405,6 +411,10 @@ pub async fn router_from_env(
             starter,
             stopper,
             diagnostics,
+        },
+        subtasks: SubtasksState {
+            relations,
+            conversations,
         },
         preview: PreviewState {
             tabs: preview_tabs,
@@ -463,6 +473,9 @@ pub struct UiRpcDependencies {
     /// A repository's branches, read from its git host, for a draft thread's
     /// branch picker.
     pub branches: Arc<dyn ports::RepositoryBranchSource>,
+    /// The child edges behind `subtasks.list`. Access is applied afterwards,
+    /// by re-reading each child through `conversations`.
+    pub relations: Arc<dyn ports::TaskRelationSource>,
     /// The pull request a Task is bound to, and reference resolution for the
     /// attach-PR dialog.
     pub pull_requests: Arc<dyn ports::BoundPullRequestSource>,
@@ -2017,6 +2030,23 @@ impl ProtocolSession {
                     Err(error) => vec![servers_failure_exit(&id, &error, identity)],
                 }
             }
+            "subtasks.list" => {
+                let viewer = viewer_scope(identity);
+                let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+                    return vec![failure_exit(&id, "subtasks.list requires a threadId")];
+                };
+                match subtasks::list(&state.subtasks, &viewer, task_id).await {
+                    Ok(listing) => vec![success_exit(&id, listing)],
+                    // A Thread the viewer cannot read has no subtasks *for
+                    // them*, and the panel is a section on a page they are
+                    // already looking at: an empty list is the honest answer
+                    // and a failure would red-flag a working page.
+                    Err(SubtasksError::NotFound) => {
+                        vec![success_exit(&id, json!({ "subtasks": [] }))]
+                    }
+                    Err(error) => vec![subtasks_failure_exit(&id, &error, identity)],
+                }
+            }
             "scripts.run" => {
                 let viewer = viewer_scope(identity);
                 match scripts::run(
@@ -3481,6 +3511,17 @@ fn servers_failure_exit(
     failure_exit(request_id, "Failed to read the conversation's servers")
 }
 
+/// The client is told the subtasks could not be read; the cause is logged once
+/// here rather than shipped to the browser.
+fn subtasks_failure_exit(
+    request_id: &RequestId,
+    error: &SubtasksError,
+    identity: &UiRpcAuthIdentity,
+) -> Value {
+    error!(%error, user_id = %identity.user_id, "Failed to read a Task's subtasks");
+    failure_exit(request_id, "Failed to read the conversation's subtasks")
+}
+
 /// How a failed `scripts.run` reaches the client.
 ///
 /// A terminal failure is delegated to [`terminal_failure_exit`] so the person
@@ -4017,6 +4058,18 @@ mod tests {
         }
     }
 
+    struct NoChildTasks;
+
+    #[async_trait]
+    impl ports::TaskRelationSource for NoChildTasks {
+        async fn children(
+            &self,
+            _parent_task_id: &str,
+        ) -> Result<Vec<ports::ChildTask>, moatless_types::store::StoreError> {
+            Ok(Vec::new())
+        }
+    }
+
     /// What reached the attachment store, so the mint, the upload route and
     /// `attachments.delete` can be asserted without a database or an S3 bucket
     /// behind them.
@@ -4206,6 +4259,10 @@ mod tests {
         conversations
             .expect_conversation_changes()
             .returning(|_, _, _| Ok(Vec::new()));
+        conversations
+            .expect_readable_by_ids()
+            .returning(|_, _| Ok(Vec::new()));
+        let conversations: Arc<dyn ConversationDao> = Arc::new(conversations);
         UiRpcState {
             rpc: Arc::new(UiRpcConfig {
                 environment_id: environment_id(&stub_identity()),
@@ -4219,7 +4276,7 @@ mod tests {
             session_jwt_secret: Some(Arc::from("test-secret")),
             pairing: Arc::new(test_pairing(None)),
             workspaces: Arc::new(workspaces),
-            conversations: Arc::new(conversations),
+            conversations: conversations.clone(),
             sandboxes: Arc::new(UnreachableSandboxes),
             servers: ServersState {
                 observer: Arc::new(UnreachableSandboxes),
@@ -4237,6 +4294,10 @@ mod tests {
                 starter: Arc::new(UnreachableSandboxes),
                 stopper: Arc::new(UnreachableSandboxes),
                 diagnostics: Arc::new(UnreachableSandboxes),
+            },
+            subtasks: SubtasksState {
+                relations: Arc::new(NoChildTasks),
+                conversations,
             },
             preview: PreviewState {
                 tabs: Arc::new(preview_tabs::InMemoryPreviewTabDao::new()),

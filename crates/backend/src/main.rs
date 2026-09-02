@@ -505,6 +505,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 preview_tabs: preview_tabs.clone(),
                 agents: Arc::new(t3code::backend::AppStateAgents(app_state.clone())),
                 branches: Arc::new(t3code::backend::AppStateBranches(app_state.clone())),
+                relations: Arc::new(t3code::backend::AppStateTaskRelations(app_state.clone())),
                 pull_requests: Arc::new(t3code::backend::AppStateBoundPullRequests(
                     app_state.clone(),
                 )),

@@ -40,11 +40,19 @@ translation belongs in `projection.rs`, where the wire shape is built.
 
 ## Ports over sources
 
-The seams are how this crate reaches anything it does not read directly. Four
+The seams are how this crate reaches anything it does not read directly. Five
 (`AgentCatalogSource`, `RepositoryBranchSource`, `BoundPullRequestSource`,
-`SourceControlAuthSource`) and `ThreadCommandSink` are declared here and
-implemented over `AppState` in `crates/backend/src/t3code/backend.rs`, beside
-each other. `ActivitySource` is the exception: it is declared in
+`SourceControlAuthSource`, `TaskRelationSource`) and `ThreadCommandSink` are
+declared here and implemented over `AppState` in
+`crates/backend/src/t3code/backend.rs`, beside each other.
+
+`TaskRelationSource` is a seam rather than a sixteenth table for the stated
+reason: `task_relations` is the Task band's and `TaskRelationDao` already
+publishes the read. It answers with every edge and decides no access — the
+children it names are re-read through `ConversationDao::readable_by_ids`, so
+what a viewer is shown of a Task tree is settled by the same rule a link is.
+
+`ActivitySource` is the exception: it is declared in
 `moatless_backend_core::activity` and implemented by the Task band itself
 (`moatless_tasks::ports::Activities`), because the reads it serves are the Task
 band's own and existed before this crate wanted them. Add a seam, not a

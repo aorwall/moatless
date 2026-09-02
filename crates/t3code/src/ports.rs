@@ -13,6 +13,8 @@ use chrono::{DateTime, Utc};
 use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_api_schemas::repository::BranchListResponse;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::store::StoreError;
+use moatless_types::task::TaskRelationType;
 
 use moatless_types::agent::AgentMode;
 
@@ -200,6 +202,29 @@ pub struct QuestionAnswer {
 #[async_trait]
 pub trait AgentCatalogSource: Send + Sync {
     async fn list(&self, viewer: &ScopeContext) -> Vec<AgentDescriptor>;
+}
+
+/// One Task that names another as its parent.
+///
+/// Carries no access decision: a relation says the edge exists, and whether the
+/// child may be shown is settled afterwards by re-reading it through
+/// [`ConversationDao::readable_by_ids`](crate::dao::ConversationDao::readable_by_ids).
+pub struct ChildTask {
+    pub task_id: String,
+    /// Which parent edge this is. Both make the child a child; they differ in
+    /// what a reader should call it.
+    pub relation: TaskRelationType,
+}
+
+/// The Tasks that name a Task as their parent.
+///
+/// A port rather than a query here because relations are the Task band's
+/// vocabulary and it already publishes the read (`TaskRelationDao`). Access is
+/// deliberately not this port's business — it answers with every edge, and the
+/// caller narrows to what the viewer may read.
+#[async_trait]
+pub trait TaskRelationSource: Send + Sync {
+    async fn children(&self, parent_task_id: &str) -> Result<Vec<ChildTask>, StoreError>;
 }
 
 /// Why a repository's branches could not be listed.

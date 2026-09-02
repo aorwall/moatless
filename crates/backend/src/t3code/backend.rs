@@ -26,11 +26,12 @@ use crate::task::models::TaskStatus;
 use crate::task::service as task_service;
 use moatless_t3code::ports::{
     AgentCatalogSource, AttachmentKind, AttachmentStore, AttachmentStoreError, BoundPullRequest,
-    BoundPullRequestSource, BranchListError, CommandRefusal, DeclaredAttachment, ForkThread,
-    GithubIdentity, NewThread, PullRequestError, QuestionAnswer, RepositoryBranchSource,
-    ResolvedPullRequest, SourceControlAuthSource, ThreadCommandSink, ThreadMeta, ThreadTurn,
-    TurnAttachment,
+    BoundPullRequestSource, BranchListError, ChildTask, CommandRefusal, DeclaredAttachment,
+    ForkThread, GithubIdentity, NewThread, PullRequestError, QuestionAnswer,
+    RepositoryBranchSource, ResolvedPullRequest, SourceControlAuthSource, TaskRelationSource,
+    ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment,
 };
+use moatless_types::store::StoreError;
 
 pub struct AppStateAgents(pub AppState);
 
@@ -388,6 +389,30 @@ impl SourceControlAuthSource for AppStateSourceControlAuth {
         Some(GithubIdentity {
             account: presence.login,
         })
+    }
+}
+
+pub struct AppStateTaskRelations(pub AppState);
+
+#[async_trait]
+impl TaskRelationSource for AppStateTaskRelations {
+    async fn children(&self, parent_task_id: &str) -> Result<Vec<ChildTask>, StoreError> {
+        // Every incoming edge, filtered by the compatibility surface: a
+        // narrower query here would decide which relation types are children
+        // in two places.
+        let relations = self
+            .0
+            .task_relations
+            .list_incoming(parent_task_id, None)
+            .await
+            .map_err(|cause| StoreError::with_source("list incoming task relations", cause))?;
+        Ok(relations
+            .into_iter()
+            .map(|relation| ChildTask {
+                task_id: relation.from_task_id,
+                relation: relation.relation_type,
+            })
+            .collect())
     }
 }
 

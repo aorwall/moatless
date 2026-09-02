@@ -344,6 +344,19 @@ pub trait ConversationDao: Send + Sync {
         task_id: &str,
     ) -> Result<Option<Conversation>, sqlx::Error>;
 
+    /// The same read over a set of Tasks, in one query.
+    ///
+    /// What a caller holding a list of ids needs — the subtask listing holds
+    /// the children a relation named — and it is [`Self::readable_by_id`]'s
+    /// rules unchanged, so an id the viewer may not read comes back absent
+    /// rather than as a row with the fields blanked. Order is not specified;
+    /// the caller sorts.
+    async fn readable_by_ids(
+        &self,
+        viewer: &ScopeContext,
+        task_ids: &[String],
+    ) -> Result<Vec<Conversation>, sqlx::Error>;
+
     /// Whether this viewer may *mutate* the named Task — the `write_filter`
     /// rule: owner or admin, and never a follower or a public reader. The
     /// listing above is a read and widens to what a person follows; a write
@@ -1108,6 +1121,18 @@ impl ConversationDao for PgConversationDao {
             .await?
             .into_iter()
             .next())
+    }
+
+    async fn readable_by_ids(
+        &self,
+        viewer: &ScopeContext,
+        task_ids: &[String],
+    ) -> Result<Vec<Conversation>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.list(viewer, Reach::Readable, LISTED_STATUSES, Some(task_ids))
+            .await
     }
 
     async fn writes_conversation(

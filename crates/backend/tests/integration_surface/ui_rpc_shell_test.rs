@@ -259,6 +259,9 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         branches: Arc::new(t3code_backend::AppStateBranches(test_app_state(
             pool.clone(),
         ))),
+        relations: Arc::new(t3code_backend::AppStateTaskRelations(test_app_state(
+            pool.clone(),
+        ))),
         pull_requests: Arc::new(t3code_backend::AppStateBoundPullRequests(test_app_state(
             pool.clone(),
         ))),
@@ -2449,6 +2452,14 @@ impl ConversationDao for RefusesTheRowRead {
         task_id: &str,
     ) -> Result<Option<Conversation>, sqlx::Error> {
         self.0.readable_by_id(viewer, task_id).await
+    }
+
+    async fn readable_by_ids(
+        &self,
+        viewer: &ScopeContext,
+        task_ids: &[String],
+    ) -> Result<Vec<Conversation>, sqlx::Error> {
+        self.0.readable_by_ids(viewer, task_ids).await
     }
 
     async fn search_conversations(
