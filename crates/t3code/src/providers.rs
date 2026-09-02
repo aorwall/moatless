@@ -141,7 +141,7 @@ const CLAUDE_MODELS: &[(&str, &str, &str)] = &[
     ("opus", "claude-opus-5", "Claude Opus 5"),
     ("sonnet", "claude-sonnet-5", "Claude Sonnet 5"),
     ("haiku", "claude-haiku-4-5", "Claude Haiku 4.5"),
-    ("fable", "claude-fable-5", "Claude Fable 5"),
+    ("fable", "claude-fable-5-1", "Claude Fable 5.1"),
 ];
 
 /// The slug we publish for a catalog model id.
@@ -391,7 +391,7 @@ mod tests {
                 "claude-opus-5",
                 "claude-sonnet-5",
                 "claude-haiku-4-5",
-                "claude-fable-5"
+                "claude-fable-5-1"
             ]
         );
     }
@@ -408,7 +408,7 @@ mod tests {
                 "Claude Opus 5",
                 "Claude Sonnet 5",
                 "Claude Haiku 4.5",
-                "Claude Fable 5"
+                "Claude Fable 5.1"
             ]
         );
     }

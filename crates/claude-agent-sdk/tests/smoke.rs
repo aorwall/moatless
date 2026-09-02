@@ -31,7 +31,7 @@ use claude_agent_sdk::{query, ClaudeOptions, SdkMessage};
 
 /// MUST match `CLAUDE_CLI_VERSION` in `docker/Dockerfile.sandbox-base`.
 /// Bump this when the Dockerfile pin is bumped.
-const EXPECTED_CLAUDE_CLI_VERSION: &str = "2.1.251";
+const EXPECTED_CLAUDE_CLI_VERSION: &str = "2.1.258";
 
 const TEST_MODEL: &str = "claude-haiku-4-5-20251001";
 const TEST_TIMEOUT: Duration = Duration::from_secs(60);
