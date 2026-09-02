@@ -1,7 +1,7 @@
 import type { SandboxStatusFullResponse } from '@moatless/api-client'
 import { ArrowUpCircle, CheckCircle2, ExternalLink, Pencil, Timer } from 'lucide-react'
 import { useState } from 'react'
-import { BackgroundProcessesSection } from '@/features/sandbox/components/background-processes-section'
+import { ManagedCommandsSection } from '@/features/sandbox/components/managed-commands-section'
 import { SandboxActionButtons } from '@/features/sandbox/components/sandbox-action-buttons'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
@@ -237,8 +237,8 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
           </div>
         </section>
 
-        <BackgroundProcessesSection
-          processes={status?.backgroundProcesses ?? []}
+        <ManagedCommandsSection
+          commands={status?.commands ?? []}
           scheduledJobs={status?.scheduledJobs}
         />
 

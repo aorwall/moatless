@@ -211,7 +211,7 @@ mod tests {
             servers: vec![],
             frontend_url: None,
             use_tmux: false,
-            background_job_monitoring_enabled: false,
+            command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             workspace_restore_if_empty: false,
@@ -251,6 +251,7 @@ mod tests {
         let credential_dispatcher = Arc::new(Dispatcher::new());
         let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
         let heartbeat = crate::agent::heartbeat::Heartbeat::new();
+        let commands = Arc::new(crate::commands::CommandRegistry::for_test());
 
         let agent_handle = spawn_agent(
             Arc::clone(&config),
@@ -259,6 +260,7 @@ mod tests {
             Arc::clone(&credentials),
             Arc::clone(&backend),
             Arc::clone(&scheduled_jobs),
+            Arc::clone(&commands),
             credential_failures.clone(),
             Arc::clone(&credential_dispatcher),
             Arc::clone(&system_prompt_cache),
@@ -274,6 +276,7 @@ mod tests {
             agent_state,
             agent_handle,
             scheduled_jobs,
+            commands,
             credential_failures,
             system_prompt_cache,
         ));

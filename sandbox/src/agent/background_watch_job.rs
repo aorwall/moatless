@@ -1,163 +1,106 @@
-//! Background-completion watcher for `run_in_background` jobs.
+//! Completion watcher for commands registered through `moat cmd`.
 //!
 //! In subprocess mode each agent turn is a one-shot Claude CLI process that
-//! exits when the turn's `result` arrives. A `Bash(run_in_background)` job the
-//! CLI spawned is reparented to the sandbox process (container PID 1) and keeps
-//! running, but the CLI's own "you'll be notified when it completes" message
-//! dies with the subprocess — so nothing re-triggers the agent. This job fills
-//! that gap: armed at a clean turn end when live descendant processes remain,
-//! it polls the specific processes captured at arm time and, once they are all
-//! gone, injects a synthetic user message so the agent picks their output back
-//! up (the same re-trigger path `ScheduleWakeup` uses).
+//! exits when the turn's `result` arrives, so nothing re-triggers the agent when
+//! work it left running finishes. This job fills that gap: armed at a clean turn
+//! end over the commands still running, it polls the registry and injects a
+//! synthetic user message as soon as one of them reaches a terminal state (the
+//! same re-trigger path `ScheduleWakeup` uses).
 //!
-//! Watching the *specific* PIDs (rather than "any descendant") means a later
-//! turn's CLI subprocess never keeps the watch alive, and re-arming at each
-//! turn end is latest-wins so the snapshot stays fresh.
+//! It wakes on the *first* command to finish rather than the last, so a build
+//! running alongside a long-lived server still reports the moment it is done.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::time::Instant;
 use tracing::{debug, info};
 
-use crate::process_tree::{self, LiveProcess};
+use crate::commands::{CommandRegistry, CommandState, ManagedCommand};
 
 use super::scheduled_job::{
     BackgroundWatchSnapshot, JobContext, JobKind, JobSnapshot, ScheduledJob,
 };
 
-/// How often the watcher re-checks whether its processes are still alive.
+/// How often the watcher re-checks the registry.
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Settle window before the watch commits to its process set. The per-turn CLI
-/// subprocess emits its `result` just before exiting, so a snapshot taken right
-/// at turn end can momentarily include the CLI's own (exiting) processes. After
-/// this delay those have gone, leaving only genuine background work — if nothing
-/// remains, the watch exits without ever waking the agent.
-const CONFIRM_DELAY: Duration = Duration::from_secs(3);
-
-/// Hard cap on how long a single watch runs before giving up without waking the
-/// agent. Mirrors the backend's `busy_extension_max_hours` default so a stuck
-/// daemon can't hold a watch (or defer idle-reaping) indefinitely.
-const MAX_WATCH_DURATION: Duration = Duration::from_hours(4);
-
-/// How many command previews to keep in the status snapshot / wake prompt.
+/// How many command labels to keep in the status snapshot / wake prompt.
 const MAX_COMMAND_PREVIEWS: usize = 5;
 
-/// Which of the given PIDs are still live.
-///
-/// Injectable because the real implementation reads `/proc`: on a non-Linux
-/// host every read fails soft and reports "gone", so a test driving real
-/// processes would see them dead from the start and never exercise the watch.
-pub(crate) trait ProcessLiveness: Send + Sync + 'static {
-    /// The subset of `pids` still live — used once, to settle the watch set.
-    fn live_pids(&self, pids: &[u32]) -> Vec<u32>;
-
-    /// Whether any of `pids` is still live. Split from [`live_pids`] because
-    /// the poll loop only needs the answer, not the set.
-    fn any_live(&self, pids: &[u32]) -> bool {
-        !self.live_pids(pids).is_empty()
-    }
-}
-
-/// Production implementation, backed by `/proc`.
-struct ProcLiveness;
-
-impl ProcessLiveness for ProcLiveness {
-    fn live_pids(&self, pids: &[u32]) -> Vec<u32> {
-        process_tree::live_pids(pids)
-    }
-
-    fn any_live(&self, pids: &[u32]) -> bool {
-        // Short-circuits and allocates nothing — this runs on every poll tick.
-        process_tree::any_pid_live(pids)
-    }
-}
-
-/// A watch armed over the background processes live at the end of a turn.
+/// A watch armed over the commands still running at the end of a turn.
 pub struct BackgroundWatchJob {
     id: String,
     registered_at_unix_ms: i64,
-    /// PIDs captured at arm time — the watch completes when none remain live.
-    watched_pids: Vec<u32>,
-    /// Command previews for status display and the wake prompt.
+    watched_ids: Vec<String>,
     commands: Vec<String>,
     poll_interval: Duration,
-    confirm_delay: Duration,
-    deadline: Instant,
-    liveness: Arc<dyn ProcessLiveness>,
+    registry: Arc<CommandRegistry>,
 }
 
 impl BackgroundWatchJob {
-    /// Snapshot the sandbox's live descendants and arm a watch over them.
-    /// Returns `None` when there is no background work to watch.
-    ///
-    /// Reads `/proc` synchronously — call from a blocking context
-    /// (`spawn_blocking`) so it never stalls the async runtime.
-    pub fn arm(sandbox_pid: u32) -> Option<Self> {
-        let procs = process_tree::live_descendants(sandbox_pid);
-        Self::from_processes(procs)
-    }
-
-    /// Build a watch from an already-captured process list (unit-test seam).
-    fn from_processes(procs: Vec<LiveProcess>) -> Option<Self> {
-        if procs.is_empty() {
+    /// Arm a watch over every command still running. `None` when there is none,
+    /// so a turn that left no work behind registers nothing.
+    pub async fn arm(registry: Arc<CommandRegistry>) -> Option<Self> {
+        let running: Vec<ManagedCommand> = registry
+            .list()
+            .await
+            .into_iter()
+            .filter(|c| !c.state.is_terminal())
+            .collect();
+        if running.is_empty() {
             return None;
         }
-        let watched_pids = procs.iter().map(|p| p.pid).collect();
-        let commands = procs
-            .iter()
-            .take(MAX_COMMAND_PREVIEWS)
-            .map(|p| p.command.clone())
-            .collect();
         Some(Self {
             id: format!("bgwatch-{}", uuid::Uuid::new_v4()),
             registered_at_unix_ms: unix_now_ms(),
-            watched_pids,
-            commands,
+            watched_ids: running.iter().map(|c| c.id.clone()).collect(),
+            commands: running
+                .iter()
+                .take(MAX_COMMAND_PREVIEWS)
+                .map(|c| c.label.clone())
+                .collect(),
             poll_interval: POLL_INTERVAL,
-            confirm_delay: CONFIRM_DELAY,
-            deadline: Instant::now() + MAX_WATCH_DURATION,
-            liveness: Arc::new(ProcLiveness),
+            registry,
         })
     }
 
-    /// Test-only constructor with explicit timings, no deadline cap, and an
-    /// injected liveness source.
     #[cfg(test)]
-    pub(crate) fn new_for_test(
-        watched_pids: Vec<u32>,
-        poll_interval: Duration,
-        confirm_delay: Duration,
-        liveness: Arc<dyn ProcessLiveness>,
-    ) -> Self {
-        Self {
-            id: format!("bgwatch-test-{}", watched_pids.len()),
-            registered_at_unix_ms: unix_now_ms(),
-            watched_pids,
-            commands: vec!["sleep".to_string()],
-            poll_interval,
-            confirm_delay,
-            deadline: Instant::now() + Duration::from_hours(1),
-            liveness,
-        }
+    pub(crate) fn with_poll_interval(mut self, interval: Duration) -> Self {
+        self.poll_interval = interval;
+        self
     }
 
-    /// Human-readable message injected once the watched processes finish.
-    fn wake_prompt(&self) -> String {
-        let count = self.watched_pids.len();
-        let noun = if count == 1 { "job" } else { "jobs" };
-        let commands = if self.commands.is_empty() {
-            String::new()
+    /// Message injected once a watched command finishes.
+    fn wake_prompt(finished: &[ManagedCommand]) -> String {
+        let lines: Vec<String> = finished
+            .iter()
+            .map(|c| {
+                let outcome = match (c.state, c.exit_code) {
+                    (CommandState::TimedOut, _) => {
+                        format!("timed out after {}s", c.timeout.as_secs())
+                    }
+                    (CommandState::Killed, _) => "killed".to_string(),
+                    (_, Some(0)) => "succeeded".to_string(),
+                    (_, Some(code)) => format!("failed with exit {code}"),
+                    (_, None) => "ended without an exit code".to_string(),
+                };
+                format!(
+                    "- `{}` ({}) {} — output: {}",
+                    c.id,
+                    c.label,
+                    outcome,
+                    c.log_path.display()
+                )
+            })
+            .collect();
+        let noun = if finished.len() == 1 {
+            "command has"
         } else {
-            format!(" ({})", self.commands.join("; "))
+            "commands have"
         };
         format!(
-            "A background process you started has finished. {count} background {noun}{commands} \
-             that {verb} running when your last turn ended {verb} no longer active. Review the \
-             output (for example with the BashOutput tool, or by reading any log file you \
-             redirected output to) and continue the task.",
-            verb = if count == 1 { "was" } else { "were" },
+            "A background {noun} finished:\n{}\n\nRead the output and continue the task.",
+            lines.join("\n")
         )
     }
 
@@ -165,9 +108,9 @@ impl BackgroundWatchJob {
         &self.id
     }
 
-    /// Number of background processes this watch is waiting on.
-    pub fn process_count(&self) -> usize {
-        self.watched_pids.len()
+    /// Number of commands this watch is waiting on.
+    pub fn command_count(&self) -> usize {
+        self.watched_ids.len()
     }
 }
 
@@ -185,33 +128,12 @@ impl ScheduledJob for BackgroundWatchJob {
         JobSnapshot::BackgroundWatch(BackgroundWatchSnapshot {
             id: self.id.clone(),
             registered_at_unix_ms: self.registered_at_unix_ms,
-            process_count: self.watched_pids.len() as u32,
+            command_count: self.watched_ids.len() as u32,
             commands: self.commands.clone(),
         })
     }
 
     async fn run(self: Box<Self>, ctx: JobContext) {
-        // Settle window: let the just-exited CLI subprocess drop out of the
-        // captured set before committing to watch anything.
-        tokio::select! {
-            () = ctx.job_cancel.cancelled() => return,
-            () = ctx.run_cancel.cancelled() => return,
-            () = tokio::time::sleep(self.confirm_delay) => {}
-        }
-
-        let initial = self.watched_pids.clone();
-        let settle_liveness = Arc::clone(&self.liveness);
-        let watched = tokio::task::spawn_blocking(move || settle_liveness.live_pids(&initial))
-            .await
-            .unwrap_or_default();
-        if watched.is_empty() {
-            debug!(
-                id = %self.id,
-                "No background processes survived the settle window; not waking the agent"
-            );
-            return;
-        }
-
         let mut ticker = tokio::time::interval(self.poll_interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
@@ -225,26 +147,14 @@ impl ScheduledJob for BackgroundWatchJob {
                     return;
                 }
                 _ = ticker.tick() => {
-                    if Instant::now() >= self.deadline {
+                    let finished = self.registry.finished(&self.watched_ids).await;
+                    if !finished.is_empty() {
                         info!(
                             id = %self.id,
-                            "Background watch hit max duration; stopping without waking the agent"
+                            count = finished.len(),
+                            "Background commands finished; waking the agent"
                         );
-                        return;
-                    }
-                    let pids = watched.clone();
-                    let poll_liveness = Arc::clone(&self.liveness);
-                    let still_running =
-                        tokio::task::spawn_blocking(move || poll_liveness.any_live(&pids))
-                            .await
-                            .unwrap_or(false);
-                    if !still_running {
-                        info!(
-                            id = %self.id,
-                            count = watched.len(),
-                            "Background processes finished; waking the agent"
-                        );
-                        ctx.injector.inject(self.wake_prompt());
+                        ctx.injector.inject(Self::wake_prompt(&finished));
                         return;
                     }
                 }
@@ -262,65 +172,142 @@ fn unix_now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::CommandSpec;
+    use std::sync::Mutex;
+    use tokio_util::sync::CancellationToken;
 
-    #[test]
-    fn arm_returns_none_without_processes() {
-        assert!(BackgroundWatchJob::from_processes(vec![]).is_none());
+    use super::super::scheduled_job::JobInjector;
+
+    struct CapturingInjector(Arc<Mutex<Vec<String>>>);
+
+    impl JobInjector for CapturingInjector {
+        fn inject(&self, text: String) {
+            self.0.lock().expect("lock").push(text);
+        }
     }
 
-    #[test]
-    fn arm_captures_pids_and_commands() {
-        let job = BackgroundWatchJob::from_processes(vec![
-            LiveProcess {
-                pid: 42,
-                command: "cargo test --no-run".to_string(),
-            },
-            LiveProcess {
-                pid: 43,
-                command: "sleep 30".to_string(),
-            },
-        ])
-        .expect("processes present");
-
-        let JobSnapshot::BackgroundWatch(snap) = job.snapshot() else {
-            panic!("expected background-watch snapshot");
-        };
-        assert_eq!(snap.process_count, 2);
-        assert_eq!(snap.commands.len(), 2);
-        assert_eq!(job.kind(), JobKind::BackgroundWatch);
-        assert!(job.wake_prompt().contains("cargo test --no-run"));
-        assert!(job.wake_prompt().contains("jobs"));
+    fn registry() -> Arc<CommandRegistry> {
+        let dir = std::env::temp_dir().join(format!("bgwatch-{}", uuid::Uuid::new_v4()));
+        Arc::new(CommandRegistry::new(Duration::from_mins(1), dir))
     }
 
-    #[test]
-    fn command_previews_are_capped() {
-        let procs: Vec<LiveProcess> = (0..10)
-            .map(|i| LiveProcess {
-                pid: 100 + i,
-                command: format!("proc-{i}"),
-            })
-            .collect();
-        let job = BackgroundWatchJob::from_processes(procs).expect("processes present");
-        let JobSnapshot::BackgroundWatch(snap) = job.snapshot() else {
-            panic!("expected background-watch snapshot");
-        };
-        assert_eq!(snap.process_count, 10, "count reflects all watched pids");
-        assert_eq!(
-            snap.commands.len(),
-            MAX_COMMAND_PREVIEWS,
-            "previews are capped"
+    fn context(injected: &Arc<Mutex<Vec<String>>>) -> JobContext {
+        JobContext {
+            injector: Arc::new(CapturingInjector(Arc::clone(injected))),
+            job_cancel: CancellationToken::new(),
+            run_cancel: CancellationToken::new(),
+        }
+    }
+
+    async fn spawn(reg: &CommandRegistry, command: &str) -> String {
+        reg.run(CommandSpec {
+            command: command.to_string(),
+            cwd: None,
+            timeout: None,
+            label: None,
+        })
+        .await
+        .expect("spawn")
+        .id
+    }
+
+    #[tokio::test]
+    async fn arms_nothing_when_no_command_is_running() {
+        let reg = registry();
+        assert!(BackgroundWatchJob::arm(reg).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn arms_over_running_commands_only() {
+        let reg = registry();
+        spawn(&reg, "sleep 30").await;
+        let done = spawn(&reg, "true").await;
+        // Let the finished one settle into a terminal state.
+        for _ in 0..100 {
+            if reg.get(&done).await.expect("entry").state.is_terminal() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let job = BackgroundWatchJob::arm(Arc::clone(&reg))
+            .await
+            .expect("armed");
+        assert_eq!(job.command_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn wakes_when_a_watched_command_finishes() {
+        let reg = registry();
+        spawn(&reg, "sleep 0.2").await;
+        let job = BackgroundWatchJob::arm(Arc::clone(&reg))
+            .await
+            .expect("armed")
+            .with_poll_interval(Duration::from_millis(20));
+
+        let injected = Arc::new(Mutex::new(Vec::new()));
+        Box::new(job).run(context(&injected)).await;
+
+        let messages = injected.lock().expect("lock");
+        assert_eq!(messages.len(), 1);
+        assert!(
+            messages[0].contains("succeeded"),
+            "prompt was {:?}",
+            messages[0]
         );
     }
 
-    #[test]
-    fn single_job_prompt_uses_singular_grammar() {
-        let job = BackgroundWatchJob::from_processes(vec![LiveProcess {
-            pid: 7,
-            command: "sleep 5".to_string(),
-        }])
-        .expect("process present");
-        let prompt = job.wake_prompt();
-        assert!(prompt.contains("1 background job"));
-        assert!(prompt.contains("was running"));
+    #[tokio::test]
+    async fn wakes_on_the_first_command_to_finish() {
+        let reg = registry();
+        spawn(&reg, "sleep 30").await;
+        spawn(&reg, "sleep 0.2").await;
+        let job = BackgroundWatchJob::arm(Arc::clone(&reg))
+            .await
+            .expect("armed")
+            .with_poll_interval(Duration::from_millis(20));
+        assert_eq!(job.command_count(), 2);
+
+        let injected = Arc::new(Mutex::new(Vec::new()));
+        Box::new(job).run(context(&injected)).await;
+
+        let messages = injected.lock().expect("lock");
+        assert_eq!(messages.len(), 1, "a long-lived job must not delay the wake");
+    }
+
+    #[tokio::test]
+    async fn wake_prompt_names_the_log_and_a_failure() {
+        let reg = registry();
+        spawn(&reg, "exit 3").await;
+        let job = BackgroundWatchJob::arm(Arc::clone(&reg))
+            .await
+            .expect("armed")
+            .with_poll_interval(Duration::from_millis(20));
+
+        let injected = Arc::new(Mutex::new(Vec::new()));
+        Box::new(job).run(context(&injected)).await;
+
+        let messages = injected.lock().expect("lock");
+        assert!(messages[0].contains("failed with exit 3"), "{:?}", messages[0]);
+        assert!(messages[0].contains(".log"), "{:?}", messages[0]);
+    }
+
+    #[tokio::test]
+    async fn cancellation_stops_the_watch_without_waking() {
+        let reg = registry();
+        spawn(&reg, "sleep 30").await;
+        let job = BackgroundWatchJob::arm(Arc::clone(&reg))
+            .await
+            .expect("armed")
+            .with_poll_interval(Duration::from_millis(20));
+
+        let injected = Arc::new(Mutex::new(Vec::new()));
+        let ctx = context(&injected);
+        let cancel = ctx.job_cancel.clone();
+        let handle = tokio::spawn(Box::new(job).run(ctx));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        cancel.cancel();
+        handle.await.expect("watch task");
+
+        assert!(injected.lock().expect("lock").is_empty());
     }
 }

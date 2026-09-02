@@ -229,7 +229,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         default_model: None,
         default_codex_model: None,
         use_tmux,
-        background_job_monitoring_enabled: false,
+        command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
         home_dir: home.display().to_string(),
         codex_home_dir: home.join(".codex").display().to_string(),
         // Deliberately OUTSIDE `home/.claude` to mirror the cluster, where
@@ -311,6 +311,11 @@ fn spawn_test_agent_in(tmp: &TempDir, use_tmux: bool) -> (AgentHandle, Arc<Agent
     let credential_dispatcher = Arc::new(Dispatcher::new());
     let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
+    let commands = Arc::new(moatless_sandbox::commands::CommandRegistry::new(
+        std::time::Duration::from_mins(1),
+        std::env::temp_dir().join("moat-cmd-it"),
+    ));
+
     let handle = spawn_agent(
         Arc::clone(&config),
         Arc::clone(&agent_state),
@@ -318,6 +323,7 @@ fn spawn_test_agent_in(tmp: &TempDir, use_tmux: bool) -> (AgentHandle, Arc<Agent
         Arc::clone(&credentials),
         Arc::clone(&backend),
         Arc::clone(&scheduled_jobs),
+        commands,
         credential_failures,
         Arc::clone(&credential_dispatcher),
         Arc::clone(&system_prompt_cache),

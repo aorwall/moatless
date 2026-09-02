@@ -257,18 +257,17 @@ does not trust its own bookkeeping** — it asks the sandbox directly
    failover, delivery lag). An unreadable status (gRPC error, no client)
    falls through — otherwise a sandbox with a broken gRPC path could never
    be reaped.
-2. **Busy-process check**: the same response carries `busy_processes` — the
-   sandbox walks its own process tree (`/proc/<pid>/task/*/children` from
-   the container's PID 1) and reports whether any live non-zombie
-   descendants exist. Background jobs launched by the agent
-   (`run_in_background` builds, dev servers being watched) outlive the
-   per-turn CLI subprocess and reparent to the sandbox process, so this
-   catches work no event stream sees. A busy sandbox defers the stop —
-   but only up to `SANDBOX_BUSY_EXTENSION_MAX_HOURS` (default 4h) past the
-   activity floor, so a leaked daemon can't hold a sandbox open forever.
-   In tmux mode the signal is hard-wired `false` (the persistent CLI would
-   read always-busy), and old sandbox images simply lack the proto field,
-   which decodes as `false` — old behavior.
+2. **Busy-command check**: the same response carries `busy_processes` — true
+   while a command the agent registered through `moat cmd` is still running.
+   Such a command outlives the per-turn CLI subprocess, so this catches work
+   no event stream sees, and a busy sandbox defers the stop. There is no cap
+   on the deferral: the sandbox kills each command at its own deadline
+   (`SANDBOX_COMMAND_DEFAULT_TIMEOUT_SECS`, 4h, or whatever `moat cmd
+   --timeout` declared) and it stops counting as busy from that moment, so a
+   hung command cannot hold a sandbox open past a bound the agent chose.
+   Only registered commands count — an arbitrary process the agent forked is
+   invisible here. Old sandbox images lack the proto field, which decodes as
+   `false`.
 
 The stop itself is graceful: `StopAgent` gRPC first (so the pod exits
 promptly instead of riding termination grace into a SIGKILL/137), then scale
@@ -417,7 +416,6 @@ All read from env at backend startup (`backend/src/config.rs`).
 | `SANDBOX_IDLE_REAPER_ENABLED` | `true` | Master switch for the reaper |
 | `SANDBOX_IDLE_CHECK_INTERVAL_SECS` | `300` | Reap cycle interval (lease = 2×) |
 | `SANDBOX_IDLE_TIMEOUT_MINUTES` | `15` | Default idle TTL (per-task `ttl_minutes` overrides; 0 = never) |
-| `SANDBOX_BUSY_EXTENSION_MAX_HOURS` | `4` | Max deferral for live background processes (0 disables) |
 | `TASK_INACTIVE_TIMEOUT_DAYS` | `7` | Auto-close floor for Open tasks (per-task override; 0 = never) |
 | `SANDBOX_MAX_CRASH_RESTART_COUNT` | `5` | Restarts before crash-loop classification |
 | `SANDBOX_ORPHAN_GC_ENABLED` | `true` | Taskless-resource GC pass |

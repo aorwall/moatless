@@ -12,8 +12,8 @@ use super::models::{ServerOverride, ServerSnapshot};
 // they live in `moatless-api-schemas` (their single home); re-exported here so
 // this crate's `schemas::` paths keep naming them.
 pub use moatless_api_schemas::sandbox::{
-    BackgroundProcess, BackgroundWatchJobInfo, ContainerDiagnostics, RuntimeEvent,
-    SandboxStatusFullResponse, ScheduledJobInfo, ScheduledJobKind, WakeupJobInfo,
+    BackgroundWatchJobInfo, ContainerDiagnostics, ManagedCommand, ManagedCommandState,
+    RuntimeEvent, SandboxStatusFullResponse, ScheduledJobInfo, ScheduledJobKind, WakeupJobInfo,
 };
 pub use moatless_types::sandbox::ServerEntry;
 
@@ -566,7 +566,7 @@ mod tests {
             container_diagnostics: None,
             runtime_events: None,
             scheduled_jobs: vec![],
-            background_processes: vec![],
+            commands: vec![],
             sandbox_desired_state: None,
             current_sandbox_image: None,
             latest_sandbox_image: None,
@@ -574,7 +574,7 @@ mod tests {
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json.get("scheduledJobs").is_none());
-        assert!(json.get("backgroundProcesses").is_none());
+        assert!(json.get("commands").is_none());
     }
 
     #[test]
@@ -596,7 +596,7 @@ mod tests {
                     wakeup_at_unix_ms: 5,
                 }),
             }],
-            background_processes: vec![],
+            commands: vec![],
             sandbox_desired_state: None,
             current_sandbox_image: None,
             latest_sandbox_image: None,
@@ -613,7 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn background_processes_serialized_camel_case() {
+    fn commands_serialized_camel_case() {
         let resp = SandboxStatusFullResponse {
             sandbox_status: SandboxStatus::Ready,
             sandbox_error: None,
@@ -623,9 +623,18 @@ mod tests {
             container_diagnostics: None,
             runtime_events: None,
             scheduled_jobs: vec![],
-            background_processes: vec![BackgroundProcess {
-                pid: 1234,
+            commands: vec![ManagedCommand {
+                id: "cmd-1".into(),
                 command: "cargo test --no-run".into(),
+                label: "cargo test --no-run".into(),
+                pid: 1234,
+                started_at_unix_ms: 1,
+                timeout_secs: 3600,
+                deadline_unix_ms: 2,
+                state: ManagedCommandState::Running,
+                exit_code: None,
+                log_path: "/tmp/moat-commands/t/cmd-1.log".into(),
+                finished_at_unix_ms: 0,
             }],
             sandbox_desired_state: None,
             current_sandbox_image: None,
@@ -634,12 +643,14 @@ mod tests {
         };
         let json = serde_json::to_value(&resp).unwrap();
         let arr = json
-            .get("backgroundProcesses")
+            .get("commands")
             .and_then(|v| v.as_array())
-            .expect("backgroundProcesses present when non-empty");
+            .expect("commands present when non-empty");
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["pid"], 1234);
         assert_eq!(arr[0]["command"], "cargo test --no-run");
+        assert_eq!(arr[0]["state"], "running");
+        assert_eq!(arr[0]["startedAtUnixMs"], 1);
     }
 
     #[test]
@@ -648,13 +659,13 @@ mod tests {
             id: "bg1".into(),
             registered_at_unix_ms: 7,
             kind: ScheduledJobKind::BackgroundWatch(BackgroundWatchJobInfo {
-                process_count: 3,
+                command_count: 3,
                 commands: vec!["sleep 30".into()],
             }),
         };
         let json = serde_json::to_value(&job).unwrap();
         assert_eq!(json["kind"], "backgroundWatch");
-        assert_eq!(json["processCount"], 3);
+        assert_eq!(json["commandCount"], 3);
         assert_eq!(json["commands"][0], "sleep 30");
     }
 }

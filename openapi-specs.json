@@ -6439,6 +6439,88 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/fork": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Fork a task: branch a new Task off this one at one of its completed turns.",
+        "operationId": "fork_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task to branch off",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkTaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Fork created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTaskResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No access to the source task's repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or turn not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn is in flight, or the turn has no agent turn id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/messages": {
       "get": {
         "tags": [
@@ -9621,42 +9703,24 @@
           }
         }
       },
-      "BackgroundProcess": {
-        "type": "object",
-        "description": "A live background process (a `run_in_background` job or ad-hoc daemon) still\nrunning in the sandbox after the agent went idle.",
-        "required": [
-          "pid",
-          "command"
-        ],
-        "properties": {
-          "command": {
-            "type": "string"
-          },
-          "pid": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
       "BackgroundWatchJobInfo": {
         "type": "object",
-        "description": "Watch that re-triggers the agent once the `run_in_background` jobs captured\nat the end of a turn have finished (subprocess mode only).",
+        "description": "Watch that re-triggers the agent once one of the registered commands\ncaptured at the end of a turn finishes (subprocess mode only).",
         "required": [
-          "processCount",
+          "commandCount",
           "commands"
         ],
         "properties": {
+          "commandCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "commands": {
             "type": "array",
             "items": {
               "type": "string"
             }
-          },
-          "processCount": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -11456,6 +11520,83 @@
           }
         }
       },
+      "ForkOrigin": {
+        "type": "object",
+        "description": "Where a forked task was branched from, derived from its `forked_from`\nrelation. `at_turn` is the source task's turn the copy stops after; `None`\nmeans the whole conversation was copied.",
+        "required": [
+          "taskId"
+        ],
+        "properties": {
+          "atTurn": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "taskId": {
+            "type": "string"
+          }
+        }
+      },
+      "ForkTaskRequest": {
+        "type": "object",
+        "description": "Branch a Task off another Task at one of its completed turns.\n\nEverything the fork runs against — repository, workspace, branch, agent,\nmodel — comes from the Task being forked; only what the fork is *for* is\nstated here.",
+        "properties": {
+          "agentMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentMode"
+              }
+            ]
+          },
+          "atTurn": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The source Task's turn the copy stops after. Omit to cut after its\nnewest turn that reached a terminal status."
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reasoning effort for the first turn, in the agent's own vocabulary."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The fork's own first message — what to try instead. Omit to create the\nfork idle, and send to it later."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sameSandbox": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Join the source Task's Sandbox on its shared checkout instead of\nprovisioning one from a copy of its workspace archive."
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Skills to activate for the first turn."
+          }
+        }
+      },
       "GetMessagesResponse": {
         "type": "object",
         "description": "Response for GET /messages.",
@@ -12808,6 +12949,81 @@
           }
         }
       },
+      "ManagedCommand": {
+        "type": "object",
+        "description": "One long-running command the agent registered through `moat cmd`. The\nsandbox owns the process, so it is the only work that defers the idle\nreaper — a process forked any other way never appears here.",
+        "required": [
+          "id",
+          "command",
+          "label",
+          "pid",
+          "startedAtUnixMs",
+          "timeoutSecs",
+          "deadlineUnixMs",
+          "state",
+          "exitCode",
+          "logPath",
+          "finishedAtUnixMs"
+        ],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "deadlineUnixMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "finishedAtUnixMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "logPath": {
+            "type": "string",
+            "description": "Combined stdout/stderr, readable from inside the sandbox."
+          },
+          "pid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "startedAtUnixMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedCommandState"
+          },
+          "timeoutSecs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds the sandbox gives it before killing it and marking it timed out.",
+            "minimum": 0
+          }
+        }
+      },
+      "ManagedCommandState": {
+        "type": "string",
+        "description": "Lifecycle of a command registered through `moat cmd`.",
+        "enum": [
+          "running",
+          "exited",
+          "timedOut",
+          "killed"
+        ]
+      },
       "ManualSource": {
         "type": "object"
       },
@@ -14099,12 +14315,12 @@
               }
             ]
           },
-          "backgroundProcesses": {
+          "commands": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/BackgroundProcess"
+              "$ref": "#/components/schemas/ManagedCommand"
             },
-            "description": "Live background processes (`run_in_background` jobs, ad-hoc daemons) still\nrunning in the sandbox. Empty when idle with no background work."
+            "description": "Commands registered through `moat cmd`, running and recently finished.\nEmpty when the agent registered none."
           },
           "containerDiagnostics": {
             "type": [
@@ -15913,7 +16129,7 @@
               "boolean",
               "null"
             ],
-            "description": "What this event says about whether the agent is working, if anything.\n\nAbsent means *this event does not say* — the client leaves whatever it\nlast knew alone. It never means \"not working\". Also absent on every\nevent a server that predates this field published, which is the same\ninstruction and needs no version check.\n\nCarried so a client applies the answer rather than inferring it from\nsub-types; see [`agent_working`]."
+            "description": "What this event says about whether the agent is working, if anything.\n\nAbsent means *this event does not say*, so the client leaves whatever it\nlast knew alone. It never means \"not working\". See [`agent_working`]."
           },
           "eventId": {
             "type": "string"
@@ -16414,10 +16630,11 @@
       },
       "TaskRelationType": {
         "type": "string",
-        "description": "Type of a directional link between two tasks. The `from` task points at the\n`to` task via this relation (e.g. a child `created_by` its parent).",
+        "description": "Type of a directional link between two tasks. The `from` task points at the\n`to` task via this relation (e.g. a child `created_by` its parent).\n\n`CreatedBy` and `ForkedFrom` are both parent edges and both surface the\n`from` task as a child. They differ in what else follows: only\n`CreatedBy` closes with its parent and reports its agent errors into the\nparent's conversation, because a fork is often the work that continued\nand nobody is waiting on its result.",
         "enum": [
           "created_by",
-          "related_to"
+          "related_to",
+          "forked_from"
         ]
       },
       "TaskResponse": {
@@ -16493,6 +16710,17 @@
               "null"
             ]
           },
+          "forkedFrom": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ForkOrigin",
+                "description": "Set when this task was branched off another one. `parent_task_id` names\nthe same task; this field says the edge is a fork and where it was cut."
+              }
+            ]
+          },
           "inactiveTtlDays": {
             "type": "integer",
             "format": "int32",
@@ -16538,14 +16766,14 @@
               "string",
               "null"
             ],
-            "description": "Derived from the `created_by` relation in `relations`. Kept for\nbackward compatibility with clients that pre-date the relations field."
+            "description": "Derived from whichever parent relation in `relations` makes this task a\nchild — `created_by` or `forked_from`. Kept for backward compatibility\nwith clients that pre-date the relations field. Read `forked_from` to\ntell the two apart."
           },
           "relations": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/TaskRelationDto"
             },
-            "description": "Typed relations this task has to other tasks (currently `created_by`)."
+            "description": "Typed relations this task has to other tasks."
           },
           "repositoryId": {
             "type": "string"

@@ -390,11 +390,6 @@ pub struct SandboxConfig {
     pub liveness_enabled: bool,
     /// Stop sandboxes idle longer than this (minutes, default: 15)
     pub idle_timeout_minutes: u64,
-    /// Cap (hours) on how long live background processes reported by the
-    /// sandbox (`busy_processes`) can defer an idle stop past the activity
-    /// floor, so a leaked daemon can't pin a sandbox forever. `0` disables
-    /// the busy extension. Env: `SANDBOX_BUSY_EXTENSION_MAX_HOURS` (default: 4).
-    pub busy_extension_max_hours: i64,
     /// How often to check for idle sandboxes (seconds, default: 300 = 5 min)
     pub idle_check_interval_secs: u64,
     /// Auto-close Open tasks inactive for this many days. `0` disables
@@ -833,7 +828,6 @@ impl Config {
                 cron_scheduler_enabled: env_bool("CRON_SCHEDULER_ENABLED", true),
                 liveness_enabled: env_bool("K8S_SANDBOX_LIVENESS_ENABLED", false),
                 idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 15),
-                busy_extension_max_hours: env_or("SANDBOX_BUSY_EXTENSION_MAX_HOURS", 4),
                 idle_check_interval_secs: env_or("SANDBOX_IDLE_CHECK_INTERVAL_SECS", 300),
                 inactive_task_timeout_days: env_or("TASK_INACTIVE_TIMEOUT_DAYS", 7),
                 cold_after_hours: env_or("SANDBOX_COLD_AFTER_HOURS", 24),
@@ -1301,7 +1295,6 @@ impl Config {
                 cron_scheduler_enabled: false,
                 liveness_enabled: false,
                 idle_timeout_minutes: 15,
-                busy_extension_max_hours: 4,
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,
                 cold_after_hours: 0,

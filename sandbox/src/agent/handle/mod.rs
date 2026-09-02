@@ -284,6 +284,7 @@ pub fn spawn_agent(
     credentials: Arc<RwLock<HashMap<String, String>>>,
     backend_client: Arc<dyn BackendClient>,
     scheduled_jobs: Arc<ScheduledJobRegistry>,
+    commands: Arc<crate::commands::CommandRegistry>,
     credential_failures: CredentialFailureDetector,
     credential_dispatcher: Arc<Dispatcher>,
     system_prompt_cache: Arc<RwLock<Option<String>>>,
@@ -314,6 +315,7 @@ pub fn spawn_agent(
                 Arc::clone(&backend_client),
                 Arc::clone(&system_prompt_cache),
                 Arc::clone(&scheduled_jobs),
+                Arc::clone(&commands),
                 // The same detector instance the harness populates, so the
                 // service sees the credential flags Codex raises mid-Turn.
                 credential_failures.clone(),
@@ -458,6 +460,7 @@ mod tests {
             Arc::new(RwLock::new(std::collections::HashMap::new())),
             Arc::new(NopBackend),
             Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
+            Arc::new(crate::commands::CommandRegistry::for_test()),
             CredentialFailureDetector::default(),
             Arc::new(Dispatcher::new()),
             Arc::new(RwLock::new(None)),
@@ -498,6 +501,7 @@ mod tests {
             Arc::new(RwLock::new(std::collections::HashMap::new())),
             Arc::new(NopBackend),
             Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
+            Arc::new(crate::commands::CommandRegistry::for_test()),
             CredentialFailureDetector::default(),
             Arc::new(Dispatcher::new()),
             Arc::new(RwLock::new(None)),

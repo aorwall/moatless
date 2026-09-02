@@ -194,6 +194,14 @@ enum SandboxCommands {
         tags: Vec<String>,
     },
 
+    /// Run a command that outlives one Bash tool call. The sandbox owns the
+    /// process, so it stays awake until the command finishes and wakes you
+    /// when it does.
+    Cmd {
+        #[command(subcommand)]
+        action: commands::cmd::CmdAction,
+    },
+
     /// Record feedback about this task to be used for improving moatless
     /// logic, agent skills, or tooling.
     Feedback {
@@ -280,7 +288,7 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
         moat.set_http_timeout(std::time::Duration::from_secs(seconds));
     }
 
-    let needs_auth = !is_status_command_sandbox(&cli.command);
+    let needs_auth = !runs_without_auth_sandbox(&cli.command);
     if needs_auth {
         auth::ensure_auth(&mut moat, &cfg).await?;
     }
@@ -343,6 +351,10 @@ async fn dispatch_sandbox(
             } else {
                 println!("Tags set: {}", tags.join(", "));
             }
+        }
+        SandboxCommands::Cmd { action } => {
+            let task_id = require_task_id(cfg)?;
+            commands::cmd::run(action, task_id, json).await?;
         }
         SandboxCommands::Feedback {
             comment,
@@ -523,17 +535,18 @@ fn require_task_id(cfg: &Config) -> Result<String, Box<dyn std::error::Error>> {
         .ok_or_else(|| "TASK_ID environment variable is required for this command".into())
 }
 
-fn is_status_command_sandbox(cmd: &SandboxCommands) -> bool {
-    matches!(
-        cmd,
-        SandboxCommands::Shared(c)
-            if matches!(
-                **c,
-                SharedCommands::Status
-                    | SharedCommands::K8s { .. }
-                    | SharedCommands::Docker { .. }
-            )
-    )
+/// `moat cmd` talks only to the sandbox's own loopback gRPC server, so it must
+/// keep working when the backend session is stale — that is exactly when a build
+/// still needs supervising.
+fn runs_without_auth_sandbox(cmd: &SandboxCommands) -> bool {
+    match cmd {
+        SandboxCommands::Cmd { .. } => true,
+        SandboxCommands::Shared(c) => matches!(
+            **c,
+            SharedCommands::Status | SharedCommands::K8s { .. } | SharedCommands::Docker { .. }
+        ),
+        _ => false,
+    }
 }
 
 fn is_status_command_standalone(cmd: &StandaloneCommands) -> bool {

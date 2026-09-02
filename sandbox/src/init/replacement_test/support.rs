@@ -48,6 +48,7 @@ fn build_state(
         agent,
         agent_handle,
         scheduled_jobs,
+        Arc::new(crate::commands::CommandRegistry::for_test()),
         CredentialFailureDetector::default(),
         Arc::new(RwLock::new(None)),
     ));
@@ -115,6 +116,7 @@ fn spawn_recording_agent(
         Arc::clone(&backend),
         Arc::new(RwLock::new(None)),
         Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
+        Arc::new(crate::commands::CommandRegistry::for_test()),
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
         crate::init::workspace_sync::WorkspaceSyncTracker::new(),

@@ -412,6 +412,77 @@ service SandboxService {
   rpc TerminalClear(TerminalClearRequest) returns (TerminalClearResponse);
   rpc TerminalRestart(TerminalRestartRequest) returns (TerminalSessionSnapshot);
   rpc TerminalClose(TerminalCloseRequest) returns (TerminalCloseResponse);
+
+  // Long-running commands the agent registers through `moat cmd`. The sandbox
+  // owns the child process, so it reaps it (no zombies), enforces the
+  // per-command deadline, and is the only source of `busy_processes`.
+  rpc RunCommand(RunCommandRequest) returns (RunCommandResponse);
+  rpc ListCommands(ListCommandsRequest) returns (ListCommandsResponse);
+  rpc KillCommand(KillCommandRequest) returns (KillCommandResponse);
+}
+
+// Lifecycle of a registered command.
+enum ManagedCommandState {
+  MANAGED_COMMAND_STATE_UNSPECIFIED = 0;
+  MANAGED_COMMAND_STATE_RUNNING = 1;
+  MANAGED_COMMAND_STATE_EXITED = 2;
+  // Killed by the sandbox because it outlived `timeout_secs`.
+  MANAGED_COMMAND_STATE_TIMED_OUT = 3;
+  // Killed on an explicit KillCommand.
+  MANAGED_COMMAND_STATE_KILLED = 4;
+}
+
+message RunCommandRequest {
+  // Shell command, run through `bash -lc`.
+  string command = 1;
+  // Working directory. Defaults to the sandbox's workspace dir.
+  optional string cwd = 2;
+  // Seconds before the sandbox kills the command and marks it timed out.
+  // Absent takes the sandbox default (`SANDBOX_COMMAND_DEFAULT_TIMEOUT_SECS`,
+  // 4h). Authoritative: a command may declare a deadline beyond that default,
+  // and the reaper honours it.
+  optional uint64 timeout_secs = 3;
+  // Human label for status output. Defaults to a prefix of `command`.
+  optional string label = 4;
+  optional string task_id = 5;
+}
+message RunCommandResponse {
+  ManagedCommand command = 1;
+}
+
+message ListCommandsRequest {
+  // Only this command. Absent lists every command still held by the registry.
+  optional string id = 1;
+  optional string task_id = 2;
+}
+message ListCommandsResponse {
+  repeated ManagedCommand commands = 1;
+}
+
+message KillCommandRequest {
+  string id = 1;
+  optional string task_id = 2;
+}
+message KillCommandResponse {
+  ManagedCommand command = 1;
+}
+
+// One command the agent registered through `moat cmd`.
+message ManagedCommand {
+  string id = 1;
+  string command = 2;
+  string label = 3;
+  uint32 pid = 4;
+  int64 started_at_unix_ms = 5;
+  uint64 timeout_secs = 6;
+  int64 deadline_unix_ms = 7;
+  ManagedCommandState state = 8;
+  // Set once `state` is EXITED. 124 is used for a timeout kill, matching
+  // coreutils `timeout`.
+  optional int32 exit_code = 9;
+  // Combined stdout/stderr, readable from inside the sandbox.
+  string log_path = 10;
+  int64 finished_at_unix_ms = 11;
 }
 
 enum TerminalSessionStatus {
@@ -659,30 +730,23 @@ message GetAgentStatusResponse {
   // ScheduleWakeup timers). Populated from the sandbox-local
   // ScheduledJobRegistry — empty when no jobs are in flight.
   repeated ScheduledJobInfo scheduled_jobs = 4;
-  // Whether the sandbox process tree has live (non-zombie) descendant
-  // processes. Background jobs spawned by the agent CLI (run_in_background
-  // builds, ad-hoc daemons) outlive the CLI subprocess and reparent to the
-  // sandbox process, so this stays true while such work is still running
-  // even after the agent goes idle. Always false in tmux mode and on older
-  // sandbox images (absent field decodes as false = pre-existing behavior).
+  // Whether any command registered through `moat cmd` is still running and
+  // still inside its deadline. The reaper reads this to defer an idle stop, so
+  // it covers deliberately registered work only: a process the agent spawned
+  // some other way does not hold the sandbox open. False on older sandbox
+  // images (absent field decodes as false = pre-existing behavior).
   bool busy_processes = 5;
-  // The live background processes behind `busy_processes`, surfaced for the
-  // control-panel UI. Empty in tmux mode and on older sandbox images (an
-  // absent repeated field decodes as an empty list = pre-existing behavior).
-  repeated BackgroundProcess background_processes = 6;
+  reserved 6;
+  reserved "background_processes";
+  // The registered commands behind `busy_processes`, surfaced for the
+  // control-panel UI. Includes finished ones until the registry drops them.
+  repeated ManagedCommand commands = 8;
   // The agent run this status describes, matching the `run_id` the backend
   // recorded on the turn row it opened. Lets a reader tell "still working on
   // the turn you know about" from "working on one whose open event was lost",
   // which a bare status cannot. Absent on older sandbox images, where a reader
   // must fall back to treating the status as unattributed.
   optional string run_id = 7;
-}
-
-// One live descendant process of the sandbox (a background job).
-message BackgroundProcess {
-  uint32 pid = 1;
-  // Best-effort command line (argv), falling back to the short process name.
-  string command = 2;
 }
 
 // Snapshot of one registered scheduled job — see sandbox/src/agent/scheduled_job.rs.
@@ -706,11 +770,11 @@ message WakeupJobInfo {
   int64 wakeup_at_unix_ms = 3;
 }
 
-// A watch that re-triggers the agent once the `run_in_background` jobs it
-// captured at the end of a turn have finished (subprocess mode only).
+// A watch that re-triggers the agent once one of the registered commands it
+// captured at the end of a turn reaches a terminal state (subprocess mode only).
 message BackgroundWatchJobInfo {
-  uint32 process_count = 1;
-  // Best-effort command previews of the watched processes.
+  uint32 command_count = 1;
+  // Labels of the watched commands.
   repeated string commands = 2;
 }
 

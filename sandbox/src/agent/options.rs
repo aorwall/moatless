@@ -270,6 +270,9 @@ pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String
     let backend_prompt = request.system_prompt.clone().unwrap_or_default();
     let layout_note = build_workspace_layout_note(config);
     let mut sections = vec![layout_note];
+    if let Some(note) = build_managed_command_note(config) {
+        sections.push(note);
+    }
     if let Some(repo_instructions) = build_repo_instructions_section(config) {
         sections.push(repo_instructions);
     }
@@ -343,6 +346,34 @@ fn build_workspace_layout_note(config: &Config) -> String {
              be lost when the sandbox is recycled."
         )
     }
+}
+
+/// Tell the agent to hand long-running work to `moat cmd`.
+///
+/// Only in subprocess mode: there the per-turn CLI runs one-shot with
+/// `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, so `Bash(run_in_background)` is
+/// gone and the Bash tool kills anything past its 10-minute cap — an agent left
+/// to itself blocks the turn on `sleep` loops polling a build. In tmux mode the
+/// session persists and none of that applies, so the note would only mislead.
+fn build_managed_command_note(config: &Config) -> Option<String> {
+    if config.use_tmux {
+        return None;
+    }
+    Some(
+        "## Long-running commands\n\
+         The Bash tool kills any command that runs past ~10 minutes, and this \
+         session cannot background one. For work that outlives a single Bash \
+         call — a slow build or test suite, a dev server — start it with `moat \
+         cmd run \"<command>\"` instead of blocking a turn on `sleep` polling. \
+         The sandbox owns the process: it keeps the sandbox awake while the \
+         command runs and wakes you the moment it finishes, so end your turn \
+         rather than waiting. Check on one with `moat cmd list` / `moat cmd \
+         status <id>` / `moat cmd logs <id>`, and stop one with `moat cmd kill \
+         <id>`. A command is killed at its deadline (4h by default); pass \
+         `--timeout <seconds>` to lower it for something that should finish \
+         fast, or raise it for a server meant to run the whole session."
+            .to_string(),
+    )
 }
 
 /// The root instruction filenames to look for, in preference order, for the
@@ -700,7 +731,7 @@ mod tests {
             default_model: None,
             default_codex_model: None,
             use_tmux,
-            background_job_monitoring_enabled: false,
+            command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             workspace_restore_if_empty: false,
@@ -1132,6 +1163,16 @@ mod tests {
             .find("BACKEND-PROMPT")
             .expect("backend prompt present");
         assert!(note_idx < backend_idx, "layout note must come first");
+    }
+
+    #[test]
+    fn managed_command_note_present_in_subprocess_mode_only() {
+        let subprocess = build_prompt_append(&test_config(false), &test_request());
+        assert!(subprocess.contains("## Long-running commands"));
+        assert!(subprocess.contains("moat cmd run"));
+
+        let tmux = build_prompt_append(&test_config(true), &test_request());
+        assert!(!tmux.contains("## Long-running commands"));
     }
 
     fn repo(mount_name: &str, is_primary: bool) -> RepoCheckout {

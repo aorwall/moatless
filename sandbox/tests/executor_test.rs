@@ -213,7 +213,7 @@ fn test_config() -> Config {
         plugins: vec![],
         frontend_url: None,
         use_tmux: false,
-        background_job_monitoring_enabled: false,
+        command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
         default_model: None,
         default_codex_model: None,
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
@@ -244,6 +244,11 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
     let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     let heartbeat = moatless_sandbox::agent::heartbeat::Heartbeat::new();
 
+    let commands = Arc::new(moatless_sandbox::commands::CommandRegistry::new(
+        std::time::Duration::from_mins(1),
+        std::env::temp_dir().join("moat-cmd-it"),
+    ));
+
     let agent_handle = spawn_agent(
         Arc::clone(&config),
         Arc::clone(&agent_state),
@@ -251,6 +256,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         Arc::clone(&credentials),
         Arc::clone(&backend),
         Arc::clone(&scheduled_jobs),
+        Arc::clone(&commands),
         credential_failures.clone(),
         Arc::clone(&credential_dispatcher),
         Arc::clone(&system_prompt_cache),
@@ -266,6 +272,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         agent_state,
         agent_handle,
         scheduled_jobs,
+        commands,
         credential_failures,
         system_prompt_cache,
     ));

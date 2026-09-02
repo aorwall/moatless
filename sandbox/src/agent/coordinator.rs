@@ -50,6 +50,7 @@ use crate::init::workspace_sync::{self, WorkspaceSyncTracker};
 
 use super::agent_state::AgentState;
 use super::background_watch_job::BackgroundWatchJob;
+use crate::commands::CommandRegistry;
 use super::handle::{
     AGENT_TYPE_CLAUDE_CODE, AgentCommand, RunAck,
     credential_recovery::{MAX_CREDENTIAL_RECOVERY_RETRIES, try_recover_credentials},
@@ -843,6 +844,9 @@ pub(crate) struct CoordinatorService {
     /// watch) register into. Their injector re-enters this service's command
     /// channel via the pod's `AgentHandle`.
     scheduled_jobs: Arc<ScheduledJobRegistry>,
+    /// Commands this task started through `moat cmd`. The turn-end watch arms
+    /// over whichever are still running.
+    commands: Arc<CommandRegistry>,
     /// The latest `ScheduleWakeup` tool_use seen in the in-flight Turn's Source
     /// blocks, armed at turn end (latest-wins). Subprocess mode only.
     pending_wakeup: Option<WakeupJob>,
@@ -888,6 +892,7 @@ impl CoordinatorService {
         backend_client: Arc<dyn BackendClient>,
         system_prompt_cache: Arc<RwLock<Option<String>>>,
         scheduled_jobs: Arc<ScheduledJobRegistry>,
+        commands: Arc<CommandRegistry>,
         credential_failures: CredentialFailureDetector,
         credential_dispatcher: Arc<Dispatcher>,
         workspace_sync: WorkspaceSyncTracker,
@@ -921,6 +926,7 @@ impl CoordinatorService {
             credential_dispatcher,
             credential_recovery_attempts: 0,
             scheduled_jobs,
+            commands,
             pending_wakeup: None,
             stopping: false,
             pending_stop_ack: None,
@@ -1415,19 +1421,11 @@ impl CoordinatorService {
         }
 
         // Background-completion watch: subprocess mode only, and never while a
-        // retry is pending (the Turn is not truly done). `arm` reads `/proc`, so
-        // it runs on a blocking thread.
-        if !self.config.use_tmux
-            && self.config.background_job_monitoring_enabled
-            && self.retry_at.is_none()
-        {
-            let sandbox_pid = std::process::id();
-            let armed = tokio::task::spawn_blocking(move || BackgroundWatchJob::arm(sandbox_pid))
-                .await
-                .ok()
-                .flatten();
+        // retry is pending (the Turn is not truly done).
+        if !self.config.use_tmux && self.retry_at.is_none() {
+            let armed = BackgroundWatchJob::arm(Arc::clone(&self.commands)).await;
             if let Some(job) = armed {
-                let count = job.process_count();
+                let count = job.command_count();
                 self.scheduled_jobs
                     .cancel_by_kind(JobKind::BackgroundWatch)
                     .await;

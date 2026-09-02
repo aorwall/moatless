@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Duration;
 use std::sync::Arc;
 
 use moatless_types::workspace::sanitize_mount_name;
@@ -13,6 +14,7 @@ use crate::agent::agent_state::AgentState;
 use crate::agent::handle::{AgentHandle, spawn_agent};
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
+use crate::commands::CommandRegistry;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::credentials::Dispatcher;
@@ -46,6 +48,10 @@ pub struct TaskContext {
     /// Registry of deferred-work jobs (Monitor crons + ScheduleWakeup timers)
     /// spawned by the permission handler / agent lifecycle service.
     pub scheduled_jobs: Arc<ScheduledJobRegistry>,
+    /// Commands this task started through `moat cmd`. The only source of
+    /// `busy_processes`, so a process started any other way cannot defer an
+    /// idle stop.
+    pub commands: Arc<CommandRegistry>,
     /// Single-flight guard for this task's pending-message dispatch.
     pub dispatch_lock: Arc<Mutex<()>>,
     /// Tracks credential failures observed on this task's agent stderr.
@@ -65,6 +71,7 @@ impl TaskContext {
         agent: Arc<AgentState>,
         agent_handle: AgentHandle,
         scheduled_jobs: Arc<ScheduledJobRegistry>,
+        commands: Arc<CommandRegistry>,
         credential_failures: CredentialFailureDetector,
         system_prompt_cache: Arc<RwLock<Option<String>>>,
     ) -> Self {
@@ -76,6 +83,7 @@ impl TaskContext {
             agent,
             agent_handle,
             scheduled_jobs,
+            commands,
             dispatch_lock: Default::default(),
             credential_failures,
             system_prompt_cache,
@@ -262,6 +270,10 @@ impl SandboxState {
         let agent_state = Arc::new(AgentState::new());
         let late_injector = Arc::new(LateInjector::new());
         let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::clone(&late_injector) as _));
+        let commands = Arc::new(CommandRegistry::new(
+            Duration::from_secs(task_config.command_default_timeout_secs),
+            crate::commands::default_log_dir(&task_id),
+        ));
         let credential_failures = CredentialFailureDetector::default();
         let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
@@ -272,6 +284,7 @@ impl SandboxState {
             Arc::clone(&self.credentials),
             Arc::clone(&self.backend_client),
             Arc::clone(&scheduled_jobs),
+            Arc::clone(&commands),
             credential_failures.clone(),
             Arc::clone(&self.credential_dispatcher),
             Arc::clone(&system_prompt_cache),
@@ -288,6 +301,7 @@ impl SandboxState {
             agent_state,
             agent_handle,
             scheduled_jobs,
+            commands,
             credential_failures,
             system_prompt_cache,
         ));
@@ -536,6 +550,7 @@ mod tests {
             Arc::new(AgentState::new()),
             agent_handle,
             Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
+            Arc::new(CommandRegistry::for_test()),
             CredentialFailureDetector::default(),
             Arc::new(RwLock::new(None)),
         ));

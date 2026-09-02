@@ -729,7 +729,7 @@ mod tests {
             servers: Vec::new(),
             frontend_url: None,
             use_tmux: false,
-            background_job_monitoring_enabled: false,
+            command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             workspace_restore_if_empty: false,

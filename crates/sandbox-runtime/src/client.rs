@@ -6,23 +6,39 @@
 pub use sandbox_proto::client::*;
 
 use super::schemas::{
-    BackgroundProcess as SchemaBackgroundProcess,
-    BackgroundWatchJobInfo as SchemaBackgroundWatchJobInfo,
-    ScheduledJobInfo as SchemaScheduledJobInfo, ScheduledJobKind,
-    WakeupJobInfo as SchemaWakeupJobInfo,
+    BackgroundWatchJobInfo as SchemaBackgroundWatchJobInfo, ManagedCommand as SchemaManagedCommand,
+    ManagedCommandState as SchemaManagedCommandState, ScheduledJobInfo as SchemaScheduledJobInfo,
+    ScheduledJobKind, WakeupJobInfo as SchemaWakeupJobInfo,
 };
 
 // The schema types are defined in `moatless-api-schemas`; `sandbox_proto` is a
 // separate crate, so these proto conversions cannot be inherent or `From` impls
 // (orphan rule) and live here as free functions in the crate that names both.
 
-/// Convert a proto `BackgroundProcess` into the API schema.
-pub fn background_process_from_proto(
-    proto: sandbox_proto::BackgroundProcess,
-) -> SchemaBackgroundProcess {
-    SchemaBackgroundProcess {
-        pid: proto.pid,
+/// Convert a proto `ManagedCommand` into the API schema. An unrecognised state
+/// reads as `Running`: a sandbox newer than this backend reporting a state it
+/// has no name for is still work in flight, and treating it as finished would
+/// let the reaper stop the pod underneath it.
+pub fn managed_command_from_proto(proto: sandbox_proto::ManagedCommand) -> SchemaManagedCommand {
+    let state = match proto.state() {
+        sandbox_proto::ManagedCommandState::Exited => SchemaManagedCommandState::Exited,
+        sandbox_proto::ManagedCommandState::TimedOut => SchemaManagedCommandState::TimedOut,
+        sandbox_proto::ManagedCommandState::Killed => SchemaManagedCommandState::Killed,
+        sandbox_proto::ManagedCommandState::Running
+        | sandbox_proto::ManagedCommandState::Unspecified => SchemaManagedCommandState::Running,
+    };
+    SchemaManagedCommand {
+        id: proto.id,
         command: proto.command,
+        label: proto.label,
+        pid: proto.pid,
+        started_at_unix_ms: proto.started_at_unix_ms,
+        timeout_secs: proto.timeout_secs,
+        deadline_unix_ms: proto.deadline_unix_ms,
+        state,
+        exit_code: proto.exit_code,
+        log_path: proto.log_path,
+        finished_at_unix_ms: proto.finished_at_unix_ms,
     }
 }
 
@@ -48,7 +64,7 @@ pub fn scheduled_job_info_from_proto(
         }
         sandbox_proto::scheduled_job_info::Kind::BackgroundWatch(b) => {
             ScheduledJobKind::BackgroundWatch(SchemaBackgroundWatchJobInfo {
-                process_count: b.process_count,
+                command_count: b.command_count,
                 commands: b.commands,
             })
         }

@@ -7,11 +7,11 @@
  */
 
 /**
- * Watch that re-triggers the agent once the `run_in_background` jobs captured
-at the end of a turn have finished (subprocess mode only).
+ * Watch that re-triggers the agent once one of the registered commands
+captured at the end of a turn finishes (subprocess mode only).
  */
 export interface BackgroundWatchJobInfo {
-  commands: string[];
   /** @minimum 0 */
-  processCount: number;
+  commandCount: number;
+  commands: string[];
 }

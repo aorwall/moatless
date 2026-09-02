@@ -7,6 +7,7 @@
  */
 import type { AgentType } from './agentType';
 import type { CheckoutMode } from './checkoutMode';
+import type { ForkOrigin } from './forkOrigin';
 import type { SandboxDesiredState } from './sandboxDesiredState';
 import type { SandboxStopReason } from './sandboxStopReason';
 import type { Scope } from './scope';
@@ -31,6 +32,7 @@ export interface TaskResponse {
   createdByDisplayName?: string | null;
   /** @nullable */
   description?: string | null;
+  forkedFrom?: null | ForkOrigin;
   /** Inactive TTL in days. The reaper auto-closes the task when no activity
 has occurred for this many days. `0` means "never auto-close". */
   inactiveTtlDays: number;
@@ -56,12 +58,14 @@ conversation. `None` if they have never opened it. Compare against
   /** @nullable */
   ownerUserId?: string | null;
   /**
-   * Derived from the `created_by` relation in `relations`. Kept for
-backward compatibility with clients that pre-date the relations field.
+   * Derived from whichever parent relation in `relations` makes this task a
+child — `created_by` or `forked_from`. Kept for backward compatibility
+with clients that pre-date the relations field. Read `forked_from` to
+tell the two apart.
    * @nullable
    */
   parentTaskId?: string | null;
-  /** Typed relations this task has to other tasks (currently `created_by`). */
+  /** Typed relations this task has to other tasks. */
   relations?: TaskRelationDto[];
   repositoryId: string;
   /** @nullable */

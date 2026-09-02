@@ -20,6 +20,7 @@ dirs = "6"
 mime_guess = "2"
 moatless-api-client = { path = "../api-client" }
 moatless-api-schemas = { path = "../api-schemas" }
+sandbox-proto = { path = "../sandbox-proto" }
 open = "5"
 rand = "0.10"
 futures-util = "0.3"
@@ -29,6 +30,7 @@ serde_json = "1"
 serde_yaml = "0.9"
 tempfile = "3"
 thiserror = "2"
+tonic = "0.14"
 tokio = { version = "1", features = ["macros", "process", "rt-multi-thread", "net", "signal"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["serde"] }

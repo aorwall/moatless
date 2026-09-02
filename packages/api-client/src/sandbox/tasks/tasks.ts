@@ -31,6 +31,7 @@ import type {
   CreateTaskResponse,
   ErrorBody,
   FollowTaskResponse,
+  ForkTaskRequest,
   GetTaskConnectionsParams,
   ListTaskConnectionsParams,
   ListTasksParams,
@@ -1158,6 +1159,111 @@ export const useUnfollowTask = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getUnfollowTaskMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Fork a task: branch a new Task off this one at one of its completed turns.
+ */
+export type forkTaskResponse200 = {
+  data: CreateTaskResponse
+  status: 200
+}
+
+export type forkTaskResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type forkTaskResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type forkTaskResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type forkTaskResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+    
+export type forkTaskResponseSuccess = (forkTaskResponse200) & {
+  headers: Headers;
+};
+export type forkTaskResponseError = (forkTaskResponse400 | forkTaskResponse403 | forkTaskResponse404 | forkTaskResponse409) & {
+  headers: Headers;
+};
+
+export type forkTaskResponse = (forkTaskResponseSuccess | forkTaskResponseError)
+
+export const getForkTaskUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/fork`
+}
+
+export const forkTask = async (taskId: string,
+    forkTaskRequest: ForkTaskRequest, options?: RequestInit): Promise<forkTaskResponse> => {
+  
+  return customInstance<forkTaskResponse>(getForkTaskUrl(taskId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      forkTaskRequest,)
+  }
+);}
+
+
+
+
+export const getForkTaskMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof forkTask>>, TError,{taskId: string;data: ForkTaskRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof forkTask>>, TError,{taskId: string;data: ForkTaskRequest}, TContext> => {
+
+const mutationKey = ['forkTask'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof forkTask>>, {taskId: string;data: ForkTaskRequest}> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  forkTask(taskId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ForkTaskMutationResult = NonNullable<Awaited<ReturnType<typeof forkTask>>>
+    export type ForkTaskMutationBody = ForkTaskRequest
+    export type ForkTaskMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Fork a task: branch a new Task off this one at one of its completed turns.
+ */
+export const useForkTask = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof forkTask>>, TError,{taskId: string;data: ForkTaskRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof forkTask>>,
+        TError,
+        {taskId: string;data: ForkTaskRequest},
+        TContext
+      > => {
+      return useMutation(getForkTaskMutationOptions(options), queryClient);
     }
     /**
  * @summary Mark a task's conversation as read for the requesting user, up to now.

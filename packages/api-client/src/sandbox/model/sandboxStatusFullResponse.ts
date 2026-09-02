@@ -6,8 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentStatus } from './agentStatus';
-import type { BackgroundProcess } from './backgroundProcess';
 import type { ContainerDiagnostics } from './containerDiagnostics';
+import type { ManagedCommand } from './managedCommand';
 import type { ResourceMetrics } from './resourceMetrics';
 import type { RuntimeEvent } from './runtimeEvent';
 import type { SandboxDesiredState } from './sandboxDesiredState';
@@ -20,9 +20,9 @@ import type { ServerEntry } from './serverEntry';
  */
 export interface SandboxStatusFullResponse {
   agentStatus: null | AgentStatus;
-  /** Live background processes (`run_in_background` jobs, ad-hoc daemons) still
-running in the sandbox. Empty when idle with no background work. */
-  backgroundProcesses?: BackgroundProcess[];
+  /** Commands registered through `moat cmd`, running and recently finished.
+Empty when the agent registered none. */
+  commands?: ManagedCommand[];
   /** @nullable */
   containerDiagnostics?: ContainerDiagnostics[] | null;
   /**

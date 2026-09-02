@@ -578,7 +578,7 @@ impl TaskReaper {
                 ReapDecision::Keep => {}
                 ReapDecision::Stop => {
                     if self
-                        .stop_idle_sandbox(task_id, ttl_minutes, latest_at, reap_floor)
+                        .stop_idle_sandbox(task_id, ttl_minutes, latest_at)
                         .await
                     {
                         stats.stopped += 1;
@@ -630,7 +630,6 @@ impl TaskReaper {
         task_id: &str,
         ttl_minutes: i32,
         latest_at: Option<DateTime<Utc>>,
-        reap_floor: Option<DateTime<Utc>>,
     ) -> bool {
         // Defense in depth: the activity floor can go stale, so ask the agent
         // itself before pulling the plug. An unreadable status falls through.
@@ -644,18 +643,16 @@ impl TaskReaper {
                 );
                 return false;
             }
-            if status.busy_processes
-                && busy_extension_active(
-                    reap_floor,
-                    Utc::now(),
-                    self.config.sandbox.busy_extension_max_hours,
-                )
-            {
+            // The sandbox bounds this itself: a registered command is killed at
+            // its own deadline and stops counting as busy, so there is no cap to
+            // apply here. A command may legitimately declare a deadline longer
+            // than any fixed one this side could pick.
+            if status.busy_processes {
                 info!(
                     task_id = %task_id,
                     ttl_minutes,
                     last_activity = ?latest_at,
-                    "Idle floor expired but sandbox reports live background processes, deferring stop"
+                    "Idle floor expired but sandbox reports a running registered command, deferring stop"
                 );
                 return false;
             }
@@ -1011,24 +1008,6 @@ fn decide_orphan(task_exists: bool) -> OrphanDecision {
         OrphanDecision::Keep
     } else {
         OrphanDecision::Delete
-    }
-}
-
-/// Whether live background processes may still defer an idle stop. The busy
-/// extension is capped at `max_hours` past the activity floor so a leaked
-/// daemon can't pin a sandbox forever; `max_hours == 0` disables the
-/// extension, and without a floor there is nothing to anchor the cap to.
-fn busy_extension_active(
-    reap_floor: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-    max_hours: i64,
-) -> bool {
-    if max_hours <= 0 {
-        return false;
-    }
-    match reap_floor {
-        Some(floor) => now - floor < chrono::Duration::hours(max_hours),
-        None => false,
     }
 }
 
@@ -1501,28 +1480,6 @@ mod tests {
 
     fn ts(seconds_ago: i64) -> DateTime<Utc> {
         Utc::now() - chrono::Duration::seconds(seconds_ago)
-    }
-
-    // =========================================================================
-    // busy_extension_active
-    // =========================================================================
-
-    #[test]
-    fn busy_extension_holds_within_cap_and_expires_after() {
-        let now = Utc::now();
-        // Floor 1h ago, 4h cap — still within the extension window.
-        assert!(busy_extension_active(Some(ts(3600)), now, 4));
-        // Floor 5h ago, 4h cap — a leaked daemon no longer pins the sandbox.
-        assert!(!busy_extension_active(Some(ts(5 * 3600)), now, 4));
-    }
-
-    #[test]
-    fn busy_extension_disabled_or_unanchored() {
-        let now = Utc::now();
-        // max_hours == 0 disables the extension entirely.
-        assert!(!busy_extension_active(Some(ts(60)), now, 0));
-        // No activity floor — nothing to anchor the cap to.
-        assert!(!busy_extension_active(None, now, 4));
     }
 
     // =========================================================================

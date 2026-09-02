@@ -20,7 +20,7 @@ use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::task::TaskStatus;
 use moatless_types::workspace::ServerConfig;
 use moatless_sandbox_runtime::client::{
-    background_process_from_proto, scheduled_job_info_from_proto, SandboxConnector,
+    managed_command_from_proto, scheduled_job_info_from_proto, SandboxConnector,
 };
 use moatless_core::config::Config;
 use moatless_sandbox_runtime::live_status::{AgentStatus, LiveStatus, derive_live_status};
@@ -33,7 +33,7 @@ use moatless_sandbox_runtime::schemas::*;
 struct AgentStatusSnapshot {
     status: Option<AgentStatus>,
     scheduled_jobs: Vec<ScheduledJobInfo>,
-    background_processes: Vec<BackgroundProcess>,
+    commands: Vec<ManagedCommand>,
 }
 
 impl AgentStatusSnapshot {
@@ -42,7 +42,7 @@ impl AgentStatusSnapshot {
         Self {
             status: None,
             scheduled_jobs: Vec::new(),
-            background_processes: Vec::new(),
+            commands: Vec::new(),
         }
     }
 }
@@ -119,7 +119,7 @@ impl StatusResolver {
             let AgentStatusSnapshot {
                 status: agent_status,
                 scheduled_jobs,
-                background_processes,
+                commands,
             } = self.fetch_agent_status(task_id, connector).await;
 
             let live_status = derive_live_status(
@@ -142,7 +142,7 @@ impl StatusResolver {
                 container_diagnostics,
                 runtime_events: None,
                 scheduled_jobs,
-                background_processes,
+                commands,
                 sandbox_desired_state: None,
                 current_sandbox_image,
                 latest_sandbox_image: None,
@@ -252,7 +252,7 @@ impl StatusResolver {
             container_diagnostics,
             runtime_events,
             scheduled_jobs: Vec::new(),
-            background_processes: Vec::new(),
+            commands: Vec::new(),
             sandbox_desired_state: None,
             current_sandbox_image,
             latest_sandbox_image: None,
@@ -317,10 +317,10 @@ impl StatusResolver {
                     .into_iter()
                     .filter_map(scheduled_job_info_from_proto)
                     .collect(),
-                background_processes: resp
-                    .background_processes
+                commands: resp
+                    .commands
                     .into_iter()
-                    .map(background_process_from_proto)
+                    .map(managed_command_from_proto)
                     .collect(),
             },
             Err(e) => {

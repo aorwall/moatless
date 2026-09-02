@@ -1608,7 +1608,6 @@ mod tests {
                 cron_scheduler_enabled: false,
                 liveness_enabled: false,
                 idle_timeout_minutes: 15,
-                busy_extension_max_hours: 4,
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,
                 cold_after_hours: 0,

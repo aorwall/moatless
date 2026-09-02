@@ -99,7 +99,7 @@ pub struct BackgroundWatchSnapshot {
     pub id: String,
     pub registered_at_unix_ms: i64,
     /// Number of background processes being watched when the snapshot was taken.
-    pub process_count: u32,
+    pub command_count: u32,
     /// Best-effort command lines of the watched processes (for status display).
     pub commands: Vec<String>,
 }
@@ -251,36 +251,10 @@ mod tests {
 
     use tokio::time::Instant;
 
-    use super::super::background_watch_job::{BackgroundWatchJob, ProcessLiveness};
+    use super::super::background_watch_job::BackgroundWatchJob;
     use super::super::wakeup_job::WakeupJob;
     use super::*;
-
-    /// Liveness the test drives directly, so the watch can be exercised on any
-    /// host. The real source reads `/proc` and reports every PID gone off
-    /// Linux, which would end the watch during its settle window.
-    #[derive(Default, Clone)]
-    struct FakeLiveness {
-        live: Arc<Mutex<Vec<u32>>>,
-    }
-
-    impl FakeLiveness {
-        fn with(pids: &[u32]) -> Self {
-            Self {
-                live: Arc::new(Mutex::new(pids.to_vec())),
-            }
-        }
-
-        fn exit_all(&self) {
-            self.live.lock().expect("mutex poisoned").clear();
-        }
-    }
-
-    impl ProcessLiveness for FakeLiveness {
-        fn live_pids(&self, pids: &[u32]) -> Vec<u32> {
-            let live = self.live.lock().expect("mutex poisoned");
-            pids.iter().copied().filter(|p| live.contains(p)).collect()
-        }
-    }
+    use crate::commands::{CommandRegistry, CommandSpec};
 
     #[derive(Default, Clone)]
     struct CapturingInjector {
@@ -419,71 +393,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn background_watch_fires_after_process_exits() {
+    async fn background_watch_fires_after_a_registered_command_exits() {
         let injector = CapturingInjector::default();
-        let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
+        let jobs = ScheduledJobRegistry::new(Arc::new(injector.clone()));
         let run_cancel = CancellationToken::new();
 
-        let pid = 4242;
-        let liveness = FakeLiveness::with(&[pid]);
+        let commands = Arc::new(CommandRegistry::new(
+            Duration::from_mins(1),
+            std::env::temp_dir().join(format!("sched-{}", uuid::Uuid::new_v4())),
+        ));
+        commands
+            .run(CommandSpec {
+                command: "sleep 0.3".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
 
-        let job = BackgroundWatchJob::new_for_test(
-            vec![pid],
-            Duration::from_millis(20),
-            Duration::from_millis(20),
-            Arc::new(liveness.clone()),
-        );
-        assert!(registry.register(Box::new(job), run_cancel.clone()).await);
+        let job = BackgroundWatchJob::arm(Arc::clone(&commands))
+            .await
+            .expect("armed")
+            .with_poll_interval(Duration::from_millis(20));
+        assert!(jobs.register(Box::new(job), run_cancel.clone()).await);
 
-        // While the watched process is alive, nothing is injected.
-        tokio::time::sleep(Duration::from_millis(120)).await;
         assert!(
             injector.snapshot().is_empty(),
-            "watch must wait for the process to exit"
+            "watch must wait for the command to finish"
         );
 
-        // The process goes away → the watch detects completion and wakes the agent.
-        liveness.exit_all();
-
-        let ok = wait_until(Duration::from_secs(2), || !injector.snapshot().is_empty()).await;
-        assert!(ok, "expected a wake injection after the process exited");
+        let ok = wait_until(Duration::from_secs(5), || !injector.snapshot().is_empty()).await;
+        assert!(ok, "expected a wake injection after the command exited");
         assert!(
-            injector.snapshot()[0].contains("background process"),
-            "wake message should reference the finished background work"
+            injector.snapshot()[0].contains("background command has finished"),
+            "wake message should name the finished command"
         );
-        assert!(
-            registry.is_empty().await || registry.len().await == 0,
-            "watch should self-clean after firing"
-        );
-
-        run_cancel.cancel();
-    }
-
-    #[tokio::test]
-    async fn background_watch_does_not_wake_when_nothing_survives_settle_window() {
-        let injector = CapturingInjector::default();
-        let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
-        let run_cancel = CancellationToken::new();
-
-        // Nothing is live, so the settle window filters the PID out and the
-        // watch exits without ever waking the agent (the just-exited CLI case).
-        let job = BackgroundWatchJob::new_for_test(
-            vec![4242],
-            Duration::from_millis(20),
-            Duration::from_millis(20),
-            Arc::new(FakeLiveness::default()),
-        );
-        assert!(registry.register(Box::new(job), run_cancel.clone()).await);
-
-        // After the settle window (20ms) the watch finds no live PIDs and exits,
-        // so it self-cleans from the registry and injects nothing.
-        let cleaned = wait_until(Duration::from_millis(500), || false).await;
-        let _ = cleaned; // spends time so the settle window elapses; assert below
-        assert!(
-            injector.snapshot().is_empty(),
-            "no wake should fire when the watch set is empty after settling"
-        );
-        assert!(registry.is_empty().await, "watch should self-clean");
+        assert!(jobs.is_empty().await, "watch should self-clean after firing");
 
         run_cancel.cancel();
     }

@@ -110,13 +110,13 @@ pub struct WakeupJobInfo {
     pub wakeup_at_unix_ms: i64,
 }
 
-/// Watch that re-triggers the agent once the `run_in_background` jobs captured
-/// at the end of a turn have finished (subprocess mode only).
+/// Watch that re-triggers the agent once one of the registered commands
+/// captured at the end of a turn finishes (subprocess mode only).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct BackgroundWatchJobInfo {
-    pub process_count: u32,
+    pub command_count: u32,
     pub commands: Vec<String>,
 }
 
@@ -140,14 +140,40 @@ pub struct ScheduledJobInfo {
     pub kind: ScheduledJobKind,
 }
 
-/// A live background process (a `run_in_background` job or ad-hoc daemon) still
-/// running in the sandbox after the agent went idle.
+/// Lifecycle of a command registered through `moat cmd`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ManagedCommandState {
+    Running,
+    Exited,
+    /// Killed by the sandbox because it outlived its deadline.
+    TimedOut,
+    /// Killed on an explicit `moat cmd kill`.
+    Killed,
+}
+
+/// One long-running command the agent registered through `moat cmd`. The
+/// sandbox owns the process, so it is the only work that defers the idle
+/// reaper — a process forked any other way never appears here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct BackgroundProcess {
-    pub pid: u32,
+pub struct ManagedCommand {
+    pub id: String,
     pub command: String,
+    pub label: String,
+    pub pid: u32,
+    pub started_at_unix_ms: i64,
+    /// Seconds the sandbox gives it before killing it and marking it timed out.
+    pub timeout_secs: u64,
+    pub deadline_unix_ms: i64,
+    pub state: ManagedCommandState,
+    #[cfg_attr(feature = "openapi", schema(required = true))]
+    pub exit_code: Option<i32>,
+    /// Combined stdout/stderr, readable from inside the sandbox.
+    pub log_path: String,
+    pub finished_at_unix_ms: i64,
 }
 
 /// Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)
@@ -169,10 +195,10 @@ pub struct SandboxStatusFullResponse {
     pub runtime_events: Option<Vec<RuntimeEvent>>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub scheduled_jobs: Vec<ScheduledJobInfo>,
-    /// Live background processes (`run_in_background` jobs, ad-hoc daemons) still
-    /// running in the sandbox. Empty when idle with no background work.
+    /// Commands registered through `moat cmd`, running and recently finished.
+    /// Empty when the agent registered none.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub background_processes: Vec<BackgroundProcess>,
+    pub commands: Vec<ManagedCommand>,
     /// Desired sandbox lifecycle intent recorded on the task
     /// (`running`/`stopped`/`removed`). Reflects the last user/system action,
     /// independent of the live pod phase. `None` when it can't be resolved.

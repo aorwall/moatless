@@ -2,6 +2,7 @@ pub mod adapters;
 pub mod agents;
 pub mod api;
 pub mod bots;
+pub mod cmd;
 pub mod docker;
 pub mod events;
 pub mod feedback;

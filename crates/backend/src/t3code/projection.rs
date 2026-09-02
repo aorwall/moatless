@@ -178,8 +178,8 @@ mod tests {
     use crate::sandbox::live_status::AgentStatus;
     use crate::sandbox::models::{ResourceMetrics, ServerCapabilities, ServerStatus};
     use crate::sandbox::schemas::{
-        BackgroundProcess, ContainerDiagnostics, RuntimeEvent, SandboxStatusFullResponse,
-        ScheduledJobInfo, ScheduledJobKind, ServerEntry, WakeupJobInfo,
+        ContainerDiagnostics, ManagedCommand, ManagedCommandState, RuntimeEvent,
+        SandboxStatusFullResponse, ScheduledJobInfo, ScheduledJobKind, ServerEntry, WakeupJobInfo,
     };
     use moatless_api_schemas::enums::SandboxDesiredState;
     use moatless_types::sandbox::SandboxStatus;
@@ -230,9 +230,18 @@ mod tests {
                     wakeup_at_unix_ms: 1_754_000_600_000,
                 }),
             }],
-            background_processes: vec![BackgroundProcess {
+            commands: vec![ManagedCommand {
+                id: "cmd-1".to_string(),
+                command: "mvn verify".to_string(),
+                label: "reactor build".to_string(),
                 pid: 4321,
-                command: "bun run dev".to_string(),
+                started_at_unix_ms: 1_754_000_000_000,
+                timeout_secs: 3600,
+                deadline_unix_ms: 1_754_003_600_000,
+                state: ManagedCommandState::Running,
+                exit_code: None,
+                log_path: "/tmp/moat-commands/task-1/cmd-1.log".to_string(),
+                finished_at_unix_ms: 0,
             }],
             sandbox_desired_state: Some(SandboxDesiredState::Running),
             current_sandbox_image: Some("moatless/sandbox:v1".to_string()),

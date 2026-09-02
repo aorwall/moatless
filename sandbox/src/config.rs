@@ -22,6 +22,9 @@ use serde::Deserialize;
 /// hardcodes the broker socket beneath it.
 pub const RUNTIME_DIR: &str = "/run/moatless";
 
+/// Deadline a `moat cmd` command takes when it declares none.
+pub const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 4 * 60 * 60;
+
 /// Agent-specific configuration parsed from REPO_CONFIG.
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
@@ -219,10 +222,10 @@ pub struct Config {
     pub default_codex_model: Option<String>,
     /// Use the tmux-based Claude Code SDK transport instead of subprocess/NDJSON (env: SANDBOX_USE_TMUX).
     pub use_tmux: bool,
-    /// Enable sandbox-local background job monitoring that wakes the agent when
-    /// detached subprocess-mode jobs finish (env:
-    /// `SANDBOX_BACKGROUND_JOB_MONITORING_ENABLED`). Defaults off.
-    pub background_job_monitoring_enabled: bool,
+    /// Deadline applied to a `moat cmd` command that declares none (env:
+    /// `SANDBOX_COMMAND_DEFAULT_TIMEOUT_SECS`, default 4h). A command's own
+    /// value overrides it in either direction, including past this default.
+    pub command_default_timeout_secs: u64,
     /// Permission mode for the Claude CLI in normal (non-plan) mode (env:
     /// `SANDBOX_PERMISSION_MODE`). Defaults to `bypassPermissions` so network
     /// tools like WebSearch/WebFetch aren't denied (they are not auto-approved
@@ -578,9 +581,10 @@ impl Config {
             default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
             default_codex_model: env::var("DEFAULT_CODEX_MODEL").ok(),
             use_tmux: env_flag_enabled("SANDBOX_USE_TMUX"),
-            background_job_monitoring_enabled: env_flag_enabled(
-                "SANDBOX_BACKGROUND_JOB_MONITORING_ENABLED",
-            ),
+            command_default_timeout_secs: env::var("SANDBOX_COMMAND_DEFAULT_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS),
             permission_mode: env::var("SANDBOX_PERMISSION_MODE")
                 .ok()
                 .and_then(|v| parse_permission_mode(&v))
@@ -689,7 +693,7 @@ pub(crate) mod test_support {
             default_model: None,
             default_codex_model: None,
             use_tmux: false,
-            background_job_monitoring_enabled: false,
+            command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             workspace_restore_if_empty: false,

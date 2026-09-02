@@ -15,9 +15,10 @@ use tonic::{Request, Response, Status};
 use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
-use sandbox_proto::{ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundProcess, BackgroundWatchJobInfo, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse, GitRef, GitRepoRange, GitWorkingTreeFile, ListFilesRequest, ListFilesResponse, ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest, NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest, StopAgentResponse, SyncWorkspaceRequest, SyncWorkspaceResponse, TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest, TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse, TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse, WakeupJobInfo, WriteFileRequest, WriteFileResponse, scheduled_job_info};
+use sandbox_proto::{ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundWatchJobInfo, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse, GitRef, GitRepoRange, GitWorkingTreeFile, ListFilesRequest, ListFilesResponse, KillCommandRequest, KillCommandResponse, ListCommandsRequest, ListCommandsResponse, ListGitRefsRequest, ListGitRefsResponse, ManagedCommand as ManagedCommandProto, ManagedCommandState, NotifyMessagesRequest, RunCommandRequest, RunCommandResponse, NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest, StopAgentResponse, SyncWorkspaceRequest, SyncWorkspaceResponse, TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest, TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse, TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse, WakeupJobInfo, WriteFileRequest, WriteFileResponse, scheduled_job_info};
 
 use crate::agent::scheduled_job::JobSnapshot;
+use crate::commands::{CommandError, CommandSpec, CommandState, ManagedCommand};
 use crate::agent::types::AgentStatus;
 use crate::files;
 use crate::server_control;
@@ -197,7 +198,7 @@ impl SandboxService for SandboxServiceImpl {
                     registered_at_unix_ms: b.registered_at_unix_ms,
                     kind: Some(scheduled_job_info::Kind::BackgroundWatch(
                         BackgroundWatchJobInfo {
-                            process_count: b.process_count,
+                            command_count: b.command_count,
                             commands: b.commands,
                         },
                     )),
@@ -205,42 +206,17 @@ impl SandboxService for SandboxServiceImpl {
             })
             .collect();
 
-        // Only enumerate live descendants when the agent is idle/stopped. While
-        // a turn is running the sandbox's own `claude -p` subprocess (and its
-        // transient tool/subagent children) are live descendants, so reporting
-        // them would surface the agent's own turn as a phantom "background
-        // process". The signal is only meaningful once the agent is no longer
-        // running, where any live descendant is genuine detached background
-        // work. In tmux mode the persistent session keeps the CLI + tmux server
-        // alive even at idle, which would read as always-busy, so report empty
-        // there as before.
-        let tmux_pane_pid = context.agent.tmux_pane_pid().await;
-        let background_processes: Vec<BackgroundProcess> = if should_report_background_processes(
-            self.state.config.use_tmux,
-            agent_status,
-            tmux_pane_pid,
-        ) {
-            tokio::task::spawn_blocking(move || {
-                let root = std::process::id();
-                match tmux_pane_pid {
-                    Some(pane) => {
-                        crate::process_tree::live_descendants_excluding_session(root, pane)
-                    }
-                    None => crate::process_tree::live_descendants(root),
-                }
-            })
+        // Only registered commands count. The agent's own turn subprocess is
+        // never in the registry, so this is meaningful whether or not a turn is
+        // running, and it is identical in tmux mode.
+        let commands: Vec<ManagedCommandProto> = context
+            .commands
+            .list()
             .await
-            .unwrap_or_default()
             .into_iter()
-            .map(|p| BackgroundProcess {
-                pid: p.pid,
-                command: p.command,
-            })
-            .collect()
-        } else {
-            Vec::new()
-        };
-        let busy_processes = !background_processes.is_empty();
+            .map(managed_command_to_proto)
+            .collect();
+        let busy_processes = context.commands.busy().await;
 
         Ok(Response::new(GetAgentStatusResponse {
             status: status.to_string(),
@@ -248,8 +224,72 @@ impl SandboxService for SandboxServiceImpl {
             last_error: context.agent.last_error().await,
             scheduled_jobs,
             busy_processes,
-            background_processes,
+            commands,
             run_id: context.agent.current_run_id().await,
+        }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn run_command(
+        &self,
+        request: Request<RunCommandRequest>,
+    ) -> Result<Response<RunCommandResponse>, Status> {
+        let req = request.into_inner();
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        if req.command.trim().is_empty() {
+            return Err(Status::invalid_argument("command must not be empty"));
+        }
+        let command = context
+            .commands
+            .run(CommandSpec {
+                command: req.command,
+                cwd: req.cwd,
+                timeout: req.timeout_secs.map(std::time::Duration::from_secs),
+                label: req.label,
+            })
+            .await
+            .map_err(command_error_to_status)?;
+        Ok(Response::new(RunCommandResponse {
+            command: Some(managed_command_to_proto(command)),
+        }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn list_commands(
+        &self,
+        request: Request<ListCommandsRequest>,
+    ) -> Result<Response<ListCommandsResponse>, Status> {
+        let req = request.into_inner();
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let commands = match req.id {
+            Some(id) => vec![
+                context
+                    .commands
+                    .get(&id)
+                    .await
+                    .ok_or_else(|| Status::not_found(format!("no command with id {id}")))?,
+            ],
+            None => context.commands.list().await,
+        };
+        Ok(Response::new(ListCommandsResponse {
+            commands: commands.into_iter().map(managed_command_to_proto).collect(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn kill_command(
+        &self,
+        request: Request<KillCommandRequest>,
+    ) -> Result<Response<KillCommandResponse>, Status> {
+        let req = request.into_inner();
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let command = context
+            .commands
+            .kill(&req.id)
+            .await
+            .map_err(command_error_to_status)?;
+        Ok(Response::new(KillCommandResponse {
+            command: Some(managed_command_to_proto(command)),
         }))
     }
 
@@ -710,27 +750,32 @@ impl SandboxService for SandboxServiceImpl {
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-/// Whether `GetAgentStatus` should enumerate live descendant processes as
-/// background work. Only meaningful while the agent is not running: mid-turn
-/// the CLI's tool / sub-agent children are live descendants and would surface
-/// as phantom "background processes"; once the agent is idle/stopped, any live
-/// descendant is genuine background work.
-///
-/// In tmux mode the persistent session keeps the CLI and tmux server alive even
-/// at idle, so a plain walk reads as always-busy. Reporting there needs the
-/// pane PID, which identifies that spine so it can be excluded — without it,
-/// report nothing rather than everything.
-fn should_report_background_processes(
-    use_tmux: bool,
-    status: AgentStatus,
-    tmux_pane_pid: Option<u32>,
-) -> bool {
-    // Waiting counts as running here: the CLI process and its children are
-    // still alive, parked mid-turn on the answer.
-    if matches!(status, AgentStatus::Running | AgentStatus::Waiting) {
-        return false;
+fn managed_command_to_proto(c: ManagedCommand) -> ManagedCommandProto {
+    ManagedCommandProto {
+        id: c.id,
+        command: c.command,
+        label: c.label,
+        pid: c.pid,
+        started_at_unix_ms: c.started_at_unix_ms,
+        timeout_secs: c.timeout.as_secs(),
+        deadline_unix_ms: c.deadline_unix_ms,
+        state: match c.state {
+            CommandState::Running => ManagedCommandState::Running,
+            CommandState::Exited => ManagedCommandState::Exited,
+            CommandState::TimedOut => ManagedCommandState::TimedOut,
+            CommandState::Killed => ManagedCommandState::Killed,
+        } as i32,
+        exit_code: c.exit_code,
+        log_path: c.log_path.display().to_string(),
+        finished_at_unix_ms: c.finished_at_unix_ms,
     }
-    !use_tmux || tmux_pane_pid.is_some()
+}
+
+fn command_error_to_status(e: CommandError) -> Status {
+    match e {
+        CommandError::NotFound(_) => Status::not_found(e.to_string()),
+        CommandError::Log { .. } | CommandError::Spawn(_) => Status::internal(e.to_string()),
+    }
 }
 
 fn tree_node_to_proto(node: files::tree::FileTreeNode) -> sandbox_proto::FileTreeNode {
@@ -804,61 +849,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn reports_background_processes_when_subprocess_and_not_running() {
-        // Subprocess mode: idle/stopped surface genuine detached work...
-        assert!(should_report_background_processes(
-            false,
-            AgentStatus::Idle,
-            None
-        ));
-        assert!(should_report_background_processes(
-            false,
-            AgentStatus::Stopped,
-            None
-        ));
-        // ...but a running turn's own CLI subprocess must not be reported.
-        assert!(!should_report_background_processes(
-            false,
-            AgentStatus::Running,
-            None
-        ));
-    }
 
-    #[test]
-    fn reports_background_processes_in_tmux_once_the_session_is_known() {
-        // With the pane PID the persistent spine can be excluded, so idle work
-        // is reportable and a running turn's tool children still are not.
-        assert!(should_report_background_processes(
-            true,
-            AgentStatus::Idle,
-            Some(61)
-        ));
-        assert!(should_report_background_processes(
-            true,
-            AgentStatus::Stopped,
-            Some(61)
-        ));
-        assert!(!should_report_background_processes(
-            true,
-            AgentStatus::Running,
-            Some(61)
-        ));
-    }
 
-    #[test]
-    fn tmux_without_a_pane_pid_reports_nothing() {
-        // No way to tell the always-alive CLI + tmux server from real work, so
-        // report none rather than pinning the sandbox as permanently busy.
-        assert!(!should_report_background_processes(
-            true,
-            AgentStatus::Idle,
-            None
-        ));
-        assert!(!should_report_background_processes(
-            true,
-            AgentStatus::Stopped,
-            None
-        ));
-    }
 }
