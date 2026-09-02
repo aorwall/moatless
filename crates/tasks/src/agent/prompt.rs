@@ -346,7 +346,10 @@ fn build_parent_task_section(parent: ParentTask<'_>) -> String {
              This task was created by another task (`{parent_task_id}`). \
              When you have completed your work, you MUST report back to the parent task by running:\n\n  \
              `moat send --task {parent_task_id} --text \"<summary of what you did and the outcome>\"`\n\n\
-             Always send this final message — the parent task is waiting for your response."
+             Always send this final message; the parent task is waiting for your response. \
+             It is an AI agent, not a person: send it once, when the work is done, and keep it \
+             to the outcome, what it has to act on, and where the work is. Send no progress \
+             updates along the way."
         ),
         ParentTask::ForkedFrom { task_id, at_turn } => {
             let cut = match at_turn {

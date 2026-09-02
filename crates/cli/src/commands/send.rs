@@ -21,7 +21,10 @@ use crate::output;
         .args(["task", "user", "to"])
 ))]
 pub struct SendArgs {
-    /// Drive the agent on a task by ID
+    /// Drive the agent on a task by ID. The recipient is an AI agent, not a
+    /// person: send one message per completed unit of work, keep it to the
+    /// outcome and what that agent has to act on, and send no acknowledgements
+    /// or progress updates.
     #[arg(long, group = "send_target")]
     pub task: Option<String>,
 

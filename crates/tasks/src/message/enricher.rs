@@ -418,8 +418,14 @@ pub async fn build_content_blocks(
 fn attributed_text(text: &str, source_task_id: Option<&str>) -> String {
     match source_task_id {
         Some(id) => format!(
-            "Message from task `{id}`:\n\n{text}\n\n\
-             To reply, run: `moat send --task {id} --text \"<your reply>\"`"
+            "Message from task `{id}`. An AI agent wrote this and sent it here. \
+             No person typed it and no person is waiting on an answer.\n\n\
+             {text}\n\n\
+             Reply only to answer a question it asked or to unblock a decision it named:\n\n  \
+             `moat send --task {id} --text \"<your reply>\"`\n\n\
+             A message that only reports or signs off needs no reply. Keep a reply to the \
+             answer and anything the other agent cannot look up itself; send no \
+             acknowledgement, no thanks, no progress update, no confirmation of receipt."
         ),
         None => text.to_string(),
     }
@@ -922,6 +928,17 @@ mod tests {
             from_line(slack_row(None, Some("martin.k")), &HashMap::new()).await,
             "<from>slack: martin.k</from>"
         );
+    }
+
+    #[test]
+    fn a_task_message_names_its_sender_as_an_agent_and_gates_the_reply() {
+        let text = attributed_text("hello", Some("task-abc"));
+
+        assert!(text.contains("An AI agent wrote this"));
+        assert!(text.contains("No person typed it"));
+        assert!(text.contains("Reply only to answer a question it asked"));
+        assert!(text.contains("only reports or signs off needs no reply"));
+        assert!(text.contains("`moat send --task task-abc --text \"<your reply>\"`"));
     }
 
     #[tokio::test]
