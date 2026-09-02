@@ -90,7 +90,8 @@ pub async fn run(
                 println!("  log:      {}", cmd.log_path);
                 println!("  deadline: {}s", cmd.timeout_secs);
                 println!(
-                    "The sandbox stays awake until this finishes; you will be woken when it does."
+                    "The sandbox stays awake until this finishes; you will be woken when it does. \
+                     End your turn — do not poll it or schedule a fallback wakeup."
                 );
             }
         }

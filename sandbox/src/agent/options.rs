@@ -366,8 +366,10 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
          call — a slow build or test suite, a dev server — start it with `moat \
          cmd run \"<command>\"` instead of blocking a turn on `sleep` polling. \
          The sandbox owns the process: it keeps the sandbox awake while the \
-         command runs and wakes you the moment it finishes, so end your turn \
-         rather than waiting. Check on one with `moat cmd list` / `moat cmd \
+         command runs and wakes you the moment it finishes. End your turn once \
+         it is started — that wake is guaranteed, including when the command \
+         fails or hits its deadline, so do not sleep, poll, or schedule a \
+         fallback wakeup of your own. Check on one with `moat cmd list` / `moat cmd \
          status <id>` / `moat cmd logs <id>`, and stop one with `moat cmd kill \
          <id>`. A command is killed at its deadline (4h by default); pass \
          `--timeout <seconds>` to lower it for something that should finish \
@@ -1170,6 +1172,7 @@ mod tests {
         let subprocess = build_prompt_append(&test_config(false), &test_request());
         assert!(subprocess.contains("## Long-running commands"));
         assert!(subprocess.contains("moat cmd run"));
+        assert!(subprocess.contains("that wake is guaranteed"));
 
         let tmux = build_prompt_append(&test_config(true), &test_request());
         assert!(!tmux.contains("## Long-running commands"));
