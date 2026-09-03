@@ -72,6 +72,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tower_http::compression::CompressionLayer;
 use tracing::{Instrument, debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -514,6 +515,11 @@ fn environment_id(identity: &UiRpcEnvironmentIdentity) -> String {
 }
 
 fn router(state: UiRpcState) -> Router {
+    // The client pulls a thread body over HTTP rather than the socket so the
+    // transport can compress it (T3's `threadSnapshotHttp.ts`), and unencoded a
+    // long conversation is ~2MB against ~400KB gzipped. Scoped to the JSON reads
+    // rather than applied globally because `/ws` shares this router.
+    let compression = CompressionLayer::new();
     Router::new()
         .route("/.well-known/t3/environment", get(environment_descriptor))
         .route("/oauth/token", post(oauth::token_exchange))
@@ -533,14 +539,17 @@ fn router(state: UiRpcState) -> Router {
             &format!("{}/{{token}}", attachments::UPLOAD_ROUTE_PREFIX),
             post(attachments::receive),
         )
-        .route("/api/orchestration/shell", get(shell_snapshot_http))
+        .route(
+            "/api/orchestration/shell",
+            get(shell_snapshot_http).layer(compression.clone()),
+        )
         .route(
             "/api/orchestration/threads/{thread_id}",
-            get(thread_snapshot_http),
+            get(thread_snapshot_http).layer(compression.clone()),
         )
         .route(
             "/api/orchestration/scripts/{thread_id}",
-            get(scripts_list_http),
+            get(scripts_list_http).layer(compression),
         )
         .route(
             "/api/orchestration/scripts/{thread_id}/{script_id}/run",
@@ -5639,6 +5648,49 @@ mod tests {
                 text(response).await,
                 crate::workspace::WorkspaceAccessError::Unaddressable.message()
             );
+        }
+    }
+
+    /// The JSON read routes negotiate compression; the socket does not.
+    mod http_compression {
+        use super::*;
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        async fn shell(accept_encoding: Option<&str>) -> Response {
+            let mut builder = Request::builder().uri("/api/orchestration/shell");
+            if let Some(encoding) = accept_encoding {
+                builder = builder.header("accept-encoding", encoding);
+            }
+            let mut request = builder.body(Body::empty()).unwrap();
+            request.extensions_mut().insert(viewer());
+            router(state()).oneshot(request).await.unwrap()
+        }
+
+        /// A client that offers gzip gets it: the layer is wired to this route,
+        /// which is the ~5x saving on the thread bootstrap the client pulls over
+        /// HTTP for exactly this reason.
+        #[tokio::test]
+        async fn a_client_that_offers_gzip_gets_a_gzipped_body() {
+            let response = shell(Some("gzip")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response
+                    .headers()
+                    .get(header::CONTENT_ENCODING)
+                    .and_then(|value| value.to_str().ok()),
+                Some("gzip")
+            );
+        }
+
+        /// A client that offers nothing still gets a readable body: compression
+        /// is negotiated, never forced on a client that cannot decode it.
+        #[tokio::test]
+        async fn a_client_that_offers_no_encoding_gets_an_uncompressed_body() {
+            let response = shell(None).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(response.headers().get(header::CONTENT_ENCODING).is_none());
         }
     }
 
