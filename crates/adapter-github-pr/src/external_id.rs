@@ -64,6 +64,24 @@ pub(super) fn pr_synchronize(subject: &GithubPrSubject, sha: &str) -> String {
     pr_event("synchronize", subject, Some(sha))
 }
 
+/// The prefix [`aliases`] recognises a `synchronize` id by.
+const SYNCHRONIZE_PREFIX: &str = "github:pr:synchronize:";
+
+/// `github:push:<owner>/<repo>:<sha>` - a sha the Task pushed.
+///
+/// Carries no pull request number: the sandbox files the claim as the push
+/// completes, which is before the pull request the sha lands on exists on the
+/// first push. [`aliases`] reattaches it to the `synchronize` event, and
+/// `task_outbound_events` is keyed on `(external_event_id, provider,
+/// source_name)`, so the number is never needed to find it again.
+pub(super) fn push(owner: &str, repo: &str, sha: &str) -> String {
+    push_on(&format!("{owner}/{repo}"), sha)
+}
+
+fn push_on(repo_full_name: &str, sha: &str) -> String {
+    format!("github:push:{repo_full_name}:{sha}")
+}
+
 /// `github:pr:merged:<owner>/<repo>#<number>` - the merged-PR notification.
 ///
 /// A distinct namespace from `github:pr:closed:...`, which the auto-close
@@ -124,12 +142,30 @@ pub(super) fn comment_target_from_id(external_id: &str) -> Option<CommentTarget>
 
 /// The ids a stored row may carry for the same event.
 ///
-/// Only the comment namespaces alias, and only onto the bare integer written
-/// before the prefix scheme. A PR-level id never aliases onto its old
-/// number-only shape: that string is the ambiguous one, and handing it to a
-/// reader that matches on the id alone would put back the collision the format
-/// removes. Migration `0148` rewrites those rows instead.
+/// A `synchronize` id aliases onto the [`push`] claim for the same sha, which is
+/// what names the Task that produced the push. Both spell the repository, so the
+/// pair is as unambiguous as the id it came from.
+///
+/// Only the comment namespaces alias onto the bare integer written before the
+/// prefix scheme. A PR-level id never aliases onto its old number-only shape:
+/// that string is the ambiguous one, and handing it to a reader that matches on
+/// the id alone would put back the collision the format removes. Migration
+/// `0148` rewrites those rows instead.
 pub(super) fn aliases(external_id: &str) -> Vec<String> {
+    // Ahead of the digit test below: a sha is hex, so a `synchronize` id would
+    // fall out of it with no alias.
+    if let Some(rest) = external_id.strip_prefix(SYNCHRONIZE_PREFIX) {
+        let mut out = vec![external_id.to_string()];
+        if let Some((subject_key, sha)) = rest.rsplit_once(':') {
+            if let Some((repo_full_name, _number)) = subject_key.rsplit_once('#') {
+                if !sha.is_empty() && !repo_full_name.is_empty() {
+                    out.push(push_on(repo_full_name, sha));
+                }
+            }
+        }
+        return out;
+    }
+
     let tail = external_id.rsplit(':').next().unwrap_or("");
     if tail.is_empty() || !tail.chars().all(|c| c.is_ascii_digit()) {
         return vec![external_id.to_string()];
@@ -256,5 +292,45 @@ mod tests {
         assert_eq!(aliases("github:rv:5"), vec!["github:rv:5".to_string()]);
         assert_eq!(aliases("github:cr:8"), vec!["github:cr:8".to_string()]);
         assert_eq!(aliases("github:cs:9"), vec!["github:cs:9".to_string()]);
+    }
+
+    #[test]
+    fn push_format() {
+        assert_eq!(
+            push("acme", "widgets", "be1d882"),
+            "github:push:acme/widgets:be1d882"
+        );
+    }
+
+    /// The claim the sandbox files carries no PR number, so the `synchronize`
+    /// id has to drop its own to reach the claim.
+    #[test]
+    fn a_synchronize_id_aliases_onto_the_push_claim_for_its_sha() {
+        assert_eq!(
+            aliases(&pr_synchronize(&subject("widgets", 42), "be1d882")),
+            vec![
+                "github:pr:synchronize:acme/widgets#42:be1d882".to_string(),
+                "github:push:acme/widgets:be1d882".to_string(),
+            ]
+        );
+    }
+
+    /// The alias names the repository the event happened in, so a second
+    /// repository's push of the same sha is a different claim.
+    #[test]
+    fn the_push_alias_keeps_the_repository() {
+        let acme = aliases(&pr_synchronize(&subject("widgets", 42), "deadbee"));
+        let other = aliases("github:pr:synchronize:other/widgets#42:deadbee");
+        assert_ne!(acme[1], other[1]);
+    }
+
+    /// GitHub sends `before`/`after` empty on a force-push to an unknown state;
+    /// `pr_event` then writes no sha, and there is no claim to reach.
+    #[test]
+    fn a_synchronize_id_without_a_sha_has_no_push_alias() {
+        assert_eq!(
+            aliases("github:pr:synchronize:acme/widgets#42"),
+            vec!["github:pr:synchronize:acme/widgets#42".to_string()]
+        );
     }
 }

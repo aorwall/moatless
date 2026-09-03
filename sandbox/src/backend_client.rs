@@ -14,8 +14,8 @@ use sandbox_proto::{
     DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetSystemPromptRequest, GetWorkspaceSyncUrlsRequest,
     GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
-    RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest, TranscriptChunk,
-    UpdateCredentialRequest,
+    RecordGitPushRequest, RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest,
+    TranscriptChunk, UpdateCredentialRequest,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -139,6 +139,21 @@ pub trait BackendClient: Send + Sync {
         _duration_ms: u64,
         _ok: bool,
     ) {
+    }
+
+    /// Claim a sha this task pushed to `owner/repo`, so GitHub's
+    /// `pull_request.synchronize` webhook for it is not delivered back here.
+    ///
+    /// The error is returned rather than logged: the caller leaves an unclaimed
+    /// sha out of its claimed set so the next push refiles it.
+    async fn record_git_push(
+        &self,
+        _task_id: &str,
+        _owner: &str,
+        _repo: &str,
+        _sha: &str,
+    ) -> Result<(), tonic::Status> {
+        Err(tonic::Status::unimplemented("git push claim not supported"))
     }
 
     /// Replace the Bearer token injected on subsequent gRPC calls.
@@ -457,5 +472,24 @@ impl BackendClient for BackendGrpcClient {
         {
             debug!(task_id, error = %e, "Failed to report workspace sync (non-fatal)");
         }
+    }
+
+    async fn record_git_push(
+        &self,
+        task_id: &str,
+        owner: &str,
+        repo: &str,
+        sha: &str,
+    ) -> Result<(), tonic::Status> {
+        let mut client = self.client.clone();
+        client
+            .record_git_push(RecordGitPushRequest {
+                task_id: task_id.to_string(),
+                owner: owner.to_string(),
+                repo: repo.to_string(),
+                sha: sha.to_string(),
+            })
+            .await?;
+        Ok(())
     }
 }

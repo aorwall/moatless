@@ -49,7 +49,6 @@ pub struct GithubPrInboundRouter {
     pub(super) messages: Arc<dyn TranscriptAppend>,
     /// Records the related-to relation on review-task spawn.
     pub(super) task_relations: Arc<dyn RelationRecorder>,
-    /// Push-echo dedup — which task claimed a `synchronize` sha.
     /// Task rows — the close pre-check (already-closed / not-found skip).
     pub(super) tasks: Arc<dyn TaskReader>,
     /// The shared task-creation spine (review-task spawn).

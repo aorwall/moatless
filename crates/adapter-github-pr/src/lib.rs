@@ -21,6 +21,7 @@ mod merge_conflict;
 mod merged;
 mod outbound;
 mod post_merge;
+pub mod push_claim;
 mod reactions;
 pub mod router;
 mod routing;

@@ -17,6 +17,7 @@ pub(crate) mod credentials;
 mod dirs;
 pub(crate) mod gh_hosts;
 pub(crate) mod git;
+pub(crate) mod git_push_watcher;
 pub(crate) mod home_skills;
 pub(crate) mod plugin_skills;
 pub(crate) mod refresher;
@@ -282,6 +283,29 @@ pub async fn run_init(state: SandboxState, registrar: Registrar) {
     // back to the backend so subsequent tasks (and pod restarts) see the new
     // refresh_token instead of the now-invalidated stored copy.
     spawn_codex_auth_watcher(&state, &registrar).await;
+
+    // Watch each checkout's remote reflogs so a sha this task pushes is claimed
+    // before GitHub's `pull_request.synchronize` webhook for it arrives.
+    spawn_git_push_watcher(&state, &registrar);
+}
+
+fn spawn_git_push_watcher(state: &SandboxState, registrar: &Registrar) {
+    let watcher_task = git_push_watcher::spawn(
+        state.config.task_id.clone(),
+        state.config.repo_dirs(),
+        std::sync::Arc::clone(&state.backend_client),
+        state.lifecycle_cancel.clone(),
+    );
+
+    // Optional: losing the watcher costs the task its own push notifications
+    // back in its chat. It costs the running turn nothing else, so it is not
+    // worth a restart — but it should be named rather than logged as an
+    // anonymous panic.
+    registrar.supervise(
+        "git-push-watcher",
+        Criticality::Optional,
+        watcher_task,
+    );
 }
 
 /// Cross the boundary from "restored but private" to "open for work", in the one

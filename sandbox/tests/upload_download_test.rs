@@ -19,8 +19,9 @@ use sandbox_proto::{
     DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
     GetSystemPromptResponse, GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse,
-    PublishEventRequest, PublishEventResponse, RecoverInterruptedRunRequest,
-    RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse,
+    PublishEventRequest, PublishEventResponse, RecordGitPushRequest, RecordGitPushResponse,
+    RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
+    ReportWorkspaceSyncResponse,
     TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadChunk,
     UploadTranscriptResponse,
 };
@@ -180,6 +181,13 @@ impl BackendSandboxService for UploadOnlyBackend {
         &self,
         _request: Request<ReportWorkspaceSyncRequest>,
     ) -> Result<Response<ReportWorkspaceSyncResponse>, Status> {
+        Err(Status::unimplemented("not used"))
+    }
+
+    async fn record_git_push(
+        &self,
+        _request: Request<RecordGitPushRequest>,
+    ) -> Result<Response<RecordGitPushResponse>, Status> {
         Err(Status::unimplemented("not used"))
     }
 }
