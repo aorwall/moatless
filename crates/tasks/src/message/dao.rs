@@ -515,7 +515,7 @@ macro_rules! message_columns {
          external_adapter, external_source_name, source_task_id,
          start_fresh, sent_by, external_subject_key, assistant_usage,
          tool_response, effort, external_author, skills,
-         external_sender_id"
+         external_sender_id, sent_at"
     };
 }
 pub(crate) use message_columns;
@@ -526,7 +526,7 @@ macro_rules! message_placeholders {
          $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
          $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
          $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-         $41, $42, $43, $44, $45, $46"
+         $41, $42, $43, $44, $45, $46, $47"
     };
 }
 pub(crate) use message_placeholders;
@@ -587,6 +587,10 @@ macro_rules! bind_message {
             // row's skills.
             .bind(&$msg.skills)
             .bind(&$msg.external_sender_id)
+            // Absent from the upsert's `DO UPDATE SET`: the ingest path always
+            // binds NULL here, and re-upserting a Message must not unsend one
+            // `acknowledge_messages` has already stamped.
+            .bind($msg.sent_at)
     };
 }
 pub(crate) use bind_message;

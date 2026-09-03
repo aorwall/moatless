@@ -398,6 +398,49 @@ async fn set_session_id_also_sets_sent_at(pool: PgPool) {
     }
 }
 
+/// The fork copy inserts through `message_columns!()`, so a column absent from
+/// that list is dropped without failing to compile. `sent_at` absent left every
+/// copied Message claimed by `agent_session_id` and unsent by `sent_at`, which
+/// reads as queued forever while no dispatch will ever pick it up again.
+#[sqlx::test]
+async fn a_copied_message_carries_the_sent_at_that_claimed_it(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let fork = make_task_row("task-2", "user-1");
+    moatless_backend::task::dao::insert_task(&pool, &fork)
+        .await
+        .expect("seed fork task");
+
+    let msg = make_message_row("task-1", "forked-msg-1");
+    message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
+    message_dao::acknowledge_messages(
+        &pool,
+        "task-1",
+        &["forked-msg-1".to_string()],
+        "session-abc",
+        1,
+    )
+    .await
+    .unwrap();
+
+    moatless_backend::message::fork::copy_conversation(&pool, "task-1", "task-2", None)
+        .await
+        .unwrap();
+
+    let (copied, _, _) = message_dao::get_all(&pool, "task-2").await.unwrap();
+    let copied = copied.first().expect("the acknowledged Message is copied");
+    assert!(
+        copied.sent_at.is_some(),
+        "a copy of a Message the parent had already sent must not read as queued"
+    );
+    assert_eq!(copied.agent_session_id.as_deref(), Some("session-abc"));
+    assert!(message_dao::get_pending_user(&pool, "task-2")
+        .await
+        .unwrap()
+        .is_empty());
+}
+
 #[sqlx::test]
 async fn get_last_result(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
