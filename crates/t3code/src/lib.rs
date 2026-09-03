@@ -76,7 +76,7 @@ use tracing::{Instrument, debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::agent::catalog::UiRpcAgentKind;
-use crate::dao::{ConversationDao, Transcript};
+use crate::dao::{Conversation, ConversationDao, Transcript};
 use crate::task_dao::T3TaskDao;
 use crate::workspace_dao::T3WorkspaceDao;
 use crate::listing::{UiRpcEnvironmentIdentity, UiRpcResume};
@@ -749,6 +749,75 @@ pub async fn shell_snapshot(
     })
 }
 
+/// One conversation this viewer may read, together with the project a client
+/// would file it under — or nothing.
+///
+/// The project is the second condition, not a detail of the first. A client
+/// groups every conversation under a project it already holds, so one whose
+/// workspace is not in the listing has nowhere to go and is dropped here rather
+/// than sent to be silently discarded on arrival.
+///
+/// `Ok(None)` collapses every way a conversation can be absent for this viewer
+/// into one answer; distinguishing them would disclose which.
+async fn readable_under_a_project(
+    workspaces: &dyn T3WorkspaceDao,
+    conversations: &dyn ConversationDao,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Option<(Conversation, String)>, sqlx::Error> {
+    let Some(conversation) = conversations.readable_by_id(viewer, task_id).await? else {
+        return Ok(None);
+    };
+    let referenced: Vec<String> = conversation.workspace_id.clone().into_iter().collect();
+    let workspaces = workspaces
+        .list_readable_including(viewer, &referenced)
+        .await?;
+    let project_id = conversation
+        .workspace_id
+        .as_deref()
+        .filter(|id| workspaces.iter().any(|listed| listed.workspace.id == *id))
+        .map(str::to_string);
+    let Some(project_id) = project_id else {
+        // The shell drops this conversation for the same reason, with the same
+        // warning. Opening one the sidebar could not show it is the same gap
+        // seen from the other side.
+        warn!(
+            task_id = %conversation.task_id,
+            workspace_id = ?conversation.workspace_id,
+            "Conversation has no listable workspace; not opening it in the T3 UI"
+        );
+        return Ok(None);
+    };
+    Ok(Some((conversation, project_id)))
+}
+
+/// One conversation's listing row, by id.
+///
+/// The listings answer "what am I involved in"; this answers "what is this
+/// one", and those are different questions. A conversation reaches a client
+/// through a link, a task tree or an archive long before it reaches the
+/// sidebar — closed work never reaches the sidebar at all — and without this
+/// the client holds a thread it can render a transcript for and cannot name.
+///
+/// Resolved by access rather than by Follow, exactly as [`thread_snapshot`] is:
+/// the two are the same conversation seen at two levels of detail, so a
+/// deployment where one opens and the other does not would be the bug.
+pub async fn thread_shell(
+    workspaces: &dyn T3WorkspaceDao,
+    conversations: &dyn ConversationDao,
+    defaults: &AgentModelDefaults,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
+    Ok(
+        readable_under_a_project(workspaces, conversations, viewer, task_id)
+            .await?
+            .map(|(conversation, project_id)| {
+                projection::thread_shell(&conversation, &project_id, defaults)
+            }),
+    )
+}
+
 /// Assemble one conversation as the thread view carries it.
 ///
 /// `Ok(None)` collapses every way a conversation can be absent for this viewer
@@ -772,28 +841,12 @@ pub async fn thread_snapshot(
     task_id: &str,
 ) -> Result<Option<ThreadSnapshot>, sqlx::Error> {
     let head = conversations.conversation_head(task_id).await?;
-    let Some(conversation) = conversations.readable_by_id(viewer, task_id).await? else {
+    let Some((conversation, project_id)) =
+        readable_under_a_project(workspaces, conversations, viewer, task_id).await?
+    else {
         return Ok(None);
     };
-    let referenced: Vec<String> = conversation.workspace_id.clone().into_iter().collect();
-    let workspaces = workspaces
-        .list_readable_including(viewer, &referenced)
-        .await?;
-    let project_id = conversation
-        .workspace_id
-        .as_deref()
-        .filter(|id| workspaces.iter().any(|listed| listed.workspace.id == *id));
-    let Some(project_id) = project_id else {
-        // The shell drops this conversation for the same reason, with the same
-        // warning. Opening one the sidebar could not show it is the same gap
-        // seen from the other side.
-        warn!(
-            task_id = %conversation.task_id,
-            workspace_id = ?conversation.workspace_id,
-            "Conversation has no listable workspace; not opening it in the T3 UI"
-        );
-        return Ok(None);
-    };
+    let project_id = project_id.as_str();
     let transcript = conversations.transcript(task_id).await?;
     if transcript.omitted > 0 {
         info!(
@@ -2350,6 +2403,32 @@ impl ProtocolSession {
                     "version": T3_CLIENT_CONTRACT_VERSION
                 }),
             )],
+            // The listings' complement: one row, by id, for a conversation the
+            // client is holding and no listing named. `null` is the answer for
+            // every way it can be absent — the client is already on that page,
+            // and a failure would take a rendered transcript off the screen to
+            // report a missing title.
+            "threads.getShell" => {
+                let viewer = viewer_scope(identity);
+                let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+                    return vec![failure_exit(&id, "threads.getShell requires a threadId")];
+                };
+                match thread_shell(
+                    state.workspaces.as_ref(),
+                    state.conversations.as_ref(),
+                    &state.model_defaults,
+                    &viewer,
+                    task_id,
+                )
+                .await
+                {
+                    Ok(thread) => vec![success_exit(
+                        &id,
+                        json!({ "thread": thread.unwrap_or(Value::Null) }),
+                    )],
+                    Err(error) => vec![shell_failure_exit(&id, &error, identity)],
+                }
+            }
             "orchestration.getArchivedShellSnapshot" => {
                 let viewer = viewer_scope(identity);
                 match archived_shell_snapshot(
@@ -5256,6 +5335,41 @@ mod tests {
         assert_eq!(output.frames[0]["_tag"], "Chunk");
         assert_eq!(output.frames[0]["values"][0]["type"], "snapshot");
         assert_eq!(output.frames[0]["values"][0]["terminals"], json!([]));
+    }
+
+    /// The client asking is already showing the conversation. Answering `null`
+    /// leaves it showing what the thread subscription gave it; failing would
+    /// take a rendered transcript off the screen over a missing title.
+    #[tokio::test]
+    async fn a_listing_row_for_a_conversation_this_viewer_cannot_reach_is_null_not_an_error() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request("1", "threads.getShell", json!({ "threadId": "task-1" })),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        assert_eq!(output.frames[0]["exit"]["value"]["thread"], Value::Null);
+    }
+
+    /// Every client encodes against the contract, so a request without one is
+    /// malformed rather than a conversation that is missing — and the two must
+    /// not answer alike, or a client bug reads as an empty deployment.
+    #[tokio::test]
+    async fn a_listing_row_asked_for_without_a_thread_id_is_a_failure() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request("1", "threads.getShell", json!({})),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
     }
 
     /// One character matches most of the corpus and says nothing, and it costs a

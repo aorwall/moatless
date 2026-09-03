@@ -208,6 +208,20 @@ pub(super) fn thread_removed(task_id: &str, sequence: i64) -> Value {
     })
 }
 
+/// One conversation's listing row, asked for by id rather than arrived at
+/// through a listing.
+///
+/// The row is the listing's, to the field: what a client holds for a
+/// conversation must not depend on which read delivered it, or the same
+/// conversation would render two ways depending on how it was reached.
+pub(super) fn thread_shell(
+    conversation: &Conversation,
+    project_id: &str,
+    defaults: &AgentModelDefaults,
+) -> Value {
+    thread(conversation, project_id, defaults)
+}
+
 /// One conversation, in the shape the shell listing carries.
 ///
 /// This is the contract's *shell* thread, not its full one: no messages, no

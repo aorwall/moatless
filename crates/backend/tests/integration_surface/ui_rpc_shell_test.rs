@@ -58,7 +58,7 @@ use moatless_t3code::listing::{
 use moatless_t3code::preview_tabs::InMemoryPreviewTabDao;
 use moatless_t3code::{
     AgentModelDefaults, Deployment, ShellFeed, UiRpcDependencies, archived_shell_snapshot, files,
-    router_from_env, shell_snapshot, shell_subscription, thread_snapshot,
+    router_from_env, shell_snapshot, shell_subscription, thread_shell, thread_snapshot,
 };
 use moatless_t3code::{
     SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
@@ -349,6 +349,20 @@ async fn thread_ids(pool: &PgPool, viewer: &ScopeContext) -> Vec<String> {
         .collect();
     ids.sort();
     ids
+}
+
+/// One conversation's listing row asked for by id, whichever listing would or
+/// would not have carried it.
+async fn thread_shell_row(pool: &PgPool, viewer: &ScopeContext, id: &str) -> Option<Value> {
+    thread_shell(
+        &moatless_backend::t3code::conversations_over(pool),
+        &moatless_backend::t3code::conversations_over(pool),
+        &defaults(),
+        viewer,
+        id,
+    )
+    .await
+    .expect("the listing row query failed")
 }
 
 async fn thread(pool: &PgPool, viewer: &ScopeContext, id: &str) -> Value {
@@ -1389,6 +1403,73 @@ async fn only_open_conversations_are_listed(pool: PgPool) {
         thread_ids(&pool, &viewer("user-1")).await,
         vec!["t-closed".to_string(), "t-open".to_string()]
     );
+}
+
+/// A row by id is not a listing of one: it answers about the conversation, not
+/// about this viewer's involvement in it. So it reaches everything the two
+/// listings between them leave out — closed work, and work followed by someone
+/// else — which is what lets a client name a conversation it opened from a
+/// link or a task tree.
+///
+/// It is not wider than *access*, and that is the line: the same read a link
+/// resolves through, so a viewer is told about a conversation here exactly when
+/// they could have opened it.
+#[sqlx::test]
+async fn a_listing_row_by_id_reaches_what_neither_listing_carries(pool: PgPool) {
+    seed_live_project(&pool).await;
+    for (task_id, status) in [
+        ("t-open", TaskStatus::Open),
+        ("t-closed", TaskStatus::Closed),
+    ] {
+        let mut task = make_task_row(task_id, "user-1");
+        task.workspace_id = Some("ws-live".to_string());
+        task.status = status;
+        moatless_backend::task::dao::store_over(&pool).insert_task(&task).await.unwrap();
+    }
+    seed_public_task(&pool, "t-unfollowed", "user-2", Some("ws-live")).await;
+    unfollow(&pool, "user-1", "t-unfollowed").await;
+
+    // What the sidebar shows, and what it leaves out.
+    assert_eq!(
+        thread_ids(&pool, &viewer("user-1")).await,
+        vec!["t-open".to_string()]
+    );
+
+    for task_id in ["t-open", "t-closed", "t-unfollowed"] {
+        let row = thread_shell_row(&pool, &viewer("user-1"), task_id)
+            .await
+            .unwrap_or_else(|| panic!("{task_id} has no listing row"));
+        assert_eq!(row["id"], task_id);
+        // The listing's row, not a second shape that happens to carry an id.
+        assert_decodable_thread(&row);
+    }
+    assert!(
+        thread_shell_row(&pool, &viewer("user-1"), "t-closed").await.unwrap()["archivedAt"]
+            .is_string(),
+        "a closed conversation's row says it is archived"
+    );
+}
+
+/// Absence is one answer with one meaning, and the reader cannot tell which of
+/// its causes applies — which is the point, because each of them is a different
+/// fact about somebody else's work.
+#[sqlx::test]
+async fn a_listing_row_for_a_conversation_out_of_reach_is_absent(pool: PgPool) {
+    seed_live_project(&pool).await;
+    seed_task(&pool, "t-private", "user-2", Some("ws-live")).await;
+    let mut errored = make_task_row("t-errored", "user-1");
+    errored.workspace_id = Some("ws-live".to_string());
+    errored.status = TaskStatus::Error;
+    moatless_backend::task::dao::store_over(&pool).insert_task(&errored).await.unwrap();
+
+    for task_id in ["t-private", "t-errored", "t-never-existed"] {
+        assert!(
+            thread_shell_row(&pool, &viewer("user-1"), task_id)
+                .await
+                .is_none(),
+            "{task_id} disclosed a listing row"
+        );
+    }
 }
 
 /// The two halves are one partition of what a person follows: archiving is
