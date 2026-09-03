@@ -324,11 +324,26 @@ fn spawn_git_push_watcher(state: &SandboxState, registrar: &Registrar) {
 /// the window before the probe — which would leave the probe seeing no pending
 /// row and enqueueing a now-stale Recover behind the Message.
 pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: WorkspaceOrigin) {
+    // Read and clear the command journal a prior pod left behind before anything
+    // — a recovered run, a new command — can overwrite it. The registry this pod
+    // started with is empty, so these entries exist only in the journal.
+    let lost_commands = crate::commands::take_journal(&crate::commands::default_journal_path(
+        &state.config.workspace_dir,
+    ))
+    .await;
+
     recover_interrupted_run_unless_pending(state, workspace_origin).await;
 
     // Adopt whatever the restore or the clone produced as the upload baseline: a
     // workspace nobody has touched since is not worth shipping back.
-    if state.config.workspace_sync_enabled {
+    //
+    // Consuming a journal is the exception. `take_journal` deleted the file
+    // here, but the S3 archive it was restored from still carries it, so this
+    // tree is already ahead of the object. Adopting it would let a turn that
+    // edits nothing skip the upload, and the next replacement would restore the
+    // stale archive and announce the same loss again. Leaving the baseline unset
+    // makes the next upload ship the removal.
+    if state.config.workspace_sync_enabled && lost_commands.is_empty() {
         state
             .workspace_sync
             .adopt_current(&state.config.workspace_dir)
@@ -345,6 +360,88 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     // the turn, so Phase 2 workspace setup is not delayed. Awaiting keeps this the
     // one authoritative startup dispatch and avoids an orphaned JoinHandle.
     crate::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+
+    report_lost_commands(state, lost_commands).await;
+}
+
+/// Wake the agent for `moat cmd` commands the restart destroyed.
+///
+/// A `moat cmd` command's process, its completion watch, and its log all live in
+/// the pod's memory and `/tmp`, so a pod replacement loses them with no wake —
+/// the agent that ended its turn expecting one would sit idle until a human
+/// prodded it. The journal on the workspace snapshot is what survives; this
+/// turns it into the wake the watch could not deliver. The resumed session
+/// (`--continue` for Claude, restored to disk in init) carries the context.
+async fn report_lost_commands(
+    state: &SandboxState,
+    lost: Vec<crate::commands::JournaledCommand>,
+) {
+    let Some(note) = lost_commands_note(&lost) else {
+        return;
+    };
+    let task_id = &state.config.task_id;
+    match state.task_context(Some(task_id)).await {
+        Ok(context) => {
+            info!(
+                task_id = %task_id,
+                count = lost.len(),
+                "Waking the agent for background commands lost to the restart"
+            );
+            drop(
+                context
+                    .agent_handle
+                    .send(note, None, None, None, None, None, false, None),
+            );
+        }
+        Err(e) => {
+            warn!(error = %e, task_id = %task_id, "Cannot report lost commands without task context");
+        }
+    }
+}
+
+/// The wake for commands a restart destroyed, or `None` when none were owed.
+/// A command still `Running` at the snapshot was cut off mid-flight; a terminal
+/// one had finished but the agent never read the outcome. Neither log survives,
+/// so the note carries what the journal knew and tells the agent to re-run what
+/// it still needs.
+fn lost_commands_note(lost: &[crate::commands::JournaledCommand]) -> Option<String> {
+    use crate::commands::CommandState;
+    if lost.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = lost
+        .iter()
+        .map(|c| {
+            let status = match c.state {
+                CommandState::Running => {
+                    "was still running when the sandbox restarted and did not finish; its result is unknown".to_string()
+                }
+                CommandState::Exited => match c.exit_code {
+                    Some(0) => "had finished successfully, but you were never shown its output".to_string(),
+                    Some(code) => format!("had finished with exit {code}, but you were never shown its output"),
+                    None => "had finished, but you were never shown its output".to_string(),
+                },
+                CommandState::TimedOut => "had hit its timeout and been killed".to_string(),
+                CommandState::Killed => "had been killed".to_string(),
+            };
+            format!("- `{}` ({}): {status}", c.id, c.label)
+        })
+        .collect();
+    let noun = if lost.len() == 1 {
+        "command was"
+    } else {
+        "commands were"
+    };
+    Some(format!(
+        "<sandbox-restart-note>\n\
+         The sandbox was restarted and {} background {noun} lost with it. Each was \
+         started with `moat cmd`; its process and its log did not survive the \
+         restart, so there is nothing left to read back:\n{}\n\n\
+         Re-run any of these you still need, then continue the task.\n\
+         </sandbox-restart-note>",
+        lost.len(),
+        lines.join("\n")
+    ))
 }
 
 /// How the workspace came to exist on this start — determines what (if anything)
@@ -833,6 +930,7 @@ async fn run_workspace_setup(state: &SandboxState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::{CommandState, JournaledCommand};
 
     const WS: &str = "/opt/moatless/workspace/moatless";
 
@@ -899,5 +997,67 @@ mod tests {
         assert!(note.contains("fresh `git clone`"));
         // A reclone can lose unpushed commits — the snapshot path cannot.
         assert!(note.contains("never pushed may also be missing"));
+    }
+
+    fn journalled(id: &str, label: &str, state: CommandState, exit_code: Option<i32>) -> JournaledCommand {
+        JournaledCommand {
+            id: id.to_string(),
+            command: "bash /tmp/verify.sh".to_string(),
+            label: label.to_string(),
+            started_at_unix_ms: 0,
+            state,
+            exit_code,
+        }
+    }
+
+    #[test]
+    fn a_restart_with_no_outstanding_commands_wakes_nobody() {
+        assert!(lost_commands_note(&[]).is_none());
+    }
+
+    /// The stranding case: the pod was replaced with a command in flight, so no
+    /// wake could fire and the agent sat idle until a human prodded it.
+    #[test]
+    fn a_command_cut_off_mid_flight_is_named_as_unfinished() {
+        let note = lost_commands_note(&[journalled(
+            "c33e9d6e",
+            "verify",
+            CommandState::Running,
+            None,
+        )])
+        .expect("an outstanding command must wake the agent");
+        assert!(note.contains("<sandbox-restart-note>"), "{note}");
+        assert!(note.contains("c33e9d6e"), "{note}");
+        assert!(note.contains("verify"), "{note}");
+        assert!(note.contains("did not finish"), "{note}");
+        assert!(note.contains("1 background command was"), "{note}");
+    }
+
+    /// The outcome outlives the log, so a command that finished unread reports
+    /// its exit code rather than sending the agent to a log that is gone.
+    #[test]
+    fn a_command_that_finished_unread_reports_its_exit_code() {
+        let note = lost_commands_note(&[journalled(
+            "ab12cd34",
+            "build",
+            CommandState::Exited,
+            Some(101),
+        )])
+        .expect("an unread outcome is still owed");
+        assert!(note.contains("exit 101"), "{note}");
+        assert!(!note.contains("did not finish"), "{note}");
+    }
+
+    #[test]
+    fn several_lost_commands_are_listed_and_counted() {
+        let note = lost_commands_note(&[
+            journalled("aaaaaaaa", "build", CommandState::Running, None),
+            journalled("bbbbbbbb", "test", CommandState::TimedOut, Some(124)),
+        ])
+        .expect("note");
+        assert!(note.contains("2 background commands were"), "{note}");
+        assert!(note.contains("aaaaaaaa"), "{note}");
+        assert!(note.contains("bbbbbbbb"), "{note}");
+        assert!(note.contains("timeout"), "{note}");
     }
 }

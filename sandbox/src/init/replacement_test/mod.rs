@@ -17,6 +17,8 @@
 //! - [`precedence`] — interrupted-Run vs pending-Message precedence + fail-closed.
 //! - [`restore`] — session-state archive restore (happy / missing / corrupt) and
 //!   the restore-then-replay lifecycle.
+//! - [`lost_commands`] — the wake for `moat cmd` commands the replacement
+//!   destroyed, which no interrupted run covers because the turn had completed.
 //!
 //! [`CoordinatorService`]: crate::agent::coordinator::CoordinatorService
 //! [`Harness`]: crate::agent::harness::Harness
@@ -24,6 +26,7 @@
 mod backend;
 mod support;
 
+mod lost_commands;
 mod precedence;
 mod readiness;
 mod restore;

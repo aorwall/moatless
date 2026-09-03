@@ -98,6 +98,13 @@ impl WorkspaceSyncTracker {
         *self.last_uploaded.lock().await = current;
     }
 
+    /// The baseline the upload gate compares against. `None` means nothing has
+    /// been shipped or adopted, so the next attempt uploads.
+    #[cfg(test)]
+    pub(crate) async fn baseline(&self) -> Option<u64> {
+        *self.last_uploaded.lock().await
+    }
+
     /// Upload the workspace unless it is unchanged since the last successful
     /// upload. Best-effort: a failed transfer leaves the baseline alone so the
     /// next attempt retries.

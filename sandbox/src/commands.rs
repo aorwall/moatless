@@ -32,7 +32,8 @@ const TIMEOUT_EXIT_CODE: i32 = 124;
 const LABEL_PREVIEW_CHARS: usize = 60;
 
 /// Lifecycle of a registered command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CommandState {
     Running,
     Exited,
@@ -97,11 +98,124 @@ struct Entry {
     reported: bool,
 }
 
+/// A command that owed the agent an outcome, as recorded in the journal.
+///
+/// Carries what a replacement pod can still say about it. The log cannot be
+/// among that: it lives outside the workspace snapshot and dies with the pod.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JournaledCommand {
+    pub id: String,
+    pub command: String,
+    pub label: String,
+    pub started_at_unix_ms: i64,
+    pub state: CommandState,
+    pub exit_code: Option<i32>,
+}
+
+/// Durable mirror of the outstanding-command debt.
+///
+/// The registry is in-memory, so a pod replacement destroys every `moat cmd`
+/// process along with the watch that promised the agent a wake. This file is
+/// what a replacement pod reads to name what it lost. It lives under
+/// `WORKSPACE_DIR` because the S3 workspace snapshot is the only sandbox state
+/// that rides a pod replacement.
+#[derive(Debug, Clone)]
+struct Journal {
+    path: PathBuf,
+}
+
+impl Journal {
+    /// Rewrite the file with the entries that still owe the agent an outcome.
+    /// Called with the entries lock held, so the file never records a debt the
+    /// registry has already discharged.
+    async fn write(&self, entries: &HashMap<String, Entry>) {
+        let owed: Vec<JournaledCommand> = entries
+            .values()
+            .filter(|e| !e.reported)
+            .map(|e| JournaledCommand {
+                id: e.command.id.clone(),
+                command: e.command.command.clone(),
+                label: e.command.label.clone(),
+                started_at_unix_ms: e.command.started_at_unix_ms,
+                state: e.command.state,
+                exit_code: e.command.exit_code,
+            })
+            .collect();
+
+        if owed.is_empty() {
+            if let Err(error) = tokio::fs::remove_file(&self.path).await {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    warn!(path = %self.path.display(), %error, "Failed to clear the command journal");
+                }
+            }
+            return;
+        }
+
+        let bytes = match serde_json::to_vec(&owed) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                warn!(%error, "Failed to encode the command journal");
+                return;
+            }
+        };
+        // Write to a sibling temp file and rename over the target. `rename` is
+        // atomic within a filesystem, so a crash or a snapshot taken mid-write
+        // sees either the old journal or the new one whole, never the truncated
+        // file `write` would leave — which `take_journal` would then discard,
+        // losing the very wake this exists to deliver.
+        let tmp = self.path.with_extension("json.tmp");
+        if let Err(error) = tokio::fs::write(&tmp, &bytes).await {
+            warn!(path = %tmp.display(), %error, "Failed to stage the command journal");
+            return;
+        }
+        if let Err(error) = tokio::fs::rename(&tmp, &self.path).await {
+            warn!(path = %self.path.display(), %error, "Failed to install the command journal");
+            let _ = tokio::fs::remove_file(&tmp).await;
+        }
+    }
+}
+
+/// Read and clear the journal a previous incarnation of this pod left behind.
+///
+/// Clearing it here is what makes the loss reported exactly once: the file is
+/// gone whether or not it parsed, so a corrupt journal cannot be re-read on
+/// every subsequent start.
+pub async fn take_journal(path: &Path) -> Vec<JournaledCommand> {
+    let bytes = match tokio::fs::read(path).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                warn!(path = %path.display(), %error, "Failed to read the command journal");
+            }
+            return Vec::new();
+        }
+    };
+    if let Err(error) = tokio::fs::remove_file(path).await {
+        warn!(path = %path.display(), %error, "Failed to clear the command journal");
+    }
+    match serde_json::from_slice(&bytes) {
+        Ok(commands) => commands,
+        Err(error) => {
+            warn!(path = %path.display(), %error, "Discarding an unreadable command journal");
+            Vec::new()
+        }
+    }
+}
+
+/// Where a task's command journal lives. Inside `WORKSPACE_DIR` so it rides the
+/// snapshot into a replacement pod, and a sibling of the checkouts rather than
+/// a path inside one, so it stays out of the user's `git status`.
+pub fn default_journal_path(workspace_dir: &str) -> PathBuf {
+    Path::new(workspace_dir).join(".moat-commands.json")
+}
+
 /// Registry of the commands this task started through `moat cmd`.
 pub struct CommandRegistry {
     entries: Arc<RwLock<HashMap<String, Entry>>>,
     default_timeout: Duration,
     log_dir: PathBuf,
+    journal: Option<Journal>,
 }
 
 impl CommandRegistry {
@@ -110,7 +224,15 @@ impl CommandRegistry {
             entries: Arc::new(RwLock::new(HashMap::new())),
             default_timeout,
             log_dir,
+            journal: None,
         }
+    }
+
+    /// Mirror the outstanding debt to `path` so a replacement pod can tell the
+    /// agent which commands the restart destroyed.
+    pub fn with_journal(mut self, path: PathBuf) -> Self {
+        self.journal = Some(Journal { path });
+        self
     }
 
     /// Spawn `spec` and register it. The returned snapshot is taken before the
@@ -167,17 +289,22 @@ impl CommandRegistry {
         };
 
         let kill = CancellationToken::new();
-        self.entries.write().await.insert(
-            id.clone(),
-            Entry {
-                command: command.clone(),
-                kill: kill.clone(),
-                reported: false,
-            },
-        );
+        {
+            let mut entries = self.entries.write().await;
+            entries.insert(
+                id.clone(),
+                Entry {
+                    command: command.clone(),
+                    kill: kill.clone(),
+                    reported: false,
+                },
+            );
+            self.persist(&entries).await;
+        }
 
         tokio::spawn(supervise(
             Arc::clone(&self.entries),
+            self.journal.clone(),
             id,
             child,
             pid,
@@ -245,6 +372,7 @@ impl CommandRegistry {
                 .collect(),
         };
         out.sort_by_key(|c| c.started_at_unix_ms);
+        self.persist(&entries).await;
         Ok(out)
     }
 
@@ -260,7 +388,9 @@ impl CommandRegistry {
             .ok_or_else(|| CommandError::NotFound(id.to_string()))?;
         entry.kill.cancel();
         entry.reported = true;
-        Ok(entry.command.clone())
+        let command = entry.command.clone();
+        self.persist(&entries).await;
+        Ok(command)
     }
 
     /// Whether any registered command is still running. This is the whole of
@@ -272,17 +402,6 @@ impl CommandRegistry {
             .await
             .values()
             .any(|e| !e.command.state.is_terminal())
-    }
-
-    /// Ids of the commands still running, for the turn-end watch to wait on.
-    pub async fn running_ids(&self) -> Vec<String> {
-        self.entries
-            .read()
-            .await
-            .values()
-            .filter(|e| !e.command.state.is_terminal())
-            .map(|e| e.command.id.clone())
-            .collect()
     }
 
     /// The subset of `ids` that still owes the agent an outcome.
@@ -328,12 +447,24 @@ impl CommandRegistry {
                 entry.reported = true;
             }
         }
+        self.persist(&entries).await;
+    }
+
+    /// Mirror the current debt to the journal, if one is configured. Takes the
+    /// live entries so the caller holds the lock across the write: a snapshot
+    /// taken and written separately could land after a later, smaller debt and
+    /// resurrect a command the agent has already been told about.
+    async fn persist(&self, entries: &HashMap<String, Entry>) {
+        if let Some(journal) = &self.journal {
+            journal.write(entries).await;
+        }
     }
 }
 
 /// Wait for the child, its deadline, or a kill request, then record the outcome.
 async fn supervise(
     entries: Arc<RwLock<HashMap<String, Entry>>>,
+    journal: Option<Journal>,
     id: String,
     mut child: tokio::process::Child,
     pid: u32,
@@ -360,10 +491,16 @@ async fn supervise(
         }
     };
 
-    if let Some(entry) = entries.write().await.get_mut(&id) {
-        entry.command.state = state;
-        entry.command.exit_code = exit_code;
-        entry.command.finished_at_unix_ms = unix_now_ms();
+    {
+        let mut entries = entries.write().await;
+        if let Some(entry) = entries.get_mut(&id) {
+            entry.command.state = state;
+            entry.command.exit_code = exit_code;
+            entry.command.finished_at_unix_ms = unix_now_ms();
+        }
+        if let Some(journal) = &journal {
+            journal.write(&entries).await;
+        }
     }
     info!(id = %id, ?state, ?exit_code, "Background command finished");
 }
@@ -468,6 +605,24 @@ mod tests {
     fn registry(timeout: Duration) -> CommandRegistry {
         let dir = std::env::temp_dir().join(format!("moat-cmd-test-{}", short_id()));
         CommandRegistry::new(timeout, dir)
+    }
+
+    /// A registry whose journal is a throwaway file, plus that file's path.
+    fn journalled(timeout: Duration) -> (CommandRegistry, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("moat-cmd-journal-{}", short_id()));
+        std::fs::create_dir_all(&dir).expect("journal dir");
+        let path = dir.join(".moat-commands.json");
+        (
+            CommandRegistry::new(timeout, dir).with_journal(path.clone()),
+            path,
+        )
+    }
+
+    async fn journal_now(path: &Path) -> Vec<JournaledCommand> {
+        match tokio::fs::read(path).await {
+            Ok(bytes) => serde_json::from_slice(&bytes).expect("journal parses"),
+            Err(_) => Vec::new(),
+        }
     }
 
     async fn wait_terminal(reg: &CommandRegistry, id: &str) -> CommandRecord {
@@ -742,5 +897,189 @@ mod tests {
 
         assert!(log_tail(&dir.join("nope.log"), 5, 4096).is_none());
         assert!(log_tail(&empty, 5, 4096).is_none());
+    }
+
+    /// The restart case: the pod dies with a command in flight. Its process and
+    /// log go with it, so the journal is the only thing a replacement pod can
+    /// read to know the agent is still owed an answer.
+    #[tokio::test]
+    async fn a_running_command_is_journalled_for_a_replacement_pod() {
+        let (reg, path) = journalled(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "sleep 30".into(),
+                cwd: None,
+                timeout: None,
+                label: Some("verify".into()),
+            })
+            .await
+            .expect("spawn");
+
+        let journal = journal_now(&path).await;
+        assert_eq!(journal.len(), 1);
+        assert_eq!(journal[0].id, cmd.id);
+        assert_eq!(journal[0].label, "verify");
+        assert_eq!(journal[0].state, CommandState::Running);
+    }
+
+    /// The journal is installed by renaming a sibling temp file over it, so a
+    /// crash mid-write never leaves a truncated file. The temp file must not
+    /// survive a successful write — a leftover would ride the workspace snapshot
+    /// as untracked cruft.
+    #[tokio::test]
+    async fn writing_the_journal_leaves_no_temp_file() {
+        let (reg, path) = journalled(Duration::from_mins(1));
+        reg.run(CommandSpec {
+            command: "sleep 30".into(),
+            cwd: None,
+            timeout: None,
+            label: None,
+        })
+        .await
+        .expect("spawn");
+
+        assert!(path.exists(), "the journal was written");
+        assert!(
+            !path.with_extension("json.tmp").exists(),
+            "the staging file must be renamed away, not left behind"
+        );
+    }
+
+    /// A finished command the agent never read still owes it an answer, so the
+    /// journal keeps it — with the outcome, which outlives the log.
+    #[tokio::test]
+    async fn a_finished_but_unread_command_stays_journalled_with_its_outcome() {
+        let (reg, path) = journalled(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "exit 4".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        wait_terminal(&reg, &cmd.id).await;
+
+        let journal = journal_now(&path).await;
+        assert_eq!(journal.len(), 1);
+        assert_eq!(journal[0].state, CommandState::Exited);
+        assert_eq!(journal[0].exit_code, Some(4));
+    }
+
+    /// Reading the outcome back discharges the debt, so a restart after that
+    /// must not re-announce a command the agent has already seen.
+    #[tokio::test]
+    async fn reading_a_command_back_clears_it_from_the_journal() {
+        let (reg, path) = journalled(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "true".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        wait_terminal(&reg, &cmd.id).await;
+        assert_eq!(journal_now(&path).await.len(), 1);
+
+        reg.read_for_agent(None).await.expect("agent reads it back");
+        assert!(
+            journal_now(&path).await.is_empty(),
+            "a discharged debt must not survive into the next pod"
+        );
+    }
+
+    /// `kill` discharges the debt at the request, while the process is still
+    /// winding down. The journal keys off the debt, so it drops the command
+    /// then rather than when the supervisor records the death.
+    #[tokio::test]
+    async fn killing_a_command_clears_it_from_the_journal() {
+        let (reg, path) = journalled(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "sleep 30".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        assert_eq!(journal_now(&path).await.len(), 1);
+
+        reg.kill(&cmd.id).await.expect("kill");
+        assert!(journal_now(&path).await.is_empty());
+        wait_terminal(&reg, &cmd.id).await;
+        assert!(journal_now(&path).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_wake_clears_the_journal_so_a_restart_does_not_repeat_it() {
+        let (reg, path) = journalled(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "true".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        wait_terminal(&reg, &cmd.id).await;
+
+        reg.mark_reported(std::slice::from_ref(&cmd.id)).await;
+        assert!(journal_now(&path).await.is_empty());
+    }
+
+    /// Reading the journal clears it, so the loss is announced once however
+    /// many times the pod restarts afterwards.
+    #[tokio::test]
+    async fn take_journal_reads_once_and_clears_the_file() {
+        let (reg, path) = journalled(Duration::from_mins(1));
+        reg.run(CommandSpec {
+            command: "sleep 30".into(),
+            cwd: None,
+            timeout: None,
+            label: None,
+        })
+        .await
+        .expect("spawn");
+
+        assert_eq!(take_journal(&path).await.len(), 1);
+        assert!(!path.exists(), "the journal must not be read twice");
+        assert!(take_journal(&path).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn take_journal_of_a_missing_or_corrupt_file_is_empty() {
+        let dir = std::env::temp_dir().join(format!("moat-cmd-journal-{}", short_id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        assert!(take_journal(&dir.join("absent.json")).await.is_empty());
+
+        let corrupt = dir.join("corrupt.json");
+        std::fs::write(&corrupt, b"{ not json").expect("write");
+        assert!(take_journal(&corrupt).await.is_empty());
+        assert!(
+            !corrupt.exists(),
+            "a journal that cannot be parsed must not be retried on every start"
+        );
+    }
+
+    /// A registry with no journal configured must behave exactly as before.
+    #[tokio::test]
+    async fn a_registry_without_a_journal_writes_nothing() {
+        let reg = registry(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "true".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        wait_terminal(&reg, &cmd.id).await;
+        assert_eq!(reg.unreported().await.len(), 1);
     }
 }

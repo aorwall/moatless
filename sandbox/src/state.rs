@@ -270,10 +270,15 @@ impl SandboxState {
         let agent_state = Arc::new(AgentState::new());
         let late_injector = Arc::new(LateInjector::new());
         let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::clone(&late_injector) as _));
-        let commands = Arc::new(CommandRegistry::new(
-            Duration::from_secs(task_config.command_default_timeout_secs),
-            crate::commands::default_log_dir(&task_id),
-        ));
+        let commands = Arc::new(
+            CommandRegistry::new(
+                Duration::from_secs(task_config.command_default_timeout_secs),
+                crate::commands::default_log_dir(&task_id),
+            )
+            .with_journal(crate::commands::default_journal_path(
+                &task_config.workspace_dir,
+            )),
+        );
         let credential_failures = CredentialFailureDetector::default();
         let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 

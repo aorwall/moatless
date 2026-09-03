@@ -218,10 +218,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // turn-boundary uploads and every path that reaches it through SandboxState.
     let workspace_sync = moatless_sandbox::init::workspace_sync::WorkspaceSyncTracker::new();
 
-    let commands = Arc::new(moatless_sandbox::commands::CommandRegistry::new(
-        std::time::Duration::from_secs(config.command_default_timeout_secs),
-        moatless_sandbox::commands::default_log_dir(&config.task_id),
-    ));
+    let commands = Arc::new(
+        moatless_sandbox::commands::CommandRegistry::new(
+            std::time::Duration::from_secs(config.command_default_timeout_secs),
+            moatless_sandbox::commands::default_log_dir(&config.task_id),
+        )
+        .with_journal(moatless_sandbox::commands::default_journal_path(
+            &config.workspace_dir,
+        )),
+    );
 
     let agent_handle = spawn_agent(
         Arc::clone(&config_arc),
