@@ -291,6 +291,16 @@ pub trait SandboxLifecycle: Send + Sync {
     /// Stop the Task's sandbox, recording why.
     async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxOpError>;
 
+    /// Stop the agent running inside the Task's sandbox, leaving the sandbox
+    /// up. Not a lifecycle transition: nothing is recorded and the desired
+    /// state is untouched, so the next turn runs in the same sandbox.
+    ///
+    /// Best-effort, like the graceful stop [`Self::stop`] issues before it
+    /// tears compute down: a sandbox that cannot be reached is one whose agent
+    /// is not running anyway. The terminal `agent.stopped` the caller publishes
+    /// is what closes the turn.
+    async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason);
+
     /// Remove the Task's sandbox, applying the archive-retention policy. The
     /// caller deletes the Task row only on success.
     async fn remove(

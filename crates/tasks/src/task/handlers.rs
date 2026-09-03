@@ -1305,6 +1305,10 @@ mod tests {
             unimplemented!("not reachable from delete_task ordering test")
         }
 
+        async fn stop_agent(&self, _task_id: &str, _reason: SandboxStopReason) {
+            unimplemented!("not reachable from delete_task ordering test")
+        }
+
         async fn remove(
             &self,
             _task_id: &str,

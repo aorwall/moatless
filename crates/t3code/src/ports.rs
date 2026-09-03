@@ -439,8 +439,13 @@ pub trait ThreadCommandSink: Send + Sync {
         meta: ThreadMeta,
     ) -> Result<(), CommandRefusal>;
 
-    /// Stop whatever the agent is doing. T3 distinguishes interrupting a turn
-    /// from stopping a session; Moatless does not, and both arrive here.
+    /// Stop the turn in flight, leaving the session up: the Sandbox keeps
+    /// running, so the next turn starts in the same working copy.
+    async fn interrupt(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
+    /// Stop the session, which in Moatless is stopping the Sandbox. Compute is
+    /// released and the working copy is left for the next start; the client
+    /// sends this to release a thread, never to end a turn.
     async fn stop(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
     /// Archive a thread, which in Moatless is closing the Task: the row leaves

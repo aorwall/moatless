@@ -126,6 +126,51 @@ pub async fn stop_task(
     scope_ctx: &ScopeContext,
     task_id: &str,
 ) -> Result<(), TaskError> {
+    require_control(tasks, scope_ctx, task_id).await?;
+
+    sandbox
+        .stop(task_id, crate::task::models::SandboxStopReason::User)
+        .await?;
+
+    publish_user_stop(events, task_id).await;
+
+    tracing::info!(task_id = %task_id, "Sandbox stop requested");
+    Ok(())
+}
+
+/// Stop the agent mid-turn, leaving the task's sandbox running.
+///
+/// The narrower half of [`stop_task`]: the same graceful `StopAgent` and the
+/// same terminal event, without the `Stopped` intent — so the sandbox, its
+/// working copy and its preview servers stay up and the next turn runs in
+/// place. The stop lands through the event either way, so a sandbox that
+/// cannot be reached still closes the turn.
+pub async fn stop_agent(
+    tasks: &dyn TaskDao,
+    sandbox: &dyn SandboxLifecycle,
+    events: Option<&dyn EventPublisher>,
+    scope_ctx: &ScopeContext,
+    task_id: &str,
+) -> Result<(), TaskError> {
+    require_control(tasks, scope_ctx, task_id).await?;
+
+    sandbox
+        .stop_agent(task_id, crate::task::models::SandboxStopReason::User)
+        .await;
+
+    publish_user_stop(events, task_id).await;
+
+    tracing::info!(task_id = %task_id, "Agent stop requested");
+    Ok(())
+}
+
+/// Existence hiding: a task the caller may not control is reported the same way
+/// as one that is not there.
+async fn require_control(
+    tasks: &dyn TaskDao,
+    scope_ctx: &ScopeContext,
+    task_id: &str,
+) -> Result<(), TaskError> {
     let task = tasks
         .find_by_id(task_id, scope_ctx)
         .await?
@@ -137,15 +182,12 @@ pub async fn stop_task(
         ),
         task.visibility,
     ) {
-        // Existence hiding: a task the caller may not control is reported the
-        // same way as one that is not there.
         return Err(TaskError::NotFound(task_id.to_string()));
     }
+    Ok(())
+}
 
-    sandbox
-        .stop(task_id, crate::task::models::SandboxStopReason::User)
-        .await?;
-
+async fn publish_user_stop(events: Option<&dyn EventPublisher>, task_id: &str) {
     if let Some(events) = events {
         events
             .publish_agent_event(
@@ -158,9 +200,6 @@ pub async fn stop_task(
             )
             .await;
     }
-
-    tracing::info!(task_id = %task_id, "Sandbox stop requested");
-    Ok(())
 }
 
 /// Turn a create request into the normalised form the creation service takes.

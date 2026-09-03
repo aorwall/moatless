@@ -4236,6 +4236,13 @@ mod tests {
         ) -> Result<(), ports::CommandRefusal> {
             unreachable!("no test in this file updates metadata")
         }
+        async fn interrupt(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file interrupts a turn")
+        }
         async fn stop(
             &self,
             _viewer: &ScopeContext,

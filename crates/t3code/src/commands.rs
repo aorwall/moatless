@@ -64,7 +64,10 @@ pub async fn dispatch(
         "thread.create" => create_thread(ctx, viewer, command).await?,
         "thread.fork" => fork_thread(ctx, viewer, command).await?,
         "thread.meta.update" => meta_update(ctx, viewer, command).await?,
-        "thread.turn.interrupt" | "thread.session.stop" => {
+        "thread.turn.interrupt" => {
+            ctx.sink.interrupt(viewer, thread_id(command)?).await?;
+        }
+        "thread.session.stop" => {
             ctx.sink.stop(viewer, thread_id(command)?).await?;
         }
         "thread.archive" => {
@@ -915,6 +918,9 @@ mod tests {
             title: Option<String>,
             model: Option<String>,
         },
+        Interrupt {
+            task_id: String,
+        },
         Stop {
             task_id: String,
         },
@@ -1026,6 +1032,16 @@ mod tests {
                 task_id: meta.task_id,
                 title: meta.title,
                 model: meta.model,
+            });
+            Ok(())
+        }
+        async fn interrupt(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Interrupt {
+                task_id: task_id.to_string(),
             });
             Ok(())
         }
@@ -1949,11 +1965,25 @@ mod tests {
         );
     }
 
-    /// Moatless draws no line between interrupting a turn and stopping a
-    /// session, so both arrive at the same stop.
+    /// The Stop button under a running turn sends the interrupt, and it must
+    /// reach the agent-only stop: a person ending a turn keeps their Sandbox.
+    /// A session stop is the one that releases it.
     #[tokio::test]
-    async fn interrupt_and_session_stop_both_stop_the_agent() {
-        for tag in ["thread.turn.interrupt", "thread.session.stop"] {
+    async fn interrupt_stops_the_agent_and_session_stop_stops_the_sandbox() {
+        for (tag, expected) in [
+            (
+                "thread.turn.interrupt",
+                Call::Interrupt {
+                    task_id: "task-1".to_string(),
+                },
+            ),
+            (
+                "thread.session.stop",
+                Call::Stop {
+                    task_id: "task-1".to_string(),
+                },
+            ),
+        ] {
             let command = json!({
                 "type": tag,
                 "commandId": "cmd-1",
@@ -1962,13 +1992,7 @@ mod tests {
             });
             let (result, calls) = run(command).await;
             assert!(result.is_ok(), "{tag}");
-            assert_eq!(
-                calls,
-                vec![Call::Stop {
-                    task_id: "task-1".to_string()
-                }],
-                "{tag}"
-            );
+            assert_eq!(calls, vec![expected], "{tag}");
         }
     }
 

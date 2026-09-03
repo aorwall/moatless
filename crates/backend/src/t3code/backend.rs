@@ -1119,6 +1119,18 @@ impl ThreadCommandSink for AppStateCommands {
         Ok(())
     }
 
+    async fn interrupt(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        task_service::stop_agent(
+            self.0.tasks.as_ref(),
+            self.0.sandbox.as_ref(),
+            self.0.events.as_deref(),
+            viewer,
+            task_id,
+        )
+        .await
+        .map_err(|e| create_refusal(task_id, e))
+    }
+
     async fn stop(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         task_service::stop_task(
             self.0.tasks.as_ref(),

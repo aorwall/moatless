@@ -1020,6 +1020,47 @@ async fn settling_as_one_follower_leaves_another_followers_row_untouched(pool: P
     );
 }
 
+/// The Stop button under a running turn ends the turn and nothing else. A
+/// session stop moves the Sandbox intent; an interrupt writes none at all, so
+/// the working copy and the preview servers survive it.
+#[sqlx::test]
+async fn interrupting_a_turn_moves_no_sandbox_intent(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-interrupt", USER_1).await;
+    seed_task(&pool, "t-session-stop", USER_1).await;
+
+    sink(&pool)
+        .interrupt(&viewer(USER_1), "t-interrupt")
+        .await
+        .expect("an interrupt is accepted");
+    sink(&pool)
+        .stop(&viewer(USER_1), "t-session-stop")
+        .await
+        .expect("a session stop is accepted");
+
+    assert_eq!(sandbox_intent(&pool, "t-interrupt").await, None);
+    assert_eq!(
+        sandbox_intent(&pool, "t-session-stop").await,
+        Some(("stopped".to_string(), Some("user".to_string())))
+    );
+}
+
+/// A viewer who may not control the Task is told the same thing as one asking
+/// about a Task that is not there.
+#[sqlx::test]
+async fn interrupting_a_thread_the_viewer_cannot_control_is_refused(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_public_task(&pool, "t-interrupt-unowned", USER_1).await;
+
+    let refusal = sink(&pool)
+        .interrupt(&viewer(USER_2), "t-interrupt-unowned")
+        .await
+        .expect_err("an interrupt from a viewer who cannot control is refused");
+
+    assert!(matches!(refusal, CommandRefusal::NotWritable { .. }));
+    assert_eq!(sandbox_intent(&pool, "t-interrupt-unowned").await, None);
+}
+
 #[sqlx::test]
 async fn settling_stops_the_sandbox(pool: PgPool) {
     seed_project(&pool, USER_1).await;

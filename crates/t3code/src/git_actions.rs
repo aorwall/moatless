@@ -507,6 +507,13 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never updates meta")
         }
+        async fn interrupt(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never interrupts a turn")
+        }
         async fn stop(
             &self,
             _viewer: &ScopeContext,
@@ -599,6 +606,13 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _meta: crate::ports::ThreadMeta,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn interrupt(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }

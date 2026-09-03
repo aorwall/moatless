@@ -1343,6 +1343,12 @@ impl SandboxLifecycle for Lifecycle {
             .map_err(op_error)
     }
 
+    async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason) {
+        // No lock and no generation: the agent stopping changes nothing this
+        // orchestrator owns, so it cannot conflict with a transition in flight.
+        self.agent_stop.stop_agent(task_id, reason).await;
+    }
+
     async fn remove(
         &self,
         task_id: &str,
