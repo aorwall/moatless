@@ -199,10 +199,15 @@ impl DockerStatusResolver {
     ) -> LiveStatus {
         let container_name = generate_container_name(sandbox_id);
         let (sandbox_status, resolver_error) = self.inspect_sandbox_status(&container_name).await;
-        let agent_status = if sandbox_status == SandboxStatus::Ready {
-            self.fetch_agent_status(task_id, connector).await.status
+        // One gRPC call answers both halves. Taking only `status` here is what
+        // left a reader unable to see that `moat cmd` work was still running
+        // behind an idle agent.
+        let (agent_status, commands) = if sandbox_status == SandboxStatus::Ready {
+            let snapshot = self.fetch_agent_status(task_id, connector).await;
+            let commands = snapshot.commands.iter().map(ManagedCommand::summary).collect();
+            (snapshot.status, commands)
         } else {
-            None
+            (None, Vec::new())
         };
 
         derive_live_status(
@@ -212,6 +217,7 @@ impl DockerStatusResolver {
             resolver_error,
             agent_status,
         )
+        .with_commands(commands)
     }
 
     /// Inspect the sandbox container and return the image it is running.

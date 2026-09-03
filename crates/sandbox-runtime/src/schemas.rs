@@ -12,8 +12,9 @@ use super::models::{ServerOverride, ServerSnapshot};
 // they live in `moatless-api-schemas` (their single home); re-exported here so
 // this crate's `schemas::` paths keep naming them.
 pub use moatless_api_schemas::sandbox::{
-    BackgroundWatchJobInfo, ContainerDiagnostics, ManagedCommand, ManagedCommandState,
-    RuntimeEvent, SandboxStatusFullResponse, ScheduledJobInfo, ScheduledJobKind, WakeupJobInfo,
+    BackgroundWatchJobInfo, CommandSummary, ContainerDiagnostics, ManagedCommand,
+    ManagedCommandState, RuntimeEvent, SandboxStatusFullResponse, ScheduledJobInfo,
+    ScheduledJobKind, WakeupJobInfo,
 };
 pub use moatless_types::sandbox::ServerEntry;
 

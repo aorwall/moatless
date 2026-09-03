@@ -106,6 +106,14 @@ pub async fn status(
     if let Some(agent) = status.agent_status {
         payload["agentStatus"] = json!(agent.as_str());
     }
+    // Omitted rather than sent empty, for the same reason: a client that has
+    // not read the key sees the payload it always saw, and one that has can
+    // tell "no commands" from a server that does not report them by reading
+    // `capabilities.sandboxCommands` rather than by guessing from an empty
+    // array.
+    if !status.commands.is_empty() {
+        payload["commands"] = json!(status.commands);
+    }
     Ok(payload)
 }
 
@@ -211,6 +219,7 @@ pub async fn stop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use async_trait::async_trait;
@@ -218,15 +227,28 @@ mod tests {
         LiveStatus, LogOptions, SandboxDesiredState, SandboxStatus, ContractSandboxStatus,
         ServerLogStream,
     };
+    use moatless_types::sandbox::{CommandSummary, ManagedCommandState};
     use moatless_types::task::TaskStatus;
 
     use crate::task_dao::{MockT3TaskDao, TaskView};
 
     /// Reports `Initializing` until `moved` is set, then `Ready`. Once `Ready`,
-    /// it also reports the agent it is asked to report.
+    /// it also reports the agent and the commands it is asked to report.
     struct MovingStatus {
         moved: AtomicBool,
         agent: Option<moatless_backend_core::sandbox::AgentStatus>,
+        commands: Mutex<Vec<CommandSummary>>,
+    }
+
+    fn running(label: &str) -> CommandSummary {
+        CommandSummary {
+            id: format!("cmd-{label}"),
+            label: label.to_string(),
+            state: ManagedCommandState::Running,
+            started_at_unix_ms: 1_754_000_000_000,
+            deadline_unix_ms: 1_754_003_600_000,
+            exit_code: None,
+        }
     }
 
     impl MovingStatus {
@@ -234,6 +256,7 @@ mod tests {
             Self {
                 moved: AtomicBool::new(moved),
                 agent: None,
+                commands: Mutex::new(Vec::new()),
             }
         }
 
@@ -241,7 +264,22 @@ mod tests {
             Self {
                 moved: AtomicBool::new(true),
                 agent: Some(agent),
+                commands: Mutex::new(Vec::new()),
             }
+        }
+
+        /// Ready, agent idle, with `labels` registered and running — the state
+        /// a turn leaves behind when it hands work to `moat cmd`.
+        fn running_commands(labels: &[&str]) -> Self {
+            Self {
+                moved: AtomicBool::new(true),
+                agent: Some(moatless_backend_core::sandbox::AgentStatus::Idle),
+                commands: Mutex::new(labels.iter().map(|label| running(label)).collect()),
+            }
+        }
+
+        fn register(&self, label: &str) {
+            self.commands.lock().expect("no poisoned lock").push(running(label));
         }
     }
 
@@ -277,6 +315,7 @@ mod tests {
                 },
                 agent_status: self.agent,
                 sandbox_error: None,
+                commands: self.commands.lock().expect("no poisoned lock").clone(),
             })
         }
 
@@ -407,5 +446,79 @@ mod tests {
                 "{agent:?}"
             );
         }
+    }
+
+    /// The state this key exists for: the turn ended, so the agent is idle, and
+    /// the build it registered is still running. Reading `agentStatus` alone
+    /// here says "idle", which is why the commands have to travel with it.
+    #[tokio::test]
+    async fn a_running_command_is_reported_beside_an_idle_agent() {
+        let observer = Arc::new(MovingStatus::running_commands(&["mvn verify"]));
+        let payload = status(&watched_state(observer), &viewer(), "task-1")
+            .await
+            .expect("a readable task");
+
+        assert_eq!(payload["agentStatus"], "idle");
+        let commands = payload["commands"].as_array().expect("the commands key");
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0]["label"], "mvn verify");
+        assert_eq!(commands[0]["state"], "running");
+        assert_eq!(commands[0]["startedAtUnixMs"], 1_754_000_000_000_i64);
+        // No elapsed field: a duration recomputed per read would make every
+        // poll of `watch_status` look like a change and push forever.
+        assert!(commands[0].get("elapsedSecs").is_none());
+    }
+
+    /// Absent rather than `[]`, so a client tells "this server does not report
+    /// commands" from "this sandbox has none" by the capability, not by the
+    /// shape of the payload.
+    #[tokio::test]
+    async fn no_registered_command_omits_the_key() {
+        let observer = Arc::new(MovingStatus::at(true));
+        let payload = status(&watched_state(observer), &viewer(), "task-1")
+            .await
+            .expect("a readable task");
+
+        assert!(payload.get("commands").is_none());
+    }
+
+    /// The push exists to say when something moved. A command that starts
+    /// between polls is a move, and one whose set is unchanged is not.
+    #[tokio::test(start_paused = true)]
+    async fn a_command_that_starts_between_polls_is_pushed() {
+        let observer = Arc::new(MovingStatus::at(true));
+        let state = watched_state(observer.clone());
+        let seeded = status(&state, &viewer(), "task-1")
+            .await
+            .expect("a readable task");
+        assert!(seeded.get("commands").is_none());
+
+        let (tx, mut received) = mpsc::channel(4);
+        let request_id: crate::RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
+        let watcher = tokio::spawn(watch_status(
+            request_id,
+            state,
+            viewer(),
+            "task-1".to_string(),
+            seeded,
+            tx,
+        ));
+
+        tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;
+        assert!(
+            received.try_recv().is_err(),
+            "an unchanged status is silent"
+        );
+
+        observer.register("mvn verify");
+        tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;
+        let frame = received.try_recv().expect("the new command is news");
+        assert_eq!(frame["values"][0]["commands"][0]["label"], "mvn verify");
+
+        // Nothing moved since, so nothing more is sent.
+        tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;
+        assert!(received.try_recv().is_err(), "a steady command is silent");
+
+        watcher.abort();
     }
 }

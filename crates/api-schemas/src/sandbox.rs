@@ -10,7 +10,8 @@ use crate::enums::SandboxDesiredState;
 // =============================================================================
 
 pub use moatless_types::sandbox::{
-    AgentStatus, LiveStatus, SandboxStatus, ServerCapabilities, ServerEntry, ServerStatus,
+    AgentStatus, CommandSummary, LiveStatus, ManagedCommandState, SandboxStatus,
+    ServerCapabilities, ServerEntry, ServerStatus,
 };
 
 /// Server snapshot from sandbox GET /status
@@ -140,19 +141,6 @@ pub struct ScheduledJobInfo {
     pub kind: ScheduledJobKind,
 }
 
-/// Lifecycle of a command registered through `moat cmd`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub enum ManagedCommandState {
-    Running,
-    Exited,
-    /// Killed by the sandbox because it outlived its deadline.
-    TimedOut,
-    /// Killed on an explicit `moat cmd kill`.
-    Killed,
-}
-
 /// One long-running command the agent registered through `moat cmd`. The
 /// sandbox owns the process, so it is the only work that defers the idle
 /// reaper — a process forked any other way never appears here.
@@ -174,6 +162,20 @@ pub struct ManagedCommand {
     /// Combined stdout/stderr, readable from inside the sandbox.
     pub log_path: String,
     pub finished_at_unix_ms: i64,
+}
+
+impl ManagedCommand {
+    /// Narrow to what a live-status reader needs. See [`CommandSummary`].
+    pub fn summary(&self) -> CommandSummary {
+        CommandSummary {
+            id: self.id.clone(),
+            label: self.label.clone(),
+            state: self.state,
+            started_at_unix_ms: self.started_at_unix_ms,
+            deadline_unix_ms: self.deadline_unix_ms,
+            exit_code: self.exit_code,
+        }
+    }
 }
 
 /// Full sandbox status response to frontend (matches TS `SandboxStatusFullResponse`)

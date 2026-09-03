@@ -132,6 +132,11 @@ pub(crate) fn live_status(
             crate::sandbox::live_status::AgentStatus::Unknown => core_sandbox::AgentStatus::Unknown,
         }),
         sandbox_error: status.sandbox_error,
+        // Carried, not narrowed away: the agent reports `idle` while a `moat
+        // cmd` command runs, so without these T3 shows a Task mid-build as one
+        // with nothing left to do. `CommandSummary` is already the narrow half
+        // of the command shape — the status-read response keeps the wide one.
+        commands: status.commands,
     }
 }
 
@@ -178,7 +183,7 @@ mod tests {
     use crate::sandbox::live_status::AgentStatus;
     use crate::sandbox::models::{ResourceMetrics, ServerCapabilities, ServerStatus};
     use crate::sandbox::schemas::{
-        ContainerDiagnostics, ManagedCommand, ManagedCommandState, RuntimeEvent,
+        CommandSummary, ContainerDiagnostics, ManagedCommand, ManagedCommandState, RuntimeEvent,
         SandboxStatusFullResponse, ScheduledJobInfo, ScheduledJobKind, ServerEntry, WakeupJobInfo,
     };
     use moatless_api_schemas::enums::SandboxDesiredState;
@@ -331,16 +336,29 @@ mod tests {
             sandbox_status: SandboxStatus::Error,
             agent_status: Some(AgentStatus::Running),
             sandbox_error: Some("image pull failed".to_string()),
+            commands: vec![CommandSummary {
+                id: "cmd-1".to_string(),
+                label: "reactor build".to_string(),
+                state: ManagedCommandState::Running,
+                started_at_unix_ms: 1_754_000_000_000,
+                deadline_unix_ms: 1_754_003_600_000,
+                exit_code: None,
+            }],
         };
         let core_sandbox::LiveStatus {
             sandbox_status,
             agent_status,
             sandbox_error,
+            commands,
         } = live_status(rich);
 
         assert_eq!(sandbox_status, SandboxStatus::Error);
         assert_eq!(agent_status, Some(core_sandbox::AgentStatus::Running));
         assert_eq!(sandbox_error.as_deref(), Some("image pull failed"));
+        assert_eq!(
+            commands.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(),
+            ["reactor build"]
+        );
     }
 
     #[test]

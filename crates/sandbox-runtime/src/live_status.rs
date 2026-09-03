@@ -48,6 +48,9 @@ pub fn derive_live_status(
         sandbox_status,
         agent_status,
         sandbox_error,
+        // Not derived from anything: the caller reads them from the same
+        // agent-status call and attaches them with `with_commands`.
+        commands: Vec::new(),
     }
 }
 

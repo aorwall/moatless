@@ -3093,6 +3093,11 @@ fn descriptor(config: &UiRpcConfig) -> Value {
             // not say" from "this agent is idle", so the panel has nothing to
             // show; present, the key is there whenever the sandbox is up.
             "sandboxAgentStatus": true,
+            // Whether `sandbox.status` reports the commands registered through
+            // `moat cmd`. The agent reports `idle` while one runs, so absent
+            // this a client cannot tell a Task that is mid-build from one with
+            // nothing left to do, and shows no command rows at all.
+            "sandboxCommands": true,
             // Whether `scripts.run` is understood. A workspace's scripts are
             // still listed on the project without this — they are read out of
             // the workspace either way — but a client only shows the control
@@ -4561,6 +4566,7 @@ mod tests {
                 sandbox_status: self.0,
                 agent_status: None,
                 sandbox_error: None,
+                commands: Vec::new(),
             })
         }
 
@@ -4650,6 +4656,21 @@ mod tests {
 
         assert_eq!(
             output.frames[0]["exit"]["value"]["environment"]["capabilities"]["sandboxAgentStatus"],
+            json!(true)
+        );
+    }
+
+    /// `commands` is omitted when none are registered, which is most of the
+    /// time, so its absence from one answer says nothing about the server
+    /// either. Same reasoning as `sandboxAgentStatus` above.
+    #[tokio::test]
+    async fn the_descriptor_advertises_the_sandbox_commands() {
+        let frame = request("1", "server.getConfig", json!({}));
+        let mut session = session();
+        let output = session.handle_json(&frame, &state(), &viewer()).await;
+
+        assert_eq!(
+            output.frames[0]["exit"]["value"]["environment"]["capabilities"]["sandboxCommands"],
             json!(true)
         );
     }

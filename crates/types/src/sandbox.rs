@@ -275,6 +275,54 @@ impl From<&str> for AgentStatus {
     }
 }
 
+/// Lifecycle of a command registered through `moat cmd`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ManagedCommandState {
+    Running,
+    Exited,
+    /// Killed by the sandbox because it outlived its deadline.
+    TimedOut,
+    /// Killed on an explicit `moat cmd kill`.
+    Killed,
+}
+
+impl ManagedCommandState {
+    pub fn is_running(self) -> bool {
+        matches!(self, Self::Running)
+    }
+}
+
+/// A registered command, narrowed to what a status reader needs to say one is
+/// still running and name it.
+///
+/// The full shape is `moatless_api_schemas::sandbox::ManagedCommand`, which the
+/// status-read response carries. This is the half of it that belongs on a
+/// status polled every couple of seconds: `pid`, the whole command line, and
+/// the log path answer questions a status indicator does not ask.
+///
+/// Every time here is an instant, never an elapsed duration. A reader computes
+/// "12m in" from `started_at_unix_ms` itself, because a duration recomputed on
+/// the producing side changes on every read, and a push that only sends changes
+/// would then send one every poll forever.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CommandSummary {
+    pub id: String,
+    /// Human label, defaulted by the sandbox to a prefix of the command line.
+    pub label: String,
+    pub state: ManagedCommandState,
+    pub started_at_unix_ms: i64,
+    /// When the sandbox kills it for outliving its deadline.
+    pub deadline_unix_ms: i64,
+    /// Set once the command reached a terminal state. 124 is a timeout kill,
+    /// matching coreutils `timeout`.
+    #[cfg_attr(feature = "openapi", schema(required = true))]
+    pub exit_code: Option<i32>,
+}
+
 /// The complete live status of a Task's Sandbox and Agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -285,6 +333,27 @@ pub struct LiveStatus {
     pub agent_status: Option<AgentStatus>,
     #[cfg_attr(feature = "openapi", schema(required = true))]
     pub sandbox_error: Option<String>,
+    /// Commands registered through `moat cmd`, running and recently finished.
+    ///
+    /// The agent reports `idle` while one of these runs — its turn ended and
+    /// the sandbox is carrying the work — so a reader with the agent status
+    /// alone cannot tell a finished Task from one that is mid-build. Empty
+    /// whenever the sandbox is not `Ready`, or when nothing is registered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<CommandSummary>,
+}
+
+impl LiveStatus {
+    /// Attach the registered commands read from the same agent-status call.
+    ///
+    /// Separate from construction because `derive_live_status` owns the rules
+    /// that turn raw signals into display status, and these are carried
+    /// through rather than derived from anything.
+    #[must_use]
+    pub fn with_commands(mut self, commands: Vec<CommandSummary>) -> Self {
+        self.commands = commands;
+        self
+    }
 }
 
 /// Server sub-types — server container lifecycle.

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentStatus } from './agentStatus';
+import type { CommandSummary } from './commandSummary';
 import type { SandboxStatus } from './sandboxStatus';
 
 /**
@@ -13,6 +14,13 @@ import type { SandboxStatus } from './sandboxStatus';
  */
 export interface LiveStatus {
   agentStatus: null | AgentStatus;
+  /** Commands registered through `moat cmd`, running and recently finished.
+
+The agent reports `idle` while one of these runs — its turn ended and
+the sandbox is carrying the work — so a reader with the agent status
+alone cannot tell a finished Task from one that is mid-build. Empty
+whenever the sandbox is not `Ready`, or when nothing is registered. */
+  commands?: CommandSummary[];
   /** @nullable */
   sandboxError: string | null;
   sandboxStatus: SandboxStatus;

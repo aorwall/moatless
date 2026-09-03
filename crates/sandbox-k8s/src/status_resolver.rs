@@ -273,10 +273,15 @@ impl StatusResolver {
             .resolve_pod_phase_and_error(sandbox_id, desired_state)
             .await;
         let sandbox_status = phase.sandbox_status();
-        let agent_status = if sandbox_status == SandboxStatus::Ready {
-            self.fetch_agent_status(task_id, connector).await.status
+        // One gRPC call answers both halves. Taking only `status` here is what
+        // left a reader unable to see that `moat cmd` work was still running
+        // behind an idle agent.
+        let (agent_status, commands) = if sandbox_status == SandboxStatus::Ready {
+            let snapshot = self.fetch_agent_status(task_id, connector).await;
+            let commands = snapshot.commands.iter().map(ManagedCommand::summary).collect();
+            (snapshot.status, commands)
         } else {
-            None
+            (None, Vec::new())
         };
 
         derive_live_status(
@@ -286,6 +291,7 @@ impl StatusResolver {
             resolver_error,
             agent_status,
         )
+        .with_commands(commands)
     }
 
     // =========================================================================

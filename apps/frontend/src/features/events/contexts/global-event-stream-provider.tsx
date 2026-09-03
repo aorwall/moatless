@@ -130,7 +130,16 @@ function updateSandboxStatus(
   if (!old) {
     return old
   }
-  return { ...old, ...updateLiveStatus(event, old) }
+  // Copy the three fields an event decides, not the whole `LiveStatus`: it
+  // narrows `commands` to `CommandSummary`, and spreading would drop the
+  // `ManagedCommand` detail this response carries.
+  const live = updateLiveStatus(event, old)
+  return {
+    ...old,
+    sandboxStatus: live.sandboxStatus,
+    agentStatus: live.agentStatus,
+    sandboxError: live.sandboxError,
+  }
 }
 
 function isCloseEvent(line: string): boolean {

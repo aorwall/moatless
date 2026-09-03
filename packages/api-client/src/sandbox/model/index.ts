@@ -53,6 +53,7 @@ export * from './codexAgentHarnessCredentialStatusResponse';
 export * from './codexDeviceCodePollRequest';
 export * from './codexDeviceCodePollResponse';
 export * from './codexDeviceCodeStartResponse';
+export * from './commandSummary';
 export * from './connection';
 export * from './containerDiagnostics';
 export * from './contentBlock';

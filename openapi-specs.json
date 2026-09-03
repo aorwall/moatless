@@ -6509,7 +6509,7 @@
             }
           },
           "409": {
-            "description": "A turn is in flight, or the turn has no agent turn id",
+            "description": "The cut reaches a turn still in flight, or the turn has no agent turn id",
             "content": {
               "application/json": {
                 "schema": {
@@ -9948,6 +9948,47 @@
           }
         }
       },
+      "CommandSummary": {
+        "type": "object",
+        "description": "A registered command, narrowed to what a status reader needs to say one is\nstill running and name it.\n\nThe full shape is `moatless_api_schemas::sandbox::ManagedCommand`, which the\nstatus-read response carries. This is the half of it that belongs on a\nstatus polled every couple of seconds: `pid`, the whole command line, and\nthe log path answer questions a status indicator does not ask.\n\nEvery time here is an instant, never an elapsed duration. A reader computes\n\"12m in\" from `started_at_unix_ms` itself, because a duration recomputed on\nthe producing side changes on every read, and a push that only sends changes\nwould then send one every poll forever.",
+        "required": [
+          "id",
+          "label",
+          "state",
+          "startedAtUnixMs",
+          "deadlineUnixMs",
+          "exitCode"
+        ],
+        "properties": {
+          "deadlineUnixMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When the sandbox kills it for outliving its deadline."
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Set once the command reached a terminal state. 124 is a timeout kill,\nmatching coreutils `timeout`."
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "description": "Human label, defaulted by the sandbox to a prefix of the command line."
+          },
+          "startedAtUnixMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ManagedCommandState"
+          }
+        }
+      },
       "Connection": {
         "type": "object",
         "description": "A single external connection (one task binding) with its decoded label,\nexternal status, and message tally.",
@@ -12605,6 +12646,13 @@
                 "$ref": "#/components/schemas/AgentStatus"
               }
             ]
+          },
+          "commands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommandSummary"
+            },
+            "description": "Commands registered through `moat cmd`, running and recently finished.\n\nThe agent reports `idle` while one of these runs — its turn ended and\nthe sandbox is carrying the work — so a reader with the agent status\nalone cannot tell a finished Task from one that is mid-build. Empty\nwhenever the sandbox is not `Ready`, or when nothing is registered."
           },
           "sandboxError": {
             "type": [
