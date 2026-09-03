@@ -4,6 +4,6 @@
 //! edges through the facade.
 
 pub use moatless_tasks::message::{
-    contexts, dao, enricher, error, handlers, hooks, models, routes, schemas, send, service,
+    contexts, dao, enricher, error, fork, handlers, hooks, models, routes, schemas, send, service,
     transform,
 };
