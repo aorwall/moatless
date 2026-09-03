@@ -16,27 +16,27 @@ use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    scheduled_job_info, ApplyServerConfigRequest, ApplyServerConfigResponse,
-    BackgroundWatchJobInfo, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
-    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest,
-    GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest,
-    GetServerConfigResponse, GitRef, GitRepoRange, GitWorkingTreeFile, KillCommandRequest,
-    KillCommandResponse, ListCommandsRequest, ListCommandsResponse, ListFilesRequest,
-    ListFilesResponse, ListGitRefsRequest, ListGitRefsResponse,
-    ManagedCommand as ManagedCommandProto, ManagedCommandState, NotifyMessagesRequest,
-    NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
-    RefreshCredentialResponse, RunCommandRequest, RunCommandResponse, ScheduledJobInfo,
-    SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest,
-    StopAgentResponse, SyncWorkspaceRequest, SyncWorkspaceResponse, TerminalAttachRequest,
-    TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest,
-    TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse,
-    TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse,
-    WakeupJobInfo, WriteFileRequest, WriteFileResponse,
+    ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundWatchJobInfo,
+    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
+    GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
+    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse,
+    GitRef, GitRepoRange, GitWorkingTreeFile, KillCommandRequest, KillCommandResponse,
+    ListCommandsRequest, ListCommandsResponse, ListFilesRequest, ListFilesResponse,
+    ListGitRefsRequest, ListGitRefsResponse, ManagedCommand as ManagedCommandProto,
+    ManagedCommandState, NotifyMessagesRequest, NotifyMessagesResponse, ReadFileRequest,
+    ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse, RunCommandRequest,
+    RunCommandResponse, ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse,
+    ServerConfigOverride, StopAgentRequest, StopAgentResponse, SyncWorkspaceRequest,
+    SyncWorkspaceResponse, TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest,
+    TerminalClearResponse, TerminalCloseRequest, TerminalCloseResponse, TerminalOpenRequest,
+    TerminalResizeRequest, TerminalResizeResponse, TerminalRestartRequest, TerminalSessionSnapshot,
+    TerminalWriteRequest, TerminalWriteResponse, WakeupJobInfo, WriteFileRequest,
+    WriteFileResponse, scheduled_job_info,
 };
 
 use crate::agent::scheduled_job::JobSnapshot;
 use crate::agent::types::AgentStatus;
-use crate::commands::{CommandError, CommandSpec, CommandState, ManagedCommand};
+use crate::commands::{CommandError, CommandRecord, CommandSpec, CommandState};
 use crate::files;
 use crate::server_control;
 use crate::state::{RegisterTaskContextError, SandboxState, TaskContext, TaskContextLookupError};
@@ -768,7 +768,7 @@ impl SandboxService for SandboxServiceImpl {
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-fn managed_command_to_proto(c: ManagedCommand) -> ManagedCommandProto {
+fn managed_command_to_proto(c: CommandRecord) -> ManagedCommandProto {
     ManagedCommandProto {
         id: c.id,
         command: c.command,

@@ -59,7 +59,7 @@ pub struct CommandSpec {
 
 /// One registered command, as reported to the CLI, the UI and the reaper.
 #[derive(Debug, Clone)]
-pub struct ManagedCommand {
+pub struct CommandRecord {
     pub id: String,
     pub command: String,
     pub label: String,
@@ -87,7 +87,7 @@ pub enum CommandError {
 }
 
 struct Entry {
-    command: ManagedCommand,
+    command: CommandRecord,
     /// Cancels the supervisor's wait, which then kills the process group.
     kill: CancellationToken,
     /// The agent has been shown this command's terminal outcome — either it
@@ -115,7 +115,7 @@ impl CommandRegistry {
 
     /// Spawn `spec` and register it. The returned snapshot is taken before the
     /// supervisor can observe an exit, so its state is always `Running`.
-    pub async fn run(&self, spec: CommandSpec) -> Result<ManagedCommand, CommandError> {
+    pub async fn run(&self, spec: CommandSpec) -> Result<CommandRecord, CommandError> {
         let id = short_id();
         let timeout = spec.timeout.unwrap_or(self.default_timeout);
         let log_path = self.log_dir.join(format!("{id}.log"));
@@ -152,7 +152,7 @@ impl CommandRegistry {
         let child = cmd.spawn().map_err(CommandError::Spawn)?;
         let pid = child.id().unwrap_or_default();
         let started_at_unix_ms = unix_now_ms();
-        let command = ManagedCommand {
+        let command = CommandRecord {
             id: id.clone(),
             command: spec.command.clone(),
             label: spec.label.unwrap_or_else(|| preview(&spec.command)),
@@ -205,14 +205,14 @@ impl CommandRegistry {
         )
     }
 
-    pub async fn list(&self) -> Vec<ManagedCommand> {
+    pub async fn list(&self) -> Vec<CommandRecord> {
         let entries = self.entries.read().await;
-        let mut out: Vec<ManagedCommand> = entries.values().map(|e| e.command.clone()).collect();
+        let mut out: Vec<CommandRecord> = entries.values().map(|e| e.command.clone()).collect();
         out.sort_by_key(|c| c.started_at_unix_ms);
         out
     }
 
-    pub async fn get(&self, id: &str) -> Option<ManagedCommand> {
+    pub async fn get(&self, id: &str) -> Option<CommandRecord> {
         self.entries.read().await.get(id).map(|e| e.command.clone())
     }
 
@@ -226,9 +226,9 @@ impl CommandRegistry {
     pub async fn read_for_agent(
         &self,
         id: Option<&str>,
-    ) -> Result<Vec<ManagedCommand>, CommandError> {
+    ) -> Result<Vec<CommandRecord>, CommandError> {
         let mut entries = self.entries.write().await;
-        let mut out: Vec<ManagedCommand> = match id {
+        let mut out: Vec<CommandRecord> = match id {
             Some(id) => {
                 let entry = entries
                     .get_mut(id)
@@ -253,7 +253,7 @@ impl CommandRegistry {
     ///
     /// The kill counts as reporting: the agent asked for this outcome, so
     /// waking it to announce the death it ordered is noise.
-    pub async fn kill(&self, id: &str) -> Result<ManagedCommand, CommandError> {
+    pub async fn kill(&self, id: &str) -> Result<CommandRecord, CommandError> {
         let mut entries = self.entries.write().await;
         let entry = entries
             .get_mut(id)
@@ -291,7 +291,7 @@ impl CommandRegistry {
     /// armed with, because the debt can be discharged from under it: a later
     /// turn can kill or read back a command this watch is still waiting on. An
     /// unknown id owes nothing, so a dropped entry cannot hold a watch open.
-    pub async fn unreported_among(&self, ids: &[String]) -> Vec<ManagedCommand> {
+    pub async fn unreported_among(&self, ids: &[String]) -> Vec<CommandRecord> {
         let entries = self.entries.read().await;
         ids.iter()
             .filter_map(|id| entries.get(id))
@@ -309,9 +309,9 @@ impl CommandRegistry {
     /// still-running filter would drop it. And `kill` discharges the debt while
     /// the process is still winding down, so a state filter would pick the
     /// command back up and wake the agent about the death it just ordered.
-    pub async fn unreported(&self) -> Vec<ManagedCommand> {
+    pub async fn unreported(&self) -> Vec<CommandRecord> {
         let entries = self.entries.read().await;
-        let mut out: Vec<ManagedCommand> = entries
+        let mut out: Vec<CommandRecord> = entries
             .values()
             .filter(|e| !e.reported)
             .map(|e| e.command.clone())
@@ -470,7 +470,7 @@ mod tests {
         CommandRegistry::new(timeout, dir)
     }
 
-    async fn wait_terminal(reg: &CommandRegistry, id: &str) -> ManagedCommand {
+    async fn wait_terminal(reg: &CommandRegistry, id: &str) -> CommandRecord {
         for _ in 0..200 {
             let cmd = reg.get(id).await.expect("command registered");
             if cmd.state.is_terminal() {

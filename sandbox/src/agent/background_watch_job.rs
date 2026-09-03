@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use tracing::{debug, info};
 
-use crate::commands::{CommandRegistry, CommandState, ManagedCommand};
+use crate::commands::{CommandRecord, CommandRegistry, CommandState};
 
 use super::scheduled_job::{
     BackgroundWatchSnapshot, JobContext, JobKind, JobSnapshot, ScheduledJob,
@@ -56,7 +56,7 @@ impl BackgroundWatchJob {
     /// poll tick, which `tokio::time::interval` fires at once), and one the
     /// agent killed must not be, even while its process is still winding down.
     pub async fn arm(registry: Arc<CommandRegistry>) -> Option<Self> {
-        let owed: Vec<ManagedCommand> = registry.unreported().await;
+        let owed: Vec<CommandRecord> = registry.unreported().await;
         if owed.is_empty() {
             return None;
         }
@@ -84,7 +84,7 @@ impl BackgroundWatchJob {
     /// succeed carries the end of its log: the failure is the reason the agent
     /// is being woken, so making it read the log itself wastes the turn the
     /// wake just bought.
-    fn wake_prompt(finished: &[ManagedCommand]) -> String {
+    fn wake_prompt(finished: &[CommandRecord]) -> String {
         let lines: Vec<String> = finished
             .iter()
             .map(|c| {
@@ -179,7 +179,7 @@ impl ScheduledJob for BackgroundWatchJob {
                         );
                         return;
                     }
-                    let finished: Vec<ManagedCommand> =
+                    let finished: Vec<CommandRecord> =
                         owed.into_iter().filter(|c| c.state.is_terminal()).collect();
                     if !finished.is_empty() {
                         info!(
