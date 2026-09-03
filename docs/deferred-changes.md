@@ -110,12 +110,16 @@ one field named. The fix is known in every case; what stops it is stated.
 ## Table ownership
 
 `scripts/check-table-ownership.sh` fails on a production SQL statement naming a
-table another crate owns, against the map stated in the script.
-`scripts/table-ownership-baseline.txt` holds the statements that predate it, each
-with its reason, and only shrinks. Two decisions sit outside that file.
+table another crate owns, against the map stated in the script. The map must
+cover the schema — the script replays `crates/core/migrations` and fails on a
+live table with no owner, and on an owner for a table that no longer exists.
+`scripts/table-ownership-baseline.txt` holds the statements that predate the
+check, each with its reason, and only shrinks. Three decisions sit outside that
+file.
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
+| Four tables are live but nothing reads or writes them | `crates/core/migrations/0001_schema.sql` creates `task_message_content_blocks`; `0111_github_apps.sql` creates `github_apps`, `github_app_audit_events` and `github_app_migrations`, which `0117_adapter_apps.sql` superseded with the `adapter_app*` tables without dropping. No crate issues SQL against any of the four. They carry an owner in the map so coverage holds — the owner is where the SQL would belong, not evidence of a caller | When a migration is being written against that area anyway. Dropping four tables is a schema migration with a rollback story, and it wants to ride along with a change that already has one rather than be a migration of its own |
 | `t3code` reads fifteen tables it does not own | `crates/t3code/src/lib.rs` — 43 statements across `tasks`, `task_messages`, `task_turns`, `task_activities`, `task_follows`, `task_bindings`, `task_message_usage`, `task_message_contexts`, `workspaces`, `workspace_repos`, `users`, and the four listing/conversation change-feed tables. It is now declared a read-only projection in `crates/t3code/AGENTS.md`, which is what the table-ownership exclusion rests on | When one of these reads has to become a write, or the T3 contract changes shape. Either breaks the declaration and forces the reads through the ports |
 | `adapter-telegram/pairing.rs` is mostly unreachable | `crates/adapter-telegram/src/pairing.rs` — `find_by_code`, `list_pending`, `list_pending_for_user`, `approve_request`, `prune_expired` are `pub` with no caller anywhere in the workspace; only `upsert_pairing_request` is reached (from `ingress.rs`) | When the Telegram pairing flow is next worked on. Deleting them now would be a behaviour question dressed as a cleanup — nothing says whether the flow is unfinished or abandoned |
 

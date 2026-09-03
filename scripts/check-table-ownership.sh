@@ -45,64 +45,141 @@ BASELINE="scripts/table-ownership-baseline.txt"
 
 # ── The map: table → owning crate ────────────────────────────────────────────
 read -r -d '' OWNERS <<'MAP' || true
-adapter_app_audit_events        identity
-adapter_app_migrations          identity
-adapter_app_secrets             identity
-adapter_apps                    identity
-adapter_connections             adapter-model
-adapter_delivery                loops
-adapter_event_receipts          loops
-api_keys                        identity
-auth_audit_events               identity
-auth_rate_limits                identity
-auth_sessions                   identity
-auth_transactions               identity
-device_pairing_codes            identity
-event_ingress_outbox            tasks
-feedback                        tasks
-file_metadata                   core
-integration_pairing_requests    adapter-telegram
-loop_configs                    loops
-loops                           loops
-oidc_identities                 identity
-plugin_activations              workspaces
-plugin_skills                   workspaces
-provider_tokens                 identity
-repositories                    workspaces
-sandboxes                       sandbox-control
-schedules                       loops
-secret_audit_events             identity
-secrets                         identity
-subscriptions                   loops
-tags                            tasks
-task_activities                 tasks
-task_bindings                   loops
-task_conversation_changes       backend-core
-task_conversation_position      backend-core
-task_events                     tasks
-task_follows                    tasks
-task_listing_changes            backend-core
-task_listing_position           backend-core
-task_message_contexts           tasks
-task_message_usage              tasks
-task_messages                   tasks
-task_outbound_events            tasks
-task_read_receipts              tasks
-task_relations                  tasks
-task_tags                       tasks
-task_turns                      tasks
-tasks                           tasks
-team_members                    identity
-teams                           identity
-user_credentials                identity
-user_provider_ids               identity
-users                           identity
-workspace_credentials           workspaces
-workspace_repos                 workspaces
-workspaces                      workspaces
+adapter_app_audit_events      identity
+adapter_app_migrations        identity
+adapter_app_secrets           identity
+adapter_apps                  identity
+adapter_connections           adapter-model
+adapter_delivery              loops
+adapter_event_receipts        loops
+adapter_task_creation_claims  loops
+api_keys                      identity
+auth_audit_events             identity
+auth_rate_limits              identity
+auth_sessions                 identity
+auth_transactions             identity
+device_pairing_codes          identity
+event_ingress_outbox          tasks
+feedback                      tasks
+file_metadata                 core
+github_app_audit_events       identity
+github_app_migrations         identity
+github_apps                   identity
+integration_pairing_requests  adapter-telegram
+loop_configs                  loops
+loops                         loops
+oidc_identities               identity
+plugin_activations            workspaces
+plugin_skills                 workspaces
+plugins                       workspaces
+provider_tokens               identity
+repositories                  workspaces
+sandboxes                     sandbox-control
+schedules                     loops
+secret_audit_events           identity
+secrets                       identity
+subscriptions                 loops
+tags                          tasks
+task_activities               tasks
+task_bindings                 loops
+task_conversation_changes     backend-core
+task_conversation_position    backend-core
+task_events                   tasks
+task_follows                  tasks
+task_forks                    tasks
+task_listing_changes          backend-core
+task_listing_position         backend-core
+task_message_content_blocks   tasks
+task_message_contexts         tasks
+task_message_usage            tasks
+task_messages                 tasks
+task_outbound_events          tasks
+task_read_receipts            tasks
+task_relations                tasks
+task_tags                     tasks
+task_turns                    tasks
+tasks                         tasks
+team_members                  identity
+teams                         identity
+user_credentials              identity
+user_provider_ids             identity
+users                         identity
+workspace_credentials         workspaces
+workspace_repos               workspaces
+workspaces                    workspaces
 MAP
 
 EXCLUDED_CRATES="backend t3code cli sandbox"
+
+# ── Coverage: every live table is in the map ─────────────────────────────────
+# The map above is the whole of what this check enforces, and an unlisted table
+# is not checked at all — so a table added without an owner is a silent hole,
+# not a failure. This closes it by replaying the migrations and requiring the
+# two sets to match exactly, in both directions: a live table missing an owner
+# fails, and an owner for a table that no longer exists fails too, so the map
+# cannot rot as the schema moves.
+#
+# `crates/backend/migrations` is a symlink to `crates/core/migrations`, so
+# replaying the one directory covers the schema.
+COVERAGE="$(python3 - "$ROOT" <<'PY'
+import os, re, sys, glob
+
+root = sys.argv[1]
+script = open(os.path.join(root, "scripts/check-table-ownership.sh")).read()
+body = script.split("<<'MAP'", 1)[1].split("\nMAP\n", 1)[0]
+mapped = {
+    m.group(1)
+    for m in (re.match(r"^([a-z_][a-z0-9_-]*)\s{2,}([a-z0-9_-]+)$", l.strip()) for l in body.split("\n"))
+    if m
+}
+
+CREATE = re.compile(r'create\s+table\s+(?:if\s+not\s+exists\s+)?("?[\w.]+"?)', re.I)
+DROP = re.compile(r'drop\s+table\s+(?:if\s+exists\s+)?("?[\w.]+"?)', re.I)
+RENAME = re.compile(r'alter\s+table\s+(?:if\s+exists\s+)?("?[\w.]+"?)\s+rename\s+to\s+("?[\w.]+"?)', re.I)
+
+
+def name(raw):
+    return raw.strip().strip('"').split(".")[-1].strip('"').lower()
+
+
+def uncomment(sql):
+    """Strip block and line comments — a table name inside prose is not a table."""
+    return re.sub(r"--[^\n]*", "", re.sub(r"/\*.*?\*/", "", sql, flags=re.S))
+
+
+live = set()
+for path in sorted(glob.glob(os.path.join(root, "crates/core/migrations/*.sql"))):
+    sql = uncomment(open(path, errors="replace").read())
+    for m in CREATE.finditer(sql):
+        live.add(name(m.group(1)))
+    for m in RENAME.finditer(sql):
+        live.discard(name(m.group(1)))
+        live.add(name(m.group(2)))
+    for m in DROP.finditer(sql):
+        live.discard(name(m.group(1)))
+
+for t in sorted(live - mapped):
+    print(f"unowned\t{t}")
+for t in sorted(mapped - live):
+    print(f"stale\t{t}")
+PY
+)"
+
+if [ -n "$COVERAGE" ]; then
+  echo "FAIL: the table→crate map does not match the schema." >&2
+  echo >&2
+  printf '%s\n' "$COVERAGE" | while IFS=$'\t' read -r kind table; do
+    case "$kind" in
+      unowned) echo "  $table is created by a migration and has no owner in the map." >&2 ;;
+      stale)   echo "  $table has an owner in the map but no longer exists." >&2 ;;
+    esac
+  done
+  echo >&2
+  echo "A table with no owner is not checked by this script at all, which is why" >&2
+  echo "the map must cover the schema. Add the row to the map above, or drop the" >&2
+  echo "entry if the table is gone." >&2
+  exit 1
+fi
 
 # ── Pairs a written rule already settles ─────────────────────────────────────
 # A `<crate> <table>` pair listed here is not a bypass but the documented shape
