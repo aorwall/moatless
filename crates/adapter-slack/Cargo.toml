@@ -20,7 +20,6 @@ uuid = { version = "1", features = ["v4", "serde"] }
 moatless-adapter-model = { path = "../adapter-model", features = ["http"] }
 moatless-backend-core = { path = "../backend-core", features = ["database"] }
 moatless-core = { path = "../core" }
-moatless-tasks = { path = "../tasks" }
 moatless-types = { path = "../types" }
 
 [features]

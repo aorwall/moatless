@@ -24,7 +24,6 @@ moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
 moatless-adapter-model = { path = "../adapter-model", features = ["http"] }
 moatless-backend-core = { path = "../backend-core" }
 moatless-loops = { path = "../loops" }
-moatless-tasks = { path = "../tasks" }
 moatless-types = { path = "../types" }
 
 [lints]
