@@ -10,6 +10,7 @@
 //! a build spawns rather than just the `bash -lc` wrapper.
 
 use std::collections::HashMap;
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -89,6 +90,11 @@ struct Entry {
     command: ManagedCommand,
     /// Cancels the supervisor's wait, which then kills the process group.
     kill: CancellationToken,
+    /// The agent has been shown this command's terminal outcome — either it
+    /// read the command back through `moat cmd`, or a wake named it. Until
+    /// that is true a finished command still owes the agent an answer, even
+    /// though it no longer defers the reaper.
+    reported: bool,
 }
 
 /// Registry of the commands this task started through `moat cmd`.
@@ -166,6 +172,7 @@ impl CommandRegistry {
             Entry {
                 command: command.clone(),
                 kill: kill.clone(),
+                reported: false,
             },
         );
 
@@ -209,14 +216,50 @@ impl CommandRegistry {
         self.entries.read().await.get(id).map(|e| e.command.clone())
     }
 
+    /// Read commands back on the agent's behalf, marking any that have already
+    /// finished as reported: the agent has now seen the outcome, so the
+    /// turn-end watch owes it no wake. `None` reads every command.
+    ///
+    /// Separate from `list` because the backend polls status on its own
+    /// schedule; letting that poll mark a command seen would swallow the very
+    /// wake this exists to guarantee.
+    pub async fn read_for_agent(
+        &self,
+        id: Option<&str>,
+    ) -> Result<Vec<ManagedCommand>, CommandError> {
+        let mut entries = self.entries.write().await;
+        let mut out: Vec<ManagedCommand> = match id {
+            Some(id) => {
+                let entry = entries
+                    .get_mut(id)
+                    .ok_or_else(|| CommandError::NotFound(id.to_string()))?;
+                entry.reported |= entry.command.state.is_terminal();
+                vec![entry.command.clone()]
+            }
+            None => entries
+                .values_mut()
+                .map(|e| {
+                    e.reported |= e.command.state.is_terminal();
+                    e.command.clone()
+                })
+                .collect(),
+        };
+        out.sort_by_key(|c| c.started_at_unix_ms);
+        Ok(out)
+    }
+
     /// Signal a command to stop. The supervisor performs the kill and records
     /// the terminal state, so the snapshot returned here is still `Running`.
+    ///
+    /// The kill counts as reporting: the agent asked for this outcome, so
+    /// waking it to announce the death it ordered is noise.
     pub async fn kill(&self, id: &str) -> Result<ManagedCommand, CommandError> {
-        let entries = self.entries.read().await;
+        let mut entries = self.entries.write().await;
         let entry = entries
-            .get(id)
+            .get_mut(id)
             .ok_or_else(|| CommandError::NotFound(id.to_string()))?;
         entry.kill.cancel();
+        entry.reported = true;
         Ok(entry.command.clone())
     }
 
@@ -242,25 +285,49 @@ impl CommandRegistry {
             .collect()
     }
 
-    /// Whether every one of `ids` has reached a terminal state. Unknown ids
-    /// count as finished, so a dropped entry cannot hold a watch open.
-    pub async fn all_finished(&self, ids: &[String]) -> bool {
-        let entries = self.entries.read().await;
-        ids.iter().all(|id| {
-            entries
-                .get(id)
-                .is_none_or(|e| e.command.state.is_terminal())
-        })
-    }
-
-    /// The subset of `ids` that has reached a terminal state.
-    pub async fn finished(&self, ids: &[String]) -> Vec<ManagedCommand> {
+    /// The subset of `ids` that still owes the agent an outcome.
+    ///
+    /// A watch re-reads this on every poll rather than trusting the set it
+    /// armed with, because the debt can be discharged from under it: a later
+    /// turn can kill or read back a command this watch is still waiting on. An
+    /// unknown id owes nothing, so a dropped entry cannot hold a watch open.
+    pub async fn unreported_among(&self, ids: &[String]) -> Vec<ManagedCommand> {
         let entries = self.entries.read().await;
         ids.iter()
             .filter_map(|id| entries.get(id))
-            .filter(|e| e.command.state.is_terminal())
+            .filter(|e| !e.reported)
             .map(|e| e.command.clone())
             .collect()
+    }
+
+    /// Commands that still owe the agent an outcome, whatever state they are in.
+    ///
+    /// This is the whole of what the turn-end watch waits on, and it keys off
+    /// the debt rather than the state for two reasons. A command can die
+    /// between being spawned and the turn ending — a bad path takes under a
+    /// second — so it is already terminal when the watch arms and a
+    /// still-running filter would drop it. And `kill` discharges the debt while
+    /// the process is still winding down, so a state filter would pick the
+    /// command back up and wake the agent about the death it just ordered.
+    pub async fn unreported(&self) -> Vec<ManagedCommand> {
+        let entries = self.entries.read().await;
+        let mut out: Vec<ManagedCommand> = entries
+            .values()
+            .filter(|e| !e.reported)
+            .map(|e| e.command.clone())
+            .collect();
+        out.sort_by_key(|c| c.started_at_unix_ms);
+        out
+    }
+
+    /// Record that the agent has been told about these commands.
+    pub async fn mark_reported(&self, ids: &[String]) {
+        let mut entries = self.entries.write().await;
+        for id in ids {
+            if let Some(entry) = entries.get_mut(id) {
+                entry.reported = true;
+            }
+        }
     }
 }
 
@@ -331,6 +398,29 @@ async fn signal_group(pid: u32, signal: &str) -> bool {
         .status()
         .await
         .is_ok_and(|status| status.success())
+}
+
+/// The end of a command's log, for telling the agent *why* it failed rather
+/// than only that it did. Reads from the end: a build log is unbounded and only
+/// its tail explains the outcome. Returns `None` when there is nothing to show.
+pub fn log_tail(path: &Path, lines: usize, bytes: u64) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let offset = len.saturating_sub(bytes);
+    file.seek(std::io::SeekFrom::Start(offset)).ok()?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).ok()?;
+
+    let text = String::from_utf8_lossy(&buf);
+    // A non-zero offset lands mid-line; that fragment is not a line the reader
+    // can use.
+    let mut all: Vec<&str> = text.lines().collect();
+    if offset > 0 && !all.is_empty() {
+        all.remove(0);
+    }
+    let tail = all[all.len().saturating_sub(lines)..].join("\n");
+    let tail = tail.trim();
+    (!tail.is_empty()).then(|| tail.to_string())
 }
 
 fn preview(command: &str) -> String {
@@ -426,7 +516,10 @@ mod tests {
             .await
             .expect("spawn");
         wait_terminal(&reg, &cmd.id).await;
-        assert!(!reg.busy().await, "finished command must not defer the reaper");
+        assert!(
+            !reg.busy().await,
+            "finished command must not defer the reaper"
+        );
     }
 
     #[tokio::test]
@@ -445,7 +538,10 @@ mod tests {
         let done = wait_terminal(&reg, &cmd.id).await;
         assert_eq!(done.state, CommandState::TimedOut);
         assert_eq!(done.exit_code, Some(TIMEOUT_EXIT_CODE));
-        assert!(!reg.busy().await, "a timed-out command stops deferring the reaper");
+        assert!(
+            !reg.busy().await,
+            "a timed-out command stops deferring the reaper"
+        );
     }
 
     #[tokio::test]
@@ -492,9 +588,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn all_finished_treats_unknown_ids_as_done() {
+    async fn an_unknown_id_owes_nothing() {
         let reg = registry(Duration::from_mins(1));
-        assert!(reg.all_finished(&["gone".to_string()]).await);
+        assert!(reg.unreported_among(&["gone".to_string()]).await.is_empty());
     }
 
     #[tokio::test]
@@ -521,5 +617,130 @@ mod tests {
             !is_live(grandchild),
             "grandchild {grandchild} survived the group kill"
         );
+    }
+
+    #[tokio::test]
+    async fn a_finished_command_stays_unreported_until_the_agent_reads_it() {
+        let reg = registry(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "exit 3".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        wait_terminal(&reg, &cmd.id).await;
+
+        let owed = reg.unreported().await;
+        assert_eq!(owed.len(), 1, "a finished command the agent never saw");
+
+        reg.read_for_agent(None).await.expect("read");
+        assert!(
+            reg.unreported().await.is_empty(),
+            "reading it back is the agent seeing it"
+        );
+    }
+
+    /// Reading a *running* command tells the agent nothing about how it ends,
+    /// so it must not discharge the wake owed when it later fails.
+    #[tokio::test]
+    async fn reading_a_running_command_does_not_discharge_its_wake() {
+        let reg = registry(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "sleep 0.2; exit 4".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+
+        reg.read_for_agent(None).await.expect("read while running");
+        wait_terminal(&reg, &cmd.id).await;
+
+        let owed = reg.unreported().await;
+        assert_eq!(owed.len(), 1, "still owes the agent the outcome");
+    }
+
+    #[tokio::test]
+    async fn killing_a_command_reports_it_without_a_wake() {
+        let reg = registry(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "sleep 30".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        reg.kill(&cmd.id).await.expect("kill");
+        wait_terminal(&reg, &cmd.id).await;
+
+        assert!(
+            reg.unreported().await.is_empty(),
+            "the agent asked for this death; announcing it is noise"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_command_runs_in_the_requested_cwd() {
+        let reg = registry(Duration::from_mins(1));
+        let dir = std::env::temp_dir().join(format!("moat-cmd-cwd-{}", short_id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let cmd = reg
+            .run(CommandSpec {
+                command: "pwd".into(),
+                cwd: Some(dir.display().to_string()),
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+
+        let done = wait_terminal(&reg, &cmd.id).await;
+        let log = std::fs::read_to_string(&done.log_path).expect("log");
+        assert!(
+            log.trim()
+                .ends_with(&dir.file_name().unwrap().to_string_lossy().to_string()),
+            "ran in {log:?}, wanted {}",
+            dir.display()
+        );
+    }
+
+    #[tokio::test]
+    async fn log_tail_reads_the_end_and_drops_the_partial_line() {
+        let dir = std::env::temp_dir().join(format!("moat-cmd-tail-{}", short_id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("t.log");
+        let body = (0..500)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&path, &body).expect("write");
+
+        let tail = log_tail(&path, 3, 4096).expect("tail");
+        assert_eq!(tail, "line 497\nline 498\nline 499");
+
+        // Seeking into the middle of the file must not emit a half line.
+        let tail = log_tail(&path, 500, 64).expect("tail");
+        assert!(
+            tail.lines().all(|l| l.starts_with("line ")),
+            "tail was {tail:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn log_tail_of_a_missing_or_empty_log_is_none() {
+        let dir = std::env::temp_dir().join(format!("moat-cmd-tail-{}", short_id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let empty = dir.join("empty.log");
+        std::fs::write(&empty, "").expect("write");
+
+        assert!(log_tail(&dir.join("nope.log"), 5, 4096).is_none());
+        assert!(log_tail(&empty, 5, 4096).is_none());
     }
 }

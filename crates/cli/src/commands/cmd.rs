@@ -6,6 +6,7 @@
 //! while a build runs and what wakes the agent when it finishes — a process
 //! started any other way is invisible to both.
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use sandbox_proto::sandbox_service_client::SandboxServiceClient;
@@ -16,13 +17,19 @@ use sandbox_proto::{
 /// Lines of the log tail printed by `status` and `logs` when no `--lines` is given.
 const DEFAULT_LOG_LINES: usize = 50;
 
+/// How long `run` waits before checking that the command is still alive, so an
+/// instant failure is reported here rather than only at the next wake.
+const EARLY_EXIT_GRACE: Duration = Duration::from_secs(1);
+
 #[derive(clap::Subcommand)]
 pub enum CmdAction {
     /// Start a long-running command and return immediately.
     Run {
         /// Shell command, run through `bash -lc`.
         command: String,
-        /// Working directory. Defaults to the workspace dir.
+        /// Working directory, absolute or relative to this shell. Defaults to
+        /// this shell's directory, so the command means what it would have
+        /// meant typed here.
         #[arg(long, short = 'C')]
         cwd: Option<String>,
         /// Seconds before the sandbox kills it and marks it timed out.
@@ -72,20 +79,33 @@ pub async fn run(
             timeout,
             label,
         } => {
+            let cwd = resolve_cwd(cwd, std::env::current_dir().ok());
             let resp = client
                 .run_command(RunCommandRequest {
                     command,
                     cwd,
                     timeout_secs: timeout,
                     label,
-                    task_id: Some(task_id),
+                    task_id: Some(task_id.clone()),
                 })
                 .await?
                 .into_inner();
-            let cmd = resp.command.ok_or("sandbox returned no command")?;
+            let started = resp.command.ok_or("sandbox returned no command")?;
+
+            // A command that dies on the first line — a bad path, a typo — is
+            // gone before this returns, and reporting it as started would send
+            // the caller off to wait for a wake about work that never ran.
+            tokio::time::sleep(EARLY_EXIT_GRACE).await;
+            let id = started.id.clone();
+            let cmd = fetch_one(&mut client, &id, task_id)
+                .await
+                .unwrap_or(started);
+            let died_immediately =
+                cmd.state() != ManagedCommandState::Running && cmd.exit_code != Some(0);
+
             if json {
                 print_json(&[&cmd]);
-            } else {
+            } else if cmd.state() == ManagedCommandState::Running {
                 println!("Started {} (pid {})", cmd.id, cmd.pid);
                 println!("  log:      {}", cmd.log_path);
                 println!("  deadline: {}s", cmd.timeout_secs);
@@ -93,6 +113,13 @@ pub async fn run(
                     "The sandbox stays awake until this finishes; you will be woken when it does. \
                      End your turn — do not poll it or schedule a fallback wakeup."
                 );
+            } else {
+                println!("{}", summary_line(&cmd));
+                println!("  log:     {}", cmd.log_path);
+                print_tail(&cmd.log_path, DEFAULT_LOG_LINES);
+            }
+            if died_immediately {
+                return Err(format!("command {} did not stay running", cmd.id).into());
             }
         }
 
@@ -154,8 +181,8 @@ pub async fn run(
 
 /// Connect to the sandbox's own gRPC server. It listens on loopback inside this
 /// container, so there is nothing to authenticate against.
-async fn connect() -> Result<SandboxServiceClient<tonic::transport::Channel>, Box<dyn std::error::Error>>
-{
+async fn connect(
+) -> Result<SandboxServiceClient<tonic::transport::Channel>, Box<dyn std::error::Error>> {
     let port = std::env::var("GRPC_PORT").unwrap_or_else(|_| "50052".to_string());
     let endpoint = format!("http://127.0.0.1:{port}");
     let channel = tonic::transport::Endpoint::new(endpoint.clone())?
@@ -239,8 +266,64 @@ fn print_json(commands: &[&ManagedCommand]) {
     crate::output::print_json_typed(&rows);
 }
 
+/// Resolve `--cwd` against `base`, the directory this CLI was run from.
+///
+/// The sandbox spawns the command from its own process, so a relative path sent
+/// over the wire would resolve against *that* directory rather than the
+/// caller's. Absolute values pass through; an absent one means the caller's
+/// directory, so a command means what it would have meant typed here.
+fn resolve_cwd(cwd: Option<String>, base: Option<PathBuf>) -> Option<String> {
+    match cwd {
+        None => base.map(|p| p.display().to_string()),
+        Some(cwd) if Path::new(&cwd).is_absolute() => Some(cwd),
+        Some(cwd) => match base {
+            Some(base) => Some(base.join(cwd).display().to_string()),
+            None => Some(cwd),
+        },
+    }
+}
+
 fn now_unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_absent_cwd_is_the_callers_directory() {
+        assert_eq!(
+            resolve_cwd(None, Some(PathBuf::from("/ws/repo"))),
+            Some("/ws/repo".to_string())
+        );
+    }
+
+    /// The sandbox spawns from its own directory, so a relative value has to be
+    /// made absolute here or it lands somewhere the caller never chose.
+    #[test]
+    fn a_relative_cwd_resolves_against_the_callers_directory() {
+        assert_eq!(
+            resolve_cwd(Some("apps/frontend".into()), Some(PathBuf::from("/ws/repo"))),
+            Some("/ws/repo/apps/frontend".to_string())
+        );
+    }
+
+    #[test]
+    fn an_absolute_cwd_is_left_alone() {
+        assert_eq!(
+            resolve_cwd(Some("/other/place".into()), Some(PathBuf::from("/ws/repo"))),
+            Some("/other/place".to_string())
+        );
+    }
+
+    /// Without a readable current directory there is nothing to resolve
+    /// against; the sandbox still falls back to the workspace dir.
+    #[test]
+    fn an_unreadable_current_directory_passes_the_value_through() {
+        assert_eq!(resolve_cwd(Some("apps".into()), None), Some("apps".to_string()));
+        assert_eq!(resolve_cwd(None, None), None);
+    }
 }

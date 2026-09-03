@@ -15,11 +15,28 @@ use tonic::{Request, Response, Status};
 use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
-use sandbox_proto::{ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundWatchJobInfo, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse, GitRef, GitRepoRange, GitWorkingTreeFile, ListFilesRequest, ListFilesResponse, KillCommandRequest, KillCommandResponse, ListCommandsRequest, ListCommandsResponse, ListGitRefsRequest, ListGitRefsResponse, ManagedCommand as ManagedCommandProto, ManagedCommandState, NotifyMessagesRequest, RunCommandRequest, RunCommandResponse, NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest, StopAgentResponse, SyncWorkspaceRequest, SyncWorkspaceResponse, TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest, TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse, TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse, WakeupJobInfo, WriteFileRequest, WriteFileResponse, scheduled_job_info};
+use sandbox_proto::{
+    scheduled_job_info, ApplyServerConfigRequest, ApplyServerConfigResponse,
+    BackgroundWatchJobInfo, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
+    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest,
+    GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest,
+    GetServerConfigResponse, GitRef, GitRepoRange, GitWorkingTreeFile, KillCommandRequest,
+    KillCommandResponse, ListCommandsRequest, ListCommandsResponse, ListFilesRequest,
+    ListFilesResponse, ListGitRefsRequest, ListGitRefsResponse,
+    ManagedCommand as ManagedCommandProto, ManagedCommandState, NotifyMessagesRequest,
+    NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
+    RefreshCredentialResponse, RunCommandRequest, RunCommandResponse, ScheduledJobInfo,
+    SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest,
+    StopAgentResponse, SyncWorkspaceRequest, SyncWorkspaceResponse, TerminalAttachRequest,
+    TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest,
+    TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse,
+    TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse,
+    WakeupJobInfo, WriteFileRequest, WriteFileResponse,
+};
 
 use crate::agent::scheduled_job::JobSnapshot;
-use crate::commands::{CommandError, CommandSpec, CommandState, ManagedCommand};
 use crate::agent::types::AgentStatus;
+use crate::commands::{CommandError, CommandSpec, CommandState, ManagedCommand};
 use crate::files;
 use crate::server_control;
 use crate::state::{RegisterTaskContextError, SandboxState, TaskContext, TaskContextLookupError};
@@ -239,11 +256,17 @@ impl SandboxService for SandboxServiceImpl {
         if req.command.trim().is_empty() {
             return Err(Status::invalid_argument("command must not be empty"));
         }
+        // Without this the child would inherit the *sandbox process's* cwd,
+        // which is neither the workspace nor a checkout, so a command using a
+        // relative path would run somewhere the caller never chose.
+        let cwd = req
+            .cwd
+            .unwrap_or_else(|| self.state.config.workspace_dir.clone());
         let command = context
             .commands
             .run(CommandSpec {
                 command: req.command,
-                cwd: req.cwd,
+                cwd: Some(cwd),
                 timeout: req.timeout_secs.map(std::time::Duration::from_secs),
                 label: req.label,
             })
@@ -261,16 +284,11 @@ impl SandboxService for SandboxServiceImpl {
     ) -> Result<Response<ListCommandsResponse>, Status> {
         let req = request.into_inner();
         let context = self.resolve_member_context(req.task_id.as_deref()).await?;
-        let commands = match req.id {
-            Some(id) => vec![
-                context
-                    .commands
-                    .get(&id)
-                    .await
-                    .ok_or_else(|| Status::not_found(format!("no command with id {id}")))?,
-            ],
-            None => context.commands.list().await,
-        };
+        let commands = context
+            .commands
+            .read_for_agent(req.id.as_deref())
+            .await
+            .map_err(command_error_to_status)?;
         Ok(Response::new(ListCommandsResponse {
             commands: commands.into_iter().map(managed_command_to_proto).collect(),
         }))
@@ -848,7 +866,4 @@ mod tests {
             Ok(sandbox_proto::FileNodeType::File)
         );
     }
-
-
-
 }
