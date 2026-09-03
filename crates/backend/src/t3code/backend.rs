@@ -911,7 +911,9 @@ impl ThreadCommandSink for AppStateCommands {
             sandbox_id: None,
             checkout_mode: None,
             agent_type: Some(agent_type),
-            name: thread.title,
+            // Created unnamed: the agent names it on its first turn, and the
+            // client's create title is a placeholder.
+            name: None,
             description: None,
             branch: thread.branch,
             message: thread.first_message.as_ref().map(|m| m.text.clone()),

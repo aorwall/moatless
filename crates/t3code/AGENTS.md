@@ -57,3 +57,18 @@ what a viewer is shown of a Task tree is settled by the same rule a link is.
 (`moatless_tasks::ports::Activities`), because the reads it serves are the Task
 band's own and existed before this crate wanted them. Add a seam, not a
 dependency on the crate behind it.
+
+## The client renames a thread, it does not name one
+
+A Task created from T3 is created unnamed, and a `thread.meta.update` carrying a
+title is passed on only when the Task already has a name (`rename` in
+`commands.rs`). The client titles a new thread from its first message within
+seconds of creating it, and that title reaches `tasks.name` before the pod
+boots, which suppresses the `# Required First Actions` block that has the agent
+name the Task (`crates/tasks/src/agent/prompt.rs`). Both writes look identical
+on the wire — the only thing separating the auto-title from a person's rename is
+that the auto-title lands while the Task is still unnamed.
+
+The corner this leaves: a thread created with no first message never runs an
+agent, so it stays unnamed and cannot be renamed from T3 either. It shows the
+contract's "New thread" placeholder.

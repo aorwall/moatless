@@ -732,7 +732,6 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
                 task_id: task_id.into(),
                 workspace_id: WS.into(),
                 instance: "claudeAgent".into(),
-                title: Some("From T3".into()),
                 branch: None,
                 model: None,
                 first_message: Some(turn(task_id, message_id, "get started")),
@@ -746,7 +745,10 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
         .await
         .unwrap()
         .expect("the task exists under the id T3 minted");
-    assert_eq!(task.name.as_deref(), Some("From T3"));
+    assert_eq!(
+        task.name, None,
+        "the client's title is its own; the agent names the Task on its first turn"
+    );
     assert_eq!(task.agent_type, AgentType(catalog::CLAUDE_CODE.id.into()));
 
     assert_eq!(
@@ -775,7 +777,6 @@ async fn a_thread_created_with_no_message_gets_no_sandbox(pool: PgPool) {
                 task_id: task_id.into(),
                 workspace_id: WS.into(),
                 instance: "claudeAgent".into(),
-                title: None,
                 branch: None,
                 model: None,
                 first_message: None,
@@ -812,7 +813,6 @@ async fn sending_into_an_unprovisioned_thread_provisions_it(pool: PgPool) {
             task_id: task_id.into(),
             workspace_id: WS.into(),
             instance: "claudeAgent".into(),
-            title: None,
             branch: None,
             model: None,
             first_message: None,

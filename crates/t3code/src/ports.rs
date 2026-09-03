@@ -150,7 +150,6 @@ pub struct NewThread {
     /// The provider instance the person picked, which decides which agent runs
     /// the thread. The transport within that kind is not selectable from T3.
     pub instance: String,
-    pub title: Option<String>,
     /// A catalog model id.
     pub model: Option<String>,
     /// The branch the person picked, if any. `None` falls back to the primary
@@ -164,6 +163,7 @@ pub struct NewThread {
 /// A title and model change, as this surface understood it.
 pub struct ThreadMeta {
     pub task_id: String,
+    /// A rename. Absent for the client's auto-title, which this surface drops.
     pub title: Option<String>,
     pub model: Option<String>,
 }
