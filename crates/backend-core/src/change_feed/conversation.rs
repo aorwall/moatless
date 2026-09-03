@@ -67,6 +67,10 @@ impl ConversationHead {
     /// [`EVENTS_PER_CHANGE`] describes. A client resumes from what it last saw,
     /// and a snapshot's sequence and an event's sequence have to be the same
     /// kind of number for that to mean anything.
+    ///
+    /// This is the head change's *first* event, so a client in step may hold up
+    /// to `EVENTS_PER_CHANGE - 1` more than this. Comparing a cursor against it
+    /// as an upper bound rebuilds conversations that had nothing to replay.
     pub fn sequence(self) -> i64 {
         self.position * EVENTS_PER_CHANGE
     }
@@ -77,8 +81,8 @@ impl ConversationHead {
 pub enum Resume {
     /// Everything after this sequence is still recorded. Replay from it.
     From(i64),
-    /// Further behind than [`RESUME_WINDOW`], or ahead of a sequence this
-    /// conversation has ever reached. Send the transcript again.
+    /// Further behind than [`RESUME_WINDOW`], or past the last event the head
+    /// change can carry. Send the transcript again.
     Rebuild,
 }
 
@@ -91,9 +95,14 @@ pub enum Resume {
 /// have been pruned. A negative cursor is neither — the contract's
 /// `NonNegativeInt` refuses it before it is sent, and reading one as absent
 /// would rebuild anyway.
+///
+/// The ceiling is the head change's *last* event, not its first: the head
+/// reports index 0 ([`ConversationHead::sequence`]) while a change projects up
+/// to [`EVENTS_PER_CHANGE`] events, so a client that saw a turn's tool call
+/// holds a sequence above the head and is still exactly in step.
 pub fn resume(head: ConversationHead, after: i64) -> Resume {
     let head = head.sequence();
-    if after > head {
+    if after > head + EVENTS_PER_CHANGE - 1 {
         return Resume::Rebuild;
     }
     if head - after > RESUME_WINDOW * EVENTS_PER_CHANGE {
@@ -334,10 +343,34 @@ mod tests {
 
     /// A cursor from another conversation, or from a database whose positions
     /// were reissued: plausible in shape, ahead of anything allocated here.
+    /// Past the head change's events, not merely past its first one.
     #[test]
     fn a_cursor_ahead_of_the_head_is_rebuilt() {
-        assert_eq!(resume(head(0), 1), Resume::Rebuild);
-        assert_eq!(resume(head(10), head(10).sequence() + 1), Resume::Rebuild);
+        assert_eq!(resume(head(0), EVENTS_PER_CHANGE), Resume::Rebuild);
+        assert_eq!(
+            resume(head(10), head(10).sequence() + EVENTS_PER_CHANGE),
+            Resume::Rebuild
+        );
+    }
+
+    /// The head reports the head change's first event, but that change projects
+    /// a bubble plus one event per thinking or tool-call block — so a client in
+    /// step holds a sequence above it. Reading that as "ahead of anything
+    /// allocated" re-sent the whole transcript on every resubscribe.
+    #[test]
+    fn a_cursor_inside_the_head_change_replays_rather_than_rebuilding() {
+        let head = head(10);
+        for index in 0..EVENTS_PER_CHANGE {
+            let after = head.sequence() + index;
+            assert_eq!(
+                resume(head, after),
+                Resume::From(after),
+                "a client holding event {index} of the head change was rebuilt"
+            );
+            // The catch-up read stays inside the head change, so it replays
+            // that change and emits only what sorts past the cursor.
+            assert_eq!(position_of(after), head.position);
+        }
     }
 
     /// The client drops an event whose sequence it has already passed, so two
