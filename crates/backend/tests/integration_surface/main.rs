@@ -1,4 +1,4 @@
-//! Integration tests over the client surface — ui_rpc, agent handlers, pairing.
+//! Integration tests over the client surface — `ui_rpc`, agent handlers, pairing.
 //! One of three `integration_*` test targets; shared fixtures live in
 //! `tests/common`.
 

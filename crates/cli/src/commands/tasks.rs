@@ -116,7 +116,7 @@ pub enum TaskAction {
         #[arg(long)]
         model: Option<String>,
         /// Run without anyone watching: no preview servers, and no tools that
-        /// wait on a person (AskUserQuestion, Enter/ExitPlanMode). Defaults to
+        /// wait on a person (`AskUserQuestion`, Enter/ExitPlanMode). Defaults to
         /// true for CLI-created tasks — there is no browser here to view them
         /// or answer a prompt. Pass `--headless false` for a task you intend to
         /// open in the UI.
@@ -134,7 +134,7 @@ pub enum TaskAction {
     },
     /// List child tasks
     Children {
-        /// Parent task ID (defaults to current TASK_ID)
+        /// Parent task ID (defaults to current `TASK_ID`)
         task_id: Option<String>,
     },
     /// Start a task
@@ -261,7 +261,7 @@ pub enum ServerAction {
         #[arg(long = "unset")]
         unset: Vec<String>,
         /// Port the server listens on. Cannot be changed live — it is wired
-        /// into the Service and IngressRoute at provision time, so the server
+        /// into the Service and `IngressRoute` at provision time, so the server
         /// rejects this with guidance to redeploy instead.
         #[arg(long)]
         port: Option<u16>,
@@ -1017,7 +1017,7 @@ fn is_own_sandbox(config: &Config, task_id: &str) -> bool {
     config.task_id() == Some(task_id)
 }
 
-/// True if `s` looks like a full task_id (UUID: 36 chars with 4 hyphens).
+/// True if `s` looks like a full `task_id` (UUID: 36 chars with 4 hyphens).
 fn looks_like_task_id(s: &str) -> bool {
     s.len() == 36 && s.chars().filter(|c| *c == '-').count() == 4
 }
@@ -1029,9 +1029,9 @@ fn resolve_parent_task_id(
     ambient_task_id.map(String::from).or(explicit_parent)
 }
 
-/// Resolve a task reference to a full task_id.
+/// Resolve a task reference to a full `task_id`.
 ///
-/// Accepts either a full task_id (UUID — passed through) or the 8-char shortId
+/// Accepts either a full `task_id` (UUID — passed through) or the 8-char shortId
 /// shown in the UI, which is looked up among the most recent tasks. Short ids
 /// are unique, so the first match wins.
 async fn resolve_task_id(client: &MoatClient, task_ref: &str) -> Result<String, ClientError> {

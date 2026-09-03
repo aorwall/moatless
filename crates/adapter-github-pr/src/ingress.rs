@@ -317,8 +317,8 @@ pub(crate) async fn receive(
                     context: delivery_context.clone(),
                     execution: super::post_merge::Execution {
                         // Kept alongside `repo_full_name` because the ingress path
-                        // historically split these facts before admission; the
-                        // durable payload must retain the same stored values.
+                        // splits these facts before admission; the durable
+                        // payload must retain the same stored values.
                         owner: owner.to_string(),
                         repo: repo.to_string(),
                         run,

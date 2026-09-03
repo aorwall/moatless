@@ -9,7 +9,6 @@ import { expect, test } from '../fixtures/ui-fixtures'
 test.describe('Smoke Tests', () => {
   test('application loads and renders main layout', async ({ page }) => {
     await page.goto('/')
-    // The app should render a root element
     await expect(page.locator('#root')).toBeVisible()
   })
 
@@ -28,7 +27,6 @@ test.describe('Smoke Tests', () => {
     const response = await page.request.get('/api/v1/events/stream', {
       timeout: 5000,
     })
-    // SSE endpoint should return 200 with streaming content
     expect(response.status()).toBe(200)
   })
 })

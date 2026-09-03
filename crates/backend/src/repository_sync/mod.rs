@@ -1,6 +1,6 @@
 //! Repository config-sync — a cross-band HTTP module that composes a
 //! repository's loop sync (`loops`) with its git-declared workspace sync
-//! (`workspaces`) synchronously. Server-band, owning its own route and ApiDoc;
+//! (`workspaces`) synchronously. Server-band, owning its own route and `ApiDoc`;
 //! the same shape as `task_connections`.
 //!
 //! It lives here rather than in `repository` because naming `loops`

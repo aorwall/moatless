@@ -36,7 +36,7 @@ impl PgLifecycleDao {
     }
 }
 
-/// The statement that clears the correlation marker (kind/generation/started_at).
+/// The statement that clears the correlation marker (`kind/generation/started_at`).
 /// Shared by the standalone clear and the completion transaction so the two
 /// cannot drift.
 const CLEAR_MARKER_SQL: &str = r#"UPDATE sandboxes SET

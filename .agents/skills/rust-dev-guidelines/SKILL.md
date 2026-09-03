@@ -86,6 +86,29 @@ add an unreasoned local suppression.
 Use the smallest visibility required by real consumers. Do not expose an item
 publicly in anticipation of a future caller.
 
+### Write comments to the repo rules
+
+The comment rules in the root `AGENTS.md` apply. Rust specifics:
+
+- Doc comments are Markdown: `-` lists, fenced blocks, tables, and a bold label
+  such as `**Failure policy:**` are the house style. No HTML tags.
+- The first line is the one-sentence summary. Failure semantics follow as
+  prose: "Returns `None` when ...", "Panics when ...". Do not add
+  `# Arguments`, `# Returns`, or `# Errors` sections. A `#` heading names a
+  concern the reader must find, such as `# Concurrency` or `# Call this last`.
+- Link to the owner of a fact with an intra-doc link: `` [`Type::member`] ``
+  or `` [`crate::module::item`] ``. `cargo doc` reports a link that does not
+  resolve.
+- `clippy::doc_markdown` enforces backticks around identifiers. A product name
+  that trips it goes in `doc-valid-idents` in `clippy.toml`, not in backticks.
+- A `//!` module doc owns the module's invariant and names its sibling
+  `AGENTS.md` for the rest. It does not restate it.
+- A trait method's doc is the whole contract, with or without a default body.
+- A fenced block in a doc comment is a doctest unless it is tagged `text` or
+  `ignore`. Tag it unless it should compile and run.
+- The `// reason:` comment on a `ScopeContext::system` call states the cause
+  only.
+
 ### Format single files, never the crate
 
 Do not run `cargo fmt -p <crate>`. No crate here has a `rustfmt.toml`, and

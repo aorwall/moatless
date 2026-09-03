@@ -511,8 +511,8 @@ mod tests {
         assert!(prompt.contains("<source>"));
         // Internal-message header explanation
         assert!(prompt.contains("<sent_by>"));
-        // The unified guidance now lives in the base prompt instead of being
-        // tacked on per-adapter.
+        // The unified guidance lives in the base prompt, not tacked on
+        // per-adapter.
         assert!(prompt.contains("Internal"));
         assert!(prompt.contains("External"));
     }

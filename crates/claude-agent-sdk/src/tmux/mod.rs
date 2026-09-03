@@ -9,7 +9,7 @@
 //! `--settings` JSON registering `SessionStart` + `Stop` hooks that point at
 //! a relay script. The script appends `"<event>\t<payload>\n"` lines to a
 //! FIFO; a blocking-thread reader forwards parsed lines into a watch channel
-//! consumed by both this module (SessionStart wait, transcript discovery)
+//! consumed by both this module (`SessionStart` wait, transcript discovery)
 //! and the supervisor (Stop fallback for the Result emission).
 //!
 //! Trade-offs vs the subprocess backend:
@@ -22,7 +22,7 @@
 //! - `total_cost_usd` is always `0.0` (synthesized; the TUI doesn't expose
 //!   real cost data).
 //!
-//! Startup dialogs: before SessionStart fires, the TUI can block on (1) the
+//! Startup dialogs: before `SessionStart` fires, the TUI can block on (1) the
 //! workspace-trust prompt ("Do you trust the files in this folder?") and (2)
 //! the bypass-permissions warning shown by `--dangerously-skip-permissions`.
 //! [`startup_dialog_watcher`] polls `tmux capture-pane` every 250ms during the
@@ -71,8 +71,8 @@ const CHANNEL_CAPACITY: usize = 256;
 const DEFAULT_SESSION_START_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// How often the trust-dialog watcher captures the tmux pane while waiting
-/// for SessionStart. Only active in the brief pre-SessionStart window; auto-
-/// stops once either SessionStart fires or the dialog is dismissed.
+/// for `SessionStart`. Only active in the brief pre-`SessionStart` window; auto-
+/// stops once either `SessionStart` fires or the dialog is dismissed.
 const TRUST_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// One-shot tmux query. Spawns the TUI, pastes `prompt` as the first user

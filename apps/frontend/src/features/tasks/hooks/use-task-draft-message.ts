@@ -44,7 +44,6 @@ function writeDraft(taskId: string, value: string): void {
 /**
  * A per-task draft message backed by localStorage.
  *
- * @param taskId - The current task id used to scope the stored draft
  * @returns A tuple of the current draft and a setter that also persists it
  */
 export function useTaskDraftMessage(taskId: string): [string, (value: string) => void] {

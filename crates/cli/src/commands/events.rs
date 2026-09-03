@@ -163,7 +163,7 @@ async fn stream_events(
     Ok(())
 }
 
-/// Stream real-time events from the SSE endpoint, filtered by task_id.
+/// Stream real-time events from the SSE endpoint, filtered by `task_id`.
 async fn follow_events(
     client: &MoatClient,
     task_id: &str,

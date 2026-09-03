@@ -84,7 +84,7 @@ pub struct SetArgs {
     #[arg(long, short = 'n', default_value = DEFAULT_NAMESPACE)]
     pub namespace: String,
 
-    /// The key to set (e.g. ANTHROPIC_API_KEY)
+    /// The key to set (e.g. `ANTHROPIC_API_KEY`)
     pub key: String,
 }
 

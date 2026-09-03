@@ -12,13 +12,13 @@ use serde::{Deserialize, Serialize};
 
 /// Codex (OpenAI) device-code OAuth configuration.
 ///
-/// Defaults reuse the Codex CLI's public client_id so the flow works out of
+/// Defaults reuse the Codex CLI's public `client_id` so the flow works out of
 /// the box. Override via env vars to register a Moatless-owned OAuth client.
 #[derive(Debug, Clone)]
 pub struct CodexOAuthConfig {
     /// OAuth issuer base URL (default: `https://auth.openai.com`).
     pub issuer: String,
-    /// OAuth client_id (default: Codex CLI's `app_EMoamEEZ73f0CkXaXp7hrann`).
+    /// OAuth `client_id` (default: Codex CLI's `app_EMoamEEZ73f0CkXaXp7hrann`).
     pub client_id: String,
 }
 
@@ -80,7 +80,7 @@ impl CodexScope {
     }
 
     /// Bind value for the `WHERE` fragment's single `$N` placeholder.
-    /// User scope carries the user_id; Global uses an empty string sentinel
+    /// User scope carries the `user_id`; Global uses an empty string sentinel
     /// (the clause itself uses IS NULL checks, not a bound value).
     pub fn bind_value(&self) -> &str {
         match self {
@@ -235,7 +235,7 @@ pub struct AgentEventPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub result: Option<serde_json::Value>,
-    /// For "pending_response" subtype: the tool being invoked.
+    /// For "`pending_response`" subtype: the tool being invoked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

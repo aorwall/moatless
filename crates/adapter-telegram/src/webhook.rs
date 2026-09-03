@@ -47,7 +47,8 @@ pub(super) enum Normalization {
 pub(super) enum Effect {
     /// `/start` and `/help`, today's inline answers.
     Reply { chat_id: String, text: String },
-    /// The pairing request `access::enforce_dm_access` used to raise itself.
+    /// A pairing request that `access::enforce_dm_access` decided on but did
+    /// not raise; the caller performs it.
     RequestPairing {
         chat_id: String,
         from_id: i64,
@@ -57,15 +58,13 @@ pub(super) enum Effect {
 
 /// Turn a raw Telegram Bot API Update into an [`InboundMessage`].
 ///
-/// Handles: message extraction (message or channel_post), reply threading,
+/// Handles: message extraction (message or `channel_post`), reply threading,
 /// user identity resolution, and bot mention stripping. Deduplication is
 /// not done here — it happens durably when the caller admits the parsed
 /// message, keyed on the same `update_id`.
 ///
 /// A re-delivered update is therefore normalized again, and its effects are
-/// applied again with it. The five-minute cache that used to suppress those
-/// also sat in front of admission, where it would have answered a re-delivery
-/// of *unaccepted* work with a 200 and nothing durable behind it.
+/// applied again with it.
 ///
 /// The update arrives already decoded: ingress needs the envelope to route on
 /// before it gets here, and decoding the same bytes twice was one of the things

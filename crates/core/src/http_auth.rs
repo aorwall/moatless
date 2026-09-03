@@ -4,7 +4,7 @@
 //! routes gets the extractors without naming the identity band.
 //!
 //! Two auth paths (tried in order):
-//! 1. **AuthIdentity extension**: set by auth middleware after validating a
+//! 1. **`AuthIdentity` extension**: set by auth middleware after validating a
 //!    session cookie or API key.
 //! 2. **X-User-Token header** (sandbox→backend): JWT-based, for requests that
 //!    bypass the auth middleware.
@@ -55,9 +55,9 @@ pub enum TokenVerifyError {
 }
 
 /// Whether the authenticated caller may reach a task's preview URL — the one
-/// authorization bit the ForwardAuth session gate needs.
+/// authorization bit the `ForwardAuth` session gate needs.
 ///
-/// Declared here beside the extractors so the ForwardAuth handler holds this
+/// Declared here beside the extractors so the `ForwardAuth` handler holds this
 /// bool port rather than a `TaskDao`: the implementation over `TaskDao` lives in
 /// the tasks band, behind this port.
 #[async_trait]
@@ -74,7 +74,7 @@ pub struct AuthUser {
     pub login: String,
     pub role: Option<String>,
     pub provider: Option<String>,
-    /// Deprecated legacy grouping id. Kept for backwards compatibility.
+    /// See [`crate::auth::jwt::SessionClaims::group_id`].
     pub group_id: Option<String>,
     pub task_id: Option<String>,
     /// True when this request was authenticated via the sandbox-issued

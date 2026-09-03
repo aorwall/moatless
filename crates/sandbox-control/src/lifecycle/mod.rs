@@ -85,12 +85,12 @@ pub use reconciler::{
 
 // The system clock and concrete port adapters the composition root assembles
 // into a `Lifecycle`/`Reconciler`. These are `pub` because the composition root
-// (`backend/src/compose.rs`, `state.rs`) now names them across the crate
+// (`backend/src/compose.rs`, `state.rs`) names them across the crate
 // boundary — the pub-widening the carve pays for: `pub(crate)` cannot span two
 // crates, so an item the backend builds must be `pub`. They remain excluded from
 // this module's *curated* contract — a caller other than the composition root
 // has no business naming a raw port adapter — but visibility follows real
-// consumers, and the real consumer is now in another crate.
+// consumers, and the real consumer is in another crate.
 pub use agent_stop::GrpcAgentStop;
 pub use dao::PgLifecycleDao;
 pub use event_sink::OutboxEventSink;

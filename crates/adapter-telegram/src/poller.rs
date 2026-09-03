@@ -172,8 +172,7 @@ pub fn spawn_telegram_poller(
 
                         // Only now: the offset is this transport's
                         // acknowledgment, and advancing it past an update whose
-                        // routing was never accepted is how the polling path
-                        // used to lose one.
+                        // routing was never accepted would lose it.
                         advance(&mut offset, update_id);
                     }
 

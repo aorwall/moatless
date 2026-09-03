@@ -1757,9 +1757,8 @@ impl ProtocolSession {
         }
 
         // The grant this deployment advertised, enforced. A client is told at
-        // pairing which scopes it has, and until now that answer was decoration:
-        // every method ran whatever the answer said. Refusing here is what makes
-        // the advertised list a description of the server rather than a wish.
+        // pairing which scopes it has; refusing here is what makes that
+        // advertised list a description of the server rather than a wish.
         //
         // This is the deployment's grant, not the client's — see the plan's Out
         // of scope note. A pairing that asked for less than this still gets a
@@ -2859,11 +2858,9 @@ impl ProtocolSession {
                     // ground.
                     //
                     // That second clause is a fact about [`ShellFeed::poll`],
-                    // not about this loop, and it was false when it was first
-                    // written: the cursor was advanced before the reads that
-                    // build the batch, so a failure in any of them skipped that
-                    // batch permanently and told nobody. `poll` now advances
-                    // last. Do not move it back.
+                    // not about this loop: the cursor advances last, after the
+                    // reads that build the batch, so a failure in any of them
+                    // does not skip it silently. Do not move it back.
                     warn!(
                         %error,
                         user_id = %viewer.user_id,
@@ -3755,10 +3752,8 @@ fn servers_not_found() -> Value {
 /// The method is not one this server has.
 ///
 /// Every RPC declares `UnsupportedMethodError`, so this decodes wherever it
-/// lands and the client can say which method is absent. It used to die with a
-/// string, which reached the person as *"unexpected server error"* with no text
-/// at all — indistinguishable from a panic, and wrong: a server that does not
-/// implement terminals has not failed, it is a different kind of server.
+/// lands and the client can say which method is absent, distinguishing a
+/// server that does not implement a method from one that has failed.
 fn unsupported_exit(request_id: &RequestId, tag: &str) -> Value {
     typed_failure_exit(
         request_id,
@@ -5326,7 +5321,7 @@ mod tests {
         assert_eq!(cause["error"]["requiredScope"], "relay:write");
     }
 
-    /// Terminal metadata is now a served stream. It starts with an explicit
+    /// Terminal metadata is a served stream. It starts with an explicit
     /// empty snapshot so the client can distinguish "no terminals yet" from a
     /// connection that never produced a value.
     #[tokio::test]

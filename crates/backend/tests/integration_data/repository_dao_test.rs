@@ -5,7 +5,7 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! Integration tests for repository_dao.
+//! Integration tests for `repository_dao`.
 
 use crate::common;
 
@@ -15,7 +15,7 @@ use sqlx::PgPool;
 
 use common::{make_repository_row, seed_team};
 
-/// Helper to create a non-admin ScopeContext for a given user.
+/// Helper to create a non-admin `ScopeContext` for a given user.
 fn scope_ctx(user_id: &str) -> ScopeContext {
     ScopeContext {
         user_id: user_id.into(),

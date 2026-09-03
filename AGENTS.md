@@ -94,14 +94,25 @@ Pre-push runs `bun check:pre-push`, which is Biome and type-check only — no
 tests. A push proves nothing about test state; run the verification commands
 above yourself.
 
+## Comments
+A comment carries a fact the code cannot show: an invariant, a "do not do X" and what breaks if you do, a non-obvious mechanic, or a unit or ordering the signature does not state. Default to none. A public item gets a one-line doc saying what it is. Working ceiling: three lines for a comment, eight for a module doc; past that the content is durable rationale and belongs in the nearest `AGENTS.md`, linked, not copied. These rules apply to doc comments and line comments in every language. Rust specifics are in the `rust-dev-guidelines` skill and TypeScript specifics in `frontend-dev-guidelines`.
+- **Past the one-line summary, do not restate the body.** If the reader can check the sentence against the code below it, delete the sentence. The doc on a trait method, an interface member, an abstract method, or a props field is the whole contract and stays.
+- **State a design fact once, on the symbol that owns it.** An enum owns what its variants mean. A field owns its default and its writers. A function owns its transition and its side effects. A module doc owns the module invariant. The nearest `AGENTS.md` owns cross-cutting rules and rationale. Everywhere else, link to the owner: two copies diverge on the next change to one of them, a link cannot.
+- **Do not copy a doc between siblings.** Sibling types, sibling crates, and sibling implementations of one trait put the shared text on the trait, base type, or module they share, and link to it.
+- **A rationale ends on what depends on it**: the caller, query, migration, test, or invariant that breaks under the alternative. `deliberately` and `rather than` are fine when what follows names the alternative and what breaks. Cite the PR when one produced the decision. Alternatives considered go in the PR or the nearest `AGENTS.md`, not in the comment.
+- **Use the code's own names, in backticks**: `kyc_status`, `Pending`, not a paraphrase of them.
+- **A negative statement names the wrong assumption it prevents.** "No `Activated` row is written here: `active` was already true" stays. "Not the same as `Pending`" goes.
+- **State, do not argue.** Delete a sentence whose only job is to defend the sentence above it.
+- **A trap goes in a line comment on the line it protects**: symptom, cause, fix. A precondition that binds every caller goes once in the owning function's doc, and each call site links back in one line. A lint suppression reason states the cause only; the suppression is the fix.
+- **Contract goes in the language's structured slot, and prose does not repeat it.** The language skill defines the slot.
+- **No change narration.** A comment describes the current state. A sentence about a state no live code path reaches ("previously", "used to", "no longer", "the old X") goes in the commit or PR. When an old form and a new form coexist, the status word (`legacy`, `deprecated`) is a design fact and goes once on the symbol that carries it. This applies to Markdown too.
+
 ## Architecture & conventions
 - Domain glossary: `CONTEXT.md`. Historical markdown specs and ADRs were removed because they were not maintained; use current code/tests as authority and docs only as routing aids. Read `.plans/` only when asked to implement or review that specific plan. Unscoped feature ideas not yet committed to a plan go in `docs/ideas/` instead — see `docs/ideas/README.md`.
 - Durable local guidelines and decisions go in the nearest relevant `AGENTS.md`. When editing a path, read the `AGENTS.md` files in that directory and its parents.
 - Found a real problem you are deliberately not fixing now? Record it in `docs/deferred-changes.md` with an anchor and the condition that makes it worth doing. Check that file before starting work in an area — it is where the known gaps are, and its own rules keep it from rotting.
 - The repo owns its own agent-config compatibility: every `AGENTS.md` has a committed `CLAUDE.md` symlink beside it, and `.claude/skills` is a committed symlink to `.agents/skills`. Nothing creates these at runtime — add a new `AGENTS.md` → commit `ln -s AGENTS.md CLAUDE.md` alongside it.
 - Keep local `AGENTS.md` guidance concise and operational: what future agents must do, what they must not do, and the current reason when it is not obvious. Do not add history dumps, plan transcripts, or long rejected-option writeups.
-- Comments: necessary and essential only. Default to none. A comment earns its place by carrying a fact the code cannot — an invariant, a "do not do X" and what breaks if you do, a non-obvious mechanic, or a unit/ordering the signature does not state. A public item gets a one-line doc saying what it is. Working ceiling: three lines for a comment, eight for a module doc. Past that the content is durable rationale, and it belongs in the nearest relevant `AGENTS.md` — link to it, do not copy it.
-- Do not restate the code, narrate what the reader can already see, argue for the design, or explain what an alternative would have cost. Never describe a change as replacing, superseding, or differing from legacy code or old instructions — no "used to", no "no longer", no "the old X". State the current rule only.
 - Rust conventions live in the model-invoked `rust-dev-guidelines` skill for
   `crates/backend/`, `sandbox/`, and `crates/`. Frontend baseline conventions live in
   `.agents/skills/frontend-dev-guidelines/SKILL.md` and its resources.

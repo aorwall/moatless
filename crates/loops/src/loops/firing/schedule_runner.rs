@@ -227,7 +227,7 @@ impl ScheduleRunner {
         config: &LoopContext,
         msg: &InboundMessage,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        // Provisioning now happens inside the creation service. Preserve the
+        // Provisioning happens inside the creation service. Preserve the
         // `provision_failed` metric using the provision outcome it reports back.
         // Resolve the bound adapter's reply instructions from the registry and
         // pass them to the firing entry point as a value.

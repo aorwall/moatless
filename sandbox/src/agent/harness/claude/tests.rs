@@ -260,7 +260,7 @@ fn success_with_is_error_is_invalid_input() {
     }
 }
 
-/// The CLI reports an unreachable provider through the same is_error result as a
+/// The CLI reports an unreachable provider through the same `is_error` result as a
 /// rejected command, so the text is the only thing separating "your pod has no
 /// egress" from "your input was bad". Classifying these as `InvalidInput` both
 /// mislabels the outage and makes it terminal, since only some classes retry.

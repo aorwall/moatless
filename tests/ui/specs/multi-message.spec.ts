@@ -123,7 +123,6 @@ test.describe('Multi-Message Same Session', () => {
     await page.goto(`/tasks/${taskId}`)
     await page.waitForLoadState('networkidle')
 
-    // Wait for the page to render
     await expect(page.locator('#root')).toBeVisible()
 
     // Wait for the chat to load messages (user message text should appear)
@@ -131,7 +130,6 @@ test.describe('Multi-Message Same Session', () => {
     try {
       await firstMsgLocator.first().waitFor({ state: 'visible', timeout: 30_000 })
 
-      // Verify all 3 user messages are visible in the chat
       await expect(page.getByText('First Message Created', { exact: false }).first()).toBeVisible()
       await expect(page.getByText('Second Message Created', { exact: false }).first()).toBeVisible()
       await expect(page.getByText('Third Message Created', { exact: false }).first()).toBeVisible()

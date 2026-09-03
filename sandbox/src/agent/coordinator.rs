@@ -710,7 +710,7 @@ fn interrupted_turn_payload() -> Value {
 }
 
 /// Extract a [`WakeupJob`] from a canonical Source block when it is a
-/// `ScheduleWakeup` tool_use.
+/// `ScheduleWakeup` `tool_use`.
 fn extract_wakeup_from_block(block: &CanonicalContentBlock) -> Option<WakeupJob> {
     let CanonicalContentBlock::ToolUse { id, name, input } = block else {
         return None;
@@ -840,14 +840,14 @@ pub(crate) struct CoordinatorService {
     credential_recovery_attempts: u32,
 
     // ── Scheduled jobs ───────────────────────────────────────────────────────
-    /// Registry the self-scheduling jobs (ScheduleWakeup, background-completion
+    /// Registry the self-scheduling jobs (`ScheduleWakeup`, background-completion
     /// watch) register into. Their injector re-enters this service's command
     /// channel via the pod's `AgentHandle`.
     scheduled_jobs: Arc<ScheduledJobRegistry>,
     /// Commands this task started through `moat cmd`. The turn-end watch arms
     /// over whichever are still running.
     commands: Arc<CommandRegistry>,
-    /// The latest `ScheduleWakeup` tool_use seen in the in-flight Turn's Source
+    /// The latest `ScheduleWakeup` `tool_use` seen in the in-flight Turn's Source
     /// blocks, armed at turn end (latest-wins). Subprocess mode only.
     pending_wakeup: Option<WakeupJob>,
 

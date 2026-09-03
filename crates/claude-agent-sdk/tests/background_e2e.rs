@@ -11,13 +11,13 @@
 //! separate `claude --print` process. Claude Code documents that after it
 //! prints the final result and stdin closes, any background Bash shell is given
 //! a short grace period and then **terminated** so the `-p` process can exit
-//! cleanly (see https://code.claude.com/docs/en/headless and
+//! cleanly (see <https://code.claude.com/docs/en/headless> and
 //! anthropics/claude-code#65498). This test proves that empirically: a
 //! background writer that should run for ~60s stops growing within a few
 //! seconds of the turn's `Result` — i.e. it was killed, not left running.
 //!
 //! Run:
-//!   CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk --test background_e2e \
+//!   `CLAUDE_SDK_E2E=1` cargo test -p claude-agent-sdk --test `background_e2e` \
 //!       -- --ignored --nocapture
 
 use std::collections::HashMap;

@@ -1,7 +1,7 @@
 //! Application-level auth middleware.
 //!
 //! Validates opaque auth-session cookies and API keys directly, independent of any
-//! ingress-layer ForwardAuth. Strips inbound `X-User-*` headers to prevent
+//! ingress-layer `ForwardAuth`. Strips inbound `X-User-*` headers to prevent
 //! spoofing, then injects validated headers for downstream extractors.
 
 use std::sync::Arc;
@@ -72,7 +72,7 @@ fn is_exempt(path: &str) -> bool {
     // NOTE: `/api/sandbox/*` is intentionally NOT exempt. These endpoints run
     // through this middleware (session cookie or API key) so that (a) spoofable
     // `X-User-*` headers are stripped and (b) an `AuthIdentity` is injected for
-    // the per-task authorization the sandbox handlers now enforce. Every real
+    // the per-task authorization the sandbox handlers enforce. Every real
     // caller (frontend, CLI) already carries a session cookie or API key.
 
     // Webhook and slash-command endpoints use adapter-specific verification (HMAC, secret token, etc.)

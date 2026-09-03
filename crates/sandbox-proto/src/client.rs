@@ -247,7 +247,7 @@ impl SandboxClient {
         }
     }
 
-    /// Get the file tree with git change overlay.
+    /// See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.
     pub async fn get_file_tree(
         &self,
         root_path: &str,

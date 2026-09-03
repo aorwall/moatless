@@ -4,7 +4,7 @@
 //! `codex app-server generate-json-schema --out <dir> --experimental` (codex-cli
 //! 0.145.0) and checked against recorded samples in `fixtures/`. Every struct is
 //! `#[serde(rename_all = "camelCase")]` — the app-server protocol is camelCase on
-//! both message names and field names, unlike the snake_case `codex exec --json`
+//! both message names and field names, unlike the `snake_case` `codex exec --json`
 //! stream this replaced.
 //!
 //! Only the subset the harness drives is modelled: six client requests, one

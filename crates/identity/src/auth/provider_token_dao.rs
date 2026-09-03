@@ -62,14 +62,14 @@ pub enum CodexBlobOutcome {
 #[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait ProviderTokenDao: Send + Sync {
-    /// Find a provider token (access_token only) by user_id and provider name.
+    /// Find a provider token (`access_token` only) by `user_id` and provider name.
     async fn find_provider_token(
         &self,
         user_id: &str,
         provider: &str,
     ) -> Result<Option<ProviderAccessToken>, sqlx::Error>;
 
-    /// Find the full provider token row by user_id and provider name.
+    /// Find the full provider token row by `user_id` and provider name.
     async fn find_provider_token_full(
         &self,
         user_id: &str,

@@ -12,10 +12,8 @@ type ASTNode = any
 /**
  * Transform JSX/TSX source code to add component debugging attributes
  *
- * @param source - Source code to transform
  * @param filePath - Absolute path to the file being transformed
  * @param cwd - Current working directory (project root)
- * @param options - Tagger configuration options
  * @returns Transformed code and source map
  */
 export function transformComponentTags(

@@ -225,12 +225,10 @@ impl MoatClient {
         }
     }
 
-    /// Access the typed API client.
     pub fn api(&self) -> &ApiClient {
         &self.typed_client
     }
 
-    /// Return the base URL.
     pub fn base_url(&self) -> &str {
         &self.base_url
     }

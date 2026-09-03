@@ -15,17 +15,17 @@ pub struct SlackAdapterConfig {
     /// Access policy for this Slack channel.
     #[serde(default)]
     pub access_policy: SourceAccessPolicy,
-    /// Slack channel IDs allowed (when access_policy = Allowlist).
+    /// Slack channel IDs allowed (when `access_policy` = Allowlist).
     #[serde(default)]
     pub channel_allowlist: Vec<String>,
-    /// Slack user IDs allowed (when access_policy = Allowlist).
+    /// Slack user IDs allowed (when `access_policy` = Allowlist).
     #[serde(default)]
     pub user_allowlist: Vec<String>,
     /// Max thread messages to fetch for agent context.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_context_limit: Option<u64>,
     /// Allow messages from OTHER bots (e.g. a CI notifier) to be processed.
-    /// The agent's own posts are still suppressed at the binding layer (self_echo
+    /// The agent's own posts are still suppressed at the binding layer (`self_echo`
     /// by message ts), so enabling this does not create echo loops.
     #[serde(default)]
     pub allow_bot_messages: bool,

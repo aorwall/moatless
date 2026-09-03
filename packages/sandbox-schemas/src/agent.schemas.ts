@@ -44,10 +44,6 @@ export const FileAttachmentSchema = z.object({
 
 export type FileAttachment = z.infer<typeof FileAttachmentSchema>
 
-/**
- * Comprehensive agent run request schema.
- * Contains content to send to the agent along with execution options.
- */
 export const AgentRunRequestSchema = z.object({
   // Content to send to agent (required - message text goes here)
   content: z.array(UserContentSchema),
@@ -70,9 +66,6 @@ export const AgentRunRequestSchema = z.object({
 
 export type AgentRunRequest = z.infer<typeof AgentRunRequestSchema>
 
-/**
- * Execute agent response schema
- */
 export const ExecuteAgentResponseSchema = z.object({
   success: z.boolean(),
   message: z.string().optional(),
@@ -81,9 +74,6 @@ export const ExecuteAgentResponseSchema = z.object({
 
 export type ExecuteAgentResponse = z.infer<typeof ExecuteAgentResponseSchema>
 
-/**
- * Stop agent response schema
- */
 export const StopAgentResponseSchema = z.object({
   success: z.boolean(),
   agentStopped: z.boolean().optional(),
@@ -92,16 +82,10 @@ export const StopAgentResponseSchema = z.object({
 
 export type StopAgentResponse = z.infer<typeof StopAgentResponseSchema>
 
-/**
- * Agent state enum
- */
 export const AgentStateSchema = z.enum(['idle', 'running', 'completed'])
 
 export type AgentState = z.infer<typeof AgentStateSchema>
 
-/**
- * Agent status response schema
- */
 export const AgentStatusResponseSchema = z.object({
   state: AgentStateSchema,
 })

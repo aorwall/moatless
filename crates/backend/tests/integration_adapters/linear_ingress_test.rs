@@ -6,13 +6,9 @@
               and in the shared `common` module compiled into this binary; both lints only \
               fire when the db-tests feature is enabled"
 )]
-//! The seam stage 15 exists to create, driven directly.
-//!
-//! Everything below calls [`ingress::receive`] with a signature and a body.
-//! There is no `Request`, no router, no axum extractor — which is the whole
-//! point: before this stage the only way to reach any Linear ingress decision
-//! was to deliver an HTTP request to `linear_webhook`, so no test could name a
-//! decision without also exercising the transport around it.
+//! Everything below calls [`ingress::receive`] directly, with a signature and
+//! a body. There is no `Request`, no router, no axum extractor, so a decision
+//! can be named without also exercising the transport around it.
 //!
 //! What `receive` returns is the vocabulary the route maps to a status and a
 //! metric row, and `linear_webhook_metrics_test.rs` asserts that mapping. This

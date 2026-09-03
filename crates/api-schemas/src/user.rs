@@ -38,7 +38,7 @@ pub struct SendDmRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SendDmResponse {
-    /// The created or updated task_binding id.
+    /// The created or updated `task_binding` id.
     pub binding_id: String,
     /// External DM conversation ID opened by the adapter.
     #[serde(rename = "conversationId")]

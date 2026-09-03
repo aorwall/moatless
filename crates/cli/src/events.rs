@@ -1,7 +1,7 @@
 //! Reusable SSE/NDJSON event collector for integration tests.
 //!
 //! Spawns a background task that reads the global event stream and accumulates
-//! parsed events.  Tests can query events by task_id, type, and sub_type.
+//! parsed events.  Tests can query events by `task_id`, type, and `sub_type`.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -95,12 +95,10 @@ impl EventCollector {
         Ok(Self { events, handle })
     }
 
-    /// Stop the background collector by aborting its task.
     pub fn stop(self) {
         self.handle.abort();
     }
 
-    /// Return all events matching a given task_id.
     pub fn events_for_task(&self, task_id: &str) -> Vec<SseEvent> {
         self.events
             .lock()

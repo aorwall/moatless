@@ -395,7 +395,7 @@ impl StatusResolver {
     /// `sandbox` container (`None` when no Deployment exists). If a Deployment
     /// exists with replicas=0, returns `(PodPhase::Stopped, None, image)`.
     /// Otherwise falls back to checking actual pod status and probing for
-    /// permanent failures (CrashLoopBackOff, ImagePullBackOff, etc.).
+    /// permanent failures (`CrashLoopBackOff`, `ImagePullBackOff`, etc.).
     ///
     /// `desired_state` is read only on the no-Deployment path, to tell a
     /// sandbox that never existed from one the cold transition reclaimed.

@@ -15,9 +15,9 @@
 //! the two keys differ; only the route says the second message was actually
 //! delivered.
 //!
-//! The route no longer *does* the delivery, it admits it, so every assertion
-//! here runs the real worker afterwards. That is the shape of the guarantee
-//! being asserted: the `200` means the delivery is durably owned, and what
+//! The route admits the delivery rather than performing it, so every
+//! assertion here runs the real worker afterwards. That is the shape of the
+//! guarantee being asserted: the `200` means the delivery is durably owned, and what
 //! reaches the Agent is decided by the record, not by the process that answered
 //! Linear.
 //!

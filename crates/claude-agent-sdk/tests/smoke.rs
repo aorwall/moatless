@@ -18,7 +18,7 @@
 //!    (`sandbox/src/agent/options.rs:151-163`).
 //!
 //! Gated on `CLAUDE_SDK_E2E=1`. Run:
-//!   CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk --test smoke -- --ignored --nocapture
+//!   `CLAUDE_SDK_E2E=1` cargo test -p claude-agent-sdk --test smoke -- --ignored --nocapture
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

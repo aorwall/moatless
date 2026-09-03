@@ -39,7 +39,7 @@ pub trait TeamDao: Send + Sync {
     async fn remove_member(&self, team_id: &str, user_id: &Uuid) -> Result<(), sqlx::Error>;
     async fn is_member(&self, team_id: &str, user_id: &Uuid) -> Result<bool, sqlx::Error>;
 
-    /// Upsert a team by external_id + provider (for Auth0 group sync).
+    /// Upsert a team by `external_id` + provider (for Auth0 group sync).
     async fn upsert_by_external(
         &self,
         external_id: &str,

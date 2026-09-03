@@ -15,7 +15,7 @@ use crate::api::options::{ClaudeOptions, SystemPrompt};
 ///
 /// `settings_json` is the inline JSON produced by [`crate::tmux::hooks::HookHarness`].
 /// When `Some`, an `--settings <json>` pair is added so claude registers the
-/// SessionStart + Stop hooks for the supervisor's FIFO. The JSON is harness-
+/// `SessionStart` + Stop hooks for the supervisor's FIFO. The JSON is harness-
 /// owned, not caller-supplied (no field on [`ClaudeOptions`] for it).
 pub(crate) fn build_tmux_cli_args(
     options: &ClaudeOptions,

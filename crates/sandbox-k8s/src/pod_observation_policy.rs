@@ -153,7 +153,7 @@ pub(super) fn should_attempt_storage_fallback(state: &PodObservedState, age_secs
 }
 
 /// Whether a pod's newest Warning event names a volume-attach failure — the
-/// recoverable stall the storage fallback exists for. Matches the AttachDetach
+/// recoverable stall the storage fallback exists for. Matches the `AttachDetach`
 /// controller's `FailedAttachVolume` and the kubelet's `Multi-Attach` message,
 /// case-insensitively.
 pub(super) fn cause_is_attach_failure(cause: &str) -> bool {
@@ -169,7 +169,7 @@ pub(super) fn should_gc_failed_pod(state: &PodObservedState, now_ms: i64) -> boo
         && !state.gc_requested
 }
 
-/// Lifecycle sub_types that can fire on every K8s watch Apply while a
+/// Lifecycle `sub_types` that can fire on every K8s watch Apply while a
 /// container flaps (CrashLoopBackOff): one publish per restart cycle otherwise
 /// floods history with identical `initializing` events. Genuine transitions
 /// always publish.
@@ -245,7 +245,7 @@ impl TryFrom<&str> for LifecycleSandboxSubType {
     }
 }
 
-/// Map a lifecycle event sub_type to the corresponding SandboxStatus.
+/// Map a lifecycle event `sub_type` to the corresponding `SandboxStatus`.
 pub(super) fn lifecycle_sub_type_to_sandbox_status(sub_type: &str) -> SandboxStatus {
     LifecycleSandboxSubType::try_from(sub_type).map_or(
         SandboxStatus::Error,

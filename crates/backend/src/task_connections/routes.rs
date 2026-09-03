@@ -3,7 +3,7 @@
 //! The two operations keep `tag = "tasks"`. The OpenAPI tag is the external
 //! contract that drives the frontend's tags-split client codegen, so these
 //! operations stay grouped under `tasks` even though the handlers live here.
-//! This ApiDoc declares no tag of its own; `task::routes::TaskApiDoc` owns the
+//! This `ApiDoc` declares no tag of its own; `task::routes::TaskApiDoc` owns the
 //! `tasks` tag description.
 
 use utoipa::OpenApi;

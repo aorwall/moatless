@@ -74,7 +74,7 @@ pub struct Workspace {
     /// Named commands run on demand in the sandbox.
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
-    /// Selects a static NetworkPolicy through the pod label. Grants nothing on
+    /// Selects a static `NetworkPolicy` through the pod label. Grants nothing on
     /// its own, and the set of valid names is deployment configuration, so this
     /// stays an open string.
     pub network_profile: Option<String>,

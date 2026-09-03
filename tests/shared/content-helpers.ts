@@ -50,9 +50,6 @@ export async function findNamedFileWithContent(
  * template is — the tests that use it ask the agent to edit "the main page",
  * which only means anything in such a repository.
  *
- * @param api - API client instance
- * @param taskId - Task whose workspace to search
- * @param searchString - Text to look for inside files
  * @returns The first matching file, or null if not found
  */
 export async function findFileWithContent(

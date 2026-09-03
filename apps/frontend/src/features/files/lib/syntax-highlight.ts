@@ -49,9 +49,6 @@ export interface HighlightToken {
 
 /**
  * Highlight a single line of code and return tokens
- * @param code - The code string to highlight
- * @param language - Optional language hint (e.g., 'typescript', 'python')
- * @returns Array of highlight tokens
  */
 export function highlightLine(code: string, language?: string): HighlightToken[] {
   if (!code) {

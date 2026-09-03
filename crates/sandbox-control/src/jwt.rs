@@ -4,9 +4,8 @@
 //! backend. Two flavours share the same claim shape and signing secret:
 //!
 //! - **Long-lived user token** (`aud` unset): the credential a sandbox uses for
-//!   the bulk of its gRPC calls. Historically a 90-day token baked into the pod
-//!   spec as `USER_AUTH_TOKEN`; it is now delivered at runtime over the
-//!   `GetCredentials` channel and its TTL is configurable (and much shorter).
+//!   the bulk of its gRPC calls, delivered at runtime over the `GetCredentials`
+//!   channel with a configurable (and much shorter) TTL.
 //! - **Bootstrap token** (`aud = "sandbox-bootstrap"`): a short-lived token set
 //!   on the pod spec whose *only* privilege is to authenticate the sandbox's
 //!   initial `GetCredentials` call, at which point the sandbox swaps to the

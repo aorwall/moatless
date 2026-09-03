@@ -24,8 +24,6 @@ pub(crate) struct Orchestrator;
 
 impl Orchestrator {
     /// Spawn the orchestrator background task.
-    ///
-    /// Returns a join handle for the background task.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn(
         mut transport: Box<dyn Transport>,

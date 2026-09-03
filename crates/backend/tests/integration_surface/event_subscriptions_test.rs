@@ -5,7 +5,7 @@
 )]
 //! Which events the installed Adapters actually subscribe to.
 //!
-//! The event-handler consumer no longer names a provider: it hands every event
+//! The event-handler consumer names no provider: it hands every event
 //! to [`TaskEventSubscribers`], and what an Adapter reacts to is decided by its
 //! own registration. That makes the registration the contract, and a provider
 //! that silently stops subscribing is a live-progress outage no other test in

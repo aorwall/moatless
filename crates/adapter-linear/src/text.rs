@@ -72,7 +72,7 @@ fn issue_read_block(identifier: &str, title: &str, url: Option<&str>) -> String 
 pub(super) const ATTACHMENT_TITLE_CHILD: &str = "Moatless task";
 
 /// Label prefix for the Linear ↔ Moatless link when the Moatless side is the
-/// parent (Linear issue created by the CLI or adapter_send on behalf of a task).
+/// parent (Linear issue created by the CLI or `adapter_send` on behalf of a task).
 pub(super) const ATTACHMENT_TITLE_PARENT: &str = "Moatless parent task";
 
 fn format_attachment_title(prefix: &str, name: Option<&str>) -> String {

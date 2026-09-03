@@ -39,7 +39,7 @@ pub fn render_footer(frontend_url: &str, task_id: &str, name: Option<&str>) -> O
 
 /// Extract the moatless task id from a comment body that contains our footer
 /// link `<frontend_url>/tasks/<id>`. Handles both the bare-URL and
-/// `[name](url)` markdown forms. None when frontend_url is empty or absent.
+/// `[name](url)` markdown forms. None when `frontend_url` is empty or absent.
 pub fn parse_task_id_from_body(frontend_url: &str, body: &str) -> Option<String> {
     let base = frontend_url.trim_end_matches('/');
     if base.is_empty() {
@@ -126,9 +126,9 @@ mod tests {
     #[test]
     fn parses_task_id_from_production_direct_comment_footer() {
         // Regression: the Linear direct-comment endpoint (triage flow) appends a
-        // bare `[label](url)` footer with no `Moatless task:` prefix — the exact
-        // shape that previously self-echoed back into the authoring task. The
-        // parser must still recover the task id so routing skips that task.
+        // bare `[label](url)` footer with no `Moatless task:` prefix. The parser
+        // must still recover the task id from this shape so routing skips that
+        // task and avoids a self-echo.
         let body = "Triage summary…\n\n---\n[Triage E2E run 27608948265]\
             (https://moatless.xyz/tasks/731bd010-0f54-4ec0-a099-b94b1c16c9ca)";
         assert_eq!(
@@ -174,7 +174,7 @@ mod tests {
         // `Comment.create` echo filter can recover the authoring task id and
         // drop the self-echo. Without it, the response re-enters the task as a
         // fresh comment and the agent loops forever. This asserts the exact
-        // shape the completion handler now emits (assistant text + footer) is
+        // shape the completion handler emits (assistant text + footer) is
         // recognised as belonging to the originating task.
         let frontend = "https://moatless.xyz";
         let task_id = "9a7c77ab-5e43-45b5-9315-955802f9b3b2";

@@ -352,7 +352,7 @@ pub(crate) fn agent_tool_use_ids(messages: &[UiMessage]) -> Vec<String> {
 
 /// Inject `subagentSummary` onto each `Agent` tool-use block from the batched
 /// `(message_count, tokens)` aggregate keyed by tool-use id. `status` is derived
-/// from the outer `Agent` tool_result inlined on the owning Message: present +
+/// from the outer `Agent` `tool_result` inlined on the owning Message: present +
 /// `is_error` → `Error`; present → `Completed`; absent → `Running`. A missing
 /// aggregate entry yields a zeroed count (a just-spawned subagent).
 pub(crate) fn inject_subagent_summaries(

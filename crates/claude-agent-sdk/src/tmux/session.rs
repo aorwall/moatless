@@ -498,7 +498,7 @@ pub(crate) async fn list_jsonl_stems(dir: &Path) -> Result<HashSet<String>> {
     Ok(set)
 }
 
-/// True if `dir` contains at least one `*.jsonl` transcript. NotFound → false
+/// True if `dir` contains at least one `*.jsonl` transcript. `NotFound` → false
 /// (mirrors [`list_jsonl_stems`]).
 pub(crate) async fn has_transcript_in(dir: &Path) -> bool {
     let Ok(mut read) = tokio::fs::read_dir(dir).await else {
@@ -516,7 +516,7 @@ pub(crate) async fn has_transcript_in(dir: &Path) -> bool {
 /// i.e. `--continue` has something to reopen. Resolves the dir the same way
 /// the tmux transport does (`CLAUDE_CONFIG_DIR` → `CLAUDE_HOME` →
 /// `$HOME/.claude`, then `projects/<dashed-cwd>`). A cwd canonicalize failure
-/// no longer propagates from [`resolve_project_dir`] (it falls back to the
+/// does not propagate from [`resolve_project_dir`] (it falls back to the
 /// lexical path), so the probe returns `Ok(false)` (start fresh) rather than
 /// `Err`; the soft caller handles `Ok(false)` correctly. The `Result` is kept
 /// for the remaining I/O-error surface.
@@ -811,12 +811,12 @@ mod tests {
     // packs the entire `new-session` argv into a single control-socket
     // message capped at `MAX_IMSGSIZE` (16384 bytes, compat/imsg.h), failing
     // with exit status 1 and stderr "command too long" once prompt + secrets
-    // crossed that ceiling. `child_env_vars` now sets these via `Command::env`
+    // crossed that ceiling. `child_env_vars` sets these via `Command::env`
     // on the tmux CLIENT instead (picked up by the freshly-forked tmux SERVER
     // and copied into the session), which isn't bounded by that limit — so a
     // ~4.5KB system prompt (realistic size, matches the failing task's logged
     // `append_system_prompt_len`) plus a handful of secret-sized env values
-    // must now succeed.
+    // must succeed.
     fn realistic_append_system_prompt() -> String {
         "x".repeat(4500)
     }

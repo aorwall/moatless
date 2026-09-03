@@ -643,8 +643,8 @@ async fn release_ingress_record(state: &AppState, task_id: &str, event_id: &str)
 
 /// Handle `agent.message` event — persist SDK messages and auto-tag skills.
 ///
-/// Persists both assistant messages (text + tool_use blocks) and SDK user messages
-/// (tool_result blocks) to the database. Then extracts skill tags from assistant messages.
+/// Persists both assistant messages (text + `tool_use` blocks) and SDK user messages
+/// (`tool_result` blocks) to the database. Then extracts skill tags from assistant messages.
 pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     // 1. Determine message type from payload role
     //    SDK assistant → stored as "assistant"
@@ -1145,7 +1145,7 @@ async fn record_tool_call_metrics(
 
 /// Resolve the bucketed tool label for a `tool_use_id`: in-memory cache first,
 /// then a persisted-row lookup, finally `"unknown"`. The DB fallback covers
-/// cross-process / post-restart misses where the assistant tool_use block was
+/// cross-process / post-restart misses where the assistant `tool_use` block was
 /// never seen by this process.
 async fn resolve_tool_label(state: &AppState, task_id: &str, tool_use_id: &str) -> &'static str {
     if let Some(label) = state.tool_call_names.get(tool_use_id).await {
@@ -1195,7 +1195,7 @@ async fn resolve_turn_number(
     }
 }
 
-/// Build sdk_metadata JSON object from selected keys in a payload.
+/// Build `sdk_metadata` JSON object from selected keys in a payload.
 /// Returns `None` if no keys matched or all were null.
 fn build_sdk_metadata(payload: &serde_json::Value, keys: &[&str]) -> Option<serde_json::Value> {
     let mut meta = serde_json::Map::new();
@@ -1213,7 +1213,7 @@ fn build_sdk_metadata(payload: &serde_json::Value, keys: &[&str]) -> Option<serd
     }
 }
 
-/// Extract skill names from tool_use blocks in agent message payload.
+/// Extract skill names from `tool_use` blocks in agent message payload.
 fn extract_skill_names(payload: &serde_json::Value) -> Vec<String> {
     let mut names = Vec::new();
 

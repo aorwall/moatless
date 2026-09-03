@@ -104,7 +104,7 @@ pub async fn live_status_handler(
     // what keeps this surface and the conversation list from disagreeing about
     // whether an agent is working. A failed turn read degrades to the runtime's
     // own answer rather than to an error: a status endpoint that 500s is worse
-    // than one that is momentarily as narrow as it used to be.
+    // than one that momentarily answers from the runtime alone.
     let turns = match state.turns.as_deref() {
         Some(reader) => match reader.turn_signals(&task_id).await {
             Ok(signals) => Some(signals),

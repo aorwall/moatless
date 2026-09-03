@@ -253,7 +253,7 @@ pub trait EventPublisher: Send + Sync {
     );
 
     /// Publish a raw event with string types — used by the gRPC server
-    /// to forward events from the sandbox without re-parsing sub_types.
+    /// to forward events from the sandbox without re-parsing `sub_types`.
     async fn publish_raw_event(
         &self,
         task_id: &str,

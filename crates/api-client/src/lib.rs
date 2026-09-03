@@ -38,7 +38,7 @@ impl ApiClient {
         &self.base_url
     }
 
-    /// Get a reference to the inner reqwest::Client.
+    /// Get a reference to the inner `reqwest::Client`.
     pub fn http(&self) -> &reqwest::Client {
         &self.http
     }
@@ -247,7 +247,7 @@ impl ApiClient {
         self.get(&format!("/api/v1/tasks{qs}")).await
     }
 
-    /// GET /api/v1/tasks/{task_id}
+    /// GET `/api/v1/tasks/{task_id}`
     pub async fn get_task(
         &self,
         task_id: &str,
@@ -255,7 +255,7 @@ impl ApiClient {
         self.get(&format!("/api/v1/tasks/{task_id}")).await
     }
 
-    /// GET /api/v1/tasks/{task_id}/connections
+    /// GET `/api/v1/tasks/{task_id}/connections`
     pub async fn get_task_connections(
         &self,
         task_id: &str,
@@ -272,7 +272,7 @@ impl ApiClient {
         self.post("/api/v1/tasks", req).await
     }
 
-    /// POST /api/v1/tasks/{task_id}/fork
+    /// POST /`api/v1/tasks/{task_id}/fork`
     pub async fn fork_task(
         &self,
         task_id: &str,
@@ -282,19 +282,19 @@ impl ApiClient {
             .await
     }
 
-    /// POST /api/v1/tasks/{task_id}/start
+    /// POST /`api/v1/tasks/{task_id}/start`
     pub async fn start_task(&self, task_id: &str) -> Result<(), ApiError> {
         self.post_empty(&format!("/api/v1/tasks/{task_id}/start"))
             .await
     }
 
-    /// POST /api/v1/tasks/{task_id}/stop
+    /// POST `/api/v1/tasks/{task_id}/stop`
     pub async fn stop_task(&self, task_id: &str) -> Result<(), ApiError> {
         self.post_empty(&format!("/api/v1/tasks/{task_id}/stop"))
             .await
     }
 
-    /// POST /api/v1/tasks/{task_id}/close
+    /// POST `/api/v1/tasks/{task_id}/close`
     pub async fn close_task(
         &self,
         task_id: &str,
@@ -304,13 +304,13 @@ impl ApiClient {
             .await
     }
 
-    /// DELETE /api/v1/tasks/{task_id}
+    /// DELETE `/api/v1/tasks/{task_id}`
     pub async fn delete_task(&self, task_id: &str) -> Result<(), ApiError> {
         self.delete_request(&format!("/api/v1/tasks/{task_id}"))
             .await
     }
 
-    /// PATCH /api/v1/tasks/{task_id}
+    /// PATCH `/api/v1/tasks/{task_id}`
     pub async fn update_task_metadata(
         &self,
         task_id: &str,
@@ -319,7 +319,7 @@ impl ApiClient {
         self.patch(&format!("/api/v1/tasks/{task_id}"), req).await
     }
 
-    /// PUT /api/v1/tasks/{task_id}/tags
+    /// PUT `/api/v1/tasks/{task_id}/tags`
     pub async fn set_task_tags(
         &self,
         task_id: &str,
@@ -329,7 +329,7 @@ impl ApiClient {
             .await
     }
 
-    /// PUT /api/v1/tasks/{task_id}/ttl
+    /// PUT `/api/v1/tasks/{task_id}/ttl`
     pub async fn update_ttl(
         &self,
         task_id: &str,
@@ -338,7 +338,7 @@ impl ApiClient {
         self.put(&format!("/api/v1/tasks/{task_id}/ttl"), req).await
     }
 
-    /// PUT /api/v1/tasks/{task_id}/visibility
+    /// PUT `/api/v1/tasks/{task_id}/visibility`
     pub async fn update_visibility(
         &self,
         task_id: &str,
@@ -352,7 +352,7 @@ impl ApiClient {
     // Sandbox
     // ========================================================================
 
-    /// GET /api/sandbox/v1/tasks/{task_id}/status
+    /// GET `/api/sandbox/v1/tasks/{task_id}/status`
     pub async fn sandbox_status(
         &self,
         task_id: &str,
@@ -370,19 +370,19 @@ impl ApiClient {
             .await
     }
 
-    /// POST /api/sandbox/v1/tasks/{task_id}/restart
+    /// POST `/api/sandbox/v1/tasks/{task_id}/restart`
     pub async fn restart_sandbox(&self, task_id: &str) -> Result<(), ApiError> {
         self.post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/restart"))
             .await
     }
 
-    /// POST /api/sandbox/v1/tasks/{task_id}/stop
+    /// POST `/api/sandbox/v1/tasks/{task_id}/stop`
     pub async fn stop_sandbox(&self, task_id: &str) -> Result<(), ApiError> {
         self.post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/stop"))
             .await
     }
 
-    /// POST /api/sandbox/v1/tasks/{task_id}/provision
+    /// POST `/api/sandbox/v1/tasks/{task_id}/provision`
     pub async fn provision_sandbox(
         &self,
         task_id: &str,
@@ -391,7 +391,7 @@ impl ApiClient {
             .await
     }
 
-    /// POST /api/sandbox/v1/tasks/{task_id}/redeploy
+    /// POST `/api/sandbox/v1/tasks/{task_id}/redeploy`
     pub async fn redeploy_sandbox(
         &self,
         task_id: &str,
@@ -400,13 +400,13 @@ impl ApiClient {
             .await
     }
 
-    /// POST /api/sandbox/v1/tasks/{task_id}/cleanup
+    /// POST `/api/sandbox/v1/tasks/{task_id}/cleanup`
     pub async fn cleanup_sandbox(&self, task_id: &str) -> Result<(), ApiError> {
         self.post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/cleanup"))
             .await
     }
 
-    /// GET /api/sandbox/v1/tasks/{task_id}/server/status
+    /// GET `/api/sandbox/v1/tasks/{task_id}/server/status`
     pub async fn server_status(
         &self,
         task_id: &str,
@@ -415,7 +415,7 @@ impl ApiClient {
             .await
     }
 
-    /// GET /api/sandbox/v1/tasks/{task_id}/servers/config
+    /// GET `/api/sandbox/v1/tasks/{task_id}/servers/config`
     ///
     /// Overrides are stored only on the sandbox's workspace volume, so this
     /// needs a running sandbox — there is no persisted copy to fall back on.
@@ -427,7 +427,7 @@ impl ApiClient {
             .await
     }
 
-    /// PATCH /api/sandbox/v1/tasks/{task_id}/servers/{server_name}
+    /// PATCH `/api/sandbox/v1/tasks/{task_id}/servers/{server_name}`
     pub async fn update_server_config(
         &self,
         task_id: &str,
@@ -441,7 +441,7 @@ impl ApiClient {
         .await
     }
 
-    /// POST /api/sandbox/v1/tasks/{task_id}/servers/{server_name}/restart
+    /// POST `/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/restart`
     pub async fn restart_server(
         &self,
         task_id: &str,
@@ -453,7 +453,7 @@ impl ApiClient {
         .await
     }
 
-    /// DELETE /api/sandbox/v1/tasks/{task_id}/servers/{server_name}/override
+    /// DELETE `/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/override`
     pub async fn reset_server_config(
         &self,
         task_id: &str,
@@ -465,7 +465,7 @@ impl ApiClient {
         .await
     }
 
-    /// GET /api/sandbox/v1/tasks/{task_id}/files/list
+    /// GET `/api/sandbox/v1/tasks/{task_id}/files/list`
     pub async fn list_files(
         &self,
         task_id: &str,
@@ -474,7 +474,7 @@ impl ApiClient {
             .await
     }
 
-    /// GET /api/sandbox/v1/tasks/{task_id}/files/read?path={path}
+    /// GET `/api/sandbox/v1/tasks/{task_id}/files/read?path={path}`
     pub async fn read_file(
         &self,
         task_id: &str,
@@ -487,7 +487,7 @@ impl ApiClient {
         .await
     }
 
-    /// POST /api/sandbox/v1/tasks/{task_id}/files/write
+    /// POST `/api/sandbox/v1/tasks/{task_id}/files/write`
     pub async fn write_file(
         &self,
         task_id: &str,
@@ -501,7 +501,7 @@ impl ApiClient {
         self.check_status(resp).await
     }
 
-    /// GET /api/sandbox/v1/tasks/{task_id}/files/tree
+    /// GET `/api/sandbox/v1/tasks/{task_id}/files/tree`
     pub async fn file_tree(
         &self,
         task_id: &str,
@@ -534,7 +534,7 @@ impl ApiClient {
         self.get("/api/v1/repositories").await
     }
 
-    /// GET /api/v1/repositories/{repo_id}
+    /// GET `/api/v1/repositories/{repo_id}`
     pub async fn get_repository(
         &self,
         repo_id: &str,
@@ -550,7 +550,7 @@ impl ApiClient {
         self.post("/api/v1/repositories", req).await
     }
 
-    /// PUT /api/v1/repositories/{repo_id}
+    /// PUT `/api/v1/repositories/{repo_id}`
     pub async fn update_repository(
         &self,
         repo_id: &str,
@@ -560,7 +560,7 @@ impl ApiClient {
             .await
     }
 
-    /// DELETE /api/v1/repositories/{repo_id}
+    /// DELETE `/api/v1/repositories/{repo_id}`
     pub async fn delete_repository(&self, repo_id: &str) -> Result<(), ApiError> {
         self.delete_request(&format!("/api/v1/repositories/{repo_id}"))
             .await
@@ -586,7 +586,7 @@ impl ApiClient {
         self.get("/api/v1/workspaces").await
     }
 
-    /// GET /api/v1/workspaces/{workspace_id}
+    /// GET `/api/v1/workspaces/{workspace_id}`
     pub async fn get_workspace(
         &self,
         workspace_id: &str,
@@ -603,7 +603,7 @@ impl ApiClient {
         self.post("/api/v1/workspaces", req).await
     }
 
-    /// PATCH /api/v1/workspaces/{workspace_id}
+    /// PATCH `/api/v1/workspaces/{workspace_id}`
     pub async fn update_workspace(
         &self,
         workspace_id: &str,
@@ -613,13 +613,13 @@ impl ApiClient {
             .await
     }
 
-    /// DELETE /api/v1/workspaces/{workspace_id}
+    /// DELETE `/api/v1/workspaces/{workspace_id}`
     pub async fn delete_workspace(&self, workspace_id: &str) -> Result<(), ApiError> {
         self.delete_request(&format!("/api/v1/workspaces/{workspace_id}"))
             .await
     }
 
-    /// PATCH /api/v1/workspaces/{workspace_id}/override
+    /// PATCH `/api/v1/workspaces/{workspace_id}/override`
     ///
     /// Override a git-synced workspace — sets `source = "manual"` so git sync
     /// skips it going forward. Use `reset_git_workspace` to re-enable sync.
@@ -644,7 +644,7 @@ impl ApiClient {
             .await
     }
 
-    /// GET /api/v1/workspaces/{workspace_id}/credentials
+    /// GET `/api/v1/workspaces/{workspace_id}/credentials`
     ///
     /// Metadata only — a credential value is never returned.
     pub async fn list_workspace_credentials(
@@ -655,7 +655,7 @@ impl ApiClient {
             .await
     }
 
-    /// PUT /api/v1/workspaces/{workspace_id}/credentials/{provider}
+    /// PUT `/api/v1/workspaces/{workspace_id}/credentials/{provider}`
     pub async fn set_workspace_credential(
         &self,
         workspace_id: &str,
@@ -672,7 +672,7 @@ impl ApiClient {
         .await
     }
 
-    /// DELETE /api/v1/workspaces/{workspace_id}/credentials/{provider}
+    /// DELETE `/api/v1/workspaces/{workspace_id}/credentials/{provider}`
     pub async fn delete_workspace_credential(
         &self,
         workspace_id: &str,
@@ -688,7 +688,7 @@ impl ApiClient {
     // Messages
     // ========================================================================
 
-    /// GET /api/v1/tasks/{task_id}/messages
+    /// GET `/api/v1/tasks/{task_id}/messages`
     pub async fn get_messages(
         &self,
         task_id: &str,
@@ -696,10 +696,10 @@ impl ApiClient {
         self.get_messages_page(task_id, false, None, None).await
     }
 
-    /// GET /api/v1/tasks/{task_id}/messages?summary=true
+    /// GET `/api/v1/tasks/{task_id}/messages?summary=true`
     ///
-    /// Returns messages with heavy fields stripped (tool_input, typed_result,
-    /// sdk_metadata) and tool result content truncated. Ideal for CLI display.
+    /// Returns messages with heavy fields stripped (`tool_input`, `typed_result`,
+    /// `sdk_metadata`) and tool result content truncated. Ideal for CLI display.
     pub async fn get_messages_summary(
         &self,
         task_id: &str,
@@ -707,7 +707,7 @@ impl ApiClient {
         self.get_messages_page(task_id, true, None, None).await
     }
 
-    /// GET /api/v1/tasks/{task_id}/messages with explicit pagination.
+    /// GET `/api/v1/tasks/{task_id}/messages` with explicit pagination.
     ///
     /// `limit` defaults to 50 server-side (clamped to 1..=200). `before_id`
     /// is the cursor from a previous page's `next_before_id` — pass it to
@@ -731,7 +731,7 @@ impl ApiClient {
         self.get(&url).await
     }
 
-    /// POST /api/v1/tasks/{task_id}/messages
+    /// POST `/api/v1/tasks/{task_id}/messages`
     pub async fn send_message(
         &self,
         task_id: &str,
@@ -911,7 +911,7 @@ impl ApiClient {
         .await
     }
 
-    /// GET /api/v1/tasks/{task_id}/bindings
+    /// GET `/api/v1/tasks/{task_id}/bindings`
     pub async fn list_task_bindings(
         &self,
         task_id: &str,
@@ -919,7 +919,7 @@ impl ApiClient {
         self.get(&format!("/api/v1/tasks/{task_id}/bindings")).await
     }
 
-    /// POST /api/v1/tasks/{task_id}/bindings
+    /// POST `/api/v1/tasks/{task_id}/bindings`
     pub async fn create_task_binding(
         &self,
         task_id: &str,
@@ -929,7 +929,7 @@ impl ApiClient {
             .await
     }
 
-    /// POST /api/v1/messages/{message_id}/reactions
+    /// POST `/api/v1/messages/{message_id}/reactions`
     pub async fn add_message_reaction(
         &self,
         message_id: &str,
@@ -939,7 +939,7 @@ impl ApiClient {
             .await
     }
 
-    /// DELETE /api/v1/messages/{message_id}/reactions/{emoji}
+    /// DELETE `/api/v1/messages/{message_id}/reactions/{emoji}`
     pub async fn remove_message_reaction(
         &self,
         message_id: &str,
@@ -952,7 +952,7 @@ impl ApiClient {
         .await
     }
 
-    /// POST /api/v1/messages/{message_id}/reply
+    /// POST `/api/v1/messages/{message_id}/reply`
     pub async fn reply_to_message(
         &self,
         message_id: &str,
@@ -962,7 +962,7 @@ impl ApiClient {
             .await
     }
 
-    /// POST /api/v1/tasks/{task_id}/reply
+    /// POST `/api/v1/tasks/{task_id}/reply`
     pub async fn send_task_reply(
         &self,
         task_id: &str,
@@ -984,7 +984,7 @@ impl ApiClient {
         self.post("/api/v1/feedback", req).await
     }
 
-    /// GET /api/v1/tasks/{task_id}/feedback
+    /// GET `/api/v1/tasks/{task_id}/feedback`
     pub async fn list_task_feedback(
         &self,
         task_id: &str,
@@ -1024,7 +1024,7 @@ impl ApiClient {
         self.get("/api/v1/teams").await
     }
 
-    /// GET /api/v1/teams/{team_id}
+    /// GET `/api/v1/teams/{team_id}`
     pub async fn get_team(
         &self,
         team_id: &str,
@@ -1040,7 +1040,7 @@ impl ApiClient {
         self.post("/api/v1/teams", req).await
     }
 
-    /// PUT /api/v1/teams/{team_id}
+    /// PUT `/api/v1/teams/{team_id}`
     pub async fn update_team(
         &self,
         team_id: &str,
@@ -1049,13 +1049,13 @@ impl ApiClient {
         self.put(&format!("/api/v1/teams/{team_id}"), req).await
     }
 
-    /// DELETE /api/v1/teams/{team_id}
+    /// DELETE `/api/v1/teams/{team_id}`
     pub async fn delete_team(&self, team_id: &str) -> Result<(), ApiError> {
         self.delete_request(&format!("/api/v1/teams/{team_id}"))
             .await
     }
 
-    /// POST /api/v1/teams/{team_id}/members
+    /// POST `/api/v1/teams/{team_id}/members`
     pub async fn add_member(
         &self,
         team_id: &str,
@@ -1066,7 +1066,7 @@ impl ApiClient {
         self.check_status(resp).await
     }
 
-    /// GET /api/v1/teams/{team_id}/members
+    /// GET `/api/v1/teams/{team_id}/members`
     pub async fn list_members(
         &self,
         team_id: &str,
@@ -1074,7 +1074,7 @@ impl ApiClient {
         self.get(&format!("/api/v1/teams/{team_id}/members")).await
     }
 
-    /// DELETE /api/v1/teams/{team_id}/members/{user_id}
+    /// DELETE `/api/v1/teams/{team_id}/members/{user_id}`
     pub async fn remove_member(&self, team_id: &str, user_id: &str) -> Result<(), ApiError> {
         self.delete_request(&format!("/api/v1/teams/{team_id}/members/{user_id}"))
             .await
@@ -1305,7 +1305,7 @@ impl ApiClient {
         .await
     }
 
-    /// POST /api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies
+    /// POST `/api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies`
     ///
     /// Threaded reply to a PR review (inline) comment.
     pub async fn github_reply_review_comment(

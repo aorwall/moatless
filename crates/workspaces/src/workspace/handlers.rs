@@ -63,7 +63,7 @@ fn kind_for(count: usize) -> WorkspaceKind {
     }
 }
 
-/// Load a workspace (scoped) plus its placements into a response, or NotFound.
+/// Load a workspace (scoped) plus its placements into a response, or `NotFound`.
 async fn load_response(
     workspaces: &Arc<dyn WorkspaceDao>,
     auth: &AuthUser,
@@ -104,8 +104,8 @@ async fn ensure_repos_visible(
 /// Restrict the two fields that select a sandbox's Kubernetes privileges to
 /// admins.
 ///
-/// `sandbox_service_account` picks the pod's ServiceAccount and
-/// `network_profile` picks the NetworkPolicy that reaches the kube-apiserver.
+/// `sandbox_service_account` picks the pod's `ServiceAccount` and
+/// `network_profile` picks the `NetworkPolicy` that reaches the kube-apiserver.
 /// Together they are what opts a workspace into a chart `sandboxAccess` profile
 /// — including `namespace-admin`, which can read the app namespace's Secrets
 /// (database credentials, provider API keys, session signing keys) and delete

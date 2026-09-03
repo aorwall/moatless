@@ -66,7 +66,7 @@ impl Normalizer {
     /// Canonical source events for one native Codex item, in native order. Each
     /// native family is mapped to the `text` / `tool_use` / `tool_result` blocks
     /// the backend assembler and UI understand (a tool item expands to a
-    /// tool_use plus a paired tool_result in its own user Message). An unknown
+    /// `tool_use` plus a paired `tool_result` in its own user Message). An unknown
     /// family is forwarded as its raw native block with bounded diagnostics so an
     /// upstream CLI addition is never silently discarded; a family that is known
     /// and deliberately renders nothing yields no events at all.

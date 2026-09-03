@@ -119,7 +119,7 @@ pub struct InboundMessage {
     pub adapter_kind: AdapterKind,
     /// Source identifier (Slack channelId, email address).
     pub source_id: String,
-    /// Thread ID if this is a reply (Slack thread_ts, Email In-Reply-To).
+    /// Thread ID if this is a reply (Slack `thread_ts`, Email In-Reply-To).
     pub thread_id: Option<String>,
     /// New thread ID for the message itself (Slack message ts, Email Message-ID).
     pub message_thread_id: String,
@@ -546,11 +546,11 @@ pub struct InboundDeliveryPayload {
 pub struct LinearConfig {
     /// Global webhook secret for verifying Linear webhook signatures.
     pub webhook_secret: Option<String>,
-    /// OAuth client_id from the Linear OAuth2 app registration.
+    /// OAuth `client_id` from the Linear OAuth2 app registration.
     pub oauth_client_id: Option<String>,
-    /// OAuth client_secret from the Linear OAuth2 app registration.
+    /// OAuth `client_secret` from the Linear OAuth2 app registration.
     pub oauth_client_secret: Option<String>,
-    /// OAuth redirect_uri registered on the Linear OAuth2 app.
+    /// OAuth `redirect_uri` registered on the Linear OAuth2 app.
     pub oauth_callback_url: Option<String>,
     /// API host every Linear client built by this adapter talks to, GraphQL and
     /// OAuth token exchange alike. `None` means Linear itself.
@@ -800,12 +800,12 @@ pub struct TaskBinding {
     pub external_state_kind: Option<String>,
     /// Full status detail (title, url, state id/name, merged flag, …).
     pub external_status_raw: Option<serde_json::Value>,
-    /// Latest PR review verdict (GitHub: approved | changes_requested |
-    /// review_required | dismissed | commented). `None` until a review is
+    /// Latest PR review verdict (GitHub: approved | `changes_requested` |
+    /// `review_required` | dismissed | commented). `None` until a review is
     /// recorded.
     pub external_review_decision: Option<String>,
     /// GitHub's coarse mergeable state (clean | dirty | blocked | behind |
-    /// unstable | has_hooks | draft); `dirty` means merge conflicts. `None`
+    /// unstable | `has_hooks` | draft); `dirty` means merge conflicts. `None`
     /// until computed, or where it does not apply.
     pub external_mergeable_state: Option<String>,
     /// When [`Self::external_status`] was last refreshed.

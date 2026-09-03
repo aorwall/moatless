@@ -147,10 +147,8 @@ export const threeFiberElems = new Set([
 /**
  * Determines if a JSX element should be tagged with component metadata
  *
- * @param elementName - Name of the JSX element
  * @param threeDreiImportedElements - Set of imported elements from @react-three/drei
  * @param threeDreiNamespaces - Set of namespace imports from @react-three/drei
- * @returns true if the element should be tagged, false otherwise
  */
 export function shouldTagElement(
   elementName: string,

@@ -5,7 +5,7 @@
 //! the two pieces that reach *up* out of that band:
 //! - the in-flight guard (`any_other_open_codex_task`) that yields to a running
 //!   sandbox's own refresher rather than racing it for the single-use
-//!   refresh_token — needs `TaskDao`;
+//!   `refresh_token` — needs `TaskDao`;
 //! - the write-through broadcast (`broadcast_to_scope`) that pushes a rotated
 //!   blob to every open codex sandbox in scope — needs `TaskDao` (to list them)
 //!   and `CredentialBroadcast` (to reach them).
@@ -73,7 +73,7 @@ impl CredentialSync {
     /// 1. If another *open* codex task within this scope (other than
     ///    `except_task_id`) is in flight, return the stored blob unchanged —
     ///    the sandbox watcher will rotate it. Avoids racing the CLI for the
-    ///    single-use refresh_token.
+    ///    single-use `refresh_token`.
     /// 2. Otherwise refresh via [`CredentialService::refresh_codex_locked`] and,
     ///    on [`CodexRefreshOutcome::Rotated`], fan the new blob out.
     pub async fn ensure_fresh_codex(
@@ -81,12 +81,11 @@ impl CredentialSync {
         scope: CodexScope,
         except_task_id: Option<&str>,
     ) -> Result<String, CredentialError> {
-        // Lock ordering (changed in 9c): the in-flight guard now runs BEFORE
-        // the per-scope refresh mutex, not inside it. That mutex lives in
-        // `refresh_codex_locked` and is no longer reachable from here, so the
-        // guard — a cheap best-effort `TaskDao` read that never needs the lock
-        // — is consulted first. When a sandbox is the active refresher we
-        // return its stored blob without ever taking the refresh mutex.
+        // Lock ordering: the in-flight guard — a cheap best-effort `TaskDao`
+        // read that never needs the lock — runs before the per-scope refresh
+        // mutex in `refresh_codex_locked`, so it is consulted first. When a
+        // sandbox is the active refresher we return its stored blob without
+        // ever taking the refresh mutex.
         if self.any_other_open_codex_task(&scope, except_task_id).await {
             debug!(
                 scope = %scope.display(),

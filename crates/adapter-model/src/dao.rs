@@ -26,9 +26,10 @@ pub trait AdapterConnectionDao: Send + Sync {
         external_account_id: &str,
     ) -> Result<Option<AdapterConnection>, StoreError>;
 
-    /// Look up a connection by Adapter + external account. Used for webhook
-    /// routing where we identify the tenant from the inbound event, not from
-    /// an authenticated caller — no scope filter applied.
+    /// Look up a connection by Adapter + `scope_value` (the connection's stored
+    /// `external_account_id`), for callers that key connections by scope rather
+    /// than by external account. `None` when no connection matches that exact
+    /// value — the caller decides whether to fall back to another scope value.
     async fn find_by_scope_value(
         &self,
         adapter_kind: &str,
@@ -194,9 +195,9 @@ impl PgAdapterConnectionDao {
         Ok(rows.into_iter().map(AdapterConnection::from).collect())
     }
 
-    /// Upsert an adapter connection. On conflict (adapter_kind, external_account_id),
+    /// Upsert an adapter connection. On conflict (`adapter_kind`, `external_account_id`),
     /// the DO UPDATE arm includes a `write_filter` guard so cross-user updates
-    /// affect 0 rows — the caller maps rows_affected == 0 to NotFound.
+    /// affect 0 rows — the caller maps `rows_affected` == 0 to `NotFound`.
     pub async fn upsert(
         &self,
         row: &AdapterConnection,

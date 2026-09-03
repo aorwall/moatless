@@ -1,8 +1,6 @@
 import { z } from 'zod'
 
-/**
- * Repository config schema (subset needed for workspace provisioning)
- */
+/** Subset of the repository config needed for workspace provisioning. */
 export const RepositoryConfigSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -24,9 +22,6 @@ export const RepositoryConfigSchema = z.object({
 
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
 
-/**
- * Sandbox provision request schema
- */
 export const SandboxProvisionRequestSchema = z.object({
   taskId: z.string(),
   gitCloneUrl: z.string().optional(),
@@ -37,16 +32,10 @@ export const SandboxProvisionRequestSchema = z.object({
 
 export type SandboxProvisionRequest = z.infer<typeof SandboxProvisionRequestSchema>
 
-/**
- * Sandbox provision status enum
- */
 export const SandboxProvisionStatusSchema = z.enum(['pending', 'ready', 'failed'])
 
 export type SandboxProvisionStatus = z.infer<typeof SandboxProvisionStatusSchema>
 
-/**
- * Sandbox provision response schema
- */
 export const SandboxProvisionResponseSchema = z.object({
   success: z.boolean(),
   taskId: z.string(),
@@ -57,9 +46,6 @@ export const SandboxProvisionResponseSchema = z.object({
 
 export type SandboxProvisionResponse = z.infer<typeof SandboxProvisionResponseSchema>
 
-/**
- * Sandbox status response schema
- */
 export const SandboxStatusResponseSchema = z.object({
   taskId: z.string(),
   workspaceDir: z.string(),

@@ -32,7 +32,7 @@ pub struct FileTreeQuery {
 pub struct ReadFileQuery {
     /// File path relative to workspace
     pub path: String,
-    /// Include git change info (old_content, additions, deletions)
+    /// Include git change info (`old_content`, additions, deletions)
     #[serde(default)]
     pub changes: Option<bool>,
 }
@@ -48,7 +48,7 @@ pub struct ListFilesQuery {
     pub recursive: Option<bool>,
 }
 
-/// Get the file tree with git change overlay.
+/// See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.
 #[utoipa::path(
     get,
     path = "/api/sandbox/v1/tasks/{task_id}/files/tree",

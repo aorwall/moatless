@@ -35,7 +35,7 @@ use tokio_util::sync::CancellationToken;
 // Mock BackendClient
 // =============================================================================
 
-/// One recorded acknowledgment: (task_id, message_ids, run_id, error).
+/// One recorded acknowledgment: (`task_id`, `message_ids`, `run_id`, error).
 type AckRecord = (String, Vec<String>, String, Option<String>);
 
 struct MockBackendClient {

@@ -324,7 +324,7 @@ pub struct SandboxConfig {
     pub default_s3_enabled: bool,
     /// Whether Kubernetes node-local workspace/Docker archives are tracked and
     /// managed across pod lifecycles. When disabled, `node` storage still uses
-    /// hostPath volumes, but the backend does not access archive ConfigMaps,
+    /// hostPath volumes, but the backend does not access archive `ConfigMap`s,
     /// pin replacements to recorded nodes, or run deterministic node cleanup.
     /// Env `K8S_SANDBOX_NODE_ARCHIVE_ENABLED` (default: `false`).
     pub node_archive_enabled: bool,
@@ -347,7 +347,7 @@ pub struct SandboxConfig {
     /// TTL (seconds) for the long-lived user auth token delivered to sandboxes
     /// over `GetCredentials`. Re-minted on every credential fetch, so this only
     /// needs to outlive the 15-min refresher gap. Env `SANDBOX_USER_TOKEN_TTL_SECS`
-    /// (default: 604800 = 7 days). Replaces the former hardcoded 90-day expiry.
+    /// (default: 604800 = 7 days).
     pub user_token_ttl_secs: u64,
     /// TTL (seconds) for the short-lived bootstrap token placed on the pod spec.
     /// It only authenticates the sandbox's initial `GetCredentials` call, so a
@@ -419,13 +419,13 @@ pub struct SandboxConfig {
     pub tolerations_json: Option<String>,
     /// JSON-encoded node selector for sandbox pods (e.g., `{"karpenter.sh/capacity-type":"spot"}`)
     pub node_selector_json: Option<String>,
-    /// Kubernetes ServiceAccount name for sandbox pods (set via K8S_SANDBOX_SERVICE_ACCOUNT)
+    /// Kubernetes `ServiceAccount` name for sandbox pods (set via `K8S_SANDBOX_SERVICE_ACCOUNT`)
     pub service_account_name: Option<String>,
-    /// Default Claude model for sandbox agents (forwarded as DEFAULT_CLAUDE_CODE_MODEL env var)
+    /// Default Claude model for sandbox agents (forwarded as `DEFAULT_CLAUDE_CODE_MODEL` env var)
     pub default_model: Option<String>,
-    /// Default Codex model for sandbox agents (forwarded as DEFAULT_CODEX_MODEL env var)
+    /// Default Codex model for sandbox agents (forwarded as `DEFAULT_CODEX_MODEL` env var)
     pub default_codex_model: Option<String>,
-    /// Extra env vars injected into every sandbox pod (parsed from K8S_SANDBOX_EXTRA_ENV JSON)
+    /// Extra env vars injected into every sandbox pod (parsed from `K8S_SANDBOX_EXTRA_ENV` JSON)
     pub extra_env: Vec<(String, String)>,
     /// Generic package-manager caches mounted into sandbox pods (parsed from
     /// `K8S_SANDBOX_CACHE_VOLUMES` JSON). Empty disables the feature entirely —
@@ -467,7 +467,7 @@ pub struct SandboxConfig {
     /// set, sandbox pods whose `network_profile` is listed in
     /// [`SandboxConfig::egress_proxy_profiles`] get `HTTPS_PROXY`/`HTTP_PROXY`
     /// pointed at it, so all outbound traffic is funnelled through the proxy's
-    /// hostname allowlist. Pairs with a per-profile NetworkPolicy that blocks
+    /// hostname allowlist. Pairs with a per-profile `NetworkPolicy` that blocks
     /// direct internet egress and forces this path. Env
     /// `SANDBOX_EGRESS_PROXY_URL` (default: unset → no proxy injected).
     pub egress_proxy_url: Option<String>,
@@ -485,22 +485,22 @@ pub struct SandboxConfig {
     pub egress_proxy_no_proxy: String,
 }
 
-/// Proxy / Traefik IngressRoute settings.
+/// Proxy / Traefik `IngressRoute` settings.
 #[derive(Debug, Clone)]
 pub struct ProxyConfig {
-    /// Domain for proxy URLs (e.g., "moatless.xyz"). If None, IngressRoutes are not created.
+    /// Domain for proxy URLs (e.g., "moatless.xyz"). If None, `IngressRoute`s are not created.
     pub domain: Option<String>,
     /// Protocol for proxy URLs (default: "https")
     pub protocol: String,
-    /// Name of the Traefik ForwardAuth Middleware CRD (default: "preview-auth")
+    /// Name of the Traefik `ForwardAuth` Middleware CRD (default: "preview-auth")
     pub traefik_auth_middleware_name: String,
     /// Namespace where the Traefik auth Middleware lives (defaults to sandbox namespace)
     pub traefik_auth_middleware_namespace: String,
-    /// Traefik entryPoint name for IngressRoutes (default: "websecure")
+    /// Traefik entryPoint name for `IngressRoute`s (default: "websecure")
     pub traefik_entry_point: String,
     /// Namespaces whose Traefik ingress pods (`app.kubernetes.io/name=traefik`)
-    /// the per-sandbox preview NetworkPolicy admits to the preview ports. The
-    /// policy is what makes a preview URL reachable once ingress NetworkPolicies
+    /// the per-sandbox preview `NetworkPolicy` admits to the preview ports. The
+    /// policy is what makes a preview URL reachable once ingress `NetworkPolicy`s
     /// are enforced; deriving its ports from the sandbox's own server map (see
     /// `k8s/networkpolicy.rs`) is what keeps it from drifting out of sync.
     pub traefik_ingress_namespaces: Vec<String>,

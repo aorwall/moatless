@@ -34,12 +34,10 @@ use moatless_backend_core::ui_rpc::UiRpcAuthIdentity;
 /// passes [`required_scope`] before dispatch, and a method whose scope is not
 /// in this list is refused with `EnvironmentAuthorizationError`.
 ///
-/// It was a three-scope read set, which was inaccurate in both directions.
-/// `orchestration.dispatchCommand` is a write and was served without
-/// `orchestration:operate`; `review.getDiffPreview` is what `review:write`
-/// gates in the reference server's own map and was served without it. Both are
-/// now granted, because the honest fix for serving something is to admit to
-/// serving it.
+/// `orchestration.dispatchCommand` is a write, gated by `orchestration:operate`;
+/// `review.getDiffPreview` is what `review:write` gates in the reference
+/// server's own map. Both are granted: serving a capability without declaring
+/// its scope does not remove the exposure.
 ///
 /// The two that stay out each name a surface with nothing behind it:
 /// `access:write` — this surface administers no pairings; `relay:write` —
@@ -127,8 +125,8 @@ pub(super) fn required_scope(tag: &str) -> &'static str {
         | "attachments.delete" => "orchestration:operate",
 
         // The diff surface. `review:write` is what gates it in the reference
-        // server's map, despite the name — this backend serves it and now says
-        // so.
+        // server's map, despite the name — this backend serves it under that
+        // scope.
         "review.getDiffPreview" => "review:write",
 
         // Terminals. The backend authorizes them here; the PTY itself lives in

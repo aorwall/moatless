@@ -3,9 +3,7 @@ import { type Dispatch, type SetStateAction, useEffect, useState } from 'react'
 /**
  * A hook that provides localStorage functionality with React state synchronization.
  *
- * @param key - The localStorage key
  * @param defaultValue - The default value to use if no value exists in localStorage
- * @returns A tuple containing the current value and a setter function
  */
 export function useLocalStorage<T>(key: string, defaultValue: T): [T, Dispatch<SetStateAction<T>>] {
   // Initialize state with value from localStorage or default

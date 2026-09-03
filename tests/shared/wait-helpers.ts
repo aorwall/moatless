@@ -30,9 +30,6 @@ export interface WaitOptions {
 /**
  * Wait for workspace to become ready (environment provisioned)
  *
- * @param api - Driver-backed API
- * @param taskId - Task ID to check
- * @param options - Wait options
  * @returns true if workspace is ready, false if timeout
  */
 export async function waitForWorkspaceReady(
@@ -75,9 +72,6 @@ export async function waitForWorkspaceReady(
  * Polls getWorkspaceStatus() and checks the servers array for
  * an entry with status "started".
  *
- * @param api - Driver-backed API
- * @param taskId - Task ID to check
- * @param options - Wait options
  * @returns The started ServerEntry if ready, null if timeout
  */
 export async function waitForPreviewReady(
@@ -126,9 +120,6 @@ export async function waitForPreviewReady(
  * then waits for it to become idle (state becomes 'idle').
  * This prevents false positives when agent hasn't started yet.
  *
- * @param api - Driver-backed API
- * @param taskId - Task ID to check
- * @param options - Wait options
  * @returns true if agent completed, false if timeout
  */
 export async function waitForAgentComplete(
@@ -173,10 +164,6 @@ export async function waitForAgentComplete(
 /**
  * Wait for a specific workspace status
  *
- * @param api - Driver-backed API
- * @param taskId - Task ID to check
- * @param expectedStatus - Expected environment status
- * @param options - Wait options
  * @returns SandboxStatusFullResponse if matched, null if timeout
  */
 export async function waitForWorkspaceStatus(
@@ -217,8 +204,6 @@ export async function waitForWorkspaceStatus(
  *
  * Generic polling helper for custom conditions.
  *
- * @param condition - Function that returns true when condition is met
- * @param options - Wait options
  * @returns true if condition was met, false if timeout
  */
 export async function waitForCondition(

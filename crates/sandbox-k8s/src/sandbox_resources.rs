@@ -81,7 +81,7 @@ fn collect_ids_from_meta<'a>(
 }
 
 /// Discover every task-id that still has at least one labeled sandbox resource
-/// (Deployment, Service, PVC, or IngressRoute). Best-effort: a failure listing
+/// (Deployment, Service, PVC, or `IngressRoute`). Best-effort: a failure listing
 /// any one resource type is logged and skipped.
 pub async fn collect_labeled_task_ids(k8s: &K8sClient) -> HashSet<String> {
     let ns = k8s.namespace();

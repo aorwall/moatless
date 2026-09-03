@@ -8,7 +8,7 @@
 //!    after).
 //! 3. `tmux send-keys -t <session>:0 Enter` to submit the prompt.
 //!
-//! Control envelopes from `QueryHandle` (interrupt, set_permission_mode, etc.)
+//! Control envelopes from `QueryHandle` (interrupt, `set_permission_mode`, etc.)
 //! are not supported by the TUI; we log and drop them.
 
 use async_trait::async_trait;

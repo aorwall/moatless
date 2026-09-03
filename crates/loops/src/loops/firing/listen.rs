@@ -37,7 +37,7 @@ use crate::bindings::dao::TaskBindingDao;
 ///
 /// [`Connector::write_binding`] upserts through the port-typed
 /// [`crate::bindings::runtime::upsert_binding_into`], passing `task_bindings`
-/// directly rather than the whole AppState.
+/// directly rather than the whole `AppState`.
 pub struct Connector {
     github_destination: Option<Arc<dyn AdapterDestinationBuilder>>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,

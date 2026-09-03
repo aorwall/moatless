@@ -8,13 +8,14 @@
 //! The GitHub Adapter has no in-process delivery cache; durable admission is
 //! the only thing that collapses a redelivery.
 //!
-//! Both properties here are ones the deleted cache used to hide. A "replica" is
-//! its own `AppState` + `GithubPrAdapter` over the shared pool — which is what
-//! a second backend process is, and what the per-process cache could never see.
+//! A per-process cache cannot see a delivery on another replica, so its
+//! presence would hide both properties asserted here. A "replica" is its own
+//! `AppState` + `GithubPrAdapter` over the shared pool — which is what a
+//! second backend process is, and what a process-local cache could never see.
 //!
-//! - A redelivery landing on a *different* replica must do no second effect.
-//!   The cache made this untestable: it answered `200 duplicate` only on the
-//!   replica that saw the first delivery.
+//! - A redelivery landing on a *different* replica must do no second effect:
+//!   a per-process cache can only answer `200 duplicate` on the replica that
+//!   saw the first delivery, never on another one.
 //! - The work the ingress path does *before* admitting now re-runs on every
 //!   redelivery. It has to be harmless, and that is asserted rather than
 //!   assumed: the PR status and review decision writes derive their value from
@@ -1350,15 +1351,16 @@ async fn a_redelivery_on_a_different_replica_does_no_second_effect(pool: PgPool)
 
 /// Verification: the work that runs before admission is safe to repeat.
 ///
-/// This is what the deleted cache was covering, and the reason deleting it is a
-/// performance question rather than a correctness one. Both writes derive their
-/// value from the delivery payload, so the replay recomputes the same value.
-/// The columns are cleared between the two deliveries precisely so the second
-/// write has to be observed doing the work rather than merely not undoing it.
+/// Both writes derive their value from the delivery payload, so a replay
+/// recomputes the same value — the only reason a cache here would be a
+/// performance question rather than a correctness one. The columns are
+/// cleared between the two deliveries precisely so the second write has to
+/// be observed doing the work rather than merely not undoing it.
 ///
-/// The PR-status half deliberately redelivers to the *same* replica — the one
-/// case the deleted gate used to answer without running anything, so this half
-/// fails against the cached implementation rather than merely passing on both.
+/// The PR-status half deliberately redelivers to the *same* replica — the
+/// one case where a per-process cache would answer without running
+/// anything, so this half fails if the work is ever skipped rather than
+/// merely passing on both deliveries.
 #[sqlx::test]
 async fn replaying_the_pre_admission_writes_lands_on_the_same_value(pool: PgPool) {
     let task_id = "task-gh-replay";

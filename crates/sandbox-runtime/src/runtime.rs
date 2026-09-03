@@ -173,7 +173,7 @@ pub trait SandboxRuntime: Send + Sync {
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError>;
 
-    /// Delete all runtime resources (Deployment, Service, IngressRoutes, and
+    /// Delete all runtime resources (Deployment, Service, `IngressRoutes`, and
     /// the PVC unconditionally), honoring `retention` for S3 and local-disk
     /// archives.
     ///
@@ -190,7 +190,7 @@ pub trait SandboxRuntime: Send + Sync {
 
     /// Reclaim the compute objects and the workspace volume of a **stopped**
     /// sandbox, keeping everything that gives the task its identity — the
-    /// Service, the IngressRoutes, the network policy, and the S3 archive. A
+    /// Service, the `IngressRoutes`, the network policy, and the S3 archive. A
     /// later start provisions a fresh volume and restores into it.
     ///
     /// The Deployment goes before the claim, and its absence is awaited: a

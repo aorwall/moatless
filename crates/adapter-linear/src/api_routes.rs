@@ -555,8 +555,7 @@ pub async fn lookup(
 // ---------------------------------------------------------------------------
 
 /// Unwrap the composition-root-injected Linear adapter, or fail the request
-/// with the not-configured error the handlers used to raise from inside
-/// `resolve_linear_api`.
+/// with the not-configured error.
 fn require_linear(linear: Option<Arc<LinearAdapter>>) -> Result<Arc<LinearAdapter>, AdapterError> {
     linear.ok_or_else(|| SharedAdapterError::AdapterNotConfigured("linear".into()).into())
 }
@@ -932,7 +931,7 @@ async fn create_issue_binding(
 }
 
 /// Attach the moatless task URL to the Linear issue as a "source" pill.
-/// Idempotent on (issue_id, url) — safe to call multiple times. Failures
+/// Idempotent on `(issue_id, url)` — safe to call multiple times. Failures
 /// are logged and swallowed so they don't block the surrounding mutation
 /// (the issue is already created / commented on).
 pub(crate) async fn attach_moatless_task(

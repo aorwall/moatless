@@ -27,7 +27,7 @@ pub enum SandboxObservedStatus {
     Ready,
     Starting,
     Stopped,
-    /// Every runtime resource gone (Deployment, Service, IngressRoutes, PVC).
+    /// Every runtime resource gone (Deployment, Service, `IngressRoutes`, PVC).
     Absent,
     /// A terminal/error pod — crashed, failed, or OOM. `ensure_running`
     /// replaces it rather than treating it as indefinitely Initializing.

@@ -32,7 +32,7 @@ use super::webhook_payloads::AppUserNotificationData;
 
 /// Close active bindings when an `AppUserNotification.issueStatusChanged`
 /// arrives for a terminal state. Inbox-stream analog of `handle_issue_update`'s
-/// close path — used when the workspace only subscribes to AppUserNotification
+/// close path — used when the workspace only subscribes to `AppUserNotification`
 /// (not Issue) webhooks. Acts on the current state alone (the notification
 /// carries no diff). `close_active_bindings_for_issue` is idempotent, so
 /// double delivery from the Issue path is safe.

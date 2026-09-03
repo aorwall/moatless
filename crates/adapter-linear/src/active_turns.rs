@@ -6,7 +6,7 @@
 //! the terminal `agent.completed` / `agent.stopped` / `agent.error` handler
 //! has finished posting its final activity. While the gate is closed, all
 //! event-consumer dispatches to `notify_linear_*` are dropped so post-turn
-//! sandbox lifecycle events (`Sandbox(Stopped)`, late tool_results, etc.)
+//! sandbox lifecycle events (`Sandbox(Stopped)`, late `tool_results`, etc.)
 //! never leak into Linear's UI.
 //!
 //! TTL is `60min` — a safety valve for entries that get stuck open after a

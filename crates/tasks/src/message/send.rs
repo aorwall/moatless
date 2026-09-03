@@ -1,4 +1,4 @@
-//! Message sending orchestration — send_message_flow and send_tool_response_flow.
+//! Message sending orchestration — `send_message_flow` and `send_tool_response_flow`.
 
 use std::sync::Arc;
 
@@ -510,7 +510,7 @@ fn restate(
 }
 
 impl MessageSendService {
-    /// Send a tool response (AskUserQuestion / ExitPlanMode).
+    /// Send a tool response (`AskUserQuestion` / `ExitPlanMode`).
     ///
     /// The answer leaves here twice, in two shapes, because two paths read it. The
     /// structured one on `tool_response` is what the sandbox delivers to a run still

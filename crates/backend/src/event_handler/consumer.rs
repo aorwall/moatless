@@ -285,7 +285,6 @@ impl EventHandlerConsumer {
                     _ => continue,
                 };
 
-                // Extract the `payload` field and parse as AgentEvent
                 if let Some(payload_str) = extract_field(fields, "payload") {
                     if let Ok(event) = serde_json::from_str::<AgentEvent>(&payload_str) {
                         // Derived, UI-only `message.*` events are relayed to
@@ -334,7 +333,7 @@ impl EventHandlerConsumer {
 
     /// Idempotent fallback projection of turn state into `task_turns`.
     ///
-    /// The gRPC ingress now writes turn state transactionally *before*
+    /// The gRPC ingress writes turn state transactionally *before*
     /// publishing (see `task_turn::dao::apply_ingress_event`), so by the time
     /// this consumer sees the event the row is almost always already current and
     /// the projection's `WHERE` guards make this a no-op. It stays as a

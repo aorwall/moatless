@@ -257,8 +257,8 @@ enum AuthChoice {
 impl AuthChoice {
     fn from_str(s: &str) -> Result<Self, ClientError> {
         match s.trim().to_ascii_lowercase().as_str() {
-            // `none`/`disabled` are the old spellings of no-auth mode, which
-            // is now local username/password.
+            // `none`/`disabled` also select local username/password: there is
+            // no separate no-auth mode.
             "" | "local" | "password" | "none" | "off" | "disabled" => {
                 Ok(AuthChoice::LocalPassword)
             }
@@ -421,7 +421,7 @@ fn build_values(input: &ValuesInput<'_>) -> serde_json::Value {
             "domain": input.proxy_domain,
             "protocol": "https",
             "traefikIngressRoute": { "enabled": true },
-            // Unconditional: `/verify` now authenticates in every mode, so
+            // Unconditional: `/verify` authenticates in every mode, so
             // gating this would leave preview routes open under local auth.
             "traefikMiddleware": { "enabled": true },
         },

@@ -13,7 +13,7 @@
 /// Authentication mode.
 #[derive(Debug, Clone)]
 pub enum AuthMode {
-    /// Inside a sandbox pod — uses USER_AUTH_TOKEN for session exchange.
+    /// Inside a sandbox pod — uses `USER_AUTH_TOKEN` for session exchange.
     Sandbox {
         user_auth_token: String,
         task_id: Option<String>,
@@ -24,7 +24,7 @@ pub enum AuthMode {
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// API URL. Resolution: MOATLESS_API_URL → BACKEND_API_URL → "https://moatless.dev"
+    /// API URL. Resolution: `MOATLESS_API_URL` → `BACKEND_API_URL` → "<https://moatless.dev>"
     pub api_url: String,
     /// Authentication mode (sandbox vs standalone).
     pub auth_mode: AuthMode,

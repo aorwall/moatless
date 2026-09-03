@@ -11,7 +11,7 @@
 //! vocabulary is bounded by each provider's API so cardinality is safe.
 //!
 //! Cardinality note: number of active loops × connections × adapters ×
-//! outcomes × reasons × event_types. Keep the `reason` vocabulary small
+//! outcomes × reasons × `event_types`. Keep the `reason` vocabulary small
 //! and prune unused loops/connections to avoid runaway series in
 //! Prometheus.
 

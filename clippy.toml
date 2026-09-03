@@ -12,3 +12,12 @@
 disallowed-methods = [
     { path = "moatless_types::access_control::ScopeContext::system", reason = "deliberate access-control bypass — annotate the call with #[allow(clippy::disallowed_methods)] and a // reason: comment (see ScopeContext::system docs)" },
 ]
+
+# Product names and acronym verbs that `doc_markdown` would otherwise ask to
+# backtick. Code names, wire values, and env vars get backticks instead.
+doc-valid-idents = [
+    "..",
+    "OpenAPI", "PostgreSQL", "OTel", "OpenAI", "ChatGPT", "OAuth2", "OpenID",
+    "NVMe", "SQLx", "SELinux", "UUIDv4", "BotFather", "DoS", "SoapLabBot", "CloudWatch",
+    "SIGKILLed", "SIGTERMed", "ACKed", "ACKing",
+]

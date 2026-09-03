@@ -78,7 +78,7 @@ fn codex_test_model() -> Option<String> {
 /// Auth credentials forwarded to the agent subprocess. The coordinator's input
 /// build calls `BackendClient::get_credentials` and OVERWRITES the
 /// in-pod credentials map with the result, so the token must be returned here
-/// (preloading the `credentials` RwLock alone would be clobbered).
+/// (preloading the `credentials` `RwLock` alone would be clobbered).
 /// `filter_agent_credentials` retains both Claude auth keys and the Codex keys
 /// (`OPENAI_API_KEY` / `CODEX_AUTH_JSON`); each executor uses only what it
 /// needs, so returning the superset is harmless for both the Claude and Codex
@@ -351,7 +351,7 @@ fn init_tracing() {
 
 /// Poll until the agent leaves `Running` (turn finished). Completion is
 /// observed via state polling — `AgentHandle` has no completion oneshot. The
-/// actor sets Idle (success) or Idle+last_error (failure) after the SDK
+/// actor sets Idle (success) or `Idle+last_error` (failure) after the SDK
 /// `Result` message.
 async fn wait_until_not_running(agent_state: &AgentState, timeout: Duration, what: &str) {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -455,8 +455,8 @@ async fn run_codex_roundtrip() {
 /// with `resume_session_id`. This exercises the tmux JSONL-discovery resume
 /// path — on `claude --resume <id>` claude appends to the existing
 /// `<id>.jsonl` (no new file), so discovery must target the known transcript
-/// directly instead of waiting for a new file (which previously timed out
-/// with `JsonlNotFound`).
+/// directly instead of waiting for a new file (which times out with
+/// `JsonlNotFound`).
 async fn run_agent_resume(use_tmux: bool) {
     init_tracing();
     let (handle, agent_state, _events, tmp) = spawn_test_agent(use_tmux);
@@ -579,7 +579,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
     handle.stop(StopSource::User);
 }
 
-/// CLI-internal wakeup body (tmux): the agent is told to call ScheduleWakeup
+/// CLI-internal wakeup body (tmux): the agent is told to call `ScheduleWakeup`
 /// with a short delay. In tmux mode the sandbox does NOT arm its own wakeup
 /// job — the CLI's internal timer fires inside the persistent TUI and starts
 /// a turn on its own. The actor must detect that turn and publish a full
@@ -701,8 +701,7 @@ async fn test_spawn_agent_subprocess() {
 /// transcript, must have the *production* Claude harness classify the CLI's
 /// startup failure as `(UnavailableSession, Lost)` — not merely start a fresh
 /// session. The classification is unit-tested in `claude::classify`; this drives
-/// the real binary so the spawn→classify join is exercised end to end, closing
-/// the gap that the three deterministic links were previously disconnected facts.
+/// the real binary so the spawn→classify join is exercised end to end.
 async fn run_missing_session_resume_is_lost() {
     let tmp = TempDir::new().expect("create tempdir");
     for sub in [
@@ -841,7 +840,7 @@ async fn test_multi_turn_agent_tmux() {
     run_agent_multi_turn(true).await;
 }
 
-/// Tmux CLI-internal wakeup: the CLI's own ScheduleWakeup timer fires inside
+/// Tmux CLI-internal wakeup: the CLI's own `ScheduleWakeup` timer fires inside
 /// the persistent TUI and starts a turn with no sandbox send; the coordinator must
 /// surface and complete it.
 #[tokio::test]

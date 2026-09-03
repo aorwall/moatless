@@ -13,35 +13,18 @@
  * - DATA_DIR: /opt/moatless/data (persistent data storage)
  */
 
-/**
- * Sandbox user home directory (standard Linux location)
- */
 export const SANDBOX_HOME = '/home/moatless'
 
-/**
- * Cache directory for Claude CLI and MCP logs (in user home per Linux FHS)
- */
+/** Cache directory for Claude CLI and MCP logs. */
 export const SANDBOX_CACHE_DIR = '/home/moatless/.cache'
 
-/**
- * Claude Code configuration directory (inside /opt/moatless for persistence)
- */
 export const SANDBOX_CLAUDE_CONFIG_DIR = '/opt/moatless/.claude'
 
-/**
- * Repository workspace directory (where code is cloned)
- */
 export const SANDBOX_WORKSPACE_DIR = '/opt/moatless/repo'
 
-/**
- * Data directory for persistent storage
- */
 export const SANDBOX_DATA_DIR = '/opt/moatless/data'
 
-/**
- * Upload directory (legacy - files now downloaded via API)
- * @deprecated Files are now downloaded on-demand via backend API
- */
+/** @deprecated Files are downloaded on demand through the backend API. */
 export const SANDBOX_UPLOAD_DIR = '/opt/moatless/workspace/uploads'
 
 /**
@@ -55,7 +38,4 @@ export const SANDBOX_DOWNLOADS_DIR = '/opt/moatless/downloads'
  */
 export const SANDBOX_PLUGINS_DIR = '/opt/moatless/plugins'
 
-/**
- * Claude binary directory (global installation)
- */
 export const SANDBOX_CLAUDE_EXECUTABLE_PATH = '/usr/local/bin/claude'

@@ -226,8 +226,8 @@ pub struct BackendSandboxServiceImpl {
     /// assembles this service by naming them across the crate boundary.
     pub authorizer: SandboxAuthorizer,
     /// GitHub App service for refreshing expired user access tokens
-    /// (default user-auth App). Convenience handle to
-    /// `github_apps.default_service()`.
+    /// (default user-auth App). See
+    /// [`crate::state::AppState::github_app_service`] for what it aliases.
     pub github_app_service: Option<Arc<GitHubAppService>>,
     /// Registry of all configured GitHub Apps — used to resolve installation
     /// tokens and bot identities for bot-user `provider_tokens` rows.
@@ -477,7 +477,7 @@ impl SandboxAuthorizer {
     }
 
     /// The DB-backed write gate: load the task through the caller's scoped read
-    /// (an invisible task is a plain NotFound, like the HTTP 404), then require
+    /// (an invisible task is a plain `NotFound`, like the HTTP 404), then require
     /// `ctx.can_write` (owner or admin). Public *visibility* grants control —
     /// operating the sandbox — but never write, so the calls behind this gate
     /// (credentials, messages, workspace writes) stay owner-only.
@@ -1450,7 +1450,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     ///
     /// Resolution chain, most-specific first:
     /// 1. Credentials pinned to the task's Workspace.
-    /// 2. User-level provider_tokens.
+    /// 2. User-level `provider_tokens`.
     /// 3. Scoped global/user secrets.
     #[tracing::instrument(
         skip_all,

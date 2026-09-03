@@ -323,7 +323,7 @@ fn is_auth_rejection(mode: PersistMode, code: tonic::Code) -> bool {
 ///
 /// `PermissionDenied` is an authorization decision, in either mode. It does
 /// not change on retry, and a container restart presents the same identity
-/// from the same ReplicaSet, so only fixing the task itself helps.
+/// from the same `ReplicaSet`, so only fixing the task itself helps.
 fn terminal_rejection_reason(_mode: PersistMode, code: tonic::Code) -> Option<&'static str> {
     match code {
         tonic::Code::PermissionDenied => {

@@ -1,7 +1,7 @@
 //! gRPC client wrapper for backend communication.
 //!
-//! Replaces both Redis event publishing and HTTP message polling with
-//! a single gRPC connection to the backend's `BackendSandboxService`.
+//! A single gRPC connection to the backend's `BackendSandboxService` carries
+//! event publishing and message polling.
 //! Includes an auth interceptor that injects `authorization: Bearer <token>`
 //! metadata on every outbound call.
 
@@ -83,7 +83,7 @@ pub trait BackendClient: Send + Sync {
 
     /// Fetch the bytes of an uploaded file by `file_id`. Used by the agent
     /// pre-fetch path to land attached files on disk before invoking the
-    /// agent. Backend-side scope-checks the file_id against this task.
+    /// agent. Backend-side scope-checks the `file_id` against this task.
     ///
     /// The bytes arrive as a chunk stream and are reassembled here, so the
     /// upload's size is bounded by the sandbox's memory rather than by any

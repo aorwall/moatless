@@ -1,7 +1,7 @@
 //! Authentication and user management module.
 //!
 //! Handles login flows (local email/password, GitHub App, Auth0, OIDC),
-//! session management, API key management, and Traefik ForwardAuth verification.
+//! session management, API key management, and Traefik `ForwardAuth` verification.
 
 pub mod api_key;
 pub mod api_keys;

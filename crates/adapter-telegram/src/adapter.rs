@@ -33,17 +33,15 @@ pub struct TelegramAdapter {
     adapter_delivery: Option<Arc<dyn DeliveryAdmission>>,
 }
 
-/// The internal error for an ingress port read on an adapter that never
-/// received one — a composition-root bug, not a request fault.
+/// The internal error for an ingress port `TelegramAdapter` never received: a
+/// composition-root bug, not a request fault.
 fn missing_port(name: &str) -> AdapterError {
     SharedAdapterError::Internal(format!("Telegram adapter missing {name} port")).into()
 }
 
 impl TelegramAdapter {
-    /// Register this adapter's capabilities into `adapters`.
-    ///
-    /// Construction lives at the composition root; the provider owns the
-    /// mapping from itself to the capability surfaces it implements.
+    /// Register `TelegramAdapter`'s capabilities into `adapters`. See
+    /// [`moatless_loops::adapters::Adapters`].
     pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         let kind = AdapterKind::Telegram;
         adapters.register_trait_object(self.clone());

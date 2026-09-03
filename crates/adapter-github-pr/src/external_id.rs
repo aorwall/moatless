@@ -91,12 +91,12 @@ pub(super) fn pr_merged(subject: &GithubPrSubject) -> String {
     pr_event("merged", subject, None)
 }
 
-/// `github:cr:<id>` - check_run completion.
+/// `github:cr:<id>` - `check_run` completion.
 pub(super) fn check_run(id: u64) -> String {
     format!("github:cr:{id}")
 }
 
-/// `github:cs:<id>` - check_suite completion.
+/// `github:cs:<id>` - `check_suite` completion.
 pub(super) fn check_suite(id: u64) -> String {
     format!("github:cs:{id}")
 }

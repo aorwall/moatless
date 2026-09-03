@@ -56,10 +56,8 @@ type BindingPorts = (
 );
 
 impl GithubPrAdapter {
-    /// Register this adapter's capabilities into `adapters`.
-    ///
-    /// Construction lives at the composition root; the provider owns the
-    /// mapping from itself to the capability surfaces it implements.
+    /// Register `GithubPrAdapter`'s capabilities into `adapters`. See
+    /// [`moatless_loops::adapters::Adapters`].
     pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         let kind = AdapterKind::GithubPr;
         adapters.register_trait_object(self.clone());

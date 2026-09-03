@@ -78,7 +78,7 @@ pub struct Ports {
 
     pub tasks: Arc<dyn TaskDao>,
     /// E-(b) session-gate port: the one `may_access_task` bool the auth
-    /// ForwardAuth gate needs, over `TaskDao`, so identity holds no `task` import.
+    /// `ForwardAuth` gate needs, over `TaskDao`, so identity holds no `task` import.
     pub task_access: Arc<dyn crate::extractors::TaskAccess>,
     pub task_relations: Arc<dyn TaskRelationDao>,
     /// Where a fork's first turn branches from. Read by the creation service

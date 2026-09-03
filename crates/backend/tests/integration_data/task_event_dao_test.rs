@@ -5,7 +5,7 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! Integration tests for task_event_dao — requires `DATABASE_URL` and
+//! Integration tests for `task_event_dao` — requires `DATABASE_URL` and
 //! `--features db-tests`. Covers the stop fan-out dedupe query that
 //! `handle_agent_stopped` guards on.
 

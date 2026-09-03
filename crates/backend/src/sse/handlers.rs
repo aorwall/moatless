@@ -215,7 +215,7 @@ pub(crate) async fn sse_handler(
 /// History is served from Postgres — not Redis `XRANGE` — because the Redis
 /// stream is trimmed by `MAXLEN` and expires after a 72h TTL, silently
 /// truncating older history. Every event is durably persisted to `task_events`
-/// by the event_handler consumer, so Postgres is the complete source of truth.
+/// by the `event_handler` consumer, so Postgres is the complete source of truth.
 /// Redis is kept strictly for the live SSE tail (`/api/v1/events/stream`).
 ///
 /// **Seam with the live tail:** the frontend loads this page first, then opens

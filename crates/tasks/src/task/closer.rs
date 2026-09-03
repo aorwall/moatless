@@ -59,7 +59,7 @@ pub struct CloseEvent {
 }
 
 impl CloseEvent {
-    /// The neutral close event: the task's own agent_type, empty payload — byte
+    /// The neutral close event: the task's own `agent_type`, empty payload — byte
     /// for byte what every close published before the enriched entry existed.
     /// Every non-provider close uses this.
     pub fn neutral() -> Self {

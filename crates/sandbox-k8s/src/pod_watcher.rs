@@ -8,7 +8,7 @@
 //!
 //! Only the leader replica runs the watcher (via K8s Lease election).
 //!
-//! Pod states are keyed by **pod_name** (not task_id) so that during rolling
+//! Pod states are keyed by **`pod_name`** (not `task_id`) so that during rolling
 //! updates the old terminating pod and the new starting pod are tracked
 //! independently. Delete events for old pods check for surviving siblings
 //! before publishing `pod_deleted` / setting `NotCreated`.
@@ -79,7 +79,7 @@ pub(super) const SCHEDULING_BLOCKED_THRESHOLD_SECS: i64 = 60;
 /// image-pull window (e.g. EBS RWO Multi-Attach) a first-class event.
 pub(super) const STARTUP_SLOW_THRESHOLD_SECS: i64 = 120;
 
-/// Exit code used by the sandbox to signal a permanent init failure (sysexits EX_CONFIG).
+/// Exit code used by the sandbox to signal a permanent init failure (sysexits `EX_CONFIG`).
 const PERMANENT_FAILURE_EXIT_CODE: i32 = 78;
 
 /// Observed state of a server container, used for transition detection.
@@ -121,7 +121,7 @@ pub(super) struct PodObservedState {
     /// Server container snapshots (excludes sandbox container).
     pub(super) server_containers: Vec<ServerContainerState>,
     /// Whether a fatal event has already been published for this pod.
-    /// Suppresses repeated fatal events during CrashLoopBackOff.
+    /// Suppresses repeated fatal events during `CrashLoopBackOff`.
     pub(super) fatal_published: bool,
     /// Server names already reported as crash-looping during this pod's
     /// lifecycle. Fire-once guard so the watcher publishes one `Failed` event
@@ -180,7 +180,7 @@ pub(super) struct PodObservedState {
     pub(super) auto_stop_pending: bool,
     /// Sandbox status most recently published from this pod's lifecycle
     /// transitions, carried across Apply events. Used to suppress consecutive
-    /// identical publishes from the high-frequency container sub_types
+    /// identical publishes from the high-frequency container `sub_types`
     /// (restart/crash-loop/terminated), which otherwise fire once per K8s
     /// watch Apply while a container flaps. Watcher restart resets this —
     /// acceptable (one extra event per pod after failover).
@@ -354,7 +354,7 @@ async fn run_pod_watch(
     }
 }
 
-/// Return sibling pod states for a given task_id, excluding a specific pod.
+/// Return sibling pod states for a given `task_id`, excluding a specific pod.
 fn sibling_pods_for_task<'a>(
     pod_states: &'a HashMap<String, PodObservedState>,
     task_id: &str,
@@ -753,10 +753,10 @@ async fn process_watcher_event(
                 let exit_code = new_state.effective_exit_code();
                 let terminated_reason = new_state.effective_terminated_reason();
 
-                // Fetch container logs for root cause. Previously logs were only
-                // captured for exit-78 and the crash-restart threshold, so a
-                // one-off fatal pod failure (e.g. the agent container terminating
-                // with reason "Error" mid-turn) left no trace.
+                // Fetch container logs for root cause on every fatal pod failure —
+                // narrowing this to only exit-78 and the crash-restart threshold
+                // would leave a one-off failure (e.g. the agent container
+                // terminating with reason "Error" mid-turn) with no trace.
                 let logs = fetch_sandbox_logs(k8s, &pod_name, 50).await;
 
                 metrics::counter!(
@@ -1810,7 +1810,7 @@ pub(super) const FAILED_POD_GC_GRACE_MS: i64 = 15 * 60 * 1000;
 /// Delete pods stuck in the terminal `Failed` phase past the grace period.
 ///
 /// Evicted pods (emptyDir sizeLimit exceeded, node pressure) stay `Failed`
-/// forever unless something deletes them. The ReplicaSet has already replaced
+/// forever unless something deletes them. The `ReplicaSet` has already replaced
 /// them, so they are pure corpses — but they still match the task's label
 /// selector, clutter the sandbox view, and pin logs on the node. Runs on the
 /// watcher's renew tick (leader-only). The resulting `Delete` watch event
@@ -1887,7 +1887,7 @@ async fn retry_pending_auto_stops(
 /// Generate a human-readable message for a server container event.
 ///
 /// Since `server_name` and `status` are separate fields, this returns only
-/// the contextual detail (e.g. "ContainerCreating", "Out of memory (limit: 1536Mi)").
+/// the contextual detail (e.g. "`ContainerCreating`", "Out of memory (limit: 1536Mi)").
 fn format_server_message(sc: Option<&ServerContainerState>) -> String {
     let sc = match sc {
         Some(s) => s,
@@ -2136,7 +2136,7 @@ mod tests {
 
     /// A remove deletes the Deployment before the pod's exit-0 event arrives, so
     /// "confirming" a scale-to-0 here would patch a Deployment that is already
-    /// gone and log a spurious NotFound warning.
+    /// gone and log a spurious `NotFound` warning.
     #[test]
     fn clean_exit_after_remove_leaves_the_deleted_deployment_alone() {
         assert_eq!(

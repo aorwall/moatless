@@ -52,13 +52,13 @@ pub struct ResourceMetrics {
 
 /// A provider-agnostic runtime event associated with a sandbox.
 ///
-/// In K8s mode, these are sourced from K8s Event objects (FailedScheduling,
-/// BackOff, Pulling, etc.). Docker mode can populate from `docker events`.
+/// In K8s mode, these are sourced from K8s Event objects (`FailedScheduling`,
+/// `BackOff`, Pulling, etc.). Docker mode can populate from `docker events`.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeEvent {
-    /// Event reason (e.g. "BackOff", "FailedScheduling", "Pulling", "OOMKilled")
+    /// Event reason (e.g. "`BackOff`", "`FailedScheduling`", "Pulling", "`OOMKilled`")
     pub reason: String,
     /// Human-readable message
     pub message: String,
@@ -176,7 +176,7 @@ pub struct ManagedCommand {
     pub finished_at_unix_ms: i64,
 }
 
-/// Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)
+/// Full sandbox status response to frontend (matches TS `SandboxStatusFullResponse`)
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

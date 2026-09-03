@@ -1,13 +1,13 @@
 /**
  * Pure scroll-position logic for the message history.
  *
- * The message list has historically raced: stick-to-bottom, the previous-page
- * fetch trigger with its re-arm workaround, and the scroll-down button all
- * derive from the scroll container's geometry, and the trickiest bugs came from
- * getting that arithmetic subtly wrong under SSE-driven re-renders. Extracting
- * the decisions here makes them independently unit-testable (jsdom can't measure
- * real layout, so the component wires these to real metrics and E2E covers the
- * DOM side) and is the regression net for the planned virtualization migration.
+ * Stick-to-bottom, the previous-page fetch trigger with its re-arm workaround,
+ * and the scroll-down button all derive from the scroll container's geometry,
+ * and getting that arithmetic subtly wrong races under SSE-driven re-renders.
+ * Extracting the decisions here makes them independently unit-testable (jsdom
+ * can't measure real layout, so the component wires these to real metrics and
+ * E2E covers the DOM side) and is the regression net for the planned
+ * virtualization migration.
  */
 
 /** How close to the top (in px) before we trigger a previous-page fetch. */

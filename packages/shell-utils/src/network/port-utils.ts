@@ -1,8 +1,5 @@
 import * as net from 'node:net'
 
-/**
- * Try to connect to a host:port to check availability
- */
 function tryConnect(
   host: string,
   port: number,
@@ -31,8 +28,7 @@ function tryConnect(
 }
 
 /**
- * Checks if a port is available (not in use)
- * Tests both IPv4 and IPv6 loopback addresses
+ * Tests both IPv4 and IPv6 loopback addresses.
  */
 export async function isPortAvailable(port: number, timeoutMs = 200): Promise<boolean> {
   // Check IPv4 and IPv6 loopback
@@ -56,8 +52,7 @@ export async function isPortAvailable(port: number, timeoutMs = 200): Promise<bo
 }
 
 /**
- * Finds an available port in the ephemeral port range (49152-65535)
- * Uses random selection to minimize conflicts when called in parallel
+ * Uses random selection to minimize conflicts when called in parallel.
  */
 export async function getPort(): Promise<number> {
   const MIN_PORT = 49_152 // IANA ephemeral port range start
@@ -76,9 +71,6 @@ export async function getPort(): Promise<number> {
   throw new Error(`Could not find available port after ${maxAttempts} attempts`)
 }
 
-/**
- * Finds any available port using the OS
- */
 export function findAnyAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = net.createServer()
@@ -93,9 +85,6 @@ export function findAnyAvailablePort(): Promise<number> {
   })
 }
 
-/**
- * Pings a port to check if it's responsive
- */
 export function pingPort(port: number, timeout = 1000): Promise<boolean> {
   return new Promise((resolve) => {
     const client = new net.Socket()
@@ -119,18 +108,12 @@ export function pingPort(port: number, timeout = 1000): Promise<boolean> {
   })
 }
 
-/**
- * Optional callback for port waiting progress
- */
 export interface PortWaitCallbacks {
   onWaiting?: (port: number) => void
   onReady?: (port: number, elapsedMs: number) => void
   onTimeout?: (port: number, maxWaitMs: number) => void
 }
 
-/**
- * Waits for a port to become available/responsive
- */
 export async function waitForPort(
   port: number,
   maxWait = 10_000,

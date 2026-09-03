@@ -219,9 +219,8 @@ mod tests {
 
     // -- DM policy tests --
     //
-    // These call the policy now. Before the decision was split from the pairing
-    // write they could only assert the config they were given back, because
-    // reaching the function meant a database and a Bot API client.
+    // These call the policy directly: reaching it needs no database or Bot API
+    // client.
 
     fn decide(cfg: &TelegramAdapterConfig, from_id: i64) -> DmDecision {
         enforce_dm_access(&DmSender {

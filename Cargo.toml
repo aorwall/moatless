@@ -77,8 +77,6 @@ needless_pass_by_value = "allow"
 too_many_lines = "allow"
 # SQL strings use r#"..."# for readability even when hashes aren't required
 needless_raw_string_hashes = "allow"
-# Doc comments in this codebase don't backtick-quote every identifier
-doc_markdown = "allow"
 # HashMap<String, _> is idiomatic; requiring &str generics adds noise
 implicit_hasher = "allow"
 # Wildcards in `use super::schemas::*` are intentional in handler modules

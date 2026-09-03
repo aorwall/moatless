@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Deserialize)]
 pub struct LinearWebhookEnvelope {
     /// `"create"` | `"update"` | `"remove"` for Issue payloads.
-    /// `"created"` | `"prompted"` for AgentSessionEvent payloads.
+    /// `"created"` | `"prompted"` for `AgentSessionEvent` payloads.
     #[serde(default)]
     pub action: String,
 
@@ -41,7 +41,7 @@ pub struct LinearWebhookEnvelope {
     pub event_type: String,
 
     /// Workspace identifier — used to route webhooks to the right
-    /// adapter_connections row.
+    /// `adapter_connections` row.
     #[serde(default, rename = "organizationId")]
     pub organization_id: Option<String>,
 
@@ -79,7 +79,7 @@ pub struct LinearWebhookEnvelope {
     #[serde(default, rename = "agentActivity")]
     pub agent_activity: Option<AgentActivityPayload>,
 
-    /// AppUserNotification payload (Linear OAuth-app inbox stream). Not under
+    /// `AppUserNotification` payload (Linear OAuth-app inbox stream). Not under
     /// `data` — Linear places it at the envelope's top level.
     #[serde(default)]
     pub notification: Option<serde_json::Value>,

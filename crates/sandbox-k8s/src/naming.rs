@@ -39,7 +39,7 @@ pub fn generate_service_name(task_id: &str) -> String {
     truncate_k8s(format!("moatless-ws-{sanitized}"))
 }
 
-/// Build a valid Traefik IngressRoute name from a (pre-sanitized) service name
+/// Build a valid Traefik `IngressRoute` name from a (pre-sanitized) service name
 /// and a user-supplied server name.
 ///
 /// The server name comes straight from repo config and may contain arbitrary or
@@ -54,7 +54,7 @@ pub(crate) fn generate_ingress_route_name(service_name: &str, server_name: &str)
     truncated.trim_end_matches('-').to_string()
 }
 
-/// Generate the deterministic per-task preview NetworkPolicy name.
+/// Generate the deterministic per-task preview `NetworkPolicy` name.
 ///
 /// Format: `moatless-ws-{sanitized_task_id}-preview-ingress` (max 63 chars).
 /// The task id is truncated to fit the fixed prefix/suffix, so the name never

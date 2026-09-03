@@ -48,8 +48,9 @@ export interface UseTaskInputsReturn {
 /**
  * Consolidated hook for managing task input state: file uploads and context items.
  *
- * This hook eliminates duplication across task creation components by providing a single
- * source of truth for all file/context management logic.
+ * Owns `uploadedFiles`, `contextItems`, and `selectedSkills` together, so `clearAll`
+ * resets all three after a send. A component that tracks any of them separately
+ * falls out of sync with the others on send or reset.
  *
  * @example
  * ```tsx

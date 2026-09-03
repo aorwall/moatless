@@ -7,7 +7,7 @@
 //! Agents API client to post `agentActivity` / `agentSessionUpdate`.
 //!
 //! This struct implements `OAuthProvider` for consistency with the existing
-//! OAuthProviders registry. `generate_auth_url` + `exchange_code_for_tokens`
+//! `OAuthProviders` registry. `generate_auth_url` + `exchange_code_for_tokens`
 //! are the two methods callers need; `get_user_info` returns the viewer
 //! (the authenticated agent identity).
 
@@ -40,8 +40,8 @@ pub struct LinearOAuthProvider {
 }
 
 impl LinearOAuthProvider {
-    /// Build from config. Returns `None` when client_id / client_secret /
-    /// callback_url are not set.
+    /// Build from config. Returns `None` when `client_id` / `client_secret` /
+    /// `callback_url` are not set.
     pub fn from_config(config: &Config) -> Option<Self> {
         let client_id = config.linear.oauth_client_id.clone()?;
         let client_secret = config.linear.oauth_client_secret.clone()?;

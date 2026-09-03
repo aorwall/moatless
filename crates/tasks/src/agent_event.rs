@@ -22,7 +22,7 @@ pub enum EventKey {
     TaskTurn(TaskTurnSubType),
     Sandbox(SandboxStatus),
     Server(ServerSubType),
-    /// Unrecognised event_type + sub_type pair.
+    /// Unrecognised `event_type` + `sub_type` pair.
     Unknown(String, String),
 }
 

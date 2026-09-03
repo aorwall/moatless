@@ -42,8 +42,7 @@ use moatless_types::repository::Repository;
 /// `Arc` clones.
 #[derive(Clone)]
 pub struct PreflightCredentials {
-    /// The one way to a git-host token. Replaces the five credential ports
-    /// this struct used to thread.
+    /// The one way to a git-host token.
     pub git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     pub users: Arc<dyn CommitIdentity>,
     /// Read for the Workspace's run-as identity, which outranks the task's own

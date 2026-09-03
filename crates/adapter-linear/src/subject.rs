@@ -33,9 +33,6 @@ pub(super) const SUBJECT_KIND_SESSION: &str = "linear_agent_session";
 /// The two shapes differ only in which key they filter on, which is why they
 /// are one lookup with a parameter rather than two: everything else about them
 /// — the adapter, the subject kinds, the pending guard — has to stay in step.
-/// It used to be spelled out twice, once inside a function about closing tasks
-/// and once inside one about emitting activities (defect D5), so a rename had
-/// to find both.
 pub(super) enum BindingScope<'a> {
     /// Every Binding of either subject kind pointing at this issue. Used by the
     /// close path, which must consider a task bound through a session and a

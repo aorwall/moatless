@@ -140,7 +140,7 @@ async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
 
 /// Only the rows a batch names are read.
 ///
-/// Every change now describes the row it names, so a batch is read as exactly
+/// Every change describes the row it names, so a batch is read as exactly
 /// those rows — no lookback, and no row dragged along for context.
 #[sqlx::test]
 async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
@@ -343,9 +343,8 @@ async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPoo
 /// by that name.
 ///
 /// A context-window reading is the live case that already ships: it is written
-/// through the standalone path, and until the change named it a subscriber only
-/// saw the meter move on a full re-read. The change now carries the activity id,
-/// and `changed_messages` reads the row by it.
+/// through the standalone path. The change carries the activity id, and
+/// `changed_messages` reads the row by it.
 #[sqlx::test]
 async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: PgPool) {
     seed_task(&pool).await;

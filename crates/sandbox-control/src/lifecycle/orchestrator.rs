@@ -1307,11 +1307,11 @@ impl core_sandbox::SandboxStopper for Lifecycle {
     }
 }
 
-/// Classify a `LifecycleError` for the tasks-band lifecycle port. This is the
-/// `LifecycleError -> TaskError` mapping the tasks band used to own, moved to the
-/// implementation side so the tasks band names no lifecycle error: the three
-/// client-visible outcomes (404 / 400 / 409) keep their shape and everything
-/// else is an internal failure with its rendered chain intact. Unlike the T3
+/// Classify a `LifecycleError` for the tasks-band lifecycle port: the
+/// `LifecycleError -> TaskError` mapping, so the tasks band names no lifecycle
+/// error. The three client-visible outcomes (404 / 400 / 409) keep their shape
+/// and everything else is an internal failure with its rendered chain intact.
+/// Unlike the T3
 /// contract's `SandboxError`, `SandboxOpError` has an `InProgress` variant, so
 /// lock contention stays a 409 rather than flattening to a 500.
 fn op_error(e: LifecycleError) -> SandboxOpError {

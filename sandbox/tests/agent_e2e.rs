@@ -14,11 +14,11 @@
 //! They spawn the real `claude` CLI and make actual API calls.
 //!
 //! Run all E2E tests:
-//!   CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
+//!   `CLAUDE_SDK_E2E=1` cargo test -p moatless-sandbox --test `agent_e2e` -- --ignored --nocapture
 //!
 //! Requirements (for tests 2–5):
 //! - `claude` CLI installed and on PATH
-//! - Valid ANTHROPIC_API_KEY in environment
+//! - Valid `ANTHROPIC_API_KEY` in environment
 //! - Each test costs ~$0.01-0.05 in API usage
 
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(90);
 /// Cheapest, fastest model for E2E tests.
 const TEST_MODEL: &str = "claude-haiku-4-5-20251001";
 
-/// Skip test unless CLAUDE_SDK_E2E=1 is set.
+/// Skip test unless `CLAUDE_SDK_E2E=1` is set.
 macro_rules! skip_unless_e2e {
     () => {
         if std::env::var("CLAUDE_SDK_E2E").as_deref() != Ok("1") {
@@ -117,7 +117,7 @@ fn extract_result_text(messages: &[SdkMessage]) -> Option<String> {
     })
 }
 
-/// Poll AgentState until `has_pending_prompt()` returns true, with timeout.
+/// Poll `AgentState` until `has_pending_prompt()` returns true, with timeout.
 async fn wait_for_pending_prompt(state: &AgentState, timeout: Duration) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {

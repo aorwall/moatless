@@ -233,7 +233,7 @@ export function Preview({
     // Don't reset isInspectorAvailable - it will be updated when the script
     // sends the INSPECTOR_AVAILABILITY message. Resetting here causes race conditions.
 
-    // Script injection is now handled server-side to avoid cross-origin issues
+    // Script injection is handled server-side to avoid cross-origin issues
     // The preview environment service automatically injects the inspector script
     // into the HTML files before serving them
   }

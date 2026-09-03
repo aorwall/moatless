@@ -30,9 +30,9 @@ use moatless_adapter_model::registry::Adapters;
 pub struct WebhookPayload {
     /// Message text (required).
     pub text: String,
-    /// Thread ID for routing (maps to thread_id in InboundMessage).
+    /// Thread ID for routing (maps to `thread_id` in [`InboundMessage`]).
     pub thread_id: Option<String>,
-    /// User identity override (defaults to config's default user_id).
+    /// User identity override (defaults to config's default `user_id`).
     pub user_id: Option<String>,
     /// Arbitrary metadata stored in thread properties.
     #[schema(value_type = Option<Object>)]
@@ -101,7 +101,8 @@ pub(crate) struct WebhookDelivery {
 pub struct WebhookAdapter;
 
 impl WebhookAdapter {
-    /// Register this adapter's capabilities into `adapters`.
+    /// Register `WebhookAdapter`'s capabilities into `adapters`. See
+    /// [`moatless_loops::adapters::Adapters`].
     ///
     /// The Webhook adapter has no concrete-only methods, so no handler needs a
     /// concrete handle to it: it has no `ProviderHandles` entry and lives only

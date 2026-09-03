@@ -82,10 +82,9 @@ pub fn is_script_icon(icon: &str) -> bool {
 ///
 /// A conversation's checkout lives in its own Sandbox, at the sandbox image's
 /// `WORKSPACE_DIR` — the same string for every conversation, because it is a
-/// property of the image rather than of the Task. That was reported verbatim
-/// while this path was only ever displayed.
+/// property of the image rather than of the Task.
 ///
-/// It is now an identity as well. The client sends a thread's `worktreePath`
+/// This path also doubles as an identity. The client sends a thread's `worktreePath`
 /// back as the `cwd` of every workspace-file request it makes for that thread
 /// (`ChatView.tsx`: `activeThread.worktreePath ?? activeProject.workspaceRoot`),
 /// so one shared string would name every conversation's files at once and

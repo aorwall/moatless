@@ -3,7 +3,7 @@
 //! A repository can declare workspaces in its git tree: the default form is
 //! `.moatless/workspaces.json` (a list of workspaces, each with its own
 //! run-config and explicit repository URL(s)); the legacy form is
-//! `.moatless/config.json` (a single workspace's run-config). Both reconcile
+//! [`fetch_moatless_config`] (a single workspace's run-config). Both reconcile
 //! into `workspaces` rows flagged `source = 'git'`, keyed by
 //! `(source_repository_id, source_key)`, so reconciliation never touches
 //! manually-created workspaces. This mirrors `loops/sync.rs`.
@@ -60,12 +60,12 @@ pub struct MoatlessRepoConfig {
     pub scripts: Option<Vec<ScriptConfig>>,
     pub system_prompt: Option<String>,
     pub resources: Option<ResourceConfig>,
-    /// Per-repo Kubernetes ServiceAccount for this repo's sandboxes. Overrides the
+    /// Per-repo Kubernetes `ServiceAccount` for this repo's sandboxes. Overrides the
     /// global default. Security: the named SA must exist and be RBAC-bound in the
     /// sandbox namespace — this field only selects it, it grants nothing on its own.
     pub sandbox_service_account: Option<String>,
     /// Per-repo network profile — pods carry `moatless.io/network-profile=<value>`
-    /// for a static NetworkPolicy to select. Selects a policy; grants nothing.
+    /// for a static `NetworkPolicy` to select. Selects a policy; grants nothing.
     pub network_profile: Option<String>,
 }
 
@@ -123,7 +123,8 @@ pub struct MoatlessWorkspaceRepoRef {
 
 /// Fetch `.moatless/config.json` from a remote repository.
 ///
-/// Returns `Ok(None)` when the file does not exist (HTTP 404).
+/// This is the legacy single-workspace declaration form; `.moatless/workspaces.json`
+/// is the default. Returns `Ok(None)` when the file does not exist (HTTP 404).
 /// Token is optional — GitHub public repos can be fetched without auth.
 pub async fn fetch_moatless_config(
     remote_url: &str,
@@ -145,8 +146,8 @@ pub async fn fetch_moatless_config(
 /// Fetch and parse `.moatless/workspaces.json` from a remote repository.
 ///
 /// Returns `Ok(None)` when the file does not exist. This is the default
-/// (non-legacy) workspace declaration form; `.moatless/config.json` remains the
-/// legacy single-workspace form.
+/// (non-legacy) workspace declaration form; see [`fetch_moatless_config`] for
+/// the legacy single-workspace form.
 pub async fn fetch_moatless_workspaces(
     remote_url: &str,
     branch: Option<&str>,
@@ -174,8 +175,8 @@ pub async fn fetch_moatless_workspaces(
 // Sync service
 // =============================================================================
 
-/// The deterministic `source_key` for the legacy single `.moatless/config.json`
-/// workspace, which flags a repo's existing shadow workspace in place.
+/// The deterministic `source_key` for the [`fetch_moatless_config`] workspace,
+/// which flags a repo's existing shadow workspace in place.
 const CONFIG_JSON_KEY: &str = "__config_json__";
 
 /// Whether a sync reclaims workspaces that were manually overridden.
@@ -854,7 +855,7 @@ impl GitSyncService {
     }
 }
 
-/// Slugify a workspace name into a stable-ish source_key (used when no explicit
+/// Slugify a workspace name into a stable-ish `source_key` (used when no explicit
 /// `key` is set): lowercase, non-alphanumerics collapsed to single `-`.
 fn slugify(name: &str) -> String {
     let mut out = String::with_capacity(name.len());

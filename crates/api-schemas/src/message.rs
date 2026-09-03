@@ -91,7 +91,7 @@ pub struct UiMessageExternalSource {
     pub external_label: Option<String>,
 }
 
-/// Status of a spawned subagent, derived from the outer `Agent` tool_result:
+/// Status of a spawned subagent, derived from the outer `Agent` `tool_result`:
 /// present + `is_error` → `Error`; present → `Completed`; absent → `Running`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -104,7 +104,7 @@ pub enum SubagentStatus {
 
 impl SubagentStatus {
     /// The single rule for subagent status, derived from the outer `Agent`
-    /// tool_result: present + `is_error` → `Error`; present → `Completed`;
+    /// `tool_result`: present + `is_error` → `Error`; present → `Completed`;
     /// absent → `Running`. Shared by the read path and the live progress event
     /// so the collapsed card has one source of truth.
     pub fn from_outer_result(present: bool, is_error: bool) -> Self {
@@ -174,7 +174,7 @@ pub struct UiToolResult {
     pub tool_use_id: String,
     pub content: Option<String>,
     pub is_error: Option<bool>,
-    /// Typed tool result from SDK (e.g., BashToolUseResult, ReadToolUseResult).
+    /// Typed tool result from SDK (e.g., `BashToolUseResult`, `ReadToolUseResult`).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub typed_result: Option<serde_json::Value>,
@@ -313,7 +313,7 @@ pub struct AllowedPrompt {
     pub prompt: String,
 }
 
-/// Input payload for the AskUserQuestion tool.
+/// Input payload for the `AskUserQuestion` tool.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -321,7 +321,7 @@ pub struct AskUserQuestionInput {
     pub questions: Vec<Question>,
 }
 
-/// Input payload for the ExitPlanMode tool.
+/// Input payload for the `ExitPlanMode` tool.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -386,7 +386,7 @@ pub struct SendMessageResponse {
 // Reactions
 // =========================================================================
 
-/// Request body for POST /api/v1/messages/{message_id}/reactions.
+/// Request body for POST `/api/v1/messages/{message_id}/reactions`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -411,7 +411,7 @@ pub struct MessageReactionResponse {
 // Replies to individual messages
 // =========================================================================
 
-/// Request body for POST /api/v1/messages/{message_id}/reply.
+/// Request body for POST `/api/v1/messages/{message_id}/reply`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

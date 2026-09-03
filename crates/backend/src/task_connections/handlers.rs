@@ -397,7 +397,7 @@ fn group_bindings_by_task(bindings: &[TaskBinding]) -> HashMap<&str, Vec<&TaskBi
 }
 
 /// Attribute message counts to bindings. Exact `subject_key` match wins;
-/// counts whose subject_key matches no binding fall back to a per-adapter
+/// counts whose `subject_key` matches no binding fall back to a per-adapter
 /// bucket, applied only when that adapter has a single binding on the task.
 fn match_counts(
     task_bindings: &[&TaskBinding],

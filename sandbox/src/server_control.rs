@@ -217,8 +217,8 @@ async fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
 
 /// Override values are configuration rather than secrets, but they can carry a
 /// token a user pasted in, so they get the same `0600` treatment as
-/// `server.env`. Worth more here than it was on the data volume: this file now
-/// rides the workspace, which the `s3` tier tars and uploads.
+/// `server.env`. That matters here: this file rides the workspace, which the
+/// `s3` tier tars and uploads.
 async fn set_owner_only_perms(path: &Path) {
     #[cfg(unix)]
     {
@@ -406,7 +406,7 @@ mod tests {
         assert_eq!(apply(&dir, "dev", &ov, true).await.unwrap(), 2);
     }
 
-    /// The disk is the record now, so a written override has to survive a
+    /// The disk is the record, so a written override has to survive a
     /// round-trip exactly — this is what `servers list` reports.
     #[tokio::test]
     async fn read_all_round_trips_what_apply_wrote() {

@@ -35,7 +35,7 @@ pub enum SecretsCommand {
     Put(PutArgs),
     /// Delete a secret by scope + key.
     Delete(DeleteArgs),
-    /// Migrate secret-like repository env_vars into the scoped secrets table.
+    /// Migrate secret-like repository `env_vars` into the scoped secrets table.
     MigrateRepoEnvVars(MigrateArgs),
 }
 

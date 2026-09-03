@@ -9,7 +9,6 @@ import { expect, test } from '../fixtures/ui-fixtures'
 test.describe('Task Creation Flow', () => {
   test('navigate to dashboard and see repository list', async ({ page }) => {
     await page.goto('/')
-    // Dashboard should show some content
     await expect(page.locator('#root')).toBeVisible()
   })
 
@@ -23,7 +22,6 @@ test.describe('Task Creation Flow', () => {
     // Navigate to the task page
     await page.goto(`/tasks/${task.taskId}`)
 
-    // Task page should load
     await expect(page.locator('#root')).toBeVisible()
 
     // Wait for the page content to stabilize
@@ -45,7 +43,6 @@ test.describe('Task Creation Flow', () => {
     await page.goto(`/tasks/${task.taskId}`)
     await page.waitForLoadState('networkidle')
 
-    // The page should show some status information
     await expect(page.locator('#root')).toBeVisible()
 
     // Cleanup

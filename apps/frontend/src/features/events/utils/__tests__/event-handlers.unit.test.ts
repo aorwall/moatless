@@ -186,7 +186,7 @@ describe('event-handlers', () => {
     })
 
     it('should not invalidate the messages key for any event', () => {
-      // Messages refresh now goes through invalidateMessagesForEvent which
+      // Messages refresh goes through invalidateMessagesForEvent which
       // surgically refetches the newest page; no event should invalidate
       // the entire messages infinite query.
       for (const typeMapping of Object.values(EVENT_INVALIDATION_MAP)) {

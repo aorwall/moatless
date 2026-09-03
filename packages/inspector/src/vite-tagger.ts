@@ -8,9 +8,6 @@ import { transformComponentTags } from './tagger/index.js'
  * This plugin adds debugging attributes to JSX/TSX components during development.
  * By default, it only runs in development mode and processes .jsx and .tsx files.
  *
- * @param options - Plugin configuration options
- * @returns Vite plugin
- *
  * @example
  * ```typescript
  * // vite.config.ts

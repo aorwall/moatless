@@ -15,8 +15,7 @@
 //! late `sandbox.stopped`, a trailing tool result — never leak into Linear.
 //!
 //! Both halves of a terminal event live here, in order: emit the final activity,
-//! *then* close the gate. Splitting them across two modules is what previously
-//! let the gate close before the `agent.error` activity was emitted.
+//! *then* close the gate.
 //!
 //! # Best effort
 //!

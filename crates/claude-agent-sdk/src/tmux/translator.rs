@@ -133,7 +133,7 @@ impl TurnAccumulator {
     /// Fold a completed sub-agent's totals into the turn.
     ///
     /// Sub-agent records live in their own transcript files, so their usage
-    /// never reaches [`accumulate`]. The spawning `Task` tool_result carries
+    /// never reaches [`accumulate`]. The spawning `Task` `tool_result` carries
     /// the finished totals on the main stream — in order, exactly once, before
     /// the turn ends — which is what makes this safe to add here.
     ///
@@ -174,13 +174,13 @@ pub(crate) enum Translated {
 }
 
 /// Translate a parsed JSONL value into zero, one, or two `SdkMessage`s.
-/// A finished sub-agent, as reported by the spawning `Task` tool_result.
+/// A finished sub-agent, as reported by the spawning `Task` `tool_result`.
 pub(crate) struct SubagentCompletion {
     pub(crate) agent_id: String,
     pub(crate) tool_use_id: String,
 }
 
-/// Pull the sub-agent link out of a main-transcript `Task` tool_result.
+/// Pull the sub-agent link out of a main-transcript `Task` `tool_result`.
 ///
 /// The record carries `toolUseResult.agentId` alongside a `tool_result` block
 /// whose `tool_use_id` is the call that spawned it — the only place the two

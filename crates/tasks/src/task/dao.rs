@@ -92,7 +92,7 @@ pub struct TaskFilter {
 #[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub trait TaskDao: Send + Sync {
-    /// Find by task_id, scoped to access control.
+    /// Find by `task_id`, scoped to access control.
     async fn find_by_id(
         &self,
         task_id: &str,
@@ -146,7 +146,7 @@ pub trait TaskDao: Send + Sync {
     ) -> Result<String, sqlx::Error>;
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error>;
     /// Update task fields for the caller's scope. Per-field statements embed the
-    /// write_filter so the caller only modifies rows they own. Returns `true`
+    /// `write_filter` so the caller only modifies rows they own. Returns `true`
     /// when at least one field was updated; returns `Ok(true)` when `patch` is
     /// empty (no writes occurred but the caller already read-checked the task,
     /// so the phantom "succeeded" is acceptable — callers that reach here with
@@ -278,7 +278,7 @@ pub trait TaskDao: Send + Sync {
     /// in-flight guard (empty → backend may refresh; non-empty → defer to the
     /// active sandbox watcher) and the rotation broadcast fan-out.
     ///
-    /// `scope_kind` is `"user"` or `"global"`. `scope_id` is the user_id;
+    /// `scope_kind` is `"user"` or `"global"`. `scope_id` is the `user_id`;
     /// ignored for global. Pass `""` for `except_task_id` to disable the
     /// exclusion. Owned `String` params keep `mockall::automock` happy —
     /// `Option<&str>` and `&str` elide lifetimes the macro can't synthesise.
@@ -1428,7 +1428,7 @@ pub struct TaskPatch {
     pub description: Option<String>,
     pub last_message_at: Option<String>,
     pub total_cost_usd: Option<f64>,
-    /// Additive increment to total_cost_usd (uses SQL `total_cost_usd + $N`).
+    /// Additive increment to `total_cost_usd` (uses SQL `total_cost_usd + $N`).
     pub total_cost_usd_increment: Option<f64>,
     pub site_url: Option<String>,
     pub visibility: Option<Visibility>,
@@ -1490,7 +1490,7 @@ pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<String, sqlx::Erro
     store_over(pool).insert_task(row).await
 }
 
-/// Find by task_id scoped to access control (convenience wrapper).
+/// Find by `task_id` scoped to access control (convenience wrapper).
 #[cfg(any(test, feature = "test-support"))]
 pub async fn find_by_id(
     pool: &DbPool,
@@ -1550,7 +1550,7 @@ pub async fn delete_task(
     store_over(pool).delete_task(task_id, ctx).await
 }
 
-/// Check if a task with the given short_id exists (convenience wrapper).
+/// Check if a task with the given `short_id` exists (convenience wrapper).
 #[cfg(any(test, feature = "test-support"))]
 pub async fn exists_by_short_id(pool: &DbPool, short_id: &str) -> Result<bool, sqlx::Error> {
     store_over(pool).exists_by_short_id(short_id).await

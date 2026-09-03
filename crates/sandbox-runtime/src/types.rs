@@ -148,7 +148,7 @@ impl fmt::Display for ObservedStatus {
 }
 
 /// `ArchiveRetention` lives in `task::models` (tasks band): the close, reap, and
-/// delete sites that choose a retention policy are tasks-band and now name it
+/// delete sites that choose a retention policy are tasks-band and name it
 /// intra-band, while the lifecycle store, providers, and reconciler reach it on
 /// the legal downward edge. Re-exported here so `super::types::ArchiveRetention`
 /// and the `lifecycle` module's re-export keep resolving unchanged.

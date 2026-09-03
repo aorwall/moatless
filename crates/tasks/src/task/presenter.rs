@@ -378,7 +378,7 @@ fn relations_to_dtos(rows: Vec<TaskRelation>) -> Vec<TaskRelationDto> {
         .collect()
 }
 
-/// Derive task title: name > description first line > agent_type > "Task".
+/// Derive task title: name > description first line > `agent_type` > "Task".
 fn derive_title(row: &Task) -> String {
     if let Some(ref name) = row.name {
         if !name.is_empty() {

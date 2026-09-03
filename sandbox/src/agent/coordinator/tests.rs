@@ -1554,7 +1554,7 @@ async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
     cancel.cancel();
 }
 
-/// A retryable transient failure (ProcessExit) is not terminal: the service
+/// A retryable transient failure (`ProcessExit`) is not terminal: the service
 /// publishes `retrying`, keeps the Run, and re-drives the same Turn — the
 /// retried attempt completes and the agent ends `Idle`. All events carry the
 /// one Run id (the retry reuses it), proving retry preserves Turn identity.
@@ -1656,8 +1656,8 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
     cancel.cancel();
 }
 
-/// A `ScheduleWakeup` tool_use in a completed Turn's Source blocks arms a wakeup
-/// job on the AGENT_TYPE path; once its (zero) delay elapses the job injects the
+/// A `ScheduleWakeup` `tool_use` in a completed Turn's Source blocks arms a wakeup
+/// job on the `AGENT_TYPE` path; once its (zero) delay elapses the job injects the
 /// scheduled prompt back into the service.
 #[tokio::test]
 async fn coordinator_service_arms_and_fires_scheduled_wakeup() {

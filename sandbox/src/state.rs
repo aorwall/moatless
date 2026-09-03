@@ -45,7 +45,7 @@ pub struct TaskContext {
     pub agent: Arc<AgentState>,
     /// Agent command handle — send messages via `agent_handle.send()`.
     pub agent_handle: AgentHandle,
-    /// Registry of deferred-work jobs (Monitor crons + ScheduleWakeup timers)
+    /// Registry of deferred-work jobs (Monitor crons + `ScheduleWakeup` timers)
     /// spawned by the permission handler / agent lifecycle service.
     pub scheduled_jobs: Arc<ScheduledJobRegistry>,
     /// Commands this task started through `moat cmd`. The only source of
@@ -147,7 +147,7 @@ pub struct SandboxState {
     pub events: GrpcEventPublisher,
     /// Per-task runtime contexts registered in this sandbox process.
     pub task_contexts: Arc<RwLock<HashMap<String, Arc<TaskContext>>>>,
-    /// Serializes task-context materialization so idempotent JoinTask replays
+    /// Serializes task-context materialization so idempotent `JoinTask` replays
     /// cannot race the same isolated checkout directory.
     pub task_context_registration: Arc<Mutex<()>>,
     /// Liveness heartbeat bumped by the agent lifecycle task. Read by the

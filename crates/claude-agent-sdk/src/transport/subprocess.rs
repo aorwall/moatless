@@ -808,7 +808,7 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
     out
 }
 
-/// Format tool input for CanUseTool control requests, showing key fields for well-known tools.
+/// Format tool input for `CanUseTool` control requests, showing key fields for well-known tools.
 fn format_tool_input(tool_name: &str, input: &Map<String, Value>) -> String {
     let key_fields: &[&str] = match tool_name {
         "Bash" => &["command", "description"],
@@ -859,7 +859,7 @@ fn indent(text: &str, prefix: &str) -> String {
         .join("\n")
 }
 
-/// Truncate a string to max_len bytes, appending a note if truncated.
+/// Truncate a string to `max_len` bytes, appending a note if truncated.
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         return s.to_string();

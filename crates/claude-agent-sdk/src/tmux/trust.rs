@@ -1,7 +1,7 @@
 //! Detect the workspace-trust dialog Claude shows in unfamiliar directories.
 //!
 //! Claude's TUI renders "Do you trust the files in this folder?" before the
-//! readline loop comes up. The dialog blocks startup, the SessionStart hook
+//! readline loop comes up. The dialog blocks startup, the `SessionStart` hook
 //! does NOT fire while it's on-screen, and `--dangerously-skip-permissions`
 //! does not suppress it. Default selection is "Yes, I trust this folder"; a
 //! bare Enter accepts.

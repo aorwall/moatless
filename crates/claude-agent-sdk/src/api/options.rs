@@ -87,14 +87,14 @@ pub struct ClaudeOptions {
 
     // -- Hooks --
     /// Hook definitions to register with the CLI in the Initialize request.
-    /// These tell the CLI which events should trigger HookCallback requests.
+    /// These tell the CLI which events should trigger `HookCallback` requests.
     pub hooks: Option<Vec<HookDefinition>>,
 
     // -- Callbacks (runtime only, not serializable) --
     pub stderr_callback: Option<Box<dyn Fn(String) + Send + Sync>>,
     pub can_use_tool: Option<Arc<dyn PermissionHandler>>,
     /// Handler for hook callbacks from the CLI.
-    /// When the CLI sends a HookCallback control request, this handler is invoked
+    /// When the CLI sends a `HookCallback` control request, this handler is invoked
     /// to determine the response. If `None`, hook callbacks are auto-responded
     /// with an empty success (default behavior — continue with no modifications).
     pub hook_handler: Option<Arc<dyn HookHandler>>,

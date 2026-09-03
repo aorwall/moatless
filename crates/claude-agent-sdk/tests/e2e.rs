@@ -26,13 +26,13 @@
 //!   `tmux` binary on PATH.
 //!
 //! Run subprocess E2E:
-//!   CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture
+//!   `CLAUDE_SDK_E2E=1` cargo test -p claude-agent-sdk -- --ignored --nocapture
 //!
 //! Run tmux E2E:
-//!   CLAUDE_TMUX_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture
+//!   `CLAUDE_TMUX_E2E=1` cargo test -p claude-agent-sdk -- --ignored --nocapture
 //!
 //! Run both:
-//!   CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 cargo test -p claude-agent-sdk \
+//!   `CLAUDE_SDK_E2E=1` `CLAUDE_TMUX_E2E=1` cargo test -p claude-agent-sdk \
 //!       -- --ignored --nocapture
 //!
 //! Naming convention:
@@ -44,7 +44,7 @@
 //!
 //! Requirements:
 //! - `claude` CLI installed and on PATH
-//! - Valid ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) in environment
+//! - Valid `ANTHROPIC_API_KEY` (or `CLAUDE_CODE_OAUTH_TOKEN`) in environment
 //! - `tmux` binary on PATH (tmux tests only)
 //! - Each test costs ~$0.01-0.05 in API usage
 
@@ -234,7 +234,7 @@ fn e2e_options_with_cwd(cwd: Option<&Path>) -> ClaudeOptions {
 /// Allocate a fresh, empty directory for use as the test's `cwd`. Each call
 /// returns a unique path under `std::env::temp_dir()`.
 ///
-/// The tmux backend now handles unfamiliar cwds: a watcher dismisses the
+/// The tmux backend handles unfamiliar cwds: a watcher dismisses the
 /// workspace-trust dialog and the Stop hook reports the actual transcript
 /// path (snapshot-diff is a fallback). No need for a stable
 /// `$CARGO_TARGET_DIR/e2e-cwd/` layout.
@@ -1406,7 +1406,7 @@ async fn test_subagent_fields_captured_tmux() {
 // ===========================================================================
 
 /// Reproduces the bug observed in production: an assistant message that
-/// contains BOTH text and a tool_use, where the agent has nothing more to
+/// contains BOTH text and a `tool_use`, where the agent has nothing more to
 /// say after the tool returns. We want to know what the CLI sends in the
 /// final `result` message — is `result.result` populated with the assistant's
 /// text, or is it empty?

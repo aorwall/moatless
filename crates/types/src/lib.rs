@@ -1,42 +1,11 @@
 //! Shared type definitions for Moatless.
 //!
 //! Every type here is pure data: no I/O, no behaviour beyond what the data
-//! itself can answer. The crate depends on `serde`, `serde_json`, `chrono`,
-//! `thiserror`, `tracing`, `url`, `uuid`, and optionally `utoipa`, and on
-//! nothing else — no `sqlx`, no `axum`, no `reqwest`, no `redis`. Crates above
-//! it therefore never rebuild because a transport dependency moved.
+//! itself can answer.
 //!
-//! ## What belongs here
-//!
-//! A type moves in when all three hold:
-//!
-//! - it is pure data;
-//! - three or more crates other than its owner name it;
-//! - neither its body nor its impls name a foreign crate.
-//!
-//! A type named by only one or two neighbours is that subsystem's vocabulary
-//! and stays there. A type whose impls reach a foreign crate — an
-//! `sqlx::FromRow` row, an error with a `#[from] sqlx::Error` variant — stays
-//! with the code that does the I/O.
-//!
-//! ## Domain models and rows
-//!
-//! An entity lives here as its domain model: every field is the value the
-//! codebase reads, not the shape a column has. A timestamp is a
-//! `DateTime<Utc>`, a closed set is its enum, a JSON blob is the type it
-//! decodes to, and a persistence artifact is not a field at all.
-//!
-//! The row that backs it stays in the crate that owns the query, as `XRow`
-//! with the `sqlx::FromRow` derive and a `From`/`TryFrom<XRow> for X` beside
-//! it. That conversion is the one place a column is decoded. Where a decode is
-//! deliberately lenient, say so at the conversion and keep its log.
-//!
-//! ## Where it goes
-//!
-//! The module is the domain, named from `CONTEXT.md`. There is no `config`, no
-//! `error`, no `kind` module, because none of those is a domain. A type sits
-//! with the domain that owns it even when a neighbouring module reads more
-//! obvious; say why in the module doc when it does.
+//! A type moves in when all three hold: it is pure data; three or more
+//! crates other than its owner name it; neither its body nor its impls name
+//! a foreign crate. See `crates/types/AGENTS.md` for the rest.
 
 // Test code asserts a parse succeeded; production code keeps the workspace deny.
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]

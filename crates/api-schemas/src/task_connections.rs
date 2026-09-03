@@ -77,12 +77,12 @@ pub struct Connection {
     pub state_kind: Option<String>,
     /// RFC3339 timestamp of when the status was last refreshed.
     pub status_updated_at: Option<String>,
-    /// GitHub PR review decision: approved | changes_requested |
-    /// review_required | dismissed | commented. `None` for non-PR connections
+    /// GitHub PR review decision: approved | `changes_requested` |
+    /// `review_required` | dismissed | commented. `None` for non-PR connections
     /// or PRs with no review recorded yet.
     pub review_decision: Option<String>,
     /// GitHub PR mergeable state: clean | dirty | blocked | behind | unstable |
-    /// has_hooks | draft. `dirty` means merge conflicts. `None` when not
+    /// `has_hooks` | draft. `dirty` means merge conflicts. `None` when not
     /// computed or not a PR.
     pub mergeable_state: Option<String>,
     /// Inbound message count for this connection.

@@ -60,8 +60,8 @@ pub struct LinearAdapter {
     adapter_delivery: Option<Arc<dyn DeliveryAdmission>>,
 }
 
-/// The internal error for an ingress port read on an adapter that never
-/// received one — a composition-root bug, not a request fault.
+/// The internal error for an ingress port `LinearAdapter` never received: a
+/// composition-root bug, not a request fault.
 fn missing_port(name: &str) -> AdapterError {
     SharedAdapterError::Internal(format!("Linear adapter missing {name} port")).into()
 }
@@ -80,11 +80,9 @@ fn build_comment_body(message: &OutboundReply) -> String {
 }
 
 impl LinearAdapter {
-    /// Register this adapter's capabilities into `adapters`.
-    ///
-    /// Construction lives at the composition root; the provider owns the
-    /// mapping from itself to the capability surfaces it implements. `pub` so
-    /// the integration harness can build a Linear-only registry directly.
+    /// Register `LinearAdapter`'s capabilities into `adapters`. See
+    /// [`moatless_loops::adapters::Adapters`]. `pub` so the integration
+    /// harness can build a Linear-only registry directly.
     pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         let kind = AdapterKind::Linear;
         adapters.register_trait_object(self.clone());
@@ -100,8 +98,8 @@ impl LinearAdapter {
     ///
     /// Taking [`LinearConfig`] rather than three loose `Option<String>`s is
     /// what makes the Adapter's credentials provably the same ones the
-    /// `AppState`-side paths use — the two used to be assembled separately,
-    /// and nothing checked they agreed. It is also the injection seam: a test
+    /// `AppState`-side paths use — assembling them separately would leave
+    /// nothing to check they agree. It is also the injection seam: a test
     /// builds a `LinearConfig` with `api_base_url` pointed at a loopback stub
     /// and gets an Adapter whose outbound calls never leave the machine,
     /// through the same constructor production calls.
@@ -276,7 +274,7 @@ impl AdapterBindingReply for LinearAdapter {
     /// - `linear_issue` → `commentCreate` (CLI-created or operator-bound issue)
     ///
     /// The terminal `response` activity that closes the Linear agent session is
-    /// no longer emitted here — it is posted by `handle_agent_completed` once
+    /// not emitted here: it is posted by `handle_agent_completed` once
     /// the task finishes, using the last assistant message body. This keeps
     /// the agent-session lifecycle owned by a single emission point.
     async fn send_reply_for_binding(

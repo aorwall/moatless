@@ -1,13 +1,13 @@
-//! Per-sandbox Traefik preview NetworkPolicy lifecycle.
+//! Per-sandbox Traefik preview `NetworkPolicy` lifecycle.
 //!
-//! Each running sandbox that exposes preview servers gets a NetworkPolicy
+//! Each running sandbox that exposes preview servers gets a `NetworkPolicy`
 //! admitting the cluster's Traefik ingress pods to exactly that sandbox's
-//! declared preview ports. It is the ingress counterpart to the IngressRoutes:
+//! declared preview ports. It is the ingress counterpart to the `IngressRoutes`:
 //! a route makes a port addressable, this policy makes the pod reachable on it.
 //!
 //! Deriving the allowed ports from the same server map the routes use is the
 //! point — a static, hand-maintained port allowlist drifts out of sync with the
-//! ports sandboxes actually serve, and once ingress NetworkPolicies are enforced
+//! ports sandboxes actually serve, and once ingress `NetworkPolicies` are enforced
 //! every un-listed preview port silently times out (auth succeeds at the edge
 //! first, so it reads as an application fault rather than a network one).
 
@@ -27,14 +27,14 @@ use moatless_core::config::Config;
 const TRAEFIK_POD_LABEL: &str = "app.kubernetes.io/name";
 const TRAEFIK_POD_LABEL_VALUE: &str = "traefik";
 
-/// A 403 on the NetworkPolicy API means the backend ServiceAccount holds no
+/// A 403 on the `NetworkPolicy` API means the backend `ServiceAccount` holds no
 /// `networking.k8s.io/networkpolicies` grant — the chart's pod-manager Role
 /// carries it, so a cluster running an older release lands here.
 ///
 /// Preview policies are optional ingress hardening, so that cluster degrades to
 /// "feature off" rather than wedging: creation is already best-effort, and a
 /// hard-failing delete makes every remove and redeploy retry a permission error
-/// no retry can fix. Nothing leaks either — a ServiceAccount that cannot delete
+/// no retry can fix. Nothing leaks either — a `ServiceAccount` that cannot delete
 /// policies could not create them, and policies created while the grant existed
 /// carry the task Deployment's ownerReference, so K8s GC still collects them.
 fn is_forbidden(error: &kube::Error) -> bool {
@@ -46,7 +46,7 @@ const MISSING_RBAC_HINT: &str =
     "backend ServiceAccount lacks networking.k8s.io/networkpolicies — upgrade the chart \
      (pod-manager Role) to enable preview NetworkPolicies";
 
-/// Build the per-task preview NetworkPolicy object. Pure — no cluster I/O — so
+/// Build the per-task preview `NetworkPolicy` object. Pure — no cluster I/O — so
 /// the selector/port/peer shape is unit-testable.
 ///
 /// Each Traefik namespace becomes its own `from` peer so the peers OR: traffic
@@ -115,13 +115,13 @@ fn build_preview_network_policy(
     .map_err(kube::Error::SerdeError)
 }
 
-/// Create the per-task preview NetworkPolicy admitting Traefik to `ports`.
-/// Idempotent — handles AlreadyExists (409) gracefully.
+/// Create the per-task preview `NetworkPolicy` admitting Traefik to `ports`.
+/// Idempotent — handles `AlreadyExists` (409) gracefully.
 ///
 /// `owner`, when present, is set as the policy's `ownerReference` (the task's
 /// Deployment) so K8s garbage collection cascades its deletion. Called with an
 /// empty `ports` set it is a no-op: an ingress rule with an empty ports list
-/// matches *all* ports in the NetworkPolicy API, which would admit Traefik to
+/// matches *all* ports in the `NetworkPolicy` API, which would admit Traefik to
 /// the reserved infrastructure ports — the opposite of the intent.
 pub async fn create_task_preview_network_policy(
     k8s: &K8sClient,
@@ -174,7 +174,7 @@ pub async fn create_task_preview_network_policy(
 /// workload, so a small bound is enough to converge without spinning.
 const MAX_WIDEN_ATTEMPTS: usize = 5;
 
-/// Widen the per-task preview NetworkPolicy to admit one more port.
+/// Widen the per-task preview `NetworkPolicy` to admit one more port.
 ///
 /// [`create_task_preview_network_policy`] is create-only — a 409 reuses whatever
 /// is already there — because the declared ports are known in full at
@@ -182,7 +182,7 @@ const MAX_WIDEN_ATTEMPTS: usize = 5;
 /// runs, so the existing policy has to grow rather than be reused as-is.
 ///
 /// The allowance is a single list that this read-modify-writes, and a
-/// NetworkPolicy's ingress rules are atomic — there is no per-port merge key, so
+/// `NetworkPolicy`'s ingress rules are atomic — there is no per-port merge key, so
 /// a merge patch would replace the whole list and two concurrent widens would
 /// each drop the other's port. So the write is guarded instead: it carries the
 /// `resourceVersion` it read, and a concurrent change 409s rather than
@@ -301,8 +301,8 @@ fn admitted_ports(policy: &NetworkPolicy) -> BTreeSet<u16> {
         .unwrap_or_default()
 }
 
-/// Delete the per-task preview NetworkPolicy. Handles 404 and a missing
-/// NetworkPolicy grant (403) gracefully — see [`is_forbidden`].
+/// Delete the per-task preview `NetworkPolicy`. Handles 404 and a missing
+/// `NetworkPolicy` grant (403) gracefully — see [`is_forbidden`].
 pub async fn delete_task_preview_network_policy(
     k8s: &K8sClient,
     task_id: &str,
@@ -334,8 +334,8 @@ pub async fn delete_task_preview_network_policy(
     }
 }
 
-/// Await observed absence of the task's preview NetworkPolicy. Without the
-/// NetworkPolicy grant (403) absence is unobservable and there is nothing to
+/// Await observed absence of the task's preview `NetworkPolicy`. Without the
+/// `NetworkPolicy` grant (403) absence is unobservable and there is nothing to
 /// observe — see [`is_forbidden`] — so the wait resolves immediately rather than
 /// burning its full timeout and reporting the resource as lingering.
 pub async fn wait_for_task_preview_network_policy_deleted(

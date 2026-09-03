@@ -4,9 +4,6 @@ import type { FeatureFlagKey } from '@/lib/types/feature-flags'
 /**
  * Hook to check if a specific feature flag is enabled
  *
- * @param flag - The feature flag key to check
- * @returns boolean indicating if the feature is enabled
- *
  * @example
  * ```tsx
  * function MyComponent() {

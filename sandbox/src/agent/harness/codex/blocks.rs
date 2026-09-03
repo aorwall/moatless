@@ -36,7 +36,7 @@ pub(super) struct ItemBlock {
     pub role: Role,
     /// Suffix distinguishing this block's Message identity from the item's
     /// qualified id — empty for the primary block, `_result` for a paired
-    /// tool_result so it lands in its own user Message row.
+    /// `tool_result` so it lands in its own user Message row.
     pub id_suffix: &'static str,
     pub block: CanonicalContentBlock,
     /// Typed Codex result, surfaced at the payload top level (`toolUseResult`)
@@ -81,7 +81,7 @@ fn tool_result(tool_use_id: &str, content: String, is_error: bool, typed: Value)
     }
 }
 
-/// A tool_use block and its paired tool_result, sharing `tool_use_id`.
+/// A `tool_use` block and its paired `tool_result`, sharing `tool_use_id`.
 fn tool_call(
     tool_use_id: &str,
     name: &str,
@@ -125,7 +125,7 @@ pub(super) fn plan_blocks(plan: &[TurnPlanStep], tool_use_id: &str) -> Vec<ItemB
 }
 
 /// Map one native item into canonical blocks. `tool_use_id` is the item's
-/// qualified id, shared by a tool_use and its paired tool_result.
+/// qualified id, shared by a `tool_use` and its paired `tool_result`.
 ///
 /// Returns `None` for an unknown family, which the caller forwards as its raw
 /// native block with bounded diagnostics instead. An empty list means the family

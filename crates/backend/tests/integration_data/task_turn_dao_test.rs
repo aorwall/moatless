@@ -5,7 +5,7 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! Integration tests for task_turn_dao — requires `DATABASE_URL` and
+//! Integration tests for `task_turn_dao` — requires `DATABASE_URL` and
 //! `--features db-tests`. Covers the transactional ingress writer, the
 //! idempotent consumer-fallback projection, the reaper's indexed list query,
 //! and the rollout backfill from the event log.

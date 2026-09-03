@@ -16,7 +16,7 @@ pub struct UserDisplay {
 // Provider tokens — auth subsystem
 // =============================================================================
 
-/// Lightweight provider token (access_token only) for credential resolution.
+/// Lightweight provider token (`access_token` only) for credential resolution.
 #[derive(sqlx::FromRow)]
 pub struct ProviderAccessToken {
     pub access_token: String,

@@ -61,7 +61,7 @@ pub struct SendArgs {
     #[arg(long = "file")]
     pub files: Vec<String>,
 
-    /// Task ID to bind the send to. Defaults to $TASK_ID for
+    /// Task ID to bind the send to. Defaults to `$TASK_ID` for
     /// `--user`/`--to`.
     #[arg(long)]
     pub task_id: Option<String>,

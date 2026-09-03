@@ -140,10 +140,10 @@ pub struct CodexAgentHarnessCredentialStatusResponse {
     pub connected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_type: Option<String>,
-    /// "device_code" | "auth_json" | "api_key" — which save path produced the row.
+    /// "`device_code`" | "`auth_json`" | "`api_key`" — which save path produced the row.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_method: Option<String>,
-    /// Email reported by ChatGPT account on the id_token (device-code flow only).
+    /// Email reported by ChatGPT account on the `id_token` (device-code flow only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
     /// ChatGPT plan type (e.g., "plus", "pro").

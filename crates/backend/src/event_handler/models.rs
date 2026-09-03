@@ -4,9 +4,9 @@ use serde::Deserialize;
 
 /// SDK result message payload (embedded in agent.completed events).
 ///
-/// Note: The sandbox serializes Rust structs with snake_case field names,
+/// Note: The sandbox serializes Rust structs with `snake_case` field names,
 /// so multi-word fields need `#[serde(alias = "snake_case")]` to accept
-/// both camelCase (from `rename_all`) and snake_case (from the sandbox).
+/// both camelCase (from `rename_all`) and `snake_case` (from the sandbox).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SdkResultMessage {
@@ -59,8 +59,8 @@ where
 
 /// Usage info from SDK result.
 ///
-/// The sandbox sends snake_case field names, so each multi-word field needs
-/// an alias to accept both camelCase and snake_case.
+/// The sandbox sends `snake_case` field names, so each multi-word field needs
+/// an alias to accept both camelCase and `snake_case`.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageInfo {

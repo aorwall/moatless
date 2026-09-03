@@ -122,7 +122,7 @@ impl OutboundSender {
     /// Loads the binding, its adapter connection, and its optional
     /// subscription loop, then calls `send_reply_for_binding` on the matching
     /// adapter. Persists a visible assistant stub up front, tags it with the
-    /// returned external id, populates the recently_sent race-window cache, and
+    /// returned external id, populates the `recently_sent` race-window cache, and
     /// advances the binding cursor.
     pub(crate) async fn send_to_binding(
         &self,

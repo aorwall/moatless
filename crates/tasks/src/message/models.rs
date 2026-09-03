@@ -6,17 +6,17 @@ use moatless_types::agent::AgentMode;
 
 pub use moatless_types::message::{MessageRole, MessageType};
 
-// A stop used to append a `Result` row saying so, and `stop_is_reported`
-// already narrowed that to error stops with the reason stated in full: the
-// other stop reasons are routine lifecycle, and "the reader already knows: the
-// task's live status and turn state say so, and for externally-bound tasks a
-// 'Stopped by user request' line is pure noise on Slack or Linear."
+// `stop_is_reported` narrows stop reporting to error stops with the reason
+// stated in full: the other stop reasons are routine lifecycle the reader
+// already knows from the task's live status and turn state, and for
+// externally-bound tasks a "Stopped by user request" line is pure noise on
+// Slack or Linear.
 //
-// A run outcome is now nowhere in the conversation, because it is not a Message
+// A run outcome is nowhere in the conversation, because it is not a Message
 // (Decision 14). A stopped turn is known by `task_turns.status`; a Sandbox
 // failure by its own activity, which `k8s/pod_watcher.rs:803` already publishes
 // with the exit code, terminated reason, node, disruption cause and container
-// logs. The Message row was a duplicate of an event the design stores anyway.
+// logs. The Message row would duplicate an event the design stores anyway.
 
 /// `user_type` on a `user` row that exists only to hand a tool response to the
 /// agent — the person's answer to `AskUserQuestion` or `ExitPlanMode`.

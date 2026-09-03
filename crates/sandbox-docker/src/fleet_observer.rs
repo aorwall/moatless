@@ -1,6 +1,5 @@
-//! Docker [`FleetObserver`] adapter: one container LIST per tick mapped to the
-//! coarse [`SandboxObservedStatus`] the reconciler joins against intent, plus the
-//! authoritative per-Task confirm delegated to the observer's live-status read.
+//! [`FleetObserver`] for Docker: one container LIST per tick, matching label
+//! `moatless.service=sandbox`.
 
 use std::collections::HashMap;
 use std::sync::Arc;

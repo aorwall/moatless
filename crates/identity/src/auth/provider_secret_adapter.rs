@@ -1,4 +1,4 @@
-//! Compatibility adapter from provider_tokens to redacted auth secrets.
+//! Compatibility adapter from `provider_tokens` to redacted auth secrets.
 
 use crate::auth::models::ProviderAccessToken;
 use crate::auth::secrets::RedactedSecret;

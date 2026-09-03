@@ -96,7 +96,7 @@ pub trait TaskBindingDao: Send + Sync {
         raw: &serde_json::Value,
     ) -> Result<(), sqlx::Error>;
 
-    /// Persist the PR's latest review decision (approved / changes_requested /
+    /// Persist the PR's latest review decision (approved / `changes_requested` /
     /// …) onto a binding. Leaves the `external_status*` columns untouched.
     async fn update_review_decision(
         &self,
@@ -693,7 +693,7 @@ impl PgTaskBindingDao {
         Ok(())
     }
 
-    /// Persist the PR's latest review decision (approved / changes_requested /
+    /// Persist the PR's latest review decision (approved / `changes_requested` /
     /// …) onto a binding. Leaves the `external_status*` columns untouched.
     async fn update_review_decision(
         &self,

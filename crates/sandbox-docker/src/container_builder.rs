@@ -1,4 +1,4 @@
-//! Build Docker container configuration from a ProvisionPlan.
+//! Build Docker container configuration from a `ProvisionPlan`.
 //!
 //! Generates a `bollard::container::Config` with all the env vars,
 //! labels, bind mounts, port mappings, and networking required for
@@ -268,7 +268,7 @@ pub fn stamp_operation_generation(config: &mut ContainerConfig, ctx: RuntimeOper
     );
 }
 
-/// Build REPO_CONFIG JSON string for the sandbox container.
+/// Build `REPO_CONFIG` JSON string for the sandbox container.
 ///
 /// This is a pass-through of the repo config fields that the sandbox
 /// needs (system prompt, code execution, plugins, etc.).

@@ -48,7 +48,7 @@ impl ExternalOrigin<'_> {
 /// Directive carried from a task-creation site to record a `related_to`
 /// relation immediately after the new task is inserted. Use this when a
 /// webhook spawned the new task and we discovered a peer task that shares the
-/// same external artifact (binding subject_key) — the peer is not a parent.
+/// same external artifact (binding `subject_key`) — the peer is not a parent.
 #[derive(Debug, Clone)]
 pub struct RelatedTask {
     pub related_task_id: String,
@@ -100,7 +100,7 @@ impl TryFrom<&str> for TaskSubType {
     }
 }
 
-/// TaskTurn sub-types.
+/// `TaskTurn` sub-types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -167,7 +167,7 @@ pub struct TaskEventPayload {
     pub message: String,
 }
 
-/// TaskTurn event payload — typed shape for `EventType::TaskTurn` events.
+/// `TaskTurn` event payload — typed shape for `EventType::TaskTurn` events.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

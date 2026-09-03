@@ -5,7 +5,7 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! Integration tests for task_dao.
+//! Integration tests for `task_dao`.
 
 use crate::common;
 

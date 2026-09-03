@@ -50,7 +50,7 @@ impl FromStr for SandboxProviderType {
 }
 
 /// Typed policy for task archive retention.
-/// Runtime resources (Deployment, Service, IngressRoutes, **and the PVC**) are
+/// Runtime resources (Deployment, Service, `IngressRoutes`, **and the PVC**) are
 /// always removed regardless of this policy; it governs S3 archives and
 /// managed provider-local disk archives (opt-in Kubernetes node hostPaths and
 /// Docker task directories).
@@ -157,7 +157,7 @@ impl TryFrom<&str> for SandboxStatus {
     }
 }
 
-/// Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
+/// Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
@@ -340,7 +340,7 @@ impl TryFrom<&str> for ServerSubType {
 pub struct ServerEventPayload {
     pub server_name: String,
     pub status: ServerSubType,
-    /// Human-readable contextual detail (e.g. "ContainerCreating", "CrashLoopBackOff").
+    /// Human-readable contextual detail (e.g. "`ContainerCreating`", "`CrashLoopBackOff`").
     /// Always set by the publisher. `#[serde(default)]` handles old events without this field.
     #[serde(default)]
     pub message: String,
@@ -357,7 +357,7 @@ pub struct SandboxEventPayload {
     /// Human-readable description of the event.
     #[serde(default)]
     pub message: String,
-    /// K8s lifecycle event name (e.g. "pod_ready", "container_oom_killed").
+    /// K8s lifecycle event name (e.g. "`pod_ready`", "`container_oom_killed`").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lifecycle_event: Option<String>,
     /// Error detail when applicable.
@@ -369,7 +369,7 @@ pub struct SandboxEventPayload {
     /// graceful SIGTERM (143). `#[serde(default)]` keeps old events readable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
-    /// K8s termination reason of the sandbox container (e.g. "OOMKilled",
+    /// K8s termination reason of the sandbox container (e.g. "`OOMKilled`",
     /// "Error", "Completed"), when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminated_reason: Option<String>,
@@ -378,13 +378,13 @@ pub struct SandboxEventPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_name: Option<String>,
     /// Why the pod was disrupted, from
-    /// `pod.status.conditions[DisruptionTarget].reason` (PreemptionByScheduler |
-    /// DeletionByTaintManager | TerminationByKubelet | EvictionByEvictionAPI |
-    /// DeletionByPodGC), falling back to `pod.status.reason`.
+    /// `pod.status.conditions[DisruptionTarget].reason` (`PreemptionByScheduler` |
+    /// `DeletionByTaintManager` | `TerminationByKubelet` | `EvictionByEvictionAPI` |
+    /// `DeletionByPodGC`), falling back to `pod.status.reason`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disruption_reason: Option<String>,
     /// Who caused an intentional stop: "reaper" | "user" | "close" | "restart"
-    /// | "crash_autostop" | "eviction". Null for events that aren't stops.
+    /// | "`crash_autostop`" | "eviction". Null for events that aren't stops.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initiator: Option<String>,
     /// Seconds the pod spent `Pending` before it was scheduled onto a node.
@@ -558,7 +558,6 @@ mod tests {
             SandboxStatus::try_from("removed"),
             Ok(SandboxStatus::Removed)
         );
-        // Legacy "fatal" maps to Error
         assert_eq!(SandboxStatus::try_from("fatal"), Ok(SandboxStatus::Error));
         assert!(SandboxStatus::try_from("bad").is_err());
     }

@@ -7,7 +7,6 @@ import { useCallback, useState } from 'react'
  *
  * No cross-tab `storage` listener: that event doesn't fire for sessionStorage.
  *
- * @param key - The sessionStorage key
  * @param defaultValue - Value to use when the key is absent or unreadable
  */
 export function useSessionStorage<T>(key: string, defaultValue: T): [T, (value: T) => void] {

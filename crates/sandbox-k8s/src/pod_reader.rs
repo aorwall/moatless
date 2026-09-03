@@ -23,7 +23,7 @@ use moatless_sandbox_runtime::schemas::RuntimeEvent;
 pub enum LogStreamError {
     /// No pod found for the given task — sandbox not running.
     NoPod(String),
-    /// Container exists but has not started yet (e.g. PodInitializing) — no logs available.
+    /// Container exists but has not started yet (e.g. `PodInitializing`) — no logs available.
     NotStarted(String),
     /// No previous instance of the container to read logs from.
     NoPreviousLogs(String),
@@ -32,7 +32,7 @@ pub enum LogStreamError {
 }
 
 /// K8s rejects log reads with 400 while a container is waiting to start
-/// (PodInitializing, ContainerCreating, ...). Returns the API message if so.
+/// (`PodInitializing`, `ContainerCreating`, ...). Returns the API message if so.
 fn container_waiting_message(e: &kube::Error) -> Option<&str> {
     match e {
         kube::Error::Api(api) if api.code == 400 && api.message.contains("waiting to start") => {

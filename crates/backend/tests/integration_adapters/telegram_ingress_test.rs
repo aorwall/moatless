@@ -13,12 +13,11 @@
 //! routes under, whose `secret_token` was checked against the header, and
 //! whether the response acknowledges work nothing durable was written for.
 //!
-//! Two of them pinned behaviour the breakup then changed on purpose: the
-//! connection and Subscription used to be resolved *twice*, under different
-//! keys, so the ignore counter was incremented twice per ignored update and a
-//! private chat could route under one Subscription while a second one's secret
-//! was the only thing checked. Decision 5 collapsed that to one resolution, and
-//! those two tests now assert the single one.
+//! Two of them guard against resolving the connection and Subscription
+//! *twice*, under different keys: that would increment the ignore counter
+//! twice per ignored update, and could route a private chat under one
+//! Subscription while checking a different one's secret. Both tests assert
+//! the single resolution.
 //!
 //! No stub Bot API here: every update below is either ignored before
 //! normalization or routes without a command, so nothing on these paths calls
@@ -252,9 +251,9 @@ const WEBHOOK_TOTAL: &str = "moatless_adapter_webhook_total";
 // One resolution (Decision 5)
 // =========================================================================
 
-/// An update with no Telegram connection at all resolves once, so it is metered
-/// once. This is the halving the ticket calls out: the handler used to resolve
-/// a second time, to find a secret, and each resolution metered its own miss.
+/// An update with no Telegram connection at all resolves once, so it is
+/// metered once: a second resolution to find a secret would meter its own
+/// miss too, double-counting one ignored update.
 #[sqlx::test]
 async fn an_ignored_update_is_metered_once(pool: PgPool) {
     let state = replica(&pool).await;
@@ -276,10 +275,11 @@ async fn an_ignored_update_is_metered_once(pool: PgPool) {
     assert!(admitted(&pool).await.is_empty());
 }
 
-/// The secret checked is the one on the Subscription the delivery routes under.
-/// A private chat used to resolve twice — under `"*"` for the secret, under the
-/// chat id for the route — so a chat-keyed Subscription's `secret_token` was
-/// never the one verified and any header passed.
+/// The secret checked is the one on the Subscription the delivery routes
+/// under. Resolving a private chat twice — once under `"*"` for the secret,
+/// once under the chat id for the route — checks a chat-keyed Subscription's
+/// `secret_token` against a different Subscription's route, so any header
+/// would pass.
 #[sqlx::test]
 async fn a_private_update_is_verified_against_the_subscription_it_routes_under(pool: PgPool) {
     let state = replica(&pool).await;

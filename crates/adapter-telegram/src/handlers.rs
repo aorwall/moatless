@@ -41,9 +41,9 @@ pub async fn telegram_webhook(
     };
 
     match ingress::receive(&telegram_provider, users.as_ref(), &body, transport).await {
-        // Routing is durably owned now; its outcome is recorded by the work
+        // Routing is durably owned; its outcome is recorded by the work
         // handler when it actually runs. Recording "success" here would count
-        // an outcome this path no longer knows.
+        // an outcome this path never sees.
         Ok(Outcome::Processed { .. }) => {}
         Ok(Outcome::Ignored { reason, .. }) => {
             info!(reason, "Telegram update ignored");
@@ -55,7 +55,7 @@ pub async fn telegram_webhook(
             record_webhook("telegram", "error", "delivery_failed", "", "", "");
             warn!(error = %e, "Telegram webhook processing error");
             // Nothing durable was written, so this delivery is still Telegram's.
-            // Acknowledging it here is what used to lose the update outright.
+            // Acknowledging it here would lose the update outright.
             return Err(refusal(e));
         }
     }
@@ -88,14 +88,9 @@ mod tests {
 
     /// The acknowledgment class of each failure this route raises.
     ///
-    /// The two `NotAdmitted` rows are the ones this Adapter could not reach
-    /// before the shared vocabulary landed: `receive` admitted through a helper
-    /// that flattened `AdmitError` into `AdapterError` first, so a refused
-    /// admission arrived as an ingress rejection. It now admits through
-    /// `moatless_adapter_model::ingress::admit_delivery` — and this pins that
-    /// the class it produces is still refused
-    /// rather than acknowledged, and with the same statuses the flattened one
-    /// produced.
+    /// The two `NotAdmitted` rows pin that a refused admission stays refused
+    /// rather than acknowledged, with the statuses
+    /// `moatless_adapter_model::ingress::admit_delivery` produces.
     #[tokio::test]
     async fn no_failure_on_the_telegram_webhook_path_is_acknowledged() {
         for (error, expected) in [

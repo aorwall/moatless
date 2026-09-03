@@ -59,7 +59,7 @@ export const EVENT_INVALIDATION_MAP = {
   },
 } as const satisfies Record<Event['type'], InvalidationMapping>
 
-// Status-affecting events now consider subType for granular control
+// Status-affecting events consider subType for granular control
 export const STATUS_AFFECTING_SUBTYPES = {
   task: ['created', 'open', 'closed', 'updated', 'metadata.updated'], // All task subtypes affect status
   taskTurn: ['active', 'completed', 'error', 'updated'], // Execution changes and screenshot updates affect status

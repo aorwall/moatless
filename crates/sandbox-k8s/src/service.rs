@@ -1,4 +1,4 @@
-//! Kubernetes ClusterIP Service lifecycle operations.
+//! Kubernetes `ClusterIP` Service lifecycle operations.
 
 use k8s_openapi::api::core::v1::Service;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
@@ -19,8 +19,8 @@ pub async fn sandbox_service_exists(k8s: &K8sClient, task_id: &str) -> Result<bo
     }
 }
 
-/// Create a ClusterIP Service for a workspace pod.
-/// Idempotent — handles AlreadyExists (409) gracefully.
+/// Create a `ClusterIP` Service for a workspace pod.
+/// Idempotent — handles `AlreadyExists` (409) gracefully.
 ///
 /// `owner`, when present, is set as the Service's `ownerReference` (the task's
 /// Deployment) so K8s garbage collection cascades the Service's deletion when

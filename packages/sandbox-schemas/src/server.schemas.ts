@@ -1,15 +1,9 @@
 import { z } from 'zod'
 
-/**
- * Preview server status enum
- */
 export const ServerStatusSchema = z.enum(['stopped', 'installing', 'starting', 'started', 'failed'])
 
 export type ServerStatus = z.infer<typeof ServerStatusSchema>
 
-/**
- * Start server request schema
- */
 export const StartServerRequestSchema = z.object({
   serverCommand: z.string().optional(),
   serverCommands: z.array(z.string()).optional(),
@@ -20,9 +14,6 @@ export const StartServerRequestSchema = z.object({
 
 export type StartServerRequest = z.infer<typeof StartServerRequestSchema>
 
-/**
- * Start server response schema
- */
 export const StartServerResponseSchema = z.object({
   success: z.boolean(),
   status: ServerStatusSchema.optional(),
@@ -35,9 +26,6 @@ export const StartServerResponseSchema = z.object({
 
 export type StartServerResponse = z.infer<typeof StartServerResponseSchema>
 
-/**
- * Stop server response schema
- */
 export const StopServerResponseSchema = z.object({
   success: z.boolean(),
   message: z.string().optional(),
@@ -46,9 +34,6 @@ export const StopServerResponseSchema = z.object({
 
 export type StopServerResponse = z.infer<typeof StopServerResponseSchema>
 
-/**
- * Server status response schema
- */
 export const ServerStatusResponseSchema = z.object({
   status: ServerStatusSchema,
   running: z.boolean().optional(),
@@ -63,18 +48,12 @@ export const ServerStatusResponseSchema = z.object({
 
 export type ServerStatusResponse = z.infer<typeof ServerStatusResponseSchema>
 
-/**
- * Server logs response schema
- */
 export const ServerLogsResponseSchema = z.object({
   logs: z.string(),
 })
 
 export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
 
-/**
- * Server log event schema (for streaming)
- */
 export const ServerLogEventSchema = z.object({
   type: z.string(),
   data: z.object({
@@ -86,9 +65,6 @@ export const ServerLogEventSchema = z.object({
 
 export type ServerLogEvent = z.infer<typeof ServerLogEventSchema>
 
-/**
- * Proxy request schema
- */
 export const ProxyRequestSchema = z.object({
   method: z.string(),
   path: z.string(),

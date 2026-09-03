@@ -39,9 +39,8 @@ pub struct RepositoryApiDoc;
 /// handler reaches its ports — `Arc<dyn RepositoryDao>`, `Arc<GitSyncService>`,
 /// `Arc<dyn GitHostTokenIssuer>`, `Arc<dyn ProviderTokenDao>`, the `DbPool`, and
 /// the `UserTokenVerifier` behind `AuthUser` — through `FromRef<S>`. The
-/// `sync_config` endpoint that once forced this
-/// module to name `Arc<LoopSyncService>` now lives in `repository_sync` (server
-/// band), which is what frees this bound from being upward.
+/// `sync_config` endpoint lives in `repository_sync` (server band), which is
+/// what frees this bound from being upward.
 pub fn repository_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,

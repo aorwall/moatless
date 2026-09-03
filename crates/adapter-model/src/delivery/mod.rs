@@ -144,10 +144,10 @@ impl From<AdapterError> for AdapterDeliveryFailure {
 /// own delivery id.
 ///
 /// Admitting it is a separate call every caller makes for itself. That split is
-/// deliberate: this function used to admit as well, and flattened the
-/// `AdmitError` into an `AdapterError` on the way out (`.admit(..).await?`),
-/// which made the shared "not admitted" ingress variant unreachable for every
-/// Adapter that went through it. What is left here is the part worth sharing:
+/// deliberate: admitting here would flatten the `AdmitError` into an
+/// `AdapterError` on the way out (`.admit(..).await?`) and make the shared
+/// "not admitted" ingress variant unreachable for every Adapter that went
+/// through it. What is left here is the part worth sharing:
 /// the payload shape and the one serialization error, spelled once instead of
 /// at each of the three call sites.
 pub fn inbound_delivery_request(

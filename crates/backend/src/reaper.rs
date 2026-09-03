@@ -9,9 +9,8 @@
 //!    provisions a fresh volume and restores into it.
 //!
 //! Runs on the elected leader only (through a `LeaderGuard` port) so a single
-//! replica drives the cycle. Replaces the legacy `sandbox::idle_reaper` — both
-//! behaviours share one cycle, one lease (`moatless-task-reaper`), and one
-//! activity overlay.
+//! replica drives the cycle. One cycle, one lease (`moatless-task-reaper`),
+//! and one activity overlay cover both the idle-stop and inactive-close paths.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -707,7 +706,7 @@ fn log_reaper_stats(stats: ReaperStats) {
 ///
 /// Reads the authoritative `task_turns` table (turns still `active` or
 /// `interrupted` past the age floor) rather than deriving openness from the
-/// event log — turn state is now committed transactionally at ingress, so this
+/// event log — turn state is committed transactionally at ingress, so this
 /// is a pure backstop for the rare lost-terminal case.
 ///
 /// A turn is closed only once confirmed genuinely orphaned: either its sandbox

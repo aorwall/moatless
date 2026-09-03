@@ -49,14 +49,12 @@ test.describe('Interactive Prompts', () => {
     await expect(approveButton).toBeVisible()
     await approveButton.click()
 
-    // After approval, the plan approval card should disappear
     await expect(planApproval).toBeHidden({ timeout: 30_000 })
 
     // Wait for the agent to produce new content after approval
     // (new messages should appear in the chat)
     await page.waitForTimeout(5000)
 
-    // Verify the page is still functional
     await expect(page.locator('#root')).toBeVisible()
 
     // Cleanup

@@ -1050,7 +1050,7 @@ mod tests {
         );
     }
 
-    /// The backend now hands the sandbox a credential-free clone URL (userinfo
+    /// The backend hands the sandbox a credential-free clone URL (userinfo
     /// stripped in `pod_builder::redact_url_userinfo`). Cloning still authenticates
     /// by injecting the provider token from the credential channel (`GIT_TOKEN`).
     /// Verify both the GitHub and GitLab token flows produce an authenticated URL

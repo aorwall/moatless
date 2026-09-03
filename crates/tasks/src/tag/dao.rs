@@ -142,17 +142,14 @@ impl TagDao for PgTagDao {
 // Free-function wrappers for integration tests
 // =========================================================================
 
-/// List all tags (convenience wrapper).
 pub async fn list_all(pool: &DbPool) -> Result<Vec<Tag>, sqlx::Error> {
     PgTagDao(pool.clone()).list_all().await
 }
 
-/// Find or create tags by name (convenience wrapper).
 pub async fn find_or_create_tags(pool: &DbPool, names: &[String]) -> Result<Vec<Tag>, sqlx::Error> {
     PgTagDao(pool.clone()).find_or_create_tags(names).await
 }
 
-/// Set tags for a task (replaces existing) (convenience wrapper).
 pub async fn set_task_tags(
     pool: &DbPool,
     task_id: &str,
@@ -161,12 +158,10 @@ pub async fn set_task_tags(
     PgTagDao(pool.clone()).set_task_tags(task_id, tag_ids).await
 }
 
-/// Get tags for a single task (convenience wrapper).
 pub async fn get_tags_for_task(pool: &DbPool, task_id: &str) -> Result<Vec<TaskTag>, sqlx::Error> {
     PgTagDao(pool.clone()).get_tags_for_task(task_id).await
 }
 
-/// Get tags for multiple tasks (convenience wrapper).
 pub async fn get_tags_for_tasks(
     pool: &DbPool,
     task_ids: &[String],

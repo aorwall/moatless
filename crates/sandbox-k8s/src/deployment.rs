@@ -2,7 +2,7 @@
 //!
 //! Wraps pod specs (built by `pod_builder`) in Deployments for automatic
 //! restart, stop (scale to 0), and start (scale to 1) without needing
-//! the full ProvisionPlan.
+//! the full `ProvisionPlan`.
 
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
@@ -23,7 +23,7 @@ use moatless_sandbox_runtime::models::ProvisionRequest;
 
 /// Name + UID of a created (or reused) Deployment.
 ///
-/// The `uid` is used to build `ownerReferences` on the Service and IngressRoutes
+/// The `uid` is used to build `ownerReferences` on the Service and `IngressRoutes`
 /// so K8s garbage collection cascades their deletion when the Deployment is
 /// deleted. It is `None` only when a reused (409) Deployment couldn't be
 /// re-fetched — callers then simply skip owner-referencing (best effort).
@@ -296,7 +296,7 @@ pub async fn delete_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kub
 /// Restart a Deployment gracefully: scale to 0, wait for the pod to fully
 /// terminate, then scale back to 1.
 ///
-/// Scaling to 0 first lets the ReadWriteOnce workspace PVC detach before the
+/// Scaling to 0 first lets the `ReadWriteOnce` workspace PVC detach before the
 /// replacement pod is created.
 pub async fn restart_deployment(
     k8s: &K8sClient,
@@ -325,10 +325,10 @@ pub async fn restart_deployment(
 /// Replaces the Deployment's spec with a freshly built pod template. Removed
 /// server containers disappear from the running pod through this path.
 ///
-/// The replace is done in place (GET + PUT). The Service and IngressRoutes carry
+/// The replace is done in place (GET + PUT). The Service and `IngressRoutes` carry
 /// an `ownerReference` to the Deployment, so the Deployment UID must be preserved
 /// to keep the sandbox reachable over gRPC and preview routes. The `Recreate`
-/// strategy still terminates the current pod and detaches the ReadWriteOnce PVC
+/// strategy still terminates the current pod and detaches the `ReadWriteOnce` PVC
 /// before scheduling the replacement.
 ///
 /// `pvc_name` is resolved by the caller, which is the only party that knows
@@ -407,7 +407,7 @@ fn pod_blocks_redeploy(pod: &Pod) -> bool {
 /// timeout elapses.
 ///
 /// Returns an error on timeout: proceeding while a terminating pod still holds the
-/// ReadWriteOnce workspace PVC lets the replacement race the attachment and
+/// `ReadWriteOnce` workspace PVC lets the replacement race the attachment and
 /// stall in Pending with a "Multi-Attach" error for minutes — the exact failure
 /// this wait exists to prevent. Callers surface it as an environment error
 /// rather than silently scheduling into the stall. A transient list error is
@@ -718,7 +718,7 @@ mod tests {
 
     /// Kubernetes accepts an in-place Deployment replace only when the name and
     /// immutable `spec.selector` match the existing object. Both must therefore be
-    /// deterministic functions of the task_id, independent of the wrapped pod spec.
+    /// deterministic functions of the `task_id`, independent of the wrapped pod spec.
     #[test]
     fn build_deployment_object_is_stable_across_pod_specs() {
         let dep =

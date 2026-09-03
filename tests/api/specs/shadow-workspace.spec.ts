@@ -1,13 +1,11 @@
 /**
  * Standalone: Shadow workspace primary
  *
- * A repository's shadow workspace `ws_<repo>` is written by two paths that used
- * to disagree. Creating a task inserts the placement under a deterministic id;
- * git sync deletes every placement and re-elects the primary under a random one.
- * Once sync had run, the deterministic id was gone, so the next task create no
- * longer deduped and added a second primary — a 500 on
- * `workspace_repos_one_primary`. The insert now stands down when a primary
- * already exists.
+ * A repository's shadow workspace `ws_<repo>` is written by two paths:
+ * creating a task inserts the placement under a deterministic id; git sync
+ * deletes every placement and re-elects the primary under a random one. The
+ * insert stands down when a primary already exists, so a task created after
+ * sync does not add a second one and violate `workspace_repos_one_primary`.
  *
  * Scenarios:
  *   WS-09: Creating a task after git sync re-elected the primary still works
@@ -53,7 +51,7 @@ test.describe('Standalone: Shadow workspace primary', () => {
           `VALUES ('wsr_' || md5(random()::text), '${workspaceId}', '${repository.id}', true, 0)`,
       )
 
-      // This is the create that used to 500.
+      // The create that must not add a second primary.
       const second = await api.createVibeTask({
         templateId: repository.id,
         name: 'second',

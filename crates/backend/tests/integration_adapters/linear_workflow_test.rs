@@ -125,7 +125,7 @@ async fn linear_stub() -> ProviderStub {
 /// workflow that cannot be redirected cannot be budgeted.
 ///
 /// The adapter carries the same ingress ports and `Config` the composition root
-/// gives it (`from_db` + `with_ingress_ports`), because the webhook route now
+/// gives it (`from_db` + `with_ingress_ports`), because the webhook route
 /// reads them off the adapter rather than an `AppState`.
 fn replica(pool: &PgPool, stub: &ProviderStub) -> AppState {
     let mut config = test_config();

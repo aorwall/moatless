@@ -23,9 +23,9 @@ pub enum RepoAction {
     Create {
         #[arg(long)]
         name: String,
-        /// Clone URL. HTTPS (https://github.com/org/repo) or SSH
+        /// Clone URL. HTTPS (<https://github.com/org/repo>) or SSH
         /// (git@host:org/repo.git or ssh://…). SSH remotes authenticate with an
-        /// ssh_key secret materialized into the sandbox ~/.ssh — no provider token.
+        /// `ssh_key` secret materialized into the sandbox ~/.ssh — no provider token.
         /// Optional — a repository need not have a remote to clone (a template
         /// starter has none); the backend imposes no per-kind requirement.
         #[arg(long)]
@@ -33,7 +33,7 @@ pub enum RepoAction {
         #[arg(long, default_value = "main")]
         branch: String,
         /// Hosting provider (github, gitlab, gitness). Ignored for SSH clone URLs,
-        /// which authenticate via an ssh_key secret rather than a provider token.
+        /// which authenticate via an `ssh_key` secret rather than a provider token.
         #[arg(long, default_value = "github")]
         provider: String,
         /// Repository kind: remote, template, or git

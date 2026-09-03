@@ -55,8 +55,8 @@ pub(super) struct GithubPrRuleConfig {
     pub ignored_events: Vec<String>,
     /// Automatically close the associated task when the PR is merged or closed.
     pub close_task_on_close: bool,
-    /// Emit an inbound message when a check_suite completes successfully.
-    /// Failures are always reported via check_run regardless of this flag.
+    /// Emit an inbound message when a `check_suite` completes successfully.
+    /// Failures are always reported via `check_run` regardless of this flag.
     pub notify_on_success: bool,
     /// Sender logins whose webhook events are dropped entirely (compared
     /// case-insensitively against `sender.login`). Applies to ALL event

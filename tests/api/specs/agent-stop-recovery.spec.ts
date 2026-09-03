@@ -149,7 +149,6 @@ test.describe('Chain: Agent Stop, Resume & Recovery', () => {
     const hasAgentStopped = taskEvents.some((e) => e.type === 'agent' && e.subType === 'stopped')
     const hasTurnStopped = taskEvents.some((e) => e.type === 'taskTurn' && e.subType === 'stopped')
 
-    // At least one of the stop taskEvents should be present
     expect(hasAgentStopped || hasTurnStopped).toBe(true)
 
     progress(`Events: agent.stopped=${hasAgentStopped}, taskTurn.stopped=${hasTurnStopped}`)

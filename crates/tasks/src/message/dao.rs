@@ -94,8 +94,8 @@ async fn next_subagent_position(
 /// rows the frontend attaches to a user Message.
 pub type MessagePage = (Vec<TaskMessage>, Vec<TaskMessageContext>, Vec<Activity>);
 
-/// Raw tool-call row assembled from the assistant tool_use block plus any
-/// matching tool_result row(s). Keeps JSON values un-transformed so the handler
+/// Raw tool-call row assembled from the assistant `tool_use` block plus any
+/// matching `tool_result` row(s). Keeps JSON values un-transformed so the handler
 /// can decide which schema to apply.
 #[derive(Debug, Clone)]
 pub struct ToolCallRow {
@@ -105,9 +105,9 @@ pub struct ToolCallRow {
     pub result_content: Option<String>,
     pub is_error: Option<bool>,
     pub tool_use_result: Option<serde_json::Value>,
-    /// UUID of the assistant row containing the tool_use block. Surfaced so
+    /// UUID of the assistant row containing the `tool_use` block. Surfaced so
     /// post-message hooks can tag the parent message rather than the hidden
-    /// System tool_result row.
+    /// System `tool_result` row.
     pub parent_message_uuid: String,
 }
 
@@ -163,7 +163,7 @@ pub struct InterruptedTurn {
     pub recovery_attempts: i32,
     /// The turn's original `run_id`, so the recovery re-drive can reuse it and
     /// keep its events on this turn. `None` for legacy turns with no recorded
-    /// run_id — those fall back to a fresh run (the pre-existing behaviour).
+    /// `run_id` — those fall back to a fresh run (the pre-existing behaviour).
     pub run_id: Option<String>,
 }
 
@@ -430,7 +430,7 @@ pub trait MessageDao: Send + Sync {
     ) -> Result<MessagePage, sqlx::Error>;
 
     /// Look up a single tool call by its `tool_use_id` within a task. Returns
-    /// the assistant's tool_use input plus the matching tool_result content
+    /// the assistant's `tool_use` input plus the matching `tool_result` content
     /// (if a result has been recorded yet).
     async fn find_tool_call(
         &self,
@@ -785,9 +785,8 @@ impl MessageDao for PgMessageDao {
         //
         // `message_text_parts[i]` is subscripted assignment, which enlarges the
         // array — and creates it when the column is NULL — so an out-of-order or
-        // redelivered text block lands in the same slot either way. That is the
-        // idempotency the jsonb splice this replaces used to provide, and it is
-        // why an append would not do. PostgreSQL subscripts from 1.
+        // redelivered text block lands in the same slot either way. That idempotency
+        // is why an append would not do. PostgreSQL subscripts from 1.
         for part in &conversation.text {
             sqlx::query("UPDATE task_messages SET message_text_parts[$2] = $3 WHERE id = $1")
                 .bind(message_id)
@@ -1853,8 +1852,6 @@ impl MessageDao for PgMessageDao {
 // Free-function wrappers for integration tests
 // =========================================================================
 
-/// Append a Message with its contexts and everything its content changed
-/// (convenience wrapper).
 pub async fn append(
     pool: &DbPool,
     msg: &TaskMessage,
@@ -1866,12 +1863,10 @@ pub async fn append(
         .await
 }
 
-/// Every Message, context row and activity of a Task (convenience wrapper).
 pub async fn get_all(pool: &DbPool, task_id: &str) -> Result<MessagePage, sqlx::Error> {
     PgMessageDao(pool.clone()).get_all(task_id).await
 }
 
-/// Get pending user messages (convenience wrapper).
 pub async fn get_pending_user(
     pool: &DbPool,
     task_id: &str,
@@ -1879,7 +1874,6 @@ pub async fn get_pending_user(
     PgMessageDao(pool.clone()).get_pending_user(task_id).await
 }
 
-/// Set session_id for all pending messages (convenience wrapper).
 pub async fn set_session_id_for_task(
     pool: &DbPool,
     task_id: &str,
@@ -1890,7 +1884,6 @@ pub async fn set_session_id_for_task(
         .await
 }
 
-/// Get the last result message (convenience wrapper).
 pub async fn get_last_result(
     pool: &DbPool,
     task_id: &str,
@@ -1898,7 +1891,6 @@ pub async fn get_last_result(
     PgMessageDao(pool.clone()).get_last_result(task_id).await
 }
 
-/// Get the last assistant message (convenience wrapper).
 pub async fn get_last_assistant_message(
     pool: &DbPool,
     task_id: &str,
@@ -1908,7 +1900,6 @@ pub async fn get_last_assistant_message(
         .await
 }
 
-/// Backfill usage onto the last assistant message (convenience wrapper).
 pub async fn backfill_last_assistant_usage(
     pool: &DbPool,
     task_id: &str,
@@ -1930,7 +1921,6 @@ pub async fn backfill_last_assistant_usage(
         .await
 }
 
-/// Acknowledge messages with a session_id (convenience wrapper).
 pub async fn acknowledge_messages(
     pool: &DbPool,
     task_id: &str,

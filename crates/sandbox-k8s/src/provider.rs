@@ -50,7 +50,7 @@ pub struct K8sSandboxAdapter {
     // composition root (`startup.rs::build_k8s_sandbox_adapter`) builds this
     // adapter with a struct literal across the crate boundary, and a cross-crate
     // struct literal requires every field it sets to be `pub`. Visibility follows
-    // the real consumer, which is now in another crate.
+    // the real consumer, which is in another crate.
     pub plan: Option<ProvisionDeps>,
     /// Optional S3 client used to delete a task's transcript archive on cleanup.
     /// The sandbox uploads transcripts via backend-proxied gRPC (no pod creds);
@@ -1140,7 +1140,7 @@ impl K8sSandboxAdapter {
         }
     }
 
-    /// Recreate the sandbox Service and IngressRoutes if they went missing while
+    /// Recreate the sandbox Service and `IngressRoutes` if they went missing while
     /// the Deployment lives on.
     /// Best-effort: failures are logged, not returned, so provisioning still
     /// proceeds (the notify path surfaces unreachability on its own).

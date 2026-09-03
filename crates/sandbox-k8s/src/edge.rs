@@ -1,8 +1,8 @@
 //! Opening one port on an already-running sandbox.
 //!
 //! Provisioning publishes the ports a workspace *declares* — its preview
-//! servers — as one atomic pass over Service, IngressRoutes and the preview
-//! NetworkPolicy. A Script's port is not declared: it is asked for as the
+//! servers — as one atomic pass over Service, `IngressRoutes` and the preview
+//! `NetworkPolicy`. A Script's port is not declared: it is asked for as the
 //! script starts, against a sandbox that is already up. This module is that
 //! second entry point, and it writes the same three objects one port at a time.
 //!
@@ -36,7 +36,7 @@ pub fn script_port_name(port: u16) -> String {
     format!("scr-{port}")
 }
 
-/// The key a script's IngressRoute is named from.
+/// The key a script's `IngressRoute` is named from.
 ///
 /// Prefixed so a Script and a preview server that happen to share a name get
 /// distinct routes rather than one silently reusing the other's.
@@ -44,7 +44,7 @@ fn script_route_key(name: &str) -> String {
     format!("script-{name}")
 }
 
-/// A kube API handle for Traefik IngressRoute CRDs. Mirrors `ingress.rs`'s own
+/// A kube API handle for Traefik `IngressRoute` CRDs. Mirrors `ingress.rs`'s own
 /// private helper; both exist because the CRD has no generated type.
 fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
     let ar = ApiResource {
@@ -57,7 +57,7 @@ fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
     Api::namespaced_with(k8s.client.clone(), k8s.namespace(), &ar)
 }
 
-/// Every port the task's IngressRoutes currently point at.
+/// Every port the task's `IngressRoutes` currently point at.
 ///
 /// The routes are the record of what has been published: they are separate
 /// objects that outlive a missing Service, and nothing else persists a Script's
@@ -107,7 +107,7 @@ pub async fn published_task_ports(k8s: &K8sClient, task_id: &str) -> BTreeSet<u1
 /// replacing it. That is what makes two concurrent `scripts.run` calls safe:
 /// building the whole array from a read and sending it wholesale would let the
 /// later write drop whichever port won the earlier race, leaving that script's
-/// IngressRoute pointing at a Service port that no longer exists.
+/// `IngressRoute` pointing at a Service port that no longer exists.
 async fn patch_service_port(
     k8s: &K8sClient,
     task_id: &str,
@@ -160,8 +160,8 @@ fn script_service_port_patch(port: u16) -> serde_json::Value {
 ///
 /// 1. The Service port. Fails the call — without it the later writes describe a
 ///    route to nothing, and the caller has not started anything yet.
-/// 2. The IngressRoute. A failure here costs only the URL.
-/// 3. The preview NetworkPolicy allowance. A failure here — typically a missing
+/// 2. The `IngressRoute`. A failure here costs only the URL.
+/// 3. The preview `NetworkPolicy` allowance. A failure here — typically a missing
 ///    RBAC grant — costs only reachability, the same degradation declared
 ///    preview servers already have.
 ///

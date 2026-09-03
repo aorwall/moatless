@@ -18,7 +18,7 @@ pub enum MessageSubType {
     /// A subagent step advanced: carries the absolute `{ toolUseId,
     /// messageCount, tokens, status }` summary for one `Agent` tool call. UI-only
     /// — keeps the collapsed `Agent` card live without streaming transcript
-    /// content. Intentionally camelCase (not the crate's snake_case subtype
+    /// content. Intentionally camelCase (not the crate's `snake_case` subtype
     /// convention) so the wire value matches the frontend event contract.
     #[serde(rename = "subagentProgress")]
     SubagentProgress,

@@ -52,7 +52,6 @@ export class ShellCommand {
 
   /**
    * Create a new ShellCommand instance
-   * @param options Configuration options for command execution
    */
   constructor(options?: ShellCommandOptions) {
     this.options = options || {}
@@ -91,7 +90,6 @@ export class ShellCommand {
   /**
    * Execute shell command(s)
    * @param commands Single command string or array of commands to execute in sequence
-   * @param options Optional execution options (separator)
    * @returns Promise that resolves when the process exits
    */
   execute(

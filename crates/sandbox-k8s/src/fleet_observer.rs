@@ -1,6 +1,4 @@
-//! Kubernetes [`FleetObserver`] adapter: one Deployment LIST per tick mapped to
-//! the coarse [`SandboxObservedStatus`] the reconciler joins against intent, plus
-//! the authoritative per-Task confirm delegated to the observer's live-status read.
+//! [`FleetObserver`] for Kubernetes: one Deployment LIST per tick.
 
 use std::collections::HashMap;
 use std::sync::Arc;

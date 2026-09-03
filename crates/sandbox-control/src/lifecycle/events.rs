@@ -129,7 +129,7 @@ impl LifecycleEvent {
         }
     }
 
-    /// The `task_events.sub_type` value — the `SandboxStatus` snake_case slug.
+    /// The `task_events.sub_type` value — the `SandboxStatus` `snake_case` slug.
     pub fn sub_type(&self) -> &'static str {
         self.status.as_str()
     }

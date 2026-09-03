@@ -387,7 +387,7 @@ fn resolve_sandbox_size(config: &Config, plan: &ProvisionPlan) -> String {
 ///
 /// `spec.nodeName` binds the pod directly and skips scheduling, so a node that
 /// cannot fit the pod rejects it at admission (`OutOfmemory`) and the
-/// ReplicaSet respawns it without end. Affinity leaves an unschedulable pod
+/// `ReplicaSet` respawns it without end. Affinity leaves an unschedulable pod
 /// `Pending` instead. The only thing that pins is a cache — dind's data root —
 /// so the preference is soft: prefer the recorded node, settle for any other
 /// and pay a cold rebuild.
@@ -640,7 +640,7 @@ fn build_dind_container(config: &Config) -> Container {
 /// An override replaces only the `cpu`/`memory` values it names; the other keeps
 /// its default. `ResourceConfig` also carries the storage fields (`storage`,
 /// `pvcEnabled`, ...), so a repo that configures only storage — or only memory —
-/// still gets a fully bounded container instead of a BestEffort one.
+/// still gets a fully bounded container instead of a `BestEffort` one.
 fn merge_resources(
     override_cfg: Option<&ResourceConfig>,
     default_cpu_request: &str,
@@ -1256,7 +1256,7 @@ fn build_workspace_repos_json(plan: &ProvisionPlan) -> Option<String> {
     }
 }
 
-/// Build REPO_CONFIG JSON string for the sandbox container.
+/// Build `REPO_CONFIG` JSON string for the sandbox container.
 ///
 /// This is a pass-through of the repo config fields that the sandbox
 /// needs (system prompt, code execution, plugin IDs, etc.).
@@ -1352,7 +1352,7 @@ fn app_security_context(config: &Config) -> SecurityContext {
 /// is enabled.
 ///
 /// Runs the pod's containers as the non-root `moatless` user (UID/GID 1000) with
-/// the RuntimeDefault seccomp profile, and sets `fsGroup: 1000` so mounted
+/// the `RuntimeDefault` seccomp profile, and sets `fsGroup: 1000` so mounted
 /// volumes (workspace PVC/emptyDir, shared-data) are group-writable
 /// by that user. The privileged `dind` sidecar and `nvme-setup` init container
 /// override this back to root at the container level (see
@@ -1402,7 +1402,7 @@ fn privileged_security_context() -> SecurityContext {
     }
 }
 
-/// Create an EnvVar.
+/// Create an `EnvVar`.
 fn env_var(name: &str, value: &str) -> EnvVar {
     EnvVar {
         name: name.to_string(),
@@ -1432,7 +1432,6 @@ fn redact_url_userinfo(url: &str) -> String {
     url.to_string()
 }
 
-/// Get the current time as an RFC3339 timestamp (e.g. `2026-07-12T10:20:30Z`).
 fn chrono_now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
@@ -1470,7 +1469,7 @@ pub fn reserved_sandbox_ports(config: &Config) -> [u16; 3] {
 
 /// Drop any server whose port collides with a reserved sandbox port, logging
 /// each rejection. The retained map is the single source of truth for what gets
-/// a Service port, an IngressRoute, and a preview NetworkPolicy allowance, so
+/// a Service port, an `IngressRoute`, and a preview `NetworkPolicy` allowance, so
 /// filtering here keeps a repo from routing the edge onto infrastructure ports.
 pub fn admitted_server_ports(
     servers: BTreeMap<String, u16>,
@@ -2850,7 +2849,7 @@ mod tests {
     }
 
     /// Per-repo `networkProfile` adds the `moatless.io/network-profile` pod label
-    /// (which a static NetworkPolicy selects); unset/blank adds no label.
+    /// (which a static `NetworkPolicy` selects); unset/blank adds no label.
     #[test]
     fn per_repo_network_profile_sets_pod_label() {
         const KEY: &str = "moatless.io/network-profile";
@@ -3127,7 +3126,7 @@ mod tests {
     }
 
     /// Flag OFF (default): no pod-level securityContext, and the agent/server
-    /// containers keep DAC_OVERRIDE (the root-mode behaviour).
+    /// containers keep `DAC_OVERRIDE` (the root-mode behaviour).
     #[test]
     fn run_as_non_root_off_keeps_root_behaviour() {
         let config = test_config(); // run_as_non_root defaults to false
@@ -3156,8 +3155,9 @@ mod tests {
     }
 
     /// Flag ON: pod-level securityContext runs containers as UID/GID 1000 with
-    /// fsGroup 1000 + RuntimeDefault seccomp, and the agent/server containers
-    /// drop DAC_OVERRIDE (ownership is now correct) but keep NET_BIND_SERVICE.
+    /// fsGroup 1000 + `RuntimeDefault` seccomp, and the agent/server containers
+    /// drop `DAC_OVERRIDE` (chown plus `fsGroup: 1000` already give it
+    /// ownership) but keep `NET_BIND_SERVICE`.
     #[test]
     fn run_as_non_root_on_sets_pod_security_context_and_drops_dac_override() {
         let mut config = test_config();

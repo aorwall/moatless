@@ -419,13 +419,13 @@ pub fn test_config() -> Config {
     }
 }
 
-/// Build an AppState with a real PgPool and mock sandbox capabilities.
+/// Build an `AppState` with a real `PgPool` and mock sandbox capabilities.
 #[allow(dead_code)]
 pub fn test_app_state(pool: PgPool) -> AppState {
     test_app_state_with_config(pool, test_config(), false)
 }
 
-/// Build an AppState with every external Adapter installed through the same
+/// Build an `AppState` with every external Adapter installed through the same
 /// seam production startup uses.
 #[allow(
     dead_code,
@@ -435,7 +435,7 @@ pub fn test_app_state_with_adapters(pool: PgPool, config: Config) -> AppState {
     test_app_state_with_config(pool, config, true)
 }
 
-/// Build an AppState with the supplied Adapter configuration.
+/// Build an `AppState` with the supplied Adapter configuration.
 #[allow(
     dead_code,
     reason = "this module is compiled into every test binary; each one uses a subset of it"
@@ -624,7 +624,7 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
     }
 }
 
-/// Create a minimal TaskMessage for tests.
+/// Create a minimal `TaskMessage` for tests.
 #[allow(dead_code)]
 pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);

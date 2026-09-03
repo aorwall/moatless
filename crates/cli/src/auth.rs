@@ -9,7 +9,7 @@ use crate::config::{AuthMode, Config};
 // Sandbox mode: token exchange
 // ============================================================================
 
-/// Exchange the USER_AUTH_TOKEN for a session JWT, save to disk.
+/// Exchange the `USER_AUTH_TOKEN` for a session JWT, save to disk.
 pub async fn login_sandbox(client: &mut MoatClient, config: &Config) -> Result<(), ClientError> {
     if !matches!(config.auth_mode, AuthMode::Sandbox { .. }) {
         return Err(ClientError::Api {

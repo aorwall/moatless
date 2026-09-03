@@ -1,4 +1,4 @@
-//! Workspace DAO — queries for workspace + workspace_repo persistence.
+//! Workspace DAO — queries for workspace + `workspace_repo` persistence.
 
 use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
@@ -162,7 +162,7 @@ pub trait WorkspaceDao: Send + Sync {
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Insert a workspace_repo placement, gated on caller controlling the workspace.
+    /// Insert a `workspace_repo` placement, gated on caller controlling the workspace.
     async fn add_repo(&self, row: &WorkspaceRepo, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
 
     /// Remove a placement from a workspace, gated on caller controlling the workspace.

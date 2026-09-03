@@ -9,10 +9,7 @@
 //! all in `post_to_destination`.
 //!
 //! Every one of those shapes resolves to the same three inputs, which is why
-//! they belong in one module. They used to be assembled at three call sites
-//! from two separate credential sources (defect D4), so "which token does this
-//! call use?" was answered by whichever site you happened to be reading — and
-//! the two sources were never checked against each other.
+//! they belong in one module.
 //!
 //! The [`AppCredentials`] a client is built with is not incidental:
 //! [`LinearAgentApi`] reads the workspace token through it on every call and

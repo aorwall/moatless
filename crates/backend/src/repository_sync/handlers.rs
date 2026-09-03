@@ -3,11 +3,8 @@
 //! Moved here from `repository::handlers` because `sync_config` composes the
 //! loop sync (`loops` band, `LoopSyncService`) with the git-declared workspace
 //! sync (`workspaces` band) synchronously — naming `loops` from the
-//! `repository` module would be an upward edge. The workspace half deliberately
-//! degrades to an empty summary on failure (`log_workspace_sync`), while the
-//! loop half surfaces failure to the admin; that asymmetry is preserved by
-//! calling the same `log_workspace_sync` rather than `sync_repo_workspaces`
-//! directly.
+//! `repository` module would be an upward edge. See [`sync_repo_config`] for
+//! how loop-sync and workspace-sync failures are handled differently.
 
 use std::sync::Arc;
 
@@ -75,7 +72,10 @@ pub async fn sync_config(
 /// into the workspace (via `sync_repo_workspaces`), not into repo columns — a
 /// repository is only a git connection. Loop sync failures abort the explicit
 /// operation so the administrator cannot mistake a skipped refresh for a
-/// successful approval revocation.
+/// successful approval revocation. Workspace sync failures do not: calling
+/// [`log_workspace_sync`] instead of `sync_repo_workspaces` directly swallows
+/// them to a warning and an empty summary, so a workspace hiccup never blocks
+/// the same approval-revocation sync.
 async fn sync_repo_config(
     loop_sync: &Arc<LoopSyncService>,
     git_sync: &Arc<GitSyncService>,
@@ -97,11 +97,6 @@ async fn sync_repo_config(
         .await
         .map_err(|error| RepositoryError::ProviderError(error.to_string()))?;
 
-    // Reconcile git-declared workspaces (`.moatless/workspaces.json` or the
-    // legacy `.moatless/config.json` → workspace run-config). `log_workspace_sync`
-    // swallows a workspace-sync failure into an empty summary + a warn, so a
-    // workspace hiccup never fails the admin's approval-revocation sync — the
-    // deliberate asymmetry with the loop half above.
     let workspaces = log_workspace_sync(git_sync, repo, auth, "sync-config", force).await;
 
     Ok((repo.clone(), loops, workspaces))

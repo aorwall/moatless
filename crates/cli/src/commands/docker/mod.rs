@@ -129,7 +129,7 @@ pub struct InstallArgs {
     #[arg(long)]
     pub pull: bool,
 
-    /// Block until `status` reports all_healthy (120s timeout)
+    /// Block until `status` reports `all_healthy` (120s timeout)
     #[arg(long)]
     pub wait: bool,
 }

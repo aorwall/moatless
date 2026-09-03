@@ -38,20 +38,21 @@ pub const WS_TICKET_TTL_SECS: u64 = 60;
 pub struct SessionClaims {
     /// Internal user uuid (serialized as a string in the token).
     pub sub: Uuid,
-    /// User login name
     pub login: String,
-    /// User role ("user" or "admin")
+    /// User role: "user" or "admin".
     pub role: String,
-    /// Auth provider ("github", "auth0", "api-key")
+    /// Auth provider: "github", "auth0", or "api-key".
     pub provider: String,
-    /// Optional group ID (deprecated, kept for backwards compat)
+    /// Legacy grouping id, threaded through `AuthIdentity` into
+    /// [`crate::extractors::AuthUser`] and `t3code::auth::AuthContext`. No
+    /// code branches on its value; kept only so already-issued session
+    /// cookies keep deserializing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
-    /// Issued at (unix timestamp)
+    /// Issued at, Unix seconds.
     pub iat: u64,
-    /// Expiration (unix timestamp)
+    /// Expiration, Unix seconds.
     pub exp: u64,
-    /// Issuer
     pub iss: String,
 }
 

@@ -156,27 +156,27 @@ pub enum SdkMessage {
     Result(ResultMessage),
     /// type: "system", subtype: "init"
     System(SystemInitMessage),
-    /// type: "system", subtype: "compact_boundary"
+    /// type: "system", subtype: "`compact_boundary`"
     CompactBoundary(CompactBoundaryMessage),
     /// type: "system", subtype: "status"
     Status(StatusMessage),
-    /// type: "system", subtype: "hook_started"
+    /// type: "system", subtype: "`hook_started`"
     HookStarted(HookStartedMessage),
-    /// type: "system", subtype: "hook_progress"
+    /// type: "system", subtype: "`hook_progress`"
     HookProgress(HookProgressMessage),
-    /// type: "system", subtype: "hook_response"
+    /// type: "system", subtype: "`hook_response`"
     HookResponse(HookResponseMessage),
-    /// type: "system", subtype: "task_notification"
+    /// type: "system", subtype: "`task_notification`"
     TaskNotification(TaskNotificationMessage),
-    /// type: "system", subtype: "files_persisted"
+    /// type: "system", subtype: "`files_persisted`"
     FilesPersisted(FilesPersistedMessage),
-    /// type: "stream_event" — partial assistant message (streaming)
+    /// type: "`stream_event`" — partial assistant message (streaming)
     StreamEvent(PartialAssistantMessage),
-    /// type: "tool_progress"
+    /// type: "`tool_progress`"
     ToolProgress(ToolProgressMessage),
-    /// type: "auth_status"
+    /// type: "`auth_status`"
     AuthStatus(AuthStatusMessage),
-    /// type: "tool_use_summary"
+    /// type: "`tool_use_summary`"
     ToolUseSummary(ToolUseSummaryMessage),
 }
 

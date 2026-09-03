@@ -75,8 +75,8 @@ use common::{
 };
 
 /// Map one Message's content the way the write path does: text onto the row,
-/// each call and each outcome onto the conversation. Tests that used to hand
-/// `append` a block list go through the same seam the live writer does.
+/// each call and each outcome onto the conversation. Tests go through this
+/// same seam, rather than handing `append` a block list directly.
 fn conversation_write(
     task_id: &str,
     uuid: &str,
@@ -3096,7 +3096,7 @@ async fn a_position_the_deployment_has_never_reached_is_rebuilt_not_answered_wit
 
 /// A client holding nothing gets the listing, exactly as before this ticket.
 ///
-/// Kept because the resume path is the same function now: a change to how
+/// Kept because the resume path is the same function: a change to how
 /// `afterSequence` is read must not turn the first connection of a fresh client
 /// into an empty sidebar.
 #[sqlx::test]

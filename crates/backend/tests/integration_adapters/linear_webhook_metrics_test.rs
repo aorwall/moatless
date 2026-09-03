@@ -8,18 +8,15 @@
 )]
 //! What the `linear` webhook metric says, row by row.
 //!
-//! This file was written to be *wrong* later, and stage 15 of
-//! `.plans/linear-adapter-breakup.md` is where it became so. Every assertion
-//! below was first recorded against the pre-change route (#191), so the diff
-//! that introduced the `ignored` outcome shows exactly which rows moved and
-//! nothing else — a row that changed without anyone meaning to change it fails
-//! here.
+//! Every assertion below pins one row of the route's outcome-to-metric
+//! mapping, so a change to which reason a delivery meters under shows up
+//! here and nowhere else.
 //!
-//! Eight benign rejections that used to meter `success` now meter `ignored`
-//! with one of the seven reasons Decision 4 names (defect D1: the dashboard
-//! could not tell "arrived and admitted" apart from "arrived and dropped").
-//! The three error rows now carry the `event_type` they never had (D2), except
-//! the one delivery that has no event type to carry.
+//! Eight benign rejections meter `ignored`, with one of the seven reasons
+//! Decision 4 names, rather than `success` — the dashboard must be able to
+//! tell "arrived and admitted" apart from "arrived and dropped" (D1). The
+//! three error rows carry the `event_type` they need (D2), except the one
+//! delivery that has no event type to carry.
 //!
 //! Observed at the real route, because the metric is emitted by the route: the
 //! outcome depends on which `IngressError` variant reached it, and that
@@ -279,7 +276,7 @@ async fn an_admitted_delivery_is_success_with_its_event_type(pool: PgPool) {
 }
 
 // =========================================================================
-// The eight benign rejections that used to meter `success` (D1)
+// The eight benign rejections that meter `ignored` (D1)
 //
 // One test per row of the plan's Behaviour table, and between them every one
 // of the seven reasons Decision 4 names.
@@ -462,9 +459,8 @@ async fn an_empty_prompt_body_is_ignored_as_empty_body(pool: PgPool) {
 /// A delivery whose signature does not verify. Acknowledged — no redelivery of
 /// the same body will ever verify — but metered as an error.
 ///
-/// The `event_type` label is D2's fix: the one metric that fires when something
-/// breaks used to pass `""` here, even though the envelope had parsed and the
-/// type was in hand.
+/// The `event_type` label carries the type the envelope already parsed, so
+/// the one metric that fires when something breaks does not go out empty.
 #[sqlx::test]
 async fn a_bad_signature_is_error_delivery_failed_with_its_event_type(pool: PgPool) {
     let state = replica(&pool);

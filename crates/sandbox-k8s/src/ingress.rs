@@ -1,6 +1,6 @@
-//! Traefik IngressRoute CRD lifecycle operations.
+//! Traefik `IngressRoute` CRD lifecycle operations.
 //!
-//! Creates and deletes `traefik.io/v1alpha1` IngressRoute custom resources
+//! Creates and deletes `traefik.io/v1alpha1` `IngressRoute` custom resources
 //! for each server port exposed by a workspace pod.
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
@@ -18,7 +18,7 @@ const TRAEFIK_VERSION: &str = "v1alpha1";
 const TRAEFIK_KIND: &str = "IngressRoute";
 const TRAEFIK_PLURAL: &str = "ingressroutes";
 
-/// Get a kube DynamicObject API for Traefik IngressRoute CRDs.
+/// Get a kube `DynamicObject` API for Traefik `IngressRoute` CRDs.
 fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
     let ar = ApiResource {
         group: TRAEFIK_GROUP.to_string(),
@@ -30,12 +30,12 @@ fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
     Api::namespaced_with(k8s.client.clone(), k8s.namespace(), &ar)
 }
 
-/// Create Traefik IngressRoute CRDs for each server port of a task.
+/// Create Traefik `IngressRoute` CRDs for each server port of a task.
 ///
-/// Each IngressRoute maps `{task_id}--{port}.{proxy_domain}` to the
-/// workspace Service. Idempotent — handles 409 (AlreadyExists) gracefully.
+/// Each `IngressRoute` maps `{task_id}--{port}.{proxy_domain}` to the
+/// workspace Service. Idempotent — handles 409 (`AlreadyExists`) gracefully.
 ///
-/// `owner`, when present, is set as each IngressRoute's `ownerReference` (the
+/// `owner`, when present, is set as each `IngressRoute`'s `ownerReference` (the
 /// task's Deployment) so K8s garbage collection cascades their deletion when
 /// the Deployment is deleted. GC is resource-agnostic, so this works for the
 /// Traefik CRD exactly as it does for built-in resources.
@@ -126,10 +126,10 @@ pub async fn create_task_ingress_routes(
     Ok(())
 }
 
-/// Collect the `moatless.io/task-id` label of every managed IngressRoute.
+/// Collect the `moatless.io/task-id` label of every managed `IngressRoute`.
 ///
 /// Used by the reaper's orphan-GC pass to discover tasks that may have leftover
-/// IngressRoutes. Returns an empty vec (not an error) when the Traefik CRD isn't
+/// `IngressRoutes`. Returns an empty vec (not an error) when the Traefik CRD isn't
 /// installed (404) or the list fails — orphan GC is best-effort.
 pub async fn list_ingress_route_task_ids(k8s: &K8sClient) -> Vec<String> {
     let api = ingress_api(k8s);
@@ -160,10 +160,10 @@ pub async fn list_ingress_route_task_ids(k8s: &K8sClient) -> Vec<String> {
         .collect()
 }
 
-/// Delete all Traefik IngressRoute CRDs for a task.
+/// Delete all Traefik `IngressRoute` CRDs for a task.
 ///
 /// Uses label selector `moatless.io/task-id={task_id}` to find and delete
-/// all routes. Handles 404 (NotFound) gracefully.
+/// all routes. Handles 404 (`NotFound`) gracefully.
 pub async fn delete_task_ingress_routes(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
     let api = ingress_api(k8s);
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
@@ -215,7 +215,7 @@ pub async fn delete_task_ingress_routes(k8s: &K8sClient, task_id: &str) -> Resul
     }
 }
 
-/// Await observed absence of every task-owned IngressRoute.
+/// Await observed absence of every task-owned `IngressRoute`.
 pub async fn wait_for_task_ingress_routes_deleted(
     k8s: &K8sClient,
     task_id: &str,

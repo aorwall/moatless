@@ -54,7 +54,7 @@ export function useWorkspaceSelector(
   }
 }
 
-// Repository selector hook - now controlled
+// Repository selector hook - controlled
 // Shows all repositories (including templates)
 export function useRepositorySelector(
   value?: string,
@@ -102,7 +102,7 @@ export function useRepositorySelector(
   }
 }
 
-// Branch selector hook - now controlled
+// Branch selector hook - controlled
 export function useBranchSelector(
   repositoryId?: string,
   value?: string,
@@ -187,7 +187,7 @@ const FALLBACK_MODELS: AgentModel[] = [
   { id: CLAUDE_MODELS.SONNET, label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.SONNET] },
 ]
 
-// Model selector hook - now controlled.
+// Model selector hook - controlled.
 // When `models`/`defaultModelId` are omitted, falls back to the Claude model list
 // for backwards compatibility with call-sites that haven't adopted the agents API yet.
 export function useModelSelector<T extends string = string>(
@@ -236,7 +236,7 @@ export function useModelSelector<T extends string = string>(
   }
 }
 
-// Agent mode selector hook - now controlled
+// Agent mode selector hook - controlled
 export function useAgentModeSelector(
   value?: 'edit' | 'plan',
   onChange?: (value: 'edit' | 'plan') => void,

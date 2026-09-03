@@ -177,9 +177,9 @@ async fn update_mutates_present_fields_only(pool: PgPool) {
         .unwrap());
 }
 
-/// The run-config JSONB columns (`servers`, `env_vars`) moved off `repositories`
-/// onto `workspaces`; this covers their patch + read-back round-trip at the
-/// workspace layer (mirrors the coverage the repository DAO used to carry).
+/// The run-config JSONB columns (`servers`, `env_vars`) live on `workspaces`,
+/// not `repositories`; this covers their patch + read-back round-trip at the
+/// workspace layer.
 #[sqlx::test]
 async fn update_jsonb_run_config_round_trips(pool: PgPool) {
     let repo = PgWorkspaceDao(pool.clone());

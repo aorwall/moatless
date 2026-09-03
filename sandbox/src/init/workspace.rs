@@ -1,4 +1,4 @@
-//! Workspace setup: node_modules and setup commands.
+//! Workspace setup: `node_modules` and setup commands.
 
 use std::path::Path;
 

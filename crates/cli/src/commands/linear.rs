@@ -98,7 +98,7 @@ pub enum IssueAction {
         /// Optional template UUID
         #[arg(long)]
         template_id: Option<String>,
-        /// Task to associate the new issue with (defaults to $TASK_ID).
+        /// Task to associate the new issue with (defaults to `$TASK_ID`).
         /// Records a traceability attachment; does NOT make the issue a reply
         /// target unless `--bind` is also passed.
         #[arg(long = "task")]
@@ -151,7 +151,7 @@ pub enum IssueAction {
         id: String,
         /// Comment body. Reads from stdin if omitted.
         body: Option<String>,
-        /// Task to associate with (defaults to $TASK_ID). A comment on an
+        /// Task to associate with (defaults to `$TASK_ID`). A comment on an
         /// already-bound issue refreshes its binding automatically.
         #[arg(long = "task")]
         task: Option<String>,

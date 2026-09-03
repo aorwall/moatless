@@ -11,7 +11,7 @@
 //! Mirrors the `claude-p` Zig project's `src/hook.zig` 1:1.
 //!
 //! Why this exists: it replaces a hard-coded 500ms sleep before pasting the
-//! first prompt (SessionStart tells us when the TUI is actually accepting
+//! first prompt (`SessionStart` tells us when the TUI is actually accepting
 //! input) and replaces snapshot-diff JSONL discovery (Stop's payload carries
 //! the transcript path).
 
@@ -118,7 +118,7 @@ printf '%s\t%s\n' "$event" "$payload" >> "$fifo"
 exit 0
 "#;
 
-/// Build the inline `--settings` JSON registering SessionStart + Stop hooks.
+/// Build the inline `--settings` JSON registering `SessionStart` + Stop hooks.
 fn build_settings_json(script_path: &Path) -> Result<String> {
     let script = script_path.to_string_lossy().into_owned();
     let entry = |event: &str| {

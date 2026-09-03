@@ -115,9 +115,7 @@ test('SANDBOX-07: Sandbox crash loop detected early', async ({ api }, testInfo) 
     expect(ready).toBe(false)
 
     const status = await api.getWorkspaceStatus(taskId)
-    // Crash loop should produce a sandboxError
     expect(status.sandboxError).toBeTruthy()
-    // Should detect crash loop much faster than the full timeout
     expect(elapsed).toBeLessThan(CRASH_LOOP_WAIT_MS)
 
     progress(`Error: ${status.sandboxError} (detected in ${elapsed}ms)`)

@@ -61,7 +61,7 @@ pub const CLAUDE_ENV_DEFAULTS: &[(&str, &str)] = &[
     ("DISABLE_UPGRADE_COMMAND", "1"),
 ];
 
-/// Build ClaudeOptions from config + per-request overrides.
+/// Build `ClaudeOptions` from config + per-request overrides.
 pub fn build_options(
     config: &Config,
     request: &AgentRunRequest,

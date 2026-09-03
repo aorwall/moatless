@@ -181,7 +181,7 @@ impl From<sandbox_proto::AgentStopSource> for StopSource {
 
 /// Convert proto `ContentBlock`s to internal `ContentBlock`s.
 ///
-/// Shared by both `grpc_server.rs` (execute_agent) and `consumer.rs` (message polling).
+/// Shared by both `grpc_server.rs` (`execute_agent`) and `consumer.rs` (message polling).
 pub fn content_blocks_from_proto(
     proto_blocks: Vec<sandbox_proto::ContentBlock>,
 ) -> Vec<ContentBlock> {

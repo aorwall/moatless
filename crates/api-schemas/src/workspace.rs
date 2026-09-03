@@ -118,7 +118,7 @@ pub struct ServerConfig {
     pub enable_inspector: bool,
     #[serde(default)]
     pub default: bool,
-    /// Per-server Docker image. Falls back to sandbox_image if not set.
+    /// Per-server Docker image. Falls back to `sandbox_image` if not set.
     #[serde(default)]
     pub docker_image: Option<String>,
     /// Per-server environment variables.

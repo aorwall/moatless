@@ -78,7 +78,7 @@ pub async fn webhook_inbound(
     //
     // Everything below the 200 depends on this write: a failure here must reach
     // the caller as a failure so it re-delivers, and must never be swallowed
-    // into an acknowledgment. The routing itself now runs in the Adapter
+    // into an acknowledgment. The routing itself runs in the Adapter
     // delivery worker, which is also where the webhook outcome metric is
     // recorded.
     let request = inbound_delivery_request(

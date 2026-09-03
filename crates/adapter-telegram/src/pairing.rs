@@ -166,7 +166,7 @@ pub async fn list_pending_for_user(
     Ok(rows)
 }
 
-/// Approve a pairing request: mark approved + add user ID to dm_allowlist.
+/// Approve a pairing request: mark approved + add user ID to `dm_allowlist`.
 pub async fn approve_request(
     db: &DbPool,
     loop_id: &str,

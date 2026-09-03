@@ -135,8 +135,8 @@ pub(crate) struct CodexProcess {
     /// What the Session had already spent when this Turn opened. `Some` only on
     /// a resumed thread, whose stored total is replayed before the Turn runs.
     usage_baseline: Option<TokenUsageBreakdown>,
-    /// The most recent cumulative reading, held because usage now streams
-    /// before the terminal instead of riding on it.
+    /// The most recent cumulative reading, held because usage streams before
+    /// the terminal instead of riding on it.
     usage_latest: Option<TokenUsageBreakdown>,
     /// Tears the server down, and exists before there is a server to tear down.
     /// The session is handed this same token, so a Stop that arrives while the
@@ -391,8 +391,8 @@ impl CodexProcess {
     }
 
     /// Normalize one native item into its canonical block(s) and append each as
-    /// a `ProcessEvent::Block` in native order (a tool item expands to a tool_use
-    /// plus its paired tool_result). A family that renders nothing appends
+    /// a `ProcessEvent::Block` in native order (a tool item expands to a `tool_use`
+    /// plus its paired `tool_result`). A family that renders nothing appends
     /// nothing.
     fn push_item_blocks(&mut self, item: &ThreadItem) {
         for source in self.normalizer.item_sources(item) {

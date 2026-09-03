@@ -47,14 +47,14 @@ impl std::fmt::Display for HookEvent {
 /// Handler trait for hook callbacks from the CLI.
 ///
 /// Implement this trait to receive hook callbacks during tool execution.
-/// The CLI sends HookCallback control requests for registered hook events,
+/// The CLI sends `HookCallback` control requests for registered hook events,
 /// and the SDK invokes this handler to determine the response.
 #[async_trait]
 pub trait HookHandler: Send + Sync {
     /// Called when a hook callback is received from the CLI.
     ///
     /// - `input`: The hook callback input from the CLI, containing event-specific data
-    ///   (e.g., `hookEventName`, `toolName`, `toolInput` for PreToolUse events).
+    ///   (e.g., `hookEventName`, `toolName`, `toolInput` for `PreToolUse` events).
     /// - `tool_use_id`: The tool use ID if this hook is associated with a tool invocation.
     ///
     /// Return a `HookOutput` to control behavior (continue/stop, approve/deny, inject messages).
@@ -64,7 +64,7 @@ pub trait HookHandler: Send + Sync {
 /// A hook definition that tells the CLI which events to send as callbacks.
 ///
 /// These definitions are serialized and sent in the Initialize control request.
-/// When the CLI encounters a matching event, it sends a HookCallback control
+/// When the CLI encounters a matching event, it sends a `HookCallback` control
 /// request back to the SDK.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookDefinition {

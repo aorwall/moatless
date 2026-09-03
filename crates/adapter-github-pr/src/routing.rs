@@ -94,10 +94,7 @@ impl GithubPrInboundRouter {
     /// a task the event names as its author, and spawning the review task a freshly
     /// opened pull request calls for. Which of them receive the event is not — that
     /// is [`moatless_loops::bindings::runtime::fan_out`], deciding from the audience
-    /// `adapter.rs` classified the event into. This function used to answer both,
-    /// through a ladder of guards whose last rung compared the sender's identity to
-    /// the bound task's owner; a real review reached no task because of what two of
-    /// those rungs added up to. Identity plays no part here now.
+    /// `adapter.rs` classified the event into. Identity plays no part here.
     pub(super) async fn route_event(
         &self,
         connection: &AdapterConnection,

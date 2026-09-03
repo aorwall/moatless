@@ -43,7 +43,6 @@ pub struct QueryHandle {
 }
 
 impl QueryHandle {
-    /// Returns the thread ID for this session.
     pub fn thread_id(&self) -> &str {
         &self.thread_id
     }

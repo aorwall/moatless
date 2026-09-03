@@ -12,11 +12,16 @@ use crate::error::{AdapterError, SharedAdapterError};
 
 use moatless_types::adapter::AdapterKind;
 
-/// Registry of external adapters keyed by AdapterKind.
+/// Registry of external adapters keyed by `AdapterKind`.
 ///
 /// The trait-object map is the whole registry: cross-provider code dispatches
 /// through it, and each provider's concrete handle lives on the composition root
 /// (`ProviderHandles`), not here.
+///
+/// Each provider registers into it through its own `register_into` method,
+/// called once at the composition root: construction lives there, and the
+/// provider owns the mapping from itself to the capability surfaces it
+/// implements.
 #[derive(Clone)]
 pub struct Adapters {
     providers: HashMap<AdapterKind, Arc<dyn Adapter>>,
@@ -231,7 +236,6 @@ impl Adapters {
             .map(Arc::as_ref)
     }
 
-    /// Returns configured adapter kinds.
     pub fn registered_types(&self) -> Vec<AdapterKind> {
         self.providers.keys().copied().collect()
     }

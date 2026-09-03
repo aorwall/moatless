@@ -1,11 +1,11 @@
-//! Interactive permission handler for AskUserQuestion and ExitPlanMode.
+//! Interactive permission handler for `AskUserQuestion` and `ExitPlanMode`.
 //!
-//! When the agent encounters AskUserQuestion or ExitPlanMode, the handler
+//! When the agent encounters `AskUserQuestion` or `ExitPlanMode`, the handler
 //! creates a oneshot channel, stores it as a pending prompt in `AgentState`,
 //! and blocks until a response is received (or the agent is cancelled).
 //!
 //! In plan mode, write tools (Write, Edit, Bash, etc.) are blocked until
-//! ExitPlanMode has been approved.
+//! `ExitPlanMode` has been approved.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -32,13 +32,13 @@ struct PromptSink {
     task_id: String,
 }
 
-/// Permission handler that intercepts AskUserQuestion and ExitPlanMode.
+/// Permission handler that intercepts `AskUserQuestion` and `ExitPlanMode`.
 ///
 /// When `plan_mode_active` is true, write tools are denied until the user
-/// approves the plan via ExitPlanMode.
+/// approves the plan via `ExitPlanMode`.
 pub struct InteractivePermissionHandler {
     pub agent_state: Arc<AgentState>,
-    /// When true, write tools are blocked pending ExitPlanMode approval.
+    /// When true, write tools are blocked pending `ExitPlanMode` approval.
     pub plan_mode_active: Arc<AtomicBool>,
     /// `None` in tests and wherever no publisher is wired; the prompt then
     /// parks exactly as before, unannounced.

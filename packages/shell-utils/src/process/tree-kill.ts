@@ -15,9 +15,7 @@ interface PidsToProcess {
 
 /**
  * Kill a process and all its children
- * @param pid Process ID to kill
  * @param signal Signal to send (default: SIGTERM)
- * @param callback Optional callback function
  */
 export function treeKill(pid: number, signal?: Signal | Callback, callback?: Callback): void {
   // Handle optional signal parameter

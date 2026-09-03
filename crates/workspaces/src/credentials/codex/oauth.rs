@@ -2,7 +2,7 @@
 //!
 //! Three round trips to `auth.openai.com`:
 //!
-//! 1. `POST /api/accounts/deviceauth/usercode` — issue a device_auth_id + user_code
+//! 1. `POST /api/accounts/deviceauth/usercode` — issue a `device_auth_id` + `user_code`
 //! 2. `POST /api/accounts/deviceauth/token`    — poll until the user has approved
 //!    in their browser; returns an authorization code + PKCE verifier
 //! 3. `POST /oauth/token` — exchange the authorization code for the final tokens
@@ -23,7 +23,7 @@ const VERIFICATION_URL: &str = "https://auth.openai.com/codex/device";
 const FALLBACK_INTERVAL_SECS: u64 = 5;
 const EXPIRES_IN_SECS: u64 = 900;
 
-/// OpenAI's first-party Codex CLI client_id. Hardcoded to match the upstream
+/// OpenAI's first-party Codex CLI `client_id`. Hardcoded to match the upstream
 /// Codex CLI; if OpenAI rotates it, every refresh will start failing and we'll
 /// need to bump this constant.
 pub const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -68,7 +68,7 @@ pub enum PollStatus {
     Expired,
 }
 
-/// Subset of claims we care about from the OAuth id_token JWT.
+/// Subset of claims we care about from the OAuth `id_token` JWT.
 ///
 /// The JWT signature is NOT verified — we only read it for display. The
 /// trustworthy step is the server-side token exchange against `oauth/token`
@@ -112,7 +112,7 @@ pub enum PermanentReason {
 #[derive(Debug, thiserror::Error)]
 pub enum RefreshTokenError {
     /// Will never succeed without user re-auth. Caller stops retrying and
-    /// records the failure on the provider_tokens row.
+    /// records the failure on the `provider_tokens` row.
     #[error("permanent: {reason:?} ({body})")]
     Permanent {
         reason: PermanentReason,
@@ -202,7 +202,7 @@ fn classify_refresh_error(status: StatusCode, body: String) -> RefreshTokenError
 /// POST `{client_id, grant_type:"refresh_token", refresh_token}` to OpenAI's
 /// OAuth token endpoint and return the (subset of) rotated tokens.
 ///
-/// **Important**: a successful refresh rotates the refresh_token server-side;
+/// **Important**: a successful refresh rotates the `refresh_token` server-side;
 /// the old token is dead after this call returns `Ok`. Callers must persist
 /// the new `refresh_token` (when present) before any other code can race them.
 pub async fn refresh_chatgpt_tokens(
@@ -286,7 +286,7 @@ struct TokenExchangeResponse {
     access_token: String,
 }
 
-/// Step 1: ask `auth.openai.com` for a device_auth_id + user_code.
+/// Step 1: ask `auth.openai.com` for a `device_auth_id` + `user_code`.
 pub async fn request_device_code(
     client: &reqwest::Client,
     issuer: &str,
@@ -446,8 +446,8 @@ async fn exchange_code_for_tokens(
 /// then race to consume the (rotating) refresh token, and the loser gets
 /// `refresh_token_reused` and the session dies.
 ///
-/// Does NOT consume the refresh_token — only `id_token` is sent as the
-/// subject_token. Failure here is non-fatal upstream; we mirror that and let
+/// Does NOT consume the `refresh_token` — only `id_token` is sent as the
+/// `subject_token`. Failure here is non-fatal upstream; we mirror that and let
 /// the caller record `null` if this fails.
 async fn obtain_api_key(
     client: &reqwest::Client,

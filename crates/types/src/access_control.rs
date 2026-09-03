@@ -262,7 +262,7 @@ impl ScopeContext {
     ///
     /// Embedding this in a mutation's `WHERE` makes the check and the write a
     /// single atomic statement; `rows_affected == 0` maps to the module's
-    /// NotFound error, matching the existence-hiding reads.
+    /// `NotFound` error, matching the existence-hiding reads.
     pub fn write_filter(&self, prefix: &str, start: usize) -> AccessFilter {
         let (p1, p2) = (start, start + 1);
         let sql = format!(

@@ -148,15 +148,15 @@ pub(crate) enum AgentCommand {
     /// Replay an interrupted run on startup. Behaves identically to `Send`
     /// except the resume session ID is forced from the backend's recovery
     /// payload — the existing CLI `--resume <session_id>` path drives the
-    /// rest. Acks are dropped (no caller waiting on a session_id).
+    /// rest. Acks are dropped (no caller waiting on a `session_id`).
     Recover {
         text: String,
         agent_mode: Option<String>,
         effort: Option<String>,
         resume_session_id: String,
-        /// The interrupted turn's original run_id. Reused so the recovery run's
+        /// The interrupted turn's original `run_id`. Reused so the recovery run's
         /// events map back to that turn instead of forking a new one. `None`
-        /// for a legacy turn with no recorded run_id.
+        /// for a legacy turn with no recorded `run_id`.
         run_id: Option<String>,
     },
     /// Stop the agent. The `ack` (when present) resolves once the lifecycle
@@ -377,7 +377,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
     use tonic::Status;
 
-    /// Minimal recording backend for spawn_agent tests.
+    /// Minimal recording backend for `spawn_agent` tests.
     struct NopBackend;
 
     #[async_trait]

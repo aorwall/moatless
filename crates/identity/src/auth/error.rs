@@ -1,4 +1,4 @@
-//! Auth error types with axum IntoResponse.
+//! Auth error types with axum `IntoResponse`.
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};

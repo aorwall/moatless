@@ -286,7 +286,7 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// In-memory ProviderTokenDao for tests.
+    /// In-memory `ProviderTokenDao` for tests.
     struct InMemoryTokens {
         tokens: tokio::sync::Mutex<HashMap<(String, String), String>>,
         upsert_count: AtomicUsize,

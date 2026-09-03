@@ -146,10 +146,10 @@ fn notification(action: &str, kind: &str, id: &str) -> serde_json::Value {
 /// An `AppUserNotification` action this adapter does not act on is still a
 /// delivery that arrived, so it still gets a record.
 ///
-/// The action filter used to sit at the route, which meant a whole class of
-/// Linear delivery was acknowledged with nothing durable behind it — leaving an
-/// operator no way to answer "did it arrive?". The decision belongs behind
-/// admission, and the no-op belongs in the worker.
+/// The action filter must not sit at the route: filtering there would
+/// acknowledge a whole class of Linear delivery with nothing durable behind
+/// it, leaving an operator no way to answer "did it arrive?". The decision
+/// belongs behind admission, and the no-op belongs in the worker.
 #[sqlx::test]
 async fn an_unhandled_notification_action_is_still_recorded_and_no_ops(pool: PgPool) {
     let state = replica(&pool);

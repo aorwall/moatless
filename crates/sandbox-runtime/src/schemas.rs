@@ -54,7 +54,7 @@ pub struct UpdateServerConfigRequest {
     #[serde(default = "default_restart")]
     pub restart: bool,
     /// Not applicable live — the port is wired into the Service and
-    /// IngressRoute at provision time.
+    /// `IngressRoute` at provision time.
     #[serde(default)]
     pub port: Option<u16>,
     /// Not applicable live — the image is the container's identity.

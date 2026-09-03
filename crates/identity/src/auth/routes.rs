@@ -88,7 +88,7 @@ impl OAuthProviders {
         }
     }
 
-    /// Look up a provider by AuthProvider enum.
+    /// Look up a provider by `AuthProvider` enum.
     pub fn get(&self, provider: AuthProvider) -> Option<&Arc<dyn OAuthProvider>> {
         match provider {
             // Local password auth has no OAuth provider.
@@ -138,7 +138,7 @@ pub(super) struct AuthState {
     /// override, and the validated PAT itself.
     pub(super) secrets: Arc<SecretService>,
     /// Preview-URL access for the session gate — the one `may_access_task` bool
-    /// the ForwardAuth gate needs (E-(b)), behind a port so this crate holds no
+    /// the `ForwardAuth` gate needs (E-(b)), behind a port so this crate holds no
     /// `task` import.
     pub(super) task_access: Arc<dyn moatless_core::http_auth::TaskAccess>,
     /// Verifies the sandbox-issued `X-User-Token` on `exchange_token`, behind a
@@ -806,7 +806,7 @@ async fn authenticate_from_cookie(
 
 /// Authenticate from session cookie or API key.
 ///
-/// Used by both `verify_handler` (ForwardAuth) and internal callers.
+/// Used by both `verify_handler` (`ForwardAuth`) and internal callers.
 async fn authenticate_request(
     state: &AuthState,
     headers: &HeaderMap,
@@ -873,7 +873,7 @@ async fn authenticate_request(
 // GET /api/v1/auth/verify — Traefik ForwardAuth endpoint
 // ============================================================================
 
-/// Verify authentication via session cookie or API key (Traefik ForwardAuth).
+/// Verify authentication via session cookie or API key (Traefik `ForwardAuth`).
 ///
 /// Returns 200/401 only — no response headers.
 /// For preview URLs (hostname contains `--`), also checks task-based access.

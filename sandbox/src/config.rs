@@ -25,7 +25,7 @@ pub const RUNTIME_DIR: &str = "/run/moatless";
 /// Deadline a `moat cmd` command takes when it declares none.
 pub const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 4 * 60 * 60;
 
-/// Agent-specific configuration parsed from REPO_CONFIG.
+/// Agent-specific configuration parsed from `REPO_CONFIG`.
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
 pub struct AgentConfig {
@@ -49,17 +49,17 @@ impl AgentConfig {
     /// gets the path listing back.
     ///
     /// Resolved from, in order: the `SANDBOX_FRONTLOAD_REPO_INSTRUCTIONS` env
-    /// var, then REPO_CONFIG (`frontloadInstructions`, top level or nested under
+    /// var, then `REPO_CONFIG` (`frontloadInstructions`, top level or nested under
     /// `agentConfig`), then this default. The env var is the one a repo can set
     /// per-repo today, via `envVars` in its run-config: those reach this
-    /// container verbatim, whereas REPO_CONFIG is rebuilt upstream from typed
+    /// container verbatim, whereas `REPO_CONFIG` is rebuilt upstream from typed
     /// fields that do not yet carry this flag.
     pub fn frontload_instructions_enabled(&self) -> bool {
         self.frontload_instructions.unwrap_or(true)
     }
 }
 
-/// Code execution configuration from REPO_CONFIG.
+/// Code execution configuration from `REPO_CONFIG`.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -86,7 +86,7 @@ impl Default for ProxyConfig {
     }
 }
 
-/// Server info parsed from REPO_CONFIG, used for system prompt.
+/// Server info parsed from `REPO_CONFIG`, used for system prompt.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerInfo {
@@ -101,7 +101,7 @@ pub struct ServerInfo {
     pub auto_reload: bool,
 }
 
-/// Partial REPO_CONFIG JSON structure — we only parse the fields we need.
+/// Partial `REPO_CONFIG` JSON structure — we only parse the fields we need.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RepoConfigFile {
@@ -136,7 +136,7 @@ struct RepoAgentConfig {
     frontload_instructions: Option<bool>,
 }
 
-/// Parsed REPO_CONFIG result.
+/// Parsed `REPO_CONFIG` result.
 struct ParsedRepoConfig {
     agent_config: AgentConfig,
     setup_commands: Vec<String>,
@@ -152,7 +152,7 @@ pub struct Config {
     pub port: u16,
     /// gRPC port for sandbox service (default: 50052)
     pub grpc_port: u16,
-    /// Sandbox ID (required for new pods; falls back to TASK_ID for older local fixtures).
+    /// Sandbox ID (required for new pods; falls back to `TASK_ID` for older local fixtures).
     pub sandbox_id: String,
     /// Initial member Task ID.
     pub task_id: String,
@@ -191,7 +191,7 @@ pub struct Config {
     pub upload_dir: String,
     /// Log level
     pub log_level: String,
-    /// Backend gRPC URL (e.g. "http://backend:50051") — required
+    /// Backend gRPC URL (e.g. "<http://backend:50051>") — required
     pub backend_grpc_url: String,
     /// Backend API URL for HTTP fallback calls.
     pub backend_api_url: Option<String>,
@@ -211,16 +211,16 @@ pub struct Config {
     pub codex_cli_path: String,
     /// Proxy configuration for preview URLs
     pub proxy: ProxyConfig,
-    /// Server configurations parsed from REPO_CONFIG
+    /// Server configurations parsed from `REPO_CONFIG`
     pub servers: Vec<ServerInfo>,
-    /// Frontend URL for constructing task URLs (e.g., "https://moatless.io")
+    /// Frontend URL for constructing task URLs (e.g., "<https://moatless.io>")
     pub frontend_url: Option<String>,
-    /// Global default Claude model (env: DEFAULT_CLAUDE_CODE_MODEL), used when neither request nor repo config set one
+    /// Global default Claude model (env: `DEFAULT_CLAUDE_CODE_MODEL`), used when neither request nor repo config set one
     pub default_model: Option<String>,
-    /// Global default Codex model (env: DEFAULT_CODEX_MODEL), used when neither request nor repo config set one.
+    /// Global default Codex model (env: `DEFAULT_CODEX_MODEL`), used when neither request nor repo config set one.
     /// Falls through to [`crate::agent::codex_app_server::DEFAULT_CODEX_MODEL`] at call time if unset.
     pub default_codex_model: Option<String>,
-    /// Use the tmux-based Claude Code SDK transport instead of subprocess/NDJSON (env: SANDBOX_USE_TMUX).
+    /// Use the tmux-based Claude Code SDK transport instead of subprocess/NDJSON (env: `SANDBOX_USE_TMUX`).
     pub use_tmux: bool,
     /// Deadline applied to a `moat cmd` command that declares none (env:
     /// `SANDBOX_COMMAND_DEFAULT_TIMEOUT_SECS`, default 4h). A command's own
@@ -282,12 +282,12 @@ pub struct Config {
     /// so this holds the single checkout reconstructed from the `GIT_*` trio —
     /// or nothing at all, for a sandbox with no repo to clone.
     pub repos: Vec<RepoCheckout>,
-    /// Raw REPO_CONFIG JSON (for entrypoint compat)
+    /// Raw `REPO_CONFIG` JSON (for entrypoint compat)
     pub repo_config_raw: Option<String>,
-    /// Setup commands from REPO_CONFIG.codeExecution.setupCommands
+    /// Setup commands from `REPO_CONFIG.codeExecution.setupCommands`
     pub setup_commands: Vec<String>,
     /// The plugins to clone, each with the skills to keep, from
-    /// REPO_CONFIG.plugins
+    /// `REPO_CONFIG.plugins`
     pub plugins: Vec<PluginDelivery>,
 }
 
@@ -385,7 +385,7 @@ fn is_safe_mount_name(name: &str) -> bool {
 ///
 /// Accepts the CLI's camelCase spellings case-insensitively (`default`,
 /// `acceptEdits`, `bypassPermissions`, `plan`, `delegate`, `dontAsk`) plus a
-/// couple of snake_case aliases. Returns `None` for empty or unrecognised
+/// couple of `snake_case` aliases. Returns `None` for empty or unrecognised
 /// values so the caller falls back to the default.
 fn parse_permission_mode(raw: &str) -> Option<PermissionMode> {
     match raw.trim().to_ascii_lowercase().as_str() {
@@ -712,12 +712,12 @@ pub(crate) mod test_support {
     }
 }
 
-/// Parse REPO_CONFIG JSON env var into server configs, agent config, and setup commands.
-/// Fold the two spellings of REPO_CONFIG's agent settings into one [`AgentConfig`].
+/// Parse `REPO_CONFIG` JSON env var into server configs, agent config, and setup commands.
+/// Fold the two spellings of `REPO_CONFIG`'s agent settings into one [`AgentConfig`].
 ///
 /// `frontloadInstructions` is read from the top level, where the provisioning
 /// path writes it, and falls back to the nested `agentConfig` spelling used by
-/// the entrypoint-compat shape that supplies REPO_CONFIG verbatim. Unset at both
+/// the entrypoint-compat shape that supplies `REPO_CONFIG` verbatim. Unset at both
 /// levels leaves `None`, which
 /// [`AgentConfig::frontload_instructions_enabled`] reads as enabled.
 fn resolve_agent_config(
@@ -825,7 +825,7 @@ mod tests {
         resolve_agent_config(parsed.agent_config, parsed.frontload_instructions)
     }
 
-    /// A REPO_CONFIG that says nothing about frontloading leaves it enabled, so
+    /// A `REPO_CONFIG` that says nothing about frontloading leaves it enabled, so
     /// a repo gets its instructions in context without opting in.
     #[test]
     fn frontloading_is_enabled_when_repo_config_is_silent() {
@@ -843,7 +843,7 @@ mod tests {
         assert!(!resolved.frontload_instructions_enabled());
     }
 
-    /// The nested spelling still works for REPO_CONFIG supplied verbatim.
+    /// The nested spelling still works for `REPO_CONFIG` supplied verbatim.
     #[test]
     fn nested_frontload_instructions_disables_frontloading() {
         let resolved = agent_config_from_json(r#"{"agentConfig":{"frontloadInstructions":false}}"#);

@@ -5,7 +5,7 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! Integration tests for message_dao.
+//! Integration tests for `message_dao`.
 
 use crate::common;
 
@@ -20,8 +20,8 @@ use sqlx::PgPool;
 use common::{make_message_row, make_repository_row, make_task_row};
 
 /// Map one Message's content the way the write path does: text onto the row,
-/// each call and each outcome onto the conversation. Every test that used to
-/// hand `append` a block list goes through the same seam the live writer does.
+/// each call and each outcome onto the conversation. Every test goes through
+/// this same seam, rather than handing `append` a block list directly.
 fn conversation_write(
     uuid: &str,
     message_type: MessageType,
@@ -995,9 +995,9 @@ async fn a_plain_message_settles_the_question_it_answered(pool: PgPool) {
 /// that row and the activities written on it — including the ones a later
 /// source event settled.
 ///
-/// This used to resolve a folded `tool_result` row to the assistant Message it
-/// answered, because the result had a row of its own and the call it changed
-/// did not know about it. Neither is true now.
+/// The loader does not need to resolve a folded `tool_result` row back to the
+/// assistant Message it answered: the change already names the right row
+/// directly.
 #[sqlx::test]
 async fn get_message_for_assembly_loads_the_named_message_with_its_activities(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;

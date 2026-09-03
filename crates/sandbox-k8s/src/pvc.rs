@@ -1,4 +1,4 @@
-//! PVC (PersistentVolumeClaim) lifecycle operations.
+//! PVC (`PersistentVolumeClaim`) lifecycle operations.
 
 use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::api::{Api, ListParams, PostParams};

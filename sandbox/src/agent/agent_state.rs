@@ -13,7 +13,7 @@ use super::prompt::PendingPrompt;
 use super::types::AgentStatus;
 use crate::error::SandboxError;
 
-/// Shared agent execution state, protected by RwLock for concurrent reads.
+/// Shared agent execution state, protected by `RwLock` for concurrent reads.
 pub struct AgentState {
     inner: RwLock<AgentInner>,
 }

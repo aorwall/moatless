@@ -845,7 +845,7 @@ impl LoopDao {
         Ok(row.map(SubscriptionMatch::from))
     }
 
-    /// Return all subscriptions for a given (adapter, source_matcher) — used by
+    /// Return all subscriptions for a given (adapter, `source_matcher`) — used by
     /// Linear, where multiple listeners can share a team UUID.
     pub async fn list_subscriptions_by_source_matcher(
         &self,

@@ -100,7 +100,7 @@ pub struct LinearAgentApi {
     /// Linear organization (workspace) UUID. Used as `team_id` in
     /// `provider_tokens` for the OAuth row.
     org_id: String,
-    /// OAuth client_id / client_secret for the refresh-token grant.
+    /// OAuth `client_id` / `client_secret` for the refresh-token grant.
     oauth_client_id: Option<String>,
     oauth_client_secret: Option<String>,
 }

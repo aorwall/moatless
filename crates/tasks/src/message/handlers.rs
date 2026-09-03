@@ -101,7 +101,7 @@ const INTERACTIVE_TOOL_NAMES: &[&str] = &["ExitPlanMode", "AskUserQuestion"];
 /// Query parameters for GET /messages.
 #[derive(Debug, Deserialize)]
 pub struct GetMessagesQuery {
-    /// When true, strip heavy fields (tool_input, typed_result, sdk_metadata)
+    /// When true, strip heavy fields (`tool_input`, `typed_result`, `sdk_metadata`)
     /// and truncate tool result content. Useful for CLI/summary views.
     #[serde(default)]
     pub summary: bool,

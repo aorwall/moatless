@@ -407,7 +407,7 @@ mod tests {
             "bot-user", row,
         )));
 
-        // The repository is now mandatory in the signature, so the only way to
+        // The repository is mandatory in the signature, so the only way to
         // fail is the registry lookup — which is where an unregistered App key
         // must surface rather than being masked by an owner-wide mint.
         let error = auth

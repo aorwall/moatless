@@ -374,13 +374,9 @@ async fn shutdown_flushes_the_outbox_before_cancelling() {
 }
 
 /// The same invariant on the *fatal* path, where no SIGTERM arrives and the
-/// supervisor itself initiates shutdown.
-///
-/// This is the trap the graceful path is careful about, re-armed: the
-/// supervisor's instinct is to cancel and then join, and `perform_shutdown`
-/// called after that cancel looks entirely correct while flushing nothing. So
-/// the supervisor must await the teardown *before* cancelling, exactly as the
-/// signal path does. Same fixture as above, one different trigger.
+/// supervisor itself initiates shutdown. See [`Supervisor::run`] for the
+/// teardown-before-cancel ordering this guards. Same fixture as above, one
+/// different trigger.
 #[tokio::test]
 async fn fatal_exit_flushes_the_outbox_before_cancelling() {
     let dir = tempfile::TempDir::new().unwrap();

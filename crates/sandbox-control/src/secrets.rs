@@ -46,7 +46,7 @@ pub struct TaskCredentialInputs<'a> {
     pub users: Option<&'a Arc<dyn CommitIdentity>>,
     /// Codex credential orchestrator used to refresh codex tokens just-in-time
     /// before handing the blob to the sandbox. When `None`, the codex branch
-    /// falls back to a raw provider_tokens read.
+    /// falls back to a raw `provider_tokens` read.
     pub credential_sync: Option<&'a Arc<dyn CodexCredentials>>,
     /// Provider credentials pinned to the task's Workspace, already decrypted
     /// and keyed by environment variable — resolve them with
@@ -150,7 +150,7 @@ pub async fn resolve_task_github_token(
 }
 
 /// Merge scoped-secret values into `credentials` only for keys that aren't
-/// already covered by a provider_token. Extracted so the priority logic is
+/// already covered by a `provider_token`. Extracted so the priority logic is
 /// directly unit-testable without standing up the full `SecretService`.
 fn fill_missing_from_scoped(
     credentials: &mut HashMap<String, String>,

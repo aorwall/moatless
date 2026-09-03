@@ -35,15 +35,15 @@ pub enum LoopsAction {
     ///   --unset KEY         remove a field
     /// or pass the whole object verbatim with --adapter-config '<json>'.
     ///
-    /// Known github_pr keys: ignored_senders (string[]), ignored_title_patterns
-    /// (case-insensitive title regexes, string[]), ignored_events (string[]),
-    /// close_task_on_close, notify_on_success.
+    /// Known `github_pr` keys: `ignored_senders` (string[]), `ignored_title_patterns`
+    /// (case-insensitive title regexes, string[]), `ignored_events` (string[]),
+    /// `close_task_on_close`, `notify_on_success`.
     ///
     /// Events are named by --event-filter (an allowlist; empty = all) or
-    /// ignored_events (a denylist, which wins). Names: pull_request,
-    /// issue_comment, pull_request_review_comment, pull_request_review,
-    /// check_run, check_suite, plus the three signals this adapter derives —
-    /// merge_conflict, post_merge and pr_merged. Ignoring a derived signal
+    /// `ignored_events` (a denylist, which wins). Names: `pull_request`,
+    /// `issue_comment`, `pull_request_review_comment`, `pull_request_review`,
+    /// `check_run`, `check_suite`, plus the three signals this adapter derives —
+    /// `merge_conflict`, `post_merge` and `pr_merged`. Ignoring a derived signal
     /// skips only that signal's work and keeps the events it is derived from.
     /// The backend validates values (e.g. compiles each regex) — this command does not.
     ///
@@ -51,11 +51,11 @@ pub enum LoopsAction {
     ///   # skip dependency PRs by title
     ///   moat loops create-subscription --adapter github --connection-id <c> \
     ///     --source-matcher owner/repo --repository-id <r> \
-    ///     --append ignored_title_patterns='^chore\(deps' \
-    ///     --append ignored_title_patterns='^deps[:(]'
+    ///     --append `ignored_title_patterns`='^chore\(deps' \
+    ///     --append `ignored_title_patterns`='^deps[:(]'
     ///
     ///   # force a JSON-looking value to stay a string by quoting it
-    ///   --set some_key='"123"'
+    ///   --set `some_key`='"123"'
     #[command(alias = "create-adapter-event")]
     CreateSubscription {
         #[arg(long)]
@@ -70,15 +70,15 @@ pub enum LoopsAction {
         event_filter: Option<String>,
         #[arg(long)]
         adapter_config: Option<String>,
-        /// Set an adapter_config field: KEY=VALUE. VALUE is parsed as JSON when valid
+        /// Set an `adapter_config` field: KEY=VALUE. VALUE is parsed as JSON when valid
         /// (`true`, `5`, `["a"]`, `{"k":1}`), otherwise treated as a string. Repeatable.
         #[arg(long = "set", value_name = "KEY=VALUE")]
         config_set: Vec<String>,
-        /// Append a value to an array field in adapter_config: KEY=VALUE. Creates the
-        /// array if absent. Repeatable. e.g. --append ignored_title_patterns='^chore\(deps'
+        /// Append a value to an array field in `adapter_config`: KEY=VALUE. Creates the
+        /// array if absent. Repeatable. e.g. --append `ignored_title_patterns`='^chore\(deps'
         #[arg(long = "append", value_name = "KEY=VALUE")]
         config_append: Vec<String>,
-        /// Remove a field from adapter_config. Repeatable. e.g. --unset ignored_senders
+        /// Remove a field from `adapter_config`. Repeatable. e.g. --unset `ignored_senders`
         #[arg(long = "unset", value_name = "KEY")]
         config_unset: Vec<String>,
         #[arg(long, default_value_t = false)]
@@ -119,28 +119,28 @@ pub enum LoopsAction {
     ///   --unset KEY         remove a field
     /// or pass the whole object verbatim with --adapter-config '<json>'.
     ///
-    /// --set/--append/--unset fetch-merge the loop's current adapter_config (other
+    /// --set/--append/--unset fetch-merge the loop's current `adapter_config` (other
     /// keys are preserved); --adapter-config replaces it wholesale; --clear-adapter-config
     /// removes it.
     ///
-    /// Known github_pr keys: ignored_senders (string[]), ignored_title_patterns
-    /// (case-insensitive title regexes, string[]), ignored_events (string[]),
-    /// close_task_on_close, notify_on_success.
+    /// Known `github_pr` keys: `ignored_senders` (string[]), `ignored_title_patterns`
+    /// (case-insensitive title regexes, string[]), `ignored_events` (string[]),
+    /// `close_task_on_close`, `notify_on_success`.
     ///
     /// Events are named by --event-filter (an allowlist; empty = all) or
-    /// ignored_events (a denylist, which wins). Names: pull_request,
-    /// issue_comment, pull_request_review_comment, pull_request_review,
-    /// check_run, check_suite, plus the three signals this adapter derives —
-    /// merge_conflict, post_merge and pr_merged. Ignoring a derived signal
+    /// `ignored_events` (a denylist, which wins). Names: `pull_request`,
+    /// `issue_comment`, `pull_request_review_comment`, `pull_request_review`,
+    /// `check_run`, `check_suite`, plus the three signals this adapter derives —
+    /// `merge_conflict`, `post_merge` and `pr_merged`. Ignoring a derived signal
     /// skips only that signal's work and keeps the events it is derived from.
     /// The backend validates values (e.g. compiles each regex) — this command does not.
     ///
     /// Examples:
-    ///   # append a title pattern, keeping other keys (e.g. ignored_senders)
-    ///   moat loops update --id <id> --append ignored_title_patterns='^build\(deps'
+    ///   # append a title pattern, keeping other keys (e.g. `ignored_senders`)
+    ///   moat loops update --id <id> --append `ignored_title_patterns`='^build\(deps'
     ///
     ///   # force a JSON-looking value to stay a string by quoting it
-    ///   --set some_key='"123"'
+    ///   --set `some_key`='"123"'
     Update {
         #[arg(long)]
         id: String,
@@ -191,15 +191,15 @@ pub enum LoopsAction {
         adapter_config: Option<String>,
         #[arg(long)]
         clear_adapter_config: bool,
-        /// Set an adapter_config field: KEY=VALUE. VALUE is parsed as JSON when valid
+        /// Set an `adapter_config` field: KEY=VALUE. VALUE is parsed as JSON when valid
         /// (`true`, `5`, `["a"]`, `{"k":1}`), otherwise treated as a string. Repeatable.
         #[arg(long = "set", value_name = "KEY=VALUE")]
         config_set: Vec<String>,
-        /// Append a value to an array field in adapter_config: KEY=VALUE. Creates the
-        /// array if absent. Repeatable. e.g. --append ignored_title_patterns='^chore\(deps'
+        /// Append a value to an array field in `adapter_config`: KEY=VALUE. Creates the
+        /// array if absent. Repeatable. e.g. --append `ignored_title_patterns`='^chore\(deps'
         #[arg(long = "append", value_name = "KEY=VALUE")]
         config_append: Vec<String>,
-        /// Remove a field from adapter_config. Repeatable. e.g. --unset ignored_senders
+        /// Remove a field from `adapter_config`. Repeatable. e.g. --unset `ignored_senders`
         #[arg(long = "unset", value_name = "KEY")]
         config_unset: Vec<String>,
         #[arg(long, value_name = "BOOL")]
@@ -275,7 +275,7 @@ pub struct CreateConfigArgs {
     skills: Vec<String>,
     /// Per-loop inactivity TTL in days. Tasks spawned by this loop
     /// auto-close after this many days of inactivity (0 = never close).
-    /// Omit to inherit the platform-wide default (TASK_INACTIVE_TIMEOUT_DAYS).
+    /// Omit to inherit the platform-wide default (`TASK_INACTIVE_TIMEOUT_DAYS`).
     #[arg(long)]
     inactive_ttl_days: Option<i32>,
 }
@@ -716,7 +716,7 @@ fn apply_config_ops(
 /// - `Some(None)` → clear the field
 /// - `Some(Some(v))` → set/merge to `v`
 ///
-/// `--set/--append/--unset` fetch-merge the loop's current adapter_config so
+/// `--set/--append/--unset` fetch-merge the loop's current `adapter_config` so
 /// untouched keys are preserved; `--adapter-config` replaces it wholesale.
 #[allow(clippy::option_option)]
 async fn resolve_update_adapter_config(

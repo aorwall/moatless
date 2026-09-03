@@ -55,7 +55,7 @@ struct PrCreateArgs {
     /// origin` when omitted.
     #[arg(long = "repo", short = 'R')]
     repo: Option<String>,
-    /// Task to bind the PR to (defaults to $TASK_ID).
+    /// Task to bind the PR to (defaults to `$TASK_ID`).
     #[arg(long = "task")]
     task: Option<String>,
     /// Output raw JSON. (The global `--json` lands here when written after
@@ -79,7 +79,7 @@ struct CommentArgs {
     /// origin` when omitted.
     #[arg(long = "repo", short = 'R')]
     repo: Option<String>,
-    /// Task to bind / dedup against (defaults to $TASK_ID).
+    /// Task to bind / dedup against (defaults to `$TASK_ID`).
     #[arg(long = "task")]
     task: Option<String>,
     /// Output raw JSON. (The global `--json` lands here when written after
@@ -106,7 +106,7 @@ struct ReplyArgs {
     /// origin` when omitted.
     #[arg(long = "repo", short = 'R')]
     repo: Option<String>,
-    /// Task to bind / dedup against (defaults to $TASK_ID).
+    /// Task to bind / dedup against (defaults to `$TASK_ID`).
     #[arg(long = "task")]
     task: Option<String>,
     /// Output raw JSON. (The global `--json` lands here when written after
@@ -1008,11 +1008,9 @@ mod tests {
         assert_eq!(parse_typed(&argv(&["pr", "create"])), None);
     }
 
-    /// Regression: `--body-file` used to demote `pr create` to plain `gh`,
-    /// which opens the PR and returns its URL while binding nothing. A release
-    /// agent hit exactly this — its PR was never connected to the task, while
-    /// the comments it posted in the same run were, because `--body` happened
-    /// to be modelled.
+    /// `--body-file` must not demote `pr create` to plain `gh`: plain `gh` opens
+    /// the PR and returns its URL while binding nothing, so the PR is never
+    /// connected to the task even though comments posted in the same run are.
     #[test]
     fn pr_create_with_body_file_stays_on_the_typed_path() {
         let parsed = parse_typed(&argv(&[

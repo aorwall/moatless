@@ -43,7 +43,7 @@ impl FromStr for AuthProvider {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "local" => Ok(Self::Local),
-            // Legacy spellings of the removed no-auth mode.
+            // Legacy spellings of the removed no-auth mode: `""`, `"disabled"`, `"none"`.
             "" | "disabled" | "none" => {
                 tracing::warn!(
                     "AUTH_PROVIDER={s:?} is deprecated and now means local email/password \
@@ -79,7 +79,7 @@ pub struct AuthConfig {
     pub auth0_callback_url: Option<String>,
     /// Auth0 audience
     pub auth0_audience: Option<String>,
-    /// Auth0 JWT claim key for groups (default: "https://moatless.ai/groups")
+    /// Auth0 JWT claim key for groups (default: "<https://moatless.ai/groups>")
     pub auth0_groups_claim: String,
     /// Standards-based OpenID Connect provider. Auth0 settings above remain a
     /// compatibility input and are translated into this representation.
@@ -88,11 +88,11 @@ pub struct AuthConfig {
     pub session_max_age_secs: u64,
     /// Hard auth-session lifetime regardless of activity.
     pub session_absolute_age_secs: u64,
-    /// Frontend URL for redirects (default: "http://localhost:3000")
+    /// Frontend URL for redirects (default: "<http://localhost:3000>")
     pub frontend_url: String,
     /// Cookie domain (e.g., ".moatless.xyz"). None for localhost.
     pub cookie_domain: Option<String>,
-    /// Session cookie name (default: "moatless_session")
+    /// Session cookie name (default: "`moatless_session`")
     pub session_cookie_name: String,
     /// Whether the app is running in production mode (affects cookie Secure flag)
     pub is_production: bool,
@@ -108,7 +108,7 @@ pub struct AuthConfig {
     pub break_glass_enabled: bool,
     /// Auth cache TTL in seconds (default: 30).
     pub cache_ttl_secs: u64,
-    /// Secret for signing session JWTs (env: SESSION_JWT_SECRET).
+    /// Secret for signing session JWTs (env: `SESSION_JWT_SECRET`).
     /// Falls back to `sandbox.task_token_secret` when not set.
     pub session_jwt_secret: Option<String>,
     /// Raw `mvk_`-prefixed API key for a test user auto-created on startup.

@@ -4,8 +4,8 @@
  * Tests the /api/v1/auth/verify endpoint behavior.
  *
  * Preview access control (AUTH-33 to AUTH-35) is exercised here for the first
- * time: `verify_handler` no longer short-circuits, so the task lookup behind a
- * preview hostname actually runs.
+ * time: `verify_handler` does not short-circuit for a preview hostname, so the
+ * task lookup behind it actually runs.
  */
 
 import { MoatApi } from '../../shared/moat-api'

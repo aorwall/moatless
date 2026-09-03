@@ -86,15 +86,15 @@ pub struct RepoConfig {
     pub plugins: Option<Vec<moatless_api_schemas::plugin::PluginDelivery>>,
     // --- Docker access (opt-in) ---
     /// Mount Docker socket inside sandbox container (default: false).
-    /// Overrides global DOCKER_ENABLE_SOCKET_MOUNT when set.
+    /// Overrides global `DOCKER_ENABLE_SOCKET_MOUNT` when set.
     #[serde(default)]
     pub docker_access: Option<bool>,
     /// Additional Docker networks to connect sandbox to.
-    /// Overrides global DOCKER_EXTRA_NETWORKS when set.
+    /// Overrides global `DOCKER_EXTRA_NETWORKS` when set.
     #[serde(default)]
     pub docker_networks: Option<Vec<String>>,
     // --- Kubernetes ServiceAccount (opt-in per-repo) ---
-    /// Per-repo Kubernetes ServiceAccount for the sandbox pod. Overrides the
+    /// Per-repo Kubernetes `ServiceAccount` for the sandbox pod. Overrides the
     /// global default (`K8S_SANDBOX_SERVICE_ACCOUNT`) when set. Ignored in Docker
     /// mode. Enables "shadow" dev sandboxes that run under an SA bound to the
     /// backend's RBAC.
@@ -103,7 +103,7 @@ pub struct RepoConfig {
     // --- Network profile (opt-in per-repo) ---
     /// Per-repo network profile. When set, the sandbox pod carries the label
     /// `moatless.io/network-profile=<value>`, which a static (GitOps-owned)
-    /// NetworkPolicy can select to govern the pod's egress/ingress. Selects a
+    /// `NetworkPolicy` can select to govern the pod's egress/ingress. Selects a
     /// policy only; grants nothing on its own. Ignored in Docker mode.
     #[serde(default)]
     pub network_profile: Option<String>,
@@ -244,7 +244,7 @@ pub struct ContainerObservedStatus {
     pub state: ContainerState,
     pub restart_count: i32,
     pub waiting_reason: Option<String>,
-    /// Reason from `state.terminated` (e.g. "OOMKilled", "Error", "Completed").
+    /// Reason from `state.terminated` (e.g. "`OOMKilled`", "Error", "Completed").
     pub terminated_reason: Option<String>,
     /// Exit code from `state.terminated`.
     pub exit_code: Option<i32>,
@@ -350,7 +350,7 @@ impl ContainerObservedStatus {
         None
     }
 
-    /// Return the waiting reason only if it is a non-error detail (e.g. ContainerCreating).
+    /// Return the waiting reason only if it is a non-error detail (e.g. `ContainerCreating`).
     pub fn detail_reason(&self) -> Option<String> {
         self.waiting_reason.as_deref().and_then(|r| {
             if SERVER_FAILURE_REASONS.contains(&r) {

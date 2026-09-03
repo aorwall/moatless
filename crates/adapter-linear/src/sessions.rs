@@ -74,8 +74,7 @@ pub(super) async fn decline_session(api: &LinearAgentApi, session_id: &str, mess
 
 /// Select the spawn rule for a created session and provision its task.
 ///
-/// This is the body of what used to be a detached spawn, now the executable
-/// half of a `linear.session_provision` record. It is at-least-once, and it
+/// The executable half of a `linear.session_provision` record. It is at-least-once, and it
 /// converges: the binding guard inside [`provision_session_task`] is what makes
 /// a second attempt a no-op rather than a second task.
 #[expect(

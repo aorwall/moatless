@@ -44,7 +44,7 @@ pub fn save_credential(host: &str, api_key: &str, login: &str) -> Result<(), Str
     save_profile(host, api_key, login, None, false)
 }
 
-/// Save a profile with an explicit api_url (used by `moat login --local` where
+/// Save a profile with an explicit `api_url` (used by `moat login --local` where
 /// the URL isn't `https://{host}`). If `make_default` is true, this profile
 /// becomes the default host, replacing any previous default.
 pub fn save_profile(
@@ -108,7 +108,7 @@ pub fn delete_credential(host: &str) -> Result<bool, String> {
     Ok(removed)
 }
 
-/// Get the API key for a given host. Returns None for empty api_keys (used by
+/// Get the API key for a given host. Returns None for empty `api_keys` (used by
 /// local no-auth profiles registered with `moat login --local`).
 pub fn get_api_key(host: &str) -> Option<String> {
     let creds = load_credentials();
@@ -119,7 +119,7 @@ pub fn get_api_key(host: &str) -> Option<String> {
         .filter(|k| !k.is_empty())
 }
 
-/// Default profile's api_url, if any. Used by config resolution when no env
+/// Default profile's `api_url`, if any. Used by config resolution when no env
 /// var is set — makes `moat login --local` actually stick as the default host.
 pub fn default_profile_url() -> Option<(String, Option<String>)> {
     let creds = load_credentials();

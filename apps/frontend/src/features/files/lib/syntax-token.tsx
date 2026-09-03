@@ -4,10 +4,7 @@ interface SyntaxTokenProps {
   token: HighlightToken
 }
 
-/**
- * Map of highlight.js token types to CSS custom property names
- * Uses CSS variables for theming support
- */
+/** Uses CSS variables for theming support. */
 const tokenColorMap: Record<string, string> = {
   // Keywords: const, let, function, class, if, else, return, etc.
   keyword: 'var(--hljs-keyword)',
@@ -60,9 +57,6 @@ const tokenColorMap: Record<string, string> = {
   section: 'var(--hljs-function)',
 }
 
-/**
- * Renders a syntax-highlighted token with appropriate color
- */
 export function SyntaxToken({ token }: SyntaxTokenProps) {
   const color = tokenColorMap[token.type]
 

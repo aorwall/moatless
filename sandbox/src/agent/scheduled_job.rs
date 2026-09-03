@@ -1,10 +1,10 @@
 //! Unified registry for sandbox-local "deferred work" jobs.
 //!
 //! Today only `WakeupJob` (the one-shot timer driving the `ScheduleWakeup`
-//! tool) uses this surface. The registry was originally designed to also host
-//! Monitor crons, but the Claude CLI handles `Monitor` client-side and our
-//! per-turn subprocess model means events from the CLI's watcher never reach
-//! the agent — so Monitor is disallowed at the CLI flag level instead.
+//! tool) uses this surface. Monitor crons are not registered here: the Claude
+//! CLI handles `Monitor` client-side and our per-turn subprocess model means
+//! events from the CLI's watcher never reach the agent — so Monitor is
+//! disallowed at the CLI flag level instead.
 //!
 //! Each job runs in its own tokio task and injects synthetic user messages
 //! back into the running Claude session via `JobInjector`. The registry owns
@@ -124,7 +124,7 @@ pub struct JobContext {
 /// A unit of deferred work owned by the `ScheduledJobRegistry`.
 #[async_trait::async_trait]
 pub trait ScheduledJob: Send + Sync + 'static {
-    /// Stable key. Monitor: tool_use_id. Wakeup: ScheduleWakeup tool_use_id.
+    /// Stable key. Monitor: `tool_use_id`. Wakeup: `ScheduleWakeup` `tool_use_id`.
     fn id(&self) -> &str;
     fn kind(&self) -> JobKind;
     fn snapshot(&self) -> JobSnapshot;
@@ -223,7 +223,7 @@ impl ScheduledJobRegistry {
     }
 
     /// Cancel only the jobs of a given kind. Used for latest-wins
-    /// replacement (e.g. a new ScheduleWakeup supersedes the previous one).
+    /// replacement (e.g. a new `ScheduleWakeup` supersedes the previous one).
     pub async fn cancel_by_kind(&self, kind: JobKind) {
         let jobs = self.jobs.read().await;
         for entry in jobs.values() {

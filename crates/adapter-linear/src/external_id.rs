@@ -8,11 +8,10 @@
 //! its own comment back. Extend through `external_id_aliases` rather than
 //! editing a function here.
 //!
-//! One function per format, one definition each. `linear:comment:` used to be
-//! spelled out at five call sites across two files (defect D3), which is five
-//! chances for one of them to drift from the other four — and the inbound and
-//! outbound spellings of *that* format are exactly the pair the echo filter
-//! compares.
+//! One function per format, one definition each: spelling `linear:comment:`
+//! out at every call site would be one chance per site for it to drift from
+//! the others — and the inbound and outbound spellings of that format are
+//! exactly the pair the echo filter compares.
 
 /// A Linear comment, inbound or outbound.
 ///
@@ -27,10 +26,7 @@ pub(super) fn comment(comment_id: &str) -> String {
 /// A follow-up prompt, named by the Linear activity carrying it.
 ///
 /// Every other format here names the Linear resource it came from, and this one
-/// does too. It used to be composed with the current time, which made every
-/// attempt at one prompt a fresh identity: a retry was delivered to the Agent a
-/// second time and nothing downstream could recognise it, because nothing
-/// downstream ever saw the same id twice.
+/// does too.
 pub(super) fn prompt(activity_id: &str) -> String {
     format!("linear:prompt:{activity_id}")
 }
@@ -39,12 +35,7 @@ pub(super) fn prompt(activity_id: &str) -> String {
 /// identity the dispatcher derives for the delivery (see
 /// `ingress::dedup_key`).
 ///
-/// It used to name the state the issue moved *into*, which is not an identity:
-/// an issue that leaves a state and later returns to it produces two changes a
-/// person made separately under one id, and the second was dropped as a
-/// duplicate. It then used Linear's webhook timestamp, but Linear can deliver
-/// the same issue mutation twice with distinct webhook timestamps. The
-/// transition id is previous state, new state, and the issue's own updatedAt
+/// The transition id is previous state, new state, and the issue's own updatedAt
 /// when Linear includes it, falling back to webhookTimestamp only when needed.
 pub(super) fn issue_state(issue_id: &str, transition_id: &str) -> String {
     format!("linear:issue-state:{issue_id}:{transition_id}")

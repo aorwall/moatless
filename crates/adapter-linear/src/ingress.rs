@@ -139,11 +139,9 @@ impl From<SharedAdapterError> for IngressError {
 ///
 /// The label is carried here rather than on each variant so [`IngressError`]
 /// keeps `?` ergonomics all the way down and stays variant-for-variant
-/// identical to its siblings. It exists because Linear's error rows used to
-/// pass `""` for `event_type` (defect D2) — the one metric that fires when
-/// something breaks could not say which kind of delivery broke — and the
-/// envelope is parsed before anything below it can fail, so the type is always
-/// in hand except when the body is not JSON at all.
+/// identical to its siblings. The envelope is parsed before anything below it
+/// can fail, so the type is always in hand except when the body is not JSON
+/// at all.
 #[derive(Debug)]
 pub struct Rejection {
     pub error: IngressError,
@@ -598,9 +596,8 @@ mod tests {
 
     #[test]
     fn distinct_agent_sessions_sharing_a_webhook_id_get_distinct_keys() {
-        // The bug: Linear reuses one stable `webhookId` across every delivery.
-        // Two distinct sessions must NOT collide — previously the second was
-        // dropped as a "duplicate" within the 5-minute TTL.
+        // Linear reuses one stable `webhookId` across every delivery, so two
+        // distinct sessions sharing it must not collide into one dedup key.
         let a = envelope(serde_json::json!({
             "action": "created",
             "type": "AgentSessionEvent",

@@ -94,10 +94,9 @@ pub(super) async fn receive(
 
     // One resolution, keyed by the chat, exact match then wildcard. Telegram
     // runs a single env-backed bot transport, so the connection scope is
-    // "default". The handler used to resolve a *second* time — under `"*"` for
-    // a private chat — and verify that Subscription's secret, which is how an
-    // update could route under a Subscription whose secret was never checked
-    // (spec Decision 5).
+    // "default". No second resolution under `"*"` for a private chat: verifying
+    // that Subscription's secret would let an update route under a Subscription
+    // whose secret was never checked (spec Decision 5).
     let Some((connection, subscription)) = moatless_adapter_model::routing::resolve_chat_provider_event(
         adapter
             .require_adapter_connections()

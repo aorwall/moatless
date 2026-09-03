@@ -30,7 +30,7 @@ pub enum SecretAction {
         #[arg(long, short = 'v')]
         value: Option<String>,
 
-        /// Read the secret value from a file (handy for multi-line ssh_key PEM files)
+        /// Read the secret value from a file (handy for multi-line `ssh_key` PEM files)
         #[arg(long, conflicts_with = "value")]
         value_file: Option<String>,
 
@@ -42,15 +42,15 @@ pub enum SecretAction {
         #[arg(long)]
         scope_id: Option<String>,
 
-        /// Target: agent, all, all_servers, backend, or server:{name}
+        /// Target: agent, all, `all_servers`, backend, or server:{name}
         #[arg(long, short = 't', default_value = "agent")]
         target: String,
 
-        /// Secret kind: env, provider_token, runtime_file, deployment, ssh_key
+        /// Secret kind: env, `provider_token`, `runtime_file`, deployment, `ssh_key`
         #[arg(long, short = 'k', default_value = "env")]
         kind: String,
 
-        /// Provider name (optional, for provider_token kind)
+        /// Provider name (optional, for `provider_token` kind)
         #[arg(long)]
         provider: Option<String>,
 

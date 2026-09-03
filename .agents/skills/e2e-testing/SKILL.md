@@ -217,6 +217,9 @@ Rules that keep the suite worth running:
   wrapper that only reorders arguments hides which endpoint ran.
 - **Narrate with `progress()`**, which labels the line with the test that
   emitted it. Three chains interleave their output.
+- **A `// ─── ID: title ───` banner indexes a scenario the file-top doc lists.**
+  Any other comment that restates the test title or the assertion below it is
+  a cut. The comment rules in the root `AGENTS.md` apply.
 
 ---
 

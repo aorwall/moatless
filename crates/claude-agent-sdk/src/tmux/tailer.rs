@@ -33,7 +33,7 @@ use super::translator::{
 };
 
 /// Retry budget for the Stop fallback: wait up to 40 × 50ms = 2s for the
-/// tail_loop to emit a `Result` from the JSONL `turn_duration` record before
+/// `tail_loop` to emit a `Result` from the JSONL `turn_duration` record before
 /// synthesizing one from the Stop payload's `last_assistant_message`.
 const STOP_FALLBACK_RETRIES: u32 = 40;
 const STOP_FALLBACK_POLL: Duration = Duration::from_millis(50);
@@ -817,7 +817,7 @@ mod tests {
 
     /// If the resume target never appears (wrong id / config dir didn't persist)
     /// and no new file shows up either, discovery must still time out with
-    /// `JsonlNotFound` rather than hang — the WithId no-fallback contract.
+    /// `JsonlNotFound` rather than hang — the `WithId` no-fallback contract.
     #[tokio::test]
     async fn resume_target_missing_falls_through_to_timeout() {
         let base = std::env::temp_dir().join("tmux-discover-test-resume-missing");
