@@ -2,8 +2,8 @@
 
 use k8s_openapi::api::core::v1::Service;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
-use kube::api::{Api, PostParams};
-use std::collections::BTreeMap;
+use kube::api::{Api, ListParams, PostParams};
+use std::collections::{BTreeMap, HashSet};
 use tracing::{debug, info, warn};
 
 use super::client::K8sClient;
@@ -17,6 +17,25 @@ pub async fn sandbox_service_exists(k8s: &K8sClient, task_id: &str) -> Result<bo
         Err(kube::Error::Api(ref e)) if e.code == 404 => Ok(false),
         Err(e) => Err(e),
     }
+}
+
+/// Every task id that currently has a sandbox Service, in one namespace LIST.
+///
+/// The fleet observer pairs this with its Deployment LIST, which is why it is a
+/// LIST and not a GET per task: the observer's budget is one call per resource
+/// kind per tick, not one per sandbox.
+pub async fn list_sandbox_service_task_ids(
+    k8s: &K8sClient,
+) -> Result<HashSet<String>, kube::Error> {
+    let services: Api<Service> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let lp = ListParams::default().labels("moatless.io/task-id");
+    Ok(services
+        .list(&lp)
+        .await?
+        .items
+        .into_iter()
+        .filter_map(|svc| svc.metadata.labels?.get("moatless.io/task-id").cloned())
+        .collect())
 }
 
 /// Create a `ClusterIP` Service for a workspace pod.

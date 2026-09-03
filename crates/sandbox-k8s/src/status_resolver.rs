@@ -377,6 +377,32 @@ impl StatusResolver {
         )
     }
 
+    /// Whether a ready pod is actually reachable. See the call site.
+    ///
+    /// The backend reaches a sandbox only through its Service — gRPC, file
+    /// reads, and every proxied server port — so a ready pod whose Service is
+    /// missing answers nothing and must not read as `Running`. `Failed` is what
+    /// re-drives `ensure_running`, whose network heal recreates the Service.
+    async fn running_or_unreachable(&self, task_id: &str) -> (PodPhase, Option<String>) {
+        match service::sandbox_service_exists(&self.k8s, task_id).await {
+            Ok(true) => (PodPhase::Running, None),
+            Ok(false) => (
+                PodPhase::Failed,
+                Some(
+                    "The sandbox pod is running but its Service is missing, so the backend \
+                     cannot reach it. Recovery recreates the Service."
+                        .to_string(),
+                ),
+            ),
+            // An unreadable Service is not evidence of absence; the running pod
+            // is the answer that predates this branch.
+            Err(e) => {
+                warn!(task_id, error = %e, "Could not read the sandbox Service, reporting Running");
+                (PodPhase::Running, None)
+            }
+        }
+    }
+
     /// What no Deployment means for this Task. See the call site.
     async fn absent_phase(&self, task_id: &str, desired_state: SandboxDesiredState) -> PodPhase {
         if desired_state != SandboxDesiredState::Stopped {
@@ -459,6 +485,10 @@ impl StatusResolver {
                         PodPhase::from(raw_phase)
                     };
 
+                    if phase == PodPhase::Running && error.is_none() {
+                        let (phase, error) = self.running_or_unreachable(task_id).await;
+                        return (phase, error, current_image);
+                    }
                     (phase, error, current_image)
                 } else {
                     // Deployment exists but no pods yet (scaling up)
