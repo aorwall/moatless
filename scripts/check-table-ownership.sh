@@ -33,8 +33,10 @@
 #                               invariant protects production statements.
 #   - tests/ directories        the same reason; not scanned at all.
 #
-# Ownership is stated below, not inferred. A table whose owner is not listed is
-# not checked — add it to the map when its owner is settled.
+# Ownership is stated below, not inferred. Every live table the migrations
+# create must have exactly one owner in the map: an unmapped table fails as
+# `unowned`, and a mapped table the migrations no longer create fails as
+# `stale`.
 #
 set -euo pipefail
 
