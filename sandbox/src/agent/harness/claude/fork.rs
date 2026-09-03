@@ -20,10 +20,11 @@ use tracing::warn;
 /// keeping every line through `through_message_uuid`, and return that id for the
 /// harness to `--resume`.
 ///
-/// `None` when the source transcript is not on disk (an isolated fork, whose
-/// parent's transcript never reached this pod) or the anchor line is absent —
-/// both leave the caller to start the fork fresh rather than resume something
-/// unintended.
+/// `None` when the source transcript is not on disk, or the anchor line is
+/// absent — both leave the caller to start the fork fresh rather than resume
+/// something unintended. The anchor is absent when the restored archive was
+/// uploaded before the cut's turn reached it; the sync is periodic, not
+/// cut-triggered.
 pub(super) async fn write_forked_transcript(
     cwd: &str,
     source_session_id: &str,

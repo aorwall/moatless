@@ -697,6 +697,108 @@ impl BackendSandboxServiceImpl {
         })
     }
 
+    /// The transcript archive of the Task a fork branched from.
+    ///
+    /// Empty when the Task is not a fork, or the source archive is missing, or
+    /// the lookup fails: a restore that serves nothing leaves the pod on a
+    /// fresh session, which is what it would have had anyway. The caller
+    /// reaches here only when the Task has no archive of its own, so this
+    /// cannot displace a fork's own transcript.
+    async fn source_transcript(
+        &self,
+        s3_client: &moatless_s3::S3Storage,
+        bucket: &str,
+        task_id: &str,
+    ) -> Vec<u8> {
+        let Some(handlers) = self.handlers.as_ref() else {
+            return Vec::new();
+        };
+        let source_task_id = match handlers.task_forks.find(task_id).await {
+            Ok(Some(row)) => row.source_task_id,
+            Ok(None) => return Vec::new(),
+            Err(e) => {
+                warn!(error = %e, task_id = %task_id, "Failed to read fork row; restoring no transcript");
+                return Vec::new();
+            }
+        };
+
+        let key = transcript_key(&self.transcript_s3_prefix, &source_task_id);
+        match file_s3::get_object_opt(&s3_client.client, bucket, &key).await {
+            Ok(Some(bytes)) => {
+                debug!(
+                    task_id = %task_id,
+                    source_task_id = %source_task_id,
+                    bytes = bytes.len(),
+                    "Serving the source task's transcript to a fork that has none of its own"
+                );
+                bytes
+            }
+            Ok(None) => Vec::new(),
+            Err(e) => {
+                warn!(error = %e, task_id = %task_id, source_task_id = %source_task_id, "S3 get_object for the source task's transcript failed");
+                Vec::new()
+            }
+        }
+    }
+
+    /// The key a workspace restore should read for `task_id`.
+    ///
+    /// A fork that has not yet synced has no archive of its own, and the working
+    /// tree its first turn expects is the parent's. Serving the parent's is also
+    /// what keeps an isolated fork off the clone path: `restore_on_start` runs
+    /// before `clone_repositories`, which skips a repo whose directory already
+    /// exists, so a fork whose parent worked on an unpushed branch restores that
+    /// branch instead of failing to clone it.
+    ///
+    /// Falls back only on a definitive "not there". `head_object_modified_at`
+    /// reports "cannot tell" as `Err`, and reading that as absence would hand a
+    /// fork that has already synced the parent's older tree.
+    async fn workspace_restore_key(
+        &self,
+        s3_client: &moatless_s3::S3Storage,
+        bucket: &str,
+        task_id: &str,
+        own_key: &str,
+    ) -> String {
+        match file_s3::head_object_modified_at(&s3_client.client, bucket, own_key).await {
+            Ok(None) => {}
+            Ok(Some(_)) => return own_key.to_string(),
+            Err(e) => {
+                warn!(error = %e, task_id = %task_id, "S3 head_object for the task's workspace failed; restoring its own key");
+                return own_key.to_string();
+            }
+        }
+
+        let Some(handlers) = self.handlers.as_ref() else {
+            return own_key.to_string();
+        };
+        let source_task_id = match handlers.task_forks.find(task_id).await {
+            Ok(Some(row)) => row.source_task_id,
+            Ok(None) => return own_key.to_string(),
+            Err(e) => {
+                warn!(error = %e, task_id = %task_id, "Failed to read fork row; restoring the task's own key");
+                return own_key.to_string();
+            }
+        };
+
+        let source_key = sandbox_key(&self.workspace_s3_prefix, &source_task_id);
+        match file_s3::head_object_modified_at(&s3_client.client, bucket, &source_key).await {
+            Ok(Some(_)) => {
+                info!(
+                    task_id = %task_id,
+                    source_task_id = %source_task_id,
+                    "Restoring a fork from the source task's workspace; it has none of its own"
+                );
+                source_key
+            }
+            Ok(None) => own_key.to_string(),
+            Err(e) => {
+                warn!(error = %e, task_id = %task_id, source_task_id = %source_task_id, "S3 head_object for the source task's workspace failed");
+                own_key.to_string()
+            }
+        }
+    }
+
     /// Mint the long-lived user auth token delivered over `GetCredentials`.
     ///
     /// The sandbox swaps this in for its bootstrap token and uses it for all
@@ -1739,7 +1841,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     ///
     /// Returns an empty stream when no transcript has been stored yet (first run,
     /// or the ephemeral tier's first boot) — the sandbox treats that as "nothing
-    /// to restore". Reuses `AppState.s3` + the uploads bucket like `download_upload`.
+    /// to restore". A fork with no archive of its own falls back to the archive of
+    /// the Task it branched from, which is the only way the session its first turn
+    /// resumes reaches an isolated fork's fresh pod. Reuses `AppState.s3` + the
+    /// uploads bucket like `download_upload`.
     async fn download_transcript(
         &self,
         request: Request<DownloadTranscriptRequest>,
@@ -1756,13 +1861,27 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
 
         let key = transcript_key(&self.transcript_s3_prefix, &req.task_id);
-        let data = file_s3::get_object_opt(&s3_client.client, bucket, &key)
+        let own = file_s3::get_object_opt(&s3_client.client, bucket, &key)
             .await
             .map_err(|e| {
                 warn!(error = %e, task_id = %req.task_id, "S3 get_object for transcript failed");
                 Status::internal("Failed to fetch transcript from S3")
             })?
-            .unwrap_or_default();
+            .filter(|bytes| !bytes.is_empty());
+
+        // A fork that has not run yet has no archive of its own, and the
+        // session its first turn resumes is the parent's. An isolated fork gets
+        // a fresh pod, so that transcript is only there if it is served here —
+        // a same-Sandbox fork finds it already on disk. Falling back only when
+        // the fork's own object is absent is what keeps a restart after its
+        // first turn on its own transcript rather than back on the parent's.
+        let data = match own {
+            Some(bytes) => bytes,
+            None => {
+                self.source_transcript(s3_client, bucket, &req.task_id)
+                    .await
+            }
+        };
 
         debug!(task_id = %req.task_id, bytes = data.len(), "Serving transcript to sandbox");
 
@@ -1806,20 +1925,27 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let key = sandbox_key(&self.workspace_s3_prefix, &req.task_id);
 
+        // The PUT is always the task's own key, so a fork's first sync lands on
+        // its own archive and every later restore reads that rather than the
+        // parent's. Only the GET falls back.
         let put_url = file_s3::presign_put(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL)
             .await
             .map_err(|e| {
                 warn!(error = %e, task_id = %req.task_id, "presign PUT for workspace failed");
                 Status::internal("Failed to presign workspace upload URL")
             })?;
-        let get_url = file_s3::presign_get(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL)
+
+        let get_key = self
+            .workspace_restore_key(s3_client, bucket, &req.task_id, &key)
+            .await;
+        let get_url = file_s3::presign_get(s3_client, bucket, &get_key, WORKSPACE_PRESIGN_TTL)
             .await
             .map_err(|e| {
                 warn!(error = %e, task_id = %req.task_id, "presign GET for workspace failed");
                 Status::internal("Failed to presign workspace download URL")
             })?;
 
-        debug!(task_id = %req.task_id, key = %key, "Minted workspace sync URLs");
+        debug!(task_id = %req.task_id, key = %key, get_key = %get_key, "Minted workspace sync URLs");
         Ok(Response::new(GetWorkspaceSyncUrlsResponse {
             expires_in_secs: put_url.expires_in.min(get_url.expires_in).as_secs() as i64,
             put_url: put_url.url,
