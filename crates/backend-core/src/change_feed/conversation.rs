@@ -100,9 +100,21 @@ pub enum Resume {
 /// reports index 0 ([`ConversationHead::sequence`]) while a change projects up
 /// to [`EVENTS_PER_CHANGE`] events, so a client that saw a turn's tool call
 /// holds a sequence above the head and is still exactly in step.
+///
+/// Position 0 is the exception: it means no change was ever allocated
+/// (`allocate_position` starts at 1), so there is no head change to hold events,
+/// and only the cursor that has seen nothing (0) is in step. Widening the
+/// ceiling there would admit a stray cursor from another conversation and open a
+/// feed on an empty change log that replays nothing — the strand this rebuilds
+/// to avoid.
 pub fn resume(head: ConversationHead, after: i64) -> Resume {
     let head = head.sequence();
-    if after > head + EVENTS_PER_CHANGE - 1 {
+    let last_replayable = if head == 0 {
+        head
+    } else {
+        head + EVENTS_PER_CHANGE - 1
+    };
+    if after > last_replayable {
         return Resume::Rebuild;
     }
     if head - after > RESUME_WINDOW * EVENTS_PER_CHANGE {
@@ -351,6 +363,17 @@ mod tests {
             resume(head(10), head(10).sequence() + EVENTS_PER_CHANGE),
             Resume::Rebuild
         );
+    }
+
+    /// Position 0 is the empty-head sentinel: no change was ever allocated, so
+    /// there is no head change whose events a client could hold. Only the cursor
+    /// that has seen nothing replays; any positive cursor is from elsewhere and
+    /// must rebuild, or it opens a feed on an empty change log that sends nothing.
+    #[test]
+    fn an_empty_head_replays_only_the_seen_nothing_cursor() {
+        assert_eq!(resume(head(0), 0), Resume::From(0));
+        assert_eq!(resume(head(0), 1), Resume::Rebuild);
+        assert_eq!(resume(head(0), EVENTS_PER_CHANGE - 1), Resume::Rebuild);
     }
 
     /// The head reports the head change's first event, but that change projects
