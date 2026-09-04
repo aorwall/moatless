@@ -98,14 +98,22 @@ impl WorkspaceSyncTracker {
     /// Adopt the current workspace as the baseline without uploading it.
     ///
     /// Called once init has placed the repos: a workspace that is exactly what
-    /// the restore or the clone produced has nothing new to ship. Both baselines
-    /// are seeded from an on-disk walk rather than from a stored artifact, so the
-    /// gate compares against what is actually on the volume regardless of how it
-    /// got there — a restore, a fresh clone, or an untouched durable volume.
-    pub async fn adopt_current(&self, workspace_dir: &str) {
-        let dir = PathBuf::from(workspace_dir);
-        *self.last_uploaded.lock().await = workspace_fingerprint(dir.clone()).await;
-        *self.mirror_baseline.lock().await = workspace_mirror::build_manifest(dir).await;
+    /// the restore or the clone produced has nothing new to ship.
+    ///
+    /// The two baselines come from different sources because they answer
+    /// different questions. The tar gate only decides *whether* to ship, and
+    /// what it ships is always a whole archive, so an on-disk walk answers it
+    /// regardless of how the tree got there. The mirror baseline is the delta
+    /// base, so it has to be what S3 actually holds —
+    /// [`workspace_mirror::stored_baseline`].
+    pub async fn adopt_current(&self, config: &Config, backend_client: &dyn BackendClient) {
+        let dir = PathBuf::from(&config.workspace_dir);
+        *self.last_uploaded.lock().await = workspace_fingerprint(dir).await;
+        *self.mirror_baseline.lock().await = if config.workspace_mirror_enabled {
+            workspace_mirror::stored_baseline(&config.task_id, backend_client).await
+        } else {
+            None
+        };
     }
 
     /// The baseline the upload gate compares against. `None` means nothing has
@@ -113,6 +121,13 @@ impl WorkspaceSyncTracker {
     #[cfg(test)]
     pub(crate) async fn baseline(&self) -> Option<u64> {
         *self.last_uploaded.lock().await
+    }
+
+    /// Whether a mirror delta base is set. Unset means the next upload ships the
+    /// whole tree.
+    #[cfg(test)]
+    pub(crate) async fn has_mirror_baseline(&self) -> bool {
+        self.mirror_baseline.lock().await.is_some()
     }
 
     /// Upload the workspace unless it is unchanged since the last successful
@@ -1311,13 +1326,16 @@ mod tests {
         git_add(&repo, &["a.txt"]);
         git_commit(&repo, "init");
 
-        let config = sync_config(tmp.path(), true, true);
+        // The tar gate specifically: the mirror's baseline is not a fingerprint
+        // and is seeded from S3, so it is covered by its own test below.
+        let mut config = sync_config(tmp.path(), true, true);
+        config.workspace_mirror_enabled = false;
         let backend = CountingBackend::default();
         let tracker = WorkspaceSyncTracker::new();
 
-        // Init's baseline: what the clone/restore produced is already in S3 (or
-        // reproducible from the clone), so the first turn ships nothing.
-        tracker.adopt_current(&config.workspace_dir).await;
+        // Init's baseline: the tar the clone/restore produced is whole, so the
+        // first turn ships nothing.
+        tracker.adopt_current(&config, &backend).await;
         upload_after_turn(&config, &backend, &tracker).await;
         assert_eq!(backend.attempts(), 0, "an untouched workspace is skipped");
 
@@ -1334,6 +1352,38 @@ mod tests {
             2,
             "a failed upload leaves the change pending for the next attempt"
         );
+    }
+
+    /// A clone is not a mirror: a tree S3 holds no objects for must not become
+    /// the delta base. Adopting one made the first upload ship only the agent's
+    /// later edits under a manifest naming every file in the tree, and the next
+    /// restore failed on the first object nobody stored, cleared the workspace
+    /// and cloned over the work (PR #684, verified on the cluster).
+    #[tokio::test]
+    async fn a_clone_is_not_adopted_as_the_mirror_baseline() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        init_repo(&repo);
+        std::fs::write(repo.join("a.txt"), "hello").unwrap();
+        git_add(&repo, &["a.txt"]);
+        git_commit(&repo, "init");
+
+        let config = sync_config(tmp.path(), true, true);
+        assert!(config.workspace_mirror_enabled);
+        let backend = CountingBackend::default();
+        let tracker = WorkspaceSyncTracker::new();
+
+        // This backend mints no URLs, so S3 holds no manifest to adopt.
+        tracker.adopt_current(&config, &backend).await;
+        assert_eq!(backend.attempts(), 1, "the baseline is read from S3");
+        assert!(
+            !tracker.has_mirror_baseline().await,
+            "a tree S3 has no objects for is not a delta base"
+        );
+
+        // With no baseline the untouched clone is itself the delta, so it ships.
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(backend.attempts(), 2, "the clone itself is uploaded");
     }
 
     /// The turn-boundary upload is gated on the S3 switch, not just on the

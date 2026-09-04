@@ -501,6 +501,60 @@ async fn mirror_delta(
     Ok(uploaded + manifest_bytes)
 }
 
+/// The manifest S3 currently holds, or `None` when there is none this build can
+/// read — no object, an unparseable one, a version this build does not know, or
+/// a backend that mints no URL for it.
+async fn fetch_stored_manifest(
+    task_id: &str,
+    backend_client: &dyn BackendClient,
+    client: &reqwest::Client,
+) -> Option<Manifest> {
+    let urls = match backend_client.get_workspace_sync_urls(task_id).await {
+        Ok(urls) if !urls.manifest_get_url.is_empty() => urls,
+        _ => return None,
+    };
+
+    match http_get(client, &urls.manifest_get_url).await {
+        Ok(Some(bytes)) => match Manifest::from_gz_json(&bytes) {
+            Ok(manifest) if manifest.version == MANIFEST_VERSION => Some(manifest),
+            Ok(manifest) => {
+                warn!(task_id = %task_id, version = manifest.version, "Stored manifest is a version this build cannot read");
+                None
+            }
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Stored manifest could not be parsed");
+                None
+            }
+        },
+        Ok(None) => {
+            debug!(task_id = %task_id, "No stored workspace mirror");
+            None
+        }
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Manifest download failed");
+            None
+        }
+    }
+}
+
+/// The delta base an upload starts a pod with: the manifest S3 holds, never a
+/// walk of the tree on disk.
+///
+/// A clone is not a mirror. A workspace that was cloned, or restored from a tar,
+/// has no object in S3 behind any of its files, so adopting it would make the
+/// first upload ship only what the agent changed afterwards while writing a
+/// manifest naming thousands of objects nobody stored — and the next restore
+/// fails on the first of them, clears the workspace and clones over the work.
+/// `None` means the first upload ships the whole tree, which is what makes the
+/// manifest true.
+pub(super) async fn stored_baseline(
+    task_id: &str,
+    backend_client: &dyn BackendClient,
+) -> Option<Manifest> {
+    let client = http_client(OBJECT_TIMEOUT).ok()?;
+    fetch_stored_manifest(task_id, backend_client, &client).await
+}
+
 /// Restore the workspace from the mirror, or report that there is none.
 ///
 /// `None` means no mirror is stored for this task (or the backend predates it),
@@ -517,35 +571,9 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
     let repo_dir = PathBuf::from(&state.config.repo_dir);
     let prefix = primary_prefix(&state.config.workspace_dir, &state.config.repo_dir);
 
-    let urls = match state.backend_client.get_workspace_sync_urls(task_id).await {
-        Ok(urls) if !urls.manifest_get_url.is_empty() => urls,
-        Ok(_) => return None,
-        Err(_) => return None,
-    };
-
     let started = Instant::now();
     let client = http_client(OBJECT_TIMEOUT).ok()?;
-    let manifest = match http_get(&client, &urls.manifest_get_url).await {
-        Ok(Some(bytes)) => match Manifest::from_gz_json(&bytes) {
-            Ok(manifest) if manifest.version == MANIFEST_VERSION => manifest,
-            Ok(manifest) => {
-                warn!(task_id = %task_id, version = manifest.version, "Stored manifest is a version this build cannot read; falling back to the tar");
-                return None;
-            }
-            Err(e) => {
-                warn!(task_id = %task_id, error = %e, "Stored manifest could not be parsed; falling back to the tar");
-                return None;
-            }
-        },
-        Ok(None) => {
-            debug!(task_id = %task_id, "No stored workspace mirror");
-            return None;
-        }
-        Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Manifest download failed; falling back to the tar");
-            return None;
-        }
-    };
+    let manifest = fetch_stored_manifest(task_id, state.backend_client.as_ref(), &client).await?;
 
     // Same three shapes the tar restore classifies, decided off the manifest
     // rather than by scanning an archive.

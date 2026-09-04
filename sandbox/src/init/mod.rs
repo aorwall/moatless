@@ -347,7 +347,7 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     if state.config.workspace_sync_enabled && lost_commands.is_empty() {
         state
             .workspace_sync
-            .adopt_current(&state.config.workspace_dir)
+            .adopt_current(&state.config, state.backend_client.as_ref())
             .await;
     }
 
