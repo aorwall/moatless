@@ -93,6 +93,22 @@ mod tests {
     }
 
     #[test]
+    fn parses_model_override() {
+        let content =
+            "---\non: github_pr\nname: Review\nagentType: claude-code\nmodel: opus\n---\n\nbody\n";
+        let loop_ = parse_loop(content, "review").expect("valid loop parses");
+        assert_eq!(loop_.frontmatter.agent_type.as_deref(), Some("claude-code"));
+        assert_eq!(loop_.frontmatter.model.as_deref(), Some("opus"));
+    }
+
+    #[test]
+    fn absent_model_is_none() {
+        let content = "---\non: github_pr\nname: Review\n---\n\nbody\n";
+        let loop_ = parse_loop(content, "review").expect("valid loop parses");
+        assert_eq!(loop_.frontmatter.model, None);
+    }
+
+    #[test]
     fn parses_schedule_loop() {
         let content = "---\non: schedule\nname: Daily Health Check\nschedule:\n  cron: \"0 0 6 * * MON-FRI *\"\n  timezone: Europe/Stockholm\n  message: \"Run the health check.\"\n---\n\nRun the daily-health-check skill.\n";
         let loop_ = parse_loop(content, "daily-health-check").expect("schedule loop parses");

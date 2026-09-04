@@ -153,6 +153,7 @@ mod tests {
             skills: vec![],
             run_as_user_id: Some("u_test".into()),
             agent_type: "claude-code".into(),
+            model: None,
             inactive_ttl_days: None,
             allow_direct_send: true,
             adapter_config: None,

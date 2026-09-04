@@ -292,6 +292,7 @@ mod tests {
             skills: Vec::new(),
             run_as_user_id: Some(user_id.into()),
             agent_type: "claude-code".into(),
+            model: None,
             inactive_ttl_days: None,
             allow_direct_send: false,
             created_by: "creator".into(),

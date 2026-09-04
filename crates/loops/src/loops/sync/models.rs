@@ -19,6 +19,10 @@ pub struct LoopFrontmatter {
     /// Agent type (`loop_configs.agent_type`, default `claude-code`).
     #[serde(default)]
     pub agent_type: Option<String>,
+    /// Model the spawned tasks run on (`loop_configs.model`). `None` keeps the
+    /// platform default the sandbox resolves for `agent_type`.
+    #[serde(default)]
+    pub model: Option<String>,
     /// Routing mode (`loop_configs.routing_mode`, default `by_subject`).
     #[serde(default)]
     pub routing_mode: Option<String>,

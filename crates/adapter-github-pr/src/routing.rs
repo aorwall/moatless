@@ -72,6 +72,7 @@ pub(super) fn delivery_only_rule(
         skills: Vec::new(),
         run_as_user_id: connection.owner_user_id.clone(),
         agent_type: moatless_types::agent::AgentType(String::new()),
+        model: None,
         inactive_ttl_days: None,
         allow_direct_send: false,
         adapter_config: None,

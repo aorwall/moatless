@@ -307,7 +307,7 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
                     name: req.name,
                     description: req.description,
                     branch: None,
-                    model: None,
+                    model: req.model,
                     created_by: req.created_by,
                     headless: true,
                     visibility: req.visibility,

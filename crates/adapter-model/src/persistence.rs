@@ -76,6 +76,7 @@ pub struct LoopSpawnConfigRow {
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
+    pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
     #[sqlx(try_from = "String")]
     pub scope: Scope,
@@ -90,6 +91,7 @@ impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
     fn from(row: LoopSpawnConfigRow) -> Self {
         Self {
             agent_type: AgentType(row.agent_type),
+            model: row.model,
             id: row.id,
             repository_id: row.repository_id,
             routing_mode: row.routing_mode,
@@ -129,6 +131,7 @@ pub struct SubscriptionMatchRow {
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
+    pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
     pub allow_direct_send: bool,
     pub adapter_config: Option<serde_json::Value>,
@@ -150,6 +153,7 @@ impl From<SubscriptionMatchRow> for SubscriptionMatch {
         Self {
             adapter_kind: AdapterKind::parse_or_webhook(&row.adapter_kind),
             agent_type: AgentType(row.agent_type),
+            model: row.model,
             id: row.id,
             name: row.name,
             connection_id: row.connection_id,

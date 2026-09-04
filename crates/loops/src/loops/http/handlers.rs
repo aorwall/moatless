@@ -283,6 +283,7 @@ pub async fn create_loop(
                     .agent_type
                     .clone()
                     .unwrap_or_else(|| "claude-code".to_string()),
+                model: None,
                 inactive_ttl_days: req.config.inactive_ttl_days,
             },
             source,
@@ -403,6 +404,7 @@ pub async fn update_loop(
         agent_type: rule
             .agent_type
             .unwrap_or_else(|| current.config.agent_type.as_str().to_string()),
+        model: current.config.model.clone(),
         inactive_ttl_days: rule
             .inactive_ttl_days
             .unwrap_or(current.config.inactive_ttl_days),

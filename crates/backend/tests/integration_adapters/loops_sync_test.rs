@@ -743,6 +743,7 @@ fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
         tag_ids: Vec::new(),
         skills: Vec::new(),
         agent_type: "claude-code".into(),
+        model: None,
         inactive_ttl_days: None,
         adapter: None,
         schedule: Some(NewScheduleSource {

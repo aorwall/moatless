@@ -239,6 +239,7 @@ async fn seed_rule(state: &AppState) {
             // issue-update handler returns before it forwards anything.
             run_as_user_id: Some(USER_1.to_string()),
             agent_type: "claude-code".into(),
+            model: None,
             inactive_ttl_days: None,
             allow_direct_send: false,
             adapter_config: None,

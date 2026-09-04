@@ -60,6 +60,7 @@ pub struct LoopConfigRow {
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: AgentType,
+    pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
 }
 
@@ -130,6 +131,7 @@ struct JoinedLoopRecordRow {
     skills: Vec<String>,
     run_as_user_id: Option<String>,
     agent_type: String,
+    model: Option<String>,
     inactive_ttl_days: Option<i32>,
     adapter_kind: Option<String>,
     connection_id: Option<String>,
@@ -179,6 +181,7 @@ impl JoinedLoopRecordRow {
             skills: self.skills,
             run_as_user_id: self.run_as_user_id,
             agent_type: AgentType(self.agent_type),
+            model: self.model,
             inactive_ttl_days: self.inactive_ttl_days,
         };
         let source = match kind {
@@ -247,6 +250,7 @@ const LOOP_RECORD_SELECT: &str = r#"
            r.skills,
            r.run_as_user_id,
            r.agent_type,
+           r.model,
            r.inactive_ttl_days,
            aes.adapter_kind,
            aes.connection_id,
@@ -300,6 +304,7 @@ pub struct NewLoopConfig {
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
+    pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
 }
 
@@ -369,6 +374,7 @@ pub struct ManagedLoopUpsert {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub agent_type: String,
+    pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
     pub adapter: Option<NewAdapterEventSource>,
     pub schedule: Option<NewScheduleSource>,
@@ -550,7 +556,8 @@ impl LoopDao {
                        skills = $8,
                        run_as_user_id = $9,
                        agent_type = $10,
-                       inactive_ttl_days = $11
+                       inactive_ttl_days = $11,
+                       model = $12
                    WHERE loop_id = $1"#,
             )
             .bind(id)
@@ -564,6 +571,7 @@ impl LoopDao {
             .bind(&config.run_as_user_id)
             .bind(config.agent_type.as_str())
             .bind(config.inactive_ttl_days)
+            .bind(&config.model)
             .execute(&mut *tx)
             .await?;
         }
@@ -925,8 +933,8 @@ impl LoopDao {
             r#"INSERT INTO loop_configs
                (loop_id, repository_id, routing_mode, ongoing_task_id, prompt,
                 task_name, tag_ids, skills, run_as_user_id, agent_type,
-                inactive_ttl_days)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                inactive_ttl_days, model)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                ON CONFLICT (loop_id) DO UPDATE
                SET repository_id     = EXCLUDED.repository_id,
                    routing_mode      = EXCLUDED.routing_mode,
@@ -937,7 +945,8 @@ impl LoopDao {
                    skills            = EXCLUDED.skills,
                    run_as_user_id    = EXCLUDED.run_as_user_id,
                    agent_type        = EXCLUDED.agent_type,
-                   inactive_ttl_days = EXCLUDED.inactive_ttl_days"#,
+                   inactive_ttl_days = EXCLUDED.inactive_ttl_days,
+                   model             = EXCLUDED.model"#,
         )
         .bind(&row.id)
         .bind(&row.repository_id)
@@ -950,6 +959,7 @@ impl LoopDao {
         .bind(&row.run_as_user_id)
         .bind(row.agent_type.as_str())
         .bind(row.inactive_ttl_days)
+        .bind(&row.model)
         .execute(&mut *tx)
         .await?;
 
@@ -1351,6 +1361,7 @@ impl LoopDao {
                       r.skills,
                       r.run_as_user_id,
                       r.agent_type,
+                      r.model,
                       r.inactive_ttl_days,
                       t.scope,
                       t.owner_user_id,
@@ -1405,6 +1416,7 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            r.skills,
            r.run_as_user_id,
            r.agent_type,
+           r.model,
            r.inactive_ttl_days,
            aes.allow_direct_send,
            aes.adapter_config AS adapter_config,
@@ -1491,6 +1503,7 @@ async fn replace_managed_loop_rows(
             skills: input.skills.clone(),
             run_as_user_id,
             agent_type: input.agent_type.clone(),
+            model: input.model.clone(),
             inactive_ttl_days: input.inactive_ttl_days,
         },
     )
@@ -1514,8 +1527,8 @@ async fn insert_config(
         r#"INSERT INTO loop_configs
            (loop_id, repository_id, routing_mode, ongoing_task_id, prompt,
             task_name, tag_ids, skills, run_as_user_id, agent_type,
-            inactive_ttl_days)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
+            inactive_ttl_days, model)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
     )
     .bind(loop_id)
     .bind(&config.repository_id)
@@ -1528,6 +1541,7 @@ async fn insert_config(
     .bind(&config.run_as_user_id)
     .bind(config.agent_type.as_str())
     .bind(config.inactive_ttl_days)
+    .bind(&config.model)
     .execute(&mut **tx)
     .await?;
     Ok(())

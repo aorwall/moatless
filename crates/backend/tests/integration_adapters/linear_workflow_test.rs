@@ -277,6 +277,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
             // query. Without it the rule exists and matches nothing.
             run_as_user_id: Some(USER_1.to_string()),
             agent_type: "claude-code".into(),
+            model: None,
             inactive_ttl_days: None,
             allow_direct_send: false,
             // `close_task_on_close` is a scalar column on the Subscription, not

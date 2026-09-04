@@ -294,6 +294,7 @@ fn route_to_config(route: &LoopSpawnConfig, schedule: &Schedule) -> LoopContext 
             .clone()
             .or_else(|| route.run_as_user_id.clone()),
         agent_type: route.agent_type.clone(),
+        model: route.model.clone(),
         inactive_ttl_days: route.inactive_ttl_days,
         created_by: route.created_by.clone(),
         created_at: route.created_at,

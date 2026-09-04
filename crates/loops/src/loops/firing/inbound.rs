@@ -97,6 +97,7 @@ pub async fn create_task_from_loop(
         .open(NewTask {
             repository_id: config.repository_id.clone(),
             agent_type: config.agent_type.clone(),
+            model: config.model.clone(),
             name: params.name,
             description: Some(params.description),
             created_by: Some(config.effective_user_id().to_string()),

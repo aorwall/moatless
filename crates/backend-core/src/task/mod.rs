@@ -250,6 +250,8 @@ pub trait TagResolver: Send + Sync {
 pub struct NewTask {
     pub repository_id: String,
     pub agent_type: AgentType,
+    /// The model the spawned Task runs on. `None` keeps the platform default.
+    pub model: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     /// The identity the Task is attributed to.

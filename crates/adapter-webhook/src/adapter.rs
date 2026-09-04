@@ -329,6 +329,7 @@ mod tests {
             skills: Vec::new(),
             run_as_user_id: Some("default-user".into()),
             agent_type: "claude-code".into(),
+            model: None,
             inactive_ttl_days: None,
             created_by: "default-user".into(),
             created_at: chrono::Utc::now(),

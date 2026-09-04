@@ -262,6 +262,7 @@ struct ResolvedLoop {
     name: String,
     routing_mode: RoutingMode,
     agent_type: String,
+    model: Option<String>,
     prompt: Option<String>,
     tag_ids: Vec<String>,
     skills: Vec<String>,
@@ -314,6 +315,7 @@ impl LoopSyncService {
             .agent_type
             .clone()
             .unwrap_or_else(|| "claude-code".to_string());
+        let model = fm.model.clone();
         let prompt = if parsed.prompt_body.is_empty() {
             None
         } else {
@@ -522,6 +524,7 @@ impl LoopSyncService {
             name: fm.name.clone(),
             routing_mode,
             agent_type,
+            model,
             prompt,
             tag_ids,
             skills,
@@ -576,6 +579,7 @@ fn managed_loop_input(
         tag_ids: resolved.tag_ids.clone(),
         skills: resolved.skills.clone(),
         agent_type: resolved.agent_type.clone(),
+        model: resolved.model.clone(),
         inactive_ttl_days: resolved.inactive_ttl_days,
         adapter,
         schedule,
@@ -682,6 +686,7 @@ mod tests {
             on: "linear".to_string(),
             name: "Ready Pool".to_string(),
             agent_type: None,
+            model: None,
             routing_mode: None,
             tags: None,
             skills: None,

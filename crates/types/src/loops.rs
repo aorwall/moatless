@@ -82,6 +82,9 @@ pub struct LoopContext {
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: AgentType,
+    /// Per-Loop model override. `None` keeps the platform default the sandbox
+    /// resolves for `agent_type`. Flows into `tasks.model` at task creation.
+    pub model: Option<String>,
     /// Per-Loop inactivity TTL override (days). `None` means the reaper
     /// falls back to the platform-wide default (`TASK_INACTIVE_TIMEOUT_DAYS`).
     /// Flows into `tasks.inactive_ttl_days` at task creation time.
@@ -139,6 +142,8 @@ pub struct LoopSpawnConfig {
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: AgentType,
+    /// Per-Loop model override. See [`LoopContext::model`].
+    pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
@@ -178,6 +183,8 @@ pub struct SubscriptionMatch {
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: AgentType,
+    /// Per-Loop model override. See [`LoopContext::model`].
+    pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
     pub allow_direct_send: bool,
     pub adapter_config: Option<serde_json::Value>,

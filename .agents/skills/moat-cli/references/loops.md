@@ -11,6 +11,7 @@ Code's `SKILL.md`.
 on: github_pr            # event source; also: schedule, slack, linear
 name: Java Review        # required — what the loop is called in the UI and CLI
 agentType: claude-code   # optional, default claude-code
+model: opus              # optional; default is the platform default for agentType
 routingMode: by_subject  # optional, default by_subject
 tags: [review]           # optional
 skills: [java-review]    # optional — activated on every fresh agent session
