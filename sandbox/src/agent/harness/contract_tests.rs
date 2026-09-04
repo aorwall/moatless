@@ -89,7 +89,7 @@ async fn new_execution_ordering_started_accepted_source_finished() {
     assert!(matches!(
         signals[4],
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
     assert_eq!(signals.len(), 5);
@@ -124,7 +124,7 @@ async fn no_source_event_before_execution_start() {
     assert!(matches!(
         signals[4],
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
 }
@@ -162,7 +162,7 @@ async fn terminal_before_acceptance_drops_buffered_source() {
     assert!(matches!(
         signals.last().expect("terminal"),
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
 }
@@ -384,7 +384,7 @@ async fn cancellation_while_idle_is_a_noop() {
     assert!(matches!(
         signals.last(),
         Some(Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         })
     ));
 }
@@ -582,7 +582,7 @@ async fn input_submitted_mid_execution_joins_it_when_the_process_injects() {
     assert!(matches!(
         signals[3],
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
     assert_eq!(
@@ -664,7 +664,7 @@ async fn input_submitted_after_cancel_is_queued_rather_than_injected() {
     assert!(matches!(
         recovered[2],
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
 }

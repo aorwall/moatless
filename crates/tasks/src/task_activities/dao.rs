@@ -228,19 +228,22 @@ pub async fn admit_usage(
     task_id: &str,
     message_uuid: &str,
     parent_uuid: Option<&str>,
-    (input_tokens, output_tokens): (i32, i32),
+    usage: crate::task_activities::mapping::AdmittedUsage,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"INSERT INTO task_message_usage
-               (message_uuid, task_id, parent_uuid, input_tokens, output_tokens)
-           VALUES ($1, $2, $3, $4, $5)
+               (message_uuid, task_id, parent_uuid, input_tokens, output_tokens,
+                cache_creation_input_tokens, cache_read_input_tokens)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT (message_uuid) DO NOTHING"#,
     )
     .bind(message_uuid)
     .bind(task_id)
     .bind(parent_uuid)
-    .bind(input_tokens)
-    .bind(output_tokens)
+    .bind(usage.input_tokens)
+    .bind(usage.output_tokens)
+    .bind(usage.cache_creation_input_tokens)
+    .bind(usage.cache_read_input_tokens)
     .execute(tx)
     .await?;
     Ok(())

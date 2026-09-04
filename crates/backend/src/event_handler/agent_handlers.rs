@@ -52,6 +52,16 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         return;
     }
 
+    // The run's USD cost: the transport's own figure where it priced the run
+    // (Claude), otherwise priced here from the model and token counts (Codex,
+    // tmux report no cost). This single value feeds the cost metric, the turn
+    // metrics, and the task-total recompute below.
+    let run_cost_usd = sdk_result.total_cost_usd.or_else(|| {
+        let model = sdk_result.model.as_deref()?;
+        let usage = sdk_result.usage.as_ref()?;
+        super::pricing::estimate_cost_usd(model, usage)
+    });
+
     // Prometheus: this is a successful terminal run (error completions
     // short-circuit above). Record outcome, cost, tokens, turn latency, turn
     // count, and any permission denials from the SDK result. The tmux backend
@@ -59,7 +69,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     {
         let agent_type = event.agent_type.as_deref();
         super::metrics::record_run("completed", agent_type);
-        if let Some(cost) = sdk_result.total_cost_usd {
+        if let Some(cost) = run_cost_usd {
             super::metrics::record_cost(agent_type, cost);
         }
         if let Some(usage) = sdk_result.usage.as_ref() {
@@ -107,18 +117,17 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         }
     }
 
-    // Update task cost / activity timestamp. Status is flipped separately via
+    // Touch the activity timestamp. Status is flipped separately via
     // `update_status_if_not_closed` so a task closed mid-run (e.g. its PR was
-    // closed) is never resurrected to Open by this automated handler.
+    // closed) is never resurrected to Open by this automated handler. Cost is
+    // NOT incremented here: an at-least-once event stream would double-count a
+    // redelivered completion, so `total_cost_usd` is recomputed from the turn
+    // metrics below instead, which is idempotent.
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let mut patch = TaskPatch {
+    let patch = TaskPatch {
         last_message_at: Some(now),
         ..Default::default()
     };
-
-    if let Some(cost) = sdk_result.total_cost_usd {
-        patch.total_cost_usd_increment = Some(cost);
-    }
 
     if let Err(e) = state
         .tasks
@@ -136,7 +145,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         let metrics = serde_json::json!({
             "usage": event.payload.get("usage"),
             "modelUsage": event.payload.get("modelUsage"),
-            "totalCostUsd": sdk_result.total_cost_usd,
+            "totalCostUsd": run_cost_usd,
             "durationMs": sdk_result.duration_ms,
             "durationApiMs": sdk_result.duration_api_ms,
             "numTurns": sdk_result.num_turns,
@@ -154,6 +163,13 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
                 "Failed to store turn metrics from completion result"
             );
         }
+    }
+
+    // Recompute the task's total cost from the per-turn metrics just written.
+    // Summing the durable turn rows is idempotent under at-least-once delivery,
+    // where a blind `total_cost_usd + cost` would drift on every redelivery.
+    if let Err(e) = state.tasks.recompute_total_cost(&event.task_id).await {
+        tracing::warn!(task_id = %event.task_id, error = %e, "Failed to recompute task total cost");
     }
 
     // Backfill turn token usage onto the assistant reply. Codex reports usage
@@ -890,7 +906,9 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     }
 
     // Usage is admitted against the Message's uuid rather than its row, so it
-    // survives a turn that said nothing and therefore has no row.
+    // survives a turn that said nothing and therefore has no row. All four tiers
+    // are kept: Codex's cache-read is its largest, and dropping it lost most of
+    // the run's input.
     conversation.usage = usage.map(|usage| {
         let field = |name: &str| {
             usage
@@ -898,7 +916,12 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0) as i32
         };
-        (field("input_tokens"), field("output_tokens"))
+        crate::task_activities::mapping::AdmittedUsage {
+            input_tokens: field("input_tokens"),
+            output_tokens: field("output_tokens"),
+            cache_creation_input_tokens: field("cache_creation_input_tokens"),
+            cache_read_input_tokens: field("cache_read_input_tokens"),
+        }
     });
 
     // A result changes the Message that *called* for it, not the carrier row it

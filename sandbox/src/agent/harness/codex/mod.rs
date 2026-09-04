@@ -412,6 +412,10 @@ impl CodexProcess {
         self.pending.push_back(ProcessEvent::Block(
             self.normalizer.turn_result_source(&usage),
         ));
+        // Turn totals for the backend's per-turn cost/token accounting. Codex
+        // reports no cost, so the payload carries tokens and model only.
+        self.pending
+            .push_back(ProcessEvent::RunTotals(self.normalizer.run_totals(&usage)));
 
         let termination = match completed.turn.status {
             TurnStatus::Failed => {

@@ -39,7 +39,7 @@ use crate::config::Config;
 
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
-use super::signal::{ContextWindow, Input, InputId, SessionId};
+use super::signal::{ContextWindow, Input, InputId, RunTotals, SessionId};
 
 use self::normalize::Normalizer;
 
@@ -84,6 +84,50 @@ fn context_window(result: &ResultMessage, last_response: Option<&Usage>) -> Opti
         used_tokens: max_tokens.map_or(used, |max| used.min(max)),
         max_tokens,
     })
+}
+
+/// The run's authoritative token and cost totals from the terminal result.
+///
+/// Cost is `Some`: Claude prices the run itself. `model` is the `modelUsage` key
+/// that produced the most output, used only as a label. `reasoning_output_tokens`
+/// is `0` — Claude reports none.
+fn run_totals(result: &ResultMessage) -> RunTotals {
+    let (usage, model_usage, cost, num_turns, duration_ms, duration_api_ms) = match result {
+        ResultMessage::Success(s) => (
+            &s.usage,
+            &s.model_usage,
+            s.total_cost_usd,
+            s.num_turns,
+            s.duration_ms,
+            s.duration_api_ms,
+        ),
+        ResultMessage::Error(e) => (
+            &e.usage,
+            &e.model_usage,
+            e.total_cost_usd,
+            e.num_turns,
+            e.duration_ms,
+            e.duration_api_ms,
+        ),
+    };
+    let clamp = |v: u64| i64::try_from(v).unwrap_or(i64::MAX);
+    let model = model_usage
+        .iter()
+        .max_by_key(|(_, u)| u.output_tokens)
+        .map(|(name, _)| name.clone());
+    RunTotals {
+        input_tokens: clamp(usage.input_tokens),
+        output_tokens: clamp(usage.output_tokens),
+        cache_creation_input_tokens: clamp(usage.cache_creation_input_tokens.unwrap_or(0)),
+        cache_read_input_tokens: clamp(usage.cache_read_input_tokens.unwrap_or(0)),
+        reasoning_output_tokens: 0,
+        total_cost_usd: Some(cost),
+        num_turns: Some(num_turns),
+        duration_ms: Some(duration_ms),
+        duration_api_ms: Some(duration_api_ms),
+        model,
+        model_usage: serde_json::to_value(model_usage).ok(),
+    }
 }
 
 mod classify;
@@ -245,6 +289,11 @@ impl ClaudeProcess {
                 if let Some(window) = context_window(&result, self.last_response.as_ref()) {
                     self.pending.push_back(ProcessEvent::ContextWindow(window));
                 }
+                // The terminal `ResultMessage` is the only trustworthy source of
+                // the run's cost and token totals: Claude's per-message
+                // `output_tokens` is sampled before the response finished.
+                self.pending
+                    .push_back(ProcessEvent::RunTotals(run_totals(&result)));
                 self.pending.push_back(ProcessEvent::Terminated {
                     termination: classify::classify_result(&result),
                 });

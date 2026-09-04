@@ -107,12 +107,67 @@ pub enum Cause {
 /// The single terminal outcome of a started execution.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
-    /// The execution completed normally.
-    Completed,
+    /// The execution completed normally. `totals` carries the run's authoritative
+    /// token/cost figures when the harness reported them on its terminal, and is
+    /// `None` for a completion that carried none (older runtimes, or a turn that
+    /// ended without a result message).
+    Completed { totals: Option<RunTotals> },
     /// The execution was cancelled.
     Cancelled,
     /// The execution failed with a classified error.
     Failed(HarnessError),
+}
+
+/// A completed run's authoritative token and cost figures, as the harness
+/// reported them on its terminal result.
+///
+/// These are per-run deltas, not session-cumulative: Claude's `ResultMessage`
+/// is per CLI invocation, and the Codex figures are [`crate::agent::harness`]'s
+/// `TurnUsage` growth across the turn. The backend sums them across a task's
+/// turns; it must never re-derive a cumulative total from them.
+///
+/// `total_cost_usd` is `Some` only where the runtime priced the run itself
+/// (Claude). Codex reports tokens with no cost, so it leaves this `None` and the
+/// backend prices the run from `model` and the token counts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunTotals {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_creation_input_tokens: i64,
+    pub cache_read_input_tokens: i64,
+    /// Codex reasoning tokens; `0` for Claude, which has no separate count.
+    pub reasoning_output_tokens: i64,
+    pub total_cost_usd: Option<f64>,
+    pub num_turns: Option<u32>,
+    pub duration_ms: Option<u64>,
+    pub duration_api_ms: Option<u64>,
+    pub model: Option<String>,
+    /// Claude's per-model `modelUsage` map, passed through verbatim for the
+    /// backend's per-model cost breakdown. `None` for Codex.
+    pub model_usage: Option<serde_json::Value>,
+}
+
+impl RunTotals {
+    /// The `agent.completed` payload the backend parses: the run's cost, the
+    /// four-plus-one token counts under `usage`, and the passthrough fields. Uses
+    /// `snake_case` keys, which the backend accepts alongside camelCase.
+    pub fn to_payload(&self) -> serde_json::Value {
+        serde_json::json!({
+            "total_cost_usd": self.total_cost_usd,
+            "usage": {
+                "input_tokens": self.input_tokens,
+                "output_tokens": self.output_tokens,
+                "cache_creation_input_tokens": self.cache_creation_input_tokens,
+                "cache_read_input_tokens": self.cache_read_input_tokens,
+                "reasoning_output_tokens": self.reasoning_output_tokens,
+            },
+            "modelUsage": self.model_usage,
+            "num_turns": self.num_turns,
+            "duration_ms": self.duration_ms,
+            "duration_api_ms": self.duration_api_ms,
+            "model": self.model,
+        })
+    }
 }
 
 /// Why a submitted input never opened an execution.

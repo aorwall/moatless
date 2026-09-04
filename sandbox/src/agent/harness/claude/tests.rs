@@ -205,11 +205,15 @@ fn clean_result_completes() {
         structured_output: None,
     })));
     let events = drain(&mut p);
+    // The run's totals precede the terminal so the seam retains them.
     assert!(matches!(
         events.as_slice(),
-        [ProcessEvent::Terminated {
-            termination: ProcessTermination::Completed
-        }]
+        [
+            ProcessEvent::RunTotals(_),
+            ProcessEvent::Terminated {
+                termination: ProcessTermination::Completed
+            }
+        ]
     ));
 }
 
@@ -534,7 +538,7 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
     assert!(accepted, "expected InputAccepted");
     assert!(sources > 0, "expected at least one source block");
     assert!(
-        matches!(outcome, Some(Outcome::Completed)),
+        matches!(outcome, Some(Outcome::Completed { .. })),
         "expected Completed, got {outcome:?}"
     );
 }
@@ -624,7 +628,7 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
     )
     .await;
     assert!(
-        matches!(first_outcome, Some(Outcome::Completed)),
+        matches!(first_outcome, Some(Outcome::Completed { .. })),
         "first Turn should complete, got {first_outcome:?}"
     );
     let first_session = first_session.expect("first Turn reports a Session");
@@ -637,7 +641,7 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
     )
     .await;
     assert!(
-        matches!(second_outcome, Some(Outcome::Completed)),
+        matches!(second_outcome, Some(Outcome::Completed { .. })),
         "second Turn should complete, got {second_outcome:?}"
     );
     assert_eq!(

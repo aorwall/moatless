@@ -9,7 +9,7 @@
 use tokio_util::sync::CancellationToken;
 
 use super::error::HarnessError;
-use super::signal::{Activity, ContextWindow, Input, InputId, SessionId};
+use super::signal::{Activity, ContextWindow, Input, InputId, RunTotals, SessionId};
 use super::source::SourceEvent;
 
 /// How an Agent process ended on its own.
@@ -59,6 +59,10 @@ pub(crate) enum ProcessEvent {
     Activity(Activity),
     /// What the harness reported about its own context window.
     ContextWindow(ContextWindow),
+    /// The completed run's authoritative token/cost totals, emitted just before
+    /// the terminal. The driver captures the most recent one and attaches it to
+    /// the `Completed` outcome, so it never rides a `Failed` or `Cancelled` end.
+    RunTotals(RunTotals),
     /// The current execution reached its single terminal while the process stays
     /// alive to host later executions. Persistent transports only; a one-shot
     /// process reports `Terminated` at the end of its single execution instead.

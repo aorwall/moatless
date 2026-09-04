@@ -279,31 +279,54 @@ async fn update_task_partial(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn update_task_cost_increment(pool: PgPool) {
+async fn recompute_total_cost_sums_priced_turns(pool: PgPool) {
     let user = "user-1";
     seed_repo(&pool, "repo-1", user).await;
 
+    // Start from a non-zero stored total to prove the recompute overwrites
+    // rather than adds to it — the idempotency property a blind increment lacks.
     let mut row = make_task_row("task-cost", user);
-    row.total_cost_usd = 1.0;
+    row.total_cost_usd = 99.0;
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    task_dao::update_task(
-        &pool,
-        "task-cost",
-        &TaskPatch {
-            total_cost_usd_increment: Some(0.5),
-            ..Default::default()
-        },
-        &scope_ctx(user),
-    )
-    .await
-    .unwrap();
+    // Two priced turns and one that never priced (JSON null): the null turn is
+    // skipped, not summed as zero-or-error.
+    for (turn, metrics) in [
+        (1, serde_json::json!({ "totalCostUsd": 0.25 })),
+        (2, serde_json::json!({ "totalCostUsd": 1.5 })),
+        (3, serde_json::json!({ "totalCostUsd": serde_json::Value::Null })),
+    ] {
+        sqlx::query(
+            "INSERT INTO task_turns (task_id, turn_number, status, metrics) \
+             VALUES ($1, $2, 'active', $3)",
+        )
+        .bind("task-cost")
+        .bind(turn)
+        .bind(&metrics)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    task_dao::recompute_total_cost(&pool, "task-cost")
+        .await
+        .unwrap();
 
     let found = task_dao::find_by_id(&pool, "task-cost", &scope_ctx(user))
         .await
         .unwrap()
         .unwrap();
-    assert!((found.total_cost_usd - 1.5).abs() < 0.001);
+    assert!((found.total_cost_usd - 1.75).abs() < 0.001);
+
+    // Idempotent: running it again yields the same total, not a doubled one.
+    task_dao::recompute_total_cost(&pool, "task-cost")
+        .await
+        .unwrap();
+    let again = task_dao::find_by_id(&pool, "task-cost", &scope_ctx(user))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!((again.total_cost_usd - 1.75).abs() < 0.001);
 }
 
 #[sqlx::test]

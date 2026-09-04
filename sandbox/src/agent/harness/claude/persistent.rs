@@ -255,7 +255,10 @@ impl ClaudePersistentProcess {
                 ));
             }
             SdkMessage::Result(result) => {
-                // Turn boundary: the session persists to host the next Turn.
+                // Turn boundary: the session persists to host the next Turn. The
+                // result carries the run's authoritative cost/token totals.
+                self.pending
+                    .push_back(ProcessEvent::RunTotals(super::run_totals(&result)));
                 self.pending.push_back(ProcessEvent::ExecutionEnded {
                     termination: classify_result(&result),
                 });

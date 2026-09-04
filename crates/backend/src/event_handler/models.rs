@@ -19,6 +19,9 @@ pub struct SdkResultMessage {
     pub result: Option<String>,
     #[serde(alias = "total_cost_usd")]
     pub total_cost_usd: Option<f64>,
+    /// The run's model id, used to price runs whose transport reports no
+    /// `total_cost_usd` (Codex, tmux). Absent on older payloads.
+    pub model: Option<String>,
     pub usage: Option<UsageInfo>,
     #[serde(alias = "num_turns")]
     pub num_turns: Option<u32>,

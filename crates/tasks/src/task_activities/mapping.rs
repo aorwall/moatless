@@ -108,7 +108,21 @@ pub struct ConversationWrite {
     pub activities: Vec<ActivityRow>,
     pub outcomes: Vec<ToolOutcome>,
     /// The Message's reported token usage, admitted once per Message.
-    pub usage: Option<(i32, i32)>,
+    pub usage: Option<AdmittedUsage>,
+}
+
+/// A Message's per-tier token usage, admitted once against its uuid.
+///
+/// `input_tokens` is the non-cached input; the cached-prefix reads and
+/// cache-creation writes are their own tiers so cost stays derivable per
+/// Message. Codex's cache-read is the largest tier and was silently dropped
+/// while this carried only `(input, output)`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AdmittedUsage {
+    pub input_tokens: i32,
+    pub output_tokens: i32,
+    pub cache_creation_input_tokens: i32,
+    pub cache_read_input_tokens: i32,
 }
 
 impl ConversationWrite {

@@ -787,7 +787,7 @@ async fn injected_input_ack_is_dropped_when_terminal_arrives_first() {
 
     coord
         .handle_signal(Signal::ExecutionFinished {
-            outcome: Outcome::Completed,
+            outcome: Outcome::Completed { totals: None },
         })
         .await;
 

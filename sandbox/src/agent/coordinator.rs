@@ -434,7 +434,7 @@ impl Coordinator {
             return;
         };
         match outcome {
-            Outcome::Completed => state.set_idle().await,
+            Outcome::Completed { .. } => state.set_idle().await,
             Outcome::Cancelled => state.set_stopped().await,
             Outcome::Failed(_) => {}
         }
@@ -563,9 +563,13 @@ impl Coordinator {
 
     async fn publish_outcome(&mut self, outcome: Outcome) {
         match outcome {
-            Outcome::Completed => {
+            Outcome::Completed { totals } => {
+                // The terminal carries the run's authoritative token/cost totals
+                // when the harness reported them; an older runtime that reported
+                // none still publishes so the turn closes, just with an empty body.
+                let payload = totals.map_or_else(|| json!({}), |t| t.to_payload());
                 self.run_events()
-                    .publish_agent_event(&self.task_id, AgentSubType::Completed, json!({}))
+                    .publish_agent_event(&self.task_id, AgentSubType::Completed, payload)
                     .await;
             }
             // A cancelled execution ends the turn without its own terminal event;
@@ -1060,7 +1064,7 @@ impl CoordinatorService {
 
                         if let Some(outcome) = outcome_ref {
                             match outcome {
-                                Outcome::Completed => {
+                                Outcome::Completed { .. } => {
                                     // Successful completion resets retry and breaker state.
                                     self.retry_attempt = 0;
                                     self.retry_at = None;

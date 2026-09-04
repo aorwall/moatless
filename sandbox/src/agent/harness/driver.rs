@@ -197,6 +197,9 @@ struct PersistentState {
     pending: VecDeque<InputId>,
     /// Source events held until the active execution has started and accepted.
     early: Vec<super::source::SourceEvent>,
+    /// The active execution's run totals, captured from `ProcessEvent::RunTotals`
+    /// and attached to the `Completed` outcome at its terminal.
+    run_totals: Option<super::signal::RunTotals>,
 }
 
 /// Apply one raw persistent-process event to the external contract. Returns
@@ -215,6 +218,7 @@ async fn drive_persistent_event(
             state.accepted = false;
             state.awaiting_open_accept = true;
             state.cancel_requested = false;
+            state.run_totals = None;
             let cause = Cause::Input(
                 state
                     .pending
@@ -240,6 +244,7 @@ async fn drive_persistent_event(
             state.accepted = true;
             state.awaiting_open_accept = false;
             state.cancel_requested = false;
+            state.run_totals = None;
             emit(
                 signal_tx,
                 Signal::ExecutionStarted {
@@ -282,6 +287,10 @@ async fn drive_persistent_event(
             emit(signal_tx, Signal::ContextWindow(window)).await?;
             Ok(true)
         }
+        Some(ProcessEvent::RunTotals(totals)) => {
+            state.run_totals = Some(totals);
+            Ok(true)
+        }
         Some(ProcessEvent::Activity(activity)) => {
             emit(signal_tx, Signal::Activity(activity)).await?;
             Ok(true)
@@ -292,7 +301,13 @@ async fn drive_persistent_event(
             // never synthesizes acceptance, so unanchored blocks are dropped.
             flush_early(signal_tx, state.active, state.accepted, &mut state.early).await?;
             state.early.clear();
-            emit_terminal(signal_tx, state.cancel_requested, Some(termination)).await?;
+            emit_terminal(
+                signal_tx,
+                state.cancel_requested,
+                Some(termination),
+                state.run_totals.take(),
+            )
+            .await?;
             state.active = false;
             state.accepted = false;
             state.awaiting_open_accept = false;
@@ -302,7 +317,13 @@ async fn drive_persistent_event(
         Some(ProcessEvent::Terminated { termination }) => {
             flush_early(signal_tx, state.active, state.accepted, &mut state.early).await?;
             if state.active {
-                emit_terminal(signal_tx, state.cancel_requested, Some(termination)).await?;
+                emit_terminal(
+                    signal_tx,
+                    state.cancel_requested,
+                    Some(termination),
+                    state.run_totals.take(),
+                )
+                .await?;
             }
             Ok(false)
         }
@@ -310,7 +331,8 @@ async fn drive_persistent_event(
             flush_early(signal_tx, state.active, state.accepted, &mut state.early).await?;
             if state.active {
                 // EOF mid-execution: an unexpected exit.
-                emit_terminal(signal_tx, state.cancel_requested, None).await?;
+                emit_terminal(signal_tx, state.cancel_requested, None, state.run_totals.take())
+                    .await?;
             }
             // EOF while idle is a clean shutdown of a persistent process.
             Ok(false)
@@ -324,12 +346,13 @@ async fn emit_terminal(
     signal_tx: &mpsc::Sender<Signal>,
     cancel_requested: bool,
     termination: Option<ProcessTermination>,
+    run_totals: Option<super::signal::RunTotals>,
 ) -> Result<(), SignalClosed> {
     let outcome = if cancel_requested {
         Outcome::Cancelled
     } else {
         match termination {
-            Some(ProcessTermination::Completed) => Outcome::Completed,
+            Some(ProcessTermination::Completed) => Outcome::Completed { totals: run_totals },
             Some(ProcessTermination::Failed(error)) => Outcome::Failed(error),
             None => Outcome::Failed(unexpected_eof(FailureStage::Execution)),
         }
@@ -452,6 +475,9 @@ async fn run_execution<P: AgentProcess>(
     // Source events held until both the execution has started and its input has
     // been accepted, so no `Source` is ever emitted before `InputAccepted`.
     let mut early: Vec<super::source::SourceEvent> = Vec::new();
+    // The run's totals, captured just before the terminal and attached to the
+    // `Completed` outcome.
+    let mut run_totals: Option<super::signal::RunTotals> = None;
 
     loop {
         tokio::select! {
@@ -574,6 +600,9 @@ async fn run_execution<P: AgentProcess>(
                     Some(ProcessEvent::ContextWindow(window)) => {
                         emit(signal_tx, Signal::ContextWindow(window)).await?;
                     }
+                    Some(ProcessEvent::RunTotals(totals)) => {
+                        run_totals = Some(totals);
+                    }
                     Some(ProcessEvent::Activity(activity)) => {
                         emit(signal_tx, Signal::Activity(activity)).await?;
                     }
@@ -591,6 +620,7 @@ async fn run_execution<P: AgentProcess>(
                             started,
                             cancel_requested,
                             Some(termination),
+                            run_totals,
                             &input_id,
                         )
                         .await;
@@ -599,8 +629,15 @@ async fn run_execution<P: AgentProcess>(
                     None => {
                         // EOF with no prior Terminated: an unexpected exit.
                         flush_early(signal_tx, started, accepted, &mut early).await?;
-                        return finalize(signal_tx, started, cancel_requested, None, &input_id)
-                            .await;
+                        return finalize(
+                            signal_tx,
+                            started,
+                            cancel_requested,
+                            None,
+                            run_totals,
+                            &input_id,
+                        )
+                        .await;
                     }
                 }
             }
@@ -635,6 +672,7 @@ async fn finalize(
     started: bool,
     cancel_requested: bool,
     termination: Option<ProcessTermination>,
+    run_totals: Option<super::signal::RunTotals>,
     input_id: &InputId,
 ) -> Result<(), SignalClosed> {
     if started {
@@ -642,7 +680,7 @@ async fn finalize(
             Outcome::Cancelled
         } else {
             match termination {
-                Some(ProcessTermination::Completed) => Outcome::Completed,
+                Some(ProcessTermination::Completed) => Outcome::Completed { totals: run_totals },
                 Some(ProcessTermination::Failed(error)) => Outcome::Failed(error),
                 None => Outcome::Failed(unexpected_eof(FailureStage::Execution)),
             }

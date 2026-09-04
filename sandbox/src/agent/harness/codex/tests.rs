@@ -1367,7 +1367,7 @@ async fn fresh_turn_orders_started_accepted_source_finished() {
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
 }
@@ -1409,7 +1409,7 @@ async fn queued_input_opens_the_next_turn_and_is_accepted_against_it() {
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
 
@@ -1487,7 +1487,7 @@ async fn a_message_submitted_mid_execution_joins_it_and_opens_no_second_one() {
     assert!(matches!(
         signals.last(),
         Some(Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         })
     ));
 }
@@ -1672,7 +1672,7 @@ async fn a_rejected_steer_leaves_the_message_for_the_next_turn() {
         match next_signal(&mut signal_rx).await {
             Signal::Source(_) => continue,
             Signal::ExecutionFinished { outcome } => {
-                assert_eq!(outcome, Outcome::Completed);
+                assert!(matches!(outcome, Outcome::Completed { .. }));
                 break;
             }
             other => panic!("the refused message must not join this Turn: {other:?}"),
@@ -1950,7 +1950,7 @@ async fn e2e_codex_turn_through_the_harness() {
     assert!(accepted, "expected InputAccepted");
     assert!(!blocks.is_empty(), "expected at least one source block");
     assert!(
-        matches!(outcome, Some(Outcome::Completed)),
+        matches!(outcome, Some(Outcome::Completed { .. })),
         "expected Completed, got {outcome:?}"
     );
 
@@ -2128,9 +2128,8 @@ async fn e2e_message_sent_mid_turn_is_answered_inside_the_running_codex_turn() {
             vec![InputId("in-1".to_string()), InputId("in-2".to_string())],
             "the mid-Turn message must be accepted against the Turn already running"
         );
-        assert_eq!(
-            turn.outcome,
-            Some(Outcome::Completed),
+        assert!(
+            matches!(turn.outcome, Some(Outcome::Completed { .. })),
             "the steered Turn must still finish normally"
         );
         assert!(
@@ -2175,7 +2174,7 @@ async fn e2e_message_sent_between_turns_opens_a_second_codex_turn() {
             .expect("submit the opening input");
         let first = collect_turn(&mut harness, None).await;
 
-        assert_eq!(first.outcome, Some(Outcome::Completed));
+        assert!(matches!(first.outcome, Some(Outcome::Completed { .. })));
         assert_eq!(first.accepted, vec![InputId("in-1".to_string())]);
         let session = first
             .session
@@ -2202,7 +2201,7 @@ async fn e2e_message_sent_between_turns_opens_a_second_codex_turn() {
             "a message sent between Turns opens the next Turn"
         );
         assert_eq!(second.accepted, vec![InputId("in-2".to_string())]);
-        assert_eq!(second.outcome, Some(Outcome::Completed));
+        assert!(matches!(second.outcome, Some(Outcome::Completed { .. })));
         assert_eq!(
             second.session,
             Some(session),

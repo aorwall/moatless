@@ -7,6 +7,7 @@ pub mod agent_handlers;
 pub mod consumer;
 pub mod metrics;
 pub mod models;
+pub mod pricing;
 pub mod skeleton;
 
 use std::sync::Arc;

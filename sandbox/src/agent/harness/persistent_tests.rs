@@ -93,7 +93,7 @@ async fn injection_accepts_into_active_execution_without_new_start() {
     assert!(matches!(
         rest[2],
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
     assert!(
@@ -138,7 +138,7 @@ async fn terminal_before_acceptance_drops_buffered_source() {
     assert!(matches!(
         signals.last().expect("terminal"),
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
 }
@@ -188,7 +188,7 @@ async fn incompatible_input_opens_replacement_execution_on_the_intended_session(
     assert!(matches!(
         harness.next_signal().await,
         Some(Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         })
     ));
 
@@ -202,7 +202,7 @@ async fn incompatible_input_opens_replacement_execution_on_the_intended_session(
     assert!(matches!(
         second[3],
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
 }
@@ -227,7 +227,7 @@ async fn internal_execution_starts_without_input_or_acknowledgement() {
     assert!(matches!(
         signals[2],
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
     assert!(
@@ -295,7 +295,7 @@ async fn cancellation_ends_execution_and_process_persists_for_the_next() {
     assert!(matches!(
         second.last(),
         Some(Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         })
     ));
 }
@@ -344,7 +344,7 @@ async fn queued_input_opens_the_next_execution_and_is_acked_against_it() {
     assert!(matches!(
         first_terminal,
         Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         }
     ));
 
@@ -357,7 +357,7 @@ async fn queued_input_opens_the_next_execution_and_is_acked_against_it() {
     assert!(matches!(
         second.last(),
         Some(Signal::ExecutionFinished {
-            outcome: Outcome::Completed
+            outcome: Outcome::Completed { .. }
         })
     ));
 }

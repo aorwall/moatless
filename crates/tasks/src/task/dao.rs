@@ -157,6 +157,13 @@ pub trait TaskDao: Send + Sync {
         patch: &TaskPatch,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
+    /// Recompute `tasks.total_cost_usd` as the sum of every turn's priced cost.
+    ///
+    /// Deriving the total from the durable `task_turns.metrics` rows is
+    /// idempotent: a completion event redelivered under at-least-once semantics
+    /// yields the same sum, where a `total_cost_usd + cost` increment would
+    /// drift up on every redelivery.
+    async fn recompute_total_cost(&self, task_id: &str) -> Result<(), sqlx::Error>;
     /// Flip status to `new_status` only if the task is not already `Closed`.
     ///
     /// Returns `true` when a row changed (status updated), `false` when the
@@ -887,22 +894,6 @@ impl TaskDao for PgTaskDao {
         if let Some(total_cost_usd) = patch.total_cost_usd {
             run_field!("total_cost_usd = $2", total_cost_usd);
         }
-        if let Some(increment) = patch.total_cost_usd_increment {
-            let sql = format!(
-                "UPDATE tasks SET total_cost_usd = total_cost_usd + $2, updated_at = NOW() \
-                 WHERE task_id = $1 AND {ctrl_sql}"
-            );
-            let res = sqlx::query(AssertSqlSafe(sql))
-                .bind(task_id)
-                .bind(increment)
-                .bind(ctx.is_admin)
-                .bind(&ctx.user_id)
-                .execute(&mut *tx)
-                .await?;
-            if first_affected.is_none() {
-                first_affected = Some(res.rows_affected());
-            }
-        }
         if let Some(ref site_url) = patch.site_url {
             run_field!("site_url = $2", site_url);
         }
@@ -936,6 +927,24 @@ impl TaskDao for PgTaskDao {
 
         // Empty patch: caller read-checked the task first; return true.
         Ok(first_affected.is_none_or(|n| n > 0))
+    }
+
+    async fn recompute_total_cost(&self, task_id: &str) -> Result<(), sqlx::Error> {
+        // Only turns whose `totalCostUsd` is a JSON number contribute; a turn
+        // that never priced (missing key, JSON null) is skipped, not summed as
+        // zero-or-error. `COALESCE` keeps a task with no priced turns at 0.
+        sqlx::query(
+            "UPDATE tasks SET total_cost_usd = COALESCE((\
+                 SELECT SUM((metrics->>'totalCostUsd')::float8) \
+                 FROM task_turns \
+                 WHERE task_id = $1 AND jsonb_typeof(metrics->'totalCostUsd') = 'number'\
+             ), 0), updated_at = NOW() \
+             WHERE task_id = $1",
+        )
+        .bind(task_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn update_status_if_not_closed(
@@ -1428,8 +1437,6 @@ pub struct TaskPatch {
     pub description: Option<String>,
     pub last_message_at: Option<String>,
     pub total_cost_usd: Option<f64>,
-    /// Additive increment to `total_cost_usd` (uses SQL `total_cost_usd + $N`).
-    pub total_cost_usd_increment: Option<f64>,
     pub site_url: Option<String>,
     pub visibility: Option<Visibility>,
     pub short_id: Option<String>,
@@ -1538,6 +1545,12 @@ pub async fn update_task(
     ctx: &ScopeContext,
 ) -> Result<bool, sqlx::Error> {
     store_over(pool).update_task(task_id, patch, ctx).await
+}
+
+/// Recompute a task's total cost from its turn metrics (convenience wrapper).
+#[cfg(any(test, feature = "test-support"))]
+pub async fn recompute_total_cost(pool: &DbPool, task_id: &str) -> Result<(), sqlx::Error> {
+    store_over(pool).recompute_total_cost(task_id).await
 }
 
 /// Delete a task (convenience wrapper).

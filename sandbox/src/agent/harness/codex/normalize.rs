@@ -15,7 +15,7 @@ use crate::agent::harness::content::CanonicalContentBlock;
 
 use crate::agent::codex_app_server::protocol::{ThreadItem, TokenUsageBreakdown, TurnPlanStep};
 
-use super::super::signal::SessionId;
+use super::super::signal::{RunTotals, SessionId};
 use super::super::source::{NativeMessageId, Role, SourceEvent, SourceId};
 use super::blocks;
 use super::blocks::ItemBlock;
@@ -174,6 +174,29 @@ impl Normalizer {
             diagnostics: None,
         }
     }
+
+    /// The run totals for a completed Codex Turn.
+    ///
+    /// `input_tokens` is normalized to the non-cached input so the backend prices
+    /// every harness the same way: the Codex breakdown's `input_tokens` is gross
+    /// and includes the cached prefix that `cached_input_tokens` also counts.
+    /// `total_cost_usd` is `None` — Codex reports no cost, so the backend prices
+    /// the run from `model` and the tokens.
+    pub(super) fn run_totals(&self, usage: &TurnUsage) -> RunTotals {
+        RunTotals {
+            input_tokens: (usage.input_tokens - usage.cached_input_tokens).max(0),
+            output_tokens: usage.output_tokens,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: usage.cached_input_tokens,
+            reasoning_output_tokens: usage.reasoning_output_tokens,
+            total_cost_usd: None,
+            num_turns: None,
+            duration_ms: None,
+            duration_api_ms: None,
+            model: self.model.clone(),
+            model_usage: None,
+        }
+    }
 }
 
 /// What one Turn spent, in the four fields the turn-result block publishes.
@@ -231,4 +254,60 @@ fn bounded(raw: &serde_json::Value) -> serde_json::Value {
         end -= 1;
     }
     serde_json::Value::String(format!("{}…", &text[..end]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn breakdown(input: i64, cached: i64, output: i64, reasoning: i64) -> TokenUsageBreakdown {
+        TokenUsageBreakdown {
+            input_tokens: input,
+            cached_input_tokens: cached,
+            output_tokens: output,
+            reasoning_output_tokens: reasoning,
+        }
+    }
+
+    /// A Turn's spend is the *growth* of the cumulative `total` while it ran, not
+    /// the cumulative figure itself. This is the guard against the bug that
+    /// leaked session-cumulative counts in as per-turn usage: were `between` to
+    /// return the latest reading, a second Turn would report the whole session's
+    /// tokens and cost every time.
+    #[test]
+    fn between_is_the_growth_of_the_cumulative_total_not_its_absolute() {
+        // codex-cli 0.145.0: a three-request Turn whose cumulative `total` ran
+        // 15842 → 47729 spent 31887, opening from a session already at 15842.
+        let baseline = breakdown(15842, 0, 0, 0);
+        let latest = breakdown(47729, 0, 0, 0);
+        let usage = TurnUsage::between(Some(&baseline), &latest);
+        assert_eq!(usage.input_tokens, 31887);
+
+        // A fresh thread has no baseline: the first reading is the Turn's own.
+        let first = TurnUsage::between(None, &breakdown(15842, 0, 0, 0));
+        assert_eq!(first.input_tokens, 15842);
+    }
+
+    /// `run_totals` normalizes input to the non-cached tokens and carries the
+    /// cached-prefix reads as their own tier — the tier that was silently
+    /// dropped at the old `(input, output)` seam.
+    #[test]
+    fn run_totals_splits_net_input_from_cache_read() {
+        let n = Normalizer::new(Some("gpt-5-codex".to_string()));
+        let usage = TurnUsage {
+            input_tokens: 1000,
+            cached_input_tokens: 400,
+            output_tokens: 200,
+            reasoning_output_tokens: 50,
+        };
+        let totals = n.run_totals(&usage);
+        assert_eq!(totals.input_tokens, 600);
+        assert_eq!(totals.cache_read_input_tokens, 400);
+        assert_eq!(totals.cache_creation_input_tokens, 0);
+        assert_eq!(totals.output_tokens, 200);
+        assert_eq!(totals.reasoning_output_tokens, 50);
+        // Codex reports no cost; the backend prices from `model` and the tokens.
+        assert_eq!(totals.total_cost_usd, None);
+        assert_eq!(totals.model.as_deref(), Some("gpt-5-codex"));
+    }
 }
