@@ -65,7 +65,7 @@ pub struct SlackAdapter {
 
 impl SlackAdapter {
     /// Register `SlackAdapter`'s capabilities into `adapters`. See
-    /// [`moatless_loops::adapters::Adapters`].
+    /// [`moatless_adapter_model::registry::Adapters`].
     pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         let kind = AdapterKind::Slack;
         adapters.register_trait_object(self.clone());

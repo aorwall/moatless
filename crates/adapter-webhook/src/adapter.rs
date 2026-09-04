@@ -102,7 +102,7 @@ pub struct WebhookAdapter;
 
 impl WebhookAdapter {
     /// Register `WebhookAdapter`'s capabilities into `adapters`. See
-    /// [`moatless_loops::adapters::Adapters`].
+    /// [`moatless_adapter_model::registry::Adapters`].
     ///
     /// The Webhook adapter has no concrete-only methods, so no handler needs a
     /// concrete handle to it: it has no `ProviderHandles` entry and lives only

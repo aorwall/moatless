@@ -41,7 +41,7 @@ fn missing_port(name: &str) -> AdapterError {
 
 impl TelegramAdapter {
     /// Register `TelegramAdapter`'s capabilities into `adapters`. See
-    /// [`moatless_loops::adapters::Adapters`].
+    /// [`moatless_adapter_model::registry::Adapters`].
     pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         let kind = AdapterKind::Telegram;
         adapters.register_trait_object(self.clone());
