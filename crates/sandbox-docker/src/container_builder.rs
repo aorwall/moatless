@@ -517,6 +517,7 @@ mod tests {
                 storage_class: None,
                 default_pvc_enabled: true,
                 default_s3_enabled: true,
+                default_workspace_mirror_enabled: true,
                 node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,

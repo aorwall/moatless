@@ -15,6 +15,25 @@ pub mod sandbox {
 // Re-export for convenience
 pub use sandbox::v1::*;
 
+/// Whether `path` is a workspace-relative path a
+/// [`GetWorkspaceObjectUrlsRequest`] may carry.
+///
+/// The producer (the sandbox) and the validator (the backend) share this one
+/// rule so a path the sandbox sends is never one the backend refuses — a
+/// rejected batch would wedge every later mirror sync. S3 keys are opaque, so
+/// `..` does not traverse there; the guard exists for the two ends that do
+/// resolve it — a restore writes each path under `WORKSPACE_DIR`, and a reader
+/// serving a stopped task's files resolves it again. Rejects an absolute path,
+/// any `.`/`..` component, an empty path, and one long enough to overrun S3's
+/// 1024-byte key limit once the prefix is on it.
+pub fn is_safe_workspace_path(path: &str) -> bool {
+    if path.is_empty() || path.len() > 900 || path.starts_with('/') {
+        return false;
+    }
+    path.split('/')
+        .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
 // Re-export the domain event types for consumers
 pub use moatless_types::event;
 

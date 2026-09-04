@@ -108,12 +108,25 @@ pub fn record_restart(backend: StorageBackend, elapsed: Duration) {
 
 /// Record one workspace-sync report from the sandbox.
 ///
-/// `direction` is validated to `"upload"` / `"download"` (anything else →
-/// `"other"`) to keep the label bounded.
-pub fn record_workspace_sync(direction: &str, bytes: u64, duration: Duration, ok: bool) {
+/// `direction` is validated to `"upload"` / `"download"` and `format` to
+/// `"tar"` / `"mirror"` (anything else → `"other"`) to keep both labels bounded.
+/// A sandbox that predates the file mirror sends no format and is recorded as
+/// `"tar"`, which is what it wrote.
+pub fn record_workspace_sync(
+    direction: &str,
+    format: &str,
+    bytes: u64,
+    duration: Duration,
+    ok: bool,
+) {
     let direction: &'static str = match direction {
         "upload" => "upload",
         "download" => "download",
+        _ => "other",
+    };
+    let format: &'static str = match format {
+        "" | "tar" => "tar",
+        "mirror" => "mirror",
         _ => "other",
     };
     let outcome = if ok { "ok" } else { "error" };
@@ -121,6 +134,7 @@ pub fn record_workspace_sync(direction: &str, bytes: u64, duration: Duration, ok
     metrics::counter!(
         WORKSPACE_SYNC_TOTAL,
         "direction" => direction,
+        "format" => format,
         "outcome" => outcome,
     )
     .increment(1);
@@ -128,8 +142,9 @@ pub fn record_workspace_sync(direction: &str, bytes: u64, duration: Duration, ok
     // Only record size/latency for successful transfers — a failed transfer's
     // byte count and duration are meaningless (a truncated PUT, a timeout).
     if ok {
-        metrics::histogram!(WORKSPACE_SYNC_BYTES, "direction" => direction).record(bytes as f64);
-        metrics::histogram!(WORKSPACE_SYNC_DURATION_SECONDS, "direction" => direction)
+        metrics::histogram!(WORKSPACE_SYNC_BYTES, "direction" => direction, "format" => format)
+            .record(bytes as f64);
+        metrics::histogram!(WORKSPACE_SYNC_DURATION_SECONDS, "direction" => direction, "format" => format)
             .record(duration.as_secs_f64());
     }
 }

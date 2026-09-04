@@ -16,7 +16,8 @@ use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
     DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
-    GetSystemPromptResponse, GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse,
+    GetSystemPromptResponse, GetWorkspaceObjectUrlsRequest, GetWorkspaceObjectUrlsResponse,
+    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse,
     InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest, PublishEventResponse,
     RecordGitPushRequest, RecordGitPushResponse, RecoverInterruptedRunRequest,
     RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse,
@@ -34,7 +35,9 @@ use crate::sandbox::secrets::{
     resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
     resolve_workspace_env_vars,
 };
-use crate::sandbox::storage::sandbox_key;
+use crate::sandbox::storage::{
+    is_safe_workspace_path, manifest_key, sandbox_key, workspace_object_key,
+};
 use moatless_backend_core::identity::GitHostTokenIssuer;
 use moatless_backend_core::sandbox::CodexCredentials;
 use moatless_core::config::Config;
@@ -142,6 +145,14 @@ fn transcript_key(prefix: &str, task_id: &str) -> String {
 /// bound the blast radius of a leaked URL, but generous enough for a large tar
 /// on a slow link.
 const WORKSPACE_PRESIGN_TTL: std::time::Duration = std::time::Duration::from_mins(15);
+
+/// Paths one `GetWorkspaceObjectUrls` call may name.
+///
+/// Each presigned URL is about 1.2 KB, so this bounds the response at roughly
+/// 600 KB — well inside tonic's 4 MB default. A workspace of a few thousand
+/// files takes a handful of calls, and every one of them is local HMAC work with
+/// no S3 round trip.
+const WORKSPACE_OBJECT_URL_BATCH: usize = 500;
 
 /// Database-backed ports the request handlers read — the databaseless gate's set
 /// minus the durable-admission writers ([`IngressPorts`]). Present-together as
@@ -760,28 +771,50 @@ impl BackendSandboxServiceImpl {
         task_id: &str,
         own_key: &str,
     ) -> String {
-        match file_s3::head_object_modified_at(&s3_client.client, bucket, own_key).await {
+        let source = self
+            .workspace_restore_task_id(s3_client, bucket, task_id, sandbox_key)
+            .await;
+        match source {
+            Some(source_task_id) => sandbox_key(&self.workspace_s3_prefix, &source_task_id),
+            None => own_key.to_string(),
+        }
+    }
+
+    /// The task whose prefix a restore should read, or `None` for the task's own.
+    ///
+    /// `key_for` builds the object that decides it — `sandbox_key` for the tar,
+    /// `manifest_key` for the file mirror — so both formats answer the fork
+    /// question against the artifact they actually restore from. The two are
+    /// resolved independently: a fork whose parent wrote a mirror but no tar
+    /// must not be sent to the parent for a tar that is not there.
+    async fn workspace_restore_task_id(
+        &self,
+        s3_client: &moatless_s3::S3Storage,
+        bucket: &str,
+        task_id: &str,
+        key_for: fn(&str, &str) -> String,
+    ) -> Option<String> {
+        let own_key = key_for(&self.workspace_s3_prefix, task_id);
+        match file_s3::head_object_modified_at(&s3_client.client, bucket, &own_key).await {
             Ok(None) => {}
-            Ok(Some(_)) => return own_key.to_string(),
+            Ok(Some(_)) => return None,
             Err(e) => {
                 warn!(error = %e, task_id = %task_id, "S3 head_object for the task's workspace failed; restoring its own key");
-                return own_key.to_string();
+                return None;
             }
         }
 
-        let Some(handlers) = self.handlers.as_ref() else {
-            return own_key.to_string();
-        };
+        let handlers = self.handlers.as_ref()?;
         let source_task_id = match handlers.task_forks.find(task_id).await {
             Ok(Some(row)) => row.source_task_id,
-            Ok(None) => return own_key.to_string(),
+            Ok(None) => return None,
             Err(e) => {
                 warn!(error = %e, task_id = %task_id, "Failed to read fork row; restoring the task's own key");
-                return own_key.to_string();
+                return None;
             }
         };
 
-        let source_key = sandbox_key(&self.workspace_s3_prefix, &source_task_id);
+        let source_key = key_for(&self.workspace_s3_prefix, &source_task_id);
         match file_s3::head_object_modified_at(&s3_client.client, bucket, &source_key).await {
             Ok(Some(_)) => {
                 info!(
@@ -789,12 +822,12 @@ impl BackendSandboxServiceImpl {
                     source_task_id = %source_task_id,
                     "Restoring a fork from the source task's workspace; it has none of its own"
                 );
-                source_key
+                Some(source_task_id)
             }
-            Ok(None) => own_key.to_string(),
+            Ok(None) => None,
             Err(e) => {
                 warn!(error = %e, task_id = %task_id, source_task_id = %source_task_id, "S3 head_object for the source task's workspace failed");
-                own_key.to_string()
+                None
             }
         }
     }
@@ -1945,11 +1978,127 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 Status::internal("Failed to presign workspace download URL")
             })?;
 
+        // The mirror's manifest, minted alongside so one round trip answers both
+        // "where do I write" and "is there a mirror to restore". Its own fork
+        // fallback: a parent may hold a mirror where it holds no tar, or vice
+        // versa.
+        let manifest_key_own = manifest_key(&self.workspace_s3_prefix, &req.task_id);
+        let manifest_put_url = file_s3::presign_put(
+            s3_client,
+            bucket,
+            &manifest_key_own,
+            WORKSPACE_PRESIGN_TTL,
+        )
+        .await
+        .map_err(|e| {
+            warn!(error = %e, task_id = %req.task_id, "presign PUT for workspace manifest failed");
+            Status::internal("Failed to presign workspace manifest upload URL")
+        })?;
+        let manifest_get_key = match self
+            .workspace_restore_task_id(s3_client, bucket, &req.task_id, manifest_key)
+            .await
+        {
+            Some(source_task_id) => manifest_key(&self.workspace_s3_prefix, &source_task_id),
+            None => manifest_key_own,
+        };
+        let manifest_get_url = file_s3::presign_get(
+            s3_client,
+            bucket,
+            &manifest_get_key,
+            WORKSPACE_PRESIGN_TTL,
+        )
+        .await
+        .map_err(|e| {
+            warn!(error = %e, task_id = %req.task_id, "presign GET for workspace manifest failed");
+            Status::internal("Failed to presign workspace manifest download URL")
+        })?;
+
         debug!(task_id = %req.task_id, key = %key, get_key = %get_key, "Minted workspace sync URLs");
         Ok(Response::new(GetWorkspaceSyncUrlsResponse {
             expires_in_secs: put_url.expires_in.min(get_url.expires_in).as_secs() as i64,
             put_url: put_url.url,
             get_url: get_url.url,
+            manifest_put_url: manifest_put_url.url,
+            manifest_get_url: manifest_get_url.url,
+        }))
+    }
+
+    /// Mint one presigned URL per workspace-relative path for the file mirror.
+    ///
+    /// The request names paths, never keys: [`workspace_object_key`] is what
+    /// turns each into an object under this task's prefix, so a sandbox cannot
+    /// ask for a URL outside it. `restore_source` is the one exception, and it
+    /// resolves through the same fork lookup the manifest GET used rather than
+    /// through anything the caller supplies. Auth: task-scoped JWT via gRPC
+    /// metadata.
+    async fn get_workspace_object_urls(
+        &self,
+        request: Request<GetWorkspaceObjectUrlsRequest>,
+    ) -> Result<Response<GetWorkspaceObjectUrlsResponse>, Status> {
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
+        let req = request.into_inner();
+
+        let Some(ref s3_client) = self.s3 else {
+            return Err(Status::failed_precondition("S3 not configured"));
+        };
+        let Some(ref bucket) = self.s3_bucket else {
+            return Err(Status::failed_precondition("S3 bucket not configured"));
+        };
+        if req.paths.len() > WORKSPACE_OBJECT_URL_BATCH {
+            return Err(Status::invalid_argument(format!(
+                "at most {WORKSPACE_OBJECT_URL_BATCH} paths per call"
+            )));
+        }
+        for path in &req.paths {
+            if !is_safe_workspace_path(path) {
+                return Err(Status::invalid_argument(format!(
+                    "path escapes the workspace: {path}"
+                )));
+            }
+        }
+
+        let key_task_id = if req.operation == "get" && req.restore_source {
+            self.workspace_restore_task_id(s3_client, bucket, &req.task_id, manifest_key)
+                .await
+                .unwrap_or_else(|| req.task_id.clone())
+        } else {
+            req.task_id.clone()
+        };
+
+        let mut urls = Vec::with_capacity(req.paths.len());
+        let mut expires_in = WORKSPACE_PRESIGN_TTL;
+        for path in &req.paths {
+            let key = workspace_object_key(&self.workspace_s3_prefix, &key_task_id, path);
+            let presigned = match req.operation.as_str() {
+                "put" => file_s3::presign_put(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL).await,
+                "get" => file_s3::presign_get(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL).await,
+                "delete" => {
+                    file_s3::presign_delete(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL).await
+                }
+                other => {
+                    return Err(Status::invalid_argument(format!(
+                        "unknown operation: {other}"
+                    )));
+                }
+            }
+            .map_err(|e| {
+                warn!(error = %e, task_id = %req.task_id, operation = %req.operation, "presign for a workspace object failed");
+                Status::internal("Failed to presign workspace object URL")
+            })?;
+            expires_in = expires_in.min(presigned.expires_in);
+            urls.push(presigned.url);
+        }
+
+        debug!(
+            task_id = %req.task_id,
+            operation = %req.operation,
+            paths = urls.len(),
+            "Minted workspace object URLs"
+        );
+        Ok(Response::new(GetWorkspaceObjectUrlsResponse {
+            urls,
+            expires_in_secs: expires_in.as_secs() as i64,
         }))
     }
 
@@ -1968,6 +2117,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         crate::sandbox::metrics::record_workspace_sync(
             &req.direction,
+            &req.format,
             req.bytes.max(0) as u64,
             std::time::Duration::from_millis(req.duration_ms.max(0) as u64),
             req.ok,
@@ -1996,6 +2146,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     turn_number: None,
                     payload: serde_json::json!({
                         "direction": req.direction,
+                        "format": if req.format.is_empty() { "tar" } else { &req.format },
                         "bytes": req.bytes.max(0),
                         "durationMs": req.duration_ms.max(0),
                         "ok": req.ok,

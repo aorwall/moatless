@@ -16,22 +16,25 @@ use moatless_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_backend::sandbox::client::SandboxClient;
 use moatless_backend::sandbox::lifecycle::{NotifyPort, ProvisionDeps};
-use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
-use moatless_sandbox_runtime::types::{ArchiveRetention, ObservedStatus};
 use moatless_backend::state::AppState;
 use moatless_backend::task::models::{Task, TaskStatus, Visibility};
 use moatless_backend::workspace::models::{Workspace, WorkspaceRepo};
-use sandbox_proto::client::SandboxConnector;
 use moatless_backend_core::sandbox::SandboxError;
-use moatless_core::config::{Config, DatabaseConfig, DockerConfig, GithubPrConfig, OtelConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig};
+use moatless_core::config::{
+    Config, DatabaseConfig, DockerConfig, GithubPrConfig, OtelConfig, ProxyConfig, RedisConfig,
+    S3Config, SandboxConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig,
+};
+use moatless_core::events::test_support::RecordingPublisher;
+use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
+use moatless_sandbox_runtime::types::{ArchiveRetention, ObservedStatus};
+use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::LinearConfig;
+use moatless_types::agent::AgentType;
 use moatless_types::agent::CodexOAuthConfig;
 use moatless_types::auth::{AuthConfig, AuthProvider};
 use moatless_types::sandbox::SandboxProviderType;
 use moatless_types::secret::SecretsConfig;
-use moatless_core::events::test_support::RecordingPublisher;
-use moatless_types::access_control::ScopeContext;
-use moatless_types::agent::AgentType;
+use sandbox_proto::client::SandboxConnector;
 
 // =========================================================================
 // Mock sandbox capabilities
@@ -274,6 +277,7 @@ pub fn test_config() -> Config {
             storage_class: None,
             default_pvc_enabled: true,
             default_s3_enabled: true,
+            default_workspace_mirror_enabled: true,
             node_archive_enabled: false,
             retain_storage_on_close: false,
             pod_startup_timeout_secs: 10,

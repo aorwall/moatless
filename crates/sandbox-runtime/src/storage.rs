@@ -92,6 +92,37 @@ pub fn sandbox_key(prefix: &str, task_id: &str) -> String {
     format!("{}/{}/workspace.tar", prefix.trim_end_matches('/'), task_id)
 }
 
+/// Build the S3 key for the file mirror's manifest:
+/// `<prefix>/<task_id>/manifest.json.gz`.
+///
+/// Presence of this object is what tells a restore the task has a mirror; its
+/// absence sends the restore to [`sandbox_key`]'s tar.
+pub fn manifest_key(prefix: &str, task_id: &str) -> String {
+    format!(
+        "{}/{}/manifest.json.gz",
+        prefix.trim_end_matches('/'),
+        task_id
+    )
+}
+
+/// The path-safety rule for a mirrored file, owned by the wire contract both the
+/// sandbox and the backend speak — see [`sandbox_proto::is_safe_workspace_path`].
+pub use sandbox_proto::is_safe_workspace_path;
+
+/// Build the S3 key for one mirrored workspace file:
+/// `<prefix>/<task_id>/files/<workspace-relative-path>`.
+///
+/// The `files/` segment keeps the per-file objects from colliding with the
+/// archive and the manifest, which sit beside it under the task prefix.
+pub fn workspace_object_key(prefix: &str, task_id: &str, path: &str) -> String {
+    format!(
+        "{}/{}/files/{}",
+        prefix.trim_end_matches('/'),
+        task_id,
+        path.trim_start_matches('/')
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

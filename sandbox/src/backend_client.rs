@@ -12,10 +12,10 @@ use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, DownloadTranscriptRequest, DownloadUploadRequest,
     DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
-    GetPendingMessagesRequest, GetSystemPromptRequest, GetWorkspaceSyncUrlsRequest,
-    GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
-    RecordGitPushRequest, RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest,
-    TranscriptChunk, UpdateCredentialRequest,
+    GetPendingMessagesRequest, GetSystemPromptRequest, GetWorkspaceObjectUrlsRequest,
+    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, InterruptedTurn,
+    PendingAgentDelivery, PublishEventRequest, RecordGitPushRequest, RecoverInterruptedRunRequest,
+    ReportWorkspaceSyncRequest, TranscriptChunk, UpdateCredentialRequest,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -65,7 +65,7 @@ pub trait BackendClient: Send + Sync {
 
     /// Fetch credentials for sandbox initialization.
     async fn get_credentials(&self, task_id: &str)
-        -> Result<GetCredentialsResponse, tonic::Status>;
+    -> Result<GetCredentialsResponse, tonic::Status>;
 
     /// Push a credential rotated locally inside the sandbox back to the backend
     /// so subsequent `get_credentials` calls return the rotated value.
@@ -128,13 +128,34 @@ pub trait BackendClient: Send + Sync {
         Err(tonic::Status::unimplemented("workspace sync not supported"))
     }
 
+    /// Mint one presigned S3 URL per workspace-relative path for the file
+    /// mirror, in the requested order. `operation` is `"put"`, `"get"` or
+    /// `"delete"`; `restore_source` sends a fork's reads to the source task's
+    /// mirror when it has none of its own, and is ignored for the other two.
+    ///
+    /// Default impl reports the feature unsupported, which is also what a
+    /// backend predating the mirror answers — [`crate::init::workspace_mirror`]
+    /// reads that as "write a tar instead".
+    async fn get_workspace_object_urls(
+        &self,
+        _task_id: &str,
+        _paths: &[String],
+        _operation: &str,
+        _restore_source: bool,
+    ) -> Result<Vec<String>, tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "workspace file mirror not supported",
+        ))
+    }
+
     /// Report the outcome of a direct-to-S3 workspace transfer so the backend
-    /// can record comparison metrics. Fire-and-forget; the default impl is a
-    /// no-op.
+    /// can record comparison metrics. `format` is `"tar"` or `"mirror"`.
+    /// Fire-and-forget; the default impl is a no-op.
     async fn report_workspace_sync(
         &self,
         _task_id: &str,
         _direction: &str,
+        _format: &str,
         _bytes: u64,
         _duration_ms: u64,
         _ok: bool,
@@ -451,10 +472,38 @@ impl BackendClient for BackendGrpcClient {
         Ok(resp.into_inner())
     }
 
+    async fn get_workspace_object_urls(
+        &self,
+        task_id: &str,
+        paths: &[String],
+        operation: &str,
+        restore_source: bool,
+    ) -> Result<Vec<String>, tonic::Status> {
+        let mut client = self.client.clone();
+        let resp = client
+            .get_workspace_object_urls(GetWorkspaceObjectUrlsRequest {
+                task_id: task_id.to_string(),
+                paths: paths.to_vec(),
+                operation: operation.to_string(),
+                restore_source,
+            })
+            .await?;
+        let urls = resp.into_inner().urls;
+        if urls.len() != paths.len() {
+            return Err(tonic::Status::internal(format!(
+                "backend returned {} URLs for {} paths",
+                urls.len(),
+                paths.len()
+            )));
+        }
+        Ok(urls)
+    }
+
     async fn report_workspace_sync(
         &self,
         task_id: &str,
         direction: &str,
+        format: &str,
         bytes: u64,
         duration_ms: u64,
         ok: bool,
@@ -464,6 +513,7 @@ impl BackendClient for BackendGrpcClient {
             .report_workspace_sync(ReportWorkspaceSyncRequest {
                 task_id: task_id.to_string(),
                 direction: direction.to_string(),
+                format: format.to_string(),
                 bytes: bytes as i64,
                 duration_ms: duration_ms as i64,
                 ok,

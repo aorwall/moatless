@@ -817,6 +817,11 @@ fn build_sandbox_container(
     );
     if storage_backend.syncs_sandbox() {
         env.push(env_var("WORKSPACE_SYNC_ENABLED", "true"));
+        // The mirror defaults on in the sandbox; only a disabling toggle has to
+        // travel, so a mirror-on fleet ships no extra env.
+        if !config.sandbox.default_workspace_mirror_enabled {
+            env.push(env_var("WORKSPACE_MIRROR_ENABLED", "false"));
+        }
     }
     if storage_backend.restore_if_empty() && pvc_name.is_some() {
         env.push(env_var("WORKSPACE_RESTORE_IF_EMPTY", "true"));
@@ -1594,6 +1599,7 @@ mod tests {
                 storage_class: None,
                 default_pvc_enabled: true,
                 default_s3_enabled: true,
+                default_workspace_mirror_enabled: true,
                 node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,

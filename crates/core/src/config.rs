@@ -32,10 +32,8 @@ pub fn api_base() -> String {
         .unwrap_or_else(|| DEFAULT_API_BASE.to_string())
 }
 
-
 /// Minimum length accepted for an operator-supplied `ADMIN_PASSWORD`.
 pub const MIN_ADMIN_PASSWORD_LEN: usize = 12;
-
 
 /// Parse an environment variable with a default fallback.
 /// Logs a warning if the env var is set but cannot be parsed.
@@ -322,6 +320,14 @@ pub struct SandboxConfig {
     /// A per-repo switch overrides this. Requires the S3 uploads bucket to be
     /// configured; without it the sandbox's sync calls no-op.
     pub default_s3_enabled: bool,
+    /// Whether an S3-syncing sandbox stores its workspace as a per-file mirror
+    /// (one object per file plus a manifest) rather than one tar. The mirror is
+    /// what makes a stopped task's files reachable object-by-object, and ships
+    /// only the delta on each sync. Backward-compatible either way: a reader
+    /// tries the mirror then the tar, and a mirror-off sandbox still reads a tar
+    /// a mirror-on one never wrote. Env `SANDBOX_WORKSPACE_MIRROR_ENABLED`
+    /// (default `true`).
+    pub default_workspace_mirror_enabled: bool,
     /// Whether Kubernetes node-local workspace/Docker archives are tracked and
     /// managed across pod lifecycles. When disabled, `node` storage still uses
     /// hostPath volumes, but the backend does not access archive `ConfigMap`s,
@@ -534,7 +540,6 @@ pub struct SseConfig {
     pub consumer_id: String,
 }
 
-
 /// S3 / file storage settings.
 #[derive(Debug, Clone)]
 pub struct S3Config {
@@ -626,7 +631,6 @@ impl fmt::Debug for GithubPrConfig {
     }
 }
 
-
 /// Docker-specific sandbox configuration.
 #[derive(Debug, Clone)]
 pub struct DockerConfig {
@@ -668,7 +672,6 @@ pub struct SkillConfig {
     /// In-memory cache TTL for parsed skill lists.
     pub cache_ttl_secs: u64,
 }
-
 
 /// OTLP trace export settings (`backend/src/startup.rs::init_tracing`).
 ///
@@ -812,6 +815,10 @@ impl Config {
                 storage_class: env_opt("K8S_SANDBOX_STORAGE_CLASS"),
                 default_pvc_enabled: env_bool("K8S_SANDBOX_DEFAULT_PVC", true),
                 default_s3_enabled: env_bool("K8S_SANDBOX_DEFAULT_S3", true),
+                default_workspace_mirror_enabled: env_bool(
+                    "SANDBOX_WORKSPACE_MIRROR_ENABLED",
+                    true,
+                ),
                 node_archive_enabled: env_bool("K8S_SANDBOX_NODE_ARCHIVE_ENABLED", false),
                 retain_storage_on_close: env_bool("SANDBOX_RETAIN_STORAGE_ON_CLOSE", true),
                 pod_startup_timeout_secs: env_or("K8S_POD_STARTUP_TIMEOUT_SECS", 120),
@@ -1282,6 +1289,7 @@ impl Config {
                 storage_class: None,
                 default_pvc_enabled: true,
                 default_s3_enabled: true,
+                default_workspace_mirror_enabled: true,
                 node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,

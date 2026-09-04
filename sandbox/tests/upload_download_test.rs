@@ -18,12 +18,12 @@ use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
     DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
-    GetSystemPromptResponse, GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse,
-    PublishEventRequest, PublishEventResponse, RecordGitPushRequest, RecordGitPushResponse,
+    GetSystemPromptResponse, GetWorkspaceObjectUrlsRequest, GetWorkspaceObjectUrlsResponse,
+    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, PublishEventRequest,
+    PublishEventResponse, RecordGitPushRequest, RecordGitPushResponse,
     RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
-    ReportWorkspaceSyncResponse,
-    TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadChunk,
-    UploadTranscriptResponse,
+    ReportWorkspaceSyncResponse, TranscriptChunk, UpdateCredentialRequest,
+    UpdateCredentialResponse, UploadChunk, UploadTranscriptResponse,
 };
 use tonic::{Request, Response, Status, Streaming};
 
@@ -174,6 +174,13 @@ impl BackendSandboxService for UploadOnlyBackend {
         &self,
         _request: Request<GetWorkspaceSyncUrlsRequest>,
     ) -> Result<Response<GetWorkspaceSyncUrlsResponse>, Status> {
+        Err(Status::unimplemented("not used"))
+    }
+
+    async fn get_workspace_object_urls(
+        &self,
+        _request: Request<GetWorkspaceObjectUrlsRequest>,
+    ) -> Result<Response<GetWorkspaceObjectUrlsResponse>, Status> {
         Err(Status::unimplemented("not used"))
     }
 

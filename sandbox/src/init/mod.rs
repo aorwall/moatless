@@ -28,6 +28,7 @@ pub(crate) mod transcript_sync;
 #[cfg(test)]
 mod replacement_test;
 mod workspace;
+mod workspace_mirror;
 pub mod workspace_sync;
 
 use std::path::PathBuf;

@@ -33,9 +33,14 @@ use flate2::write::GzEncoder;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use super::workspace_mirror;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::state::SandboxState;
+
+/// The `format` label every transfer this module makes is reported under: it
+/// writes and reads one gzipped tar. The file mirror reports `"mirror"`.
+const FORMAT: &str = "tar";
 
 /// Default periodic-upload interval when `WORKSPACE_SYNC_INTERVAL_SECS` is unset.
 ///
@@ -82,6 +87,7 @@ pub struct SyncOutcome {
 #[derive(Clone, Default)]
 pub struct WorkspaceSyncTracker {
     last_uploaded: Arc<tokio::sync::Mutex<Option<u64>>>,
+    mirror_baseline: Arc<tokio::sync::Mutex<Option<workspace_mirror::Manifest>>>,
 }
 
 impl WorkspaceSyncTracker {
@@ -92,10 +98,14 @@ impl WorkspaceSyncTracker {
     /// Adopt the current workspace as the baseline without uploading it.
     ///
     /// Called once init has placed the repos: a workspace that is exactly what
-    /// the restore or the clone produced has nothing new to ship.
+    /// the restore or the clone produced has nothing new to ship. Both baselines
+    /// are seeded from an on-disk walk rather than from a stored artifact, so the
+    /// gate compares against what is actually on the volume regardless of how it
+    /// got there — a restore, a fresh clone, or an untouched durable volume.
     pub async fn adopt_current(&self, workspace_dir: &str) {
-        let current = workspace_fingerprint(PathBuf::from(workspace_dir)).await;
-        *self.last_uploaded.lock().await = current;
+        let dir = PathBuf::from(workspace_dir);
+        *self.last_uploaded.lock().await = workspace_fingerprint(dir.clone()).await;
+        *self.mirror_baseline.lock().await = workspace_mirror::build_manifest(dir).await;
     }
 
     /// The baseline the upload gate compares against. `None` means nothing has
@@ -108,11 +118,26 @@ impl WorkspaceSyncTracker {
     /// Upload the workspace unless it is unchanged since the last successful
     /// upload. Best-effort: a failed transfer leaves the baseline alone so the
     /// next attempt retries.
+    ///
+    /// The format is chosen per config: with the mirror on, the per-file mirror
+    /// ships the delta and the tar is written only when the backend mints no
+    /// manifest URL (an older backend), so a task never loses its durable copy
+    /// mid-rollout.
     async fn upload_if_changed(
         &self,
         config: &Config,
         backend_client: &dyn BackendClient,
     ) -> SyncOutcome {
+        if config.workspace_mirror_enabled {
+            let mut baseline = self.mirror_baseline.lock().await;
+            match workspace_mirror::upload(config, backend_client, &mut baseline).await {
+                Ok(outcome) => return outcome,
+                Err(()) => {
+                    debug!(task_id = %config.task_id, "Backend has no mirror support; writing a tar");
+                }
+            }
+        }
+
         let mut last = self.last_uploaded.lock().await;
         let current = workspace_fingerprint(PathBuf::from(&config.workspace_dir)).await;
         if current.is_none() {
@@ -237,6 +262,15 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
         return RestoreDecision::UseExistingVolume;
     }
 
+    // The file mirror is the newer format and the one this sandbox writes, so it
+    // is tried first; the tar below is what a task last synced by an older
+    // sandbox — or by this one with the mirror off — still has.
+    if state.config.workspace_mirror_enabled {
+        if let Some(decision) = workspace_mirror::restore_on_start(state).await {
+            return decision;
+        }
+    }
+
     let urls = match state.backend_client.get_workspace_sync_urls(task_id).await {
         Ok(u) => u,
         Err(e) if is_feature_disabled(&e) => {
@@ -250,7 +284,14 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
     };
 
     let started = Instant::now();
-    let bytes = match http_get(&urls.get_url).await {
+    let client = match http_client(HTTP_TIMEOUT) {
+        Ok(client) => client,
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Workspace restore client build failed (non-fatal); will clone");
+            return RestoreDecision::Nothing;
+        }
+    };
+    let bytes = match http_get(&client, &urls.get_url).await {
         Ok(Some(b)) => b,
         Ok(None) => {
             debug!(task_id = %task_id, "No stored workspace snapshot; will clone");
@@ -263,6 +304,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                 .report_workspace_sync(
                     task_id,
                     "download",
+                    FORMAT,
                     0,
                     started.elapsed().as_millis() as u64,
                     false,
@@ -288,6 +330,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                 .report_workspace_sync(
                     task_id,
                     "download",
+                    FORMAT,
                     size,
                     started.elapsed().as_millis() as u64,
                     true,
@@ -307,6 +350,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                 .report_workspace_sync(
                     task_id,
                     "download",
+                    FORMAT,
                     size,
                     started.elapsed().as_millis() as u64,
                     false,
@@ -344,7 +388,14 @@ pub async fn download_on_start(state: &SandboxState) {
     };
 
     let started = Instant::now();
-    let bytes = match http_get(&urls.get_url).await {
+    let client = match http_client(HTTP_TIMEOUT) {
+        Ok(client) => client,
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Workspace overlay client build failed (non-fatal)");
+            return;
+        }
+    };
+    let bytes = match http_get(&client, &urls.get_url).await {
         Ok(Some(b)) => b,
         Ok(None) => {
             debug!(task_id = %task_id, "No stored workspace to restore");
@@ -357,6 +408,7 @@ pub async fn download_on_start(state: &SandboxState) {
                 .report_workspace_sync(
                     task_id,
                     "download",
+                    FORMAT,
                     0,
                     started.elapsed().as_millis() as u64,
                     false,
@@ -382,6 +434,7 @@ pub async fn download_on_start(state: &SandboxState) {
         .report_workspace_sync(
             task_id,
             "download",
+            FORMAT,
             size,
             started.elapsed().as_millis() as u64,
             ok,
@@ -446,7 +499,7 @@ pub async fn rescue_upload(workspace_dir: &str, put_url: &str) -> Result<u64, St
         .await
         .ok_or_else(|| format!("no workspace archive could be built from {workspace_dir}"))?;
     let bytes = tar.len() as u64;
-    http_put(put_url, tar).await?;
+    http_put(&http_client(HTTP_TIMEOUT)?, put_url, tar).await?;
     Ok(bytes)
 }
 
@@ -473,13 +526,19 @@ async fn upload_from_config(config: &Config, backend_client: &dyn BackendClient)
 
     let bytes = tar.len() as u64;
     let started = Instant::now();
-    let ok = match http_put(&urls.put_url, tar).await {
-        Ok(()) => {
-            debug!(task_id = %task_id, bytes = bytes, "Uploaded workspace to S3");
-            true
-        }
+    let ok = match http_client(HTTP_TIMEOUT) {
+        Ok(client) => match http_put(&client, &urls.put_url, tar).await {
+            Ok(()) => {
+                debug!(task_id = %task_id, bytes = bytes, "Uploaded workspace to S3");
+                true
+            }
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Workspace upload failed (non-fatal)");
+                false
+            }
+        },
         Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Workspace upload failed (non-fatal)");
+            warn!(task_id = %task_id, error = %e, "Workspace upload client build failed (non-fatal)");
             false
         }
     };
@@ -487,6 +546,7 @@ async fn upload_from_config(config: &Config, backend_client: &dyn BackendClient)
         .report_workspace_sync(
             task_id,
             "upload",
+            FORMAT,
             bytes,
             started.elapsed().as_millis() as u64,
             ok,
@@ -581,26 +641,33 @@ fn is_feature_disabled(status: &tonic::Status) -> bool {
 
 /// The workspace-relative prefix of the primary repo (e.g. `"soap-tm"`), or `""`
 /// when the primary repo *is* the workspace dir (the no-clone-URL fallback).
-fn primary_prefix(workspace_dir: &str, repo_dir: &str) -> String {
+pub(super) fn primary_prefix(workspace_dir: &str, repo_dir: &str) -> String {
     match Path::new(repo_dir).strip_prefix(Path::new(workspace_dir)) {
         Ok(rel) => rel.to_string_lossy().trim_end_matches('/').to_string(),
         Err(_) => String::new(),
     }
 }
 
-/// Build a fresh reqwest client for a single transfer. Cheap enough at the sync
-/// cadence (default 5 min); a per-call client keeps no long-lived connection open
-/// against the presigned host.
-fn http_client() -> Result<reqwest::Client, String> {
+/// Build a reqwest client for transfers bounded by `timeout`.
+///
+/// The tar paths build one per transfer, which is cheap at the sync cadence
+/// (default 5 min) and keeps no long-lived connection open against the
+/// presigned host. [`workspace_mirror`](super::workspace_mirror) builds one for
+/// a whole sync instead — thousands of objects cannot each pay a handshake.
+pub(super) fn http_client(timeout: Duration) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .timeout(HTTP_TIMEOUT)
+        .timeout(timeout)
         .build()
         .map_err(|e| format!("failed to build HTTP client: {e}"))
 }
 
-/// `PUT` the tar bytes to a presigned S3 URL.
-async fn http_put(url: &str, body: Vec<u8>) -> Result<(), String> {
-    let resp = http_client()?
+/// `PUT` bytes to a presigned S3 URL.
+pub(super) async fn http_put(
+    client: &reqwest::Client,
+    url: &str,
+    body: Vec<u8>,
+) -> Result<(), String> {
+    let resp = client
         .put(url)
         .body(body)
         .send()
@@ -613,10 +680,13 @@ async fn http_put(url: &str, body: Vec<u8>) -> Result<(), String> {
     }
 }
 
-/// `GET` the tar bytes from a presigned S3 URL. `Ok(None)` on 404 — no archive
-/// stored yet.
-async fn http_get(url: &str) -> Result<Option<Vec<u8>>, String> {
-    let resp = http_client()?
+/// `GET` bytes from a presigned S3 URL. `Ok(None)` on 404 — nothing stored under
+/// that key yet.
+pub(super) async fn http_get(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    let resp = client
         .get(url)
         .send()
         .await
@@ -637,7 +707,7 @@ async fn http_get(url: &str) -> Result<Option<Vec<u8>>, String> {
 /// The path of `path` relative to `root`, as a `/`-joined string (empty when
 /// they are equal). Used to key archive entries at their workspace-relative
 /// path.
-fn rel_from(root: &Path, path: &Path) -> String {
+pub(super) fn rel_from(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .ok()
         .map(|r| r.to_string_lossy().to_string())
@@ -688,7 +758,7 @@ fn append_tree<W: std::io::Write>(builder: &mut tar::Builder<W>, root: &Path, di
 }
 
 /// Join a workspace-relative repo `prefix` with a repo-relative path.
-fn join_prefix(prefix: &str, rel: &str) -> String {
+pub(super) fn join_prefix(prefix: &str, rel: &str) -> String {
     if prefix.is_empty() {
         rel.to_string()
     } else {
@@ -1043,7 +1113,7 @@ async fn extract_tar(bytes: Vec<u8>, dir: PathBuf) -> std::io::Result<()> {
 /// Best-effort removal of everything inside `dir` (but not `dir` itself), so a
 /// failed restore leaves an empty directory for the fallback clone. Failures are
 /// logged, never propagated.
-async fn clear_dir_contents(dir: &std::path::Path) {
+pub(super) async fn clear_dir_contents(dir: &std::path::Path) {
     let dir = dir.to_path_buf();
     let result = tokio::task::spawn_blocking(move || -> std::io::Result<()> {
         for entry in std::fs::read_dir(&dir)? {

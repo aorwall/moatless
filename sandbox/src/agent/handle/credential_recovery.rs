@@ -139,6 +139,7 @@ mod tests {
             command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
+            workspace_mirror_enabled: true,
             workspace_restore_if_empty: false,
             headless: false,
             home_dir: "/tmp/home".to_string(),

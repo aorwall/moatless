@@ -246,6 +246,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         plugins: vec![],
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
+        workspace_mirror_enabled: true,
         workspace_restore_if_empty: false,
         headless: false,
     }

@@ -11,6 +11,7 @@ use std::time::{Duration, SystemTime};
 use aws_sdk_s3::config::{ProvideCredentials, SharedCredentialsProvider};
 use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 
 const CREDENTIAL_EXPIRY_SKEW: Duration = Duration::from_secs(5);
 const MIN_EFFECTIVE_PRESIGN_TTL: Duration = Duration::from_secs(1);
@@ -186,6 +187,35 @@ pub async fn presign_get(
     })
 }
 
+/// Presign an HTTP `DELETE` URL for `key`, valid for `ttl`.
+///
+/// Scoped to this bucket + key + `DELETE` verb, so the holder can remove that
+/// one object and nothing else. The workspace file mirror uses it to drop the
+/// objects for files the agent deleted, without giving the sandbox an S3
+/// identity that could delete anything else.
+pub async fn presign_delete(
+    storage: &S3Storage,
+    bucket: &str,
+    key: &str,
+    ttl: Duration,
+) -> Result<PresignedUrl, String> {
+    let ttl = effective_presign_ttl(storage.credentials_provider(), ttl).await?;
+    let cfg =
+        PresigningConfig::expires_in(ttl).map_err(|e| format!("presign config invalid: {e}"))?;
+    let req = storage
+        .client
+        .delete_object()
+        .bucket(bucket)
+        .key(key)
+        .presigned(cfg)
+        .await
+        .map_err(|e| format!("S3 presign delete_object failed: {e}"))?;
+    Ok(PresignedUrl {
+        url: req.uri().to_string(),
+        expires_in: ttl,
+    })
+}
+
 async fn effective_presign_ttl(
     credentials_provider: Option<&SharedCredentialsProvider>,
     requested_ttl: Duration,
@@ -266,8 +296,11 @@ pub async fn delete_object(
 
 /// Delete every object under `prefix` in `bucket`. Returns the count deleted.
 ///
-/// Paginates `list_objects_v2` and deletes each key individually (a task's
-/// transcript prefix holds a single object today, so batching buys nothing).
+/// Paginates `list_objects_v2` and deletes each page with one `delete_objects`
+/// call. The page and the batch are both 1,000 keys, so a task's prefix costs
+/// two requests per thousand objects however many it holds — a workspace file
+/// mirror puts thousands under one task, where a per-key delete would be
+/// thousands of round trips.
 pub async fn delete_objects_by_prefix(
     client: &aws_sdk_s3::Client,
     bucket: &str,
@@ -286,18 +319,12 @@ pub async fn delete_objects_by_prefix(
             .await
             .map_err(|e| format!("S3 list_objects_v2 failed: {e}"))?;
 
-        for obj in resp.contents() {
-            if let Some(key) = obj.key() {
-                client
-                    .delete_object()
-                    .bucket(bucket)
-                    .key(key)
-                    .send()
-                    .await
-                    .map_err(|e| format!("S3 delete_object failed: {e}"))?;
-                deleted += 1;
-            }
-        }
+        let keys: Vec<String> = resp
+            .contents()
+            .iter()
+            .filter_map(|obj| obj.key().map(str::to_string))
+            .collect();
+        deleted += delete_keys(client, bucket, &keys).await?;
 
         match resp.next_continuation_token() {
             Some(token) if resp.is_truncated().unwrap_or(false) => {
@@ -308,6 +335,59 @@ pub async fn delete_objects_by_prefix(
     }
 
     Ok(deleted)
+}
+
+/// Delete up to 1,000 keys in one call. Returns the count deleted.
+///
+/// `delete_objects` reports per-key failures in the response body rather than as
+/// a request error, so a caller that only checked the request would count a
+/// silent partial delete as a full one.
+async fn delete_keys(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    keys: &[String],
+) -> Result<usize, String> {
+    if keys.is_empty() {
+        return Ok(0);
+    }
+
+    let mut objects = Vec::with_capacity(keys.len());
+    for key in keys {
+        objects.push(
+            ObjectIdentifier::builder()
+                .key(key)
+                .build()
+                .map_err(|e| format!("S3 delete identifier invalid: {e}"))?,
+        );
+    }
+    let delete = Delete::builder()
+        .set_objects(Some(objects))
+        .quiet(true)
+        .build()
+        .map_err(|e| format!("S3 delete request invalid: {e}"))?;
+
+    let resp = client
+        .delete_objects()
+        .bucket(bucket)
+        .delete(delete)
+        .send()
+        .await
+        .map_err(|e| format!("S3 delete_objects failed: {e}"))?;
+
+    let failures = resp.errors();
+    if !failures.is_empty() {
+        let first = failures
+            .first()
+            .map(|e| format!("{}: {}", e.key().unwrap_or("?"), e.message().unwrap_or("?")))
+            .unwrap_or_default();
+        return Err(format!(
+            "S3 delete_objects left {} of {} keys: {first}",
+            failures.len(),
+            keys.len()
+        ));
+    }
+
+    Ok(keys.len())
 }
 
 #[cfg(test)]

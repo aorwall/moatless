@@ -603,6 +603,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         default_codex_model: None,
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
+        workspace_mirror_enabled: true,
         workspace_restore_if_empty: false,
         headless: false,
     }

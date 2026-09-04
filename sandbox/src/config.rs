@@ -240,6 +240,23 @@ pub struct Config {
     /// storage switch is on; when true, the sandbox restores the workspace from
     /// S3 on boot and syncs it back via backend-minted presigned URLs.
     pub workspace_sync_enabled: bool,
+    /// Whether the workspace is stored as a file mirror rather than one tar
+    /// (env: `WORKSPACE_MIRROR_ENABLED`, default on).
+    ///
+    /// **Default on, unset means on.** A backend that predates the mirror sets
+    /// nothing, and a sandbox has no way to ask it; the fallback that covers
+    /// that is structural, not this flag —
+    /// [`crate::init::workspace_mirror::upload`] writes a tar whenever the
+    /// backend mints no manifest URL. The flag is the operator's off switch for
+    /// a fleet whose backend *does* support the mirror.
+    ///
+    /// **Turning it off costs a turn of work once.** A mirror-on sandbox writes
+    /// objects and a manifest and never touches `workspace.tar`, so the stored
+    /// tar stays frozen at whatever the last tar-format sync left. Flip this off
+    /// (or roll back to a pre-mirror image) and the next boot restores that
+    /// stale tar, reverting everything the mirror synced since — until the first
+    /// turn writes a fresh tar. Roll back only when that loss is acceptable.
+    pub workspace_mirror_enabled: bool,
     /// Whether the volume under `WORKSPACE_DIR` is durable (env:
     /// `WORKSPACE_RESTORE_IF_EMPTY`). Set by the backend when *both* storage
     /// switches are on, i.e. a PVC holds the live copy and S3 only holds a
@@ -590,6 +607,7 @@ impl Config {
                 .and_then(|v| parse_permission_mode(&v))
                 .unwrap_or(PermissionMode::BypassPermissions),
             workspace_sync_enabled: env_flag_enabled("WORKSPACE_SYNC_ENABLED"),
+            workspace_mirror_enabled: env_flag_override("WORKSPACE_MIRROR_ENABLED").unwrap_or(true),
             workspace_restore_if_empty: env_flag_enabled("WORKSPACE_RESTORE_IF_EMPTY"),
             headless: env_flag_enabled("SANDBOX_HEADLESS"),
 
@@ -696,6 +714,7 @@ pub(crate) mod test_support {
             command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
+            workspace_mirror_enabled: true,
             workspace_restore_if_empty: false,
             headless: false,
             home_dir: "/tmp/home".to_string(),
