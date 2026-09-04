@@ -45,6 +45,7 @@ mod scripts;
 mod servers;
 mod subtasks;
 mod terminal;
+mod usage;
 pub mod workspace;
 
 pub use feed::{ShellFeed, ThreadFeed};
@@ -312,6 +313,8 @@ struct UiRpcState {
     /// Where a chat attachment's bytes go, for the upload route and for
     /// `attachments.delete`.
     attachments: Arc<dyn ports::AttachmentStore>,
+    /// Token and cost totals behind `server.getUsageSummary`.
+    usage: Arc<dyn ports::UsageReporter>,
     /// In-process fan-out for terminal metadata and events observed through
     /// this backend instance.
     terminal: terminal::TerminalHub,
@@ -384,6 +387,7 @@ pub async fn router_from_env(
         source_control_auth,
         commands,
         attachments,
+        usage,
         otlp_traces_enabled,
         frontend_url,
     } = dependencies;
@@ -445,6 +449,7 @@ pub async fn router_from_env(
         source_control_auth,
         commands,
         attachments,
+        usage,
         terminal: terminal::TerminalHub::default(),
     })))
 }
@@ -507,6 +512,8 @@ pub struct UiRpcDependencies {
     /// Where a chat attachment's bytes go. Uploads are stored as ordinary
     /// Moatless uploads, under the id `attachments.createUploadUrl` minted.
     pub attachments: Arc<dyn ports::AttachmentStore>,
+    /// Token and cost totals behind `server.getUsageSummary`.
+    pub usage: Arc<dyn ports::UsageReporter>,
     /// Whether this deployment exports spans over OTLP (an OTLP endpoint is
     /// configured — see `config::OtelConfig`), reported to the client as
     /// `observability.otlpTracesEnabled`.
@@ -1833,6 +1840,45 @@ impl ProtocolSession {
                             json!({
                                 "_tag": "OrchestrationDispatchCommandError",
                                 "message": refusal.message(),
+                            }),
+                        )]
+                    }
+                }
+            }
+            "server.getUsageSummary" => {
+                let window = match usage::window_from(&payload) {
+                    Ok(window) => window,
+                    Err(detail) => {
+                        return vec![typed_failure_exit(
+                            &id,
+                            json!({
+                                "_tag": "UsageReadError",
+                                "reason": "invalidWindow",
+                                "detail": detail,
+                            }),
+                        )];
+                    }
+                };
+                let started = std::time::Instant::now();
+                match state.usage.buckets(&viewer_scope(identity), &window).await {
+                    Ok(rows) => {
+                        let elapsed =
+                            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        vec![success_exit(
+                            &id,
+                            usage::summary(&window, &rows, &now_rfc3339(), elapsed),
+                        )]
+                    }
+                    // The cause is logged, not sent: it names tables and
+                    // columns, and the client renders `detail` verbatim.
+                    Err(cause) => {
+                        warn!(%tag, user_id = %identity.user_id, %cause, "T3 usage read failed");
+                        vec![typed_failure_exit(
+                            &id,
+                            json!({
+                                "_tag": "UsageReadError",
+                                "reason": "scanFailed",
+                                "detail": "This deployment could not read usage.",
                             }),
                         )]
                     }
@@ -4236,6 +4282,19 @@ mod tests {
     /// Nothing in this file dispatches a command that reaches a write; the
     /// command table itself is asserted in `commands.rs` against a recording
     /// sink.
+    struct UnreachableUsage;
+
+    #[async_trait]
+    impl ports::UsageReporter for UnreachableUsage {
+        async fn buckets(
+            &self,
+            _viewer: &ScopeContext,
+            _window: &ports::UsageWindow,
+        ) -> Result<Vec<ports::UsageBucketRow>, moatless_types::store::StoreError> {
+            unreachable!("no test in this file reads usage")
+        }
+    }
+
     struct UnreachableCommands;
 
     #[async_trait]
@@ -4425,6 +4484,7 @@ mod tests {
             source_control_auth: Arc::new(NoGithubIdentity),
             commands: Arc::new(UnreachableCommands),
             attachments,
+            usage: Arc::new(UnreachableUsage),
             model_defaults: Arc::new(AgentModelDefaults::default()),
             terminal: terminal::TerminalHub::default(),
         }

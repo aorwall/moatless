@@ -145,6 +145,10 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         let metrics = serde_json::json!({
             "usage": event.payload.get("usage"),
             "modelUsage": event.payload.get("modelUsage"),
+            // The only model name a Codex turn carries: it reports one model
+            // per run and no `modelUsage` breakdown, so usage reporting has
+            // nothing else to group its tokens by.
+            "model": sdk_result.model,
             "totalCostUsd": run_cost_usd,
             "durationMs": sdk_result.duration_ms,
             "durationApiMs": sdk_result.duration_api_ms,
