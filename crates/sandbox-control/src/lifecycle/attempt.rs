@@ -17,6 +17,7 @@ pub struct AttemptBudget {
     cap: u32,
     generation: Option<OperationGeneration>,
     attempts: u32,
+    blocked: bool,
 }
 
 impl AttemptBudget {
@@ -25,6 +26,7 @@ impl AttemptBudget {
             cap,
             generation: None,
             attempts: 0,
+            blocked: false,
         }
     }
 
@@ -37,6 +39,7 @@ impl AttemptBudget {
         if self.generation != Some(generation) {
             self.generation = Some(generation);
             self.attempts = 0;
+            self.blocked = false;
         }
     }
 
@@ -49,25 +52,31 @@ impl AttemptBudget {
     /// starved by prior exhausted retries.
     pub fn reset_for_wake(&mut self) {
         self.attempts = 0;
+        self.blocked = false;
     }
 
     /// Exhaust the budget outright — a permanent failure (bad plan, Closed) is
     /// never retried for this generation. A new generation (`begin`) or a wake
     /// (`reset_for_wake`) reopens it.
+    ///
+    /// The block is a flag rather than a jump to `cap`, so
+    /// [`attempts`](Self::attempts) keeps counting real attempts. The give-up
+    /// event publishes that count, and a permanent failure on the first attempt
+    /// reported the cap instead of `1`.
     pub fn block(&mut self) {
-        self.attempts = self.cap;
+        self.record_failure();
+        self.blocked = true;
     }
 
-    /// Attempts recorded for the current generation. Test introspection only —
-    /// the driver gates on [`exhausted`](Self::exhausted).
-    #[cfg(test)]
+    /// Attempts recorded for the current generation, published on the give-up
+    /// event. The driver itself gates on [`exhausted`](Self::exhausted).
     pub fn attempts(&self) -> u32 {
         self.attempts
     }
 
     /// Whether the cap is exhausted.
     pub fn exhausted(&self) -> bool {
-        self.attempts >= self.cap
+        self.blocked || self.attempts >= self.cap
     }
 
     /// The backoff delay before the next attempt.
@@ -148,6 +157,17 @@ mod tests {
         assert!(b.exhausted());
         b.begin(gen(2));
         assert!(!b.exhausted());
+    }
+
+    #[test]
+    fn block_counts_the_attempt_it_spends() {
+        let mut b = AttemptBudget::new(5);
+        b.begin(gen(1));
+        b.record_failure();
+        b.block();
+        // Two real attempts, not the cap the give-up event used to report.
+        assert_eq!(b.attempts(), 2);
+        assert!(b.exhausted());
     }
 
     #[test]

@@ -31,6 +31,7 @@ use super::orchestrator::{Lifecycle, LifecycleDao, SandboxMember, WallClock};
 use super::reconcile::{ReconcileInput, decide};
 use moatless_backend_core::task::PendingWorkReader;
 use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus};
+use moatless_sandbox_runtime::runtime::ErrorClass;
 use moatless_sandbox_runtime::types::ArchiveRetention;
 
 /// Delivers a pending-message wake to an already-Ready sandbox over gRPC.
@@ -528,8 +529,8 @@ impl Reconciler {
                 }
                 ReconcileAction::None | ReconcileAction::Wait => return,
             };
-            if let Some(last_error) = self.record_outcome(task_id, decision.action, result, now) {
-                self.publish_recovery_exhausted(task_id, decision.action, &last_error)
+            if let Some(spent) = self.record_outcome(task_id, decision.action, result, now) {
+                self.publish_recovery_exhausted(task_id, decision.action, spent)
                     .await;
             }
         } else if decision.woken && observed.status == SandboxObservedStatus::Ready {
@@ -674,10 +675,10 @@ impl Reconciler {
 
     /// Record one operation's result against the Task's budget.
     ///
-    /// Returns the rendered last error when this call is the one that **spends**
-    /// the budget, so the caller can publish the terminal `recovery_exhausted`
-    /// fact exactly once per generation. Returns `None` otherwise, including on
-    /// a budget that was already spent.
+    /// Returns what the give-up event needs when this call is the one that
+    /// **spends** the budget, so the caller publishes the terminal
+    /// `recovery_exhausted` fact exactly once per generation. Returns `None`
+    /// otherwise, including on a budget that was already spent.
     fn record_outcome(
         &self,
         task_id: &str,
@@ -687,7 +688,7 @@ impl Reconciler {
             super::error::LifecycleError,
         >,
         now: DateTime<Utc>,
-    ) -> Option<String> {
+    ) -> Option<SpentBudget> {
         let mut guard = self
             .retries
             .lock()
@@ -704,24 +705,36 @@ impl Reconciler {
             }
             Err(e) => {
                 let was_exhausted = retry.budget.exhausted();
-                let class = e.class();
-                if class.is_transient() {
-                    retry.budget.record_failure();
-                    let delay = retry
-                        .budget
-                        .backoff(self.config.backoff_base, self.config.backoff_max);
-                    retry.next_eligible = Some(
-                        now + chrono::Duration::from_std(delay)
-                            .unwrap_or_else(|_| chrono::Duration::seconds(60)),
-                    );
-                    warn!(task_id, ?action, error = %e, "reconciler: transient failure; will retry");
-                } else {
-                    // Permanent (bad plan, Closed) or contention: never retried
-                    // for this generation.
-                    retry.budget.block();
-                    info!(task_id, ?action, error = %e, "reconciler: non-transient failure; not retrying this generation");
+                match e.class() {
+                    ErrorClass::Transient => {
+                        retry.budget.record_failure();
+                        let delay = retry
+                            .budget
+                            .backoff(self.config.backoff_base, self.config.backoff_max);
+                        retry.next_eligible = Some(
+                            now + chrono::Duration::from_std(delay)
+                                .unwrap_or_else(|_| chrono::Duration::seconds(60)),
+                        );
+                        warn!(task_id, ?action, error = %e, "reconciler: transient failure; will retry");
+                    }
+                    // Another writer holds the per-Task lock and is driving this
+                    // same generation. The budget stays untouched so the next
+                    // tick finds the lock free: spending it here published a
+                    // `recovery_exhausted` error for work already in progress,
+                    // and then refused to drive the operation again.
+                    ErrorClass::Contention => {
+                        debug!(task_id, ?action, error = %e, "reconciler: lock contention; retrying next tick");
+                        return None;
+                    }
+                    ErrorClass::Permanent => {
+                        retry.budget.block();
+                        info!(task_id, ?action, error = %e, "reconciler: permanent failure; not retrying this generation");
+                    }
                 }
-                (!was_exhausted && retry.budget.exhausted()).then(|| e.to_string())
+                (!was_exhausted && retry.budget.exhausted()).then(|| SpentBudget {
+                    attempts: retry.budget.attempts(),
+                    last_error: e.to_string(),
+                })
             }
         }
     }
@@ -737,7 +750,7 @@ impl Reconciler {
         &self,
         task_id: &str,
         action: ReconcileAction,
-        last_error: &str,
+        spent: SpentBudget,
     ) {
         let marker = match self.store.load(task_id).await {
             Ok(Some(intent)) => intent.marker,
@@ -760,11 +773,18 @@ impl Reconciler {
                 task_id,
                 marker.kind,
                 marker.generation,
-                self.config.attempt_cap,
-                last_error,
+                spent.attempts,
+                &spent.last_error,
             )
             .await;
     }
+}
+
+/// What the terminal `recovery_exhausted` fact reports: the attempts actually
+/// spent on this generation, and the failure that spent the last of them.
+struct SpentBudget {
+    attempts: u32,
+    last_error: String,
 }
 
 #[cfg(test)]
@@ -1145,6 +1165,7 @@ mod db_tests {
     use sqlx::PgPool;
 
     use super::super::dao::PgLifecycleDao;
+    use super::super::error::LifecycleError;
     use super::super::events::{EventFact, LifecycleEvent};
     use super::super::lock::PgLifecycleLock;
     use super::super::orchestrator::{
@@ -1677,6 +1698,88 @@ mod db_tests {
                 .error
                 .as_deref()
                 .is_some_and(|e| e.contains("2 attempts failed"))
+        );
+    }
+
+    #[sqlx::test]
+    async fn lock_contention_neither_spends_the_budget_nor_gates_the_next_tick(pool: PgPool) {
+        // The idle reaper's stop holds the per-Task lock while it flushes the
+        // workspace, and the reconciler ticks inside that window. Contention is
+        // the holder driving this same generation, so the budget must survive
+        // it: spending it published a `recovery_exhausted` error against a stop
+        // that then completed, and refused to drive the operation again.
+        seed(&pool, "t1", "open", "stopped").await;
+        let (rec, _sink) = build_with(
+            pool.clone(),
+            pool,
+            Arc::new(RecordingRuntime::new()),
+            observer(&[], SandboxObservedStatus::Absent),
+            Arc::new(RecordingNotify::default()),
+            Arc::new(RecordingMemberRegistry::default()),
+            Arc::new(SystemWallClock),
+            ReconcilerConfig {
+                grace: Duration::ZERO,
+                attempt_cap: 2,
+                ..Default::default()
+            },
+        );
+
+        let now = Utc::now();
+        for _ in 0..5 {
+            assert!(
+                rec.retry_gate("t1", Some(1), now),
+                "contention must leave the next tick eligible"
+            );
+            let spent = rec.record_outcome(
+                "t1",
+                ReconcileAction::Stop,
+                Err(LifecycleError::OperationInProgress {
+                    kind: OperationKind::Stop,
+                }),
+                now,
+            );
+            assert!(
+                spent.is_none(),
+                "contention must not spend the budget or publish a give-up"
+            );
+        }
+    }
+
+    #[sqlx::test]
+    async fn a_permanent_failure_reports_the_one_attempt_it_spent(pool: PgPool) {
+        // The give-up event used to publish the cap rather than the count, so a
+        // permanent failure on the first attempt read as five failed retries.
+        seed(&pool, "t1", "open", "stopped").await;
+        let (rec, _sink) = build_with(
+            pool.clone(),
+            pool,
+            Arc::new(RecordingRuntime::new()),
+            observer(&[], SandboxObservedStatus::Absent),
+            Arc::new(RecordingNotify::default()),
+            Arc::new(RecordingMemberRegistry::default()),
+            Arc::new(SystemWallClock),
+            ReconcilerConfig {
+                grace: Duration::ZERO,
+                attempt_cap: 5,
+                ..Default::default()
+            },
+        );
+
+        let now = Utc::now();
+        assert!(rec.retry_gate("t1", Some(1), now));
+        let spent = rec
+            .record_outcome(
+                "t1",
+                ReconcileAction::Stop,
+                Err(LifecycleError::TaskNotFound("t1".into())),
+                now,
+            )
+            .expect("a permanent failure spends the budget");
+
+        assert_eq!(spent.attempts, 1);
+        assert!(
+            !rec.retry_gate("t1", Some(1), now),
+            "a permanent failure still blocks this generation"
         );
     }
 
