@@ -18,6 +18,13 @@ struct ModelPrice {
 /// Prices for the model, matched by the substrings its published id carries.
 /// `None` for an unrecognised model, which leaves the run unpriced rather than
 /// billed at a guessed rate.
+///
+/// The Claude rates are the ones Anthropic's own `modelUsage.costUSD` implies,
+/// and `cache_write` is the 5m-TTL tier: `UsageInfo` carries one
+/// cache-creation count with no TTL split, and a 1h write costs 2x input
+/// against the 5m tier's 1.25x, so a run that used the 1h TTL prices low here.
+/// Claude reports `total_cost_usd` itself, so its rates are the fallback for a
+/// run that arrived without one, not the usual path.
 fn price_for(model: &str) -> Option<ModelPrice> {
     let m = model.to_ascii_lowercase();
     // Codex ids are `gpt-5*` / `*codex*`; cached input is priced, cache-write is
@@ -30,12 +37,28 @@ fn price_for(model: &str) -> Option<ModelPrice> {
             cache_read: 0.125,
             output: 10.0,
         })
-    } else if m.contains("opus") || m.contains("fable") {
+    } else if m.contains("opus") {
         Some(ModelPrice {
-            input: 15.0,
-            cache_write: 18.75,
-            cache_read: 1.5,
-            output: 75.0,
+            input: 5.0,
+            cache_write: 6.25,
+            cache_read: 0.5,
+            output: 25.0,
+        })
+    } else if m.contains("fable") {
+        Some(ModelPrice {
+            input: 10.0,
+            cache_write: 12.5,
+            cache_read: 1.0,
+            output: 50.0,
+        })
+    } else if m.contains("sonnet-5") {
+        // Ahead of the plain "sonnet" arm: Sonnet 5 costs two thirds of
+        // Sonnet 4.6, and the family name alone would bill it as the older one.
+        Some(ModelPrice {
+            input: 2.0,
+            cache_write: 2.5,
+            cache_read: 0.2,
+            output: 10.0,
         })
     } else if m.contains("sonnet") {
         Some(ModelPrice {
@@ -100,7 +123,20 @@ mod tests {
             "claude-opus-4-8",
             &usage(1_000_000, 1_000_000, 1_000_000, 1_000_000),
         );
-        assert_eq!(cost, Some(15.0 + 18.75 + 1.5 + 75.0));
+        assert_eq!(cost, Some(5.0 + 6.25 + 0.5 + 25.0));
+    }
+
+    #[test]
+    fn fable_is_priced_above_opus_not_alongside_it() {
+        let u = usage(1_000_000, 1_000_000, 1_000_000, 1_000_000);
+        assert_eq!(estimate_cost_usd("claude-fable-5", &u), Some(73.5));
+    }
+
+    #[test]
+    fn sonnet_5_is_priced_below_the_older_sonnet() {
+        let u = usage(1_000_000, 1_000_000, 1_000_000, 1_000_000);
+        assert_eq!(estimate_cost_usd("claude-sonnet-5", &u), Some(14.7));
+        assert_eq!(estimate_cost_usd("claude-sonnet-4-6", &u), Some(22.05));
     }
 
     #[test]
