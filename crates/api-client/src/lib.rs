@@ -992,6 +992,50 @@ impl ApiClient {
         self.get(&format!("/api/v1/tasks/{task_id}/feedback")).await
     }
 
+    /// GET /api/v1/feedback
+    pub async fn list_all_feedback(
+        &self,
+        query: &moatless_api_schemas::feedback::ListAllFeedbackQuery,
+    ) -> Result<moatless_api_schemas::feedback::ListAllFeedbackResponse, ApiError> {
+        let mut params = Vec::new();
+        if let Some(ref workspace_id) = query.workspace_id {
+            params.push(format!("workspaceId={}", urlenc(workspace_id)));
+        }
+        if let Some(ref repository_id) = query.repository_id {
+            params.push(format!("repositoryId={}", urlenc(repository_id)));
+        }
+        if let Some(ref task_id) = query.task_id {
+            params.push(format!("taskId={}", urlenc(task_id)));
+        }
+        if let Some(source) = query.source {
+            params.push(format!("source={}", source.as_str()));
+        }
+        if let Some(surface) = query.surface {
+            params.push(format!("surface={}", surface.as_str()));
+        }
+        if let Some(category) = query.category {
+            params.push(format!("category={}", category.as_str()));
+        }
+        if let Some(ref created_by) = query.created_by {
+            params.push(format!("createdBy={}", urlenc(created_by)));
+        }
+        if let Some(ref since) = query.since {
+            params.push(format!("since={}", urlenc(since)));
+        }
+        if let Some(limit) = query.limit {
+            params.push(format!("limit={limit}"));
+        }
+        if let Some(offset) = query.offset {
+            params.push(format!("offset={offset}"));
+        }
+        let qs = if params.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", params.join("&"))
+        };
+        self.get(&format!("/api/v1/feedback{qs}")).await
+    }
+
     // ========================================================================
     // File uploads
     // ========================================================================

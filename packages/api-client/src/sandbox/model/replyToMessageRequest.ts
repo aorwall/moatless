@@ -8,7 +8,7 @@
 import type { OutboundPresentation } from './outboundPresentation';
 
 /**
- * Request body for POST /api/v1/messages/{message_id}/reply.
+ * Request body for POST `/api/v1/messages/{message_id}/reply`.
  */
 export interface ReplyToMessageRequest {
   fileIds?: string[];

@@ -40,12 +40,12 @@ deliveries into one.
   /** Message text (required). */
   text: string;
   /**
-   * Thread ID for routing (maps to thread_id in InboundMessage).
+   * Thread ID for routing (maps to `thread_id` in [`InboundMessage`]).
    * @nullable
    */
   threadId?: string | null;
   /**
-   * User identity override (defaults to config's default user_id).
+   * User identity override (defaults to config's default `user_id`).
    * @nullable
    */
   userId?: string | null;

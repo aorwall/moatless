@@ -11,7 +11,7 @@ import type { ServerSubType } from './serverSubType';
  * Server event payload — matches frontend `ServerEventPayloadSchema`.
  */
 export interface ServerEventPayload {
-  /** Human-readable contextual detail (e.g. "ContainerCreating", "CrashLoopBackOff").
+  /** Human-readable contextual detail (e.g. "`ContainerCreating`", "`CrashLoopBackOff`").
 Always set by the publisher. `#[serde(default)]` handles old events without this field. */
   message?: string;
   serverName: string;

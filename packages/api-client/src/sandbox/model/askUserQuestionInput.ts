@@ -8,7 +8,7 @@
 import type { Question } from './question';
 
 /**
- * Input payload for the AskUserQuestion tool.
+ * Input payload for the `AskUserQuestion` tool.
  */
 export interface AskUserQuestionInput {
   questions: Question[];

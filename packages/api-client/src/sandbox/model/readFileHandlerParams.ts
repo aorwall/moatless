@@ -12,7 +12,7 @@ export type ReadFileHandlerParams = {
  */
 path: string;
 /**
- * Include git change info (old_content, additions, deletions)
+ * Include git change info (`old_content`, additions, deletions)
  * @nullable
  */
 changes?: boolean | null;

@@ -15,9 +15,9 @@ instead of raw `serde_json::Value`.
 export interface SandboxEventPayload {
   /**
    * Why the pod was disrupted, from
-`pod.status.conditions[DisruptionTarget].reason` (PreemptionByScheduler |
-DeletionByTaintManager | TerminationByKubelet | EvictionByEvictionAPI |
-DeletionByPodGC), falling back to `pod.status.reason`.
+`pod.status.conditions[DisruptionTarget].reason` (`PreemptionByScheduler` |
+`DeletionByTaintManager` | `TerminationByKubelet` | `EvictionByEvictionAPI` |
+`DeletionByPodGC`), falling back to `pod.status.reason`.
    * @nullable
    */
   disruptionReason?: string | null;
@@ -36,12 +36,12 @@ graceful SIGTERM (143). `#[serde(default)]` keeps old events readable.
   exitCode?: number | null;
   /**
    * Who caused an intentional stop: "reaper" | "user" | "close" | "restart"
-| "crash_autostop" | "eviction". Null for events that aren't stops.
+| "`crash_autostop`" | "eviction". Null for events that aren't stops.
    * @nullable
    */
   initiator?: string | null;
   /**
-   * K8s lifecycle event name (e.g. "pod_ready", "container_oom_killed").
+   * K8s lifecycle event name (e.g. "`pod_ready`", "`container_oom_killed`").
    * @nullable
    */
   lifecycleEvent?: string | null;
@@ -60,7 +60,7 @@ Attached to `pod_scheduled` events so slow scheduling is readable directly.
    */
   pendingSeconds?: number | null;
   /**
-   * K8s termination reason of the sandbox container (e.g. "OOMKilled",
+   * K8s termination reason of the sandbox container (e.g. "`OOMKilled`",
 "Error", "Completed"), when known.
    * @nullable
    */

@@ -10,7 +10,7 @@
  * Result of sending a DM.
  */
 export interface SendDmResponse {
-  /** The created or updated task_binding id. */
+  /** The created or updated `task_binding` id. */
   binding_id: string;
   /** External DM conversation ID opened by the adapter. */
   conversationId: string;

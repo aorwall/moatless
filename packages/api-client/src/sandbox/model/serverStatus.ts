@@ -7,7 +7,7 @@
  */
 
 /**
- * Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
+ * Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
  */
 export type ServerStatus = typeof ServerStatus[keyof typeof ServerStatus];
 

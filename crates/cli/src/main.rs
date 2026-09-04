@@ -161,6 +161,32 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::messages::MessageAction,
     },
+    /// Record feedback about a task to be used for improving moatless logic,
+    /// agent skills, or tooling — or, with `list`, read what has been recorded
+    Feedback {
+        #[command(subcommand)]
+        action: Option<commands::feedback::FeedbackAction>,
+        /// The feedback message (what went wrong / what could be better).
+        #[arg(long, short = 'c')]
+        comment: Option<String>,
+        /// Task the feedback is about. Defaults to `$TASK_ID`.
+        #[arg(long)]
+        task: Option<String>,
+        /// What the feedback is about: `environment` (the sandbox),
+        /// `codebase` (this repository's code or tooling), `instruction`
+        /// (`AGENTS.md`, `CLAUDE.md`, or a skill), or `other`.
+        #[arg(long)]
+        category: Option<String>,
+        /// Optional: scope feedback to a specific assistant message
+        /// (`task_messages.uuid`). Left unset, it best-effort attaches to the
+        /// task's most recent activity instead of the whole task.
+        #[arg(long)]
+        message: Option<String>,
+        /// Optional: scope feedback to a specific tool call within the
+        /// referenced message. Requires `--message`.
+        #[arg(long = "tool-use-id")]
+        tool_use_id: Option<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -202,21 +228,6 @@ enum SandboxCommands {
         action: commands::cmd::CmdAction,
     },
 
-    /// Record feedback about this task to be used for improving moatless
-    /// logic, agent skills, or tooling.
-    Feedback {
-        /// The feedback message (what went wrong / what could be better).
-        #[arg(long, short = 'c')]
-        comment: String,
-        /// Optional: scope feedback to a specific assistant message
-        /// (`task_messages.uuid`). Defaults to task-level feedback.
-        #[arg(long)]
-        message: Option<String>,
-        /// Optional: scope feedback to a specific tool call within the
-        /// referenced message. Requires `--message`.
-        #[arg(long = "tool-use-id")]
-        tool_use_id: Option<String>,
-    },
 }
 
 // ---------------------------------------------------------------------------
@@ -355,27 +366,6 @@ async fn dispatch_sandbox(
         SandboxCommands::Cmd { action } => {
             let task_id = require_task_id(cfg)?;
             commands::cmd::run(action, task_id, json).await?;
-        }
-        SandboxCommands::Feedback {
-            comment,
-            message,
-            tool_use_id,
-        } => {
-            let task_id = require_task_id(cfg)?;
-            if tool_use_id.is_some() && message.is_none() {
-                return Err("--tool-use-id requires --message".into());
-            }
-            commands::feedback::run(
-                moat,
-                commands::feedback::FeedbackArgs {
-                    task_id,
-                    comment,
-                    message_uuid: message,
-                    tool_use_id,
-                },
-                json,
-            )
-            .await?;
         }
     }
 
@@ -520,6 +510,57 @@ async fn run_shared(
         SharedCommands::Messages { action } => {
             commands::messages::run(moat, action, json).await?;
         }
+        SharedCommands::Feedback {
+            action,
+            comment,
+            task,
+            category,
+            message,
+            tool_use_id,
+        } => match action {
+            Some(commands::feedback::FeedbackAction::List {
+                workspace,
+                repo,
+                task,
+                source,
+                surface,
+                category,
+                created_by,
+                since,
+                limit,
+                offset,
+                full,
+            }) => {
+                commands::feedback::list(
+                    moat, workspace, repo, task, source, surface, category, created_by, since,
+                    limit, offset, full, json,
+                )
+                .await?;
+            }
+            None => {
+                let comment = comment
+                    .ok_or("--comment is required to record feedback (or use `feedback list`)")?;
+                if tool_use_id.is_some() && message.is_none() {
+                    return Err("--tool-use-id requires --message".into());
+                }
+                let task_id = match task {
+                    Some(id) => id,
+                    None => require_task_id(cfg)?,
+                };
+                commands::feedback::run(
+                    moat,
+                    commands::feedback::FeedbackArgs {
+                        task_id,
+                        comment,
+                        category,
+                        message_uuid: message,
+                        tool_use_id,
+                    },
+                    json,
+                )
+                .await?;
+            }
+        },
     }
 
     Ok(())

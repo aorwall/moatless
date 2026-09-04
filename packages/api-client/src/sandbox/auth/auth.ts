@@ -1041,7 +1041,7 @@ export const useExchangeTokenHandler = <TError = ErrorType<ErrorBody>,
     /**
  * Returns 200/401 only — no response headers.
 For preview URLs (hostname contains `--`), also checks task-based access.
- * @summary Verify authentication via session cookie or API key (Traefik ForwardAuth).
+ * @summary Verify authentication via session cookie or API key (Traefik `ForwardAuth`).
  */
 export type verifyHandlerResponse200 = {
   data: void
@@ -1144,7 +1144,7 @@ export function useVerifyHandler<TData = Awaited<ReturnType<typeof verifyHandler
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
- * @summary Verify authentication via session cookie or API key (Traefik ForwardAuth).
+ * @summary Verify authentication via session cookie or API key (Traefik `ForwardAuth`).
  */
 
 export function useVerifyHandler<TData = Awaited<ReturnType<typeof verifyHandler>>, TError = ErrorType<ErrorBody>>(
@@ -1160,7 +1160,7 @@ export function useVerifyHandler<TData = Awaited<ReturnType<typeof verifyHandler
 }
 
 /**
- * @summary Verify authentication via session cookie or API key (Traefik ForwardAuth).
+ * @summary Verify authentication via session cookie or API key (Traefik `ForwardAuth`).
  */
 export const prefetchVerifyHandlerQuery = async <TData = Awaited<ReturnType<typeof verifyHandler>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}

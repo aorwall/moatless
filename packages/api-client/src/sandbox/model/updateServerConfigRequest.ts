@@ -27,7 +27,7 @@ export interface UpdateServerConfigRequest {
   env?: UpdateServerConfigRequestEnv;
   /**
    * Not applicable live — the port is wired into the Service and
-IngressRoute at provision time.
+`IngressRoute` at provision time.
    * @minimum 0
    * @nullable
    */

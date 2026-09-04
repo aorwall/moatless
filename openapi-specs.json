@@ -156,7 +156,7 @@
           {
             "name": "changes",
             "in": "query",
-            "description": "Include git change info (old_content, additions, deletions)",
+            "description": "Include git change info (`old_content`, additions, deletions)",
             "required": false,
             "schema": {
               "type": [
@@ -287,7 +287,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "Get the file tree with git change overlay.",
+        "summary": "See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.",
         "operationId": "file_tree_handler",
         "parameters": [
           {
@@ -2620,7 +2620,7 @@
         "tags": [
           "auth"
         ],
-        "summary": "Verify authentication via session cookie or API key (Traefik ForwardAuth).",
+        "summary": "Verify authentication via session cookie or API key (Traefik `ForwardAuth`).",
         "description": "Returns 200/401 only — no response headers.\nFor preview URLs (hostname contains `--`), also checks task-based access.",
         "operationId": "verify_handler",
         "responses": {
@@ -2673,6 +2673,164 @@
       }
     },
     "/api/v1/feedback": {
+      "get": {
+        "tags": [
+          "feedback"
+        ],
+        "summary": "List feedback across every task the caller may read, newest first. The\nper-task endpoint answers \"does this message have feedback\"; this one\nanswers \"what has the fleet been told\", which is why it filters by\nworkspace, repository, source, surface, category, submitter, and age.",
+        "operationId": "list_all_feedback",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "repositoryId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/FeedbackSource"
+                }
+              ]
+            }
+          },
+          {
+            "name": "surface",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/FeedbackSurface"
+                }
+              ]
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/FeedbackCategory"
+                }
+              ]
+            }
+          },
+          {
+            "name": "createdBy",
+            "in": "query",
+            "description": "User id of the submitter.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "RFC 3339 instant; keeps feedback created at or after it.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Defaults to 50, capped at 200.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Feedback list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAllFeedbackResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "feedback"
@@ -9163,7 +9321,7 @@
       },
       "AddMessageReactionRequest": {
         "type": "object",
-        "description": "Request body for POST /api/v1/messages/{message_id}/reactions.",
+        "description": "Request body for POST `/api/v1/messages/{message_id}/reactions`.",
         "required": [
           "emoji"
         ],
@@ -9354,7 +9512,7 @@
               "string",
               "null"
             ],
-            "description": "For \"pending_response\" subtype: the tool being invoked."
+            "description": "For \"`pending_response`\" subtype: the tool being invoked."
           },
           "totalCost": {
             "type": [
@@ -9585,7 +9743,7 @@
       },
       "AskUserQuestionInput": {
         "type": "object",
-        "description": "Input payload for the AskUserQuestion tool.",
+        "description": "Input payload for the `AskUserQuestion` tool.",
         "required": [
           "questions"
         ],
@@ -9806,7 +9964,7 @@
               "string",
               "null"
             ],
-            "description": "\"device_code\" | \"auth_json\" | \"api_key\" — which save path produced the row."
+            "description": "\"`device_code`\" | \"`auth_json`\" | \"`api_key`\" — which save path produced the row."
           },
           "connected": {
             "type": "boolean"
@@ -9816,7 +9974,7 @@
               "string",
               "null"
             ],
-            "description": "Email reported by ChatGPT account on the id_token (device-code flow only)."
+            "description": "Email reported by ChatGPT account on the `id_token` (device-code flow only)."
           },
           "needsReconnect": {
             "type": [
@@ -10044,7 +10202,7 @@
               "string",
               "null"
             ],
-            "description": "GitHub PR mergeable state: clean | dirty | blocked | behind | unstable |\nhas_hooks | draft. `dirty` means merge conflicts. `None` when not\ncomputed or not a PR."
+            "description": "GitHub PR mergeable state: clean | dirty | blocked | behind | unstable |\n`has_hooks` | draft. `dirty` means merge conflicts. `None` when not\ncomputed or not a PR."
           },
           "outgoing": {
             "type": "integer",
@@ -10056,7 +10214,7 @@
               "string",
               "null"
             ],
-            "description": "GitHub PR review decision: approved | changes_requested |\nreview_required | dismissed | commented. `None` for non-PR connections\nor PRs with no review recorded yet."
+            "description": "GitHub PR review decision: approved | `changes_requested` |\n`review_required` | dismissed | commented. `None` for non-PR connections\nor PRs with no review recorded yet."
           },
           "stateKind": {
             "type": [
@@ -10442,6 +10600,16 @@
           "comment"
         ],
         "properties": {
+          "category": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FeedbackCategory"
+              }
+            ]
+          },
           "comment": {
             "type": "string"
           },
@@ -11253,7 +11421,7 @@
       },
       "ExitPlanModeInput": {
         "type": "object",
-        "description": "Input payload for the ExitPlanMode tool.",
+        "description": "Input payload for the `ExitPlanMode` tool.",
         "properties": {
           "allowedPrompts": {
             "type": [
@@ -11315,6 +11483,53 @@
           }
         }
       },
+      "FeedbackCategory": {
+        "type": "string",
+        "description": "What the note is about — the axis a reader triages on, orthogonal to\n[`FeedbackSurface`], which says only where it was submitted from. A\nrow predating the column, or one whose submitter named none, carries\nno category.",
+        "enum": [
+          "environment",
+          "codebase",
+          "instruction",
+          "other"
+        ]
+      },
+      "FeedbackListItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/FeedbackResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "taskTitle",
+              "repositoryId"
+            ],
+            "properties": {
+              "repositoryId": {
+                "type": "string"
+              },
+              "repositoryName": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "`None` when the repository row was deleted."
+              },
+              "taskTitle": {
+                "type": "string",
+                "description": "`Task.name`, falling back to the first line of its description."
+              },
+              "workspaceId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "One row of `GET /api/v1/feedback`: the feedback flattened together with the\ntask context that makes a cross-task listing readable without a second call."
+      },
       "FeedbackResponse": {
         "type": "object",
         "description": "Response shape for a single feedback row.",
@@ -11328,6 +11543,16 @@
           "createdAt"
         ],
         "properties": {
+          "category": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FeedbackCategory"
+              }
+            ]
+          },
           "comment": {
             "type": "string"
           },
@@ -12550,6 +12775,36 @@
           }
         }
       },
+      "ListAllFeedbackResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/v1/feedback`, newest first. `total` counts every row\nmatching the filters, not the page.",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedbackListItem"
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ListFeedbackResponse": {
         "type": "object",
         "description": "Response wrapper for `GET /api/v1/tasks/{task_id}/feedback`.",
@@ -13750,7 +14005,7 @@
       },
       "ReplyToMessageRequest": {
         "type": "object",
-        "description": "Request body for POST /api/v1/messages/{message_id}/reply.",
+        "description": "Request body for POST `/api/v1/messages/{message_id}/reply`.",
         "required": [
           "text"
         ],
@@ -14215,7 +14470,7 @@
       },
       "RuntimeEvent": {
         "type": "object",
-        "description": "A provider-agnostic runtime event associated with a sandbox.\n\nIn K8s mode, these are sourced from K8s Event objects (FailedScheduling,\nBackOff, Pulling, etc.). Docker mode can populate from `docker events`.",
+        "description": "A provider-agnostic runtime event associated with a sandbox.\n\nIn K8s mode, these are sourced from K8s Event objects (`FailedScheduling`,\n`BackOff`, Pulling, etc.). Docker mode can populate from `docker events`.",
         "required": [
           "reason",
           "message"
@@ -14242,7 +14497,7 @@
           },
           "reason": {
             "type": "string",
-            "description": "Event reason (e.g. \"BackOff\", \"FailedScheduling\", \"Pulling\", \"OOMKilled\")"
+            "description": "Event reason (e.g. \"`BackOff`\", \"`FailedScheduling`\", \"Pulling\", \"`OOMKilled`\")"
           },
           "severity": {
             "type": [
@@ -14271,7 +14526,7 @@
               "string",
               "null"
             ],
-            "description": "Why the pod was disrupted, from\n`pod.status.conditions[DisruptionTarget].reason` (PreemptionByScheduler |\nDeletionByTaintManager | TerminationByKubelet | EvictionByEvictionAPI |\nDeletionByPodGC), falling back to `pod.status.reason`."
+            "description": "Why the pod was disrupted, from\n`pod.status.conditions[DisruptionTarget].reason` (`PreemptionByScheduler` |\n`DeletionByTaintManager` | `TerminationByKubelet` | `EvictionByEvictionAPI` |\n`DeletionByPodGC`), falling back to `pod.status.reason`."
           },
           "error": {
             "type": [
@@ -14293,14 +14548,14 @@
               "string",
               "null"
             ],
-            "description": "Who caused an intentional stop: \"reaper\" | \"user\" | \"close\" | \"restart\"\n| \"crash_autostop\" | \"eviction\". Null for events that aren't stops."
+            "description": "Who caused an intentional stop: \"reaper\" | \"user\" | \"close\" | \"restart\"\n| \"`crash_autostop`\" | \"eviction\". Null for events that aren't stops."
           },
           "lifecycleEvent": {
             "type": [
               "string",
               "null"
             ],
-            "description": "K8s lifecycle event name (e.g. \"pod_ready\", \"container_oom_killed\")."
+            "description": "K8s lifecycle event name (e.g. \"`pod_ready`\", \"`container_oom_killed`\")."
           },
           "message": {
             "type": "string",
@@ -14326,7 +14581,7 @@
               "string",
               "null"
             ],
-            "description": "K8s termination reason of the sandbox container (e.g. \"OOMKilled\",\n\"Error\", \"Completed\"), when known."
+            "description": "K8s termination reason of the sandbox container (e.g. \"`OOMKilled`\",\n\"Error\", \"Completed\"), when known."
           }
         }
       },
@@ -14345,7 +14600,7 @@
       },
       "SandboxStatusFullResponse": {
         "type": "object",
-        "description": "Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)",
+        "description": "Full sandbox status response to frontend (matches TS `SandboxStatusFullResponse`)",
         "required": [
           "sandboxStatus",
           "sandboxError",
@@ -14931,7 +15186,7 @@
         "properties": {
           "binding_id": {
             "type": "string",
-            "description": "The created or updated task_binding id."
+            "description": "The created or updated `task_binding` id."
           },
           "conversationId": {
             "type": "string",
@@ -15166,7 +15421,7 @@
               "string",
               "null"
             ],
-            "description": "Per-server Docker image. Falls back to sandbox_image if not set."
+            "description": "Per-server Docker image. Falls back to `sandbox_image` if not set."
           },
           "enableInspector": {
             "type": "boolean"
@@ -15316,7 +15571,7 @@
         "properties": {
           "message": {
             "type": "string",
-            "description": "Human-readable contextual detail (e.g. \"ContainerCreating\", \"CrashLoopBackOff\").\nAlways set by the publisher. `#[serde(default)]` handles old events without this field."
+            "description": "Human-readable contextual detail (e.g. \"`ContainerCreating`\", \"`CrashLoopBackOff`\").\nAlways set by the publisher. `#[serde(default)]` handles old events without this field."
           },
           "serverName": {
             "type": "string"
@@ -15443,7 +15698,7 @@
       },
       "ServerStatus": {
         "type": "string",
-        "description": "Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'",
+        "description": "Matches TS `ServerStatusEnumSchema`: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'",
         "enum": [
           "stopped",
           "installing",
@@ -16209,7 +16464,7 @@
       },
       "SubagentStatus": {
         "type": "string",
-        "description": "Status of a spawned subagent, derived from the outer `Agent` tool_result:\npresent + `is_error` → `Error`; present → `Completed`; absent → `Running`.",
+        "description": "Status of a spawned subagent, derived from the outer `Agent` `tool_result`:\npresent + `is_error` → `Error`; present → `Completed`; absent → `Running`.",
         "enum": [
           "running",
           "completed",
@@ -17086,7 +17341,7 @@
       },
       "TaskTurnEventPayload": {
         "type": "object",
-        "description": "TaskTurn event payload — typed shape for `EventType::TaskTurn` events.",
+        "description": "`TaskTurn` event payload — typed shape for `EventType::TaskTurn` events.",
         "properties": {
           "message": {
             "type": "string"
@@ -17095,7 +17350,7 @@
       },
       "TaskTurnSubType": {
         "type": "string",
-        "description": "TaskTurn sub-types.",
+        "description": "`TaskTurn` sub-types.",
         "enum": [
           "active",
           "completed",
@@ -17521,7 +17776,7 @@
               "object",
               "null"
             ],
-            "description": "Typed tool result from SDK (e.g., BashToolUseResult, ReadToolUseResult)."
+            "description": "Typed tool result from SDK (e.g., `BashToolUseResult`, `ReadToolUseResult`)."
           }
         }
       },
@@ -17778,7 +18033,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Not applicable live — the port is wired into the Service and\nIngressRoute at provision time.",
+            "description": "Not applicable live — the port is wired into the Service and\n`IngressRoute` at provision time.",
             "minimum": 0
           },
           "restart": {
@@ -18411,14 +18666,14 @@
               "string",
               "null"
             ],
-            "description": "Thread ID for routing (maps to thread_id in InboundMessage)."
+            "description": "Thread ID for routing (maps to `thread_id` in [`InboundMessage`])."
           },
           "userId": {
             "type": [
               "string",
               "null"
             ],
-            "description": "User identity override (defaults to config's default user_id)."
+            "description": "User identity override (defaults to config's default `user_id`)."
           }
         }
       },

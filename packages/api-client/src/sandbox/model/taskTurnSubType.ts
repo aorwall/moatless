@@ -7,7 +7,7 @@
  */
 
 /**
- * TaskTurn sub-types.
+ * `TaskTurn` sub-types.
  */
 export type TaskTurnSubType = typeof TaskTurnSubType[keyof typeof TaskTurnSubType];
 

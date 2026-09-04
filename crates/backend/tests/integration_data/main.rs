@@ -9,6 +9,7 @@
 mod common;
 
 mod feedback_dao_test;
+mod feedback_handler_test;
 mod message_dao_test;
 mod message_handler_test;
 mod plugin_skills_dao_test;

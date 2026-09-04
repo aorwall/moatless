@@ -8,7 +8,7 @@
 import type { AllowedPrompt } from './allowedPrompt';
 
 /**
- * Input payload for the ExitPlanMode tool.
+ * Input payload for the `ExitPlanMode` tool.
  */
 export interface ExitPlanModeInput {
   /** @nullable */

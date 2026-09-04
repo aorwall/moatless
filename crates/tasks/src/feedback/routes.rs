@@ -8,8 +8,9 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::dao::FeedbackDao;
 use super::handlers;
-use moatless_core::http_auth::UserTokenVerifier;
 use crate::task::dao::TaskDao;
+use moatless_backend_core::workspace::RepositoryReader;
+use moatless_core::http_auth::UserTokenVerifier;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -19,6 +20,7 @@ use crate::task::dao::TaskDao;
     paths(
         handlers::create_feedback,
         handlers::list_task_feedback,
+        handlers::list_all_feedback,
     )
 )]
 pub struct FeedbackApiDoc;
@@ -27,18 +29,21 @@ pub struct FeedbackApiDoc;
 ///
 /// Generic over the router state `S` so this module names no root type: the
 /// composition root supplies the concrete state at the call site, and each
-/// handler reaches its ports — `Arc<dyn FeedbackDao>`, `Arc<dyn TaskDao>`, and
-/// the `UserTokenVerifier` behind `AuthUser` — through `FromRef<S>`.
+/// handler reaches its ports — `Arc<dyn FeedbackDao>`, `Arc<dyn TaskDao>`,
+/// `Arc<dyn RepositoryReader>`, and the `UserTokenVerifier` behind `AuthUser`
+/// — through `FromRef<S>`.
 pub fn feedback_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
     Arc<dyn FeedbackDao>: FromRef<S>,
     Arc<dyn TaskDao>: FromRef<S>,
+    Arc<dyn RepositoryReader>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
 {
     let (router, api) = OpenApiRouter::with_openapi(FeedbackApiDoc::openapi())
         .routes(routes!(handlers::create_feedback))
         .routes(routes!(handlers::list_task_feedback))
+        .routes(routes!(handlers::list_all_feedback))
         .with_state(state)
         .split_for_parts();
 

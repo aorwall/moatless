@@ -145,7 +145,37 @@ Available `moat` commands:
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
 - `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
 - `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)
-- `moat feedback --comment \"<text>\" [--message <uuid>] [--tool-use-id <id>]` — Record feedback about this task for later review. Use this when the user expresses frustration, when you got stuck in a long troubleshooting loop that better skills or tooling would have prevented, or when an instruction or tool clearly led you wrong. Be specific: name the skill, instruction, or tool, and explain what would have helped.";
+- `moat feedback --category <category> --comment \"<text>\"` — Record what cost you time that a fix would have prevented (see `# Feedback Inbox`)";
+
+/// Asks the agent what cost it time this run that a fix would have prevented.
+/// Its own section, after the CLI list, so it reads as an instruction with a
+/// trigger and a scope.
+const FEEDBACK_PROMPT: &str = "\
+# Feedback Inbox
+
+If something here cost you time and a fix somewhere would have prevented it,
+say so. Run:
+
+```
+moat feedback --category <category> --comment \"<text>\"
+```
+
+Pick the category that names what is wrong:
+
+- `environment` — the sandbox itself: a dependency or service is missing, or a
+  command you needed to verify your work cannot run here.
+- `codebase` — the repository's own code or tooling: something in it that could
+  be fixed or improved so this kind of work goes better.
+- `instruction` — instructions that are missing, wrong, or pointed you the
+  wrong way: `AGENTS.md`, `CLAUDE.md`, or a skill — including a skill that
+  should exist and does not, or one that never fired.
+- `other` — none of the above.
+
+Be concrete: what you hit, and what would have prevented it. Name the skill,
+instruction, or tool. Problems with the code you are changing belong in your PR
+or your reply to the user, not here. Things you simply had to think about do not
+belong here either. Say nothing if nothing comes to mind; an empty inbox is a
+fine result.";
 
 /// Build the append-system-prompt for a task.
 ///
@@ -259,6 +289,7 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
 
     sections.push(GITHUB_CLI_HINT.to_string());
     sections.push(SANDBOX_TOOLS_PROMPT.to_string());
+    sections.push(FEEDBACK_PROMPT.to_string());
 
     sections.join("\n\n")
 }
@@ -530,11 +561,25 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_tools_reference_includes_moat_feedback() {
+    fn feedback_inbox_is_its_own_section_after_the_cli_reference() {
         let inputs = base_inputs("task-123");
         let prompt = build_append_system_prompt(&inputs);
-        assert!(prompt.contains("`moat feedback"));
-        assert!(prompt.contains("--comment"));
+        assert!(prompt.contains("# Feedback Inbox"));
+        assert!(prompt.contains("moat feedback --category <category> --comment"));
+        // Every `FeedbackCategory` variant must be named, or the agent cannot
+        // pick one: the CLI rejects an unknown value.
+        for category in [
+            "`environment`",
+            "`codebase`",
+            "`instruction`",
+            "`other`",
+        ] {
+            assert!(prompt.contains(category), "prompt must name {category}");
+        }
+        assert!(prompt.contains("an empty inbox is a\nfine result"));
+        let cli_idx = prompt.find("# Sandbox CLI Reference").unwrap();
+        let inbox_idx = prompt.find("# Feedback Inbox").unwrap();
+        assert!(cli_idx < inbox_idx, "inbox section must follow the CLI list");
     }
 
     #[test]

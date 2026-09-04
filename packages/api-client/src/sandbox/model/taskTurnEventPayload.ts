@@ -7,7 +7,7 @@
  */
 
 /**
- * TaskTurn event payload — typed shape for `EventType::TaskTurn` events.
+ * `TaskTurn` event payload — typed shape for `EventType::TaskTurn` events.
  */
 export interface TaskTurnEventPayload {
   message?: string;

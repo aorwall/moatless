@@ -560,7 +560,7 @@ export const useSearchByNameHandler = <TError = ErrorType<ErrorBody>,
       return useMutation(getSearchByNameHandlerMutationOptions(options), queryClient);
     }
     /**
- * @summary Get the file tree with git change overlay.
+ * @summary See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.
  */
 export type fileTreeHandlerResponse200 = {
   data: FileTreeResponse
@@ -677,7 +677,7 @@ export function useFileTreeHandler<TData = Awaited<ReturnType<typeof fileTreeHan
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
- * @summary Get the file tree with git change overlay.
+ * @summary See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.
  */
 
 export function useFileTreeHandler<TData = Awaited<ReturnType<typeof fileTreeHandler>>, TError = ErrorType<ErrorBody>>(
@@ -694,7 +694,7 @@ export function useFileTreeHandler<TData = Awaited<ReturnType<typeof fileTreeHan
 }
 
 /**
- * @summary Get the file tree with git change overlay.
+ * @summary See `sandbox::files::tree::get_file_tree_with_changes` for the file-tree contract.
  */
 export const prefetchFileTreeHandlerQuery = async <TData = Awaited<ReturnType<typeof fileTreeHandler>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, taskId: string,

@@ -14,8 +14,32 @@ pub struct Feedback {
     /// Stored as text — `'task' | 'message' | 'tool_call' | 'preview_failure'`.
     /// Convert via [`FeedbackSurface`].
     pub surface: String,
+    /// Stored as text. Convert via [`FeedbackCategory`]. `None` on a row
+    /// written before the column existed, or whose submitter named none.
+    pub category: Option<String>,
     pub comment: String,
     pub metadata: Option<serde_json::Value>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
+}
+
+/// A feedback row joined to its task, for the cross-task listing. The task
+/// columns are what a reader needs to place the comment; the feedback columns
+/// are [`Feedback`]'s own.
+#[derive(Debug, Clone)]
+pub struct FeedbackWithTask {
+    pub feedback: Feedback,
+    /// `tasks.name`, falling back to the first line of `tasks.description`.
+    pub task_title: String,
+    pub repository_id: String,
+    pub repository_name: Option<String>,
+    pub workspace_id: Option<String>,
+}
+
+/// The task's most recent point of activity, used to scope feedback the
+/// caller submitted without naming a message or tool call.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct LatestActivity {
+    pub message_uuid: String,
+    pub tool_use_id: Option<String>,
 }

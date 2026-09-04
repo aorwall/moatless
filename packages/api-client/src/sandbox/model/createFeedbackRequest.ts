@@ -5,12 +5,14 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { FeedbackCategory } from './feedbackCategory';
 import type { FeedbackSurface } from './feedbackSurface';
 
 /**
  * Request body for `POST /api/v1/feedback`.
  */
 export interface CreateFeedbackRequest {
+  category?: null | FeedbackCategory;
   comment: string;
   /** @nullable */
   messageUuid?: string | null;

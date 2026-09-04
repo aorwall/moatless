@@ -28,6 +28,8 @@ import type {
   CreateFeedbackRequest,
   ErrorBody,
   FeedbackResponse,
+  ListAllFeedbackParams,
+  ListAllFeedbackResponse,
   ListFeedbackResponse
 } from '.././model';
 
@@ -40,6 +42,153 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+
+
+/**
+ * @summary List feedback across every task the caller may read, newest first. The
+per-task endpoint answers "does this message have feedback"; this one
+answers "what has the fleet been told", which is why it filters by
+workspace, repository, source, surface, category, submitter, and age.
+ */
+export type listAllFeedbackResponse200 = {
+  data: ListAllFeedbackResponse
+  status: 200
+}
+
+export type listAllFeedbackResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+    
+export type listAllFeedbackResponseSuccess = (listAllFeedbackResponse200) & {
+  headers: Headers;
+};
+export type listAllFeedbackResponseError = (listAllFeedbackResponse400) & {
+  headers: Headers;
+};
+
+export type listAllFeedbackResponse = (listAllFeedbackResponseSuccess | listAllFeedbackResponseError)
+
+export const getListAllFeedbackUrl = (params?: ListAllFeedbackParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/feedback?${stringifiedParams}` : `/api/v1/feedback`
+}
+
+export const listAllFeedback = async (params?: ListAllFeedbackParams, options?: RequestInit): Promise<listAllFeedbackResponse> => {
+  
+  return customInstance<listAllFeedbackResponse>(getListAllFeedbackUrl(params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListAllFeedbackQueryKey = (params?: ListAllFeedbackParams,) => {
+    return [
+    `/api/v1/feedback`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getListAllFeedbackQueryOptions = <TData = Awaited<ReturnType<typeof listAllFeedback>>, TError = ErrorType<ErrorBody>>(params?: ListAllFeedbackParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listAllFeedback>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAllFeedbackQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAllFeedback>>> = ({ signal }) => listAllFeedback(params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAllFeedback>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListAllFeedbackQueryResult = NonNullable<Awaited<ReturnType<typeof listAllFeedback>>>
+export type ListAllFeedbackQueryError = ErrorType<ErrorBody>
+
+
+export function useListAllFeedback<TData = Awaited<ReturnType<typeof listAllFeedback>>, TError = ErrorType<ErrorBody>>(
+ params: undefined |  ListAllFeedbackParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listAllFeedback>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listAllFeedback>>,
+          TError,
+          Awaited<ReturnType<typeof listAllFeedback>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListAllFeedback<TData = Awaited<ReturnType<typeof listAllFeedback>>, TError = ErrorType<ErrorBody>>(
+ params?: ListAllFeedbackParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listAllFeedback>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listAllFeedback>>,
+          TError,
+          Awaited<ReturnType<typeof listAllFeedback>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListAllFeedback<TData = Awaited<ReturnType<typeof listAllFeedback>>, TError = ErrorType<ErrorBody>>(
+ params?: ListAllFeedbackParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listAllFeedback>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List feedback across every task the caller may read, newest first. The
+per-task endpoint answers "does this message have feedback"; this one
+answers "what has the fleet been told", which is why it filters by
+workspace, repository, source, surface, category, submitter, and age.
+ */
+
+export function useListAllFeedback<TData = Awaited<ReturnType<typeof listAllFeedback>>, TError = ErrorType<ErrorBody>>(
+ params?: ListAllFeedbackParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listAllFeedback>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListAllFeedbackQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List feedback across every task the caller may read, newest first. The
+per-task endpoint answers "does this message have feedback"; this one
+answers "what has the fleet been told", which is why it filters by
+workspace, repository, source, surface, category, submitter, and age.
+ */
+export const prefetchListAllFeedbackQuery = async <TData = Awaited<ReturnType<typeof listAllFeedback>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, params?: ListAllFeedbackParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listAllFeedback>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListAllFeedbackQueryOptions(params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
 
 
 

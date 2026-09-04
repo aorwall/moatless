@@ -40,7 +40,7 @@ export interface AgentEventPayload {
   /** @nullable */
   toolInput?: AgentEventPayloadToolInput;
   /**
-   * For "pending_response" subtype: the tool being invoked.
+   * For "`pending_response`" subtype: the tool being invoked.
    * @nullable
    */
   toolName?: string | null;

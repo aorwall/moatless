@@ -1,9 +1,33 @@
 //! Feedback DAO — queries for feedback persistence.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use sqlx::AssertSqlSafe;
 
-use super::models::Feedback;
+use super::models::{Feedback, FeedbackWithTask, LatestActivity};
 use moatless_core::db::DbPool;
+use moatless_types::access_control::{ScopeContext, ScopedEntity};
+
+/// Filter for the cross-task feedback listing. Every `Some` narrows the result;
+/// `workspace_id` and `repository_id` read the joined task row.
+pub struct FeedbackFilter {
+    pub scope: ScopeContext,
+    pub workspace_id: Option<String>,
+    pub repository_id: Option<String>,
+    pub task_id: Option<String>,
+    /// `'user' | 'agent'`, already validated against `FeedbackSource`.
+    pub source: Option<String>,
+    /// `'task' | 'message' | 'tool_call' | 'preview_failure'`, already
+    /// validated against `FeedbackSurface`.
+    pub surface: Option<String>,
+    /// Already validated against `FeedbackCategory`.
+    pub category: Option<String>,
+    pub created_by: Option<String>,
+    /// Keeps rows created at or after this instant.
+    pub since: Option<DateTime<Utc>>,
+    pub limit: i64,
+    pub offset: i64,
+}
 
 /// DAO trait for feedback persistence.
 #[cfg_attr(test, mockall::automock)]
@@ -15,6 +39,16 @@ pub trait FeedbackDao: Send + Sync {
     async fn find_by_id(&self, feedback_id: &str) -> Result<Option<Feedback>, sqlx::Error>;
     /// List all feedback rows for a task, ordered oldest → newest.
     async fn list_for_task(&self, task_id: &str) -> Result<Vec<Feedback>, sqlx::Error>;
+    /// List feedback across tasks the caller may read, newest first, with the
+    /// total matching the filter before paging.
+    async fn list(
+        &self,
+        filter: &FeedbackFilter,
+    ) -> Result<(Vec<FeedbackWithTask>, i64), sqlx::Error>;
+    /// Best-effort scope for feedback submitted with no `message_uuid`: the
+    /// most recent tool call on the task, or, when it made none, its most
+    /// recent message. `None` when the task has no messages yet.
+    async fn latest_activity(&self, task_id: &str) -> Result<Option<LatestActivity>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`FeedbackDao`].
@@ -26,8 +60,8 @@ impl FeedbackDao for PgFeedbackDao {
         sqlx::query(
             r#"INSERT INTO feedback (
                 feedback_id, task_id, message_uuid, tool_use_id,
-                source, surface, comment, metadata, created_by, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+                source, surface, category, comment, metadata, created_by, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
         )
         .bind(&row.feedback_id)
         .bind(&row.task_id)
@@ -35,6 +69,7 @@ impl FeedbackDao for PgFeedbackDao {
         .bind(&row.tool_use_id)
         .bind(&row.source)
         .bind(&row.surface)
+        .bind(&row.category)
         .bind(&row.comment)
         .bind(&row.metadata)
         .bind(&row.created_by)
@@ -48,7 +83,7 @@ impl FeedbackDao for PgFeedbackDao {
         sqlx::query_as::<_, Feedback>(
             r#"SELECT
                 feedback_id, task_id, message_uuid, tool_use_id,
-                source, surface, comment, metadata, created_by, created_at
+                source, surface, category, comment, metadata, created_by, created_at
                FROM feedback
                WHERE feedback_id = $1"#,
         )
@@ -61,7 +96,7 @@ impl FeedbackDao for PgFeedbackDao {
         sqlx::query_as::<_, Feedback>(
             r#"SELECT
                 feedback_id, task_id, message_uuid, tool_use_id,
-                source, surface, comment, metadata, created_by, created_at
+                source, surface, category, comment, metadata, created_by, created_at
                FROM feedback
                WHERE task_id = $1
                ORDER BY created_at ASC, id ASC"#,
@@ -69,5 +104,181 @@ impl FeedbackDao for PgFeedbackDao {
         .bind(task_id)
         .fetch_all(&self.0)
         .await
+    }
+
+    async fn latest_activity(&self, task_id: &str) -> Result<Option<LatestActivity>, sqlx::Error> {
+        // A tool call's `task_activities` row is written as soon as its
+        // `tool_use` block streams in, before the call runs — so at the
+        // moment an agent invokes `moat feedback` from a Bash call, that very
+        // call is already the latest row here. That is the intended reading:
+        // the feedback lands on the turn during which the agent decided to
+        // write it, not on whatever call preceded it.
+        if let Some(row) = sqlx::query_as::<_, LatestActivity>(
+            r#"SELECT message_uuid, tool_use_id
+               FROM task_activities
+               WHERE task_id = $1 AND kind = 'tool_call' AND message_uuid IS NOT NULL
+               ORDER BY position DESC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await?
+        {
+            return Ok(Some(row));
+        }
+
+        sqlx::query_as::<_, LatestActivity>(
+            r#"SELECT uuid AS message_uuid, NULL::text AS tool_use_id
+               FROM task_messages
+               WHERE task_id = $1
+               ORDER BY id DESC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn list(
+        &self,
+        filter: &FeedbackFilter,
+    ) -> Result<(Vec<FeedbackWithTask>, i64), sqlx::Error> {
+        // Page columns are optional because the query always emits the total,
+        // even when the offset lies past the end — that case comes back as a
+        // single row whose page columns are all NULL. See `into_item`.
+        #[derive(sqlx::FromRow)]
+        struct FeedbackPageRow {
+            total_count: i64,
+            feedback_id: Option<String>,
+            task_id: Option<String>,
+            message_uuid: Option<String>,
+            tool_use_id: Option<String>,
+            source: Option<String>,
+            surface: Option<String>,
+            category: Option<String>,
+            comment: Option<String>,
+            metadata: Option<serde_json::Value>,
+            created_by: Option<String>,
+            created_at: Option<DateTime<Utc>>,
+            task_name: Option<String>,
+            task_description: Option<String>,
+            repository_id: Option<String>,
+            workspace_id: Option<String>,
+        }
+
+        impl FeedbackPageRow {
+            fn is_total_only(&self) -> bool {
+                self.feedback_id.is_none()
+            }
+
+            /// `None` only when a `NOT NULL` column came back NULL on a row
+            /// that is not the total-only one. Callers must reject that rather
+            /// than skip it: dropping a row from the page while still counting
+            /// it in the total is the drift this query exists to prevent.
+            fn into_item(self) -> Option<FeedbackWithTask> {
+                let task_title = self
+                    .task_name
+                    .filter(|n| !n.is_empty())
+                    .or_else(|| {
+                        self.task_description
+                            .as_deref()
+                            .filter(|d| !d.is_empty())
+                            .and_then(|d| d.lines().next())
+                            .map(str::to_string)
+                    })
+                    .unwrap_or_else(|| "Task".to_string());
+                Some(FeedbackWithTask {
+                    feedback: Feedback {
+                        feedback_id: self.feedback_id?,
+                        task_id: self.task_id?,
+                        message_uuid: self.message_uuid,
+                        tool_use_id: self.tool_use_id,
+                        source: self.source?,
+                        surface: self.surface?,
+                        category: self.category,
+                        comment: self.comment?,
+                        metadata: self.metadata,
+                        created_by: self.created_by?,
+                        created_at: self.created_at?,
+                    },
+                    task_title,
+                    repository_id: self.repository_id?,
+                    // Left for the handler to fill in: `repositories` is owned
+                    // by `crates/workspaces`, so this DAO cannot join it.
+                    repository_name: None,
+                    workspace_id: self.workspace_id,
+                })
+            }
+        }
+
+        // Access control reads the joined task: `feedback` has no scope columns
+        // of its own, so a row is readable exactly when its task is.
+        //
+        // `filtered` is the single source of truth for both the page and the
+        // total, so the two cannot drift apart under a filter change, and
+        // `total LEFT JOIN page ON TRUE` keeps the total available when the
+        // page is empty.
+        let access = filter.scope.access_filter(ScopedEntity::Task, "t.", 1);
+        let sql = format!(
+            r#"WITH filtered AS (
+                SELECT
+                    f.id AS seq, f.feedback_id, f.task_id, f.message_uuid, f.tool_use_id,
+                    f.source, f.surface, f.category, f.comment, f.metadata,
+                    f.created_by, f.created_at,
+                    t.name AS task_name, t.description AS task_description,
+                    t.repository_id, t.workspace_id
+                FROM feedback f
+                JOIN tasks t ON t.task_id = f.task_id
+                WHERE {}
+                  AND ($3::text IS NULL OR t.workspace_id = $3)
+                  AND ($4::text IS NULL OR t.repository_id = $4)
+                  AND ($5::text IS NULL OR f.task_id = $5)
+                  AND ($6::text IS NULL OR f.source = $6)
+                  AND ($7::text IS NULL OR f.surface = $7)
+                  AND ($8::text IS NULL OR f.category = $8)
+                  AND ($9::text IS NULL OR f.created_by = $9)
+                  AND ($10::timestamptz IS NULL OR f.created_at >= $10)
+            ),
+            total AS (SELECT COUNT(*) AS total_count FROM filtered),
+            page AS (
+                SELECT * FROM filtered
+                ORDER BY created_at DESC, seq DESC
+                LIMIT $11 OFFSET $12
+            )
+            SELECT tot.total_count, p.*
+            FROM total tot
+            LEFT JOIN page p ON TRUE
+            ORDER BY p.created_at DESC, p.seq DESC"#,
+            access.sql(),
+        );
+
+        let rows = sqlx::query_as::<_, FeedbackPageRow>(AssertSqlSafe(sql))
+            .bind(filter.scope.is_admin)
+            .bind(&filter.scope.user_id)
+            .bind(&filter.workspace_id)
+            .bind(&filter.repository_id)
+            .bind(&filter.task_id)
+            .bind(&filter.source)
+            .bind(&filter.surface)
+            .bind(&filter.category)
+            .bind(&filter.created_by)
+            .bind(filter.since)
+            .bind(filter.limit)
+            .bind(filter.offset)
+            .fetch_all(&self.0)
+            .await?;
+
+        let total = rows.first().map_or(0, |r| r.total_count);
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            if row.is_total_only() {
+                continue;
+            }
+            let item = row.into_item().ok_or_else(|| {
+                sqlx::Error::Decode("feedback row has a NULL in a NOT NULL column".into())
+            })?;
+            items.push(item);
+        }
+        Ok((items, total))
     }
 }

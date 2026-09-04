@@ -16,7 +16,7 @@ import type { ScheduledJobInfo } from './scheduledJobInfo';
 import type { ServerEntry } from './serverEntry';
 
 /**
- * Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)
+ * Full sandbox status response to frontend (matches TS `SandboxStatusFullResponse`)
  */
 export interface SandboxStatusFullResponse {
   agentStatus: null | AgentStatus;

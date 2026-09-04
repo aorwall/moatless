@@ -1,19 +1,29 @@
 //! Feedback HTTP handlers.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Path, State};
-use chrono::Utc;
+use axum::extract::{Path, Query, State};
+use chrono::{DateTime, Utc};
 
 use crate::task::dao::TaskDao;
+use moatless_backend_core::workspace::RepositoryReader;
 use moatless_core::http_auth::AuthUser;
 
-use super::dao::FeedbackDao;
+use super::dao::{FeedbackDao, FeedbackFilter};
 use super::error::{FeedbackError, UnknownFeedbackDiscriminant};
-use moatless_types::feedback::{FeedbackSource, FeedbackSurface};
-use super::models::Feedback;
-use super::schemas::{CreateFeedbackRequest, FeedbackResponse, ListFeedbackResponse};
+use super::models::{Feedback, FeedbackWithTask};
+use super::schemas::{
+    CreateFeedbackRequest, FeedbackListItem, FeedbackResponse, ListAllFeedbackQuery,
+    ListAllFeedbackResponse, ListFeedbackResponse,
+};
+use moatless_types::feedback::{FeedbackCategory, FeedbackSource, FeedbackSurface};
+
+/// Page size when the caller names none, and the ceiling a larger one is
+/// clamped to.
+const DEFAULT_LIMIT: i64 = 50;
+const MAX_LIMIT: i64 = 200;
 
 /// Create a new feedback row scoped to a task (and optionally a message
 /// or tool call within that task).
@@ -42,9 +52,8 @@ pub async fn create_feedback(
     }
 
     // Validate scope is consistent with surface.
-    let surface = req.surface;
     match (
-        surface,
+        req.surface,
         req.message_uuid.is_some(),
         req.tool_use_id.is_some(),
     ) {
@@ -76,6 +85,31 @@ pub async fn create_feedback(
         .await?
         .ok_or_else(|| FeedbackError::TaskNotFound(req.task_id.clone()))?;
 
+    // A caller who names no message asked for task-level feedback, but the
+    // common case — the agent running `moat feedback` with no flags — means
+    // "about what I am doing right now", not "about the task as a whole".
+    // Best effort: point it at the task's latest activity instead. A caller
+    // that did name a message (or asked for `preview_failure`) keeps exactly
+    // what it sent.
+    let (message_uuid, tool_use_id, surface) =
+        if req.surface == FeedbackSurface::Task && req.message_uuid.is_none() {
+            match feedback.latest_activity(&req.task_id).await? {
+                Some(activity) if activity.tool_use_id.is_some() => (
+                    Some(activity.message_uuid),
+                    activity.tool_use_id,
+                    FeedbackSurface::ToolCall,
+                ),
+                Some(activity) => (
+                    Some(activity.message_uuid),
+                    None,
+                    FeedbackSurface::Message,
+                ),
+                None => (None, None, FeedbackSurface::Task),
+            }
+        } else {
+            (req.message_uuid.clone(), req.tool_use_id.clone(), req.surface)
+        };
+
     let source = if auth.is_agent_context {
         FeedbackSource::Agent
     } else {
@@ -85,10 +119,11 @@ pub async fn create_feedback(
     let row = Feedback {
         feedback_id: uuid::Uuid::new_v4().to_string(),
         task_id: req.task_id.clone(),
-        message_uuid: req.message_uuid.clone(),
-        tool_use_id: req.tool_use_id.clone(),
+        message_uuid,
+        tool_use_id,
         source: source.as_str().to_string(),
         surface: surface.as_str().to_string(),
+        category: req.category.map(|c| c.as_str().to_string()),
         comment: req.comment.clone(),
         metadata: req.metadata.clone(),
         created_by: auth.user_id.clone().to_string(),
@@ -101,6 +136,7 @@ pub async fn create_feedback(
         feedback_id = %row.feedback_id,
         surface = %row.surface,
         source = %row.source,
+        category = ?row.category,
         message_uuid = ?row.message_uuid,
         tool_use_id = ?row.tool_use_id,
         "Feedback recorded"
@@ -143,6 +179,101 @@ pub async fn list_task_feedback(
     Ok(Json(ListFeedbackResponse { items }))
 }
 
+/// List feedback across every task the caller may read, newest first. The
+/// per-task endpoint answers "does this message have feedback"; this one
+/// answers "what has the fleet been told", which is why it filters by
+/// workspace, repository, source, surface, category, submitter, and age.
+#[utoipa::path(
+    get,
+    path = "/api/v1/feedback",
+    tag = "feedback",
+    params(ListAllFeedbackQuery),
+    responses(
+        (status = 200, description = "Feedback list", body = ListAllFeedbackResponse),
+        (status = 400, description = "Invalid filter", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn list_all_feedback(
+    State(feedback): State<Arc<dyn FeedbackDao>>,
+    State(repositories): State<Arc<dyn RepositoryReader>>,
+    auth: AuthUser,
+    Query(query): Query<ListAllFeedbackQuery>,
+) -> Result<Json<ListAllFeedbackResponse>, FeedbackError> {
+    let since = match query.since.as_deref() {
+        Some(raw) => Some(parse_since(raw)?),
+        None => None,
+    };
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let offset = query.offset.unwrap_or(0).max(0);
+
+    let filter = FeedbackFilter {
+        scope: auth.scope_context(),
+        workspace_id: query.workspace_id,
+        repository_id: query.repository_id,
+        task_id: query.task_id,
+        source: query.source.map(|s| s.as_str().to_string()),
+        surface: query.surface.map(|s| s.as_str().to_string()),
+        category: query.category.map(|c| c.as_str().to_string()),
+        created_by: query.created_by,
+        since,
+        limit,
+        offset,
+    };
+
+    let (rows, total) = feedback.list(&filter).await?;
+
+    let repo_ids: Vec<String> = rows
+        .iter()
+        .map(|r| r.repository_id.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    let repo_names = repositories.names(&repo_ids).await.unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "Failed to batch resolve repository names");
+        HashMap::new()
+    });
+
+    let items = rows
+        .iter()
+        .map(|row| to_list_item(row, &repo_names))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(ListAllFeedbackResponse {
+        items,
+        total,
+        limit,
+        offset,
+    }))
+}
+
+/// Accepts a full RFC 3339 instant or a bare `YYYY-MM-DD`, which is read as
+/// midnight UTC on that day.
+fn parse_since(raw: &str) -> Result<DateTime<Utc>, FeedbackError> {
+    if let Ok(ts) = DateTime::parse_from_rfc3339(raw) {
+        return Ok(ts.with_timezone(&Utc));
+    }
+    if let Ok(date) = raw.parse::<chrono::NaiveDate>() {
+        if let Some(midnight) = date.and_hms_opt(0, 0, 0) {
+            return Ok(DateTime::from_naive_utc_and_offset(midnight, Utc));
+        }
+    }
+    Err(FeedbackError::BadRequest(format!(
+        "since must be RFC 3339 or YYYY-MM-DD, got {raw:?}"
+    )))
+}
+
+fn to_list_item(
+    row: &FeedbackWithTask,
+    repo_names: &HashMap<String, String>,
+) -> Result<FeedbackListItem, FeedbackError> {
+    Ok(FeedbackListItem {
+        feedback: to_response(&row.feedback)?,
+        task_title: row.task_title.clone(),
+        repository_name: repo_names.get(&row.repository_id).cloned(),
+        repository_id: row.repository_id.clone(),
+        workspace_id: row.workspace_id.clone(),
+    })
+}
+
 fn to_response(row: &Feedback) -> Result<FeedbackResponse, FeedbackError> {
     // The shared schema crate reports an unknown discriminant as a bare
     // `String`, so the module re-raises it as its own typed error to keep a
@@ -158,6 +289,15 @@ fn to_response(row: &Feedback) -> Result<FeedbackResponse, FeedbackError> {
             value: row.surface.clone(),
         }
     })?;
+    let category = row
+        .category
+        .as_deref()
+        .map(FeedbackCategory::try_from)
+        .transpose()
+        .map_err(|_| UnknownFeedbackDiscriminant {
+            column: "category",
+            value: row.category.clone().unwrap_or_default(),
+        })?;
     Ok(FeedbackResponse {
         feedback_id: row.feedback_id.clone(),
         task_id: row.task_id.clone(),
@@ -165,6 +305,7 @@ fn to_response(row: &Feedback) -> Result<FeedbackResponse, FeedbackError> {
         tool_use_id: row.tool_use_id.clone(),
         source,
         surface,
+        category,
         comment: row.comment.clone(),
         metadata: row.metadata.clone(),
         created_by: row.created_by.clone(),

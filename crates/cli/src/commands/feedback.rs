@@ -1,14 +1,61 @@
-//! `moat feedback` — sandbox-only command for the agent to record
-//! qualitative feedback about the current task.
+//! `moat feedback` — record qualitative feedback about a task, and read back
+//! what has been recorded across tasks.
 
-use moatless_api_schemas::feedback::{CreateFeedbackRequest, FeedbackSurface};
+use clap::Subcommand;
+use moatless_api_schemas::feedback::{
+    CreateFeedbackRequest, FeedbackCategory, FeedbackSource, FeedbackSurface, ListAllFeedbackQuery,
+};
 
 use crate::client::{ClientError, MoatClient};
 use crate::output;
 
+/// Longest comment rendered in the table before `--full` is needed.
+const COMMENT_WIDTH: usize = 90;
+
+#[derive(Subcommand)]
+pub enum FeedbackAction {
+    /// List feedback across tasks, newest first
+    List {
+        /// Workspace id of the task the feedback is about
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Repository id of the task the feedback is about
+        #[arg(long)]
+        repo: Option<String>,
+        /// Single task id
+        #[arg(long)]
+        task: Option<String>,
+        /// Who submitted it: `user` or `agent`
+        #[arg(long)]
+        source: Option<String>,
+        /// Where it was recorded: `task`, `message`, `tool_call`, or
+        /// `preview_failure`
+        #[arg(long)]
+        surface: Option<String>,
+        /// What it is about: `environment`, `codebase`, `instruction`,
+        /// or `other`
+        #[arg(long)]
+        category: Option<String>,
+        /// User id of the submitter
+        #[arg(long = "created-by")]
+        created_by: Option<String>,
+        /// Keep feedback from this instant onward: RFC 3339 or `YYYY-MM-DD`
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: i64,
+        #[arg(long, default_value_t = 0)]
+        offset: i64,
+        /// Print every comment in full instead of one truncated row each
+        #[arg(long)]
+        full: bool,
+    },
+}
+
 pub struct FeedbackArgs {
     pub task_id: String,
     pub comment: String,
+    pub category: Option<String>,
     pub message_uuid: Option<String>,
     pub tool_use_id: Option<String>,
 }
@@ -27,6 +74,7 @@ pub async fn run(client: &MoatClient, args: FeedbackArgs, json: bool) -> Result<
         message_uuid: args.message_uuid,
         tool_use_id: args.tool_use_id,
         surface,
+        category: args.category.as_deref().map(parse_category).transpose()?,
         comment: args.comment,
         metadata: None,
     };
@@ -39,4 +87,127 @@ pub async fn run(client: &MoatClient, args: FeedbackArgs, json: bool) -> Result<
         println!("Recorded feedback {}", resp.feedback_id);
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments, reason = "one parameter per CLI filter flag")]
+pub async fn list(
+    client: &MoatClient,
+    workspace: Option<String>,
+    repo: Option<String>,
+    task: Option<String>,
+    source: Option<String>,
+    surface: Option<String>,
+    category: Option<String>,
+    created_by: Option<String>,
+    since: Option<String>,
+    limit: i64,
+    offset: i64,
+    full: bool,
+    json: bool,
+) -> Result<(), ClientError> {
+    let query = ListAllFeedbackQuery {
+        workspace_id: workspace,
+        repository_id: repo,
+        task_id: task,
+        source: source.as_deref().map(parse_source).transpose()?,
+        surface: surface.as_deref().map(parse_surface).transpose()?,
+        category: category.as_deref().map(parse_category).transpose()?,
+        created_by,
+        since,
+        limit: Some(limit),
+        offset: Some(offset),
+    };
+
+    let resp = client.api().list_all_feedback(&query).await?;
+
+    if json {
+        output::print_json_typed(&resp);
+        return Ok(());
+    }
+
+    if resp.items.is_empty() {
+        println!("No feedback matches.");
+        return Ok(());
+    }
+
+    if full {
+        for item in &resp.items {
+            let f = &item.feedback;
+            println!("{}", "-".repeat(100));
+            println!(
+                "{}  {}/{}  [{}]  {}  {}",
+                f.created_at,
+                f.source,
+                f.surface,
+                f.category.map_or("-", |c| c.as_str()),
+                item.repository_name.as_deref().unwrap_or(&item.repository_id),
+                item.task_title
+            );
+            println!("task {}  feedback {}", f.task_id, f.feedback_id);
+            println!("{}", f.comment);
+        }
+    } else {
+        let rows: Vec<Vec<String>> = resp
+            .items
+            .iter()
+            .map(|item| {
+                let f = &item.feedback;
+                vec![
+                    f.created_at.clone(),
+                    f.source.to_string(),
+                    f.surface.to_string(),
+                    f.category.map_or("-", |c| c.as_str()).to_string(),
+                    item.repository_name
+                        .clone()
+                        .unwrap_or_else(|| item.repository_id.clone()),
+                    truncate(&item.task_title, 30),
+                    truncate(&f.comment.replace('\n', " "), COMMENT_WIDTH),
+                ]
+            })
+            .collect();
+        output::print_table(
+            &[
+                "CREATED", "SOURCE", "SURFACE", "CATEGORY", "REPO", "TASK", "COMMENT",
+            ],
+            &rows,
+        );
+    }
+
+    println!(
+        "\n{} of {} (offset {})",
+        resp.items.len(),
+        resp.total,
+        resp.offset
+    );
+    Ok(())
+}
+
+fn parse_source(raw: &str) -> Result<FeedbackSource, ClientError> {
+    FeedbackSource::try_from(raw)
+        .map_err(|_| ClientError::Other("source must be `user` or `agent`".to_string()))
+}
+
+fn parse_surface(raw: &str) -> Result<FeedbackSurface, ClientError> {
+    FeedbackSurface::try_from(raw).map_err(|_| {
+        ClientError::Other(
+            "surface must be `task`, `message`, `tool_call`, or `preview_failure`".to_string(),
+        )
+    })
+}
+
+fn parse_category(raw: &str) -> Result<FeedbackCategory, ClientError> {
+    FeedbackCategory::try_from(raw).map_err(|_| {
+        ClientError::Other(
+            "category must be `environment`, `codebase`, `instruction`, or `other`"
+                .to_string(),
+        )
+    })
+}
+
+fn truncate(value: &str, width: usize) -> String {
+    if value.chars().count() <= width {
+        return value.to_string();
+    }
+    let head: String = value.chars().take(width.saturating_sub(1)).collect();
+    format!("{head}…")
 }

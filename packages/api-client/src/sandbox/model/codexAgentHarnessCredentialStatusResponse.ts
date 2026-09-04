@@ -8,13 +8,13 @@
 
 export interface CodexAgentHarnessCredentialStatusResponse {
   /**
-   * "device_code" | "auth_json" | "api_key" — which save path produced the row.
+   * "`device_code`" | "`auth_json`" | "`api_key`" — which save path produced the row.
    * @nullable
    */
   authMethod?: string | null;
   connected: boolean;
   /**
-   * Email reported by ChatGPT account on the id_token (device-code flow only).
+   * Email reported by ChatGPT account on the `id_token` (device-code flow only).
    * @nullable
    */
   email?: string | null;

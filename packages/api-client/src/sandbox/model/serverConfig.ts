@@ -15,7 +15,7 @@ export interface ServerConfig {
   autoReload?: boolean;
   default?: boolean;
   /**
-   * Per-server Docker image. Falls back to sandbox_image if not set.
+   * Per-server Docker image. Falls back to `sandbox_image` if not set.
    * @nullable
    */
   dockerImage?: string | null;
