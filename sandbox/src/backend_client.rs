@@ -149,7 +149,10 @@ pub trait BackendClient: Send + Sync {
     }
 
     /// Report the outcome of a direct-to-S3 workspace transfer so the backend
-    /// can record comparison metrics. `format` is `"tar"` or `"mirror"`.
+    /// can record comparison metrics and publish the sandbox event. `format` is
+    /// `"tar"` or `"mirror"`. `error` is `None` on success, and otherwise the
+    /// failure this sandbox logged — the event is the only copy that outlives
+    /// the pod, so a caller that has a reason must pass it.
     /// Fire-and-forget; the default impl is a no-op.
     async fn report_workspace_sync(
         &self,
@@ -158,7 +161,7 @@ pub trait BackendClient: Send + Sync {
         _format: &str,
         _bytes: u64,
         _duration_ms: u64,
-        _ok: bool,
+        _error: Option<&str>,
     ) {
     }
 
@@ -506,7 +509,7 @@ impl BackendClient for BackendGrpcClient {
         format: &str,
         bytes: u64,
         duration_ms: u64,
-        ok: bool,
+        error: Option<&str>,
     ) {
         let mut client = self.client.clone();
         if let Err(e) = client
@@ -516,7 +519,8 @@ impl BackendClient for BackendGrpcClient {
                 format: format.to_string(),
                 bytes: bytes as i64,
                 duration_ms: duration_ms as i64,
-                ok,
+                ok: error.is_none(),
+                error: error.unwrap_or_default().to_string(),
             })
             .await
         {

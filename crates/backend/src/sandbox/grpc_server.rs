@@ -2172,6 +2172,20 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         if req.direction == "upload" {
             if let Some(task_events) = self.ingress.as_ref().map(|i| &i.task_events) {
                 let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                let mut payload = serde_json::json!({
+                    "direction": req.direction,
+                    "format": if req.format.is_empty() { "tar" } else { &req.format },
+                    "bytes": req.bytes.max(0),
+                    "durationMs": req.duration_ms.max(0),
+                    "ok": req.ok,
+                });
+                // `error` is what every reader of this event renders, and the
+                // container log holding the same reason dies with the pod. A
+                // sandbox predating the field sends none, so the key is absent
+                // rather than empty.
+                if !req.error.is_empty() {
+                    payload["error"] = serde_json::Value::String(req.error.clone());
+                }
                 let event = InsertTaskEvent {
                     event_id: uuid::Uuid::new_v4().to_string(),
                     task_id: req.task_id.clone(),
@@ -2184,13 +2198,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     is_error: !req.ok,
                     agent_type: None,
                     turn_number: None,
-                    payload: serde_json::json!({
-                        "direction": req.direction,
-                        "format": if req.format.is_empty() { "tar" } else { &req.format },
-                        "bytes": req.bytes.max(0),
-                        "durationMs": req.duration_ms.max(0),
-                        "ok": req.ok,
-                    }),
+                    payload,
                     timestamp: now,
                 };
                 if let Err(e) = task_events.insert_event(&event).await {

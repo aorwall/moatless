@@ -322,7 +322,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                     FORMAT,
                     0,
                     started.elapsed().as_millis() as u64,
-                    false,
+                    Some(&e),
                 )
                 .await;
             return RestoreDecision::Nothing;
@@ -348,7 +348,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                     FORMAT,
                     size,
                     started.elapsed().as_millis() as u64,
-                    true,
+                    None,
                 )
                 .await;
             RestoreDecision::RestoredSnapshot
@@ -368,7 +368,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                     FORMAT,
                     size,
                     started.elapsed().as_millis() as u64,
-                    false,
+                    Some(&e.to_string()),
                 )
                 .await;
             RestoreDecision::Nothing
@@ -426,7 +426,7 @@ pub async fn download_on_start(state: &SandboxState) {
                     FORMAT,
                     0,
                     started.elapsed().as_millis() as u64,
-                    false,
+                    Some(&e),
                 )
                 .await;
             return;
@@ -434,14 +434,14 @@ pub async fn download_on_start(state: &SandboxState) {
     };
 
     let size = bytes.len() as u64;
-    let ok = match extract_tar(bytes, repo_dir.clone()).await {
+    let error = match extract_tar(bytes, repo_dir.clone()).await {
         Ok(()) => {
             info!(task_id = %task_id, bytes = size, dir = %repo_dir.display(), "Restored workspace from S3");
-            true
+            None
         }
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Failed to extract workspace (non-fatal)");
-            false
+            Some(e.to_string())
         }
     };
     state
@@ -452,7 +452,7 @@ pub async fn download_on_start(state: &SandboxState) {
             FORMAT,
             size,
             started.elapsed().as_millis() as u64,
-            ok,
+            error.as_deref(),
         )
         .await;
 }
@@ -541,20 +541,20 @@ async fn upload_from_config(config: &Config, backend_client: &dyn BackendClient)
 
     let bytes = tar.len() as u64;
     let started = Instant::now();
-    let ok = match http_client(HTTP_TIMEOUT) {
+    let error = match http_client(HTTP_TIMEOUT) {
         Ok(client) => match http_put(&client, &urls.put_url, tar).await {
             Ok(()) => {
                 debug!(task_id = %task_id, bytes = bytes, "Uploaded workspace to S3");
-                true
+                None
             }
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Workspace upload failed (non-fatal)");
-                false
+                Some(e)
             }
         },
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Workspace upload client build failed (non-fatal)");
-            false
+            Some(e)
         }
     };
     backend_client
@@ -564,10 +564,11 @@ async fn upload_from_config(config: &Config, backend_client: &dyn BackendClient)
             FORMAT,
             bytes,
             started.elapsed().as_millis() as u64,
-            ok,
+            error.as_deref(),
         )
         .await;
 
+    let ok = error.is_none();
     SyncOutcome {
         synced: ok,
         bytes: if ok { bytes } else { 0 },

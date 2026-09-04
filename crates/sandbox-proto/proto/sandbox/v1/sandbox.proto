@@ -152,6 +152,9 @@ message ReportWorkspaceSyncRequest {
   int64 duration_ms = 4;
   bool ok = 5;
   string format = 6;       // "tar" | "mirror"; empty from a pre-mirror sandbox
+  // Why the transfer failed, as the sandbox logged it. Empty when `ok`, and
+  // empty from a sandbox predating this field.
+  string error = 7;
 }
 
 message ReportWorkspaceSyncResponse {}

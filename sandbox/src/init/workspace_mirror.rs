@@ -316,7 +316,7 @@ pub(super) async fn upload(
     )
     .await;
 
-    let (ok, bytes) = match outcome {
+    let (error, bytes) = match outcome {
         Ok(bytes) => {
             info!(
                 task_id = %task_id,
@@ -326,11 +326,11 @@ pub(super) async fn upload(
                 "Mirrored workspace changes to S3"
             );
             *baseline = Some(manifest);
-            (true, bytes)
+            (None, bytes)
         }
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Workspace mirror upload failed (non-fatal)");
-            (false, 0)
+            (Some(e), 0)
         }
     };
 
@@ -341,10 +341,11 @@ pub(super) async fn upload(
             FORMAT,
             bytes,
             started.elapsed().as_millis() as u64,
-            ok,
+            error.as_deref(),
         )
         .await;
 
+    let ok = error.is_none();
     Ok(SyncOutcome {
         synced: ok,
         bytes: if ok { bytes } else { 0 },
@@ -521,7 +522,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
                     FORMAT,
                     0,
                     started.elapsed().as_millis() as u64,
-                    false,
+                    Some(&e),
                 )
                 .await;
             return None;
@@ -543,7 +544,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
             FORMAT,
             bytes,
             started.elapsed().as_millis() as u64,
-            true,
+            None,
         )
         .await;
     Some(RestoreDecision::RestoredSnapshot)
