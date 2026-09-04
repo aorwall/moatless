@@ -27,4 +27,5 @@ export const AgentSubType = {
   session_context_lost: 'session_context_lost',
   activity: 'activity',
   context_window: 'context_window',
+  commands_changed: 'commands_changed',
 } as const;

@@ -3,7 +3,8 @@
 
 use clap::Subcommand;
 use moatless_api_schemas::feedback::{
-    CreateFeedbackRequest, FeedbackCategory, FeedbackSource, FeedbackSurface, ListAllFeedbackQuery,
+    CreateFeedbackRequest, FeedbackCategory, FeedbackSource, FeedbackStatus, FeedbackSurface,
+    ListAllFeedbackQuery, UpdateFeedbackStatusRequest,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -36,6 +37,9 @@ pub enum FeedbackAction {
         /// or `other`
         #[arg(long)]
         category: Option<String>,
+        /// Triage state: `open`, `fixed`, or `not_relevant`
+        #[arg(long)]
+        status: Option<String>,
         /// User id of the submitter
         #[arg(long = "created-by")]
         created_by: Option<String>,
@@ -49,6 +53,17 @@ pub enum FeedbackAction {
         /// Print every comment in full instead of one truncated row each
         #[arg(long)]
         full: bool,
+    },
+    /// Set the triage state of one feedback item
+    Status {
+        /// Feedback id, as printed by `feedback list`
+        feedback_id: String,
+        /// `open`, `fixed`, or `not_relevant`
+        #[arg(long)]
+        status: String,
+        /// Why. Replaces the note the previous status carried
+        #[arg(long)]
+        note: Option<String>,
     },
 }
 
@@ -89,6 +104,28 @@ pub async fn run(client: &MoatClient, args: FeedbackArgs, json: bool) -> Result<
     Ok(())
 }
 
+pub async fn set_status(
+    client: &MoatClient,
+    feedback_id: String,
+    status: String,
+    note: Option<String>,
+    json: bool,
+) -> Result<(), ClientError> {
+    let req = UpdateFeedbackStatusRequest {
+        status: parse_status(&status)?,
+        note,
+    };
+
+    let resp = client.api().set_feedback_status(&feedback_id, &req).await?;
+
+    if json {
+        output::print_json_typed(&resp);
+    } else {
+        println!("Marked {} {}", resp.feedback_id, resp.status);
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments, reason = "one parameter per CLI filter flag")]
 pub async fn list(
     client: &MoatClient,
@@ -98,6 +135,7 @@ pub async fn list(
     source: Option<String>,
     surface: Option<String>,
     category: Option<String>,
+    status: Option<String>,
     created_by: Option<String>,
     since: Option<String>,
     limit: i64,
@@ -112,6 +150,7 @@ pub async fn list(
         source: source.as_deref().map(parse_source).transpose()?,
         surface: surface.as_deref().map(parse_surface).transpose()?,
         category: category.as_deref().map(parse_category).transpose()?,
+        status: status.as_deref().map(parse_status).transpose()?,
         created_by,
         since,
         limit: Some(limit),
@@ -135,15 +174,19 @@ pub async fn list(
             let f = &item.feedback;
             println!("{}", "-".repeat(100));
             println!(
-                "{}  {}/{}  [{}]  {}  {}",
+                "{}  {}/{}  [{}]  {}  {}  {}",
                 f.created_at,
                 f.source,
                 f.surface,
                 f.category.map_or("-", |c| c.as_str()),
+                f.status,
                 item.repository_name.as_deref().unwrap_or(&item.repository_id),
                 item.task_title
             );
             println!("task {}  feedback {}", f.task_id, f.feedback_id);
+            if let Some(note) = &f.status_note {
+                println!("status note: {note}");
+            }
             println!("{}", f.comment);
         }
     } else {
@@ -157,6 +200,7 @@ pub async fn list(
                     f.source.to_string(),
                     f.surface.to_string(),
                     f.category.map_or("-", |c| c.as_str()).to_string(),
+                    f.status.to_string(),
                     item.repository_name
                         .clone()
                         .unwrap_or_else(|| item.repository_id.clone()),
@@ -167,7 +211,7 @@ pub async fn list(
             .collect();
         output::print_table(
             &[
-                "CREATED", "SOURCE", "SURFACE", "CATEGORY", "REPO", "TASK", "COMMENT",
+                "CREATED", "SOURCE", "SURFACE", "CATEGORY", "STATUS", "REPO", "TASK", "COMMENT",
             ],
             &rows,
         );
@@ -201,6 +245,12 @@ fn parse_category(raw: &str) -> Result<FeedbackCategory, ClientError> {
             "category must be `environment`, `codebase`, `instruction`, or `other`"
                 .to_string(),
         )
+    })
+}
+
+fn parse_status(raw: &str) -> Result<FeedbackStatus, ClientError> {
+    FeedbackStatus::try_from(raw).map_err(|_| {
+        ClientError::Other("status must be `open`, `fixed`, or `not_relevant`".to_string())
     })
 }
 

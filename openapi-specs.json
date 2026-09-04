@@ -2759,6 +2759,21 @@
             }
           },
           {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/FeedbackStatus"
+                }
+              ]
+            }
+          },
+          {
             "name": "createdBy",
             "in": "query",
             "description": "User id of the submitter.",
@@ -2870,6 +2885,68 @@
           },
           "404": {
             "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/feedback/{feedback_id}/status": {
+      "patch": {
+        "tags": [
+          "feedback"
+        ],
+        "summary": "Set a note's triage status. The row records who set it, so a note closed by\nthe same context that filed it stays visible as such.",
+        "operationId": "set_feedback_status",
+        "parameters": [
+          {
+            "name": "feedback_id",
+            "in": "path",
+            "description": "Feedback identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateFeedbackStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Status set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Feedback not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -9577,7 +9654,8 @@
           "recovery_exhausted",
           "session_context_lost",
           "activity",
-          "context_window"
+          "context_window",
+          "commands_changed"
         ]
       },
       "AgentType": {
@@ -11540,7 +11618,8 @@
           "surface",
           "comment",
           "createdBy",
-          "createdAt"
+          "createdAt",
+          "status"
         ],
         "properties": {
           "category": {
@@ -11575,6 +11654,30 @@
           "source": {
             "$ref": "#/components/schemas/FeedbackSource"
           },
+          "status": {
+            "$ref": "#/components/schemas/FeedbackStatus"
+          },
+          "statusNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the current status was set."
+          },
+          "statusUpdatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 instant the status was last set."
+          },
+          "statusUpdatedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "User id of the reader who set the current status."
+          },
           "surface": {
             "$ref": "#/components/schemas/FeedbackSurface"
           },
@@ -11595,6 +11698,15 @@
         "enum": [
           "user",
           "agent"
+        ]
+      },
+      "FeedbackStatus": {
+        "type": "string",
+        "description": "What a reader decided about a note, orthogonal to [`FeedbackCategory`],\nwhich says what the note is about. A submitter never sets it: a row is\nwritten `Open` and only a reader working the inbox moves it.",
+        "enum": [
+          "open",
+          "fixed",
+          "not_relevant"
         ]
       },
       "FeedbackSurface": {
@@ -17811,6 +17923,25 @@
               "null"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "UpdateFeedbackStatusRequest": {
+        "type": "object",
+        "description": "Request body for `PATCH /api/v1/feedback/{feedback_id}/status`.",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why. Replaces the note the previous status carried; an empty string\nreads as none."
+          },
+          "status": {
+            "$ref": "#/components/schemas/FeedbackStatus"
           }
         }
       },

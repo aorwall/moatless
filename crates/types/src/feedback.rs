@@ -1,4 +1,5 @@
-//! Feedback vocabulary: who submitted a note, and about what.
+//! Feedback vocabulary: who submitted a note, what it is about, and what a
+//! reader decided about it.
 
 crate::string_enum!(
     /// Submitter of a feedback row — derived from auth context on the server.
@@ -38,5 +39,19 @@ crate::string_enum!(
         Instruction => "instruction",
         /// Anything the other categories do not cover.
         Other => "other",
+    }
+);
+
+crate::string_enum!(
+    /// What a reader decided about a note, orthogonal to [`FeedbackCategory`],
+    /// which says what the note is about. A submitter never sets it: a row is
+    /// written `Open` and only a reader working the inbox moves it.
+    FeedbackStatus {
+        /// Nobody has triaged the note yet.
+        Open => "open",
+        /// The problem the note names is fixed.
+        Fixed => "fixed",
+        /// The note names nothing to act on.
+        NotRelevant => "not_relevant",
     }
 );

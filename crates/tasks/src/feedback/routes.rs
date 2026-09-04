@@ -19,6 +19,7 @@ use moatless_core::http_auth::UserTokenVerifier;
     ),
     paths(
         handlers::create_feedback,
+        handlers::set_feedback_status,
         handlers::list_task_feedback,
         handlers::list_all_feedback,
     )
@@ -42,6 +43,7 @@ where
 {
     let (router, api) = OpenApiRouter::with_openapi(FeedbackApiDoc::openapi())
         .routes(routes!(handlers::create_feedback))
+        .routes(routes!(handlers::set_feedback_status))
         .routes(routes!(handlers::list_task_feedback))
         .routes(routes!(handlers::list_all_feedback))
         .with_state(state)

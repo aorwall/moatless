@@ -11,6 +11,9 @@ pub use moatless_types::feedback::FeedbackSurface;
 /// What the note is about.
 pub use moatless_types::feedback::FeedbackCategory;
 
+/// What a reader decided about the note.
+pub use moatless_types::feedback::FeedbackStatus;
+
 /// Request body for `POST /api/v1/feedback`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -49,6 +52,28 @@ pub struct FeedbackResponse {
     pub metadata: Option<serde_json::Value>,
     pub created_by: String,
     pub created_at: String,
+    pub status: FeedbackStatus,
+    /// Why the current status was set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_note: Option<String>,
+    /// User id of the reader who set the current status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_updated_by: Option<String>,
+    /// RFC 3339 instant the status was last set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_updated_at: Option<String>,
+}
+
+/// Request body for `PATCH /api/v1/feedback/{feedback_id}/status`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateFeedbackStatusRequest {
+    pub status: FeedbackStatus,
+    /// Why. Replaces the note the previous status carried; an empty string
+    /// reads as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Response wrapper for `GET /api/v1/tasks/{task_id}/feedback`.
@@ -74,6 +99,7 @@ pub struct ListAllFeedbackQuery {
     pub source: Option<FeedbackSource>,
     pub surface: Option<FeedbackSurface>,
     pub category: Option<FeedbackCategory>,
+    pub status: Option<FeedbackStatus>,
     /// User id of the submitter.
     pub created_by: Option<String>,
     /// RFC 3339 instant; keeps feedback created at or after it.

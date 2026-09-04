@@ -30,7 +30,8 @@ import type {
   FeedbackResponse,
   ListAllFeedbackParams,
   ListAllFeedbackResponse,
-  ListFeedbackResponse
+  ListFeedbackResponse,
+  UpdateFeedbackStatusRequest
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -287,6 +288,103 @@ export const useCreateFeedback = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getCreateFeedbackMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Set a note's triage status. The row records who set it, so a note closed by
+the same context that filed it stays visible as such.
+ */
+export type setFeedbackStatusResponse200 = {
+  data: FeedbackResponse
+  status: 200
+}
+
+export type setFeedbackStatusResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type setFeedbackStatusResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type setFeedbackStatusResponseSuccess = (setFeedbackStatusResponse200) & {
+  headers: Headers;
+};
+export type setFeedbackStatusResponseError = (setFeedbackStatusResponse400 | setFeedbackStatusResponse404) & {
+  headers: Headers;
+};
+
+export type setFeedbackStatusResponse = (setFeedbackStatusResponseSuccess | setFeedbackStatusResponseError)
+
+export const getSetFeedbackStatusUrl = (feedbackId: string,) => {
+
+
+  
+
+  return `/api/v1/feedback/${feedbackId}/status`
+}
+
+export const setFeedbackStatus = async (feedbackId: string,
+    updateFeedbackStatusRequest: UpdateFeedbackStatusRequest, options?: RequestInit): Promise<setFeedbackStatusResponse> => {
+  
+  return customInstance<setFeedbackStatusResponse>(getSetFeedbackStatusUrl(feedbackId),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateFeedbackStatusRequest,)
+  }
+);}
+
+
+
+
+export const getSetFeedbackStatusMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setFeedbackStatus>>, TError,{feedbackId: string;data: UpdateFeedbackStatusRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof setFeedbackStatus>>, TError,{feedbackId: string;data: UpdateFeedbackStatusRequest}, TContext> => {
+
+const mutationKey = ['setFeedbackStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setFeedbackStatus>>, {feedbackId: string;data: UpdateFeedbackStatusRequest}> = (props) => {
+          const {feedbackId,data} = props ?? {};
+
+          return  setFeedbackStatus(feedbackId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetFeedbackStatusMutationResult = NonNullable<Awaited<ReturnType<typeof setFeedbackStatus>>>
+    export type SetFeedbackStatusMutationBody = UpdateFeedbackStatusRequest
+    export type SetFeedbackStatusMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Set a note's triage status. The row records who set it, so a note closed by
+the same context that filed it stays visible as such.
+ */
+export const useSetFeedbackStatus = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setFeedbackStatus>>, TError,{feedbackId: string;data: UpdateFeedbackStatusRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setFeedbackStatus>>,
+        TError,
+        {feedbackId: string;data: UpdateFeedbackStatusRequest},
+        TContext
+      > => {
+      return useMutation(getSetFeedbackStatusMutationOptions(options), queryClient);
     }
     /**
  * @summary List all feedback rows for a task, ordered oldest → newest. Used by the

@@ -7,6 +7,7 @@
  */
 import type { FeedbackCategory } from './feedbackCategory';
 import type { FeedbackSource } from './feedbackSource';
+import type { FeedbackStatus } from './feedbackStatus';
 import type { FeedbackSurface } from './feedbackSurface';
 
 /**
@@ -22,6 +23,22 @@ export interface FeedbackResponse {
   messageUuid?: string | null;
   metadata?: unknown;
   source: FeedbackSource;
+  status: FeedbackStatus;
+  /**
+   * Why the current status was set.
+   * @nullable
+   */
+  statusNote?: string | null;
+  /**
+   * RFC 3339 instant the status was last set.
+   * @nullable
+   */
+  statusUpdatedAt?: string | null;
+  /**
+   * User id of the reader who set the current status.
+   * @nullable
+   */
+  statusUpdatedBy?: string | null;
   surface: FeedbackSurface;
   taskId: string;
   /** @nullable */

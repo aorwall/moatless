@@ -16,14 +16,18 @@ use super::error::{FeedbackError, UnknownFeedbackDiscriminant};
 use super::models::{Feedback, FeedbackWithTask};
 use super::schemas::{
     CreateFeedbackRequest, FeedbackListItem, FeedbackResponse, ListAllFeedbackQuery,
-    ListAllFeedbackResponse, ListFeedbackResponse,
+    ListAllFeedbackResponse, ListFeedbackResponse, UpdateFeedbackStatusRequest,
 };
-use moatless_types::feedback::{FeedbackCategory, FeedbackSource, FeedbackSurface};
+use moatless_types::feedback::{FeedbackCategory, FeedbackSource, FeedbackStatus, FeedbackSurface};
 
 /// Page size when the caller names none, and the ceiling a larger one is
 /// clamped to.
 const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 200;
+
+/// Longest status note accepted. A note says why a status was set; the
+/// argument for it belongs in the issue the status points at.
+const MAX_STATUS_NOTE: usize = 2_000;
 
 /// Create a new feedback row scoped to a task (and optionally a message
 /// or tool call within that task).
@@ -128,6 +132,10 @@ pub async fn create_feedback(
         metadata: req.metadata.clone(),
         created_by: auth.user_id.clone().to_string(),
         created_at: Utc::now(),
+        status: FeedbackStatus::Open.as_str().to_string(),
+        status_note: None,
+        status_updated_by: None,
+        status_updated_at: None,
     };
 
     feedback.insert(&row).await?;
@@ -143,6 +151,74 @@ pub async fn create_feedback(
     );
 
     Ok(Json(to_response(&row)?))
+}
+
+/// Set a note's triage status. The row records who set it, so a note closed by
+/// the same context that filed it stays visible as such.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/feedback/{feedback_id}/status",
+    tag = "feedback",
+    params(
+        ("feedback_id" = String, Path, description = "Feedback identifier")
+    ),
+    request_body = UpdateFeedbackStatusRequest,
+    responses(
+        (status = 200, description = "Status set", body = FeedbackResponse),
+        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Feedback not found", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn set_feedback_status(
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(feedback): State<Arc<dyn FeedbackDao>>,
+    auth: AuthUser,
+    Path(feedback_id): Path<String>,
+    Json(req): Json<UpdateFeedbackStatusRequest>,
+) -> Result<Json<FeedbackResponse>, FeedbackError> {
+    let note = req
+        .note
+        .as_deref()
+        .map(str::trim)
+        .filter(|note| !note.is_empty())
+        .map(str::to_string);
+    if note.as_deref().is_some_and(|note| note.len() > MAX_STATUS_NOTE) {
+        return Err(FeedbackError::BadRequest(format!(
+            "note too long (max {MAX_STATUS_NOTE})"
+        )));
+    }
+
+    let row = feedback
+        .find_by_id(&feedback_id)
+        .await?
+        .ok_or_else(|| FeedbackError::FeedbackNotFound(feedback_id.clone()))?;
+
+    // Access control reads the note's task: `feedback` carries no scope columns
+    // of its own, so a row is writable exactly when its task is readable.
+    tasks
+        .find_by_id(&row.task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| FeedbackError::FeedbackNotFound(feedback_id.clone()))?;
+
+    let updated = feedback
+        .update_status(
+            &feedback_id,
+            req.status.as_str(),
+            note,
+            &auth.user_id.clone().to_string(),
+        )
+        .await?
+        .ok_or_else(|| FeedbackError::FeedbackNotFound(feedback_id.clone()))?;
+
+    tracing::info!(
+        task_id = %updated.task_id,
+        feedback_id = %updated.feedback_id,
+        status = %updated.status,
+        status_updated_by = ?updated.status_updated_by,
+        "Feedback status set"
+    );
+
+    Ok(Json(to_response(&updated)?))
 }
 
 /// List all feedback rows for a task, ordered oldest → newest. Used by the
@@ -214,6 +290,7 @@ pub async fn list_all_feedback(
         source: query.source.map(|s| s.as_str().to_string()),
         surface: query.surface.map(|s| s.as_str().to_string()),
         category: query.category.map(|c| c.as_str().to_string()),
+        status: query.status.map(|s| s.as_str().to_string()),
         created_by: query.created_by,
         since,
         limit,
@@ -298,6 +375,11 @@ fn to_response(row: &Feedback) -> Result<FeedbackResponse, FeedbackError> {
             column: "category",
             value: row.category.clone().unwrap_or_default(),
         })?;
+    let status =
+        FeedbackStatus::try_from(row.status.as_str()).map_err(|_| UnknownFeedbackDiscriminant {
+            column: "status",
+            value: row.status.clone(),
+        })?;
     Ok(FeedbackResponse {
         feedback_id: row.feedback_id.clone(),
         task_id: row.task_id.clone(),
@@ -312,5 +394,11 @@ fn to_response(row: &Feedback) -> Result<FeedbackResponse, FeedbackError> {
         created_at: row
             .created_at
             .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        status,
+        status_note: row.status_note.clone(),
+        status_updated_by: row.status_updated_by.clone(),
+        status_updated_at: row
+            .status_updated_at
+            .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
     })
 }

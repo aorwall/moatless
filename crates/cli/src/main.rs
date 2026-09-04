@@ -525,6 +525,7 @@ async fn run_shared(
                 source,
                 surface,
                 category,
+                status,
                 created_by,
                 since,
                 limit,
@@ -532,10 +533,17 @@ async fn run_shared(
                 full,
             }) => {
                 commands::feedback::list(
-                    moat, workspace, repo, task, source, surface, category, created_by, since,
-                    limit, offset, full, json,
+                    moat, workspace, repo, task, source, surface, category, status, created_by,
+                    since, limit, offset, full, json,
                 )
                 .await?;
+            }
+            Some(commands::feedback::FeedbackAction::Status {
+                feedback_id,
+                status,
+                note,
+            }) => {
+                commands::feedback::set_status(moat, feedback_id, status, note, json).await?;
             }
             None => {
                 let comment = comment

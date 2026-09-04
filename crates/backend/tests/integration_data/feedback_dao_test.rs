@@ -71,6 +71,7 @@ fn filter() -> FeedbackFilter {
         source: None,
         surface: None,
         category: None,
+        status: None,
         created_by: None,
         since: None,
         limit: 50,
@@ -91,6 +92,10 @@ fn sample(feedback_id: &str, task_id: &str, surface: &str) -> Feedback {
         metadata: None,
         created_by: "user-1".to_string(),
         created_at: Utc::now(),
+        status: "open".to_string(),
+        status_note: None,
+        status_updated_by: None,
+        status_updated_at: None,
     }
 }
 
@@ -135,6 +140,82 @@ async fn list_for_task_filters_and_orders(pool: PgPool) {
     let other = dao.list_for_task("task-B").await.unwrap();
     assert_eq!(other.len(), 1);
     assert_eq!(other[0].feedback_id, "fb-b1");
+}
+
+#[sqlx::test]
+async fn a_new_row_is_open_with_no_status_metadata(pool: PgPool) {
+    let dao = PgFeedbackDao(pool);
+    dao.insert(&sample("fb-1", "task-1", "task")).await.unwrap();
+
+    let fetched = dao.find_by_id("fb-1").await.unwrap().unwrap();
+    assert_eq!(fetched.status, "open");
+    assert!(fetched.status_note.is_none());
+    assert!(fetched.status_updated_by.is_none());
+    assert!(fetched.status_updated_at.is_none());
+}
+
+#[sqlx::test]
+async fn update_status_sets_note_and_stamps_the_reader(pool: PgPool) {
+    let dao = PgFeedbackDao(pool);
+    dao.insert(&sample("fb-1", "task-1", "task")).await.unwrap();
+
+    let updated = dao
+        .update_status("fb-1", "fixed", Some("landed in #700".to_string()), "reader-1")
+        .await
+        .unwrap()
+        .expect("row exists");
+    assert_eq!(updated.status, "fixed");
+    assert_eq!(updated.status_note.as_deref(), Some("landed in #700"));
+    assert_eq!(updated.status_updated_by.as_deref(), Some("reader-1"));
+    assert!(updated.status_updated_at.is_some());
+
+    // A later status with no note clears the previous reason rather than
+    // inheriting it.
+    let cleared = dao
+        .update_status("fb-1", "not_relevant", None, "reader-2")
+        .await
+        .unwrap()
+        .expect("row exists");
+    assert_eq!(cleared.status, "not_relevant");
+    assert!(cleared.status_note.is_none());
+    assert_eq!(cleared.status_updated_by.as_deref(), Some("reader-2"));
+}
+
+#[sqlx::test]
+async fn update_status_is_none_for_an_unknown_id(pool: PgPool) {
+    let dao = PgFeedbackDao(pool);
+    let missing = dao
+        .update_status("nope", "fixed", None, "reader-1")
+        .await
+        .unwrap();
+    assert!(missing.is_none());
+}
+
+#[sqlx::test]
+async fn list_filters_by_status(pool: PgPool) {
+    seed_task(&pool, "task-A", "repo-a", None).await;
+    let dao = PgFeedbackDao(pool);
+    dao.insert(&sample("fb-open", "task-A", "task")).await.unwrap();
+    dao.insert(&sample("fb-fixed", "task-A", "task")).await.unwrap();
+    dao.update_status("fb-fixed", "fixed", None, "reader-1")
+        .await
+        .unwrap();
+
+    let fixed = FeedbackFilter {
+        status: Some("fixed".to_string()),
+        ..filter()
+    };
+    let (items, total) = dao.list(&fixed).await.unwrap();
+    assert_eq!(total, 1);
+    assert_eq!(items[0].feedback.feedback_id, "fb-fixed");
+
+    let open = FeedbackFilter {
+        status: Some("open".to_string()),
+        ..filter()
+    };
+    let (items, total) = dao.list(&open).await.unwrap();
+    assert_eq!(total, 1);
+    assert_eq!(items[0].feedback.feedback_id, "fb-open");
 }
 
 #[sqlx::test]

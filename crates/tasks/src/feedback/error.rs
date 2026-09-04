@@ -20,6 +20,11 @@ pub enum FeedbackError {
     #[error("Task not found: {0}")]
     TaskNotFound(String),
 
+    /// Also raised when the row exists on a task the caller cannot read: a
+    /// distinct response there would tell a stranger the note exists.
+    #[error("Feedback not found: {0}")]
+    FeedbackNotFound(String),
+
     #[error("Invalid request: {0}")]
     BadRequest(String),
 
@@ -43,7 +48,9 @@ pub enum FeedbackError {
 impl IntoResponse for FeedbackError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            Self::TaskNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
+            Self::TaskNotFound(_) | Self::FeedbackNotFound(_) => {
+                (StatusCode::NOT_FOUND, self.to_string())
+            }
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::Db(_) | Self::UnreadableRow(_) => {
                 tracing::error!(

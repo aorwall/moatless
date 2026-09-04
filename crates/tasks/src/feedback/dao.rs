@@ -22,6 +22,9 @@ pub struct FeedbackFilter {
     pub surface: Option<String>,
     /// Already validated against `FeedbackCategory`.
     pub category: Option<String>,
+    /// `'open' | 'fixed' | 'not_relevant'`, already validated against
+    /// `FeedbackStatus`.
+    pub status: Option<String>,
     pub created_by: Option<String>,
     /// Keeps rows created at or after this instant.
     pub since: Option<DateTime<Utc>>,
@@ -39,6 +42,19 @@ pub trait FeedbackDao: Send + Sync {
     async fn find_by_id(&self, feedback_id: &str) -> Result<Option<Feedback>, sqlx::Error>;
     /// List all feedback rows for a task, ordered oldest → newest.
     async fn list_for_task(&self, task_id: &str) -> Result<Vec<Feedback>, sqlx::Error>;
+    /// Set a row's triage status and return it, or `None` when no row carries
+    /// `feedback_id`. `note` replaces whatever note the previous status
+    /// carried: a note explains the status beside it, so an unexplained status
+    /// change clears the old reason rather than inheriting it. The caller
+    /// checks access to the row's task first — `feedback` carries no scope
+    /// columns of its own.
+    async fn update_status(
+        &self,
+        feedback_id: &str,
+        status: &str,
+        note: Option<String>,
+        updated_by: &str,
+    ) -> Result<Option<Feedback>, sqlx::Error>;
     /// List feedback across tasks the caller may read, newest first, with the
     /// total matching the filter before paging.
     async fn list(
@@ -60,8 +76,9 @@ impl FeedbackDao for PgFeedbackDao {
         sqlx::query(
             r#"INSERT INTO feedback (
                 feedback_id, task_id, message_uuid, tool_use_id,
-                source, surface, category, comment, metadata, created_by, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
+                source, surface, category, comment, metadata, created_by, created_at,
+                status, status_note, status_updated_by, status_updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)"#,
         )
         .bind(&row.feedback_id)
         .bind(&row.task_id)
@@ -74,6 +91,10 @@ impl FeedbackDao for PgFeedbackDao {
         .bind(&row.metadata)
         .bind(&row.created_by)
         .bind(row.created_at)
+        .bind(&row.status)
+        .bind(&row.status_note)
+        .bind(&row.status_updated_by)
+        .bind(row.status_updated_at)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -83,7 +104,8 @@ impl FeedbackDao for PgFeedbackDao {
         sqlx::query_as::<_, Feedback>(
             r#"SELECT
                 feedback_id, task_id, message_uuid, tool_use_id,
-                source, surface, category, comment, metadata, created_by, created_at
+                source, surface, category, comment, metadata, created_by, created_at,
+                status, status_note, status_updated_by, status_updated_at
                FROM feedback
                WHERE feedback_id = $1"#,
         )
@@ -96,13 +118,41 @@ impl FeedbackDao for PgFeedbackDao {
         sqlx::query_as::<_, Feedback>(
             r#"SELECT
                 feedback_id, task_id, message_uuid, tool_use_id,
-                source, surface, category, comment, metadata, created_by, created_at
+                source, surface, category, comment, metadata, created_by, created_at,
+                status, status_note, status_updated_by, status_updated_at
                FROM feedback
                WHERE task_id = $1
                ORDER BY created_at ASC, id ASC"#,
         )
         .bind(task_id)
         .fetch_all(&self.0)
+        .await
+    }
+
+    async fn update_status(
+        &self,
+        feedback_id: &str,
+        status: &str,
+        note: Option<String>,
+        updated_by: &str,
+    ) -> Result<Option<Feedback>, sqlx::Error> {
+        sqlx::query_as::<_, Feedback>(
+            r#"UPDATE feedback
+                  SET status = $2,
+                      status_note = $3,
+                      status_updated_by = $4,
+                      status_updated_at = now()
+                WHERE feedback_id = $1
+            RETURNING
+                feedback_id, task_id, message_uuid, tool_use_id,
+                source, surface, category, comment, metadata, created_by, created_at,
+                status, status_note, status_updated_by, status_updated_at"#,
+        )
+        .bind(feedback_id)
+        .bind(status)
+        .bind(&note)
+        .bind(updated_by)
+        .fetch_optional(&self.0)
         .await
     }
 
@@ -160,6 +210,10 @@ impl FeedbackDao for PgFeedbackDao {
             metadata: Option<serde_json::Value>,
             created_by: Option<String>,
             created_at: Option<DateTime<Utc>>,
+            status: Option<String>,
+            status_note: Option<String>,
+            status_updated_by: Option<String>,
+            status_updated_at: Option<DateTime<Utc>>,
             task_name: Option<String>,
             task_description: Option<String>,
             repository_id: Option<String>,
@@ -200,6 +254,10 @@ impl FeedbackDao for PgFeedbackDao {
                         metadata: self.metadata,
                         created_by: self.created_by?,
                         created_at: self.created_at?,
+                        status: self.status?,
+                        status_note: self.status_note,
+                        status_updated_by: self.status_updated_by,
+                        status_updated_at: self.status_updated_at,
                     },
                     task_title,
                     repository_id: self.repository_id?,
@@ -225,6 +283,7 @@ impl FeedbackDao for PgFeedbackDao {
                     f.id AS seq, f.feedback_id, f.task_id, f.message_uuid, f.tool_use_id,
                     f.source, f.surface, f.category, f.comment, f.metadata,
                     f.created_by, f.created_at,
+                    f.status, f.status_note, f.status_updated_by, f.status_updated_at,
                     t.name AS task_name, t.description AS task_description,
                     t.repository_id, t.workspace_id
                 FROM feedback f
@@ -238,12 +297,13 @@ impl FeedbackDao for PgFeedbackDao {
                   AND ($8::text IS NULL OR f.category = $8)
                   AND ($9::text IS NULL OR f.created_by = $9)
                   AND ($10::timestamptz IS NULL OR f.created_at >= $10)
+                  AND ($11::text IS NULL OR f.status = $11)
             ),
             total AS (SELECT COUNT(*) AS total_count FROM filtered),
             page AS (
                 SELECT * FROM filtered
                 ORDER BY created_at DESC, seq DESC
-                LIMIT $11 OFFSET $12
+                LIMIT $12 OFFSET $13
             )
             SELECT tot.total_count, p.*
             FROM total tot
@@ -263,6 +323,7 @@ impl FeedbackDao for PgFeedbackDao {
             .bind(&filter.category)
             .bind(&filter.created_by)
             .bind(filter.since)
+            .bind(&filter.status)
             .bind(filter.limit)
             .bind(filter.offset)
             .fetch_all(&self.0)

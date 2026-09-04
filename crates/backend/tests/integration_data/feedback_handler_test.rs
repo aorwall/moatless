@@ -21,7 +21,7 @@ use moatless_backend::repository::dao as repository_dao;
 use moatless_backend::task::dao as task_dao;
 use moatless_backend::task_activities::mapping::ConversationWrite;
 
-use common::{authed_json_request, body_json, make_message_row, make_repository_row, make_task_row, test_app_state, USER_1};
+use common::{authed_json_request, body_json, make_message_row, make_repository_row, make_task_row, test_app_state, USER_1, USER_2};
 
 fn build_router(pool: PgPool) -> axum::Router {
     let state = test_app_state(pool);
@@ -229,6 +229,78 @@ async fn list_all_feedback_resolves_repository_name(pool: PgPool) {
     let body = body_json(list_resp).await;
     assert_eq!(body["items"][0]["repositoryId"], "repo-1");
     assert_eq!(body["items"][0]["repositoryName"], "repo-repo-1");
+}
+
+/// A note is filed `open`; a status patch moves it and stamps the reader.
+#[sqlx::test]
+async fn set_feedback_status_moves_the_note_and_records_who(pool: PgPool) {
+    seed_task(&pool, "task-1", USER_1).await;
+    let app = build_router(pool);
+
+    let create = authed_json_request(
+        "POST",
+        "/api/v1/feedback",
+        USER_1,
+        unscoped_task_feedback("the skill did not trigger"),
+    );
+    let created = body_json(app.clone().oneshot(create).await.unwrap()).await;
+    assert_eq!(created["status"], "open");
+    let id = created["feedbackId"].as_str().unwrap();
+
+    let patch = authed_json_request(
+        "PATCH",
+        &format!("/api/v1/feedback/{id}/status"),
+        USER_1,
+        serde_json::json!({ "status": "fixed", "note": "fixed in #700" }),
+    );
+    let resp = app.oneshot(patch).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert_eq!(body["status"], "fixed");
+    assert_eq!(body["statusNote"], "fixed in #700");
+    assert_eq!(body["statusUpdatedBy"], USER_1);
+    assert!(body["statusUpdatedAt"].is_string());
+}
+
+/// A stranger to the note's task gets the same 404 as a missing id, so the
+/// response never confirms the note exists.
+#[sqlx::test]
+async fn set_feedback_status_hides_a_note_on_an_unreadable_task(pool: PgPool) {
+    seed_task(&pool, "task-1", USER_1).await;
+    let app = build_router(pool);
+
+    let create = authed_json_request(
+        "POST",
+        "/api/v1/feedback",
+        USER_1,
+        unscoped_task_feedback("owner-only note"),
+    );
+    let created = body_json(app.clone().oneshot(create).await.unwrap()).await;
+    let id = created["feedbackId"].as_str().unwrap();
+
+    let patch = authed_json_request(
+        "PATCH",
+        &format!("/api/v1/feedback/{id}/status"),
+        USER_2,
+        serde_json::json!({ "status": "fixed" }),
+    );
+    let resp = app.oneshot(patch).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test]
+async fn set_feedback_status_404s_for_an_unknown_id(pool: PgPool) {
+    seed_task(&pool, "task-1", USER_1).await;
+    let app = build_router(pool);
+
+    let patch = authed_json_request(
+        "PATCH",
+        "/api/v1/feedback/nope/status",
+        USER_1,
+        serde_json::json!({ "status": "fixed" }),
+    );
+    let resp = app.oneshot(patch).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 /// `preview_failure` feedback names no message by design; the latest-activity

@@ -7,6 +7,7 @@
  */
 import type { FeedbackCategory } from './feedbackCategory';
 import type { FeedbackSource } from './feedbackSource';
+import type { FeedbackStatus } from './feedbackStatus';
 import type { FeedbackSurface } from './feedbackSurface';
 
 export type ListAllFeedbackParams = {
@@ -25,6 +26,7 @@ taskId?: string | null;
 source?: null | FeedbackSource;
 surface?: null | FeedbackSurface;
 category?: null | FeedbackCategory;
+status?: null | FeedbackStatus;
 /**
  * User id of the submitter.
  * @nullable

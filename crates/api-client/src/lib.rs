@@ -984,6 +984,16 @@ impl ApiClient {
         self.post("/api/v1/feedback", req).await
     }
 
+    /// PATCH `/api/v1/feedback/{feedback_id}/status`
+    pub async fn set_feedback_status(
+        &self,
+        feedback_id: &str,
+        req: &moatless_api_schemas::feedback::UpdateFeedbackStatusRequest,
+    ) -> Result<moatless_api_schemas::feedback::FeedbackResponse, ApiError> {
+        self.patch(&format!("/api/v1/feedback/{feedback_id}/status"), req)
+            .await
+    }
+
     /// GET `/api/v1/tasks/{task_id}/feedback`
     pub async fn list_task_feedback(
         &self,
@@ -1015,6 +1025,9 @@ impl ApiClient {
         }
         if let Some(category) = query.category {
             params.push(format!("category={}", category.as_str()));
+        }
+        if let Some(status) = query.status {
+            params.push(format!("status={}", status.as_str()));
         }
         if let Some(ref created_by) = query.created_by {
             params.push(format!("createdBy={}", urlenc(created_by)));

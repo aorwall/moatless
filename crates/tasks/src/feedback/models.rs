@@ -21,6 +21,17 @@ pub struct Feedback {
     pub metadata: Option<serde_json::Value>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
+    /// Stored as text — `'open' | 'fixed' | 'not_relevant'`. Convert via
+    /// [`FeedbackStatus`]. Written `'open'`; only a reader triaging the inbox
+    /// moves it.
+    pub status: String,
+    /// Why the current status was set. Replaced with the status, so it always
+    /// reads against the status beside it.
+    pub status_note: Option<String>,
+    /// User id of the reader who set the current status. `None` while the row
+    /// is untriaged.
+    pub status_updated_by: Option<String>,
+    pub status_updated_at: Option<DateTime<Utc>>,
 }
 
 /// A feedback row joined to its task, for the cross-task listing. The task
