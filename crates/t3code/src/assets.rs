@@ -27,13 +27,12 @@
 use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use base64::Engine;
 use chrono::Utc;
 use moatless_backend_core::sandbox::SandboxError;
-use sandbox_proto::client::classify_grpc_error;
 use serde_json::{Value, json};
-use tracing::{debug, warn};
+use tracing::debug;
 
+use crate::checkout::Checkout;
 use crate::workspace::{self, WorkspaceAccessError};
 use crate::{UiRpcState, projection, viewer_scope};
 use moatless_backend_core::ui_rpc::UiRpcAuthIdentity;
@@ -199,66 +198,23 @@ pub(crate) async fn serve(
         Err(error) => return refusal(&thread_id, &relative_path, &error),
     };
 
-    let client = match state.sandboxes.sandbox_client(&task_id).await {
-        Ok(client) => client,
-        Err(error) => {
-            return refusal(
-                &thread_id,
-                &relative_path,
-                &WorkspaceAccessError::NotRunning(error),
-            );
-        }
+    let checkout = match Checkout::open(state.file_sources(), &task_id).await {
+        Ok(checkout) => checkout,
+        Err(error) => return refusal(&thread_id, &relative_path, &error),
     };
 
-    let file = match client
-        .read_file_for_task(Some(&task_id), &relative_path, false)
-        .await
-    {
-        Err(status) if status.code() == tonic::Code::NotFound => {
-            let Some(nested) =
-                crate::files::nested_in_a_checkout(&client, &task_id, &relative_path).await
-            else {
-                return refusal(&thread_id, &relative_path, &sandbox_failure(status));
-            };
-            match client
-                .read_file_for_task(Some(&task_id), &nested, false)
-                .await
-            {
-                Ok(file) => file,
-                Err(status) => {
-                    return refusal(&thread_id, &relative_path, &sandbox_failure(status));
-                }
-            }
-        }
-        Ok(file) => file,
-        Err(status) => return refusal(&thread_id, &relative_path, &sandbox_failure(status)),
+    let content = match checkout.read(&relative_path).await {
+        Ok(content) => content,
+        Err(error) => return refusal(&thread_id, &relative_path, &error),
     };
 
-    let body = if file.is_binary.unwrap_or(false) {
-        // The Sandbox base64-encodes what it cannot decode as UTF-8, which is
-        // every image and PDF this route exists to serve.
-        match base64::engine::general_purpose::STANDARD.decode(&file.content) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                warn!(%error, task_id = %task_id, path = %relative_path, "Sandbox returned an asset that is not base64");
-                return (
-                    StatusCode::BAD_GATEWAY,
-                    "The workspace file could not be read.",
-                )
-                    .into_response();
-            }
-        }
-    } else {
-        file.content.into_bytes()
-    };
+    let media_type = content_type(&relative_path, content.media_type.as_deref());
+    let body = content.body.into_bytes();
 
     debug!(task_id = %task_id, path = %relative_path, bytes = body.len(), "Serving a workspace asset");
     (
         [
-            (
-                header::CONTENT_TYPE,
-                HeaderValue::from_static(content_type(&relative_path, file.media_type.as_deref())),
-            ),
+            (header::CONTENT_TYPE, HeaderValue::from_static(media_type)),
             // The document is agent-written and this is the application's own
             // origin. No `allow-same-origin`, so it renders in an opaque one.
             (
@@ -279,10 +235,6 @@ pub(crate) async fn serve(
         body,
     )
         .into_response()
-}
-
-fn sandbox_failure(status: tonic::Status) -> WorkspaceAccessError {
-    WorkspaceAccessError::Sandbox(classify_grpc_error(status, "read_file"))
 }
 
 /// What a browser is told when there is nothing to render.
@@ -358,6 +310,8 @@ fn content_type(path: &str, sandbox_media_type: Option<&str>) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "live-sandbox-tests")]
+    use base64::Engine;
 
     fn workspace_file(path: &str) -> Value {
         json!({ "_tag": "workspace-file", "threadId": "t-1", "path": path })

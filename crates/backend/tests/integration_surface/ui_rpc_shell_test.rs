@@ -57,8 +57,8 @@ use moatless_t3code::listing::{
 };
 use moatless_t3code::preview_tabs::InMemoryPreviewTabDao;
 use moatless_t3code::{
-    AgentModelDefaults, Deployment, ShellFeed, UiRpcDependencies, archived_shell_snapshot, files,
-    router_from_env, shell_snapshot, shell_subscription, thread_shell, thread_snapshot,
+    AgentModelDefaults, Deployment, ShellFeed, Sources, UiRpcDependencies, archived_shell_snapshot,
+    files, router_from_env, shell_snapshot, shell_subscription, thread_shell, thread_snapshot,
 };
 use moatless_t3code::{
     SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
@@ -239,6 +239,8 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         workspaces: Arc::new(moatless_backend::t3code::conversations_over(pool)),
         conversations: Arc::new(moatless_backend::t3code::conversations_over(pool)),
         sandboxes: Arc::new(NoSandboxes),
+        // This suite drives no snapshot reads; a stopped Task answers as before.
+        snapshots: None,
         observer: Arc::new(NoSandboxes),
         diagnostics: Arc::new(NoSandboxes),
         // Nothing this suite drives publishes a Script's port.
@@ -2136,7 +2138,10 @@ async fn the_listings_worktree_path_addresses_that_conversations_files(pool: PgP
     // Reached the Sandbox: the stub is the only thing that refused it.
     let error = files::list_entries(
         &moatless_backend::t3code::conversations_over(&pool),
-        &NoSandboxes,
+        Sources {
+            sandboxes: &NoSandboxes,
+            snapshots: None,
+        },
         &owner,
         &cwd,
     )
@@ -2157,7 +2162,10 @@ async fn the_listings_worktree_path_addresses_that_conversations_files(pool: PgP
     };
     let error = files::read_file(
         &moatless_backend::t3code::conversations_over(&pool),
-        &NoSandboxes,
+        Sources {
+            sandboxes: &NoSandboxes,
+            snapshots: None,
+        },
         &outsider,
         &cwd,
         "README.md",
@@ -2195,7 +2203,10 @@ async fn a_project_root_is_answered_as_a_conversation_with_no_sandbox(pool: PgPo
 
     let error = files::list_entries(
         &moatless_backend::t3code::conversations_over(&pool),
-        &NoSandboxes,
+        Sources {
+            sandboxes: &NoSandboxes,
+            snapshots: None,
+        },
         &owner,
         &cwd,
     )

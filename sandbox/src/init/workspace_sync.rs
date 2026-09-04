@@ -87,7 +87,7 @@ pub struct SyncOutcome {
 #[derive(Clone, Default)]
 pub struct WorkspaceSyncTracker {
     last_uploaded: Arc<tokio::sync::Mutex<Option<u64>>>,
-    mirror_baseline: Arc<tokio::sync::Mutex<Option<workspace_mirror::Manifest>>>,
+    mirror_baseline: Arc<tokio::sync::Mutex<Option<sandbox_proto::workspace_manifest::Manifest>>>,
 }
 
 impl WorkspaceSyncTracker {

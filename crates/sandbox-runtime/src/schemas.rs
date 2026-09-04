@@ -101,12 +101,54 @@ pub struct ServerOverridesResponse {
 
 // ── File operation DTOs ──────────────────────────────────────────
 
+/// Which copy of the workspace answered a file read.
+///
+/// A stopped sandbox is still readable, out of the S3 mirror
+/// (`sandbox-control::workspace_snapshot`), so a caller has to be able to tell
+/// live content from content that stopped changing when the pod did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ContentSource {
+    /// A running sandbox read the file from its own disk.
+    Sandbox,
+    /// The S3 workspace mirror answered, because no sandbox is running.
+    Snapshot,
+}
+
+/// Where a file answer came from, carried by every file response.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentOrigin {
+    pub source: ContentSource,
+    /// When the mirror this came from was stored, RFC 3339. Absent for
+    /// [`ContentSource::Sandbox`], whose answer is current by construction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synced_at: Option<String>,
+}
+
+impl ContentOrigin {
+    pub fn sandbox() -> Self {
+        Self {
+            source: ContentSource::Sandbox,
+            synced_at: None,
+        }
+    }
+
+    pub fn snapshot(synced_at: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            source: ContentSource::Snapshot,
+            synced_at: Some(synced_at.to_rfc3339()),
+        }
+    }
+}
+
 /// File tree response with git change summary.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FileTreeResponse {
     pub tree: Vec<FileTreeNodeDto>,
     pub git_summary: GitSummaryDto,
+    pub origin: ContentOrigin,
 }
 
 /// A node in the file tree (file or directory).
@@ -161,6 +203,7 @@ pub struct FileContentResponse {
     pub is_binary: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
+    pub origin: ContentOrigin,
 }
 
 /// Request body for writing a file.
@@ -172,8 +215,10 @@ pub struct WriteFileRequestBody {
 
 /// Response for listing files.
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ListFilesResponse {
     pub files: Vec<String>,
+    pub origin: ContentOrigin,
 }
 
 /// Request body for searching files by name.
@@ -193,6 +238,7 @@ pub struct SearchByNameRequest {
 pub struct SearchByNameResponse {
     pub files: Vec<FileNameMatchDto>,
     pub total_matches: i32,
+    pub origin: ContentOrigin,
 }
 
 /// A file name match in the search results.
@@ -317,6 +363,7 @@ impl From<sandbox_proto::ReadFileResponse> for FileContentResponse {
             is_modified: r.is_modified,
             is_binary: r.is_binary,
             media_type: r.media_type,
+            origin: ContentOrigin::sandbox(),
         }
     }
 }
@@ -354,6 +401,7 @@ impl TryFrom<sandbox_proto::GetFileTreeResponse> for FileTreeResponse {
                 .map(FileTreeNodeDto::try_from)
                 .collect::<Result<Vec<_>, _>>()?,
             git_summary,
+            origin: ContentOrigin::sandbox(),
         })
     }
 }
@@ -363,6 +411,7 @@ impl From<sandbox_proto::SearchFilesByNameResponse> for SearchByNameResponse {
         Self {
             files: resp.files.into_iter().map(FileNameMatchDto::from).collect(),
             total_matches: resp.total_matches,
+            origin: ContentOrigin::sandbox(),
         }
     }
 }

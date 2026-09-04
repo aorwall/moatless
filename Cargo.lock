@@ -3899,6 +3899,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "chrono",
  "futures",
  "http-body-util",
@@ -5613,10 +5614,12 @@ name = "sandbox-proto"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "flate2",
  "moatless-types",
  "prost",
  "protoc-bin-vendored",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tonic",

@@ -181,6 +181,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ),
                 )
             });
+    // Reads a stopped Task's files out of the per-file S3 mirror, for the file
+    // endpoints and the T3 read surfaces. Present under the same condition as
+    // `workspace_archive`: no S3, no snapshot to read.
+    let workspace_snapshots: Option<Arc<dyn moatless_backend_core::sandbox::WorkspaceSnapshotSource>> =
+        s3_client
+            .clone()
+            .zip(config.s3.bucket_name.clone())
+            .map(|(s3, bucket)| {
+                Arc::new(
+                    moatless_backend::sandbox::workspace_snapshot::S3WorkspaceSnapshots::new(
+                        Arc::new(s3),
+                        bucket,
+                        config.s3.workspace_prefix.clone(),
+                    ),
+                ) as Arc<dyn moatless_backend_core::sandbox::WorkspaceSnapshotSource>
+            });
     let provision_deps = ports.as_ref().map(|p| {
         moatless_backend::sandbox::lifecycle::ProvisionDeps::new(
             p.lifecycle_store(),
@@ -385,6 +401,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         turns: ports
             .as_ref()
             .map(|p| p.turn_counter.clone() as Arc<dyn moatless_backend_core::task::TurnStateReader>),
+        snapshots: workspace_snapshots.clone(),
     };
     let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);
 
@@ -492,6 +509,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 workspaces: ui_rpc_conversations.clone(),
                 conversations: ui_rpc_conversations.clone(),
                 sandboxes: sandbox_connector.clone(),
+                snapshots: workspace_snapshots.clone(),
                 observer: t3code::projection::contract_observer(
                     sandbox_observer.clone(),
                     Some(ports.turn_counter.clone()),

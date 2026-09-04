@@ -12,7 +12,7 @@
 
 pub use moatless_sandbox_control::{
     auto_provision, event_dedup, file_handlers, handlers, jwt, lifecycle, notify, preflight, routes,
-    secrets,
+    secrets, workspace_snapshot,
 };
 pub use moatless_sandbox_runtime::{
     access, client, error, live_status, metrics, models, schemas, server_runner, status_reader,

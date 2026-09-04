@@ -24,6 +24,7 @@ pub mod agent;
 mod assets;
 mod attachments;
 pub mod auth;
+mod checkout;
 mod commands;
 pub mod dao;
 pub mod task_dao;
@@ -48,8 +49,9 @@ pub mod workspace;
 
 pub use feed::{ShellFeed, ThreadFeed};
 use moatless_backend_core::sandbox::SandboxError;
-pub use moatless_backend_core::sandbox::{ClusterDiagnostics, SandboxIntentReader, SandboxObserver, SandboxPortPublisher, SandboxStarter, SandboxStopper};
+pub use moatless_backend_core::sandbox::{ClusterDiagnostics, SandboxIntentReader, SandboxObserver, SandboxPortPublisher, SandboxStarter, SandboxStopper, WorkspaceSnapshotSource};
 pub use sandbox_proto::client::SandboxConnector;
+pub use checkout::Sources;
 pub use moatless_backend_core::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 pub use moatless_identity::auth::pairing::DevicePairing;
 
@@ -271,6 +273,10 @@ struct UiRpcState {
     /// behind this module that is not a database read: a checkout exists inside
     /// its Sandbox and nowhere else.
     sandboxes: Arc<dyn SandboxConnector>,
+    /// The workspace as S3 last stored it, read when a conversation's Sandbox is
+    /// not running. `None` when the deployment stores no snapshots (no S3
+    /// bucket), in which case a stopped Task's files are unavailable as before.
+    snapshots: Option<Arc<dyn WorkspaceSnapshotSource>>,
     /// What a Task's servers are doing. Distinct from `sandboxes`, which
     /// reaches *into* a Sandbox; this only observes one from outside.
     servers: ServersState,
@@ -328,6 +334,15 @@ impl UiRpcState {
             frontend_url: &self.frontend_url,
         }
     }
+
+    /// Where a conversation's files are read from: its Sandbox, and the S3
+    /// snapshot once none is running.
+    fn file_sources(&self) -> crate::checkout::Sources<'_> {
+        crate::checkout::Sources {
+            sandboxes: self.sandboxes.as_ref(),
+            snapshots: self.snapshots.as_deref(),
+        }
+    }
 }
 
 /// Build the T3 compatibility router when its environment gate is enabled.
@@ -352,6 +367,7 @@ pub async fn router_from_env(
         workspaces,
         conversations,
         sandboxes,
+        snapshots,
         observer,
         diagnostics,
         ports,
@@ -399,6 +415,7 @@ pub async fn router_from_env(
         workspaces: workspaces.clone(),
         conversations: conversations.clone(),
         sandboxes,
+        snapshots,
         servers: ServersState {
             observer: observer.clone(),
             tasks: tasks.clone(),
@@ -448,6 +465,9 @@ pub struct UiRpcDependencies {
     pub conversations: Arc<dyn ConversationDao>,
     /// Reaches a conversation's Sandbox, which is where its checkout lives.
     pub sandboxes: Arc<dyn SandboxConnector>,
+    /// Reads a conversation's files from the S3 mirror when its Sandbox is not
+    /// running. `None` when the deployment stores no snapshots.
+    pub snapshots: Option<Arc<dyn WorkspaceSnapshotSource>>,
     /// Reports what a Task's servers are doing, without reaching inside.
     pub observer: Arc<dyn SandboxObserver>,
     /// Fleet-wide Sandbox status and live resource usage, deployment-scoped
@@ -2253,7 +2273,7 @@ impl ProtocolSession {
                 };
                 match files::list_entries(
                     state.conversations.as_ref(),
-                    state.sandboxes.as_ref(),
+                    state.file_sources(),
                     &viewer_scope(identity),
                     &cwd,
                 )
@@ -2280,7 +2300,7 @@ impl ProtocolSession {
                 };
                 match files::read_file(
                     state.conversations.as_ref(),
-                    state.sandboxes.as_ref(),
+                    state.file_sources(),
                     &viewer_scope(identity),
                     &cwd,
                     relative_path,
@@ -2317,7 +2337,7 @@ impl ProtocolSession {
                     });
                 match files::search_entries(
                     state.conversations.as_ref(),
-                    state.sandboxes.as_ref(),
+                    state.file_sources(),
                     &viewer_scope(identity),
                     &cwd,
                     query,
@@ -4373,6 +4393,7 @@ mod tests {
             workspaces: Arc::new(workspaces),
             conversations: conversations.clone(),
             sandboxes: Arc::new(UnreachableSandboxes),
+            snapshots: None,
             servers: ServersState {
                 observer: Arc::new(UnreachableSandboxes),
                 tasks: Arc::new(MockT3TaskDao::new()),

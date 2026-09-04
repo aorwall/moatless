@@ -9,6 +9,8 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use utoipa::IntoParams;
 
+use base64::Engine;
+use moatless_backend_core::sandbox::{self as core_sandbox, SnapshotError, SnapshotListing};
 use moatless_sandbox_runtime::client::classify_grpc_error;
 use moatless_sandbox_runtime::error::SandboxError;
 use super::handlers::{authorize_task_control, authorize_task_read};
@@ -72,7 +74,13 @@ pub async fn file_tree_handler(
     authorize_task_read(&state, &scope, &task_id).await?;
     let root_path = query.path.as_deref().unwrap_or(".");
     let recursive = query.recursive.unwrap_or(false);
-    let client = state.connector.sandbox_client(&task_id).await?;
+    let client = match state.connector.sandbox_client(&task_id).await {
+        Ok(client) => client,
+        Err(e) if core_sandbox::no_live_sandbox(&e) => {
+            return snapshot_tree(&state, &task_id, root_path, recursive, e).await;
+        }
+        Err(e) => return Err(e.into()),
+    };
     let resp = client
         .get_file_tree_for_task(Some(&task_id), root_path, recursive)
         .await
@@ -105,7 +113,13 @@ pub async fn read_file_handler(
 ) -> Result<Json<FileContentResponse>, SandboxError> {
     authorize_task_read(&state, &scope, &task_id).await?;
     let include_changes = query.changes.unwrap_or(false);
-    let client = state.connector.sandbox_client(&task_id).await?;
+    let client = match state.connector.sandbox_client(&task_id).await {
+        Ok(client) => client,
+        Err(e) if core_sandbox::no_live_sandbox(&e) => {
+            return snapshot_read(&state, &task_id, &query.path, e).await;
+        }
+        Err(e) => return Err(e.into()),
+    };
     let resp = client
         .read_file_for_task(Some(&task_id), &query.path, include_changes)
         .await
@@ -168,13 +182,22 @@ pub async fn list_files_handler(
     authorize_task_read(&state, &scope, &task_id).await?;
     let path = query.path.as_deref().unwrap_or(".");
     let recursive = query.recursive.unwrap_or(false);
-    let client = state.connector.sandbox_client(&task_id).await?;
+    let client = match state.connector.sandbox_client(&task_id).await {
+        Ok(client) => client,
+        Err(e) if core_sandbox::no_live_sandbox(&e) => {
+            return snapshot_list(&state, &task_id, path, recursive, e).await;
+        }
+        Err(e) => return Err(e.into()),
+    };
     let files = client
         // The whole walk, which is what this endpoint has always returned.
         .list_files_for_task(Some(&task_id), path, recursive, false)
         .await
         .map_err(|e| classify_grpc_error(e, "list_files"))?;
-    Ok(Json(ListFilesResponse { files }))
+    Ok(Json(ListFilesResponse {
+        files,
+        origin: ContentOrigin::sandbox(),
+    }))
 }
 
 /// Search files by name in the sandbox workspace.
@@ -199,7 +222,13 @@ pub async fn search_by_name_handler(
     Json(req): Json<SearchByNameRequest>,
 ) -> Result<Json<SearchByNameResponse>, SandboxError> {
     authorize_task_read(&state, &scope, &task_id).await?;
-    let client = state.connector.sandbox_client(&task_id).await?;
+    let client = match state.connector.sandbox_client(&task_id).await {
+        Ok(client) => client,
+        Err(e) if core_sandbox::no_live_sandbox(&e) => {
+            return snapshot_search(&state, &task_id, &req, e).await;
+        }
+        Err(e) => return Err(e.into()),
+    };
     let resp = client
         .search_files_by_name_for_task(
             Some(&task_id),
@@ -210,4 +239,241 @@ pub async fn search_by_name_handler(
         .await
         .map_err(|e| classify_grpc_error(e, "search_files_by_name"))?;
     Ok(Json(SearchByNameResponse::from(resp)))
+}
+
+// ── Snapshot fallback ────────────────────────────────────────────
+//
+// When no sandbox is running, a Task's files are still readable from the S3
+// mirror (`workspace_snapshot`). Each of the four read handlers falls through to
+// its counterpart here, keyed on `no_live_sandbox`. `unreachable` is the error
+// the connector gave, and it is what a caller gets back when there is also no
+// snapshot: the reason there are no files is still that nothing is running.
+
+/// Map a snapshot miss onto the response error.
+///
+/// `NotFound` is the path's own 404. `NoSnapshot` and `Unavailable` read back as
+/// the sandbox failure that sent the read here — a Task with nothing running and
+/// nothing stored is not running, and an outage is not the path's fault.
+fn snapshot_failed(
+    task_id: &str,
+    what: &str,
+    error: SnapshotError,
+    unreachable: core_sandbox::SandboxError,
+) -> SandboxError {
+    match error {
+        SnapshotError::NotFound => SandboxError::NotFound(what.to_string()),
+        SnapshotError::NoSnapshot => unreachable.into(),
+        SnapshotError::Unavailable(message) => {
+            tracing::warn!(task_id = %task_id, %message, "Could not read the stored workspace");
+            unreachable.into()
+        }
+    }
+}
+
+async fn snapshot_read(
+    state: &SandboxApiState,
+    task_id: &str,
+    path: &str,
+    unreachable: core_sandbox::SandboxError,
+) -> Result<Json<FileContentResponse>, SandboxError> {
+    let Some(source) = state.snapshots.as_deref() else {
+        return Err(unreachable.into());
+    };
+    let file = source
+        .read(task_id, path)
+        .await
+        .map_err(|e| snapshot_failed(task_id, path, e, unreachable))?;
+
+    // UTF-8 or base64, the same distinction the live read draws — the client
+    // renders a binary file from the encoding and `mediaType`.
+    let (content, is_binary) = match String::from_utf8(file.content) {
+        Ok(text) => (text, false),
+        Err(err) => (
+            base64::engine::general_purpose::STANDARD.encode(err.as_bytes()),
+            true,
+        ),
+    };
+    Ok(Json(FileContentResponse {
+        content,
+        // No git overlay: the snapshot is not a working tree with a HEAD to
+        // diff against.
+        old_content: None,
+        additions: None,
+        deletions: None,
+        is_modified: None,
+        is_binary: Some(is_binary),
+        media_type: media_type(path),
+        origin: ContentOrigin::snapshot(file.synced_at),
+    }))
+}
+
+async fn snapshot_tree(
+    state: &SandboxApiState,
+    task_id: &str,
+    root: &str,
+    recursive: bool,
+    unreachable: core_sandbox::SandboxError,
+) -> Result<Json<FileTreeResponse>, SandboxError> {
+    let Some(source) = state.snapshots.as_deref() else {
+        return Err(unreachable.into());
+    };
+    let listing = source
+        .list(task_id, root, recursive)
+        .await
+        .map_err(|e| snapshot_failed(task_id, root, e, unreachable))?;
+    let synced_at = listing.synced_at;
+    Ok(Json(FileTreeResponse {
+        tree: tree_nodes(root, &listing, recursive),
+        git_summary: GitSummaryDto {
+            total_files: 0,
+            total_additions: 0,
+            total_deletions: 0,
+            total_staged: 0,
+            total_modified: 0,
+            compare_base: "HEAD".to_string(),
+            has_changes: false,
+        },
+        origin: ContentOrigin::snapshot(synced_at),
+    }))
+}
+
+async fn snapshot_list(
+    state: &SandboxApiState,
+    task_id: &str,
+    path: &str,
+    recursive: bool,
+    unreachable: core_sandbox::SandboxError,
+) -> Result<Json<ListFilesResponse>, SandboxError> {
+    let Some(source) = state.snapshots.as_deref() else {
+        return Err(unreachable.into());
+    };
+    let listing = source
+        .list(task_id, path, recursive)
+        .await
+        .map_err(|e| snapshot_failed(task_id, path, e, unreachable))?;
+    let synced_at = listing.synced_at;
+    // This endpoint lists files, not directories, matching the live walk.
+    let files = listing
+        .entries
+        .into_iter()
+        .filter(|e| !e.is_dir)
+        .map(|e| e.path)
+        .collect();
+    Ok(Json(ListFilesResponse {
+        files,
+        origin: ContentOrigin::snapshot(synced_at),
+    }))
+}
+
+async fn snapshot_search(
+    state: &SandboxApiState,
+    task_id: &str,
+    req: &SearchByNameRequest,
+    unreachable: core_sandbox::SandboxError,
+) -> Result<Json<SearchByNameResponse>, SandboxError> {
+    let Some(source) = state.snapshots.as_deref() else {
+        return Err(unreachable.into());
+    };
+    let limit = req.max_results.unwrap_or(0).max(0) as usize;
+    let listing = source
+        .search(task_id, &req.query, req.case_sensitive.unwrap_or(false), limit)
+        .await
+        .map_err(|e| snapshot_failed(task_id, &req.query, e, unreachable))?;
+    let synced_at = listing.synced_at;
+    let files: Vec<FileNameMatchDto> = listing
+        .entries
+        .into_iter()
+        .filter(|e| !e.is_dir)
+        .map(|e| FileNameMatchDto {
+            path: e.path,
+            // The snapshot search matches on the path, not on content, so it
+            // has no per-file hit count to report.
+            matches: 0,
+        })
+        .collect();
+    Ok(Json(SearchByNameResponse {
+        total_matches: files.len() as i32,
+        files,
+        origin: ContentOrigin::snapshot(synced_at),
+    }))
+}
+
+/// The nested file tree for one snapshot listing.
+///
+/// A directory always carries a child list (possibly empty) and a file never
+/// does, matching [`FileTreeNodeDto`]'s live contract: a client tells
+/// "expandable" from "not" by that `Some`/`None`. A non-recursive listing has
+/// only the root's direct children, so its directories come back with an empty
+/// list — expandable, not yet expanded.
+fn tree_nodes(root: &str, listing: &SnapshotListing, recursive: bool) -> Vec<FileTreeNodeDto> {
+    use std::collections::BTreeMap;
+    let mut children_of: BTreeMap<&str, Vec<&core_sandbox::SnapshotEntry>> = BTreeMap::new();
+    for entry in &listing.entries {
+        let parent = entry.path.rsplit_once('/').map_or("", |(p, _)| p);
+        children_of.entry(parent).or_default().push(entry);
+    }
+    let root_key = root.trim_matches('/');
+    let root_key = if root_key == "." { "" } else { root_key };
+    children_of
+        .get(root_key)
+        .map(|kids| {
+            kids.iter()
+                .map(|e| tree_node(e, &children_of, recursive))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn tree_node(
+    entry: &core_sandbox::SnapshotEntry,
+    children_of: &std::collections::BTreeMap<&str, Vec<&core_sandbox::SnapshotEntry>>,
+    recursive: bool,
+) -> FileTreeNodeDto {
+    let name = entry
+        .path
+        .rsplit_once('/')
+        .map_or(entry.path.as_str(), |(_, n)| n)
+        .to_string();
+    let children = entry.is_dir.then(|| {
+        if recursive {
+            children_of
+                .get(entry.path.as_str())
+                .map(|kids| {
+                    kids.iter()
+                        .map(|e| tree_node(e, children_of, recursive))
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    });
+    FileTreeNodeDto {
+        name,
+        path: entry.path.clone(),
+        node_type: if entry.is_dir { "directory" } else { "file" }.to_string(),
+        is_changed: false,
+        git_status: None,
+        additions: None,
+        deletions: None,
+        is_staged: None,
+        children,
+    }
+}
+
+/// The media type a path's extension names, for the image and PDF assets a
+/// stopped Task can still be asked to serve. `None` leaves it to the caller,
+/// which is what the live read does for anything it decoded as text.
+fn media_type(path: &str) -> Option<String> {
+    let ext = path.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        _ => return None,
+    };
+    Some(mime.to_string())
 }

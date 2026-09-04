@@ -24,17 +24,14 @@
 //! presigned URL the backend mints per path (`GetWorkspaceObjectUrls`).
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use flate2::Compression;
-use flate2::read::GzDecoder;
-use flate2::write::GzEncoder;
 use futures::stream::{self, StreamExt};
-use serde::{Deserialize, Serialize};
+use sandbox_proto::workspace_manifest::{Entry, MANIFEST_VERSION, Manifest};
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
@@ -72,82 +69,6 @@ const OBJECT_TIMEOUT: Duration = Duration::from_mins(1);
 /// Largest object a single `PUT` can carry. S3 rejects more; a file this size in
 /// a workspace is skipped rather than failing every sync from here on.
 const MAX_OBJECT_BYTES: u64 = 5 * 1024 * 1024 * 1024;
-
-/// One mirrored file, as the manifest records it.
-///
-/// `size` and `mtime_ns` are the change signal [`diff`] compares, not a
-/// checksum: they are what a walk can read without opening the file, and they
-/// are the same pair `workspace_sync`'s fingerprint hashes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct Entry {
-    /// Workspace-relative path, `/`-separated.
-    pub path: String,
-    pub size: u64,
-    /// Modification time in nanoseconds since the Unix epoch, or `0` when the
-    /// filesystem would not say.
-    pub mtime_ns: u64,
-    /// Permission bits, so an executable restores executable.
-    pub mode: u32,
-    /// Link target when this entry is a symlink. A symlink has no object in S3 —
-    /// the restore recreates it from this.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub symlink: Option<String>,
-}
-
-impl Entry {
-    /// Whether the two records describe the same stored bytes.
-    fn matches(&self, other: &Self) -> bool {
-        self.size == other.size
-            && self.mtime_ns == other.mtime_ns
-            && self.mode == other.mode
-            && self.symlink == other.symlink
-    }
-
-    fn is_symlink(&self) -> bool {
-        self.symlink.is_some()
-    }
-}
-
-/// Everything the mirror holds for one workspace, sorted by path.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct Manifest {
-    /// Format version. A manifest whose version this build does not know is
-    /// declined, and the caller falls back to the tar.
-    pub version: u32,
-    pub entries: Vec<Entry>,
-}
-
-/// The only manifest version this build writes or reads.
-const MANIFEST_VERSION: u32 = 1;
-
-impl Manifest {
-    fn new(entries: Vec<Entry>) -> Self {
-        Self {
-            version: MANIFEST_VERSION,
-            entries,
-        }
-    }
-
-    /// Whether the workspace holds the primary repo's `.git`, which is what
-    /// makes the mirror a complete set of repos rather than a working tree.
-    fn carries_git(&self, primary_prefix: &str) -> bool {
-        let marker = join_prefix(primary_prefix, ".git/");
-        self.entries.iter().any(|e| e.path.starts_with(&marker))
-    }
-
-    fn to_gz_json(&self) -> std::io::Result<Vec<u8>> {
-        let json = serde_json::to_vec(self)?;
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(&json)?;
-        encoder.finish()
-    }
-
-    fn from_gz_json(bytes: &[u8]) -> std::io::Result<Self> {
-        let mut json = Vec::new();
-        GzDecoder::new(bytes).read_to_end(&mut json)?;
-        serde_json::from_slice(&json).map_err(std::io::Error::other)
-    }
-}
 
 /// What one sync has to move.
 #[derive(Debug, Default)]

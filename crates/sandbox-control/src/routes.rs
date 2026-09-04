@@ -14,6 +14,7 @@ use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+use moatless_backend_core::sandbox::WorkspaceSnapshotSource;
 use moatless_backend_core::task::TurnStateReader;
 use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
 use moatless_sandbox_runtime::client::SandboxConnector;
@@ -37,6 +38,11 @@ pub struct SandboxApiState {
     /// mode, where there are no turn rows to read and the raw heartbeat is all
     /// there is.
     pub turns: Option<Arc<dyn TurnStateReader>>,
+    /// The workspace as S3 last stored it, for reading a Task's files while no
+    /// sandbox is running. `None` when the deployment stores no snapshots (no S3
+    /// bucket configured), in which case a stopped Task answers as before —
+    /// sandbox not ready.
+    pub snapshots: Option<Arc<dyn WorkspaceSnapshotSource>>,
 }
 
 #[derive(OpenApi)]
