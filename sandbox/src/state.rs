@@ -277,8 +277,10 @@ impl SandboxState {
             )
             .with_journal(crate::commands::default_journal_path(
                 &task_config.workspace_dir,
-            )),
+            ))
+            .with_liveness(self.events.clone(), task_id.clone()),
         );
+        commands.report_initial_liveness().await;
         let credential_failures = CredentialFailureDetector::default();
         let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 

@@ -157,6 +157,12 @@ pub enum AgentSubType {
     /// What the harness said about its own context window: how much of it the
     /// session occupies, and how large it is where the harness states one.
     ContextWindow,
+    /// How many `moat cmd` commands are running, published whenever that count
+    /// moves. The count is absolute rather than a delta: the registry is
+    /// in-memory, so a pod replacement would strand a decrement and leave the
+    /// Task reading busy forever. Says nothing about the agent — see
+    /// [`crate::event::agent_working`], which leaves the turn where it was.
+    CommandsChanged,
 }
 
 impl AgentSubType {
@@ -176,6 +182,7 @@ impl AgentSubType {
             Self::SessionContextLost => "session_context_lost",
             Self::Activity => "activity",
             Self::ContextWindow => "context_window",
+            Self::CommandsChanged => "commands_changed",
         }
     }
 
@@ -209,6 +216,7 @@ impl TryFrom<&str> for AgentSubType {
             "session_context_lost" => Ok(Self::SessionContextLost),
             "activity" => Ok(Self::Activity),
             "context_window" => Ok(Self::ContextWindow),
+            "commands_changed" => Ok(Self::CommandsChanged),
             other => Err(format!("unknown AgentSubType: {other}")),
         }
     }

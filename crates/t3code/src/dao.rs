@@ -77,6 +77,9 @@ pub struct Conversation {
     pub sandbox_stop_reason_raw: Option<String>,
     pub sandbox_started_at: Option<DateTime<Utc>>,
     pub sandbox_updated_at: Option<DateTime<Utc>>,
+    /// `moat cmd` commands the Sandbox is running, as its pod last reported.
+    /// `0` for a Task with no Sandbox row, which can be running nothing.
+    pub running_commands: i32,
 
     /// When a person last wrote. Counts only `message_type = 'user'` rows,
     /// which is this backend's own predicate for a person's message: the
@@ -751,6 +754,7 @@ impl PgConversationDao {
                    s.stop_reason              AS sandbox_stop_reason_raw,
                    s.started_at               AS sandbox_started_at,
                    s.desired_state_updated_at AS sandbox_updated_at,
+                   COALESCE(s.running_commands, 0) AS running_commands,
                    person.latest_user_message_at,
                    model.assistant_model,
                    model.requested_model,

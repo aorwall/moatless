@@ -245,6 +245,19 @@ fn thread(conversation: &Conversation, project_id: &str, defaults: &AgentModelDe
         "hasActionableProposedPlan".into(),
         Value::Bool(conversation.pending_plan),
     );
+    // A `moat cmd` command outlives the turn that started it, and the agent
+    // reports idle the moment that turn ends — so without this the sidebar row
+    // for a Task running a build is the row for a finished one. `working`
+    // rather than `monitoring`: the contract reserves that for watch loops with
+    // no other live work, and a build is work.
+    row.insert(
+        "backgroundLiveness".into(),
+        if conversation.running_commands > 0 {
+            Value::String("working".into())
+        } else {
+            Value::Null
+        },
+    );
     Value::Object(row)
 }
 
@@ -1970,7 +1983,7 @@ mod tests {
         "snoozedUntil",
         "snoozedAt",
     ];
-    const THREAD_OPTIONAL: &[&str] = &["interactionMode", "archivedAt"];
+    const THREAD_OPTIONAL: &[&str] = &["interactionMode", "archivedAt", "backgroundLiveness"];
     const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
 
     // `ModelSelection` (`:64-68`), after the wire transform. `provider` is the
@@ -2067,6 +2080,7 @@ mod tests {
             sandbox_stop_reason_raw: None,
             sandbox_started_at: None,
             sandbox_updated_at: None,
+            running_commands: 0,
             latest_user_message_at: None,
             assistant_model: None,
             requested_model: None,
@@ -2092,6 +2106,7 @@ mod tests {
             sandbox_updated_at: Some(now),
             latest_user_message_at: Some(now),
             assistant_model: Some("claude-sonnet-4-6".to_string()),
+            running_commands: 2,
             ..conversation(task_id, workspace_id)
         }
     }
@@ -2177,6 +2192,42 @@ mod tests {
         assert_eq!(shell["settledAt"], json!("2026-07-02T09:00:00.000Z"));
         assert_eq!(shell["snoozedUntil"], json!("2026-07-03T09:00:00.000Z"));
         assert_eq!(shell["snoozedAt"], json!("2026-07-02T10:00:00.000Z"));
+    }
+
+    #[test]
+    fn a_running_moat_cmd_command_makes_the_row_read_as_working() {
+        let thread = one_thread(&Conversation {
+            running_commands: 1,
+            ..conversation("task-a", "ws-a")
+        });
+
+        assert_eq!(thread["backgroundLiveness"], Value::String("working".into()));
+    }
+
+    #[test]
+    fn a_row_with_no_running_command_reports_no_background_liveness() {
+        // Null rather than absent: the sidebar reads the key to decide the row
+        // is resting, and a Task that just finished its last command has to say
+        // so rather than leave the client on its previous answer.
+        let thread = one_thread(&conversation("task-a", "ws-a"));
+
+        assert_eq!(thread["backgroundLiveness"], Value::Null);
+    }
+
+    #[test]
+    fn background_liveness_reports_the_axis_not_the_count() {
+        // The contract has two literals and neither is a number: a second
+        // command must not change what the row says.
+        let one = one_thread(&Conversation {
+            running_commands: 1,
+            ..conversation("task-a", "ws-a")
+        });
+        let many = one_thread(&Conversation {
+            running_commands: 7,
+            ..conversation("task-a", "ws-a")
+        });
+
+        assert_eq!(one["backgroundLiveness"], many["backgroundLiveness"]);
     }
 
     #[test]

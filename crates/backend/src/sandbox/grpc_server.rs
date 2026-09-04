@@ -961,6 +961,41 @@ impl BackendSandboxServiceImpl {
             state,
         }
     }
+
+    /// Mirror the pod's running-command count onto the Sandbox row, where the
+    /// Task listing can read it.
+    ///
+    /// Logged rather than propagated: the event is already durably admitted, so
+    /// answering retryable would only earn a duplicate the dedup table refuses
+    /// without ever reaching this write. The count is absolute, so the next
+    /// command transition corrects what a failure here left behind.
+    async fn record_running_commands(&self, task_id: &str, running: i32) {
+        let Some(sandboxes) = self.handlers.as_ref().map(|h| &h.sandboxes) else {
+            return;
+        };
+        if let Err(error) = sandboxes.record_running_commands(task_id, running).await {
+            warn!(
+                task_id,
+                running,
+                %error,
+                "failed to record running commands; the Task listing keeps the previous count"
+            );
+        }
+    }
+}
+
+/// The count an `agent.commands_changed` event carries, or `None` for every
+/// other event. See [`moatless_types::agent::AgentSubType::CommandsChanged`].
+fn running_commands_reported(event_type: &str, sub_type: &str, payload: &Value) -> Option<i32> {
+    if (event_type, sub_type) != ("agent", AgentSubType::CommandsChanged.as_str()) {
+        return None;
+    }
+    // A negative or oversized count is a bug in the publisher, not a state the
+    // row should take: clamp into the column's domain rather than write it.
+    payload
+        .get("runningCommands")
+        .and_then(Value::as_i64)
+        .map(|n| n.clamp(0, i64::from(i32::MAX)) as i32)
 }
 
 /// Decode one `PublishEventRequest` into the parts admission needs, rejecting
@@ -1048,6 +1083,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let (event_type_str, payload) =
             decode_request(&event).map_err(|e| e.into_status(&event.task_id, &event.event_id))?;
+        // Read before `build_admission` consumes the payload.
+        let running_commands = running_commands_reported(event_type_str, &event.sub_type, &payload);
 
         // Log sequence gaps/resets for observability (never gates admission).
         self.event_dedup
@@ -1094,6 +1131,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         match admission.admit(request).await {
             Ok(()) => {
                 claim.admitted().await;
+                if let Some(running) = running_commands {
+                    self.record_running_commands(&event.task_id, running).await;
+                }
                 Ok(Response::new(PublishEventResponse {
                     event_id: event.event_id,
                 }))
@@ -2522,6 +2562,58 @@ mod tests {
             sequence: 1,
             run_id: String::new(),
         }
+    }
+
+    #[test]
+    fn only_a_commands_changed_event_reports_a_running_count() {
+        let payload = serde_json::json!({ "runningCommands": 3 });
+
+        assert_eq!(
+            running_commands_reported("agent", "commands_changed", &payload),
+            Some(3)
+        );
+        // Same payload shape under any other key says nothing: the count is
+        // written straight onto the Sandbox row, so a stray reader would let an
+        // unrelated event overwrite it.
+        assert_eq!(
+            running_commands_reported("agent", "message", &payload),
+            None
+        );
+        assert_eq!(
+            running_commands_reported("sandbox", "commands_changed", &payload),
+            None
+        );
+    }
+
+    #[test]
+    fn a_commands_changed_event_without_a_usable_count_writes_nothing() {
+        for payload in [
+            serde_json::json!({}),
+            serde_json::json!({ "runningCommands": "two" }),
+            serde_json::json!({ "runningCommands": null }),
+        ] {
+            assert_eq!(
+                running_commands_reported("agent", "commands_changed", &payload),
+                None,
+                "payload {payload} must leave the recorded count alone"
+            );
+        }
+    }
+
+    #[test]
+    fn a_count_outside_the_columns_domain_is_clamped_rather_than_written() {
+        assert_eq!(
+            running_commands_reported("agent", "commands_changed", &serde_json::json!({
+                "runningCommands": -1
+            })),
+            Some(0)
+        );
+        assert_eq!(
+            running_commands_reported("agent", "commands_changed", &serde_json::json!({
+                "runningCommands": i64::MAX
+            })),
+            Some(i32::MAX)
+        );
     }
 
     #[test]

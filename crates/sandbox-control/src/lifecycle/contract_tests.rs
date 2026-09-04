@@ -303,6 +303,76 @@ async fn stop_commits_completion_and_clears_marker(opts: PgPoolOptions, conn: Pg
     assert_eq!(count, 1);
 }
 
+// The running count the column holds, and the number of listing-change rows the
+// task has accumulated — the two things `record_running_commands` decides.
+async fn commands_state(pool: &PgPool, task_id: &str) -> (i32, i64) {
+    let running: i32 = sqlx::query_scalar("SELECT running_commands FROM sandboxes WHERE sandbox_id = $1")
+        .bind(task_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let changes: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM task_listing_changes WHERE task_id = $1")
+            .bind(task_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    (running, changes)
+}
+
+#[sqlx::test]
+async fn running_commands_persists_the_count_and_notifies_only_on_the_busy_axis(
+    opts: PgPoolOptions,
+    conn: PgConnectOptions,
+) {
+    let (store_pool, lock_pool) = pools(&opts, &conn).await;
+    seed(&store_pool, "t1", "open", "running").await;
+    let h = build(store_pool, lock_pool, RecordingRuntime::new(), 1);
+
+    // A fresh row starts at zero; writing zero again crosses nothing.
+    h.store.record_running_commands("t1", 0).await.unwrap();
+    assert_eq!(commands_state(&h.pool, "t1").await, (0, 0));
+
+    // 0 -> 2 crosses into busy: the count lands and one listing change is queued.
+    h.store.record_running_commands("t1", 2).await.unwrap();
+    assert_eq!(commands_state(&h.pool, "t1").await, (2, 1));
+
+    // 2 -> 1 stays busy: the count updates but no new change is queued.
+    h.store.record_running_commands("t1", 1).await.unwrap();
+    assert_eq!(commands_state(&h.pool, "t1").await, (1, 1));
+
+    // 1 -> 0 crosses back to idle: the count clears and a second change queues.
+    h.store.record_running_commands("t1", 0).await.unwrap();
+    assert_eq!(commands_state(&h.pool, "t1").await, (0, 2));
+}
+
+#[sqlx::test]
+async fn moving_the_desired_state_resets_a_stranded_running_count(
+    opts: PgPoolOptions,
+    conn: PgConnectOptions,
+) {
+    let (store_pool, lock_pool) = pools(&opts, &conn).await;
+    seed(&store_pool, "t1", "open", "stopped").await;
+    let h = build(
+        store_pool,
+        lock_pool,
+        RecordingRuntime::new().with_ensure(Ok(RuntimeOutcome::applied(ObservedStatus::Starting))),
+        1,
+    );
+
+    // A pod that died mid-command leaves the count high with no one to decrement it.
+    h.store.record_running_commands("t1", 3).await.unwrap();
+    assert_eq!(commands_state(&h.pool, "t1").await.0, 3);
+
+    // Moving the desired state (a fresh pod's lifecycle) zeroes the stale count.
+    h.lifecycle.start("t1").await.expect("start ok");
+    assert_eq!(
+        commands_state(&h.pool, "t1").await.0,
+        0,
+        "persist_intent resets a stranded count when desired_state moves"
+    );
+}
+
 #[sqlx::test]
 async fn remove_publishes_removing_then_removed_and_keeps_retention(
     opts: PgPoolOptions,

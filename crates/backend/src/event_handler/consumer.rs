@@ -490,7 +490,11 @@ impl EventHandlerConsumer {
                 // Rate-limited liveness marker from long tool calls — persisted
                 // to task_events (advances the reaper's activity floor) but
                 // never a conversation message.
-                | AgentSubType::Activity,
+                | AgentSubType::Activity
+                // The running-command count is written onto the Sandbox row at
+                // ingress, beside the admission that made it durable, so the
+                // Task listing reads it without waiting on this consumer.
+                | AgentSubType::CommandsChanged,
             )
             | EventKey::Task(
                 TaskSubType::Open

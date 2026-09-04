@@ -857,6 +857,13 @@ mod tests {
         async fn mark_storage_reclaimed(&self, _task_id: &str) -> Result<(), StoreError> {
             panic!("member registration test must not mark storage reclaimed")
         }
+        async fn record_running_commands(
+            &self,
+            _task_id: &str,
+            _running: i32,
+        ) -> Result<(), StoreError> {
+            panic!("member registration test must not record running commands")
+        }
     }
 
     #[derive(Default)]

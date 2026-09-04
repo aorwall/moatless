@@ -1176,6 +1176,7 @@ mod tests {
             sandbox_stop_reason_raw: None,
             sandbox_started_at: None,
             sandbox_updated_at: None,
+            running_commands: 0,
             latest_user_message_at: None,
             assistant_model: None,
             requested_model: None,

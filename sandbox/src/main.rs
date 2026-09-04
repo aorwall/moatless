@@ -225,8 +225,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with_journal(moatless_sandbox::commands::default_journal_path(
             &config.workspace_dir,
-        )),
+        ))
+        .with_liveness(event_publisher.clone(), config.task_id.clone()),
     );
+    commands.report_initial_liveness().await;
 
     let agent_handle = spawn_agent(
         Arc::clone(&config_arc),

@@ -16,10 +16,13 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use moatless_types::agent::AgentSubType;
 use tokio::process::Command;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
+
+use crate::events::GrpcEventPublisher;
 
 /// Grace period between the SIGTERM and the SIGKILL of a timed-out command.
 const KILL_GRACE: Duration = Duration::from_secs(5);
@@ -210,12 +213,37 @@ pub fn default_journal_path(workspace_dir: &str) -> PathBuf {
     Path::new(workspace_dir).join(".moat-commands.json")
 }
 
+/// Publishes the running-command count to the backend whenever it moves.
+///
+/// The count is what reaches a Task's sidebar row, so an unreported change
+/// leaves the row claiming the opposite of what the sandbox is doing until the
+/// next command moves. Absolute rather than a delta — see
+/// [`AgentSubType::CommandsChanged`].
+#[derive(Clone)]
+struct LivenessReporter {
+    publisher: GrpcEventPublisher,
+    task_id: String,
+}
+
+impl LivenessReporter {
+    async fn report(&self, running: usize) {
+        self.publisher
+            .publish_agent_event(
+                &self.task_id,
+                AgentSubType::CommandsChanged,
+                serde_json::json!({ "runningCommands": running }),
+            )
+            .await;
+    }
+}
+
 /// Registry of the commands this task started through `moat cmd`.
 pub struct CommandRegistry {
     entries: Arc<RwLock<HashMap<String, Entry>>>,
     default_timeout: Duration,
     log_dir: PathBuf,
     journal: Option<Journal>,
+    liveness: Option<LivenessReporter>,
 }
 
 impl CommandRegistry {
@@ -225,7 +253,36 @@ impl CommandRegistry {
             default_timeout,
             log_dir,
             journal: None,
+            liveness: None,
         }
+    }
+
+    /// Report the running-command count to the backend on every change, so a
+    /// Task whose turn ended with a build still running does not read as idle.
+    pub fn with_liveness(mut self, publisher: GrpcEventPublisher, task_id: String) -> Self {
+        self.liveness = Some(LivenessReporter {
+            publisher,
+            task_id,
+        });
+        self
+    }
+
+    /// Publish the current count. Call after releasing the entries lock: the
+    /// outbox enqueue is cheap but holding the write lock across it would
+    /// serialize every reader behind delivery bookkeeping.
+    async fn report_liveness(&self) {
+        if let Some(liveness) = &self.liveness {
+            let running = running_count(&*self.entries.read().await);
+            liveness.report(running).await;
+        }
+    }
+
+    /// Publish the count this registry starts life with, which is what clears a
+    /// stale non-zero left by the pod this one replaced. The registry is
+    /// in-memory, so nothing else would ever report that command gone: it died
+    /// with its pod and no transition remains to publish.
+    pub async fn report_initial_liveness(&self) {
+        self.report_liveness().await;
     }
 
     /// Mirror the outstanding debt to `path` so a replacement pod can tell the
@@ -303,8 +360,11 @@ impl CommandRegistry {
         }
 
         tokio::spawn(supervise(
-            Arc::clone(&self.entries),
-            self.journal.clone(),
+            CommandSinks {
+                entries: Arc::clone(&self.entries),
+                journal: self.journal.clone(),
+                liveness: self.liveness.clone(),
+            },
             id,
             child,
             pid,
@@ -319,6 +379,7 @@ impl CommandRegistry {
             command = %preview(&command.command),
             "Registered background command"
         );
+        self.report_liveness().await;
         Ok(command)
     }
 
@@ -461,16 +522,39 @@ impl CommandRegistry {
     }
 }
 
-/// Wait for the child, its deadline, or a kill request, then record the outcome.
-async fn supervise(
+/// How many registered commands are still running. The only definition of the
+/// count that reaches the backend; `busy_processes` is this being non-zero.
+fn running_count(entries: &HashMap<String, Entry>) -> usize {
+    entries
+        .values()
+        .filter(|e| !e.command.state.is_terminal())
+        .count()
+}
+
+/// Where a finished command's outcome is written: the live entries, plus the
+/// two mirrors that must move with them — the journal a replacement pod reads
+/// and the count the backend renders.
+#[derive(Clone)]
+struct CommandSinks {
     entries: Arc<RwLock<HashMap<String, Entry>>>,
     journal: Option<Journal>,
+    liveness: Option<LivenessReporter>,
+}
+
+/// Wait for the child, its deadline, or a kill request, then record the outcome.
+async fn supervise(
+    sinks: CommandSinks,
     id: String,
     mut child: tokio::process::Child,
     pid: u32,
     timeout: Duration,
     kill: CancellationToken,
 ) {
+    let CommandSinks {
+        entries,
+        journal,
+        liveness,
+    } = sinks;
     let (state, exit_code) = tokio::select! {
         status = child.wait() => match status {
             Ok(status) => (CommandState::Exited, status.code()),
@@ -491,7 +575,7 @@ async fn supervise(
         }
     };
 
-    {
+    let running = {
         let mut entries = entries.write().await;
         if let Some(entry) = entries.get_mut(&id) {
             entry.command.state = state;
@@ -501,8 +585,12 @@ async fn supervise(
         if let Some(journal) = &journal {
             journal.write(&entries).await;
         }
-    }
+        running_count(&entries)
+    };
     info!(id = %id, ?state, ?exit_code, "Background command finished");
+    if let Some(liveness) = &liveness {
+        liveness.report(running).await;
+    }
 }
 
 /// SIGTERM the process group, then SIGKILL it if it has not gone. Always ends
@@ -607,6 +695,61 @@ mod tests {
         CommandRegistry::new(timeout, dir)
     }
 
+    /// A registry whose liveness reports land in the returned backend, so a
+    /// test can read the running counts the registry published.
+    fn with_capture(
+        timeout: Duration,
+    ) -> (
+        CommandRegistry,
+        Arc<crate::events::test_backend::CapturingBackend>,
+        CancellationToken,
+    ) {
+        use crate::backend_client::BackendClient;
+        let backend = Arc::new(crate::events::test_backend::CapturingBackend::default());
+        let cancel = CancellationToken::new();
+        let (outbox, _drainer) = crate::outbox::EventOutbox::spawn(
+            Arc::clone(&backend) as Arc<dyn BackendClient>,
+            "task-1".to_string(),
+            cancel.clone(),
+        );
+        let dir = std::env::temp_dir().join(format!("moat-cmd-live-{}", short_id()));
+        let reg = CommandRegistry::new(timeout, dir)
+            .with_liveness(GrpcEventPublisher::new(outbox), "task-1".to_string());
+        (reg, backend, cancel)
+    }
+
+    /// The `runningCommands` counts the backend received, oldest first. Drains
+    /// through the outbox, so it polls until at least `want` have landed.
+    async fn published_counts(
+        backend: &crate::events::test_backend::CapturingBackend,
+        want: usize,
+    ) -> Vec<i64> {
+        for _ in 0..200 {
+            let counts = counts_now(backend);
+            if counts.len() >= want {
+                return counts;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        counts_now(backend)
+    }
+
+    fn counts_now(backend: &crate::events::test_backend::CapturingBackend) -> Vec<i64> {
+        backend
+            .received
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|r| r.sub_type == AgentSubType::CommandsChanged.as_str())
+            .map(|r| {
+                serde_json::from_str::<serde_json::Value>(&r.payload_json).expect("payload JSON")
+                    ["runningCommands"]
+                    .as_i64()
+                    .expect("count")
+            })
+            .collect()
+    }
+
     /// A registry whose journal is a throwaway file, plus that file's path.
     fn journalled(timeout: Duration) -> (CommandRegistry, PathBuf) {
         let dir = std::env::temp_dir().join(format!("moat-cmd-journal-{}", short_id()));
@@ -634,6 +777,36 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("command never reached a terminal state");
+    }
+
+    #[tokio::test]
+    async fn publishes_the_running_count_when_a_command_starts_and_finishes() {
+        let (reg, backend, cancel) = with_capture(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "true".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        wait_terminal(&reg, &cmd.id).await;
+
+        // One at start (1 running) and one at exit (0), in that order.
+        let counts = published_counts(&backend, 2).await;
+        assert_eq!(counts, vec![1, 0], "got {counts:?}");
+        cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn a_fresh_registry_publishes_its_zero_so_a_stale_row_is_cleared() {
+        let (reg, backend, cancel) = with_capture(Duration::from_mins(1));
+        reg.report_initial_liveness().await;
+
+        let counts = published_counts(&backend, 1).await;
+        assert_eq!(counts, vec![0], "a booting pod owns no command");
+        cancel.cancel();
     }
 
     #[tokio::test]

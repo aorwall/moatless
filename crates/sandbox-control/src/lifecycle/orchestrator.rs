@@ -211,6 +211,19 @@ pub trait LifecycleDao: Send + Sync {
     /// Record that the Task's storage was reclaimed, removing it from
     /// [`Self::stopped_with_storage`] until a start provisions a fresh volume.
     async fn mark_storage_reclaimed(&self, task_id: &str) -> Result<(), StoreError>;
+
+    /// Record how many `moat cmd` commands the Sandbox is running, as the pod
+    /// last reported. Absolute, so a repeat of an already-recorded count is a
+    /// no-op and a missed report is corrected by the next one.
+    ///
+    /// Notifies the listing only when the count crosses zero: the sidebar
+    /// renders "is anything running", so a 2→3 move changes no row and a feed
+    /// record for it would wake every connected client for nothing.
+    async fn record_running_commands(
+        &self,
+        task_id: &str,
+        running: i32,
+    ) -> Result<(), StoreError>;
 }
 
 /// The narrow internal agent-stop port. Graceful stop is lifecycle's ordering
@@ -1574,6 +1587,13 @@ mod tests {
             *self.storage_reclaimed.lock().expect("lock") = true;
             Ok(())
         }
+        async fn record_running_commands(
+            &self,
+            _task_id: &str,
+            _running: i32,
+        ) -> Result<(), StoreError> {
+            Ok(())
+        }
         async fn clear_marker(
             &self,
             _task_id: &str,
@@ -2135,6 +2155,13 @@ mod tests {
                 Ok(vec![])
             }
             async fn mark_storage_reclaimed(&self, _t: &str) -> Result<(), StoreError> {
+                Ok(())
+            }
+            async fn record_running_commands(
+                &self,
+                _t: &str,
+                _running: i32,
+            ) -> Result<(), StoreError> {
                 Ok(())
             }
         }

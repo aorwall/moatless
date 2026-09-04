@@ -311,7 +311,13 @@ impl LifecycleDao for PgLifecycleDao {
                        -- A start provisions a fresh volume, so the reclaim mark
                        -- is stale the moment intent moves toward Running.
                        storage_reclaimed_at =
-                           CASE WHEN $8 THEN NULL ELSE s.storage_reclaimed_at END
+                           CASE WHEN $8 THEN NULL ELSE s.storage_reclaimed_at END,
+                       -- A moved desired state means a pod that is going away or
+                       -- coming up new, and the command registry lives in that
+                       -- pod's memory. Whatever it was running is gone with it.
+                       running_commands =
+                           CASE WHEN (SELECT desired_state FROM prev) IS DISTINCT FROM $2
+                                THEN 0 ELSE s.running_commands END
                    WHERE s.sandbox_id = $1
                    RETURNING 1
                )
@@ -456,6 +462,63 @@ impl LifecycleDao for PgLifecycleDao {
         .await
         .map(|_| ())
         .map_err(|e| StoreError::with_source("mark storage reclaimed", e))
+    }
+
+    async fn record_running_commands(
+        &self,
+        sandbox_id: &str,
+        running: i32,
+    ) -> Result<(), StoreError> {
+        // In a transaction for the reason `persist_intent` is: the listing
+        // record has to commit with the row it describes, or the sidebar holds
+        // a count nothing will tell it to re-read.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| StoreError::with_source("begin running-commands transaction", e))?;
+
+        // `crossed` is the busy axis, not the count: the row under `FOR UPDATE`
+        // is compared against the incoming value for zero-ness only.
+        let crossed: Option<bool> = sqlx::query_scalar(
+            r#"WITH prev AS (
+                   SELECT running_commands
+                   FROM sandboxes
+                   WHERE sandbox_id = $1
+                   FOR UPDATE
+               ),
+               write AS (
+                   UPDATE sandboxes SET
+                       running_commands = $2,
+                       updated_at = NOW()
+                   WHERE sandbox_id = $1
+                   RETURNING 1
+               )
+               SELECT ((SELECT running_commands FROM prev) > 0) IS DISTINCT FROM ($2 > 0)
+               FROM write"#,
+        )
+        .bind(sandbox_id)
+        .bind(running)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| StoreError::with_source("persist running commands", e))?;
+
+        if crossed == Some(true) {
+            // Ahead of the listing's allocator, per the lock order in
+            // `moatless_backend_core::change_feed`.
+            moatless_backend_core::change_feed::conversation::record_session_change(
+                &mut tx, sandbox_id,
+            )
+            .await
+            .map_err(|e| StoreError::with_source("record conversation change for commands", e))?;
+            moatless_backend_core::change_feed::listing::record_change(&mut tx, sandbox_id)
+                .await
+                .map_err(|e| StoreError::with_source("record listing change for commands", e))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| StoreError::with_source("commit running-commands transaction", e))
     }
 }
 

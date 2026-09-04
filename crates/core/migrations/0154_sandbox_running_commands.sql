@@ -1,0 +1,13 @@
+-- How many `moat cmd` commands the sandbox is running, as it last reported.
+--
+-- The sidebar's listing is a projection over this table and `tasks`, so a fact
+-- it renders has to be readable from a row: the count lives only in the pod's
+-- in-memory registry otherwise, one gRPC call per Task away from a query that
+-- returns hundreds. This is what lets a Task whose turn ended with a build
+-- still running read as working rather than idle.
+--
+-- Written absolutely, never incremented: the registry dies with its pod, so a
+-- delta lost to a replacement would strand the count above zero forever. Each
+-- `agent.commands_changed` event carries the whole number, and a fresh pod
+-- publishes its own (0) at startup, which is what corrects a stale row.
+ALTER TABLE sandboxes ADD COLUMN running_commands INTEGER NOT NULL DEFAULT 0;
