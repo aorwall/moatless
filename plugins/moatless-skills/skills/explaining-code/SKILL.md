@@ -135,7 +135,7 @@ The one case that stays chat-only: a single linear trace of about four hops. The
 
 **Done when:** the chat answer is sent, the page exists in `scratchpad/`, and its link is in the message.
 
-**Link it, don't paste it** — `<origin>/tasks/<task-id>?file=scratchpad%2F<slug>-explained.html&fileView=preview`. Quoting the page into chat buries the answer you just gave.
+**Give its path, don't paste it** — `scratchpad/<slug>-explained.html`, relative to the workspace root. Quoting the page into chat buries the answer you just gave.
 
 If the user explicitly wants something committed and maintained, that's a normal file request — write it where they ask. It isn't this skill's default output.
 

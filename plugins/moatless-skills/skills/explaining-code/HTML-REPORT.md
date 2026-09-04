@@ -4,9 +4,7 @@
 
 Naming: `scratchpad/<slug>-explained.html`. Use the **stable** rule — these get revisited and extended as follow-up questions land, and a timestamped name would strand the tab.
 
-```
-<origin>/tasks/<task-id>?file=scratchpad%2F<slug>-explained.html&fileView=preview
-```
+Give the reader that path, relative to the workspace root.
 
 **This page is the artifact, not a projection of one.** There is no markdown behind it, so it carries everything — write it directly and completely rather than as a rendering of something else. `SKILL.md` decides whether it gets built; by the time you are here, it does.
 
@@ -69,7 +67,7 @@ That band is usually the most valuable element on the page. Most confusion about
 
 - Give every hop an `id` (`#hop-3`) so a specific step can be linked in chat or a PR comment.
 - **Link `file:line` to GitHub when a remote and a SHA are known** — `https://github.com/<org>/<repo>/blob/<sha>/<path>#L<line>`. Pin the SHA, not the branch: line numbers drift, and a stale deep link is worse than plain text. This is the only form that can anchor a line.
-- **Otherwise link into the task UI** — `<origin>/tasks/<task-id>?file=moatless%2F<path>&fileView=code`. No line anchor, but it opens the right file next to the conversation, which beats plain text.
+- **Otherwise give the workspace-relative path** — `moatless/<path>`. No line anchor, but the reader can open it next to the conversation, which beats plain text.
 - If neither is available, leave them as plain monospace. Don't guess a URL.
 
 ## Keep it honest

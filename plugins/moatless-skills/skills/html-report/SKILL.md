@@ -31,29 +31,19 @@ Write the file to `/opt/moatless/workspace/scratchpad/`, creating the directory 
 | One-shot snapshot | `<slug>-<timestamp>.html` | Each run is its own artifact; old ones stay readable |
 | Anything you will update | `<slug>.html`, overwritten in place | A fresh name per turn breaks the tab the user already has open |
 
-**Serving it — inside a moatless sandbox** (the normal case), the task UI renders it:
+**Presenting it — inside a moatless sandbox** (the normal case), give the reader the file's path relative to the workspace root (`WORKSPACE_DIR`, `/opt/moatless/workspace`), not to the repo checkout: `scratchpad/<slug>.html`. A repo file carries its checkout directory: `moatless/.plans/foo.md`, not `.plans/foo.md`.
 
-```
-<origin>/tasks/<task-id>?file=scratchpad%2F<slug>.html&fileView=preview
-```
+Give the path once. Don't re-paste it on every update — the tab is already open.
 
-`file` and `fileView` are search params on the **task route** — not a separate `/file` sub-route — so the link opens the page inside the normal task UI rather than stranding the reader on a bare document.
+**The same relative path references any workspace file**, which is usually more useful than pasting its contents:
 
-- **The path is relative to the workspace root** (`WORKSPACE_DIR`, `/opt/moatless/workspace`), not to the repo. That means repo files carry the checkout directory: `moatless/.plans/foo.md`, not `.plans/foo.md`.
-- **URL-encode it.** Slashes become `%2F`. `scratchpad%2Freport.html`, `moatless%2Fspecs%2Ffoo.md`.
-- `fileView` is one of `code`, `diff`, `preview`. **`preview` renders both HTML and markdown** (`.md`, `.mdx`) — anything else falls back, so `code` is the only sensible mode for source.
+| Referencing | Give |
+|---|---|
+| A generated page | `scratchpad/<slug>.html` |
+| Source you're citing | `moatless/backend/src/...` |
+| A committed markdown file | `moatless/specs/<slug>.md` — but not as the thing they read; see the audience rule above |
 
-Give the URL once. Don't re-paste it on every update — the tab is already open.
-
-**The same form links any workspace file**, which is usually more useful than pasting its contents:
-
-| Linking | `file=` | `fileView=` |
-|---|---|---|
-| A generated page | `scratchpad%2F<slug>.html` | `preview` |
-| Source you're citing | `moatless%2Fbackend%2Fsrc%2F...` | `code` |
-| A committed markdown file | `moatless%2Fspecs%2F<slug>.md` | `preview` — but not as the thing they read; see the audience rule above |
-
-Prefer a link over a paste whenever the file is long enough that quoting it would bury the message.
+Prefer the path over a paste whenever the file is long enough that quoting it would bury the message.
 
 **Update the file with the Write or Edit tool. Never a shell redirect.** The viewer refetches because `Write`/`Edit`/`MultiEdit` tool-call events arrive over SSE and invalidate the task's file queries with `refetchType: 'active'` — exactly the file the user is looking at. A `cat > file` in bash emits no such event, so the page silently goes stale. Don't add a `<meta http-equiv="refresh">` either; the viewer handles it.
 
