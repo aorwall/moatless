@@ -1,13 +1,7 @@
 //! The violations the workspace is known to carry.
 //!
-//! A rule lands green on a codebase that does not satisfy it yet: the
-//! violations present at that moment go in the baseline, and the test fails
-//! only on ones that are not. The file is a sorted list of [`Violation::id`]
-//! strings, so a diff to it reads as exactly which breaches were accepted or
-//! fixed.
-//!
-//! It only shrinks. Regenerating it to absorb a new violation is the one
-//! motion this design exists to make visible.
+//! A sorted list of [`Violation::id`] strings, so a diff reads as exactly which
+//! breaches were accepted or fixed. It only shrinks.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

@@ -1,17 +1,8 @@
 //! A module is named for its domain, not for the kind of thing it holds.
 //!
-//! The rule is stated in `crates/types/AGENTS.md` and applies there only.
-//!
-//! Two shapes break it, and one lookalike does not. A `models` module beside
-//! a `types` module beside a `schemas` module at a crate root carries no
-//! domain qualifier at all, so a reader cannot predict which of the three
-//! holds a given type. A junk-drawer name breaks it wherever it sits, because
-//! "common" is not a domain at any depth.
-//!
-//! `task/models.rs` beside `task/schemas.rs` is neither. The directory names
-//! the domain and the leaves split the entity from the wire shape, which is
-//! the distinction the workspace is supposed to draw. This crate follows that
-//! convention widely and the rule must not fight it.
+//! The rule is stated in `crates/types/AGENTS.md`. Two shapes break it — a
+//! kind name at a crate root, with no domain above it to qualify it, and a
+//! junk drawer at any depth.
 
 use std::path::Path;
 

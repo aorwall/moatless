@@ -1,16 +1,9 @@
 //! What a crate exports, as opposed to what sits under its `src/`.
 //!
-//! A `pub struct` in a private module is not shared vocabulary — no other
-//! crate can name it — and a test-support module is not part of the API a
-//! release compiles. Walking the module tree from the crate root is what tells
-//! those apart from an exported type. Walking the filesystem cannot: it sees
-//! `src/test_support.rs` and `src/internal/thing.rs` as ordinary files.
-//!
-//! Re-exports are followed one step, which is the shape this workspace uses: a
-//! `pub use` in a reachable module exports the items it lists, and a glob
-//! exports the module subtree it points at. What it exports them *as* is the
-//! name an importer writes — under `as`, only the alias — because that is the
-//! name a collision would collide on.
+//! The walk starts at the crate root, so a `pub` item in a private module or
+//! behind a test-support `cfg` is not counted as exported. Re-exports are
+//! followed one step, under the name an importer writes — under `as`, only the
+//! alias.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
@@ -243,10 +236,8 @@ fn walk_use(tree: &syn::UseTree, prefix: &mut Vec<String>, at: &[String], out: &
 /// another crate.
 ///
 /// `crate`, `self` and `super` are explicit. A bare first segment is a crate
-/// name *unless* it is a module in scope — the 2018 edition's uniform paths,
-/// which is how `pub use admission::DeliveryAdmission;` reads in
-/// `delivery/mod.rs`. Resolving that against the modules the walk found is
-/// what tells the two apart; Rust rejects the ambiguous case outright.
+/// name *unless* it is a module in scope — the 2018 edition's uniform paths —
+/// so it is resolved against the modules the walk found.
 fn local_path(
     prefix: &[String],
     at: &[String],

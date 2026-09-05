@@ -1,15 +1,8 @@
 //! One public type name must mean one thing.
 //!
-//! A name exported by two shared-vocabulary crates gives a reader no way to
-//! tell which shape they are holding, and the copies drift silently because
-//! nothing fails when one gains a field. `SandboxStatusFullResponse` is the
-//! worked example: three definitions carrying 13, 7 and 2 fields, where the
-//! seven-field copy is what the CLI binds and the thirteen-field one is what
-//! the server sends.
-//!
-//! Only exported types count. What a crate keeps behind a private module or a
-//! test-support feature collides with nobody, so the walk starts at the crate
-//! root rather than at the filesystem — see `public_api`.
+//! A name exported by two shared-vocabulary crates leaves a reader unable to
+//! tell which shape they hold, and the copies drift because nothing fails when
+//! one gains a field. Only exported types count — see `public_api`.
 
 use std::collections::BTreeMap;
 

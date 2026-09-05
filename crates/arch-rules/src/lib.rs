@@ -1,12 +1,8 @@
 //! Architecture rules for the Moatless workspace.
 //!
-//! A rule reads the workspace and returns [`Violation`]s. Two things consume
-//! them: `arch-report`, which prints every violation and exits 0, and
-//! `tests/architecture.rs`, which fails only on violations absent from
-//! `arch-baseline.json`. That split is what lets a rule land on a codebase
-//! that does not satisfy it yet: the report names the work, the baseline
-//! holds the line, and `ARCH_STRICT=1` is the switch once the baseline is
-//! empty.
+//! A rule reads the workspace and returns [`Violation`]s. `arch-report` prints
+//! them and exits 0; `tests/architecture.rs` fails on ones absent from
+//! `arch-baseline.json`, or on any of them under `ARCH_STRICT=1`.
 
 pub mod baseline;
 pub mod crate_deps;
