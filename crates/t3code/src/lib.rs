@@ -1879,11 +1879,7 @@ impl ProtocolSession {
             warn!(%tag, %required, user_id = %identity.user_id, "T3 UI request refused; scope not granted");
             return vec![typed_failure_exit(
                 &id,
-                json!({
-                    "_tag": "EnvironmentAuthorizationError",
-                    "message": format!("This server does not grant {required}."),
-                    "requiredScope": required,
-                }),
+                authorization_error(required, format!("This server does not grant {required}.")),
             )];
         }
 
@@ -2284,7 +2280,7 @@ impl ProtocolSession {
                 };
                 match sandbox::status(&state.sandbox, &viewer, task_id).await {
                     Ok(status) => vec![success_exit(&id, status)],
-                    Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
+                    Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, identity)],
                 }
             }
             "sandbox.start" => {
@@ -2294,7 +2290,7 @@ impl ProtocolSession {
                 };
                 match sandbox::start(&state.sandbox, &viewer, task_id).await {
                     Ok(status) => vec![success_exit(&id, status)],
-                    Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
+                    Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, identity)],
                 }
             }
             "sandbox.stop" => {
@@ -2304,7 +2300,7 @@ impl ProtocolSession {
                 };
                 match sandbox::stop(&state.sandbox, &viewer, task_id).await {
                     Ok(status) => vec![success_exit(&id, status)],
-                    Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
+                    Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, identity)],
                 }
             }
             "sandbox.subscribeStatus" => {
@@ -2321,7 +2317,7 @@ impl ProtocolSession {
                 // after it.
                 let seeded = match sandbox::status(&state.sandbox, &viewer, &task_id).await {
                     Ok(status) => status,
-                    Err(error) => return vec![sandbox_failure_exit(&id, &error, identity)],
+                    Err(error) => return vec![sandbox_failure_exit(&id, &tag, &error, identity)],
                 };
                 let producer = tokio::spawn(sandbox::watch_status(
                     id.clone(),
@@ -2335,7 +2331,7 @@ impl ProtocolSession {
             }
             "sandbox.listDiagnostics" => match sandbox::list_diagnostics(&state.sandbox).await {
                 Ok(entries) => vec![success_exit(&id, entries)],
-                Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
+                Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, identity)],
             },
             "subscribeServerStatus" => {
                 let viewer = viewer_scope(identity);
@@ -3421,6 +3417,27 @@ fn typed_failure_exit(request_id: &RequestId, error: Value) -> Value {
     })
 }
 
+/// What a viewer is told about a Task the read gate did not return.
+///
+/// It says the same thing whether the Task is missing or merely unreadable,
+/// because `find_by_id` answers `None` to both and the difference is what a
+/// caller would use to probe for Tasks it cannot see.
+const THREAD_UNAVAILABLE: &str = "This thread is not available.";
+
+/// The contract's `EnvironmentAuthorizationError`, as the error a `Fail` cause
+/// carries.
+///
+/// `requiredScope` is the scope the method needs, which is not always why the
+/// request was refused: a viewer holding the scope may still be refused one
+/// Task. The `message` is what says which of the two happened.
+fn authorization_error(required_scope: &str, message: impl Into<String>) -> Value {
+    json!({
+        "_tag": "EnvironmentAuthorizationError",
+        "message": message.into(),
+        "requiredScope": required_scope,
+    })
+}
+
 /// A workspace-file request the client is told about in its own terms.
 ///
 /// This is one of the failures [`typed_failure_exit`] exists for, and the
@@ -3898,13 +3915,42 @@ fn scripts_error_response(error: &ScriptsError) -> Response {
 
 /// The client is told the sandbox status or command could not be answered; the
 /// cause is logged once here rather than shipped to the browser.
+///
+/// [`SandboxRpcError::NotFound`] is the one that is not a defect. It is what the
+/// read gate answers for a Task this viewer may not be told about, which is a
+/// decision this surface made and which every sandbox method declares as
+/// `EnvironmentAuthorizationError` — so it goes back as a `Fail` the client
+/// renders, not a `Die` it can only report as a broken server.
 fn sandbox_failure_exit(
     request_id: &RequestId,
+    tag: &str,
     error: &SandboxRpcError,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
+    if matches!(error, SandboxRpcError::NotFound) {
+        warn!(%tag, user_id = %identity.user_id, "T3 UI sandbox request refused; thread not readable");
+        return typed_failure_exit(
+            request_id,
+            authorization_error(oauth::required_scope(tag), THREAD_UNAVAILABLE),
+        );
+    }
     error!(%error, user_id = %identity.user_id, "Failed to answer a Task's sandbox lifecycle request");
     failure_exit(request_id, "Failed to read the conversation's sandbox")
+}
+
+/// How `sandbox.subscribeStatus` ends once its Task stops being readable.
+///
+/// The same refusal [`sandbox_failure_exit`] answers the opening request with,
+/// as the `Exit` that closes a stream already delivering chunks. The caller
+/// logs it: this is reached from the poller, which knows the Task id.
+fn sandbox_stream_refusal(request_id: &RequestId) -> Value {
+    typed_failure_exit(
+        request_id,
+        authorization_error(
+            oauth::required_scope("sandbox.subscribeStatus"),
+            THREAD_UNAVAILABLE,
+        ),
+    )
 }
 
 /// A conversation with no Sandbox, as `servers.list` answers it.
@@ -5515,6 +5561,75 @@ mod tests {
         // Carried separately from the message so a client fanning out several
         // calls can tell which one came back absent without parsing text.
         assert_eq!(cause["error"]["method"], "orchestration.getFullThreadDiff");
+    }
+
+    fn request_id(id: &str) -> RequestId {
+        serde_json::from_value(json!(id)).expect("a string is a request id")
+    }
+
+    /// Found in production by `moatless_ui_rpc_requests_total{outcome="die"}`:
+    /// opening a thread the viewer cannot read answered `Die`, so the panel
+    /// could say only that the server was broken.
+    #[test]
+    fn a_thread_the_viewer_cannot_read_is_a_typed_refusal_not_a_defect() {
+        let frame = sandbox_failure_exit(
+            &request_id("1"),
+            "sandbox.subscribeStatus",
+            &SandboxRpcError::NotFound,
+            &viewer(),
+        );
+
+        let cause = &frame["exit"]["cause"][0];
+        assert_eq!(cause["_tag"], "Fail", "a refusal, not a Die defect");
+        assert_eq!(cause["error"]["_tag"], "EnvironmentAuthorizationError");
+        assert_eq!(cause["error"]["requiredScope"], "orchestration:read");
+        assert_eq!(cause["error"]["message"], THREAD_UNAVAILABLE);
+    }
+
+    /// The narrowing only moves `NotFound`. A read that actually broke is still
+    /// a defect, because no client action answers it.
+    #[test]
+    fn a_sandbox_that_could_not_be_read_is_still_a_defect() {
+        let frame = sandbox_failure_exit(
+            &request_id("1"),
+            "sandbox.status",
+            &SandboxRpcError::Database(sqlx::Error::RowNotFound),
+            &viewer(),
+        );
+
+        assert_eq!(frame["exit"]["cause"][0]["_tag"], "Die");
+    }
+
+    /// The stream's own ending, for a thread that stopped being readable while
+    /// it was open — the same refusal as the opening request's.
+    #[test]
+    fn a_subscription_ends_with_the_refusal_its_request_would_have_answered() {
+        assert_eq!(
+            sandbox_stream_refusal(&request_id("1")),
+            sandbox_failure_exit(
+                &request_id("1"),
+                "sandbox.subscribeStatus",
+                &SandboxRpcError::NotFound,
+                &viewer(),
+            )
+        );
+    }
+
+    /// The seam that found this now reads it as a refusal, so it stops counting
+    /// against the defect rate and starts counting against the refusal one.
+    #[test]
+    fn the_metrics_seam_reads_an_unreadable_thread_as_unauthorized() {
+        let frames = vec![sandbox_failure_exit(
+            &request_id("1"),
+            "sandbox.subscribeStatus",
+            &SandboxRpcError::NotFound,
+            &viewer(),
+        )];
+
+        assert_eq!(
+            rpc_metrics::classify(&frames),
+            rpc_metrics::Outcome::Unauthorized
+        );
     }
 
     /// Pairing advertises a scope list. Until this gate existed the list was

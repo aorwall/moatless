@@ -145,8 +145,12 @@ pub async fn watch_status(
                 // The conversation stopped being readable. No poll recovers
                 // from that, and staying silent would leave the indicator
                 // showing its last answer as current.
+                warn!(
+                    task_id,
+                    "A T3 UI sandbox subscription's thread stopped being readable"
+                );
                 let _ = frames
-                    .send(crate::failure_exit(&request_id, "Conversation not found"))
+                    .send(crate::sandbox_stream_refusal(&request_id))
                     .await;
                 return;
             }
