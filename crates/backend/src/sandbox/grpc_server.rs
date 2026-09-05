@@ -56,11 +56,12 @@ use moatless_tasks::event_ingress::{AdmissionError, AdmissionRequest, EventAdmis
 use moatless_tasks::message::dao::MessageDao;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::fork::TaskForkDao;
-use moatless_tasks::task::relations::TaskRelationDao;
+use moatless_tasks::task::relations::{TaskRelation, TaskRelationDao};
 use moatless_tasks::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use moatless_tasks::task_turn::dao::{TaskTurnDao, TurnStateEvent};
 use moatless_tasks::task_turn::models::{TurnStatus, classify_turn_transition};
 use moatless_types::agent::AgentType;
+use moatless_types::task::TaskRelationType;
 use moatless_types::user::UserRole;
 use moatless_workspaces::credentials::WriteSource;
 
@@ -127,6 +128,18 @@ fn upload_chunks(upload: LoadedUpload) -> Vec<UploadChunk> {
     }
 
     chunks
+}
+
+/// The Task whose archives a fork falls back to, read off its parent edge.
+///
+/// Keyed on the `forked_from` relation rather than `task_forks`, which is
+/// written only when the fork has session anchors. A workspace needs none, so a
+/// fork whose parent never ran an agent still resolves here. `None` for a Task
+/// with no parent, and for a `created_by` parent: a subtask must not restore
+/// the tree of the Task that spawned it.
+fn fork_source_task_id(parent: Option<&TaskRelation>) -> Option<&str> {
+    let row = parent?;
+    (row.relation_type == TaskRelationType::ForkedFrom).then_some(row.to_task_id.as_str())
 }
 
 /// Build the S3 key for a task's transcript archive:
@@ -805,14 +818,14 @@ impl BackendSandboxServiceImpl {
         }
 
         let handlers = self.handlers.as_ref()?;
-        let source_task_id = match handlers.task_forks.find(task_id).await {
-            Ok(Some(row)) => row.source_task_id,
-            Ok(None) => return None,
+        let parent = match handlers.task_relations.find_parent(task_id).await {
+            Ok(parent) => parent,
             Err(e) => {
-                warn!(error = %e, task_id = %task_id, "Failed to read fork row; restoring the task's own key");
+                warn!(error = %e, task_id = %task_id, "Failed to read the fork relation; restoring the task's own key");
                 return None;
             }
         };
+        let source_task_id = fork_source_task_id(parent.as_ref())?.to_string();
 
         let source_key = key_for(&self.workspace_s3_prefix, &source_task_id);
         match file_s3::head_object_modified_at(&s3_client.client, bucket, &source_key).await {
@@ -2680,6 +2693,29 @@ mod tests {
         assert_eq!(TurnStatus::Completed.as_str(), "completed");
         assert_eq!(TurnStatus::Error.as_str(), "error");
         assert_eq!(TurnStatus::Stopped.as_str(), "stopped");
+    }
+
+    fn parent_edge(relation_type: TaskRelationType) -> TaskRelation {
+        TaskRelation::new("fork", "source", relation_type, serde_json::Value::Null)
+    }
+
+    #[test]
+    fn a_forked_from_parent_is_the_archive_source() {
+        let edge = parent_edge(TaskRelationType::ForkedFrom);
+        assert_eq!(fork_source_task_id(Some(&edge)), Some("source"));
+    }
+
+    /// `find_parent` answers `created_by` as well, and a subtask restoring the
+    /// tree of the Task that spawned it would overwrite its own checkout.
+    #[test]
+    fn a_created_by_parent_is_not_an_archive_source() {
+        let edge = parent_edge(TaskRelationType::CreatedBy);
+        assert_eq!(fork_source_task_id(Some(&edge)), None);
+    }
+
+    #[test]
+    fn a_task_with_no_parent_has_no_archive_source() {
+        assert_eq!(fork_source_task_id(None), None);
     }
 
     // ---------------------------------------------------------------------
