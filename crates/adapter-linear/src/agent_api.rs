@@ -820,6 +820,77 @@ impl LinearAgentApi {
         require_mutation_success(&value, "/data/issueRemoveLabel", "issueRemoveLabel")
     }
 
+    /// Run `issueRelationCreate` and return the created relation. Both ids must
+    /// be UUIDs — Linear's `IssueRelationCreateInput` rejects `SP-123` keys, so
+    /// the caller resolves them first. `relation` is Linear's
+    /// `IssueRelationType` wire value.
+    pub async fn issue_relate(
+        &self,
+        issue_uuid: &str,
+        related_issue_uuid: &str,
+        relation: &str,
+    ) -> Result<serde_json::Value, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($input: IssueRelationCreateInput!) { \
+                    issueRelationCreate(input: $input) { \
+                        success issueRelation { \
+                            id type \
+                            issue { id identifier } \
+                            relatedIssue { id identifier } \
+                        } \
+                    } \
+                }",
+                "variables": { "input": {
+                    "issueId": issue_uuid,
+                    "relatedIssueId": related_issue_uuid,
+                    "type": relation,
+                }}
+            }))
+            .await?;
+        require_mutation_success(
+            &value,
+            "/data/issueRelationCreate",
+            "issueRelationCreate",
+        )?;
+        value
+            .pointer("/data/issueRelationCreate/issueRelation")
+            .cloned()
+            .ok_or_else(|| {
+                SharedAdapterError::AdapterApi(
+                    "issueRelationCreate missing issueRelation subobject".into(),
+                )
+                .into()
+            })
+    }
+
+    /// List issues matching `filter` (a Linear `IssueFilter` object), newest
+    /// first. `first` is passed straight through as the page size; this reads
+    /// one page only, which is what a sibling-ticket lookup needs.
+    pub async fn list_issues(
+        &self,
+        filter: serde_json::Value,
+        first: i64,
+    ) -> Result<Vec<serde_json::Value>, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": format!(
+                    "query($filter: IssueFilter, $first: Int!) {{ \
+                        issues(filter: $filter, first: $first, orderBy: updatedAt) {{ \
+                            nodes {{ {ISSUE_FIELDS} }} \
+                        }} \
+                    }}"
+                ),
+                "variables": { "filter": filter, "first": first }
+            }))
+            .await?;
+        Ok(value
+            .pointer("/data/issues/nodes")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default())
+    }
+
     /// Resolve a human name to a Linear entity UUID. Returns the first
     /// match (case-insensitive); `None` if nothing matches.
     pub async fn lookup(

@@ -43,9 +43,11 @@ use crate::state::AppState;
         linear::handlers::linear_webhook,
         linear::api_routes::get_issue,
         linear::api_routes::create_issue,
+        linear::api_routes::list_issues,
         linear::api_routes::update_issue,
         linear::api_routes::create_comment,
         linear::api_routes::mutate_label,
+        linear::api_routes::relate_issue,
         linear::api_routes::graphql_passthrough,
         linear::api_routes::lookup,
         webhook::handlers::webhook_inbound,
@@ -82,10 +84,14 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(github_pr::api_routes::record_external_event))
         .routes(routes!(linear::handlers::linear_webhook))
         .routes(routes!(linear::api_routes::get_issue))
-        .routes(routes!(linear::api_routes::create_issue))
+        .routes(routes!(
+            linear::api_routes::create_issue,
+            linear::api_routes::list_issues
+        ))
         .routes(routes!(linear::api_routes::update_issue))
         .routes(routes!(linear::api_routes::create_comment))
         .routes(routes!(linear::api_routes::mutate_label))
+        .routes(routes!(linear::api_routes::relate_issue))
         .routes(routes!(linear::api_routes::graphql_passthrough))
         .routes(routes!(linear::api_routes::lookup))
         .routes(routes!(webhook::handlers::webhook_inbound))

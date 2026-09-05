@@ -5,10 +5,12 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { ContentOrigin } from './contentOrigin';
 
 /**
  * Response for listing files.
  */
 export interface ListFilesResponse {
   files: string[];
+  origin: ContentOrigin;
 }

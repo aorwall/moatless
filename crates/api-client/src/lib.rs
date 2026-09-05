@@ -1305,6 +1305,60 @@ impl ApiClient {
             .await
     }
 
+    /// POST /api/v1/linear/issues/{id}/relations
+    pub async fn linear_relate_issue(
+        &self,
+        id: &str,
+        req: &moatless_api_schemas::linear::LinearIssueRelateRequest,
+        connection_id: Option<&str>,
+    ) -> Result<moatless_api_schemas::linear::LinearIssueResponse, ApiError> {
+        let qs = linear_connection_qs(connection_id);
+        self.post(&format!("/api/v1/linear/issues/{id}/relations{qs}"), req)
+            .await
+    }
+
+    /// GET /api/v1/linear/issues
+    pub async fn linear_list_issues(
+        &self,
+        params: &moatless_api_schemas::linear::LinearIssueListParams,
+    ) -> Result<moatless_api_schemas::linear::LinearIssueListResponse, ApiError> {
+        let mut qs: Vec<String> = Vec::new();
+        let mut push = |key: &str, value: &str| qs.push(format!("{key}={}", urlenc(value)));
+        if let Some(v) = params.query.as_deref() {
+            push("query", v);
+        }
+        if let Some(v) = params.team.as_deref() {
+            push("team", v);
+        }
+        if let Some(v) = params.project.as_deref() {
+            push("project", v);
+        }
+        if let Some(v) = params.state.as_deref() {
+            push("state", v);
+        }
+        if let Some(v) = params.label.as_deref() {
+            push("label", v);
+        }
+        if let Some(v) = params.assignee.as_deref() {
+            push("assignee", v);
+        }
+        if params.open_only.unwrap_or(false) {
+            push("openOnly", "true");
+        }
+        if let Some(v) = params.limit {
+            push("limit", &v.to_string());
+        }
+        if let Some(v) = params.connection_id.as_deref() {
+            push("connectionId", v);
+        }
+        let qs = if qs.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", qs.join("&"))
+        };
+        self.get(&format!("/api/v1/linear/issues{qs}")).await
+    }
+
     /// POST /api/v1/linear/graphql
     pub async fn linear_graphql(
         &self,

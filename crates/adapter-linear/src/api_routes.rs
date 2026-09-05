@@ -20,7 +20,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use moatless_api_schemas::linear::{
     LinearCommentCreateRequest, LinearConnectionParams, LinearGraphqlRequest,
-    LinearIssueCreateRequest, LinearIssueResponse, LinearIssueUpdateRequest,
+    LinearIssueCreateRequest, LinearIssueListParams, LinearIssueListResponse,
+    LinearIssueRelateRequest, LinearIssueResponse, LinearIssueUpdateRequest,
     LinearLabelMutationRequest, LinearLabelOp, LinearLookupParams, LinearLookupResponse,
     LinearOkResponse,
 };
@@ -450,6 +451,121 @@ pub async fn mutate_label(
         LinearLabelOp::Remove => api.issue_remove_label(&issue_uuid, &label_id).await?,
     }
     Ok(Json(LinearOkResponse { ok: true }))
+}
+
+// ---------------------------------------------------------------------------
+// Issue: RELATE / LIST
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/linear/issues/{id}/relations",
+    tag = "linear",
+    params(
+        ("id" = String, Path, description = "Issue identifier or UUID"),
+        LinearConnectionParams,
+    ),
+    request_body = LinearIssueRelateRequest,
+    responses(
+        (status = 200, description = "Relation created", body = LinearIssueResponse),
+        (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+    )
+)]
+pub async fn relate_issue(
+    State(linear): State<Option<Arc<LinearAdapter>>>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Query(params): Query<LinearConnectionParams>,
+    Json(req): Json<LinearIssueRelateRequest>,
+) -> Result<Json<LinearIssueResponse>, AdapterError> {
+    let linear = require_linear(linear)?;
+    let ctx = auth.scope_context();
+    let (_connection, api) =
+        resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
+
+    let issue_uuid = resolve_optional_issue(&api, Some(&id))
+        .await?
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Linear issue {id} not found")))?;
+    let related_uuid = resolve_optional_issue(&api, Some(&req.related_issue))
+        .await?
+        .ok_or_else(|| {
+            SharedAdapterError::NotFound(format!(
+                "Linear issue {} not found",
+                req.related_issue
+            ))
+        })?;
+
+    let relation = api
+        .issue_relate(&issue_uuid, &related_uuid, req.relation.as_linear())
+        .await?;
+    Ok(Json(LinearIssueResponse {
+        data: relation,
+        binding_id: None,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/linear/issues",
+    tag = "linear",
+    params(LinearIssueListParams),
+    responses(
+        (status = 200, description = "Matching issues", body = LinearIssueListResponse),
+        (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
+    )
+)]
+pub async fn list_issues(
+    State(linear): State<Option<Arc<LinearAdapter>>>,
+    auth: AuthUser,
+    Query(params): Query<LinearIssueListParams>,
+) -> Result<Json<LinearIssueListResponse>, AdapterError> {
+    let linear = require_linear(linear)?;
+    let ctx = auth.scope_context();
+    let (_connection, api) =
+        resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
+
+    let mut filter = serde_json::Map::new();
+    if let Some(query) = params.query.as_deref().filter(|q| !q.is_empty()) {
+        filter.insert(
+            "searchableContent".into(),
+            json!({ "contains": query }),
+        );
+    }
+    if let Some(team) = params.team.as_deref() {
+        let team_id = resolve_team_id(&api, team).await?;
+        filter.insert("team".into(), json!({ "id": { "eq": team_id } }));
+    }
+    if let Some(project) = params.project.as_deref() {
+        let project_id = resolve_required(&api, LookupKind::Project, project).await?;
+        filter.insert("project".into(), json!({ "id": { "eq": project_id } }));
+    }
+    // `state` and `open_only` both constrain the workflow state, so they share
+    // one filter object — two `insert`s under the same key would drop the first.
+    let mut state_filter = serde_json::Map::new();
+    if let Some(state) = params.state.as_deref() {
+        let state_id = resolve_required(&api, LookupKind::State, state).await?;
+        state_filter.insert("id".into(), json!({ "eq": state_id }));
+    }
+    // `open_only` filters on the state's *type*, not its name: every team names
+    // its states differently, but the four types are fixed by Linear.
+    if params.open_only.unwrap_or(false) {
+        state_filter.insert("type".into(), json!({ "nin": ["completed", "canceled"] }));
+    }
+    if !state_filter.is_empty() {
+        filter.insert("state".into(), Value::Object(state_filter));
+    }
+    if let Some(label) = params.label.as_deref() {
+        let label_id = resolve_required(&api, LookupKind::Label, label).await?;
+        filter.insert("labels".into(), json!({ "id": { "eq": label_id } }));
+    }
+    if let Some(assignee) = params.assignee.as_deref() {
+        let user = resolve_user_required(&api, assignee).await?;
+        filter.insert("assignee".into(), json!({ "id": { "eq": user.id } }));
+    }
+
+    let first = params.limit.unwrap_or(50).clamp(1, 250);
+    let data = api.list_issues(Value::Object(filter), first).await?;
+    Ok(Json(LinearIssueListResponse { data }))
 }
 
 // ---------------------------------------------------------------------------

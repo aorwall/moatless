@@ -7,7 +7,8 @@ use std::collections::HashMap;
 use clap::Subcommand;
 use moatless_api_schemas::linear::{
     LinearCommentCreateRequest, LinearGraphqlRequest, LinearIssueCreateRequest,
-    LinearIssueUpdateRequest, LinearLabelMutationRequest, LinearLabelOp,
+    LinearIssueListParams, LinearIssueRelateRequest, LinearIssueUpdateRequest,
+    LinearLabelMutationRequest, LinearLabelOp, LinearRelationType,
 };
 use serde_json::Value;
 
@@ -167,6 +168,66 @@ pub enum IssueAction {
         #[command(subcommand)]
         action: LabelAction,
     },
+    /// Relate two issues (`related`, `duplicate`, `blocks`, `similar`)
+    Relate {
+        /// Issue identifier (SP-123) or UUID
+        id: String,
+        /// The other issue: identifier or UUID
+        related_issue: String,
+        /// `blocks` reads left-to-right: `ID` blocks `RELATED_ISSUE`
+        #[arg(long = "type", value_enum, default_value_t = RelationTypeArg::Related)]
+        relation: RelationTypeArg,
+        #[arg(long)]
+        connection: Option<String>,
+    },
+    /// List issues matching a filter — newest activity first
+    List {
+        /// Free text matched against title, description and comments
+        #[arg(long = "query")]
+        query: Option<String>,
+        /// Team key (`SP`) or UUID
+        #[arg(long)]
+        team: Option<String>,
+        /// Project name or UUID
+        #[arg(long)]
+        project: Option<String>,
+        /// Workflow state name (`In Review`) or UUID
+        #[arg(long)]
+        state: Option<String>,
+        /// Label name or UUID
+        #[arg(long)]
+        label: Option<String>,
+        /// Assignee email, display name, `me`, or UUID
+        #[arg(long)]
+        assignee: Option<String>,
+        /// Drop issues whose state type is `completed` or `canceled`
+        #[arg(long = "open")]
+        open_only: bool,
+        /// Defaults to 50, capped at 250
+        #[arg(long)]
+        limit: Option<i64>,
+        #[arg(long)]
+        connection: Option<String>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum RelationTypeArg {
+    Related,
+    Duplicate,
+    Blocks,
+    Similar,
+}
+
+impl From<RelationTypeArg> for LinearRelationType {
+    fn from(value: RelationTypeArg) -> Self {
+        match value {
+            RelationTypeArg::Related => Self::Related,
+            RelationTypeArg::Duplicate => Self::Duplicate,
+            RelationTypeArg::Blocks => Self::Blocks,
+            RelationTypeArg::Similar => Self::Similar,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -355,7 +416,91 @@ async fn run_issue(
             Ok(())
         }
         IssueAction::Label { action } => run_label(client, action, json).await,
+        IssueAction::Relate {
+            id,
+            related_issue,
+            relation,
+            connection,
+        } => {
+            let req = LinearIssueRelateRequest {
+                related_issue,
+                relation: relation.into(),
+            };
+            let resp = client
+                .api()
+                .linear_relate_issue(&id, &req, connection.as_deref())
+                .await?;
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                let kind = resp.data.get("type").and_then(Value::as_str).unwrap_or("?");
+                let left = resp
+                    .data
+                    .pointer("/issue/identifier")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
+                let right = resp
+                    .data
+                    .pointer("/relatedIssue/identifier")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
+                println!("{left} {kind} {right}");
+            }
+            Ok(())
+        }
+        IssueAction::List {
+            query,
+            team,
+            project,
+            state,
+            label,
+            assignee,
+            open_only,
+            limit,
+            connection,
+        } => {
+            let params = LinearIssueListParams {
+                query,
+                team,
+                project,
+                state,
+                label,
+                assignee,
+                open_only: open_only.then_some(true),
+                limit,
+                connection_id: connection,
+            };
+            let resp = client.api().linear_list_issues(&params).await?;
+            if json {
+                output::print_json_typed(&resp);
+            } else if resp.data.is_empty() {
+                println!("(no match)");
+            } else {
+                for issue in &resp.data {
+                    print_issue_row(issue);
+                }
+            }
+            Ok(())
+        }
     }
+}
+
+/// One line per issue, for the listing. `print_issue` stays the detail view.
+fn print_issue_row(issue: &Value) {
+    let identifier = issue
+        .get("identifier")
+        .and_then(Value::as_str)
+        .unwrap_or("?");
+    let state = issue
+        .pointer("/state/name")
+        .and_then(Value::as_str)
+        .unwrap_or("?");
+    let assignee = issue
+        .pointer("/assignee/displayName")
+        .and_then(Value::as_str)
+        .unwrap_or("-");
+    let title = issue.get("title").and_then(Value::as_str).unwrap_or("");
+    println!("{identifier}\t{state}\t{assignee}\t{title}");
 }
 
 async fn run_label(

@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { ContentOrigin } from './contentOrigin';
 import type { FileNameMatchDto } from './fileNameMatchDto';
 
 /**
@@ -12,5 +13,6 @@ import type { FileNameMatchDto } from './fileNameMatchDto';
  */
 export interface SearchByNameResponse {
   files: FileNameMatchDto[];
+  origin: ContentOrigin;
   totalMatches: number;
 }

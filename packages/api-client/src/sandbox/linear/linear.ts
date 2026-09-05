@@ -34,13 +34,17 @@ import type {
   LinearCommentCreateRequest,
   LinearGraphqlRequest,
   LinearIssueCreateRequest,
+  LinearIssueListResponse,
+  LinearIssueRelateRequest,
   LinearIssueResponse,
   LinearIssueUpdateRequest,
   LinearLabelMutationRequest,
   LinearLookupResponse,
   LinearOkResponse,
+  ListIssuesParams,
   LookupParams,
   MutateLabelParams,
+  RelateIssueParams,
   UpdateIssueParams
 } from '.././model';
 
@@ -140,7 +144,136 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getGraphqlPassthroughMutationOptions(options), queryClient);
     }
-    export type createIssueResponse200 = {
+    export type listIssuesResponse200 = {
+  data: LinearIssueListResponse
+  status: 200
+}
+
+export type listIssuesResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+    
+export type listIssuesResponseSuccess = (listIssuesResponse200) & {
+  headers: Headers;
+};
+export type listIssuesResponseError = (listIssuesResponse400) & {
+  headers: Headers;
+};
+
+export type listIssuesResponse = (listIssuesResponseSuccess | listIssuesResponseError)
+
+export const getListIssuesUrl = (params?: ListIssuesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/linear/issues?${stringifiedParams}` : `/api/v1/linear/issues`
+}
+
+export const listIssues = async (params?: ListIssuesParams, options?: RequestInit): Promise<listIssuesResponse> => {
+  
+  return customInstance<listIssuesResponse>(getListIssuesUrl(params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListIssuesQueryKey = (params?: ListIssuesParams,) => {
+    return [
+    `/api/v1/linear/issues`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getListIssuesQueryOptions = <TData = Awaited<ReturnType<typeof listIssues>>, TError = ErrorType<ErrorBody>>(params?: ListIssuesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIssues>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListIssuesQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listIssues>>> = ({ signal }) => listIssues(params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listIssues>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListIssuesQueryResult = NonNullable<Awaited<ReturnType<typeof listIssues>>>
+export type ListIssuesQueryError = ErrorType<ErrorBody>
+
+
+export function useListIssues<TData = Awaited<ReturnType<typeof listIssues>>, TError = ErrorType<ErrorBody>>(
+ params: undefined |  ListIssuesParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIssues>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listIssues>>,
+          TError,
+          Awaited<ReturnType<typeof listIssues>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListIssues<TData = Awaited<ReturnType<typeof listIssues>>, TError = ErrorType<ErrorBody>>(
+ params?: ListIssuesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIssues>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listIssues>>,
+          TError,
+          Awaited<ReturnType<typeof listIssues>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListIssues<TData = Awaited<ReturnType<typeof listIssues>>, TError = ErrorType<ErrorBody>>(
+ params?: ListIssuesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIssues>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+
+export function useListIssues<TData = Awaited<ReturnType<typeof listIssues>>, TError = ErrorType<ErrorBody>>(
+ params?: ListIssuesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIssues>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListIssuesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const prefetchListIssuesQuery = async <TData = Awaited<ReturnType<typeof listIssues>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, params?: ListIssuesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIssues>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListIssuesQueryOptions(params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+export type createIssueResponse200 = {
   data: LinearIssueResponse
   status: 200
 }
@@ -647,6 +780,99 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getMutateLabelMutationOptions(options), queryClient);
+    }
+    export type relateIssueResponse200 = {
+  data: LinearIssueResponse
+  status: 200
+}
+
+export type relateIssueResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+    
+export type relateIssueResponseSuccess = (relateIssueResponse200) & {
+  headers: Headers;
+};
+export type relateIssueResponseError = (relateIssueResponse400) & {
+  headers: Headers;
+};
+
+export type relateIssueResponse = (relateIssueResponseSuccess | relateIssueResponseError)
+
+export const getRelateIssueUrl = (id: string,
+    params?: RelateIssueParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/linear/issues/${id}/relations?${stringifiedParams}` : `/api/v1/linear/issues/${id}/relations`
+}
+
+export const relateIssue = async (id: string,
+    linearIssueRelateRequest: LinearIssueRelateRequest,
+    params?: RelateIssueParams, options?: RequestInit): Promise<relateIssueResponse> => {
+  
+  return customInstance<relateIssueResponse>(getRelateIssueUrl(id,params),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      linearIssueRelateRequest,)
+  }
+);}
+
+
+
+
+export const getRelateIssueMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof relateIssue>>, TError,{id: string;data: LinearIssueRelateRequest;params?: RelateIssueParams}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof relateIssue>>, TError,{id: string;data: LinearIssueRelateRequest;params?: RelateIssueParams}, TContext> => {
+
+const mutationKey = ['relateIssue'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof relateIssue>>, {id: string;data: LinearIssueRelateRequest;params?: RelateIssueParams}> = (props) => {
+          const {id,data,params} = props ?? {};
+
+          return  relateIssue(id,data,params,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RelateIssueMutationResult = NonNullable<Awaited<ReturnType<typeof relateIssue>>>
+    export type RelateIssueMutationBody = LinearIssueRelateRequest
+    export type RelateIssueMutationError = ErrorType<ErrorBody>
+
+    export const useRelateIssue = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof relateIssue>>, TError,{id: string;data: LinearIssueRelateRequest;params?: RelateIssueParams}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof relateIssue>>,
+        TError,
+        {id: string;data: LinearIssueRelateRequest;params?: RelateIssueParams},
+        TContext
+      > => {
+      return useMutation(getRelateIssueMutationOptions(options), queryClient);
     }
     export type lookupResponse200 = {
   data: LinearLookupResponse

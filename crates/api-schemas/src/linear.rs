@@ -133,6 +133,86 @@ pub enum LinearLabelOp {
     Remove,
 }
 
+/// `POST /api/v1/linear/issues/{id}/relations` — relate two issues.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct LinearIssueRelateRequest {
+    /// The other issue: identifier (`SP-123`) or UUID.
+    pub related_issue: String,
+    #[serde(default)]
+    pub relation: LinearRelationType,
+}
+
+/// Linear's `IssueRelationType`. `Blocks` is directional — the issue named in
+/// the path blocks `related_issue`.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum LinearRelationType {
+    #[default]
+    Related,
+    Duplicate,
+    Blocks,
+    Similar,
+}
+
+impl LinearRelationType {
+    /// The wire value Linear's `IssueRelationType` enum expects.
+    pub const fn as_linear(self) -> &'static str {
+        match self {
+            Self::Related => "related",
+            Self::Duplicate => "duplicate",
+            Self::Blocks => "blocks",
+            Self::Similar => "similar",
+        }
+    }
+}
+
+/// `GET /api/v1/linear/issues` — filtered issue listing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
+#[serde(rename_all = "camelCase")]
+pub struct LinearIssueListParams {
+    /// Free text matched against title, description and comments
+    /// (Linear's `searchableContent`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// Team key (`SP`) or UUID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    /// Project name or UUID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// Workflow state name (`In Review`) or UUID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    /// Label name or UUID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Assignee email, display name, `me`, or UUID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assignee: Option<String>,
+    /// Keep only issues whose state type is not `completed` or `canceled`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_only: Option<bool>,
+    /// Defaults to 50, capped at 250.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
+}
+
+/// Response for `GET /api/v1/linear/issues`. `data` holds the raw Linear issue
+/// subobjects in the order Linear returned them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct LinearIssueListResponse {
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<Object>))]
+    pub data: Vec<serde_json::Value>,
+}
+
 /// `POST /api/v1/linear/graphql` — raw passthrough.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

@@ -3409,6 +3409,144 @@
       }
     },
     "/api/v1/linear/issues": {
+      "get": {
+        "tags": [
+          "linear"
+        ],
+        "operationId": "list_issues",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "description": "Free text matched against title, description and comments\n(Linear's `searchableContent`).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "team",
+            "in": "query",
+            "description": "Team key (`SP`) or UUID.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "description": "Project name or UUID.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "Workflow state name (`In Review`) or UUID.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "description": "Label name or UUID.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "assignee",
+            "in": "query",
+            "description": "Assignee email, display name, `me`, or UUID.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "openOnly",
+            "in": "query",
+            "description": "Keep only issues whose state type is not `completed` or `canceled`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Defaults to 50, capped at 250.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching issues",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearIssueListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "linear"
@@ -3685,6 +3823,69 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LinearOkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/linear/issues/{id}/relations": {
+      "post": {
+        "tags": [
+          "linear"
+        ],
+        "operationId": "relate_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue identifier or UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "description": "Override the default Linear connection. Required when the caller has\naccess to more than one Linear workspace.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearIssueRelateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Relation created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearIssueResponse"
                 }
               }
             }
@@ -10583,6 +10784,33 @@
         ],
         "description": "A content block within an API message."
       },
+      "ContentOrigin": {
+        "type": "object",
+        "description": "Where a file answer came from, carried by every file response.",
+        "required": [
+          "source"
+        ],
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/ContentSource"
+          },
+          "syncedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the mirror this came from was stored, RFC 3339. Absent for\n[`ContentSource::Sandbox`], whose answer is current by construction."
+          }
+        }
+      },
+      "ContentSource": {
+        "type": "string",
+        "description": "Which copy of the workspace answered a file read.\n\nA stopped sandbox is still readable, out of the S3 mirror\n(`sandbox-control::workspace_snapshot`), so a caller has to be able to tell\nlive content from content that stopped changing when the pod did.",
+        "enum": [
+          "sandbox",
+          "snapshot"
+        ]
+      },
       "CreateAdapterConnectionRequest": {
         "type": "object",
         "description": "Request body for `POST /api/v1/adapters/connections`.",
@@ -11723,7 +11951,8 @@
         "type": "object",
         "description": "File content response with optional git change info.",
         "required": [
-          "content"
+          "content",
+          "origin"
         ],
         "properties": {
           "additions": {
@@ -11766,6 +11995,9 @@
               "string",
               "null"
             ]
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ContentOrigin"
           }
         }
       },
@@ -11871,11 +12103,15 @@
         "description": "File tree response with git change summary.",
         "required": [
           "tree",
-          "gitSummary"
+          "gitSummary",
+          "origin"
         ],
         "properties": {
           "gitSummary": {
             "$ref": "#/components/schemas/GitSummaryDto"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ContentOrigin"
           },
           "tree": {
             "type": "array",
@@ -12725,6 +12961,37 @@
           }
         }
       },
+      "LinearIssueListResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/v1/linear/issues`. `data` holds the raw Linear issue\nsubobjects in the order Linear returned them.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "LinearIssueRelateRequest": {
+        "type": "object",
+        "description": "`POST /api/v1/linear/issues/{id}/relations` — relate two issues.",
+        "required": [
+          "relatedIssue"
+        ],
+        "properties": {
+          "relatedIssue": {
+            "type": "string",
+            "description": "The other issue: identifier (`SP-123`) or UUID."
+          },
+          "relation": {
+            "$ref": "#/components/schemas/LinearRelationType"
+          }
+        }
+      },
       "LinearIssueResponse": {
         "type": "object",
         "description": "Common envelope for all typed responses. `data` is the raw Linear\nsubobject (e.g. issue, comment); `binding_id` is set only when the\nrequest included a `task_id` and a `task_bindings` row was inserted.",
@@ -12873,6 +13140,16 @@
           }
         }
       },
+      "LinearRelationType": {
+        "type": "string",
+        "description": "Linear's `IssueRelationType`. `Blocks` is directional — the issue named in\nthe path blocks `related_issue`.",
+        "enum": [
+          "related",
+          "duplicate",
+          "blocks",
+          "similar"
+        ]
+      },
       "ListAgentsResponse": {
         "type": "object",
         "required": [
@@ -12936,7 +13213,8 @@
         "type": "object",
         "description": "Response for listing files.",
         "required": [
-          "files"
+          "files",
+          "origin"
         ],
         "properties": {
           "files": {
@@ -12944,6 +13222,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ContentOrigin"
           }
         }
       },
@@ -15158,7 +15439,8 @@
         "description": "Response for searching files by name.",
         "required": [
           "files",
-          "totalMatches"
+          "totalMatches",
+          "origin"
         ],
         "properties": {
           "files": {
@@ -15166,6 +15448,9 @@
             "items": {
               "$ref": "#/components/schemas/FileNameMatchDto"
             }
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ContentOrigin"
           },
           "totalMatches": {
             "type": "integer",
