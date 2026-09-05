@@ -121,6 +121,16 @@ RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /usr/local/bin/kubectl && \
     chmod +x /usr/local/bin/kubectl
 
+# yq v4 (mikefarah/yq, Go) — the YAML counterpart to jq, used by repo skills
+# that read Helm values and other manifests. Ubuntu's `yq` package is a
+# different, incompatible Python tool, so this is a pinned binary.
+# renovate: datasource=github-releases depName=mikefarah/yq
+ARG YQ_VERSION=v4.53.3
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -o /usr/local/bin/yq && \
+    chmod +x /usr/local/bin/yq && \
+    yq --version
+
 # Taskfile CLI (`task`) for repositories that use Taskfile.yml.
 COPY --from=task-builder /go/bin/task /usr/local/bin/task
 RUN chmod +x /usr/local/bin/task \
