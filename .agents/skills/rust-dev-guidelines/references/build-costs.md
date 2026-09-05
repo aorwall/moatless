@@ -36,6 +36,19 @@ so a no-op build after a GC stays a no-op; only the next build that recompiles a
 dropped unit's crate pays, and it pays roughly 3x (11.6s → 30s on the floor
 line).
 
+## Cold floor baseline
+
+The floor from an empty `target/` — CI's cost on every run and a new
+contributor's on a fresh checkout. Measured 2026-09-02, `cargo clippy
+--workspace --all-targets -- -D warnings` on 8 cores, rustc 1.97.0:
+
+| Measure | Cold |
+|---|---|
+| Wall clock | 6m 37s (397s) |
+| Peak `target/` | 3.0 GB (2.2 GB `debug/incremental`, 805 MB `debug/deps`) |
+
+The 3.0 GB is what this cold run adds to the capped workspace volume.
+
 ## A worktree needs its own target directory
 
 `CARGO_TARGET_DIR` pointed at one directory from two worktrees makes every
