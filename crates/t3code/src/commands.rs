@@ -24,14 +24,16 @@ use base64::Engine;
 use super::dao::{Conversation, ConversationDao};
 use super::ports::{
     AgentCatalogSource, AttachmentKind, CommandRefusal, ForkThread, NewThread, QuestionAnswer,
-    ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment,
+    SkillCatalog, ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment,
 };
 use super::providers;
 use crate::agent::catalog;
+use crate::skills;
 use crate::workspace_dao::T3WorkspaceDao;
 use crate::scripts::{self, ScriptsWriteError};
 use moatless_types::agent::AgentMode;
 use moatless_backend_core::activity as mapping;
+use uuid::Uuid;
 
 /// What the surface needs in order to answer a command.
 pub struct CommandContext<'a> {
@@ -41,6 +43,12 @@ pub struct CommandContext<'a> {
     /// Reads and writes a Workspace's run config. Only `project.meta.update`
     /// reaches it, and only for its `scripts`.
     pub workspaces: &'a dyn T3WorkspaceDao,
+    /// The skills of the Workspace a turn runs in, for resolving the `$name`
+    /// mentions the composer leaves in the prompt.
+    pub skills: &'a dyn SkillCatalog,
+    /// The viewer, as the id plugin activation records are keyed by — see
+    /// [`SkillCatalog::list_for_workspace`].
+    pub caller: Uuid,
 }
 
 /// Answer one dispatched command.
@@ -176,6 +184,12 @@ async fn turn_start(
             .unwrap_or(providers::CLAUDE_INSTANCE.to_string());
         let model = translate_model(&agents, &instance, command)?
             .or(translate_model(&agents, &instance, create)?);
+        let workspace_id = create
+            .get("projectId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| missing("bootstrap.createThread.projectId"))?
+            .to_string();
+        let skills = activated_skills(ctx, viewer, &workspace_id, &text).await;
 
         return ctx
             .sink
@@ -183,11 +197,7 @@ async fn turn_start(
                 viewer,
                 NewThread {
                     task_id: task_id.clone(),
-                    workspace_id: create
-                        .get("projectId")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| missing("bootstrap.createThread.projectId"))?
-                        .to_string(),
+                    workspace_id,
                     instance,
                     model: model.clone(),
                     branch: branch(create),
@@ -199,6 +209,7 @@ async fn turn_start(
                         agent_mode,
                         effort,
                         attachments,
+                        skills,
                     }),
                 },
             )
@@ -208,6 +219,10 @@ async fn turn_start(
     let conversation = require_controllable(ctx, viewer, &task_id).await?;
     let agents = ctx.agents.list(viewer).await;
     let model = model_for_existing(&agents, &conversation, command)?;
+    let skills = match conversation.workspace_id.as_deref() {
+        Some(workspace_id) => activated_skills(ctx, viewer, workspace_id, &text).await,
+        None => Vec::new(),
+    };
     ctx.sink
         .send_turn(
             viewer,
@@ -219,9 +234,33 @@ async fn turn_start(
                 agent_mode,
                 effort,
                 attachments,
+                skills,
             },
         )
         .await
+}
+
+/// The skills a turn's text activates, as names Moatless frontloads.
+///
+/// The composer's `/` and `$` menus write a pick as a `$name` mention and leave
+/// it in the prompt. Only a mention that names a skill this Workspace actually
+/// offers counts, so the listing is read first — a `$HOME` in prose must not
+/// activate anything. A prompt with no mention at all skips the read.
+async fn activated_skills(
+    ctx: &CommandContext<'_>,
+    viewer: &ScopeContext,
+    workspace_id: &str,
+    text: &str,
+) -> Vec<String> {
+    if !skills::mentions_a_skill(text) {
+        return Vec::new();
+    }
+    let offered = ctx
+        .skills
+        .list_for_workspace(viewer, ctx.caller, workspace_id)
+        .await;
+    let known = offered.iter().map(|skill| skill.name.as_str()).collect();
+    skills::activated(text, &known)
 }
 
 /// The most attachments one turn may carry
@@ -895,6 +934,7 @@ mod tests {
             /// Each attachment as it reached the sink, in the order it was
             /// sent.
             attachments: Vec<Attached>,
+            skills: Vec<String>,
         },
         CreateThread {
             task_id: String,
@@ -902,6 +942,7 @@ mod tests {
             instance: String,
             branch: Option<String>,
             has_first_message: bool,
+            skills: Vec<String>,
         },
         Fork {
             new_task_id: String,
@@ -993,6 +1034,7 @@ mod tests {
                 agent_mode: turn.agent_mode.map(|m| m.0),
                 effort: turn.effort,
                 attachments: turn.attachments.into_iter().map(Attached::from).collect(),
+                skills: turn.skills,
             });
             Ok(())
         }
@@ -1007,6 +1049,10 @@ mod tests {
                 instance: thread.instance,
                 branch: thread.branch,
                 has_first_message: thread.first_message.is_some(),
+                skills: thread
+                    .first_message
+                    .map(|message| message.skills)
+                    .unwrap_or_default(),
             });
             Ok(())
         }
@@ -1125,6 +1171,28 @@ mod tests {
                 payload: answer.payload,
             });
             Ok(())
+        }
+    }
+
+    /// The two skills `ws-1` offers every test here.
+    struct StubSkills;
+
+    #[async_trait]
+    impl SkillCatalog for StubSkills {
+        async fn list_for_workspace(
+            &self,
+            _viewer: &ScopeContext,
+            _caller: Uuid,
+            _workspace_id: &str,
+        ) -> Vec<crate::ports::WorkspaceSkill> {
+            ["git-workflow", "linear"]
+                .into_iter()
+                .map(|name| crate::ports::WorkspaceSkill {
+                    name: name.to_string(),
+                    description: format!("The {name} skill"),
+                    plugin_name: None,
+                })
+                .collect()
         }
     }
 
@@ -1270,11 +1338,14 @@ mod tests {
     ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
         let sink = RecordingSink::default();
         let agents = StubAgents;
+        let skills = StubSkills;
         let ctx = CommandContext {
             conversations: &dao,
             agents: &agents,
             sink: &sink,
             workspaces: &workspaces,
+            skills: &skills,
+            caller: Uuid::nil(),
         };
         let result = dispatch(&ctx, &viewer(), &command).await;
         let calls = std::mem::take(&mut *sink.0.lock().unwrap());
@@ -1326,7 +1397,66 @@ mod tests {
                 agent_mode: Some("edit".to_string()),
                 effort: None,
                 attachments: vec![],
+                skills: vec![],
             }]
+        );
+    }
+
+    /// A turn whose prompt reads the way the composer leaves it after a pick.
+    fn turn_saying(text: &str) -> Value {
+        let mut command = turn(None);
+        command["message"]["text"] = json!(text);
+        command
+    }
+
+    /// The `$name` stays in the text, because that is what the T3 timeline
+    /// renders as a chip. Moatless frontloads by name instead, so the same pick
+    /// has to reach `skills` as well or the prompt is the only thing that ships.
+    #[tokio::test]
+    async fn a_turn_activates_the_skill_its_text_mentions() {
+        let (result, calls) = run(turn_saying("$git-workflow open the PR")).await;
+        assert!(result.is_ok());
+        assert!(
+            matches!(calls.as_slice(), [Call::SendTurn { skills, .. }] if skills == &["git-workflow"]),
+            "expected git-workflow activated, got {calls:?}"
+        );
+    }
+
+    /// A mention only counts when the Workspace offers it, so an env var in
+    /// prose stays prose.
+    #[tokio::test]
+    async fn a_mention_of_something_that_is_not_a_skill_activates_nothing() {
+        let (_, calls) = run(turn_saying("echo $HOME and $linearity")).await;
+        assert!(
+            matches!(calls.as_slice(), [Call::SendTurn { skills, .. }] if skills.is_empty()),
+            "expected no skills, got {calls:?}"
+        );
+    }
+
+    /// The create-thread composer is the one the person picks from most, and it
+    /// sends its pick on the bootstrapped turn that creates the Task.
+    #[tokio::test]
+    async fn a_bootstrapped_turn_activates_the_skills_it_mentions() {
+        let mut command = turn_saying("$linear then $git-workflow");
+        command["bootstrap"] = json!({
+            "createThread": {
+                "projectId": "ws-1",
+                "title": "New chat",
+                "runtimeMode": "full-access",
+                "interactionMode": "default",
+                "branch": null,
+                "worktreePath": null,
+                "createdAt": "2026-07-01T09:00:00.000Z"
+            }
+        });
+        let (result, calls) = run_against(command, None).await;
+        assert!(result.is_ok());
+        assert!(
+            matches!(
+                calls.as_slice(),
+                [Call::CreateThread { skills, .. }] if skills == &["linear", "git-workflow"]
+            ),
+            "expected both picks in the order they were made, got {calls:?}"
         );
     }
 
@@ -1554,6 +1684,7 @@ mod tests {
                 agent_mode: Some("edit".to_string()),
                 effort: None,
                 attachments: vec![],
+                skills: vec![],
             }]
         );
     }
@@ -1712,6 +1843,7 @@ mod tests {
                 instance: "claudeAgent".to_string(),
                 branch: None,
                 has_first_message: true,
+                skills: vec![],
             }]
         );
     }
@@ -1765,6 +1897,7 @@ mod tests {
                 instance: "codex".to_string(),
                 branch: None,
                 has_first_message: false,
+                skills: vec![],
             }]
         );
     }

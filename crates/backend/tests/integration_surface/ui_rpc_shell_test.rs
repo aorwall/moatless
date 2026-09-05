@@ -261,6 +261,7 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         branches: Arc::new(t3code_backend::AppStateBranches(test_app_state(
             pool.clone(),
         ))),
+        skills: Arc::new(t3code_backend::AppStateSkills(test_app_state(pool.clone()))),
         relations: Arc::new(t3code_backend::AppStateTaskRelations(test_app_state(
             pool.clone(),
         ))),

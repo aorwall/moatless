@@ -45,6 +45,7 @@ mod rpc_metrics;
 mod sandbox;
 mod scripts;
 mod servers;
+mod skills;
 mod subtasks;
 mod terminal;
 mod usage;
@@ -302,6 +303,10 @@ struct UiRpcState {
     /// A repository's branches, read from its git host, for a draft thread's
     /// branch picker before any Sandbox exists.
     branches: Arc<dyn ports::RepositoryBranchSource>,
+    /// The skills a Workspace offers, for the composer's `/` menu. Read per
+    /// `cwd` on demand rather than with the config: the listing reaches a git
+    /// host, and a connection only ever needs the threads it opens.
+    skills: Arc<dyn ports::SkillCatalog>,
     /// The pull request a Task is bound to, and reference resolution for the
     /// attach-PR dialog.
     pull_requests: Arc<dyn ports::BoundPullRequestSource>,
@@ -386,6 +391,7 @@ pub async fn router_from_env(
         model_defaults,
         agents,
         branches,
+        skills,
         relations,
         pull_requests,
         source_control_auth,
@@ -454,6 +460,7 @@ pub async fn router_from_env(
         model_defaults: Arc::new(model_defaults),
         agents,
         branches,
+        skills,
         pull_requests,
         source_control_auth,
         commands,
@@ -509,6 +516,8 @@ pub struct UiRpcDependencies {
     /// A repository's branches, read from its git host, for a draft thread's
     /// branch picker.
     pub branches: Arc<dyn ports::RepositoryBranchSource>,
+    /// The skills a Workspace offers, for the composer's `/` menu.
+    pub skills: Arc<dyn ports::SkillCatalog>,
     /// The child edges behind `subtasks.list`. Access is applied afterwards,
     /// by re-reading each child through `conversations`.
     pub relations: Arc<dyn ports::TaskRelationSource>,
@@ -1723,11 +1732,30 @@ impl Drop for StreamState {
     }
 }
 
+/// The most `cwd`s one connection keeps skill listings for.
+///
+/// A person browsing threads all afternoon addresses a new `cwd` each time, and
+/// every one of them is republished on every provider refresh. Past this the
+/// oldest is dropped; the composer asks for it again if they go back.
+const MAX_WORKSPACE_SNAPSHOTS: usize = 32;
+
 #[derive(Debug)]
 struct ProtocolSession {
     streams: HashMap<String, StreamState>,
     /// Where a stream's producer puts frames for the socket writer.
     frames: mpsc::Sender<Value>,
+    /// The open `subscribeServerConfig` request, when the client has one. A
+    /// refreshed provider list reaches the client's state through that stream
+    /// and nowhere else — the reply to `server.refreshProviders` only tells the
+    /// composer whether to ask again.
+    config_stream: Option<RequestId>,
+    /// The per-`cwd` skill listings this connection has resolved, oldest first,
+    /// in the shape `ServerProviderWorkspaceSnapshot` decodes from.
+    ///
+    /// Kept because a `providerStatuses` event replaces the whole provider
+    /// list: publishing only the `cwd` that was just asked for would empty the
+    /// composer of every thread the person had already opened.
+    workspace_snapshots: Vec<(String, Value)>,
 }
 
 impl ProtocolSession {
@@ -1735,7 +1763,25 @@ impl ProtocolSession {
         Self {
             streams: HashMap::new(),
             frames,
+            config_stream: None,
+            workspace_snapshots: Vec::new(),
         }
+    }
+
+    /// Record one `cwd`'s skills, replacing what this connection knew of it.
+    fn remember_workspace_snapshot(&mut self, cwd: &str, snapshot: Value) {
+        self.workspace_snapshots.retain(|(known, _)| known != cwd);
+        self.workspace_snapshots.push((cwd.to_string(), snapshot));
+        if self.workspace_snapshots.len() > MAX_WORKSPACE_SNAPSHOTS {
+            self.workspace_snapshots.remove(0);
+        }
+    }
+
+    fn published_workspace_snapshots(&self) -> Vec<Value> {
+        self.workspace_snapshots
+            .iter()
+            .map(|(_, snapshot)| snapshot.clone())
+            .collect()
     }
 }
 
@@ -1815,6 +1861,9 @@ impl ProtocolSession {
                         continue;
                     }
                     self.streams.remove(request_id.as_str());
+                    if self.config_stream.as_ref() == Some(&request_id) {
+                        self.config_stream = None;
+                    }
                     output.frames.push(interrupted_exit(&request_id));
                 }
                 ClientFrame::Request {
@@ -1886,15 +1935,41 @@ impl ProtocolSession {
         match tag.as_str() {
             "server.probe" => vec![success_exit(&id, json!({}))],
             "server.getConfig" => {
-                vec![success_exit(&id, server_config(state, identity).await)]
-            }
-            "server.getSettings" => vec![success_exit(&id, json!({}))],
-            "server.refreshProviders" => {
-                let agents = state.agents.list(&viewer_scope(identity)).await;
+                let snapshots = self.published_workspace_snapshots();
                 vec![success_exit(
                     &id,
-                    json!({ "providers": providers::providers(&agents, &state.model_defaults, &now_rfc3339()) }),
+                    server_config(state, identity, &snapshots).await,
                 )]
+            }
+            "server.getSettings" => vec![success_exit(&id, json!({}))],
+            // The composer calls this the first time it opens on a `cwd` whose
+            // skills it does not have, and reads the answer off the config
+            // stream. Both are published: the reply is what stops it asking
+            // again, the event is what fills the menu.
+            "server.refreshProviders" => {
+                if let Some(cwd) = payload.get("cwd").and_then(Value::as_str) {
+                    self.resolve_workspace_skills(state, identity, cwd).await;
+                }
+                let agents = state.agents.list(&viewer_scope(identity)).await;
+                let providers = providers::providers(
+                    &agents,
+                    &state.model_defaults,
+                    &now_rfc3339(),
+                    &self.published_workspace_snapshots(),
+                );
+                let mut frames = vec![success_exit(&id, json!({ "providers": providers.clone() }))];
+                if let Some(stream) = self.config_stream.clone() {
+                    frames.push(json!({
+                        "_tag": "Chunk",
+                        "requestId": stream.wire(),
+                        "values": [{
+                            "version": 1,
+                            "type": "providerStatuses",
+                            "payload": { "providers": providers }
+                        }]
+                    }));
+                }
+                frames
             }
             // The one write. A refusal is a typed failure the composer renders,
             // not a defect: "that action does not exist here" is true, "this
@@ -1905,6 +1980,8 @@ impl ProtocolSession {
                     agents: state.agents.as_ref(),
                     sink: state.commands.as_ref(),
                     workspaces: state.workspaces.as_ref(),
+                    skills: state.skills.as_ref(),
+                    caller: identity.user_id,
                 };
                 match commands::dispatch(&ctx, &viewer_scope(identity), &payload).await {
                     Ok(result) => vec![success_exit(&id, result)],
@@ -2769,14 +2846,22 @@ impl ProtocolSession {
             // accepted and dropped rather than refused: the client sends it on
             // every focus change and a defect per change is pure noise.
             "server.reportClientActivity" => vec![success_exit(&id, Value::Null)],
-            "subscribeServerConfig" => self.start_stream(
-                &id,
-                Some(vec![json!({
+            "subscribeServerConfig" => {
+                let snapshot = json!({
                     "version": 1,
                     "type": "snapshot",
-                    "config": server_config(state, identity).await
-                })]),
-            ),
+                    "config": server_config(
+                        state,
+                        identity,
+                        &self.published_workspace_snapshots(),
+                    ).await
+                });
+                let started = self.start_stream(&id, Some(vec![snapshot]));
+                if self.streams.contains_key(id.as_str()) {
+                    self.config_stream = Some(id.clone());
+                }
+                started
+            }
             "subscribeServerLifecycle" => self.start_stream(
                 &id,
                 Some(vec![json!({
@@ -3159,6 +3244,33 @@ impl ProtocolSession {
         }
     }
 
+    /// Read the skills of the Workspace a `cwd` names and record them for this
+    /// connection.
+    ///
+    /// A `cwd` this surface never issued, or one whose Workspace this viewer
+    /// cannot be shown, records nothing: the composer then falls back to the
+    /// provider's own (empty) skill list rather than being told the Workspace
+    /// exists.
+    async fn resolve_workspace_skills(
+        &mut self,
+        state: &UiRpcState,
+        identity: &UiRpcAuthIdentity,
+        cwd: &str,
+    ) {
+        let viewer = viewer_scope(identity);
+        let Some(workspace_id) =
+            skills::workspace_of(state.conversations.as_ref(), &viewer, cwd).await
+        else {
+            return;
+        };
+        let listed = state
+            .skills
+            .list_for_workspace(&viewer, identity.user_id, &workspace_id)
+            .await;
+        let snapshot = skills::snapshot(cwd, &now_rfc3339(), &listed);
+        self.remember_workspace_snapshot(cwd, snapshot);
+    }
+
     /// Register a stream and hand it the task that produces its frames.
     ///
     /// The two are registered together because the stream limit can refuse the
@@ -3315,7 +3427,11 @@ fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-async fn server_config(state: &UiRpcState, identity: &UiRpcAuthIdentity) -> Value {
+async fn server_config(
+    state: &UiRpcState,
+    identity: &UiRpcAuthIdentity,
+    workspace_snapshots: &[Value],
+) -> Value {
     let agents = state.agents.list(&viewer_scope(identity)).await;
     // `otlpTracesEnabled` is this backend's own span export; `otlpTracesUrl` is
     // where the client's spans are forwarded ([`observability`]). Two knobs, and
@@ -3340,7 +3456,12 @@ async fn server_config(state: &UiRpcState, identity: &UiRpcAuthIdentity) -> Valu
         "keybindingsConfigPath": "/moatless/keybindings.json",
         "keybindings": [],
         "issues": [],
-        "providers": providers::providers(&agents, &state.model_defaults, &now_rfc3339()),
+        "providers": providers::providers(
+            &agents,
+            &state.model_defaults,
+            &now_rfc3339(),
+            workspace_snapshots,
+        ),
         "availableEditors": [],
         "observability": observability,
         "settings": {},
@@ -4307,6 +4428,25 @@ mod tests {
         }
     }
 
+    /// The one skill every Workspace offers these tests.
+    struct StubSkills;
+
+    #[async_trait]
+    impl ports::SkillCatalog for StubSkills {
+        async fn list_for_workspace(
+            &self,
+            _viewer: &ScopeContext,
+            _caller: Uuid,
+            _workspace_id: &str,
+        ) -> Vec<ports::WorkspaceSkill> {
+            vec![ports::WorkspaceSkill {
+                name: "git-workflow".to_string(),
+                description: "Commit and PR flow".to_string(),
+                plugin_name: None,
+            }]
+        }
+    }
+
     /// No test in this file dispatches a project-root `vcs.listRefs`, so the
     /// git-host branch listing is never reached here; it is asserted in
     /// `review.rs` against a mock workspace DAO and branch source.
@@ -4631,6 +4771,7 @@ mod tests {
             },
             agents: Arc::new(StubAgents),
             branches: Arc::new(UnreachableBranches),
+            skills: Arc::new(StubSkills),
             pull_requests: Arc::new(NoBoundPullRequests),
             source_control_auth: Arc::new(NoGithubIdentity),
             commands: Arc::new(UnreachableCommands),
@@ -5351,6 +5492,67 @@ mod tests {
                 .collect()
         };
         assert_eq!(strip(published), strip(refreshed));
+    }
+
+    /// The composer refreshes providers with the `cwd` it is about to send from,
+    /// and reads the skills for its `/` menu off the snapshot that comes back.
+    #[tokio::test]
+    async fn refreshing_providers_for_a_cwd_publishes_that_workspace_s_skills() {
+        let mut session = session();
+        let refreshed = session
+            .handle_json(
+                &request(
+                    "1",
+                    "server.refreshProviders",
+                    json!({ "cwd": "/moatless/workspaces/ws-1" }),
+                ),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        let snapshot =
+            &refreshed.frames[0]["exit"]["value"]["providers"][0]["workspaceSnapshots"][0];
+        assert_eq!(snapshot["cwd"], "/moatless/workspaces/ws-1");
+        assert_eq!(snapshot["skills"][0]["name"], "git-workflow");
+        assert_eq!(snapshot["skills"][0]["description"], "Commit and PR flow");
+        assert_eq!(snapshot["skills"][0]["scope"], "repo");
+    }
+
+    /// The client's provider state is fed by `subscribeServerConfig` alone — the
+    /// `refreshProviders` reply only tells the composer whether to retry. A
+    /// snapshot that never reached the stream would leave the menu empty.
+    #[tokio::test]
+    async fn a_resolved_cwd_reaches_an_open_config_stream() {
+        let mut session = session();
+        let state = state();
+        session
+            .handle_json(
+                &request("1", "subscribeServerConfig", json!({})),
+                &state,
+                &viewer(),
+            )
+            .await;
+        let refreshed = session
+            .handle_json(
+                &request(
+                    "2",
+                    "server.refreshProviders",
+                    json!({ "cwd": "/moatless/workspaces/ws-1" }),
+                ),
+                &state,
+                &viewer(),
+            )
+            .await;
+
+        let pushed = &refreshed.frames[1];
+        assert_eq!(pushed["_tag"], "Chunk");
+        assert_eq!(pushed["requestId"], "1");
+        assert_eq!(pushed["values"][0]["type"], "providerStatuses");
+        assert_eq!(
+            pushed["values"][0]["payload"]["providers"][0]["workspaceSnapshots"][0]["skills"][0]["name"],
+            "git-workflow"
+        );
     }
 
     #[tokio::test]
@@ -6325,7 +6527,7 @@ mod tests {
         async fn otlp_traces_enabled_reflects_whether_export_is_active() {
             let off = state();
             assert_eq!(
-                server_config(&off, &viewer()).await["observability"]["otlpTracesEnabled"],
+                server_config(&off, &viewer(), &[]).await["observability"]["otlpTracesEnabled"],
                 false
             );
 
@@ -6337,7 +6539,7 @@ mod tests {
                 ..off
             };
             assert_eq!(
-                server_config(&on, &viewer()).await["observability"]["otlpTracesEnabled"],
+                server_config(&on, &viewer(), &[]).await["observability"]["otlpTracesEnabled"],
                 true
             );
         }

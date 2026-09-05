@@ -15,6 +15,7 @@ use moatless_api_schemas::repository::BranchListResponse;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::store::StoreError;
 use moatless_types::task::TaskRelationType;
+use uuid::Uuid;
 
 use moatless_types::agent::AgentMode;
 
@@ -139,6 +140,10 @@ pub struct ThreadTurn {
     /// The images that came with the turn, in the order the composer held them.
     /// Empty for the overwhelming majority of turns.
     pub attachments: Vec<TurnAttachment>,
+    /// The skills to activate for this turn, in the order the person picked
+    /// them. Read out of the `$name` mentions the composer leaves in
+    /// [`Self::text`] — `skills::activated`.
+    pub skills: Vec<String>,
 }
 
 /// A new Thread, as this surface understood it.
@@ -225,6 +230,41 @@ pub struct ChildTask {
 #[async_trait]
 pub trait TaskRelationSource: Send + Sync {
     async fn children(&self, parent_task_id: &str) -> Result<Vec<ChildTask>, StoreError>;
+}
+
+/// One skill a Workspace's agent would load, as the composer's `/` menu needs
+/// it.
+pub struct WorkspaceSkill {
+    pub name: String,
+    pub description: String,
+    /// The plugin that ships it, for a skill that comes from one. `None` means
+    /// the Workspace repository's own tree.
+    pub plugin_name: Option<String>,
+}
+
+/// The skills a Workspace's agent would load, in the order they are offered.
+///
+/// A port rather than a query because skill discovery is the Workspace band's
+/// and reaches a git host: the repository's own `.claude/skills` are fetched
+/// from its remote, and the plugin half resolves this viewer's activation
+/// records. The list is per-viewer for that reason — it is what *their* sandbox
+/// gets, which is what makes offering it in the composer honest.
+#[async_trait]
+pub trait SkillCatalog: Send + Sync {
+    /// `caller` is the same person `viewer` scopes the read to, as the id
+    /// plugin activation records are keyed by. Both, because
+    /// [`ScopeContext::user_id`] is a string that is not always a `Uuid`.
+    ///
+    /// Answers with an empty list for a Workspace this viewer cannot be shown,
+    /// one that declares no repository, and any failure to reach the git host.
+    /// A skill menu is not worth failing a provider refresh over; the cause is
+    /// logged where it happens.
+    async fn list_for_workspace(
+        &self,
+        viewer: &ScopeContext,
+        caller: Uuid,
+        workspace_id: &str,
+    ) -> Vec<WorkspaceSkill>;
 }
 
 /// Why a repository's branches could not be listed.

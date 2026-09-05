@@ -46,7 +46,12 @@ pub async fn list_repository_skills(
     Query(params): Query<ListSkillsParams>,
 ) -> Result<Json<ListSkillsResponse>, SkillError> {
     let skills = skills
-        .list_for_repository(&repository_id, params.workspace_id.as_deref(), &auth)
+        .list_for_repository(
+            &repository_id,
+            params.workspace_id.as_deref(),
+            auth.user_id,
+            &auth.scope_context(),
+        )
         .await?;
     Ok(Json(ListSkillsResponse { skills }))
 }

@@ -205,6 +205,7 @@ fn turn(task_id: &str, uuid: &str, text: &str) -> ThreadTurn {
         agent_mode: None,
         effort: None,
         attachments: Vec::new(),
+        skills: Vec::new(),
     }
 }
 

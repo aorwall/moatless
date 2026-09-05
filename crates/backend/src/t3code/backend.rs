@@ -28,9 +28,9 @@ use moatless_t3code::ports::{
     AgentCatalogSource, AttachmentKind, AttachmentStore, AttachmentStoreError, BoundPullRequest,
     BoundPullRequestSource, BranchListError, ChildTask, CommandRefusal, DeclaredAttachment,
     ForkThread, GithubIdentity, NewThread, PullRequestError, QuestionAnswer,
-    RepositoryBranchSource, ResolvedPullRequest, SourceControlAuthSource, TaskRelationSource,
-    ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment, UsageBucketRow, UsageReporter,
-    UsageWindow,
+    RepositoryBranchSource, ResolvedPullRequest, SkillCatalog, SourceControlAuthSource,
+    TaskRelationSource, ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment, UsageBucketRow,
+    UsageReporter, UsageWindow, WorkspaceSkill,
 };
 use moatless_types::access_control::ScopedEntity;
 use moatless_types::store::StoreError;
@@ -89,6 +89,49 @@ fn branch_list_error(error: RepositoryError) -> BranchListError {
             moatless_backend_core::store::StoreError::with_source("list repository branches", error),
         ),
         RepositoryError::Store(error) => BranchListError::Failed(error),
+    }
+}
+
+pub struct AppStateSkills(pub AppState);
+
+#[async_trait]
+impl SkillCatalog for AppStateSkills {
+    async fn list_for_workspace(
+        &self,
+        viewer: &ScopeContext,
+        caller: uuid::Uuid,
+        workspace_id: &str,
+    ) -> Vec<WorkspaceSkill> {
+        // Unscoped, and safe to be: the placement only names a repository id,
+        // and `list_for_repository` refuses both a workspace and a repository
+        // this viewer cannot resolve.
+        let primary = match self.0.workspaces.find_primary_repo(workspace_id).await {
+            Ok(Some(placement)) => placement,
+            Ok(None) => return Vec::new(),
+            Err(error) => {
+                tracing::warn!(%error, workspace_id, "T3 skill listing found no repository");
+                return Vec::new();
+            }
+        };
+        match self
+            .0
+            .skills
+            .list_for_repository(&primary.repository_id, Some(workspace_id), caller, viewer)
+            .await
+        {
+            Ok(skills) => skills
+                .into_iter()
+                .map(|skill| WorkspaceSkill {
+                    name: skill.name,
+                    description: skill.description,
+                    plugin_name: skill.plugin_name,
+                })
+                .collect(),
+            Err(error) => {
+                tracing::warn!(%error, workspace_id, "T3 skill listing failed");
+                Vec::new()
+            }
+        }
     }
 }
 
@@ -871,6 +914,7 @@ impl ThreadCommandSink for AppStateCommands {
                 resume: true,
                 message_uuid: Some(turn.message_uuid),
                 file_ids,
+                skills: turn.skills,
                 ..Default::default()
             },
         )
@@ -929,8 +973,11 @@ impl ThreadCommandSink for AppStateCommands {
             file_ids: attachments.file_ids.clone(),
             parent_task_id: None,
             headless: Some(false),
-            // T3 has no skill picker of its own.
-            skills: vec![],
+            skills: thread
+                .first_message
+                .as_ref()
+                .map(|message| message.skills.clone())
+                .unwrap_or_default(),
         };
 
         let mut intent = task_service::CreateTaskIntent::new(request);

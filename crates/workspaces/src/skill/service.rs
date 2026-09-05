@@ -29,10 +29,10 @@ use crate::repository::dao::RepositoryDao;
 use crate::workspace::dao::WorkspaceDao;
 use moatless_types::repository::RepositoryKind;
 use crate::repository::models::Repository;
-use moatless_types::access_control::Actor;
-use moatless_core::http_auth::AuthUser;
+use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_types::repository::GitHostRepo;
 use moatless_backend_core::identity::{GitHostTokenError, GitHostTokenIssuer};
+use uuid::Uuid;
 
 /// Orchestrates skill discovery across workspace + plugins.
 pub struct SkillService {
@@ -84,18 +84,22 @@ impl SkillService {
     /// narrows it the same way the sandbox will: pass the Workspace the task
     /// runs in and the list matches what the agent gets, omit it and the list
     /// is what that person gets anywhere.
+    ///
+    /// `caller` is the same person `ctx` scopes the read to; both are needed
+    /// because plugin activation records are keyed by user id while every
+    /// table read is scoped.
     pub async fn list_for_repository(
         &self,
         repository_id: &str,
         workspace_id: Option<&str>,
-        auth: &AuthUser,
+        caller: Uuid,
+        ctx: &ScopeContext,
     ) -> Result<Vec<SkillResponse>, SkillError> {
-        let ctx = auth.scope_context();
-        let actor = Actor::caller(&ctx);
+        let actor = Actor::caller(ctx);
 
         let repo = self
             .repositories
-            .find_by_id(repository_id, &ctx)
+            .find_by_id(repository_id, ctx)
             .await?
             .ok_or_else(|| SkillError::RepositoryNotFound(repository_id.to_string()))?;
 
@@ -104,18 +108,18 @@ impl SkillService {
         // will run with.
         if let Some(id) = workspace_id {
             self.workspaces
-                .find_by_id(id, &ctx)
+                .find_by_id(id, ctx)
                 .await?
                 .ok_or_else(|| SkillError::WorkspaceNotFound(id.to_string()))?;
         }
 
-        let workspace = self.workspace_skills(&repo, auth).await?;
+        let workspace = self.workspace_skills(&repo, &actor).await?;
 
         // Whatever this caller's activation records give them in this
         // Workspace, in stable order from the DAO.
         let resolved = crate::plugin::activation::resolve_for(
             self.plugins.as_ref(),
-            Some(auth.user_id),
+            Some(caller),
             workspace_id,
         )
         .await?;
@@ -131,7 +135,7 @@ impl SkillService {
     async fn workspace_skills(
         &self,
         repo: &Repository,
-        auth: &AuthUser,
+        actor: &Actor,
     ) -> Result<Arc<Vec<Skill>>, SkillError> {
         // Templates don't have a remote URL we can fetch — skip silently.
         if repo.kind == RepositoryKind::Template {
@@ -144,14 +148,13 @@ impl SkillService {
         // Keyed by caller as well as repository: the fetch runs with their own
         // credential, so two people can legitimately see different skills in
         // the same repository.
-        let actor = Actor::caller(&auth.scope_context());
         let cache_key = format!("workspace:{}:{actor}", repo.id);
         if let Some(cached) = self.cache.get(&cache_key).await {
             debug!(repository_id = %repo.id, "Skill cache hit (workspace)");
             return Ok(cached);
         }
 
-        let token = self.workspace_token(&actor, repo, remote_url).await?;
+        let token = self.workspace_token(actor, repo, remote_url).await?;
 
         let files = self
             .fetcher

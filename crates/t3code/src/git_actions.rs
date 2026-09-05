@@ -122,6 +122,9 @@ pub async fn run_stacked_action(
             agent_mode: None,
             effort: None,
             attachments: Vec::new(),
+            // A button press composes its own prompt, so there is no `$name`
+            // mention in it to activate anything.
+            skills: Vec::new(),
         },
     )
     .await

@@ -259,10 +259,16 @@ fn missing_hint(agents: &[AgentDescriptor], instance: &str) -> Option<String> {
 /// started thread (`apps/web/src/components/ChatView.logic.ts:
 /// getStartedThreadModelChangeBlockReason`), which would take per-turn model
 /// choice with it. A cross-instance selection is refused at dispatch instead.
+///
+/// `workspace_snapshots` are the per-`cwd` skill listings this connection has
+/// resolved so far, published on every instance: a Moatless skill is a file in
+/// a repository and reaches whichever agent the Task runs, so narrowing them to
+/// the instance that asked would hide them from the other one.
 pub fn providers(
     agents: &[AgentDescriptor],
     defaults: &AgentModelDefaults,
     checked_at: &str,
+    workspace_snapshots: &[Value],
 ) -> Vec<Value> {
     [
         (CLAUDE_INSTANCE, "Claude Code", UiRpcAgentKind::ClaudeCode),
@@ -303,6 +309,12 @@ pub fn providers(
             "slashCommands": [],
             "skills": [],
         });
+
+        // `workspaceSnapshots` is `optionalKey` in the contract, so a
+        // connection that has resolved no `cwd` yet leaves it out.
+        if !workspace_snapshots.is_empty() {
+            provider["workspaceSnapshots"] = json!(workspace_snapshots);
+        }
 
         if !is_installed {
             if let Some(hint) = missing_hint(agents, instance) {
@@ -352,6 +364,7 @@ mod tests {
             &agents(true),
             &AgentModelDefaults::default(),
             "2026-01-01T00:00:00.000Z",
+            &[],
         )
     }
 
@@ -459,6 +472,7 @@ mod tests {
             &agents,
             &AgentModelDefaults::default(),
             "2026-01-01T00:00:00.000Z",
+            &[],
         );
         for provider in &list {
             let instance = provider["instanceId"].as_str().unwrap();
@@ -503,6 +517,7 @@ mod tests {
                     codex: None,
                 },
                 "2026-01-01T00:00:00.000Z",
+                &[],
             );
             let flagged: Vec<String> = list[0]["models"]
                 .as_array()
@@ -650,6 +665,7 @@ mod tests {
             &agents(false),
             &AgentModelDefaults::default(),
             "2026-01-01T00:00:00.000Z",
+            &[],
         );
         for provider in &list {
             assert_eq!(provider["installed"], json!(false));
@@ -666,6 +682,37 @@ mod tests {
             assert_eq!(provider["status"], json!("ready"));
             assert_eq!(provider["auth"]["status"], json!("authenticated"));
             assert!(provider["message"].is_null());
+        }
+    }
+
+    #[test]
+    fn a_connection_that_has_resolved_no_cwd_omits_workspace_snapshots() {
+        for provider in &published() {
+            assert!(provider.get("workspaceSnapshots").is_none());
+        }
+    }
+
+    /// A skill is a file in the repository, so it reaches whichever agent the
+    /// Task runs. Publishing the snapshot on only the instance whose composer
+    /// asked would empty the menu on switching provider.
+    #[test]
+    fn a_resolved_cwd_is_published_on_every_instance() {
+        let snapshot = json!({
+            "cwd": "/moatless/workspaces/ws-1",
+            "checkedAt": "2026-01-01T00:00:00.000Z",
+            "slashCommands": [],
+            "skills": [],
+        });
+        let list = providers(
+            &agents(true),
+            &AgentModelDefaults::default(),
+            "2026-01-01T00:00:00.000Z",
+            std::slice::from_ref(&snapshot),
+        );
+
+        assert_eq!(list.len(), 2);
+        for provider in &list {
+            assert_eq!(provider["workspaceSnapshots"], json!([snapshot]));
         }
     }
 }
