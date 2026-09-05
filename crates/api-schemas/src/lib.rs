@@ -28,7 +28,6 @@ pub mod plugin;
 pub mod repository;
 pub mod sandbox;
 pub mod setup;
-pub mod shared;
 pub mod tag;
 pub mod task;
 pub mod task_connections;

@@ -7,7 +7,7 @@ use crate::enums::{
     CheckoutMode, SandboxDesiredState, SandboxStopReason, Scope, TaskRelationType, TaskStatus,
     Visibility,
 };
-use crate::shared::{AgentMode, AgentType};
+use moatless_types::agent::{AgentMode, AgentType};
 
 /// A typed link from one task to another, with optional JSON context.
 #[derive(Debug, Clone, Serialize, Deserialize)]

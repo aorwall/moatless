@@ -3726,6 +3726,7 @@ dependencies = [
  "mime_guess",
  "moatless-api-client",
  "moatless-api-schemas",
+ "moatless-types",
  "open",
  "rand 0.10.1",
  "reqwest 0.13.4",

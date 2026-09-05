@@ -10,7 +10,7 @@ use moatless_api_schemas::sandbox::{
     SandboxStatusFullResponse, ServerConfigResponse, ServerOverride, ServerOverridesResponse,
     ServerStatusResponse, UpdateServerConfigRequest,
 };
-use moatless_api_schemas::shared::{AgentMode, AgentType};
+use moatless_types::agent::{AgentMode, AgentType};
 use moatless_api_schemas::task::{
     CloseTaskRequest, CreateTaskRequest, FileContextData, ForkTaskRequest, ListTasksQuery,
     ListTasksResponse, MessageContextInput, TaskResponse, UpdateTaskMetadataRequest,

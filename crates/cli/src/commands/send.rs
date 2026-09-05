@@ -6,7 +6,7 @@ use clap::{ArgGroup, Args};
 use moatless_api_schemas::adapters::AdapterSendRequest;
 use moatless_api_schemas::enums::AdapterKind;
 use moatless_api_schemas::message::SendMessageRequest;
-use moatless_api_schemas::shared::AgentMode;
+use moatless_types::agent::AgentMode;
 use moatless_api_schemas::user::SendDmRequest;
 
 use crate::client::MoatClient;

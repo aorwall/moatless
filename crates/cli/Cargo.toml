@@ -20,6 +20,7 @@ dirs = "6"
 mime_guess = "2"
 moatless-api-client = { path = "../api-client" }
 moatless-api-schemas = { path = "../api-schemas" }
+moatless-types = { path = "../types" }
 sandbox-proto = { path = "../sandbox-proto" }
 open = "5"
 rand = "0.10"

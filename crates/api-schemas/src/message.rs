@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::enums::{MessageRole, MessageType};
-use crate::shared::AgentMode;
+use moatless_types::agent::AgentMode;
 use crate::task::MessageContextInput;
 
 /// UI-facing message representation.
