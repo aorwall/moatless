@@ -36,6 +36,54 @@ so a no-op build after a GC stays a no-op; only the next build that recompiles a
 dropped unit's crate pays, and it pays roughly 3x (11.6s → 30s on the floor
 line).
 
+## A worktree needs its own target directory
+
+`CARGO_TARGET_DIR` pointed at one directory from two worktrees makes every
+switch pay. Same edit (`touch crates/core/src/lib.rs`), same floor line,
+measured on an M4 Max (12 performance cores, 64 GB):
+
+| Target directory | Wall |
+|---|---|
+| dedicated, warm | **21s** |
+| shared, steady state | 32s |
+| shared, first build after the other worktree built in it | 45s |
+
+Nothing reclaims what the other tree left, so the directory also grows without
+bound: a dedicated warm one for this workspace is ~4.5 GB, and the shared one
+measured here reached 100 GB — 137 artifact copies of `moatless_core`, 445
+incremental sessions, 281k files, every one of them stat'd on every build.
+
+It also produces a failure that reads as a code bug. A clean checkout of `main`
+failed with `E0560` on `RepositoryResponse::access_status`, a field present in
+its own source, because the artifact it resolved against came from a worktree
+that had removed it. One rebuild cleared it. **A compile error naming a field
+that is in the file is this, not your change** — check whether another worktree
+last wrote the directory before reading any further.
+
+So: let each worktree default to its own `target/`, and set `CARGO_TARGET_DIR`
+only to share a directory between invocations in *one* tree.
+
+## Incremental compilation stays on
+
+It is on by default and belongs that way; the workspace's crate chain is the
+reason to check rather than assume. Floor line after a one-line edit, warm
+dedicated directory:
+
+| Edit in | Dependents | `incremental=1` | `incremental=0` |
+|---|---|---|---|
+| `moatless-backend` | 0 | **2s** | 11s |
+| `moatless-core` | 12 | **21s** | 56s |
+| `moatless-api-schemas` | 12 | **30s** | 68s |
+
+Off is 2–3x slower everywhere, including the crates with the most dependents,
+where the bookkeeping was expected to stop paying for itself. It does not.
+
+**Do not benchmark a build off one cold run.** The first rebuild after a cold
+build is the worst case — ~90s for the `moatless-core` edit above, against 21s
+once the directory has been through a few cycles. A comparison drawn from two
+directories in different states says nothing; this document's earlier numbers
+were re-measured after that mistake produced a 4x error.
+
 ## rust-analyzer
 
 An editor is a configuration too. Point rust-analyzer at the floor's exact

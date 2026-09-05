@@ -40,6 +40,15 @@ Never run `cargo check` — `cargo clippy` already covers it and keys a separate
 set of incremental units. Scope every `cargo test` to the crate you changed for
 the same reason.
 
+Working in a worktree: let it build into its own `target/`. Do not point
+`CARGO_TARGET_DIR` at another tree's — the same edit costs 21s in a dedicated
+directory and 45s in one the other tree last wrote, and neither tree reclaims
+what the other leaves. A shared one measured here reached 100 GB. It also
+produces a compile error naming a struct field that is present in the file you
+are reading; that is the other tree's artifact, not your change, and one
+rebuild clears it. Numbers and the rest of the symptom:
+`references/build-costs.md`.
+
 In a sandbox the workspace volume is capped and overflowing it **evicts the
 pod** — the run dies and only committed work survives. `/opt/moatless` holds the
 checkout and `target/`, so check `df -h /opt/moatless` before the first full
