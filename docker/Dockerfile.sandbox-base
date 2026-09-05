@@ -302,9 +302,12 @@ RUN apt-get update \
     && npx playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium \
     && PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-cli-browsers npx playwright@${PLAYWRIGHT_CLI_VERSION} install --with-deps chromium \
     && chown -R $USERNAME:$USERNAME /opt/playwright-browsers /opt/playwright-cli-browsers /usr/share/moatless-skills /usr/share/moatless-plugins \
-    && chmod -R o+rx /opt/playwright-browsers /opt/playwright-cli-browsers \
-    && printf '#!/bin/sh\nexport PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-cli-browsers\nexec xvfb-run --auto-servernum npx playwright@%s cli --browser=chromium "$@"\n' "${PLAYWRIGHT_CLI_VERSION}" > /usr/local/bin/playwright-cli \
-    && chmod +x /usr/local/bin/playwright-cli
+    && chmod -R o+rx /opt/playwright-browsers /opt/playwright-cli-browsers
+
+# The wrapper reads the pin at runtime, so it stays a plain script on disk.
+ENV PLAYWRIGHT_CLI_VERSION=${PLAYWRIGHT_CLI_VERSION}
+COPY docker/playwright-cli.sh /usr/local/bin/playwright-cli
+RUN chmod +x /usr/local/bin/playwright-cli
 
 # Bake @moatless/inspector so a previewed project can use it without installing
 # it — no npm reach-out, no lockfile churn, and the version is the one the image

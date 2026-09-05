@@ -136,6 +136,7 @@ jobs:
               - '.github/workflows/ci.yml'
             sandbox-base:
               - 'docker/Dockerfile.sandbox-base'
+              - 'docker/playwright-cli.sh'
               - 'docker/cli-versions.env'
               - '.github/scripts/install-mold.sh'
               - '.github/workflows/ci.yml'
