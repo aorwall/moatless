@@ -1392,8 +1392,12 @@ impl UsageReporter for AppStateUsage {
         // rather than coalesced: a Claude turn using two models has to fan out
         // into two rows, and a Codex turn must not.
         let access = viewer.access_filter(ScopedEntity::Task, "k.", 4);
+        // Interpolated into `cells`, which selects `FROM turns`: name the CTE's
+        // columns unqualified. A `t.` prefix resolves in `turns` but not here,
+        // and Postgres rejects the whole statement with "missing FROM-clause
+        // entry for table t".
         let bucket_expr = if window.hourly {
-            "to_char(date_trunc('hour', t.started_at AT TIME ZONE $3), 'YYYY-MM-DD\"T\"HH24:00:00\"Z\"')"
+            "to_char(date_trunc('hour', started_at AT TIME ZONE $3), 'YYYY-MM-DD\"T\"HH24:00:00\"Z\"')"
         } else {
             "NULL"
         };
