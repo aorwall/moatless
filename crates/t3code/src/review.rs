@@ -21,14 +21,16 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::dao::ConversationDao;
-use super::ports::{BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource};
+use super::ports::{
+    BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource,
+};
 use super::projection;
 use super::workspace::{self, WorkspaceAccessError};
 use crate::workspace_dao::T3WorkspaceDao;
 use moatless_api_schemas::repository::{BranchEntry, BranchListResponse};
-use moatless_backend_core::sandbox::SandboxError;
-use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
+use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::ScopeContext;
+use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 use sandbox_proto::{GetGitDiffPreviewResponse, GetGitStatusResponse, ListGitRefsResponse};
 
 /// How many refs one page carries when the client does not say, matching the
@@ -375,7 +377,7 @@ pub async fn workspace_branches(
         .primary_repository(viewer, workspace_id)
         .await
         .map_err(|e| {
-            BranchListError::Failed(moatless_backend_core::store::StoreError::with_source(
+            BranchListError::Failed(moatless_types::store::StoreError::with_source(
                 format!("read the primary repository of workspace {workspace_id}"),
                 e,
             ))

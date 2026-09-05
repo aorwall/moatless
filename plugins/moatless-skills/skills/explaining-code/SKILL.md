@@ -87,7 +87,7 @@ Start from a real trigger with a name — "a user sends a message to a running t
 
 ```md
 1. **`backend/src/routes/messages.rs:88`** — accepts the message, writes it pending, returns immediately.
-2. **`sandbox/src/agent/coordinator.rs:214`** — picks up pending input, submits it to the harness.
+2. **`crates/sandbox/src/agent/coordinator.rs:214`** — picks up pending input, submits it to the harness.
 3. …
 7. **outcome** — the observable thing the reader can check.
 ```

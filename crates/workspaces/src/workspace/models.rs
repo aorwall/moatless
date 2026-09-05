@@ -7,7 +7,7 @@
 //! other.
 
 use chrono::{DateTime, Utc};
-use moatless_backend_core::db_enum::decode_required;
+use moatless_core::db_enum::decode_required;
 use tracing::error;
 
 use moatless_types::access_control::Scope;

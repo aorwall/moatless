@@ -26,18 +26,19 @@ use tracing::warn;
 use crate::UiRpcDbPool;
 use crate::activity_dao;
 use crate::activity_dao::SubagentUsage;
-use crate::task_dao::{T3TaskDao, TaskView};
-use crate::workspace_dao::{ScriptsWriteTarget, T3WorkspaceDao};
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
+use crate::task_dao::{T3TaskDao, TaskView};
 use crate::workspace::UiRpcListedWorkspace;
+use crate::workspace_dao::{ScriptsWriteTarget, T3WorkspaceDao};
 use moatless_api_schemas::workspace::ScriptConfig;
-use moatless_backend_core::change_feed::conversation::{ConversationChange, ConversationHead};
+use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
+use moatless_ports::activity::ActivitySource;
+use moatless_types::access_control::{ScopeContext, ScopedEntity};
+use moatless_types::activity::{Activity, PLAN_TOOL, QUESTION_TOOL};
 use moatless_types::agent::AgentType;
 use moatless_types::message::{MessageRole, MessageType};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::TaskStatus;
-use moatless_types::access_control::{ScopeContext, ScopedEntity};
-use moatless_backend_core::activity::{Activity, ActivitySource, PLAN_TOOL, QUESTION_TOOL};
 
 /// One Task, with the derived values a sidebar row is assembled from.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -449,7 +450,7 @@ pub trait ConversationDao: Send + Sync {
 
     /// This conversation's changes at or after `from`, oldest first, capped at
     /// `limit`. At `from` rather than after it — see
-    /// [`moatless_backend_core::change_feed::conversation::changes_from`].
+    /// [`moatless_core::change_feed::conversation::changes_from`].
     async fn conversation_changes(
         &self,
         task_id: &str,
@@ -511,7 +512,7 @@ pub struct PgConversationDao {
 /// A published-seam read that failed, in the `sqlx::Error` the T3 DAO trait
 /// returns. The whole chain is kept as the protocol text so the response
 /// boundary logs what actually failed.
-fn store_read(error: moatless_backend_core::store::StoreError) -> sqlx::Error {
+fn store_read(error: moatless_types::store::StoreError) -> sqlx::Error {
     sqlx::Error::Protocol(moatless_core::error::causal_chain(&error))
 }
 
@@ -1384,7 +1385,7 @@ impl ConversationDao for PgConversationDao {
     }
 
     async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error> {
-        moatless_backend_core::change_feed::conversation::current_head(&self.pool, task_id).await
+        moatless_core::change_feed::conversation::current_head(&self.pool, task_id).await
     }
 
     async fn conversation_changes(
@@ -1393,10 +1394,8 @@ impl ConversationDao for PgConversationDao {
         from: i64,
         limit: i64,
     ) -> Result<Vec<ConversationChange>, sqlx::Error> {
-        moatless_backend_core::change_feed::conversation::changes_from(
-            &self.pool, task_id, from, limit,
-        )
-        .await
+        moatless_core::change_feed::conversation::changes_from(&self.pool, task_id, from, limit)
+            .await
     }
 
     async fn changed_messages(

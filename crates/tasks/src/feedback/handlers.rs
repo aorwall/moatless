@@ -8,8 +8,8 @@ use axum::extract::{Path, Query, State};
 use chrono::{DateTime, Utc};
 
 use crate::task::dao::TaskDao;
-use moatless_backend_core::workspace::RepositoryReader;
 use moatless_core::http_auth::AuthUser;
+use moatless_ports::workspace::RepositoryReader;
 
 use super::dao::{FeedbackDao, FeedbackFilter};
 use super::error::{FeedbackError, UnknownFeedbackDiscriminant};
@@ -103,15 +103,15 @@ pub async fn create_feedback(
                     activity.tool_use_id,
                     FeedbackSurface::ToolCall,
                 ),
-                Some(activity) => (
-                    Some(activity.message_uuid),
-                    None,
-                    FeedbackSurface::Message,
-                ),
+                Some(activity) => (Some(activity.message_uuid), None, FeedbackSurface::Message),
                 None => (None, None, FeedbackSurface::Task),
             }
         } else {
-            (req.message_uuid.clone(), req.tool_use_id.clone(), req.surface)
+            (
+                req.message_uuid.clone(),
+                req.tool_use_id.clone(),
+                req.surface,
+            )
         };
 
     let source = if auth.is_agent_context {
@@ -182,7 +182,10 @@ pub async fn set_feedback_status(
         .map(str::trim)
         .filter(|note| !note.is_empty())
         .map(str::to_string);
-    if note.as_deref().is_some_and(|note| note.len() > MAX_STATUS_NOTE) {
+    if note
+        .as_deref()
+        .is_some_and(|note| note.len() > MAX_STATUS_NOTE)
+    {
         return Err(FeedbackError::BadRequest(format!(
             "note too long (max {MAX_STATUS_NOTE})"
         )));

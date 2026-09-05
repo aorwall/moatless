@@ -15,7 +15,7 @@
 //!    `System.session_id == Result.session_id`.
 //! 3. Per-turn `--resume <session_id>` recalls context across two turns —
 //!    this is exactly how the sandbox dispatches multi-turn tasks
-//!    (`sandbox/src/agent/options.rs:151-163`).
+//!    (`crates/sandbox/src/agent/options.rs:151-163`).
 //!
 //! Gated on `CLAUDE_SDK_E2E=1`. Run:
 //!   `CLAUDE_SDK_E2E=1` cargo test -p claude-agent-sdk --test smoke -- --ignored --nocapture
@@ -27,7 +27,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 use claude_agent_sdk::api::messages::ResultMessage;
-use claude_agent_sdk::{query, ClaudeOptions, SdkMessage};
+use claude_agent_sdk::{ClaudeOptions, SdkMessage, query};
 
 /// MUST match `CLAUDE_CLI_VERSION` in `docker/Dockerfile.sandbox-base`.
 /// Bump this when the Dockerfile pin is bumped.
@@ -53,11 +53,7 @@ fn auth_env() -> Option<HashMap<String, String>> {
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         env.insert("ANTHROPIC_API_KEY".to_string(), key);
     }
-    if env.is_empty() {
-        None
-    } else {
-        Some(env)
-    }
+    if env.is_empty() { None } else { Some(env) }
 }
 
 fn fresh_cwd(name: &str) -> PathBuf {

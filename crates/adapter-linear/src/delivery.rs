@@ -23,20 +23,22 @@ use moatless_adapter_model::apps::AdapterAppReader;
 use moatless_core::config::Config;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::delivery::{ConnectionDeliveryPayload, register_connection_delivery};
-use moatless_adapter_model::delivery::{AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest};
+use moatless_adapter_model::delivery::{
+    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
+};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::AdapterConnection;
-use moatless_loops::bindings::runtime::RoutingService;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_backend_core::task::MessageAcceptor;
-use moatless_backend_core::identity::AppCredentials;
+use moatless_loops::adapters::delivery::{ConnectionDeliveryPayload, register_connection_delivery};
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_backend_core::task::TaskFinisher;
-use moatless_backend_core::task::TaskOpener;
-use moatless_backend_core::task::TaskReader;
-use moatless_backend_core::task::RelationRecorder;
-use moatless_backend_core::sandbox::SandboxWaker;
+use moatless_loops::bindings::runtime::RoutingService;
+use moatless_ports::identity::AppCredentials;
+use moatless_ports::sandbox::SandboxWaker;
+use moatless_ports::task::MessageAcceptor;
+use moatless_ports::task::RelationRecorder;
+use moatless_ports::task::TaskFinisher;
+use moatless_ports::task::TaskOpener;
+use moatless_ports::task::TaskReader;
+use moatless_types::adapter::AdapterConnection;
 
 use super::active_turns::ActiveLinearTurns;
 use super::webhook_payloads::{
@@ -441,9 +443,10 @@ impl LinearInboundRouter {
                     .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
             })
             .unwrap_or_default();
-        let rules = super::ingress::resolve_rules_for_team(self.loops.as_ref(), &connection, &team_id)
-            .await
-            .map_err(AdapterDeliveryFailure::from)?;
+        let rules =
+            super::ingress::resolve_rules_for_team(self.loops.as_ref(), &connection, &team_id)
+                .await
+                .map_err(AdapterDeliveryFailure::from)?;
 
         if rules.is_empty() {
             info!(
@@ -457,7 +460,13 @@ impl LinearInboundRouter {
             // Resolved here rather than above the guard, and best-effort: there is
             // no work left to redo on this record, so a credential failure must not
             // turn a settled no-op into a retry.
-            match super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection).await {
+            match super::auth::api_for_connection(
+                self.app_tokens.clone(),
+                self.apps.as_ref(),
+                &connection,
+            )
+            .await
+            {
                 Ok(api) => {
                     super::sessions::decline_session(
                         &api,
@@ -475,9 +484,13 @@ impl LinearInboundRouter {
             return Ok(());
         }
 
-        let api = super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection)
-            .await
-            .map_err(AdapterDeliveryFailure::from)?;
+        let api = super::auth::api_for_connection(
+            self.app_tokens.clone(),
+            self.apps.as_ref(),
+            &connection,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
         super::sessions::provision_selected_session_task(
             self.task_bindings.as_ref(),
             self.tasks.as_ref(),
@@ -501,9 +514,13 @@ impl LinearInboundRouter {
         connection: AdapterConnection,
         payload: SessionPromptDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
-        let api = super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection)
-            .await
-            .map_err(AdapterDeliveryFailure::from)?;
+        let api = super::auth::api_for_connection(
+            self.app_tokens.clone(),
+            self.apps.as_ref(),
+            &connection,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
         super::sessions::handle_session_prompted(
             self.task_bindings.as_ref(),
             self.loops.as_ref(),
@@ -529,9 +546,10 @@ impl LinearInboundRouter {
         // handler re-resolves: a rule disabled between admission and execution
         // should stop the work, which is what disabling it means.
         let team_id = payload.issue.resolved_team_id().unwrap_or_default();
-        let rules = super::ingress::resolve_rules_for_team(self.loops.as_ref(), &connection, team_id)
-            .await
-            .map_err(AdapterDeliveryFailure::from)?;
+        let rules =
+            super::ingress::resolve_rules_for_team(self.loops.as_ref(), &connection, team_id)
+                .await
+                .map_err(AdapterDeliveryFailure::from)?;
         if rules.is_empty() {
             debug!(
                 issue = %payload.issue.identifier,
@@ -541,9 +559,13 @@ impl LinearInboundRouter {
             return Ok(());
         }
 
-        let api = super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection)
-            .await
-            .map_err(AdapterDeliveryFailure::from)?;
+        let api = super::auth::api_for_connection(
+            self.app_tokens.clone(),
+            self.apps.as_ref(),
+            &connection,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
         super::issues::handle_issue_update(
             self.task_bindings.as_ref(),
             self.tasks.as_ref(),
@@ -571,9 +593,13 @@ impl LinearInboundRouter {
         connection: AdapterConnection,
         payload: CommentDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
-        let api = super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection)
-            .await
-            .map_err(AdapterDeliveryFailure::from)?;
+        let api = super::auth::api_for_connection(
+            self.app_tokens.clone(),
+            self.apps.as_ref(),
+            &connection,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
         super::comments::handle_comment_created(
             &self.config,
             &self.routing,
@@ -611,9 +637,13 @@ impl LinearInboundRouter {
             return Ok(());
         }
 
-        let api = super::auth::api_for_connection(self.app_tokens.clone(), self.apps.as_ref(), &connection)
-            .await
-            .map_err(AdapterDeliveryFailure::from)?;
+        let api = super::auth::api_for_connection(
+            self.app_tokens.clone(),
+            self.apps.as_ref(),
+            &connection,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
         super::notifications::handle_issue_status_notification(
             self.task_bindings.as_ref(),
             self.tasks.as_ref(),

@@ -1,6 +1,6 @@
 # Sandbox Rust
 
-Apply this reference to Rust changes under `sandbox/`.
+Apply this reference to Rust changes under `crates/sandbox/`.
 
 ## Lifecycle and Supervision
 

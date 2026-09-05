@@ -23,7 +23,7 @@ pub enum LoopError {
 
     /// A read or write through a published store seam failed.
     #[error(transparent)]
-    Store(#[from] moatless_backend_core::store::StoreError),
+    Store(#[from] moatless_types::store::StoreError),
 
     #[error("Internal error: {0}")]
     Internal(String),

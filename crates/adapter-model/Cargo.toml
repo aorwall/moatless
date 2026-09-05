@@ -1,46 +1,43 @@
 [package]
 name = "moatless-adapter-model"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "The Adapter kernel: capability contracts, the Adapter error space, domain types (contexts, DB rows, inbound/outbound messages) and adapter_connections persistence for Moatless"
 
+authors.workspace = true
 [dependencies]
-async-trait = "0.1"
-axum = { version = "0.8", optional = true }
-chrono = { version = "0.4", features = ["serde"] }
-hex = "0.4"
-hmac = "0.13"
+async-trait = { workspace = true }
+axum = { workspace = true, optional = true }
+chrono = { workspace = true, features = ["serde"] }
+hex = { workspace = true }
+hmac = { workspace = true }
 # Counter instrumentation for webhook ingress and outbound Adapter API calls.
-metrics = "0.24"
-moatless-api-schemas = { path = "../api-schemas", optional = true }
-# The identity read port `render_mentions` resolves a `<@login>` through, and
-# the Task band's `TaskBindings` seam a Binding directory answers. Both are read
-# vocabularies, and `backend-core`'s base feature set pulls no database driver,
-# so naming it here keeps the kernel's driver-free floor.
-moatless-backend-core = { path = "../backend-core" }
-moatless-core = { path = "../core", optional = true }
-moatless-types = { path = "../types" }
+metrics = { workspace = true }
+moatless-api-schemas = { workspace = true, optional = true }
+moatless-ports = { workspace = true }
+moatless-core = { workspace = true, optional = true }
+moatless-types = { workspace = true }
 # Canonical `<@login>` mention matching (mentions).
-regex = "1"
-reqwest = { version = "0.13", default-features = false }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.11"
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"], optional = true }
-thiserror = "2"
+regex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"], optional = true }
+thiserror = { workspace = true }
 # The loopback stubs in `test_support` bind a port and serve on it. Optional and
 # pulled in by `test-support` alone, so no release build of this crate compiles
 # a runtime.
-tokio = { version = "1", features = ["net", "rt"], optional = true }
+tokio = { workspace = true, features = ["net", "rt"], optional = true }
 # Unconditional: the ingress helpers and `render_mentions` log on the base
 # surface, and `tracing` pulls no driver or transport of its own, so gating it
 # would buy a smaller floor than the gate costs to read.
-tracing = "0.1"
+tracing = { workspace = true }
 
 [features]
 # The Postgres store and the row shapes it decodes. A crate that only reads the
 # Adapter vocabulary — every provider crate — takes this crate without it, and
-# so without a database driver. Mirrors `backend-core`'s `database` feature.
+# so without a database driver.
 postgres = ["dep:sqlx"]
 # The HTTP rendering of `AdapterError`: the `IntoResponse` impl and the two
 # crates it reads to build a body (`error_response`, `MultipleTargetsErrorBody`).
@@ -63,12 +60,17 @@ test-support = ["http", "dep:tokio"]
 # renderer tests run under `cargo nextest run -p moatless-adapter-model` and not
 # only when a workspace build happens to unify `http` on from a consumer. A
 # feature-gated test that silently does not run is worse than no test.
-moatless-adapter-model = { path = ".", features = ["http", "postgres", "test-support"] }
+moatless-adapter-model = { workspace = true, features = ["http", "postgres", "test-support"] }
 # Reads a rendered `AdapterError` body back in the delivery redaction tests.
-http-body-util = "0.1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+http-body-util = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # `mentions` tests build a stub `ProviderIdentityLink` that mints provider ids.
-uuid = { version = "1", features = ["v4"] }
+uuid = { workspace = true, features = ["v4"] }
 
 [lints]
 workspace = true
+
+[[package.metadata.arch.allow]]
+rule = "base-surface"
+dependency = "reqwest"
+reason = "The shared error vocabulary preserves reqwest::Error sources; remove after transport errors are narrowed at the provider seam."

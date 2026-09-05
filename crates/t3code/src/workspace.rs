@@ -22,10 +22,10 @@
 use super::dao::ConversationDao;
 use super::projection;
 use chrono::{DateTime, Utc};
-use moatless_types::sandbox::SandboxDesiredState;
-use moatless_backend_core::sandbox::SandboxError;
+use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::Scope;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::sandbox::SandboxDesiredState;
 use serde_json::Value;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -190,7 +190,10 @@ pub async fn controlled_conversation(
     cwd: &str,
 ) -> Result<String, WorkspaceAccessError> {
     let task_id = addressed_conversation(conversations, viewer, cwd).await?;
-    if !conversations.controls_conversation(viewer, &task_id).await? {
+    if !conversations
+        .controls_conversation(viewer, &task_id)
+        .await?
+    {
         return Err(WorkspaceAccessError::NoControl);
     }
     Ok(task_id)

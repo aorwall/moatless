@@ -1,62 +1,56 @@
 [package]
 name = "moatless-identity"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Identity band: auth, extractors, team, adapter apps, secrets, and setup for Moatless"
 
+authors.workspace = true
 [dependencies]
-async-trait = "0.1"
-axum = { version = "0.8", features = ["macros", "ws"] }
+async-trait = { workspace = true }
+axum = { workspace = true, features = ["macros", "ws"] }
 argon2 = { version = "0.5", features = ["std"] }
 aes-gcm = "0.11"
-base64 = "0.22"
-chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4", features = ["derive"] }
+base64 = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+clap = { workspace = true, features = ["derive"] }
 cookie = "0.18"
-hex = "0.4"
-jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+hex = { workspace = true }
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 # Mock generation, enabled off `test-support` so backend test tiers can name
 # `MockUserDao` / `MockProviderTokenAuthDao` across the crate boundary.
-mockall = { version = "0.15", optional = true }
-moka = { version = "0.12", features = ["future"] }
+mockall = { workspace = true, optional = true }
+moka = { workspace = true, features = ["future"] }
 openidconnect = "4.0.1"
-rand = "0.10"
-reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+rand = { workspace = true }
+reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 serde_urlencoded = "0.7"
-sha2 = "0.11"
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
-thiserror = "2"
-tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
-urlencoding = "2"
-utoipa = { version = "5", features = ["axum_extras"] }
-utoipa-axum = "0.2"
-uuid = { version = "1", features = ["v4", "v5", "serde"] }
+sha2 = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+urlencoding = { workspace = true }
+utoipa = { workspace = true, features = ["axum_extras"] }
+utoipa-axum = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 
-moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
-moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
-moatless-core = { path = "../core", features = ["openapi"] }
-moatless-adapter-model = { path = "../adapter-model" }
-moatless-types = { path = "../types" }
+moatless-api-schemas = { workspace = true, features = ["openapi"] }
+moatless-ports = { workspace = true, features = ["openapi"] }
+moatless-core = { workspace = true, features = ["openapi"] }
+moatless-adapter-model = { workspace = true }
+moatless-types = { workspace = true }
 
 [features]
-# Exposes the `#[cfg(any(test, feature = "test-support"))]` `test_support` modules
-# (auth, secret) to other crates' test builds — backend integration tests reach
-# them through the backend facade under its `db-tests` feature. The gate keeps the
-# `test,` disjunct FIRST: the census keys on the substring "test" in the cfg token
-# stream (crate-census scan.rs), so a fake gated this way stays test-context and is
-# never scored as a production edge. No shipping build enables it. `dep:mockall`
-# generates the two DAO mocks named across the crate boundary from backend tests.
 test-support = ["dep:mockall"]
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-async-trait = "0.1"
-http-body-util = "0.1"
-mockall = "0.15"
-moatless-core = { path = "../core", features = ["openapi", "test-support"] }
-tokio-test = "0.4"
+async-trait = { workspace = true }
+http-body-util = { workspace = true }
+mockall = { workspace = true }
+moatless-core = { workspace = true, features = ["openapi", "test-support"] }
+tokio-test = { workspace = true }

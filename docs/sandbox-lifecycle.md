@@ -235,7 +235,7 @@ activity as the **newest** of:
 2. **Latest agent activity event** — tool calls *and* streamed tool
    progress. A multi-minute build inside one turn emits no messages, so the
    sandbox publishes a rate-limited (60s) `agent/activity` liveness event on
-   `ToolProgress` (PR #293, `sandbox/src/agent/handle/claude.rs`).
+   `ToolProgress` (PR #293, `crates/sandbox/src/agent/handle/claude.rs`).
 3. `sandbox_started_at`
 4. `created_at` (fallback for tasks with no activity at all)
 
@@ -333,7 +333,7 @@ by lifecycle and the reconciler.
   row lets the reconciler request Running when causal precedence permits it.
   Which is why a pod being torn down mid-turn must **not** close the turn: the
   sandbox's SIGTERM handler cancels the in-flight run and publishes
-  `taskTurn/turn_interrupted` (`sandbox/src/agent/coordinator.rs`), never
+  `taskTurn/turn_interrupted` (`crates/sandbox/src/agent/coordinator.rs`), never
   `agent/stopped`. `agent/stopped` is reserved for an explicit `StopAgent`,
   which carries a stop source; a graceful drain that published one would tell
   the replacement pod the turn had ended and leave the work half-finished.
@@ -454,6 +454,6 @@ All read from env at backend startup (`backend/src/config.rs`).
 
 *Sources: `backend/src/task/reaper.rs`, `backend/src/sandbox/auto_provision.rs`,
 `backend/src/sandbox/k8s/{provider,status_resolver,pod_builder,pod_watcher}.rs`,
-`sandbox/src/{grpc_server,process_tree}.rs`, `sandbox/src/agent/handle/claude.rs`,
+`crates/sandbox/src/{grpc_server,process_tree}.rs`, `crates/sandbox/src/agent/handle/claude.rs`,
 `backend/src/message/send.rs`, `backend/src/credentials/codex/refresh.rs`,
 `backend/src/config.rs` — as of main @ July 2026.*

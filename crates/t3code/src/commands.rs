@@ -28,11 +28,11 @@ use super::ports::{
 };
 use super::providers;
 use crate::agent::catalog;
+use crate::scripts::{self, ScriptsWriteError};
 use crate::skills;
 use crate::workspace_dao::T3WorkspaceDao;
-use crate::scripts::{self, ScriptsWriteError};
+use moatless_types::activity as mapping;
 use moatless_types::agent::AgentMode;
-use moatless_backend_core::activity as mapping;
 use uuid::Uuid;
 
 /// What the surface needs in order to answer a command.
@@ -913,10 +913,10 @@ fn missing(field: &str) -> CommandRefusal {
 mod tests {
     use super::*;
     use crate::dao::{InteractiveCall, MockConversationDao};
-    use crate::workspace_dao::{MockT3WorkspaceDao, ScriptsWriteTarget};
-    use moatless_api_schemas::repository::ScriptConfig;
     use crate::listing::{UiRpcEnvironmentIdentity, UiRpcListingHead};
+    use crate::workspace_dao::{MockT3WorkspaceDao, ScriptsWriteTarget};
     use async_trait::async_trait;
+    use moatless_api_schemas::repository::ScriptConfig;
     use moatless_types::agent::AgentType;
     use std::sync::Mutex;
 
@@ -1056,7 +1056,11 @@ mod tests {
             });
             Ok(())
         }
-        async fn fork(&self, _viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal> {
+        async fn fork(
+            &self,
+            _viewer: &ScopeContext,
+            fork: ForkThread,
+        ) -> Result<(), CommandRefusal> {
             self.0.lock().unwrap().push(Call::Fork {
                 new_task_id: fork.new_task_id,
                 source_task_id: fork.source_task_id,
@@ -1272,7 +1276,8 @@ mod tests {
         let mut dao = MockConversationDao::new();
         dao.expect_readable_by_id()
             .returning(move |_, _| Ok(found.clone()));
-        dao.expect_controls_conversation().returning(|_, _| Ok(true));
+        dao.expect_controls_conversation()
+            .returning(|_, _| Ok(true));
         dao.expect_listing_head().returning(|| {
             Ok(UiRpcListingHead {
                 identity: UiRpcEnvironmentIdentity::new("test"),
@@ -1966,7 +1971,8 @@ mod tests {
     #[tokio::test]
     async fn a_fork_carries_a_translated_model_override() {
         let mut command = fork_command();
-        command["modelSelection"] = json!({ "instanceId": "claudeAgent", "model": "claude-haiku-4-5" });
+        command["modelSelection"] =
+            json!({ "instanceId": "claudeAgent", "model": "claude-haiku-4-5" });
         let (result, calls) = run(command).await;
         assert!(result.is_ok());
         assert!(matches!(
@@ -2524,7 +2530,8 @@ mod tests {
         workspaces
             .expect_replace_scripts()
             .withf(move |_, _, scripts| {
-                scripts[0].env_vars.as_ref() == Some(&env) && scripts[0].command == "pnpm dev --host"
+                scripts[0].env_vars.as_ref() == Some(&env)
+                    && scripts[0].command == "pnpm dev --host"
             })
             .returning(|_, _, _| Ok(true));
 
@@ -2563,12 +2570,9 @@ mod tests {
         for field in ["title", "workspaceRoot", "faviconPath"] {
             let mut command = scripts_update(json!([]));
             command[field] = json!("something");
-            let (result, _) = dispatch_with_workspaces(
-            conversations(None),
-                MockT3WorkspaceDao::new(),
-                command,
-            )
-            .await;
+            let (result, _) =
+                dispatch_with_workspaces(conversations(None), MockT3WorkspaceDao::new(), command)
+                    .await;
             assert!(
                 matches!(result, Err(CommandRefusal::Unsupported { .. })),
                 "{field} was not refused: {result:?}"
@@ -2589,9 +2593,7 @@ mod tests {
             "commandId": "cmd-1",
             "projectId": "ws-1"
         });
-        let (result, _) =
-            dispatch_with_workspaces(
-            conversations(None), workspaces, command).await;
+        let (result, _) = dispatch_with_workspaces(conversations(None), workspaces, command).await;
         assert!(result.is_ok(), "{result:?}");
     }
 

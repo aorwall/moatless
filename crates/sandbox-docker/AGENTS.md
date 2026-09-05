@@ -1,4 +1,4 @@
-# moatless-sandbox-docker (band 7)
+# moatless-sandbox-docker
 
 The Docker Engine runtime provider behind the `moatless-sandbox-control` ports.
 It manages a dedicated container per task on a shared Docker network (resolved by

@@ -9,7 +9,7 @@ Refactor `apps/sandbox/src/` from a flat structure to a feature-based architectu
 ## Current Structure (Flat)
 
 ```
-sandbox/src/
+crates/sandbox/src/
 ├── services/
 │   ├── base-agent.ts
 │   ├── claude-code-agent.ts
@@ -33,7 +33,7 @@ sandbox/src/
 ## Target Structure (Feature-Based)
 
 ```
-sandbox/src/
+crates/sandbox/src/
 ├── features/
 │   ├── agents/                    # Agent framework & execution
 │   │   ├── api/

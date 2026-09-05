@@ -1,0 +1,127 @@
+//! A crate may not name a dependency its band forbids.
+//!
+//! Cargo enforces acyclicity and nothing else, so band order and driver
+//! privacy are held here. Each entry states the rule and the document that
+//! explains it, because a forbidden edge is only obvious to whoever wrote it
+//! down.
+
+use crate::Violation;
+use crate::workspace::Workspace;
+
+pub const RULE: &str = "dependency-privacy";
+
+struct Forbidden {
+    /// The crate that must not reach `target`.
+    source: &'static str,
+    target: &'static str,
+    /// Whether an indirect path counts, or only a declared dependency.
+    transitive: bool,
+    why: &'static str,
+}
+
+/// Privacy constraints that dependency band order cannot express.
+const FORBIDDEN: &[Forbidden] = &[
+    Forbidden {
+        source: "moatless-adapter-slack",
+        target: "moatless-loops",
+        transitive: true,
+        why: "the Adapter kernel freed this crate from the loops band — crates/adapter-model/AGENTS.md",
+    },
+    Forbidden {
+        source: "moatless-adapter-webhook",
+        target: "moatless-loops",
+        transitive: true,
+        why: "the Adapter kernel freed this crate from the loops band — crates/adapter-model/AGENTS.md",
+    },
+    Forbidden {
+        source: "moatless-sandbox-docker",
+        target: "moatless-api-schemas",
+        transitive: false,
+        why: "a runtime driver speaks the runtime contract and the domain floor, never the wire contract — crates/sandbox-docker/AGENTS.md",
+    },
+    Forbidden {
+        source: "moatless-sandbox-k8s",
+        target: "moatless-api-schemas",
+        transitive: false,
+        why: "a runtime driver speaks the runtime contract and the domain floor, never the wire contract — crates/sandbox-k8s/AGENTS.md",
+    },
+    Forbidden {
+        source: "moatless-types",
+        target: "sqlx",
+        transitive: false,
+        why: "the floor stays driver-free — crates/types/AGENTS.md",
+    },
+    Forbidden {
+        source: "moatless-api-schemas",
+        target: "sqlx",
+        transitive: false,
+        why: "a wire schema owns no table",
+    },
+    Forbidden {
+        source: "moatless-sandbox-runtime",
+        target: "sqlx",
+        transitive: false,
+        why: "a runtime contract owns no table",
+    },
+    Forbidden {
+        source: "moatless-adapter-slack",
+        target: "sqlx",
+        transitive: false,
+        why: "a provider owns no table",
+    },
+    Forbidden {
+        source: "moatless-adapter-webhook",
+        target: "sqlx",
+        transitive: false,
+        why: "a provider owns no table",
+    },
+    Forbidden {
+        source: "moatless-adapter-linear",
+        target: "sqlx",
+        transitive: false,
+        why: "a provider owns no table",
+    },
+    Forbidden {
+        source: "moatless-adapter-github-pr",
+        target: "sqlx",
+        transitive: false,
+        why: "a provider owns no table",
+    },
+];
+
+pub fn check(ws: &Workspace) -> Vec<Violation> {
+    FORBIDDEN
+        .iter()
+        .filter(|rule| {
+            ws.member(rule.source)
+                .is_some_and(|m| !crate::annotations::permits_dependency(m, RULE, rule.target))
+        })
+        .filter(|rule| {
+            if rule.transitive {
+                ws.reaches(rule.source, rule.target)
+            } else {
+                ws.member(rule.source)
+                    .is_some_and(|m| m.normal_deps.contains(rule.target))
+            }
+        })
+        .map(|rule| Violation {
+            rule: RULE,
+            key: format!("{} -> {}", rule.source, rule.target),
+            message: format!(
+                "{} depends on {}{}: {}",
+                rule.source,
+                rule.target,
+                if rule.transitive {
+                    " (transitively)"
+                } else {
+                    ""
+                },
+                rule.why
+            ),
+            locations: vec![format!(
+                "crates/{}/Cargo.toml",
+                rule.source.trim_start_matches("moatless-")
+            )],
+        })
+        .collect()
+}

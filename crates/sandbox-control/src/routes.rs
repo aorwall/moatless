@@ -8,19 +8,19 @@
 //! extractor and the `authorize_task_read`/`authorize_task_write` helpers, so
 //! a caller can only read or operate a sandbox they may access.
 
-use axum::response::IntoResponse;
 use axum::Json;
+use axum::response::IntoResponse;
 use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use moatless_backend_core::sandbox::WorkspaceSnapshotSource;
-use moatless_backend_core::task::TurnStateReader;
-use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
-use moatless_sandbox_runtime::client::SandboxConnector;
 use super::file_handlers;
 use super::handlers;
 use super::lifecycle::Lifecycle;
+use moatless_ports::sandbox::WorkspaceSnapshotSource;
+use moatless_ports::task::TurnStateReader;
+use moatless_sandbox_runtime::client::SandboxConnector;
+use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
 
 /// State shared across sandbox API handlers.
 #[derive(Clone)]

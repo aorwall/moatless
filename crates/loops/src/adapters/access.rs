@@ -3,13 +3,13 @@
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::AdapterConnection;
-use moatless_backend_core::access_control::{
+use moatless_ports::task::{TaskDescriptor, TaskReader};
+use moatless_ports::workspace::RepositoryReader;
+use moatless_types::access_control::{
     ResolvedScope, ensure_can_use_repository, resolve_scope_for_create,
 };
-use moatless_backend_core::task::{TaskDescriptor, TaskReader};
-use moatless_backend_core::workspace::RepositoryReader;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
+use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::AdapterKind;
 
 use crate::loops::dao::{LoopDao, LoopRecord};

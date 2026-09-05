@@ -107,9 +107,8 @@ pub struct StreamEvent {
 /// What one event says about whether the agent is working.
 ///
 /// An event knows only the turn half of the question, so this is
-/// `moatless_backend_core::running::derive_running` reduced to what a turn
-/// state alone implies. It lives here, below that crate, because the event
-/// publisher does. `agent.started`/`message`/`activity` move no turn row, but a
+/// `moatless_types::running::derive_running` reduced to what a turn
+/// state alone implies. `agent.started`/`message`/`activity` move no turn row, but a
 /// run that is emitting is a run that is working.
 pub fn agent_working(event_type: &str, sub_type: &str) -> Option<bool> {
     if let Some(status) = crate::task::TurnStatus::from_event(event_type, sub_type) {

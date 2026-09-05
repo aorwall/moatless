@@ -123,24 +123,24 @@ every crate at exactly one feature configuration — the union the dependency
 graph resolves to — and reaches neither a feature's off-state nor a different
 graph. The `-p` lines exist only where that is structurally true:
 
-- **`moatless-core`, twice.** `crates/backend/Cargo.toml` pulls it with
+- **`moatless-core`, twice.** `crates/server/Cargo.toml` pulls it with
   `features = ["openapi"]`, so the floor always lints it openapi-on. The
   `--features openapi` run pins the gated code (the `ToSchema` derives, the
   `utoipa::path` attributes) in isolation from that unification; the default run
   is what keeps the feature droppable, without which utoipa stops being off for
   the non-API consumers the feature protects.
-- **`moatless-backend-core`, twice.** Its `database` feature gates the activity
+- **`moatless-ports`, twice.** Its `database` feature gates the activity
   DAO and the whole pairing module, which the default floor run omits.
   `--all-features` is the only run that lints them; `--no-default-features`
   keeps the feature droppable, so the crate every backend crate depends on does
   not pull sqlx and rustls into builds that never open a connection.
 - **`moatless-backend` with `--features db-tests`.** Every module in
-  `crates/backend/tests/integration_*/` except `supervisor_test.rs` opens with
+  `crates/server/tests/integration_*/` except `supervisor_test.rs` opens with
   `#![cfg(feature = "db-tests")]` and compiles to nothing without it, so a
   signature they construct can change while a bare `--all-targets` run stays
   green. Clippy type-checks that tier without linking it, which is why the
   feature rides on a line already being run rather than one of its own. It is
-  the most expensive line in the set and the one an edit under `crates/backend`
+  the most expensive line in the set and the one an edit under `crates/server`
   pays every time — 44s, against 5s for the floor.
 
 `ci.yml` runs this same set, and additionally links the db-tests tier with
@@ -153,10 +153,10 @@ it. It is linted from its own directory.
 
 ## The integration test targets
 
-`crates/backend/tests/` is three targets rather than one because the db-tests
+`crates/server/tests/` is three targets rather than one because the db-tests
 clippy line is the edit loop's long pole and a target is a single rustc unit: a
 23.7k-line suite in one target type-checked in one 63s unit, so the line cost
-67s on every `crates/backend` edit no matter how many cores were idle. Split
+67s on every `crates/server` edit no matter how many cores were idle. Split
 three ways it is 44s, measured as three alternating runs of each layout on
 8 cores (67/68/69s against 43/43/45s).
 

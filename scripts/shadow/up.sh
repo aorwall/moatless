@@ -72,7 +72,7 @@ baked_binary_matches_checkout() {
 
   # The baked binary is only safe before Rust-relevant local edits. After edits,
   # rebuild.sh touches the trigger and the loop below always runs cargo build.
-  [ -z "$(git status --porcelain -- Cargo.toml Cargo.lock rust-toolchain.toml .cargo crates/backend crates 2>/dev/null)" ]
+  [ -z "$(git status --porcelain -- Cargo.toml Cargo.lock rust-toolchain.toml .cargo crates/server crates 2>/dev/null)" ]
 }
 
 if baked_binary_matches_checkout; then

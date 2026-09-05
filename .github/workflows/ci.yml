@@ -101,7 +101,7 @@ jobs:
               - 'rust-toolchain.toml'
               - 'clippy.toml'
             rust:
-              - 'crates/backend/**'
+              - 'crates/server/**'
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -113,7 +113,7 @@ jobs:
               - 'packages/**'
               - 'docker/Dockerfile.app'
             docker-backend:
-              - 'crates/backend/**'
+              - 'crates/server/**'
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -122,7 +122,7 @@ jobs:
             # sandbox images. `.github/workflows/ci.yml` is in each of them so an
             # edit to this file republishes what it describes.
             sandbox-binaries:
-              - 'sandbox/**'
+              - 'crates/sandbox/**'
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -149,76 +149,25 @@ jobs:
             helm:
               - 'k8s/helm/**'
 
-  # ── Sandbox toolchain drift ──
-  # The sandbox base image bakes a Rust toolchain so agents don't download one
-  # at runtime. That only works while the baked version matches the workspace
-  # pin — fail fast when rust-toolchain.toml and Dockerfile.sandbox-base
-  # diverge. Cheap (no checkout beyond the two files), runs on every PR/push
-  # regardless of change filters so drift is caught wherever it's introduced.
-  # The composition root (crates/backend/src/compose.rs) is the only place a concrete
-  # `Pg*Dao` is constructed; every other production site takes an `Arc<dyn *Dao>`
-  # port. A syntactic grep is the right instrument because the tuple-struct
-  # constructor is exactly the banned single expression. Cheap, no Rust build.
-  dao-composition-root:
-    name: DAO composition-root invariant
-    runs-on: staging-runners
+  architecture:
+    name: Rust architecture
+    runs-on: staging-runners-large
+    container:
+      image: rust:1.97-bookworm
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
-      - name: No Pg*Dao construction outside the composition root
-        run: ./scripts/check-dao-composition-root.sh
-
-  # Step 5 invariant — AppState is named by the composition root and nothing
-  # else. A shrinking baseline (scripts/appstate-composition-root-baseline.txt)
-  # tracks the modules still holding the god object mid-sweep; each slice deletes
-  # its own entries. Same string/comment-blanking tokenizer as the DAO check,
-  # no Rust build.
-  appstate-composition-root:
-    name: AppState composition-root invariant
-    runs-on: staging-runners
-    steps:
-      - uses: actions/checkout@v6
-      - name: AppState is named only by the composition root and the routing tables
-        run: ./scripts/check-appstate-composition-root.sh
-
-  # A table is private to the crate that owns it. A production SQL statement
-  # naming a foreign table bypasses the port that domain publishes, even where
-  # the port exists. A shrinking baseline
-  # (scripts/table-ownership-baseline.txt) holds the statements that predate the
-  # check; the map of table to owning crate is stated in the script. No Rust
-  # build.
-  table-ownership:
-    name: Table-ownership invariant
-    runs-on: staging-runners
-    steps:
-      - uses: actions/checkout@v6
-      - name: No production SQL against a table another crate owns
-        run: ./scripts/check-table-ownership.sh
-
-  # A store is private to the crate that owns the table; a peer names the port
-  # published over it. The crate that owns no table declares no database driver.
-  # Both are grep-level checks over the same string/comment-blanking tokenizer.
-  # Every crossing that is allowed is listed in the script with its reason, and
-  # that reason is stated again in the owning crate's AGENTS.md. No Rust build.
-  crate-seams:
-    name: Crate-seam invariant
-    runs-on: staging-runners
-    steps:
-      - uses: actions/checkout@v6
-      - name: No crate names another crate's store, and no driver without a table
-        run: ./scripts/check-crate-seams.sh
-
-  # Step 7 invariant — bindings does not depend on the Adapter aggregate or
-  # Adapter-owned capability/error surface. A shrinking baseline tracks the
-  # bindings files still naming `crate::adapters`; each slice deletes its own
-  # entries. Same string/comment-blanking tokenizer as the AppState check, no
-  # Rust build.
-  bindings-adapters-baseline:
-    name: bindings->adapters untangle baseline
-    runs-on: staging-runners
-    steps:
-      - uses: actions/checkout@v6
-      - name: bindings names crate::adapters only in the shrinking baseline
-        run: ./scripts/check-bindings-adapters-baseline.sh
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Install install-action prerequisites
+        run: |
+          .github/scripts/apt-https-mirrors.sh
+          apt-get update
+          apt-get install -y --no-install-recommends jq
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
+        with:
+          tool: cargo-nextest
+      - name: Check architecture independently of changed packages
+        run: cargo nextest run --locked -p moatless-arch-rules
 
   # Plan-claim invariant — a spec in .plans/ does not outlive the code it
   # asserts. The other checks ratchet counts and file sets; nothing re-validated
@@ -344,11 +293,11 @@ jobs:
           # makes each job rebuild the workspace closure.
           cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
           cargo clippy -p moatless-core --all-targets -- -D warnings
-          cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
+          cargo clippy -p moatless-ports --all-targets --all-features -- -D warnings
           if [ "$CARGO_MANIFEST_CHANGED" = true ]; then
-            cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
+            cargo clippy -p moatless-ports --all-targets --no-default-features -- -D warnings
           else
-            echo "::notice::Skipping moatless-backend-core --no-default-features — cargo manifest did not change"
+            echo "::notice::Skipping moatless-ports --no-default-features — cargo manifest did not change"
           fi
 
           # The Adapter kernel with neither feature on: the contract, and no

@@ -18,17 +18,16 @@
 
 use std::sync::Arc;
 
-
-use moatless_backend_core::task::{TaskReader, TranscriptAppend};
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::bindings::runtime::RoutingService;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_backend_core::task::MessageAcceptor;
-use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_backend_core::task::TaskFinisher;
-use moatless_backend_core::task::TaskOpener;
-use moatless_backend_core::task::RelationRecorder;
+use moatless_loops::bindings::runtime::RoutingService;
+use moatless_ports::identity::ProviderIdentityLink;
+use moatless_ports::task::MessageAcceptor;
+use moatless_ports::task::RelationRecorder;
+use moatless_ports::task::TaskFinisher;
+use moatless_ports::task::TaskOpener;
+use moatless_ports::task::{TaskReader, TranscriptAppend};
 
 use super::adapter::GithubPrAdapter;
 

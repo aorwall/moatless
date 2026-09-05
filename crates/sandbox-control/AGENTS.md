@@ -1,24 +1,11 @@
-# moatless-sandbox-control (band 6)
+# moatless-sandbox-control
 
-The orchestrator that drives a sandbox runtime: durable lifecycle intent, the
-reconciler and the watcher, the gRPC ingress service, event dedup, HTTP
-routes/handlers, JWT, secrets, and preflight.
-
-What a runtime *implements* — the mutation and observation contract — and the
-machinery every runtime reuses live a band below, in `moatless-sandbox-runtime`
-(band 5): `SandboxRuntime`, `FleetObserver`, the decision vocabulary
-(`convergence`, `classify`, `marker`, `operation`), the gRPC client, the status
-reads, the storage plan, and the schemas. Name that crate directly; this crate
-re-exports nothing from it.
-
-The Kubernetes and Docker runtimes (`moatless-sandbox-k8s`,
-`moatless-sandbox-docker`, band 7) implement the band-5 contract and depend on
-this crate for the three things a runtime drives rather than implements:
-`Lifecycle` and `lifecycle::watcher`, which its watcher publishes observations
-into; `jwt`, which mints the tokens its pod spec carries; and `ProvisionDeps`,
-the provision plan. This crate names neither provider SDK (`kube`/`bollard`) —
-`SandboxError` boxes any provider error behind `Box<dyn Error + Send + Sync>` so
-nothing here carries an SDK type.
+Durable sandbox lifecycle intent, reconciliation, ingress, secrets, and preflight.
+Runtime contracts and observation publishing live in `moatless-sandbox-runtime`;
+token signing and verification live in `moatless_core::sandbox_jwt`.
+`lifecycle::watcher::classify_observation` stays here because it calls `Lifecycle`.
+The drivers' manifest metadata records their dependency exceptions.
+Dependency order lives in [BANDS](../../tooling/arch-rules/src/band_order.rs).
 
 ## Ownership Map
 
@@ -29,7 +16,7 @@ nothing here carries an SDK type.
   mutation port. The provider crates implement it natively and return
   `RuntimeOutcome`; provider adapters do not publish lifecycle events.
 - The workspace domain is reached only through the ports
-  `moatless-backend-core` declares (`WorkspaceResolver`,
+  `moatless-ports` declares (`WorkspaceResolver`,
   `WorkspaceCredentialReader`), and identity only through `CommitIdentity`,
   `HarnessCredentials`, `SecretResolver` and `GitHostTokenIssuer`.
   `moatless-identity` is not a dependency here at all — production and tests
@@ -38,7 +25,7 @@ nothing here carries an SDK type.
   either under `[dependencies]` re-opens the edge these ports exist to close.
 - The read-only seams are split by audience. The T3 contract ports
   (`SandboxObserver`, `SandboxIntentReader`, `SandboxStarter`,
-  `SandboxStopper`) are declared once in `moatless-backend-core` (`sandbox`
+  `SandboxStopper`) are declared once in `moatless-ports` (`sandbox`
   module) so `backend` and `crates/t3code` share one vocabulary;
   `SandboxConnector` is declared in `sandbox-proto` (`client` module) beside the
   `SandboxClient` it hands out, and `moatless-sandbox-runtime` re-exports it
@@ -51,7 +38,7 @@ nothing here carries an SDK type.
 - File handlers get a ready `SandboxClient` through `SandboxConnector`, then call
   file/search methods directly.
 - The unified task reaper lives in `moatless-backend`
-  (`crates/backend/src/reaper.rs`); task-scoped stop/remove still routes
+  (`crates/server/src/reaper.rs`); task-scoped stop/remove still routes
   through `Lifecycle` here.
 
 ## Load-Bearing Rules

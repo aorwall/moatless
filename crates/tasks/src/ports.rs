@@ -1,4 +1,4 @@
-//! Tasks' side of the seams declared in `moatless_backend_core::task`.
+//! Tasks' side of the seams declared in `moatless_ports::task`.
 //!
 //! Each adapter wraps one store and narrows it to the projection a peer crate
 //! reads or the entry it writes, converting `sqlx::Error` into a `StoreError`
@@ -8,9 +8,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_backend_core::activity::{Activity, ActivitySource};
-use moatless_backend_core::store::StoreError;
-use moatless_backend_core::task::{
+use moatless_ports::activity::ActivitySource;
+use moatless_ports::task::{
     AssistantReply, CloseReason, EventSubject, ExternalEvent, InboundTurn, MessageAcceptor,
     NewTask, PendingWorkReader, RelationRecorder, SandboxProvision, TagResolver, TaskDescriptor,
     TaskFinisher, TaskOpenError, TaskOpened, TaskOpener, TaskReader, ToolCallRecord,
@@ -18,6 +17,8 @@ use moatless_backend_core::task::{
     TurnSignals, TurnStateReader,
 };
 use moatless_types::access_control::ScopeContext;
+use moatless_types::activity::Activity;
+use moatless_types::store::StoreError;
 use moatless_types::task::RelatedTask;
 
 use crate::message::dao::MessageDao;

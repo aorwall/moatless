@@ -12,12 +12,12 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 use crate::task_dao::{T3TaskDao, TaskView};
-use moatless_types::sandbox::SandboxStopReason;
-use moatless_backend_core::sandbox::{
+use moatless_ports::sandbox::{
     ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxStarter,
     SandboxStopper,
 };
 use moatless_types::access_control::ScopeContext;
+use moatless_types::sandbox::SandboxStopReason;
 
 /// How often a `sandbox.subscribeStatus` subscriber re-reads lifecycle state.
 /// Matched to the server-list poller so the two panels move together.
@@ -227,8 +227,8 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use async_trait::async_trait;
-    use moatless_backend_core::sandbox::{
-        LiveStatus, LogOptions, SandboxDesiredState, SandboxStatus, ContractSandboxStatus,
+    use moatless_ports::sandbox::{
+        ContractSandboxStatus, LiveStatus, LogOptions, SandboxDesiredState, SandboxStatus,
         ServerLogStream,
     };
     use moatless_types::sandbox::{CommandSummary, ManagedCommandState};
@@ -240,7 +240,7 @@ mod tests {
     /// it also reports the agent and the commands it is asked to report.
     struct MovingStatus {
         moved: AtomicBool,
-        agent: Option<moatless_backend_core::sandbox::AgentStatus>,
+        agent: Option<moatless_ports::sandbox::AgentStatus>,
         commands: Mutex<Vec<CommandSummary>>,
     }
 
@@ -264,7 +264,7 @@ mod tests {
             }
         }
 
-        fn reporting(agent: moatless_backend_core::sandbox::AgentStatus) -> Self {
+        fn reporting(agent: moatless_ports::sandbox::AgentStatus) -> Self {
             Self {
                 moved: AtomicBool::new(true),
                 agent: Some(agent),
@@ -277,13 +277,16 @@ mod tests {
         fn running_commands(labels: &[&str]) -> Self {
             Self {
                 moved: AtomicBool::new(true),
-                agent: Some(moatless_backend_core::sandbox::AgentStatus::Idle),
+                agent: Some(moatless_ports::sandbox::AgentStatus::Idle),
                 commands: Mutex::new(labels.iter().map(|label| running(label)).collect()),
             }
         }
 
         fn register(&self, label: &str) {
-            self.commands.lock().expect("no poisoned lock").push(running(label));
+            self.commands
+                .lock()
+                .expect("no poisoned lock")
+                .push(running(label));
         }
     }
 
@@ -374,8 +377,7 @@ mod tests {
     impl ClusterDiagnostics for UnreachableStarter {
         async fn list_sandbox_diagnostics(
             &self,
-        ) -> Result<Vec<moatless_backend_core::sandbox::SandboxDiagnosticsEntry>, SandboxError>
-        {
+        ) -> Result<Vec<moatless_ports::sandbox::SandboxDiagnosticsEntry>, SandboxError> {
             unreachable!("watching a status reads no fleet")
         }
     }
@@ -426,11 +428,11 @@ mod tests {
     async fn the_agent_is_reported_when_there_is_one_and_omitted_when_there_is_not() {
         for (agent, expected) in [
             (
-                Some(moatless_backend_core::sandbox::AgentStatus::Running),
+                Some(moatless_ports::sandbox::AgentStatus::Running),
                 Some("running"),
             ),
             (
-                Some(moatless_backend_core::sandbox::AgentStatus::Unknown),
+                Some(moatless_ports::sandbox::AgentStatus::Unknown),
                 Some("unknown"),
             ),
             (None, None),

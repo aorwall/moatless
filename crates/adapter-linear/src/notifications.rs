@@ -18,11 +18,11 @@ use tracing::debug;
 use moatless_core::config::Config;
 
 use moatless_adapter_model::error::AdapterError;
-use moatless_types::adapter::AdapterConnection;
 use moatless_adapter_model::loops::LoopReader;
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_backend_core::task::TaskFinisher;
-use moatless_backend_core::task::TaskReader;
+use moatless_ports::task::TaskFinisher;
+use moatless_ports::task::TaskReader;
+use moatless_types::adapter::AdapterConnection;
 
 use super::agent_api::LinearAgentApi;
 use super::close::close_active_bindings_for_issue;

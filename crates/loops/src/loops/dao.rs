@@ -15,16 +15,16 @@ use sqlx::AssertSqlSafe;
 
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 
-use moatless_types::loops::LoopSpawnConfig;
 use moatless_adapter_model::persistence::LoopSpawnConfigRow;
-use moatless_types::loops::Schedule;
-use moatless_types::loops::SubscriptionMatch;
 use moatless_adapter_model::persistence::SubscriptionMatchRow;
-use moatless_backend_core::db_enum::decode_required;
+use moatless_core::db::DbPool;
+use moatless_core::db_enum::decode_required;
 use moatless_types::adapter::AdapterKind;
 use moatless_types::agent::AgentType;
+use moatless_types::loops::LoopSpawnConfig;
+use moatless_types::loops::Schedule;
+use moatless_types::loops::SubscriptionMatch;
 use moatless_types::loops::{LoopConfigSource, LoopKind, RoutingMode};
-use moatless_core::db::DbPool;
 
 // =============================================================================
 // Joined loop record — the read shape used by the HTTP surface.
@@ -1593,4 +1593,3 @@ async fn insert_schedule_source(
     .await?;
     Ok(())
 }
-

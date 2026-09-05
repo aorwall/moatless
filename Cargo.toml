@@ -1,14 +1,14 @@
 [workspace]
 members = [
-    "crates/backend",
-    "sandbox",
+    "crates/server",
+    "crates/sandbox",
     "crates/claude-agent-sdk",
     "crates/sandbox-proto",
     "crates/sandbox-runtime",
     "crates/cli",
     "crates/api-client",
     "crates/api-schemas",
-    "crates/backend-core",
+    "crates/ports",
     "crates/core",
     "crates/s3",
     "crates/adapter-model",
@@ -26,10 +26,80 @@ members = [
     "crates/adapter-github-pr",
     "crates/t3code",
     "crates/types",
-    "crates/arch-rules",
+    "tooling/arch-rules",
     # "crates/codex-sdk",  # Excluded: built separately via its own workspace (codex dep graph)
 ]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Moatless Team"]
+
+[workspace.dependencies]
+async-trait = { version = "0.1" }
+aws-sdk-s3 = { version = "1" }
+axum = { version = "0.8" }
+base64 = { version = "0.22" }
+chrono = { version = "0.4" }
+clap = { version = "4" }
+claude-agent-sdk = { path = "crates/claude-agent-sdk" }
+futures = { version = "0.3" }
+hex = { version = "0.4" }
+hmac = { version = "0.13" }
+http-body-util = { version = "0.1" }
+jsonwebtoken = { version = "10" }
+metrics = { version = "0.24" }
+moatless-adapter-github-pr = { path = "crates/adapter-github-pr" }
+moatless-adapter-linear = { path = "crates/adapter-linear" }
+moatless-adapter-model = { path = "crates/adapter-model" }
+moatless-adapter-slack = { path = "crates/adapter-slack" }
+moatless-adapter-telegram = { path = "crates/adapter-telegram" }
+moatless-adapter-webhook = { path = "crates/adapter-webhook" }
+moatless-api-client = { path = "crates/api-client" }
+moatless-api-schemas = { path = "crates/api-schemas" }
+moatless-arch-rules = { path = "tooling/arch-rules" }
+moatless-backend = { path = "crates/server" }
+moatless-ports = { path = "crates/ports" }
+moatless-cli = { path = "crates/cli" }
+moatless-core = { path = "crates/core" }
+moatless-identity = { path = "crates/identity" }
+moatless-loops = { path = "crates/loops" }
+moatless-s3 = { path = "crates/s3" }
+moatless-sandbox = { path = "crates/sandbox" }
+moatless-sandbox-control = { path = "crates/sandbox-control" }
+moatless-sandbox-docker = { path = "crates/sandbox-docker" }
+moatless-sandbox-k8s = { path = "crates/sandbox-k8s" }
+moatless-sandbox-runtime = { path = "crates/sandbox-runtime" }
+moatless-t3code = { path = "crates/t3code" }
+moatless-tasks = { path = "crates/tasks" }
+moatless-types = { path = "crates/types" }
+moatless-workspaces = { path = "crates/workspaces" }
+mockall = { version = "0.15" }
+moka = { version = "0.12" }
+prost = { version = "0.14" }
+rand = { version = "0.10" }
+redis = { version = "1.2" }
+regex = { version = "1" }
+reqwest = { version = "0.13", default-features = false }
+sandbox-proto = { path = "crates/sandbox-proto" }
+serde = { version = "1" }
+serde_json = { version = "1" }
+serde_yaml = { version = "0.9" }
+sha2 = { version = "0.11" }
+sqlx = { version = "0.9" }
+tempfile = { version = "3" }
+thiserror = { version = "2" }
+tokio = { version = "1" }
+tokio-test = { version = "0.4" }
+tokio-util = { version = "0.7" }
+tonic = { version = "0.14" }
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3" }
+urlencoding = { version = "2" }
+utoipa = { version = "5.4" }
+utoipa-axum = { version = "0.2" }
+uuid = { version = "1" }
 
 [workspace.lints.rust]
 # deny (not forbid) so sandbox can #![allow(unsafe_code)] in init modules for std::env::set_var()

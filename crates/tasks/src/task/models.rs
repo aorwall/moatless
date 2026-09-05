@@ -7,7 +7,7 @@
 
 use chrono::{DateTime, Utc};
 
-use moatless_backend_core::db_enum::decode_optional;
+use moatless_core::db_enum::decode_optional;
 use moatless_types::access_control::Scope;
 use moatless_types::agent::AgentType;
 

@@ -11,6 +11,7 @@ use crate::credential_sync::CredentialSync;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use crate::tag::dao::TagDao;
+use crate::task::bindings::TaskBindings;
 use crate::task::closer::TaskCloser;
 use crate::task::creation::TaskCreationService;
 use crate::task::dao::TaskDao;
@@ -18,13 +19,12 @@ use crate::task::fork::TaskForkService;
 use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelationDao;
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_backend_core::binding::TaskBindings;
-use moatless_backend_core::sandbox::PreflightPort;
-use moatless_backend_core::sandbox::SandboxLifecycle;
-use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::http_auth::UserTokenVerifier;
+use moatless_ports::sandbox::PreflightPort;
+use moatless_ports::sandbox::SandboxLifecycle;
+use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_workspaces::workspace::git_sync::GitSyncService;
 
 #[derive(OpenApi)]

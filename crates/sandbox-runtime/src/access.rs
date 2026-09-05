@@ -2,7 +2,7 @@
 //!
 //! The sandbox runtime ports — `SandboxObserver`, `SandboxIntentReader`,
 //! `SandboxStarter`, `SandboxStopper`, `SandboxConnector` — are declared once,
-//! in `moatless_backend_core::sandbox`, and both this crate and `t3code` depend
+//! in `moatless_ports::sandbox`, and both this crate and `t3code` depend
 //! on that one declaration. The backend's full-fidelity HTTP read lives in
 //! `super::status_reader::SandboxStatusReader`. This module keeps only the
 //! log-read options both share.

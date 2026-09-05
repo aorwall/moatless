@@ -856,7 +856,8 @@ mod tests {
     async fn the_reaches_that_name_no_workspace_never_reach_the_store() {
         let mut mock = MockWorkspaceDao::new();
         mock.expect_find_by_id().never();
-        let stored = write_subject(&mock, &auth("user"), ActivationReach::Personal, None, None).await;
+        let stored =
+            write_subject(&mock, &auth("user"), ActivationReach::Personal, None, None).await;
         assert_eq!(stored.ok(), Some((Some(CALLER), None)));
     }
 

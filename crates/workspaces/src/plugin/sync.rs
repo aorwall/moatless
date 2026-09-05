@@ -27,7 +27,7 @@ use crate::skill::error::SkillError;
 use crate::skill::fetcher::{SkillFetcher, SkillLayout};
 use crate::skill::models::SkillSource;
 use crate::skill::scanner;
-use moatless_backend_core::identity::GitHostTokenIssuer;
+use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::access_control::Actor;
 use moatless_types::repository::GitHostRepo;
 use moatless_types::repository::RepositoryProvider;

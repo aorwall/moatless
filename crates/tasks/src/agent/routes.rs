@@ -8,8 +8,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
 use super::schemas::{AgentDescriptor, AgentModel, ListAgentsResponse};
-use moatless_backend_core::identity::{HarnessCredentials, SecretCatalog};
 use moatless_core::http_auth::UserTokenVerifier;
+use moatless_ports::identity::{HarnessCredentials, SecretCatalog};
 
 #[derive(OpenApi)]
 #[openapi(

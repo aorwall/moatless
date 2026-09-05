@@ -26,13 +26,13 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use crate::dao::ConversationDao;
-use crate::workspace_dao::T3WorkspaceDao;
 use crate::projection;
 use crate::terminal::{self, TerminalError, TerminalHub};
+use crate::workspace_dao::T3WorkspaceDao;
 use moatless_api_schemas::repository::ScriptConfig;
-use moatless_backend_core::sandbox::{SandboxError, SandboxPortPublisher};
-use sandbox_proto::client::SandboxConnector;
+use moatless_ports::sandbox::{SandboxError, SandboxPortPublisher};
 use moatless_types::access_control::ScopeContext;
+use sandbox_proto::client::SandboxConnector;
 
 /// Everything `scripts.run` reaches that the terminal path does not already
 /// hand it. The conversation, sandbox and terminal handles are the ones
@@ -299,7 +299,10 @@ pub async fn replace(
     }
 
     let next = script_configs(submitted, &target.scripts)?;
-    if !workspaces.replace_scripts(viewer, workspace_id, &next).await? {
+    if !workspaces
+        .replace_scripts(viewer, workspace_id, &next)
+        .await?
+    {
         // The row was there for the read and is not there for the write:
         // deleted, unshared or git-synced in between. Same answer as the read
         // finding nothing, because from here it is the same situation.
@@ -469,7 +472,9 @@ mod tests {
     fn the_command_waits_for_workspace_setup_before_it_execs() {
         let line = exec_line("bun run dev");
 
-        let gate = line.find(".workspace-ready").expect("waits on the sentinel");
+        let gate = line
+            .find(".workspace-ready")
+            .expect("waits on the sentinel");
         let exec = line.find("exec sh -c").expect("still execs the command");
         assert!(gate < exec, "the gate must precede the exec: {line}");
         assert!(

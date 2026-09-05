@@ -26,7 +26,7 @@ CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk --test smoke -- --ignored --noca
 - `test_<name>_subprocess` / `test_<name>_tmux` — paired tests sharing a `run_<name>(Backend)` body; capability differences gate on `Backend::has_cost_data()`, `has_real_system_init()`, `channel_stays_open_after_result()`.
 - `test_<name>` (no suffix) — subprocess-only, because it exercises a capability tmux lacks (permission handler, hook handler, SDK MCP servers, real System init, real cost data).
 
-The smoke test (`tests/smoke.rs`) asserts the on-PATH `claude --version` matches the pin in `docker/Dockerfile.sandbox-base`, then runs a roundtrip and a 2-turn `--resume <session_id>` (mirroring the sandbox's per-turn dispatch in `sandbox/src/agent/options.rs`). Use as a fast pre-release check.
+The smoke test (`tests/smoke.rs`) asserts the on-PATH `claude --version` matches the pin in `docker/Dockerfile.sandbox-base`, then runs a roundtrip and a 2-turn `--resume <session_id>` (mirroring the sandbox's per-turn dispatch in `crates/sandbox/src/agent/options.rs`). Use as a fast pre-release check.
 
 ## Module layout
 `query.rs` (`query()` + `query_streaming()` + `QueryHandle`), `client.rs` (`ClaudeClient` multi-turn), `error.rs` (`SdkError`), `mcp/` (in-process `SdkMcpServer` + tools), `api/` (messages, content, options, control, permissions, hooks, mcp, agents), `transport/` (`Transport`/`StdinWriter` traits + `SubprocessTransport` + mocks), `protocol/` (orchestrator: background reader, message/MCP routing, permission/hook dispatch; `request_tracker` for control-request ID correlation), `tmux/` (TUI backend — see below).

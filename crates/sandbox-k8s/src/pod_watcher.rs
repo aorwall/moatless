@@ -20,7 +20,9 @@ use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::{Event as CoreEvent, Pod};
 use kube::api::{Api, DeleteParams, ListParams, LogParams};
 use kube::runtime::watcher::{self, Config as WatcherConfig};
-use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType};
+use moatless_types::sandbox::{
+    SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
+};
 use moatless_types::task::TaskTurnSubType;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -36,18 +38,15 @@ use super::pod_observation_policy::{
 };
 use super::pod_status::{extract_container_observed_statuses, is_sandbox_container_ready};
 use super::provider::{StorageFallback, StorageFallbackOutcome};
-use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_core::events::EventPublisher;
 use moatless_sandbox_control::lifecycle::Lifecycle;
-use moatless_sandbox_runtime::operation::OperationGeneration;
+use moatless_sandbox_control::lifecycle::watcher::classify_observation;
 use moatless_sandbox_runtime::classify::ObservedTransition;
-use moatless_sandbox_runtime::runtime::{
-    OPERATION_GENERATION_LABEL, generation_from_label,
-};
-use moatless_sandbox_control::lifecycle::watcher::{
-    classify_observation, publish_sandbox_observation,
-};
 use moatless_sandbox_runtime::container_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
+use moatless_sandbox_runtime::observation_events::publish_sandbox_observation;
+use moatless_sandbox_runtime::operation::OperationGeneration;
+use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
+use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 
 /// Dependencies the watcher needs to remediate a crash-looping sandbox. The
 /// lifecycle owns plan construction and intent, so the watcher only carries the
@@ -964,7 +963,7 @@ async fn process_watcher_event(
             //
             // The sandbox's gRPC server never exits on its own during a task —
             // it only returns exit 0 via the SIGTERM graceful-shutdown driver
-            // (see sandbox/src/shutdown.rs). So a `sandbox_completed` means "the
+            // (see crates/sandbox/src/shutdown.rs). So a `sandbox_completed` means "the
             // pod got a SIGTERM", which has three very different causes:
             //   * Stop (idle reaper / user / crash auto-stop) already scaled the
             //     Deployment to 0 — the SIGTERM is the pod draining. Scaling to

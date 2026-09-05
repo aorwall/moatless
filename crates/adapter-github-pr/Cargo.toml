@@ -1,30 +1,31 @@
 [package]
 name = "moatless-adapter-github-pr"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "GitHub PR Adapter: GitHub webhook handling, PR workflows, replies, and reactions for Moatless"
 
+authors.workspace = true
 [dependencies]
-async-trait = "0.1"
-axum = { version = "0.8", features = ["macros"] }
-chrono = { version = "0.4", features = ["serde"] }
-hex = "0.4"
-regex = "1"
-reqwest = { version = "0.13", features = ["json", "rustls"], default-features = false }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.11"
-thiserror = "2"
-tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
-utoipa = { version = "5", features = ["axum_extras"] }
+async-trait = { workspace = true }
+axum = { workspace = true, features = ["macros"] }
+chrono = { workspace = true, features = ["serde"] }
+hex = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+utoipa = { workspace = true, features = ["axum_extras"] }
 
-moatless-core = { path = "../core" }
-moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
-moatless-adapter-model = { path = "../adapter-model", features = ["http"] }
-moatless-backend-core = { path = "../backend-core" }
-moatless-loops = { path = "../loops" }
-moatless-types = { path = "../types" }
+moatless-core = { workspace = true }
+moatless-api-schemas = { workspace = true, features = ["openapi"] }
+moatless-adapter-model = { workspace = true, features = ["http"] }
+moatless-ports = { workspace = true }
+moatless-loops = { workspace = true }
+moatless-types = { workspace = true }
 
 [lints]
 workspace = true
@@ -33,15 +34,15 @@ workspace = true
 # Test-only: the `#[sqlx::test]` blocks that seed rows a webhook is matched
 # against. Production code here reads every store through a port that returns
 # `StoreError`, so this edge must never appear under `[dependencies]`.
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
-uuid = { version = "1", features = ["v4"] }
-hmac = "0.13"
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
+uuid = { workspace = true, features = ["v4"] }
+hmac = { workspace = true }
 # Test-only: the seam tests build the concrete identity stores to prove the
 # ports over them. Production code here names no identity type, so this edge
 # must never appear under `[dependencies]`.
-moatless-identity = { path = "../identity", features = ["test-support"] }
-moatless-loops = { path = "../loops", features = ["test-support"] }
+moatless-identity = { workspace = true, features = ["test-support"] }
+moatless-loops = { workspace = true, features = ["test-support"] }
 # Test-only: the loopback provider stubs (`stub_provider`, `UNREACHABLE_BASE`)
 # these tests drive live in the Adapter kernel's `test_support`.
-moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }
-sha2 = "0.11"
+moatless-adapter-model = { workspace = true, features = ["test-support"] }
+sha2 = { workspace = true }

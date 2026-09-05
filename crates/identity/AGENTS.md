@@ -1,6 +1,6 @@
 # crates/identity
 
-The identity band (band 3): authentication, team membership, the adapter-app
+The identity domain: authentication, team membership, the adapter-app
 registry, secret storage, and first-run setup.
 
 ## Ownership

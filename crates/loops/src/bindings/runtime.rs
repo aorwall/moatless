@@ -6,34 +6,33 @@ use std::sync::Arc;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use moatless_adapter_model::capabilities::AdapterInboundPresentation;
-use moatless_adapter_model::registry::Adapters;
-use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_adapter_model::delivery::AdapterDeliveryFailure;
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::metrics::{inbound_reason, record_inbound};
+use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::inbound;
 use crate::loops::firing::receipts::EventReceiptDao;
+use moatless_adapter_model::binding::binding_context;
+use moatless_adapter_model::capabilities::AdapterInboundPresentation;
+use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::delivery::AdapterDeliveryFailure;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::loops::subscription_context;
+use moatless_adapter_model::metrics::{inbound_reason, record_inbound};
+use moatless_adapter_model::registry::Adapters;
+use moatless_ports::sandbox::SandboxWaker;
+use moatless_ports::task::MessageAcceptor;
+use moatless_ports::task::TaskReader;
+use moatless_ports::task::TranscriptAppend;
+use moatless_ports::task::{EventSubject, InboundTurn, TaskOpenError, TaskOpener, TurnOrigin};
+use moatless_tasks::message::wake::wake_for_message;
+use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::AdapterKind;
-use moatless_types::loops::SubscriptionMatch;
 use moatless_types::adapter::TaskBinding;
-use moatless_adapter_model::binding::binding_context;
-use moatless_adapter_model::loops::subscription_context;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::RoutingMode;
+use moatless_types::loops::SubscriptionMatch;
 use moatless_types::task::TaskStatus;
-use moatless_types::access_control::ScopeContext;
-use moatless_backend_core::task::TranscriptAppend;
-use moatless_backend_core::task::MessageAcceptor;
-use crate::bindings::dao::TaskBindingDao;
-use moatless_backend_core::task::{
-    EventSubject, InboundTurn, TaskOpenError, TaskOpener, TurnOrigin,
-};
-use moatless_backend_core::task::TaskReader;
-use moatless_backend_core::sandbox::{SandboxWaker, wake_for_message};
 
 pub use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT;
 pub use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD;
@@ -312,18 +311,16 @@ impl RoutingService {
             // when an earlier task produced the resource. We link the new task
             // to it as `related_to` (peer sharing the same external artifact),
             // not as a parent.
-            let related = bindings
-                .first()
-                .map(|b| moatless_types::task::RelatedTask {
-                    related_task_id: b.task_id.clone(),
-                    context: serde_json::json!({
-                        "via": "binding_webhook",
-                        "adapter": adapter_label,
-                        "subject_kind": subject_kind,
-                        "subject_key": subject_key,
-                        "origin_binding_id": b.id,
-                    }),
-                });
+            let related = bindings.first().map(|b| moatless_types::task::RelatedTask {
+                related_task_id: b.task_id.clone(),
+                context: serde_json::json!({
+                    "via": "binding_webhook",
+                    "adapter": adapter_label,
+                    "subject_kind": subject_kind,
+                    "subject_key": subject_key,
+                    "origin_binding_id": b.id,
+                }),
+            });
             let config = subscription_context(subscription);
             // Resolve the bound adapter's reply instructions from the registry
             // and pass them to the firing entry point as a value.
@@ -371,12 +368,7 @@ impl RoutingService {
                     // Point the claim at the task it produced. A later delivery
                     // that loses the claim can then be told what won it.
                     self.event_receipts
-                        .record_claimed_task(
-                            &subscription.id,
-                            subject_kind,
-                            subject_key,
-                            &task_id,
-                        )
+                        .record_claimed_task(&subscription.id, subject_kind, subject_key, &task_id)
                         .await?;
                     info!(task_id = %task_id, subscription_id = %subscription.id, provider = adapter_label, "Created task from provider event");
                 }
@@ -805,9 +797,7 @@ impl RoutingService {
                 skills: config.skills.clone(),
             })
             .await
-            .map_err(|e| {
-                AdapterError::task_handoff("deliver a provider turn to a task", e)
-            })?;
+            .map_err(|e| AdapterError::task_handoff("deliver a provider turn to a task", e))?;
 
         let repo = self.task_bindings.clone();
         if let Some(ref ext_id) = msg.external_event_id {

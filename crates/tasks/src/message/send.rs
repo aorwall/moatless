@@ -9,8 +9,8 @@ use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::mapping::{ActivityStatus, ConversationWrite, ToolOutcome};
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_types::access_control::ScopeContext;
 use moatless_core::file_storage::dao::FileDao;
+use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentMode;
 
 use super::contexts::message_context_input_to_row;
@@ -790,10 +790,19 @@ mod tests {
         let base = agent_send_idempotency_uuid("child", "parent", "phase 1 done");
         // A reworded resend (e.g. corrupted vs clean) is a distinct message and
         // must not collapse onto the first.
-        assert_ne!(base, agent_send_idempotency_uuid("child", "parent", "phase 1 done."));
+        assert_ne!(
+            base,
+            agent_send_idempotency_uuid("child", "parent", "phase 1 done.")
+        );
         // Different sender or recipient can never collide.
-        assert_ne!(base, agent_send_idempotency_uuid("other", "parent", "phase 1 done"));
-        assert_ne!(base, agent_send_idempotency_uuid("child", "elsewhere", "phase 1 done"));
+        assert_ne!(
+            base,
+            agent_send_idempotency_uuid("other", "parent", "phase 1 done")
+        );
+        assert_ne!(
+            base,
+            agent_send_idempotency_uuid("child", "elsewhere", "phase 1 done")
+        );
         // The unit separator keeps field boundaries unambiguous.
         assert_ne!(
             agent_send_idempotency_uuid("a", "bc", "d"),

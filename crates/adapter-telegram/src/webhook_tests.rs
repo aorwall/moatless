@@ -14,16 +14,16 @@
 use axum::http::StatusCode;
 
 use moatless_adapter_model::error::AdapterError;
-use moatless_types::adapter::InboundMessage;
-use moatless_types::loops::LoopContext;
 use moatless_adapter_model::test_support::stub_provider;
 use moatless_core::db::DbPool;
+use moatless_types::adapter::InboundMessage;
+use moatless_types::loops::LoopContext;
 
 use super::adapter::TelegramAdapter;
 use super::api::TelegramApi;
 use super::config::TelegramAdapterConfig;
-use super::test_support::{bot_api_stub, test_loop_context, BotApiStub};
-use moatless_backend_core::identity::ProviderIdentityLink;
+use super::test_support::{BotApiStub, bot_api_stub, test_loop_context};
+use moatless_ports::identity::ProviderIdentityLink;
 
 use super::webhook::{Normalization, NormalizeContext};
 
@@ -167,7 +167,7 @@ impl ProviderIdentityLink for NoUsers {
         &self,
         _provider: &str,
         _login: &str,
-    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+    ) -> Result<Option<String>, moatless_types::store::StoreError> {
         Ok(None)
     }
 
@@ -175,7 +175,7 @@ impl ProviderIdentityLink for NoUsers {
         &self,
         _provider: &str,
         _login: &str,
-    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+    ) -> Result<Option<String>, moatless_types::store::StoreError> {
         Ok(None)
     }
 
@@ -183,7 +183,7 @@ impl ProviderIdentityLink for NoUsers {
         &self,
         _provider: &str,
         _provider_user_id: &str,
-    ) -> Result<Option<moatless_backend_core::identity::LinkedUser>, moatless_backend_core::store::StoreError>
+    ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
     {
         Ok(None)
     }
@@ -191,7 +191,7 @@ impl ProviderIdentityLink for NoUsers {
     async fn user_by_email(
         &self,
         _email: &str,
-    ) -> Result<Option<moatless_backend_core::identity::LinkedUser>, moatless_backend_core::store::StoreError>
+    ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
     {
         Ok(None)
     }
@@ -200,7 +200,7 @@ impl ProviderIdentityLink for NoUsers {
         &self,
         _provider: &str,
         _provider_user_id: &str,
-    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+    ) -> Result<Option<String>, moatless_types::store::StoreError> {
         Ok(None)
     }
 
@@ -209,7 +209,7 @@ impl ProviderIdentityLink for NoUsers {
         _user_id: &uuid::Uuid,
         _provider: &str,
         _provider_user_id: &str,
-    ) -> Result<bool, moatless_backend_core::store::StoreError> {
+    ) -> Result<bool, moatless_types::store::StoreError> {
         Ok(false)
     }
 }
@@ -525,8 +525,8 @@ async fn a_group_never_gets_a_pairing_code() {
 mod db_tests {
     use sqlx::PgPool;
 
-    use moatless_types::adapter::Audience;
     use moatless_types::adapter::AdapterKind;
+    use moatless_types::adapter::Audience;
 
     use super::super::test_support::OWNER;
     use super::*;
@@ -596,13 +596,16 @@ mod db_tests {
         let (provider, _stub) = provider_with_stub().await;
 
         let message = normalize(
-            &provider, &private_message("hi"), &config("*"), true,
+            &provider,
+            &private_message("hi"),
+            &config("*"),
+            true,
             &pool,
             &NoUsers,
         )
-            .await
-            .unwrap()
-            .message();
+        .await
+        .unwrap()
+        .message();
 
         assert_eq!(message.source_id, "*");
         assert_eq!(message.thread_id.as_deref(), Some("111"));
@@ -625,13 +628,16 @@ mod db_tests {
         });
 
         let message = normalize(
-            &provider, &update, &config("-100123"), false,
+            &provider,
+            &update,
+            &config("-100123"),
+            false,
             &pool,
             &NoUsers,
         )
-            .await
-            .unwrap()
-            .message();
+        .await
+        .unwrap()
+        .message();
 
         assert_eq!(message.source_id, "-100123");
         assert_eq!(message.thread_id.as_deref(), Some("-100123:77"));
@@ -668,13 +674,16 @@ mod db_tests {
         });
 
         let message = normalize(
-            &provider, &update, &config("-100123"), false,
+            &provider,
+            &update,
+            &config("-100123"),
+            false,
             &pool,
             &NoUsers,
         )
-            .await
-            .unwrap()
-            .message();
+        .await
+        .unwrap()
+        .message();
 
         assert_eq!(message.thread_id, None);
         assert_eq!(message.message_thread_id, "44");
@@ -697,13 +706,16 @@ mod db_tests {
         });
 
         let message = normalize(
-            &provider, &update, &config("-100123"), false,
+            &provider,
+            &update,
+            &config("-100123"),
+            false,
             &pool,
             &NoUsers,
         )
-            .await
-            .unwrap()
-            .message();
+        .await
+        .unwrap()
+        .message();
 
         assert_eq!(message.thread_id.as_deref(), Some("55"));
         assert_eq!(message.message_thread_id, "55");

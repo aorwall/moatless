@@ -8,7 +8,11 @@ pub mod sandbox {
         // Generated protobuf message enums carry size-disparate variants by
         // design (a bare bool beside a full result message); boxing them to
         // placate the lint would only churn every construction site.
-        #![allow(clippy::large_enum_variant)]
+        #![allow(
+            clippy::all,
+            clippy::pedantic,
+            reason = "prost and tonic generate this module"
+        )]
         tonic::include_proto!("sandbox.v1");
     }
 }
@@ -107,6 +111,11 @@ impl From<EventType> for moatless_types::event::EventType {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test fixtures must succeed"
+)]
 mod event_type_conversion_tests {
     use super::*;
     use moatless_types::event::EventType as Domain;

@@ -174,8 +174,8 @@ impl OAuthProvider for Auth0OAuthProvider {
         }
 
         // Base64url-decode the payload
-        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         use base64::Engine;
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1]).ok()?;
         let payload: serde_json::Value = serde_json::from_slice(&payload_bytes).ok()?;
 

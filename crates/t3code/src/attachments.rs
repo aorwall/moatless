@@ -24,8 +24,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use futures::StreamExt;
-use moatless_backend_core::ui_rpc::UiRpcAuthIdentity;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{debug, error, warn};
@@ -133,7 +133,7 @@ pub(crate) fn create_upload_url(
     let expires_at = Utc::now() + chrono::Duration::seconds(UPLOAD_TTL_SECS);
     let claims = UploadClaims {
         sub: identity.user_id.to_string(),
-        adm: matches!(identity.role, moatless_backend_core::ui_rpc::UserRole::Admin),
+        adm: matches!(identity.role, moatless_types::ui_rpc::UserRole::Admin),
         aid: attachment_id.clone(),
         name: declared.name,
         mime: declared.mime_type,
@@ -387,7 +387,7 @@ fn is_attachment_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_backend_core::ui_rpc::UserRole;
+    use moatless_types::ui_rpc::UserRole;
 
     const SECRET: &str = "a-test-signing-secret";
 
@@ -462,26 +462,27 @@ mod tests {
             .mime,
             "image/png"
         );
-        assert!(invalid(json!({
-            "name": "report.pdf",
-            "mimeType": "application/pdf",
-            "sizeBytes": 10
-        }))
-        .contains("not an image type"));
+        assert!(
+            invalid(json!({
+                "name": "report.pdf",
+                "mimeType": "application/pdf",
+                "sizeBytes": 10
+            }))
+            .contains("not an image type")
+        );
     }
 
     /// The union's two members differ in their ceiling, and the boundary is
     /// where a limit is either right or off by one.
     #[test]
     fn each_member_is_capped_at_its_own_maximum() {
-        let image = |size| {
-            json!({ "type": "image", "name": "a.png", "mimeType": "image/png", "sizeBytes": size })
-        };
-        let file = |size| {
-            json!({ "type": "file", "name": "a.bin", "mimeType": "application/octet-stream", "sizeBytes": size })
-        };
+        let image = |size| json!({ "type": "image", "name": "a.png", "mimeType": "image/png", "sizeBytes": size });
+        let file = |size| json!({ "type": "file", "name": "a.bin", "mimeType": "application/octet-stream", "sizeBytes": size });
 
-        assert_eq!(claims(&minted(image(MAX_IMAGE_BYTES))).size, MAX_IMAGE_BYTES);
+        assert_eq!(
+            claims(&minted(image(MAX_IMAGE_BYTES))).size,
+            MAX_IMAGE_BYTES
+        );
         assert!(invalid(image(MAX_IMAGE_BYTES + 1)).contains("between 1 and"));
         assert_eq!(claims(&minted(file(MAX_FILE_BYTES))).size, MAX_FILE_BYTES);
         assert!(invalid(file(MAX_FILE_BYTES + 1)).contains("between 1 and"));
@@ -495,12 +496,13 @@ mod tests {
     /// would have caught.
     #[test]
     fn a_payload_outside_the_union_is_refused_field_by_field() {
-        let file = |name: &str, mime: &str, size: i64| {
-            json!({ "type": "file", "name": name, "mimeType": mime, "sizeBytes": size })
-        };
+        let file = |name: &str, mime: &str, size: i64| json!({ "type": "file", "name": name, "mimeType": mime, "sizeBytes": size });
 
         assert!(invalid(file("  ", "application/pdf", 10)).contains("`name`"));
-        assert!(invalid(file(&"a".repeat(NAME_MAX_CHARS + 1), "application/pdf", 10)).contains("`name`"));
+        assert!(
+            invalid(file(&"a".repeat(NAME_MAX_CHARS + 1), "application/pdf", 10))
+                .contains("`name`")
+        );
         assert!(invalid(file("a.pdf", "", 10)).contains("`mimeType`"));
         assert!(invalid(file("a.pdf", &"a".repeat(MIME_MAX_CHARS + 1), 10)).contains("`mimeType`"));
         // The contract's minimum is one byte, on both members.
@@ -512,7 +514,12 @@ mod tests {
         );
         // A name at the limit is kept: the check is on the count, not on bytes.
         assert_eq!(
-            claims(&minted(file(&"ä".repeat(NAME_MAX_CHARS), "application/pdf", 10))).name,
+            claims(&minted(file(
+                &"ä".repeat(NAME_MAX_CHARS),
+                "application/pdf",
+                10
+            )))
+            .name,
             "ä".repeat(NAME_MAX_CHARS)
         );
     }

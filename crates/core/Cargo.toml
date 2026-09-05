@@ -1,64 +1,66 @@
 [package]
 name = "moatless-core"
-version = "0.1.0"
-edition = "2021"
-authors = ["Moatless Team"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 description = "Lowest-band backend crate: config, db, error, events, file metadata, and core-clean vocabularies"
 
 [dependencies]
+sha2.workspace = true
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 
 # HTTP (metrics router, error IntoResponse)
-axum = { version = "0.8", features = ["macros"] }
+axum = { workspace = true, features = ["macros"] }
 
 # Serialization
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 # Config
 dotenvy = "0.15"
 
 # Database
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
 
 # Redis (event stream reconnect)
-redis = { version = "1.2", features = ["tokio-rustls-comp", "connection-manager"] }
+redis = { workspace = true, features = ["tokio-rustls-comp", "connection-manager"] }
 
 # UUID + timestamps
-uuid = { version = "1", features = ["v4", "v5", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
+uuid = { workspace = true, features = ["v4", "v5", "serde"] }
+chrono = { workspace = true, features = ["serde"] }
 
 # HTTP client (GitHub client, git provider)
-reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
+reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
 
 # Crypto
-rand = "0.10"
+rand = { workspace = true }
 
 # Mock generation, enabled off `test-support` so the bands above can name
 # `MockFileDao` across the crate boundary.
-mockall = { version = "0.15", optional = true }
+mockall = { workspace = true, optional = true }
 
 # Error handling
-thiserror = "2"
+thiserror = { workspace = true }
 
 # OpenAPI documentation — gated so non-API consumers of this shared crate do not
 # pull utoipa (shared-crates.md: keep utoipa/OpenAPI derives feature-gated).
-utoipa = { version = "5", features = ["axum_extras"], optional = true }
+utoipa = { workspace = true, features = ["axum_extras"], optional = true }
 
 # Cancellation
-tokio-util = { version = "0.7", features = ["rt"] }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # Async traits
-async-trait = "0.1"
+async-trait = { workspace = true }
 
 # Observability
-tracing = "0.1"
-metrics = "0.24"
+tracing = { workspace = true }
+metrics = { workspace = true }
 metrics-exporter-prometheus = "0.18"
 
 # Shared type definitions
-moatless-types = { path = "../types" }
+moatless-types = { workspace = true }
 
 [features]
 # OpenAPI surface: utoipa derives and the downstream `openapi` features of the
@@ -68,12 +70,6 @@ openapi = [
     "dep:utoipa",
     "moatless-types/openapi",
 ]
-# Exposes test-only constructors such as `Config::test_minimal` and the
-# `#[cfg(any(test, feature = "test-support"))]` DAO mocks to downstream crates.
-# The gate keeps the `test,` disjunct FIRST: the census keys on the substring
-# "test" in the cfg token stream (crate-census scan.rs), so items gated this way
-# stay test-context and are never scored as a production edge. No shipping build
-# enables it. `dep:mockall` provides the generators.
 test-support = ["dep:mockall"]
 
 [lints]
@@ -82,4 +78,4 @@ workspace = true
 [dev-dependencies]
 # The optional dependency above is off in this crate's own test build, so the
 # mocks the `test` disjunct generates need it named here as well.
-mockall = "0.15"
+mockall = { workspace = true }

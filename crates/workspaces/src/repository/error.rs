@@ -4,8 +4,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::{error, warn};
 
-use moatless_types::access_control::AccessControlError;
 use moatless_core::error::error_response;
+use moatless_types::access_control::AccessControlError;
 
 pub(crate) const REMOTE_URL_UNIQUE_INDEX: &str = "repositories_active_owner_remote_url_uq";
 
@@ -33,7 +33,7 @@ pub enum RepositoryError {
     /// A published store seam failed. Distinct from [`Self::Db`] only in where
     /// the failure was raised; both are an internal error to a caller.
     #[error("{0}")]
-    Store(#[from] moatless_backend_core::store::StoreError),
+    Store(#[from] moatless_types::store::StoreError),
 
     #[error("Provider API error: {0}")]
     ProviderError(String),

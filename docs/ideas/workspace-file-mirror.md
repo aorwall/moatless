@@ -6,9 +6,9 @@ act on the numbers.
 
 ## What the sandbox does today
 
-`sandbox/src/init/workspace_sync.rs` builds one gzipped tar of `WORKSPACE_DIR`
+`crates/sandbox/src/init/workspace_sync.rs` builds one gzipped tar of `WORKSPACE_DIR`
 and PUTs it to `<prefix>/<task_id>/workspace.tar`. The backend mints presigned
-PUT/GET URLs (`crates/backend/src/sandbox/grpc_server.rs:1911`) and stays out of
+PUT/GET URLs (`crates/server/src/sandbox/grpc_server.rs:1911`) and stays out of
 the data path, so the sandbox holds no AWS credentials. The key builder is
 `moatless_sandbox_runtime::storage::sandbox_key`.
 

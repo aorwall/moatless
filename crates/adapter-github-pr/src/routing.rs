@@ -5,22 +5,20 @@ use std::fmt::Write as _;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use moatless_types::task::TaskStatus;
-use moatless_types::access_control::ScopeContext;
-use moatless_adapter_model::capabilities::AdapterInboundPresentation;
-use moatless_types::adapter::AdapterKind;
-use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
-use moatless_types::adapter::AdapterConnection;
 use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN;
-use moatless_types::loops::SubscriptionMatch;
+use moatless_adapter_model::capabilities::AdapterInboundPresentation;
+use moatless_adapter_model::error::AdapterError;
+use moatless_adapter_model::metrics::{inbound_reason, record_inbound};
+use moatless_ports::task::{CloseReason, EventSubject, InboundTurn, TaskOpenError, TurnOrigin};
+use moatless_types::access_control::ScopeContext;
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::AdapterKind;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::RoutingMode;
-use moatless_adapter_model::metrics::{inbound_reason, record_inbound};
-use moatless_backend_core::task::{
-    CloseReason, EventSubject, InboundTurn, TaskOpenError, TurnOrigin,
-};
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::task::TaskStatus;
 use moatless_types::task::Visibility;
 
 use super::router::GithubPrInboundRouter;
@@ -231,18 +229,16 @@ impl GithubPrInboundRouter {
                 // it isn't a child of the originator).
                 let related = originator_binding_summary
                     .as_ref()
-                    .map(
-                        |(task_id, binding_id)| moatless_types::task::RelatedTask {
-                            related_task_id: task_id.clone(),
-                            context: serde_json::json!({
-                                "via": "github_pr_webhook",
-                                "adapter": ADAPTER,
-                                "subject_kind": SUBJECT_KIND,
-                                "subject_key": subject_key,
-                                "origin_binding_id": binding_id,
-                            }),
-                        },
-                    );
+                    .map(|(task_id, binding_id)| moatless_types::task::RelatedTask {
+                        related_task_id: task_id.clone(),
+                        context: serde_json::json!({
+                            "via": "github_pr_webhook",
+                            "adapter": ADAPTER,
+                            "subject_kind": SUBJECT_KIND,
+                            "subject_key": subject_key,
+                            "origin_binding_id": binding_id,
+                        }),
+                    });
                 // The service owns insert + preflight + provision.
                 match self.create_provider_event_task(rule, &msg).await {
                     Ok(task_id) => {
@@ -314,7 +310,6 @@ impl GithubPrInboundRouter {
             );
             return Ok(());
         }
-
 
         // Metering and message labelling need a route; a repo with no trigger of
         // its own routes under the delivery-only one owned by routing.
@@ -485,7 +480,8 @@ impl GithubPrInboundRouter {
         }
         text.push_str("\n_Task auto-closed because the PR was closed._");
 
-        let user_id = super::auth::resolve_sender_user(&info.sender_login, rule, self.users.as_ref()).await;
+        let user_id =
+            super::auth::resolve_sender_user(&info.sender_login, rule, self.users.as_ref()).await;
 
         InboundMessage {
             adapter_kind: AdapterKind::GithubPr,
@@ -657,10 +653,10 @@ impl GithubPrInboundRouter {
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::adapter::AdapterKind;
     use chrono::Utc;
     use moatless_types::access_control::Scope;
     use moatless_types::adapter::AdapterConnection;
+    use moatless_types::adapter::AdapterKind;
 
     use super::delivery_only_rule;
 
@@ -693,5 +689,4 @@ mod tests {
         assert_eq!(rule.connection_id, "pc_org");
         assert_eq!(rule.run_as_user_id.as_deref(), Some("u_owner"));
     }
-
 }

@@ -3,6 +3,8 @@
 Guidance spanning the banded workspace crates. Read the nearest crate's own
 `AGENTS.md` too; this file covers only what crosses them.
 
+Dependency bands are defined in [BANDS](../tooling/arch-rules/src/band_order.rs).
+
 ## Where a deduplicated shared type belongs
 
 A type defined in more than one shared-vocabulary crate needs one home. Take the
@@ -14,11 +16,10 @@ wins — a later question never overrides an earlier one.
 2. Must a pluggable implementer satisfy it? → `adapter-model` / `sandbox-runtime`.
    A type an implementer returns or accepts lives with the trait it serves, so
    every implementer speaks one shape.
-3. Is it how one crate asks another for something? → `backend-core`. A
-   cross-band port and the types it speaks in are that crate's vocabulary.
-4. Is it domain data three or more crates read, with no foreign crate in its
-   body or impls? → `types`. `types` is pure data with a closed dependency list;
-   a foreign type in a field or an impl would drag a transport into it.
+3. Is it a cross-crate contract? → Consult [port admission](../tooling/arch-rules/src/port_admission.rs).
+   Keep supporting contract types with their traits.
+4. Is it pure domain data? → Consult [type admission](../tooling/arch-rules/src/floor_type_admission.rs)
+   and the [closed dependency list](../tooling/arch-rules/src/closed_dependency_list.rs).
 5. Does the process need it before any domain exists? → `core`. Process-level
    config and wiring the runtime reads at startup.
 

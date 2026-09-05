@@ -25,18 +25,18 @@ use tracing::{info, warn};
 
 use moatless_core::config::Config;
 
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
-use moatless_types::adapter::AdapterConnection;
-use moatless_types::loops::SubscriptionMatch;
-use moatless_types::adapter::TaskBinding;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
-use moatless_backend_core::task::{InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_backend_core::task::TaskOpener;
-use moatless_backend_core::task::TaskReader;
-use moatless_backend_core::task::RelationRecorder;
-use moatless_backend_core::sandbox::SandboxWaker;
+use moatless_ports::sandbox::SandboxWaker;
+use moatless_ports::task::RelationRecorder;
+use moatless_ports::task::TaskOpener;
+use moatless_ports::task::TaskReader;
+use moatless_ports::task::{InboundTurn, MessageAcceptor, TurnOrigin};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::TaskBinding;
+use moatless_types::loops::SubscriptionMatch;
 
 use super::active_turns::ActiveLinearTurns;
 use super::agent_api::{ActivityKind, LinearAgentApi};

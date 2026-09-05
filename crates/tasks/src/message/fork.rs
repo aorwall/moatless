@@ -284,11 +284,8 @@ pub async fn copy_conversation(
         let position = match activity.parent_uuid {
             Some(_) => activity.position,
             None => {
-                moatless_backend_core::change_feed::conversation::allocate_position(
-                    &mut tx,
-                    dest_task_id,
-                )
-                .await?
+                moatless_core::change_feed::conversation::allocate_position(&mut tx, dest_task_id)
+                    .await?
             }
         };
         let remap = |uuid: &Option<String>| {

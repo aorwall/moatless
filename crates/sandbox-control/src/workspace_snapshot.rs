@@ -1,6 +1,6 @@
 //! Reading a stopped task's workspace out of the S3 file mirror.
 //!
-//! The mirror (`sandbox/src/init/workspace_mirror.rs`) stores one object per
+//! The mirror (`crates/sandbox/src/init/workspace_mirror.rs`) stores one object per
 //! file plus a `manifest.json.gz` naming them all, which is what makes a single
 //! file reachable without unpacking anything — and therefore without a sandbox.
 //! This is the read half.
@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use moatless_backend_core::sandbox::{
+use moatless_ports::sandbox::{
     SnapshotEntry, SnapshotError, SnapshotFile, SnapshotListing, WorkspaceSnapshotSource,
 };
 use moatless_sandbox_runtime::storage::{manifest_key, workspace_object_key};
@@ -193,7 +193,7 @@ fn dir_prefix(path: &str) -> String {
 }
 
 /// Directories a live walk does not enter — `SKIP_DIRS` in
-/// `sandbox/src/files/tree.rs`. The mirror stores each repo's whole `.git` so a
+/// `crates/sandbox/src/files/tree.rs`. The mirror stores each repo's whole `.git` so a
 /// restore can skip the clone, so a listing that did not apply this would be
 /// mostly loose objects and would push the real tree past every caller's cap.
 /// A read is not filtered: only browsing has a cap to blow.

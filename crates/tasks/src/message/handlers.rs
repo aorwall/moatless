@@ -9,9 +9,9 @@ use serde::Deserialize;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use crate::task::dao::TaskDao;
-use moatless_backend_core::sandbox::SandboxWaker;
 use moatless_core::file_storage::dao::FileDao;
 use moatless_core::http_auth::AuthUser;
+use moatless_ports::sandbox::SandboxWaker;
 
 use super::error::MessageError;
 use super::schemas::*;

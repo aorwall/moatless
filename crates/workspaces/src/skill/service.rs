@@ -26,12 +26,11 @@ use crate::plugin::dao::PluginDao;
 use crate::plugin::models::Plugin;
 use crate::plugin::sync::PluginSyncService;
 use crate::repository::dao::RepositoryDao;
-use crate::workspace::dao::WorkspaceDao;
-use moatless_types::repository::RepositoryKind;
 use crate::repository::models::Repository;
+use crate::workspace::dao::WorkspaceDao;
+use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_types::access_control::{Actor, ScopeContext};
-use moatless_types::repository::GitHostRepo;
-use moatless_backend_core::identity::{GitHostTokenError, GitHostTokenIssuer};
+use moatless_types::repository::{GitHostRepo, RepositoryKind};
 use uuid::Uuid;
 
 /// Orchestrates skill discovery across workspace + plugins.

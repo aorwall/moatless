@@ -9,13 +9,13 @@
 use tracing::{debug, info};
 
 use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::delivery::inbound_delivery_request;
-use moatless_types::adapter::InboundDeliveryPayload;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::ingress::{IngressError, Outcome};
-use moatless_types::loops::SubscriptionMatch;
-use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_core::db::DbPool;
+use moatless_ports::identity::ProviderIdentityLink;
+use moatless_types::adapter::InboundDeliveryPayload;
+use moatless_types::loops::SubscriptionMatch;
 
 use super::adapter::TelegramAdapter;
 use super::api::TelegramApi;
@@ -97,17 +97,18 @@ pub(super) async fn receive(
     // "default". No second resolution under `"*"` for a private chat: verifying
     // that Subscription's secret would let an update route under a Subscription
     // whose secret was never checked (spec Decision 5).
-    let Some((connection, subscription)) = moatless_adapter_model::routing::resolve_chat_provider_event(
-        adapter
-            .require_adapter_connections()
-            .map_err(IngressError::Ingress)?,
-        adapter.require_loops().map_err(IngressError::Ingress)?,
-        "telegram",
-        "default",
-        &source_id,
-    )
-    .await
-    .map_err(IngressError::Ingress)?
+    let Some((connection, subscription)) =
+        moatless_adapter_model::routing::resolve_chat_provider_event(
+            adapter
+                .require_adapter_connections()
+                .map_err(IngressError::Ingress)?,
+            adapter.require_loops().map_err(IngressError::Ingress)?,
+            "telegram",
+            "default",
+            &source_id,
+        )
+        .await
+        .map_err(IngressError::Ingress)?
     else {
         info!(
             source_id,
@@ -303,9 +304,9 @@ pub(super) async fn apply_effects(
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::adapter::AdapterKind;
     use super::super::test_support::test_rule;
     use super::*;
+    use moatless_types::adapter::AdapterKind;
 
     fn rule_with(adapter_config: Option<serde_json::Value>) -> SubscriptionMatch {
         SubscriptionMatch {
@@ -347,11 +348,13 @@ mod tests {
             IngressError::Unidentifiable(message) if message == "Missing message_id"
         ));
         assert!(matches!(
-            classify_normalization(SharedAdapterError::Store(moatless_types::store::StoreError::with_source(
-                "read the connection",
-                sqlx::Error::PoolTimedOut,
-            ))
-            .into()),
+            classify_normalization(
+                SharedAdapterError::Store(moatless_types::store::StoreError::with_source(
+                    "read the connection",
+                    sqlx::Error::PoolTimedOut,
+                ))
+                .into()
+            ),
             IngressError::Ingress(_)
         ));
     }

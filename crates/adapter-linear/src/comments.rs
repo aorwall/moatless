@@ -22,14 +22,14 @@ use tracing::{debug, info, warn};
 use moatless_core::config::Config;
 
 use moatless_adapter_model::error::AdapterError;
-use moatless_types::adapter::AdapterConnection;
-use moatless_types::adapter::TaskBinding;
-use moatless_types::adapter::Audience;
-use moatless_loops::bindings::runtime::RoutingService;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_backend_core::task::{InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_backend_core::sandbox::SandboxWaker;
+use moatless_loops::bindings::runtime::RoutingService;
+use moatless_ports::sandbox::SandboxWaker;
+use moatless_ports::task::{InboundTurn, MessageAcceptor, TurnOrigin};
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::Audience;
+use moatless_types::adapter::TaskBinding;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::webhook_payloads::CommentPayloadData;
@@ -84,8 +84,10 @@ pub(super) async fn handle_comment_created(
     // Recovering that task id is what lets the resolver drop the comment for the
     // task that authored it. The footer is visible content — nothing to strip,
     // so the body is forwarded unchanged.
-    let author_task_id =
-        moatless_adapter_model::footer::parse_task_id_from_body(&config.auth.frontend_url, &comment.body);
+    let author_task_id = moatless_adapter_model::footer::parse_task_id_from_body(
+        &config.auth.frontend_url,
+        &comment.body,
+    );
     let forwarded_body = comment.body.as_str();
 
     let audience = comment_audience(comment);
@@ -251,13 +253,13 @@ fn comment_audience(comment: &CommentPayloadData) -> Audience {
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::adapter::AdapterKind;
     use chrono::Utc;
+    use moatless_types::adapter::AdapterKind;
 
     use super::*;
+    use crate::subject::SUBJECT_KIND_SESSION as SUBJECT_KIND;
     use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
     use moatless_types::adapter::TaskBinding;
-    use crate::subject::SUBJECT_KIND_SESSION as SUBJECT_KIND;
 
     // ---- Comment routing -------------------------------------------------
     //

@@ -26,7 +26,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use moatless_backend_core::sandbox::{PreflightPort, SandboxError, SandboxJoiner, SandboxStarter};
+use moatless_ports::sandbox::{PreflightPort, SandboxError, SandboxJoiner, SandboxStarter};
 use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use moatless_types::task::TaskSubType;
@@ -40,8 +40,8 @@ use crate::task::relations::{
     CreatedByParent, TaskRelationDao, record_created_by, record_forked_from, record_related_to,
 };
 use crate::task::schemas::MessageContextInput;
-use moatless_backend_core::workspace::RepositoryReader;
 use moatless_core::events::EventPublisher;
+use moatless_ports::workspace::RepositoryReader;
 use moatless_types::agent::{AgentMode, AgentType};
 use moatless_types::task::RelatedTask;
 use moatless_types::task::Visibility;
@@ -187,7 +187,7 @@ pub enum TaskCreationError {
     /// A published store seam failed. Distinct from [`Self::Db`] only in where
     /// the failure was raised.
     #[error(transparent)]
-    Store(#[from] moatless_backend_core::store::StoreError),
+    Store(#[from] moatless_types::store::StoreError),
 }
 
 impl From<TaskCreationError> for TaskError {
@@ -590,11 +590,11 @@ mod tests {
     use crate::task::dao::MockTaskDao;
     use crate::task::relations::MockTaskRelationDao;
     use async_trait::async_trait;
-    use moatless_backend_core::sandbox::{
+    use moatless_core::events::test_support::RecordingPublisher;
+    use moatless_ports::sandbox::{
         MockPreflightPort, MockSandboxJoiner, PreflightRejection, SandboxError,
     };
-    use moatless_backend_core::workspace::MockRepositoryReader;
-    use moatless_core::events::test_support::RecordingPublisher;
+    use moatless_ports::workspace::MockRepositoryReader;
     use moatless_types::repository::RepositoryKind;
     use moatless_types::task::CheckoutMode;
     use moatless_workspaces::repository::models::Repository;

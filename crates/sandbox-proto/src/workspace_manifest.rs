@@ -96,6 +96,11 @@ impl Manifest {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test fixtures must succeed"
+)]
 mod tests {
     use super::*;
 

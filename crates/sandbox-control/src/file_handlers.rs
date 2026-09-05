@@ -9,14 +9,14 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use utoipa::IntoParams;
 
-use base64::Engine;
-use moatless_backend_core::sandbox::{self as core_sandbox, SnapshotError, SnapshotListing};
-use moatless_sandbox_runtime::client::classify_grpc_error;
-use moatless_sandbox_runtime::error::SandboxError;
 use super::handlers::{authorize_task_control, authorize_task_read};
 use super::routes::SandboxApiState;
-use moatless_sandbox_runtime::schemas::*;
+use base64::Engine;
 use moatless_core::http_auth::OptionalScope;
+use moatless_ports::sandbox::{self as core_sandbox, SnapshotError, SnapshotListing};
+use moatless_sandbox_runtime::client::classify_grpc_error;
+use moatless_sandbox_runtime::error::SandboxError;
+use moatless_sandbox_runtime::schemas::*;
 
 /// Query parameters for the file tree endpoint.
 #[derive(Debug, Deserialize, IntoParams)]
@@ -76,7 +76,7 @@ pub async fn file_tree_handler(
     let recursive = query.recursive.unwrap_or(false);
     let client = match state.connector.sandbox_client(&task_id).await {
         Ok(client) => client,
-        Err(e) if core_sandbox::no_live_sandbox(&e) => {
+        Err(e) if moatless_types::sandbox::no_live_sandbox(&e) => {
             return snapshot_tree(&state, &task_id, root_path, recursive, e).await;
         }
         Err(e) => return Err(e.into()),
@@ -115,7 +115,7 @@ pub async fn read_file_handler(
     let include_changes = query.changes.unwrap_or(false);
     let client = match state.connector.sandbox_client(&task_id).await {
         Ok(client) => client,
-        Err(e) if core_sandbox::no_live_sandbox(&e) => {
+        Err(e) if moatless_types::sandbox::no_live_sandbox(&e) => {
             return snapshot_read(&state, &task_id, &query.path, e).await;
         }
         Err(e) => return Err(e.into()),
@@ -184,7 +184,7 @@ pub async fn list_files_handler(
     let recursive = query.recursive.unwrap_or(false);
     let client = match state.connector.sandbox_client(&task_id).await {
         Ok(client) => client,
-        Err(e) if core_sandbox::no_live_sandbox(&e) => {
+        Err(e) if moatless_types::sandbox::no_live_sandbox(&e) => {
             return snapshot_list(&state, &task_id, path, recursive, e).await;
         }
         Err(e) => return Err(e.into()),
@@ -224,7 +224,7 @@ pub async fn search_by_name_handler(
     authorize_task_read(&state, &scope, &task_id).await?;
     let client = match state.connector.sandbox_client(&task_id).await {
         Ok(client) => client,
-        Err(e) if core_sandbox::no_live_sandbox(&e) => {
+        Err(e) if moatless_types::sandbox::no_live_sandbox(&e) => {
             return snapshot_search(&state, &task_id, &req, e).await;
         }
         Err(e) => return Err(e.into()),
@@ -376,7 +376,12 @@ async fn snapshot_search(
     };
     let limit = req.max_results.unwrap_or(0).max(0) as usize;
     let listing = source
-        .search(task_id, &req.query, req.case_sensitive.unwrap_or(false), limit)
+        .search(
+            task_id,
+            &req.query,
+            req.case_sensitive.unwrap_or(false),
+            limit,
+        )
         .await
         .map_err(|e| snapshot_failed(task_id, &req.query, e, unreachable))?;
     let synced_at = listing.synced_at;
@@ -465,7 +470,11 @@ fn tree_node(
 /// stopped Task can still be asked to serve. `None` leaves it to the caller,
 /// which is what the live read does for anything it decoded as text.
 fn media_type(path: &str) -> Option<String> {
-    let ext = path.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
+    let ext = path
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     let mime = match ext.as_str() {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",

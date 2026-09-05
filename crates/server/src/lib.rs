@@ -1,0 +1,31 @@
+// Allow unwrap/expect/print in test code — production code still enforces the deny.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::print_stdout,
+        clippy::print_stderr
+    )
+)]
+
+//! Sandbox Controller library — re-exports all modules for integration tests.
+
+pub mod access_settings;
+pub mod adapter_installations;
+pub mod adapters;
+pub mod agent_harness_access;
+pub mod app_administration;
+pub mod compose;
+pub mod event_handler;
+pub mod feature_flags;
+pub mod file_storage;
+pub mod reaper;
+pub mod repository_sync;
+pub mod sandbox;
+pub mod sse;
+pub mod startup;
+pub mod state;
+pub mod supervisor;
+pub mod t3code;
+pub mod task_connections;

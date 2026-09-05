@@ -6,14 +6,14 @@
 //! never comes through here: it needs a Sandbox to land in, which is why
 //! [`crate::files::write_file`] takes the connector on its own.
 
-use moatless_backend_core::sandbox::{
-    SandboxError, SnapshotError, WorkspaceSnapshotSource, no_live_sandbox,
-};
 use base64::Engine;
+use moatless_ports::sandbox::{SandboxError, SnapshotError, WorkspaceSnapshotSource};
+use moatless_types::sandbox::no_live_sandbox;
 use sandbox_proto::client::{SandboxClient, SandboxConnector, classify_grpc_error};
 use tracing::warn;
 
-use crate::workspace::{self, WorkspaceAccessError};
+use crate::workspace;
+use crate::workspace::WorkspaceAccessError;
 
 /// The ports a checkout is opened through, together so a read surface takes one
 /// value rather than two positional handles it never looks inside.
@@ -141,7 +141,7 @@ impl<'a> Checkout<'a> {
     /// Up to `limit` files whose name matches `query`, case-insensitively.
     ///
     /// Files only. The live search walks for files
-    /// (`sandbox/src/files/search.rs`) and the mirror stores nothing else, so
+    /// (`crates/sandbox/src/files/search.rs`) and the mirror stores nothing else, so
     /// there is no directory here to carry a trailing slash.
     pub(crate) async fn search(
         &self,
@@ -257,7 +257,10 @@ impl<'a> Checkout<'a> {
             .listing()
             .await
             .inspect_err(|error| {
-                warn!(?error, "Could not list the workspace to resolve a repository-relative path");
+                warn!(
+                    ?error,
+                    "Could not list the workspace to resolve a repository-relative path"
+                );
             })
             .ok()?;
         nested_match(&listing, needle).map(str::to_string)

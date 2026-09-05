@@ -13,9 +13,9 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use moatless_types::loops::LoopKind;
 use chrono::{DateTime, Utc};
 use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary, LoopSyncWarning};
+use moatless_types::loops::LoopKind;
 use tracing::{debug, warn};
 
 mod error;
@@ -28,17 +28,17 @@ use self::fetcher::{GitHubLoopFetcher, LoopFetcher};
 use self::models::{LoopFrontmatter, ParsedLoop};
 pub use self::parser::parse_loop;
 use crate::adapters::projection::next_fire_at;
-use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_types::loops::RoutingMode;
 use crate::loops::dao::{LoopDao, ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
-use moatless_types::repository::RepositoryProvider as GitHostProvider;
-use moatless_types::access_control::Actor;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_core::http_auth::AuthUser;
+use moatless_ports::identity::GitHostTokenIssuer;
+use moatless_ports::task::TagResolver;
+use moatless_types::access_control::Actor;
+use moatless_types::loops::RoutingMode;
 use moatless_types::repository::GitHostRepo;
-use moatless_backend_core::identity::GitHostTokenIssuer;
-use moatless_backend_core::task::TagResolver;
-use moatless_types::repository::RepositoryProvider;
 use moatless_types::repository::Repository;
+use moatless_types::repository::RepositoryProvider as GitHostProvider;
+use moatless_types::repository::RepositoryProvider;
 
 /// Reconciles a repository's committed loop declarations into the loop tables.
 ///

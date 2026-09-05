@@ -18,3 +18,5 @@ pub mod statistics;
 /// `db-tests` seeding shared with the sandbox-control band's lifecycle tests.
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+
+pub mod bindings;

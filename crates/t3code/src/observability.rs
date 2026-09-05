@@ -14,7 +14,7 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
-use moatless_backend_core::ui_rpc::UiRpcAuthIdentity;
+use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use std::{sync::Arc, time::Duration};
 use tracing::warn;
 

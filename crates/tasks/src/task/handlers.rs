@@ -20,19 +20,19 @@ use crate::message::send::MessageSendService;
 use crate::tag::dao::TagDao;
 use crate::task::models::{SandboxIntentView, TaskStatus};
 use crate::task_turn::dao::TaskTurnDao;
-use moatless_backend_core::sandbox::PreflightPort;
-use moatless_backend_core::sandbox::SandboxLifecycle;
-use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::http_auth::AuthUser;
+use moatless_ports::sandbox::PreflightPort;
+use moatless_ports::sandbox::SandboxLifecycle;
+use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_types::sandbox::ArchiveRetention;
 use moatless_types::task::TaskRelationType;
 use moatless_workspaces::workspace::git_sync::GitSyncService;
 
+use crate::task::bindings::TaskBindings;
 use moatless_api_schemas::bindings::TaskBindingSummary;
-use moatless_backend_core::binding::TaskBindings;
 
 use super::closer::{CloseEvent, TaskCloser};
 use super::error::TaskError;
@@ -1281,7 +1281,7 @@ mod tests {
 
     use crate::task::dao::MockTaskDao;
     use crate::task::models::{SandboxDesiredState, SandboxStopReason};
-    use moatless_backend_core::store::StoreError;
+    use moatless_types::store::StoreError;
     use uuid::Uuid;
 
     struct RecordingSandbox {
@@ -1293,7 +1293,7 @@ mod tests {
         async fn start(
             &self,
             _task_id: &str,
-        ) -> Result<(), moatless_backend_core::sandbox::SandboxOpError> {
+        ) -> Result<(), moatless_ports::sandbox::SandboxOpError> {
             unimplemented!("not reachable from delete_task ordering test")
         }
 
@@ -1301,7 +1301,7 @@ mod tests {
             &self,
             _task_id: &str,
             _reason: SandboxStopReason,
-        ) -> Result<(), moatless_backend_core::sandbox::SandboxOpError> {
+        ) -> Result<(), moatless_ports::sandbox::SandboxOpError> {
             unimplemented!("not reachable from delete_task ordering test")
         }
 
@@ -1313,7 +1313,7 @@ mod tests {
             &self,
             _task_id: &str,
             _retention: ArchiveRetention,
-        ) -> Result<(), moatless_backend_core::sandbox::SandboxOpError> {
+        ) -> Result<(), moatless_ports::sandbox::SandboxOpError> {
             self.log.lock().expect("log").push("remove");
             Ok(())
         }
@@ -1321,7 +1321,7 @@ mod tests {
         async fn archive_storage(
             &self,
             _task_id: &str,
-        ) -> Result<(), moatless_backend_core::sandbox::SandboxOpError> {
+        ) -> Result<(), moatless_ports::sandbox::SandboxOpError> {
             unimplemented!("not reachable from delete_task ordering test")
         }
 
@@ -1330,7 +1330,7 @@ mod tests {
             _task_ids: &[String],
         ) -> Result<
             std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>,
-            moatless_backend_core::sandbox::SandboxOpError,
+            moatless_ports::sandbox::SandboxOpError,
         > {
             unimplemented!("not reachable from delete_task ordering test")
         }
@@ -1338,7 +1338,7 @@ mod tests {
         async fn desired_state(
             &self,
             _task_id: &str,
-        ) -> Result<SandboxDesiredState, moatless_backend_core::sandbox::SandboxOpError> {
+        ) -> Result<SandboxDesiredState, moatless_ports::sandbox::SandboxOpError> {
             unimplemented!("not reachable from delete_task ordering test")
         }
     }

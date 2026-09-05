@@ -1,34 +1,35 @@
 [package]
 name = "moatless-sandbox-runtime"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "What a Moatless sandbox runtime implements and the machinery every runtime reuses: the mutation and observation contract, the gRPC client, status reads, storage plans, and the resource parsers"
 
+authors.workspace = true
 [dependencies]
-async-trait = "0.1"
-axum = { version = "0.8", features = ["macros"] }
-chrono = { version = "0.4", features = ["serde"] }
-futures = "0.3"
+async-trait = { workspace = true }
+axum = { workspace = true, features = ["macros"] }
+chrono = { workspace = true, features = ["serde"] }
+futures = { workspace = true }
 # JWT verification errors reach the response boundary here, as they do in the
 # bands that mint them.
-jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 # Counter/histogram instrumentation for provision/restart durations.
-metrics = "0.24"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
-tokio = { version = "1", features = ["full"] }
+metrics = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 # gRPC status types on the client side of the sandbox ingress service.
-tonic = "0.14"
-tracing = "0.1"
-utoipa = { version = "5", features = ["axum_extras"] }
+tonic = { workspace = true }
+tracing = { workspace = true }
+utoipa = { workspace = true, features = ["axum_extras"] }
 
-moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
-moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
-moatless-core = { path = "../core", features = ["openapi"] }
-moatless-types = { path = "../types", features = ["openapi"] }
+moatless-api-schemas = { workspace = true, features = ["openapi"] }
+moatless-ports = { workspace = true, features = ["openapi"] }
+moatless-core = { workspace = true, features = ["openapi"] }
+moatless-types = { workspace = true, features = ["openapi"] }
 # Shared gRPC wire vocabulary (proto types) — a floor crate, legal downward.
-sandbox-proto = { path = "../sandbox-proto" }
+sandbox-proto = { workspace = true }
 
 [features]
 # Exposes the recording-adapter builders this crate's own tests use to the
@@ -41,4 +42,4 @@ test-support = []
 workspace = true
 
 [dev-dependencies]
-http-body-util = "0.1"
+http-body-util = { workspace = true }

@@ -1,4 +1,4 @@
-//! Workspaces' side of the seams declared in `moatless_backend_core::workspace`.
+//! Workspaces' side of the seams declared in `moatless_ports::workspace`.
 //!
 //! `WorkspaceProjection` folds the three stores a Sandbox plan reads — the
 //! workspace row, its repository placements, and the plugin activations — into
@@ -9,13 +9,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_backend_core::store::StoreError;
-use moatless_backend_core::workspace::{
+use moatless_ports::workspace::{
     PluginDelivery, RepoPlacement, RepositoryReader, ResolvedWorkspace, WorkspaceCredentialReader,
     WorkspaceProvisioner, WorkspaceResolver,
 };
-use moatless_types::repository::Repository;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::repository::Repository;
+use moatless_types::store::StoreError;
 use uuid::Uuid;
 
 use crate::plugin::activation;
@@ -138,10 +138,7 @@ impl WorkspaceResolver for WorkspaceProjection {
             .collect())
     }
 
-    async fn names(
-        &self,
-        workspace_ids: &[String],
-    ) -> Result<HashMap<String, String>, StoreError> {
+    async fn names(&self, workspace_ids: &[String]) -> Result<HashMap<String, String>, StoreError> {
         if workspace_ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -233,10 +230,7 @@ impl WorkspaceProvisioner for ShadowWorkspaces {
 
 #[async_trait]
 impl WorkspaceCredentialReader for WorkspaceCredentialService {
-    async fn resolve_env(
-        &self,
-        workspace_id: &str,
-    ) -> Result<HashMap<String, String>, StoreError> {
+    async fn resolve_env(&self, workspace_id: &str) -> Result<HashMap<String, String>, StoreError> {
         WorkspaceCredentialService::resolve_env(self, workspace_id)
             .await
             .map_err(|e| {

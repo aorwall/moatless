@@ -66,8 +66,8 @@ packages/inspector/node_modules/
 !Cargo.toml
 !Cargo.lock
 !crates/
-!sandbox/
-!backend/
+!crates/sandbox/
+!tooling/
 !scripts/
 
 # Exclude Rust build artifacts from whitelisted dirs

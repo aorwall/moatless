@@ -25,7 +25,7 @@
 const DATA_DIR: &str = "/opt/moatless/data";
 
 /// Where the sandbox writes per-server overrides, mirroring
-/// `sandbox/src/server_control.rs`. On the workspace volume rather than
+/// `crates/sandbox/src/server_control.rs`. On the workspace volume rather than
 /// `DATA_DIR` so an override outlives the pod: a stop/start, a redeploy, and the
 /// reaper's idle-stop all delete it. Dot-prefixed at the workspace root, a
 /// sibling of the repo checkouts rather than inside one.
@@ -144,7 +144,7 @@ mod tests {
         assert!(s.contains(r#"DEFAULT_CMD='echo '\''hi'\'''"#));
     }
 
-    /// The path is a contract with `sandbox/src/server_control.rs`, which
+    /// The path is a contract with `crates/sandbox/src/server_control.rs`, which
     /// writes these files. It lives on the workspace volume, not the
     /// `emptyDir` data volume, so an override outlives the pod.
     #[test]

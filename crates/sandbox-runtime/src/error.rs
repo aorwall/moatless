@@ -2,7 +2,7 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use moatless_backend_core::sandbox as core_sandbox;
+use moatless_ports::sandbox as core_sandbox;
 
 use moatless_core::error::error_response;
 
@@ -89,7 +89,7 @@ pub enum SandboxError {
     /// A read through a published store seam failed. The port already names
     /// the read and carries its own source, so this variant adds nothing.
     #[error(transparent)]
-    Store(#[from] moatless_backend_core::store::StoreError),
+    Store(#[from] moatless_types::store::StoreError),
 
     /// The authorization check for a sandbox request could not be evaluated.
     #[error("Sandbox authorization check failed")]
@@ -135,7 +135,6 @@ pub enum SandboxError {
     #[error("Internal error: {0}")]
     Internal(String),
 }
-
 
 impl SandboxError {
     /// This module's error as the sandbox runtime contract states it.
@@ -520,7 +519,7 @@ mod tests {
                 "bearer token",
             ),
             (
-                SandboxError::Store(moatless_backend_core::store::StoreError::with_source(
+                SandboxError::Store(moatless_types::store::StoreError::with_source(
                     "read the task row for provisioning",
                     crate::runtime::RuntimeError::Infrastructure(
                         "SELECT * FROM tasks WHERE id = $1 failed".to_string(),

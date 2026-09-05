@@ -3,8 +3,8 @@
 //! Callers provide the durable Task intent plus raw Sandbox and Agent signals;
 //! [`derive_live_status`] owns every rule that turns them into display status.
 
-use moatless_backend_core::running::{RunningInputs, Working, derive_running};
-use moatless_backend_core::task::TurnSignals;
+use moatless_ports::task::TurnSignals;
+use moatless_types::running::{RunningInputs, Working, derive_running};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::TaskStatus;
 

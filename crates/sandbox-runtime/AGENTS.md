@@ -1,4 +1,4 @@
-# moatless-sandbox-runtime (band 5)
+# moatless-sandbox-runtime
 
 What a sandbox runtime implements, and the machinery every runtime reuses.
 
@@ -11,13 +11,7 @@ and the values both sides speak in — `RuntimeOutcome`, `OperationGeneration`,
 and its error classification, the status reads, the storage plan, the response
 schemas, the resource parsers, and the ingress counters.
 
-## The rule
-
-**The orchestrator that drives a runtime must stay unreachable from here.**
-`Lifecycle`, the reconciler, the watcher, the durable intent behind them, and
-the HTTP surface over them live in `moatless-sandbox-control`, a band above.
-Nothing in this crate may name that crate — Cargo enforces it, since the
-dependency runs the other way, and the census scores the edge.
+Dependency order lives in [BANDS](../../tooling/arch-rules/src/band_order.rs).
 
 A concrete consequence: `error::SandboxError::Lifecycle` boxes its source rather
 than naming `LifecycleError`. The conversion from a lifecycle failure to a

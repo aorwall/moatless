@@ -1,4 +1,4 @@
-use moatless_backend_core::ui_rpc::UiRpcAuthIdentity;
+use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

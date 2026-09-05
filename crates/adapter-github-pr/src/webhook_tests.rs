@@ -1,9 +1,9 @@
+use moatless_ports::identity::{LinkedUser, ProviderIdentityLink};
 use moatless_types::adapter::AdapterKind;
-use moatless_types::loops::SubscriptionMatch;
 use moatless_types::adapter::Audience;
 use moatless_types::loops::RoutingMode;
-use moatless_backend_core::identity::{LinkedUser, ProviderIdentityLink};
-use moatless_backend_core::store::StoreError;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::store::StoreError;
 
 use super::{IgnoredWebhook, NormalizeContext, PrimaryWebhook, normalize, title_is_ignored};
 use crate::status::WebhookStatusObservation;
@@ -487,7 +487,9 @@ async fn cancelled_check_run_notifies_nobody() {
     let normalized = normalize_payload("check_run", &payload, &fake_rule()).await;
     assert!(matches!(
         normalized.primary,
-        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::NonNotifiableConclusion))
+        Ok(PrimaryWebhook::Ignore(
+            IgnoredWebhook::NonNotifiableConclusion
+        ))
     ));
 }
 

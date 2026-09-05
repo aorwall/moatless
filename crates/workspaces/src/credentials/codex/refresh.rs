@@ -15,8 +15,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use crate::credentials::codex::oauth;
 use crate::credentials::{CredentialError, CredentialService};
+use crate::credentials::codex::oauth;
 use moatless_identity::auth::provider_token_dao::{
     CodexBlobOutcome, CodexBlobRefresh, CodexBlobRefresher,
 };

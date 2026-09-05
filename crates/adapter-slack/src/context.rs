@@ -1,10 +1,10 @@
 //! How a Slack thread is presented to the agent: the instructions and labels
 //! that frame an inbound message, and the thread history fetched alongside it.
 
+use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::error::AdapterError;
 use moatless_types::adapter::{BindingContext, InboundMessage};
 use moatless_types::loops::LoopContext;
-use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 
 use super::adapter::SlackAdapter;
 use super::config::SlackAdapterConfig;
@@ -69,7 +69,9 @@ impl AdapterInboundPresentation for SlackAdapter {
             .and_then(|v| v.as_str());
         let oldest = oldest_raw.map(|s| s.strip_prefix("slack:ts:").unwrap_or(s));
 
-        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+        let app = self
+            .app(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+            .await?;
         let replies = app
             .api
             .get_thread_replies(
@@ -111,8 +113,7 @@ impl AdapterInboundPresentation for SlackAdapter {
 
         // Who said what, so a multi-person exchange the agent is catching up on
         // reads as one. Resolved once per distinct writer in the window.
-        let mut names: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
+        let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         if let Some(users) = self.users() {
             for reply in &kept {
                 let Some(user) = reply.user.as_deref().filter(|u| !u.is_empty()) else {
@@ -144,11 +145,11 @@ impl AdapterInboundPresentation for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
+    use moatless_adapter_model::capabilities::AdapterInboundPresentation;
+    use moatless_adapter_model::test_support::ProviderStub;
+    use moatless_types::access_control::Scope;
     use moatless_types::adapter::{AdapterKind, Audience, BindingContext, InboundMessage};
     use moatless_types::loops::{LoopContext, RoutingMode};
-    use moatless_adapter_model::test_support::ProviderStub;
-    use moatless_adapter_model::capabilities::AdapterInboundPresentation;
-    use moatless_types::access_control::Scope;
 
     use crate::adapter::SlackAdapter;
     use crate::api::SlackApi;
@@ -338,50 +339,46 @@ mod tests {
     struct OneLink;
 
     #[async_trait::async_trait]
-    impl moatless_backend_core::identity::ProviderIdentityLink for OneLink {
+    impl moatless_ports::identity::ProviderIdentityLink for OneLink {
         async fn user_at(
             &self,
             _provider: &str,
             provider_user_id: &str,
-        ) -> Result<
-            Option<moatless_backend_core::identity::LinkedUser>,
-            moatless_backend_core::store::StoreError,
-        > {
-            Ok((provider_user_id == "U1").then(|| {
-                moatless_backend_core::identity::LinkedUser {
+        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
+        {
+            Ok(
+                (provider_user_id == "U1").then(|| moatless_ports::identity::LinkedUser {
                     id: uuid::Uuid::nil(),
                     login: "aorwall".to_string(),
-                }
-            }))
+                }),
+            )
         }
         async fn user_by_email(
             &self,
             _email: &str,
-        ) -> Result<
-            Option<moatless_backend_core::identity::LinkedUser>,
-            moatless_backend_core::store::StoreError,
-        > {
+        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
+        {
             Ok(None)
         }
         async fn provider_id_for_login(
             &self,
             _provider: &str,
             _login: &str,
-        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
             Ok(None)
         }
         async fn user_who_connected(
             &self,
             _provider: &str,
             _provider_user_id: &str,
-        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
             Ok(None)
         }
         async fn user_with_login(
             &self,
             _provider: &str,
             _login: &str,
-        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
             Ok(None)
         }
         async fn link(
@@ -389,7 +386,7 @@ mod tests {
             _user_id: &uuid::Uuid,
             _provider: &str,
             _provider_user_id: &str,
-        ) -> Result<bool, moatless_backend_core::store::StoreError> {
+        ) -> Result<bool, moatless_types::store::StoreError> {
             Ok(false)
         }
     }

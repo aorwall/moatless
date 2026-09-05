@@ -452,19 +452,16 @@ fn transform_assistant(msg: &TaskMessage, activities: &[&Activity], is_last: boo
 
     let has_pending = is_last && has_unanswered_question(activities);
 
-    let external_source = msg
-        .external_adapter
-        .as_ref()
-        .map(|adapter_kind| {
-            let external_id = msg.external_event_id.clone();
-            let external_label = external_id.as_deref().map(format_external_label);
-            UiMessageExternalSource {
-                adapter_kind: adapter_kind.clone(),
-                source_name: msg.external_source_name.clone(),
-                external_id,
-                external_label,
-            }
-        });
+    let external_source = msg.external_adapter.as_ref().map(|adapter_kind| {
+        let external_id = msg.external_event_id.clone();
+        let external_label = external_id.as_deref().map(format_external_label);
+        UiMessageExternalSource {
+            adapter_kind: adapter_kind.clone(),
+            source_name: msg.external_source_name.clone(),
+            external_id,
+            external_label,
+        }
+    });
 
     UiMessage {
         uuid: msg.uuid.clone(),

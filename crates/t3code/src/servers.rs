@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 use crate::task_dao::{T3TaskDao, TaskView};
-use moatless_backend_core::sandbox::{
+use moatless_ports::sandbox::{
     LogOptions, SandboxError, SandboxIntentReader, SandboxObserver, ServerEntry,
 };
 use moatless_types::access_control::ScopeContext;
@@ -278,7 +278,7 @@ pub async fn watch_logs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_backend_core::sandbox::{ServerCapabilities, ServerStatus};
+    use moatless_ports::sandbox::{ServerCapabilities, ServerStatus};
 
     fn entry(status: ServerStatus) -> ServerEntry {
         ServerEntry {

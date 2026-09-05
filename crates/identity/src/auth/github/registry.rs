@@ -21,11 +21,14 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use crate::adapter_apps::dao::{AdapterAppDao, GitHubAppRecord, NewGitHubApp, ENV_CARRY_OVER};
+use crate::adapter_apps::dao::AdapterAppDao;
+use crate::adapter_apps::dao::ENV_CARRY_OVER;
+use crate::adapter_apps::dao::GitHubAppRecord;
+use crate::adapter_apps::dao::NewGitHubApp;
 use crate::auth::error::AuthError;
 use crate::auth::github::service::GitHubAppService;
-use moatless_types::auth::GitHubAppConfig;
 use crate::secret::service::SecretCipher;
+use moatless_types::auth::GitHubAppConfig;
 
 /// A live App service, and which stored record it was built from.
 ///
@@ -324,10 +327,10 @@ impl GitHubAppRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter_apps::dao::test_support::InMemoryAdapterAppDao;
     use crate::adapter_apps::dao::{GitHubAppRecord, NewGitHubApp};
-    use moatless_types::secret::SecretsConfig;
+    use crate::adapter_apps::dao::test_support::InMemoryAdapterAppDao;
     use crate::secret::service::LocalEnvelopeSecretCipher;
+    use moatless_types::secret::SecretsConfig;
 
     /// A parseable test key, so `from_record` produces a real service.
     const TEST_PEM: &str = include_str!("testdata/github_app_test_key.pem");

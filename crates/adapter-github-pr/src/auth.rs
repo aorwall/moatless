@@ -4,14 +4,14 @@ use std::sync::Arc;
 
 use tracing::debug;
 
-use moatless_backend_core::identity::ProviderIdentityLink;
-use moatless_types::access_control::Actor;
-use moatless_types::repository::GitHostRepo;
-use moatless_backend_core::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::loops::SubscriptionMatch;
-use moatless_types::adapter::TaskBinding;
+use moatless_ports::identity::ProviderIdentityLink;
+use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
+use moatless_types::access_control::Actor;
 use moatless_types::adapter::BindingContext;
+use moatless_types::adapter::TaskBinding;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::repository::GitHostRepo;
 
 use super::api::GithubPrApi;
 
@@ -139,9 +139,9 @@ impl GithubPrAuth {
 /// those have three different remedies.
 fn adapter_error(actor: &Actor, source: GitHostTokenError) -> AdapterError {
     match source {
-        GitHostTokenError::Store(e) => AdapterError::from(SharedAdapterError::AdapterApi(
-            format!("GitHub token lookup failed for {actor}: {e}"),
-        )),
+        GitHostTokenError::Store(e) => AdapterError::from(SharedAdapterError::AdapterApi(format!(
+            "GitHub token lookup failed for {actor}: {e}"
+        ))),
         other => SharedAdapterError::AdapterApi(other.to_string()).into(),
     }
 }
@@ -188,7 +188,10 @@ pub(super) async fn resolve_sender_user(
     rule: &SubscriptionMatch,
     users: &dyn ProviderIdentityLink,
 ) -> String {
-    if let Ok(Some(user_id)) = users.user_with_login(super::delivery::ADAPTER, github_login).await {
+    if let Ok(Some(user_id)) = users
+        .user_with_login(super::delivery::ADAPTER, github_login)
+        .await
+    {
         return user_id;
     }
 
@@ -232,10 +235,10 @@ fn binding_filter_user_id<'a>(
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::adapter::AdapterKind;
     use super::*;
     use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
+    use moatless_types::adapter::AdapterKind;
 
     fn auth_with_tokens(provider_tokens: Arc<dyn ProviderTokenDao>) -> GithubPrAuth {
         GithubPrAuth::new(moatless_identity::git_host_tokens::seam_over(

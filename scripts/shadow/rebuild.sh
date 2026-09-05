@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # rebuild.sh — Trigger a shadow-backend rebuild + restart.
 #
-# Run this after editing crates/backend/ (or a shared crate). It compiles in your
+# Run this after editing crates/server/ (or a shared crate). It compiles in your
 # terminal for fast feedback, then bumps the trigger file that up.sh watches so
 # the running backend restarts with the new binary. Frontend changes need no
 # action — the bun dev server hot-reloads them already.

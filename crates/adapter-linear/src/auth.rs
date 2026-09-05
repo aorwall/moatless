@@ -19,13 +19,13 @@
 use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::AdapterConnection;
-use moatless_types::adapter::TaskBinding;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::LinearConfig;
+use moatless_types::adapter::TaskBinding;
 use std::sync::Arc;
 
-use moatless_backend_core::identity::AppCredentials;
+use moatless_ports::identity::AppCredentials;
 
 use super::adapter::LinearAdapter;
 use super::agent_api::LinearAgentApi;

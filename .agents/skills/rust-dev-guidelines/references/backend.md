@@ -1,6 +1,6 @@
 # Backend Rust
 
-Apply this reference to Rust changes under `backend/`.
+Apply this reference to Rust changes under `crates/server/`.
 
 ## Module and State Boundaries
 

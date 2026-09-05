@@ -10,13 +10,16 @@ use base64::Engine;
 use super::audit::{SecretAuditDao, SecretAuditInput};
 use super::dao::{SecretDao, SecretInsert, SecretReplace};
 use super::error::SecretError;
-use moatless_types::secret::SecretKind;
-use moatless_core::secret_keys::{is_reserved_key, is_valid_secret_key};
 use super::models::{EncryptedSecretValue, ResolvedSecret, SecretRecord};
-use super::schemas::{PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, ValidateSecretsRequest, ValidateSecretsResponse};
-use moatless_backend_core::access_control::resolve_scope_for_create;
+use super::schemas::{
+    PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, ValidateSecretsRequest,
+    ValidateSecretsResponse,
+};
+use moatless_core::secret_keys::{is_reserved_key, is_valid_secret_key};
 use moatless_types::access_control::AccessControlError;
+use moatless_types::access_control::resolve_scope_for_create;
 use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::secret::SecretKind;
 use moatless_types::secret::SecretsConfig;
 
 const ENCRYPTION_VERSION: i32 = 1;
@@ -264,8 +267,8 @@ impl SecretService {
         actor_id: &str,
         req: PutSecretRequest,
     ) -> Result<SecretMetadataResponse, SecretError> {
-        let resolved = resolve_scope_for_create(ctx, req.scope)
-            .map_err(map_access_control_error)?;
+        let resolved =
+            resolve_scope_for_create(ctx, req.scope).map_err(map_access_control_error)?;
         validate_secret_shape(&req.key, req.value.as_ref(), req.external_ref.as_ref())?;
 
         let existing = self
@@ -421,8 +424,8 @@ impl SecretService {
         ctx: &ScopeContext,
         req: ValidateSecretsRequest,
     ) -> Result<ValidateSecretsResponse, SecretError> {
-        let resolved = resolve_scope_for_create(ctx, req.scope)
-            .map_err(map_access_control_error)?;
+        let resolved =
+            resolve_scope_for_create(ctx, req.scope).map_err(map_access_control_error)?;
         // list() with access_filter already limits to rows the caller may read.
         let records = self
             .secrets

@@ -12,11 +12,13 @@ use tracing::{debug, warn};
 
 use super::client::K8sClient;
 use super::pod_status::{extract_all_container_statuses, extract_container_observed_statuses};
-use moatless_types::workspace::{Cpu, Memory};
-use moatless_backend_core::sandbox::{SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};
+use moatless_ports::sandbox::{SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};
 use moatless_sandbox_runtime::access::LogOptions;
-use moatless_sandbox_runtime::container_status::{ContainerObservedStatus, ContainerState, PodPhase};
+use moatless_sandbox_runtime::container_status::{
+    ContainerObservedStatus, ContainerState, PodPhase,
+};
 use moatless_sandbox_runtime::schemas::RuntimeEvent;
+use moatless_types::workspace::{Cpu, Memory};
 
 /// Errors from log streaming, distinguishing "not ready yet" from other failures.
 #[derive(Debug)]

@@ -13,16 +13,17 @@ use tracing::warn;
 use super::AgentModelDefaults;
 use super::dao::{Conversation, ConversationMatch, Transcript, TranscriptMessage};
 use crate::activity::T3ActivityViewExt;
-use crate::agent::catalog::{self, UiRpcAgentKind};
+use crate::agent::catalog;
+use crate::agent::catalog::UiRpcAgentKind;
 use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
-use moatless_backend_core::change_feed::conversation::{ConversationChange, EVENTS_PER_CHANGE};
+use moatless_core::change_feed::conversation::{ConversationChange, EVENTS_PER_CHANGE};
+use moatless_types::activity::Activity;
+use moatless_types::activity::ActivityKind;
+use moatless_types::activity::ActivityView;
 use moatless_types::message::MessageType;
+use moatless_types::running::{RunningInputs, Working, derive_running};
 use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::task::{TaskRelationType, TurnStatus};
-use moatless_backend_core::activity::Activity;
-use moatless_backend_core::activity::ActivityKind;
-use moatless_backend_core::activity::ActivityView;
-use moatless_backend_core::running::{RunningInputs, Working, derive_running};
 
 const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
 
@@ -497,7 +498,7 @@ fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<V
         .iter()
         .filter(|activity| {
             activity.kind == ActivityKind::ToolCall
-                && activity.summary == moatless_backend_core::activity::PLAN_TOOL
+                && activity.summary == moatless_types::activity::PLAN_TOOL
                 && !activity.is_settled()
         })
         .filter_map(|activity| {
@@ -1388,7 +1389,10 @@ fn running_inputs(
         desired_state: Some(desired_state),
         stop_reason: conversation.sandbox_stop_reason(),
         sandbox_up: Some(conversation.sandbox_started_at.is_some()),
-        turn_status: conversation.turn_status.as_deref().and_then(TurnStatus::parse),
+        turn_status: conversation
+            .turn_status
+            .as_deref()
+            .and_then(TurnStatus::parse),
         turn_ended_at: conversation.turn_ended_at,
         latest_user_message_at: conversation.latest_user_message_at,
         agent: None,
@@ -1833,11 +1837,11 @@ mod tests {
 
     use super::*;
     use crate::activity_dao::SubagentUsage;
+    use moatless_types::access_control::Scope;
+    use moatless_types::activity::{ActivityKind, ActivityStatus};
     use moatless_types::agent::AgentType;
     use moatless_types::message::MessageRole;
-    use moatless_types::access_control::Scope;
     use moatless_types::sandbox::SandboxStopReason;
-    use moatless_backend_core::activity::{ActivityKind, ActivityStatus};
 
     fn matched(workspace_id: Option<&str>, from_user: bool, text: &str) -> ConversationMatch {
         ConversationMatch {
@@ -2201,7 +2205,10 @@ mod tests {
             ..conversation("task-a", "ws-a")
         });
 
-        assert_eq!(thread["backgroundLiveness"], Value::String("working".into()));
+        assert_eq!(
+            thread["backgroundLiveness"],
+            Value::String("working".into())
+        );
     }
 
     #[test]
@@ -2838,7 +2845,7 @@ mod tests {
         activity.tool_use_id = Some(id.to_string());
         let mut payload = json!({
             "title": name,
-            "itemType": moatless_backend_core::activity::item_type(name),
+            "itemType": moatless_types::activity::item_type(name),
             "status": "completed",
             "data": { "toolCallId": id },
             "input": input,
@@ -3064,12 +3071,18 @@ mod tests {
                 .map(|attachment| attachment["type"].as_str().unwrap_or_default().to_string())
         };
 
-        assert_eq!(projected(ATTACHMENT_MAX_IMAGE_BYTES).as_deref(), Some("image"));
+        assert_eq!(
+            projected(ATTACHMENT_MAX_IMAGE_BYTES).as_deref(),
+            Some("image")
+        );
         assert_eq!(
             projected(ATTACHMENT_MAX_IMAGE_BYTES + 1).as_deref(),
             Some("file")
         );
-        assert_eq!(projected(ATTACHMENT_MAX_FILE_BYTES).as_deref(), Some("file"));
+        assert_eq!(
+            projected(ATTACHMENT_MAX_FILE_BYTES).as_deref(),
+            Some("file")
+        );
         // Past both members, so there is no shape left to send it in.
         assert_eq!(projected(ATTACHMENT_MAX_FILE_BYTES + 1), None);
     }
@@ -3792,7 +3805,7 @@ mod tests {
             2,
             0,
             "call-1",
-            moatless_backend_core::activity::PLAN_TOOL,
+            moatless_types::activity::PLAN_TOOL,
             json!({ "plan": "1. Do the thing" }),
         );
         proposed.status = ActivityStatus::InProgress;
@@ -3827,7 +3840,7 @@ mod tests {
                 2,
                 0,
                 "call-1",
-                moatless_backend_core::activity::PLAN_TOOL,
+                moatless_types::activity::PLAN_TOOL,
                 input,
             );
             proposed.status = ActivityStatus::InProgress;
@@ -4590,7 +4603,10 @@ mod tests {
     #[test]
     fn a_forked_child_is_labelled_as_one() {
         assert_eq!(
-            subtask(&conversation("task-fork", "ws-1"), TaskRelationType::ForkedFrom)["relation"],
+            subtask(
+                &conversation("task-fork", "ws-1"),
+                TaskRelationType::ForkedFrom
+            )["relation"],
             "forkedFrom"
         );
     }
@@ -4602,7 +4618,10 @@ mod tests {
     fn subtask_status_reads_closing_before_the_newest_turn() {
         let mut child = running_conversation("task-child", "ws-1");
         child.turn_status = Some("error".to_string());
-        assert_eq!(subtask(&child, TaskRelationType::CreatedBy)["status"], "failed");
+        assert_eq!(
+            subtask(&child, TaskRelationType::CreatedBy)["status"],
+            "failed"
+        );
 
         child.closed_at = Some(Utc::now());
         assert_eq!(

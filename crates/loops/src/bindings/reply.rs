@@ -1,25 +1,26 @@
 use std::sync::Arc;
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
-use moatless_types::adapter::TaskBinding;
-use moatless_types::adapter::{OutboundPresentation, OutboundReply, TaskProvenance};
 use moatless_api_schemas::bindings::SendTaskReplyResponse;
 use moatless_api_schemas::message::ReplyToMessageResponse;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::adapter::TaskBinding;
+use moatless_types::adapter::{OutboundPresentation, OutboundReply, TaskProvenance};
 
-use moatless_types::adapter::AdapterKind;
-use moatless_adapter_model::registry::Adapters;
 use crate::adapters::access::{ensure_task_access_with, load_adapter_connection_for_auth_with};
 use crate::adapters::projection::{binding_descriptor, binding_reply_target};
-use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use crate::bindings::outbound::{self, OutboundSender};
+use crate::bindings::dao::TaskBindingDao;
+use crate::bindings::outbound;
+use crate::bindings::outbound::OutboundSender;
 use crate::bindings::recently_sent::RecentlySent;
 use crate::loops::dao::LoopDao;
-use crate::bindings::dao::TaskBindingDao;
-use moatless_backend_core::task::{
+use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::registry::Adapters;
+use moatless_ports::task::{
     ExternalEvent, TaskReader, TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TurnCounter,
 };
+use moatless_types::adapter::AdapterKind;
 
 /// Reply delivery for external threads, owning the ports its two entry points
 /// read rather than borrowing the whole `AppState`. Composed once and held on
@@ -128,7 +129,14 @@ impl ExternalReplyService {
                 let binding = &bindings[0];
                 let (sent_count, errors) = self
                     .outbound
-                    .send_to_binding(providers, task_id, &binding.id, text, file_ids, presentation)
+                    .send_to_binding(
+                        providers,
+                        task_id,
+                        &binding.id,
+                        text,
+                        file_ids,
+                        presentation,
+                    )
                     .await?;
                 if sent_count == 0 && !errors.is_empty() {
                     return Err(SharedAdapterError::AdapterApi(errors.join("; ")).into());
@@ -224,8 +232,7 @@ impl ExternalReplyService {
             .outbound
             .maybe_task_comment_footer(adapter.adapter_kind(), &binding.task_id)
             .await;
-        let presentation =
-            outbound::checked_presentation(presentation, adapter.adapter_kind())?;
+        let presentation = outbound::checked_presentation(presentation, adapter.adapter_kind())?;
         let provenance = if outbound::task_link_already_sent(&binding) {
             None
         } else {
@@ -392,10 +399,9 @@ fn select_binding_for_reply<'a>(
     subject_key: Option<&str>,
 ) -> Option<&'a TaskBinding> {
     if let Some(sk) = subject_key {
-        if let Some(binding) = rows
-            .iter()
-            .find(|b| candidates.iter().any(|c| c == b.adapter_kind.as_str()) && b.subject_key == sk)
-        {
+        if let Some(binding) = rows.iter().find(|b| {
+            candidates.iter().any(|c| c == b.adapter_kind.as_str()) && b.subject_key == sk
+        }) {
             return Some(binding);
         }
     }

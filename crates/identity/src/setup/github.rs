@@ -9,9 +9,9 @@ use super::schemas::{
     SetupSeverity,
 };
 use crate::auth::models::GithubTokenPresence;
-use moatless_types::secret::SecretKind;
-use moatless_types::access_control::Scope;
 use moatless_core::secret_keys::GITHUB_TOKEN;
+use moatless_types::access_control::Scope;
+use moatless_types::secret::SecretKind;
 
 /// Settings-dialog section holding the per-user GitHub connection.
 const SETTINGS_SECTION: &str = "github";

@@ -17,10 +17,10 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use moatless_backend_core::identity::CodexScopeReader;
-use moatless_backend_core::store::StoreError;
 use crate::credential_sync::CredentialSync;
 use moatless_core::leader::LeaderGuard;
+use moatless_ports::identity::CodexScopeReader;
+use moatless_types::store::StoreError;
 
 /// Spawn the background Codex refresher as a tokio task.
 ///

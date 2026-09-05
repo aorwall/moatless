@@ -6,7 +6,7 @@
 
 /// Lifecycle status of a single task turn — the `task_turns.status` column.
 ///
-/// Defined in `moatless_types` so `moatless_backend_core::running` can name it:
+/// Defined in `moatless_types` so `moatless_types::running` can name it:
 /// the rule that decides whether an agent is working reads a turn's state, and
 /// that rule sits below this crate.
 pub use moatless_types::task::TurnStatus;
@@ -30,7 +30,7 @@ pub struct SettledTurn {
 
 /// The Task band's half of the running rule, for one task.
 ///
-/// The fields of [`moatless_backend_core::running::RunningInputs`] this band
+/// The fields of [`moatless_types::running::RunningInputs`] this band
 /// owns. Optional in the same sense the rule means — "this reader cannot say" —
 /// so a task with no turns and no messages is a legal, empty answer.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

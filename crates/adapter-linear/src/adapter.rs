@@ -7,23 +7,27 @@ use std::sync::Arc;
 
 use tracing::warn;
 
+use moatless_adapter_model::apps::AdapterAppReader;
+use moatless_adapter_model::capabilities::{
+    Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
+    AdapterInboundPresentation, AdapterMessageReply, AdapterOutboundContent,
+    AdapterPostBindingFollowup,
+};
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::loops::LoopReader;
+use moatless_adapter_model::registry::Adapters;
+use moatless_ports::identity::AppCredentials;
+use moatless_ports::task::TaskReader;
+use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::AdapterConnection;
-use moatless_types::loops::SubscriptionMatch;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{
     AdapterKind, BindingContext, ExternalStatus, InboundMessage, OutboundReply,
 };
 use moatless_types::loops::LoopContext;
-use moatless_adapter_model::capabilities::{Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination, AdapterInboundPresentation, AdapterMessageReply, AdapterOutboundContent, AdapterPostBindingFollowup};
-use moatless_adapter_model::registry::Adapters;
-use moatless_adapter_model::loops::LoopReader;
-use moatless_backend_core::task::TaskReader;
-use moatless_backend_core::identity::AppCredentials;
-use moatless_types::access_control::ScopeContext;
-use moatless_adapter_model::apps::AdapterAppReader;
+use moatless_types::loops::SubscriptionMatch;
 
 use super::SUBJECT_KIND_ISSUE;
 use super::agent_api::LinearAgentApi;
@@ -206,7 +210,8 @@ impl LinearAdapter {
     }
 
     pub(crate) fn agent_api_for_org(&self, org_id: &str) -> LinearAgentApi {
-        self.credentials.api_for_org(self.app_tokens.clone(), org_id)
+        self.credentials
+            .api_for_org(self.app_tokens.clone(), org_id)
     }
 
     pub(crate) async fn agent_api_for_connection(

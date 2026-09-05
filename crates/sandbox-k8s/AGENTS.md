@@ -1,4 +1,4 @@
-# moatless-sandbox-k8s (band 7)
+# moatless-sandbox-k8s
 
 The Kubernetes runtime provider behind the `moatless-sandbox-control` ports. It
 implements `SandboxRuntime` (native mutation → `RuntimeOutcome`), the

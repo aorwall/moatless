@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use claude_agent_sdk::api::messages::ResultMessage;
-use claude_agent_sdk::{query, query_tmux, ClaudeOptions, ContentBlock, SdkMessage};
+use claude_agent_sdk::{ClaudeOptions, ContentBlock, SdkMessage, query, query_tmux};
 
 const TEST_MODEL: &str = "claude-haiku-4-5-20251001";
 
@@ -53,11 +53,7 @@ fn auth_env() -> Option<HashMap<String, String>> {
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         env.insert("ANTHROPIC_API_KEY".to_string(), key);
     }
-    if env.is_empty() {
-        None
-    } else {
-        Some(env)
-    }
+    if env.is_empty() { None } else { Some(env) }
 }
 
 fn fresh_cwd() -> PathBuf {
@@ -298,7 +294,7 @@ async fn background_bash_survives_under_tmux() {
 /// the turn — true for the tmux transport (persistent TUI), false for the
 /// one-shot subprocess `claude -p`. This is why the sandbox leaves `Monitor`
 /// allowed in tmux mode but disallows it in subprocess mode
-/// (`sandbox/src/agent/options.rs`).
+/// (`crates/sandbox/src/agent/options.rs`).
 ///
 /// This test proves the tmux half empirically: the agent starts a
 /// `run_in_background` job, arms `Monitor` on it, and ends the turn. When the
@@ -429,7 +425,7 @@ async fn monitor_retriggers_turn_under_tmux() {
 /// subprocess transport the sandbox disallows `Monitor` (its watcher would die
 /// with the one-shot `claude -p` process before any event is delivered). Here we
 /// mirror that configuration — `disallowed_tools: ["Monitor", ...]`, exactly
-/// what `sandbox/src/agent/options.rs` sets for subprocess mode — and prove the
+/// what `crates/sandbox/src/agent/options.rs` sets for subprocess mode — and prove the
 /// agent cannot use Monitor: it never appears in the session's advertised tool
 /// set, and no Monitor tool call ever succeeds. The turn still ends cleanly with
 /// a `Result` (the CLI does not hang on the disallowed tool).

@@ -1,6 +1,6 @@
 ---
 name: rust-dev-guidelines
-description: Rust development conventions for Moatless backend, sandbox, and shared crates. Use when planning, writing, reviewing, or changing Rust under backend/, sandbox/, or crates/.
+description: Rust development conventions for Moatless backend, sandbox, and shared crates. Use when planning, writing, reviewing, or changing Rust under crates/ or tooling/.
 ---
 
 # Rust Development Guidelines
@@ -13,8 +13,8 @@ new conventions without checking that they remain sound.
 
 1. Identify the owning crate and the runtime boundary affected by the change.
 2. Load every applicable reference:
-   - `backend/` → [backend.md](references/backend.md)
-   - `sandbox/` → [sandbox.md](references/sandbox.md)
+   - `crates/server/` → [backend.md](references/backend.md)
+   - `crates/sandbox/` → [sandbox.md](references/sandbox.md)
    - `crates/` → [shared-crates.md](references/shared-crates.md)
    - adding, varying, or removing a cargo invocation, or configuring an editor
      against this workspace → [build-costs.md](references/build-costs.md)
@@ -128,10 +128,10 @@ rustfmt --edition 2021 --style-edition 2024 <file>...
 ```
 
 That is a no-op on already-2024 modules such as
-`backend/src/adapters/providers/github_pr/`, which is the shape to match.
+`crates/server/src/adapters/providers/github_pr/`, which is the shape to match.
 
 Naming a `mod.rs` (or any file declaring `mod`) formats its whole subtree, not
-just that file — `rustfmt sandbox/src/init/mod.rs` rewrote all eleven of its
+just that file — `rustfmt crates/sandbox/src/init/mod.rs` rewrote all eleven of its
 siblings. `--skip-children` is nightly-only, so on stable the check is
 `git status` afterwards: revert every file you did not touch.
 

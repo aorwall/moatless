@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 
 use tracing::{debug, info, warn};
 
-use crate::error::{Result, SdkError};
 use crate::api::options::ClaudeOptions;
+use crate::error::{Result, SdkError};
 
 use super::args::build_tmux_cli_args;
 
@@ -290,7 +290,7 @@ pub(super) fn tmux_command(socket: &Path) -> tokio::process::Command {
 /// out of tmux's control-socket message, which is capped at `MAX_IMSGSIZE`
 /// (16384 bytes, tmux's `compat/imsg.h`) — a limit `options.env` alone can
 /// exceed in production, since it carries every resolved credential/secret
-/// (see `sandbox/src/agent/claude_code.rs`), not just the two pins below.
+/// (see `crates/sandbox/src/agent/claude_code.rs`), not just the two pins below.
 ///
 /// Meanwhile JSONL discovery ([`resolve_project_dir`]) computes the polled
 /// transcript dir from the *SDK process's* env. If the child's
@@ -805,7 +805,7 @@ mod tests {
 
     // Regression test for the production "command too long" failure (SP tmux
     // investigation, task e0b3e4e8): `options.env` in the real pipeline
-    // carries every resolved credential/secret (sandbox/src/agent/claude_code.rs),
+    // carries every resolved credential/secret (crates/sandbox/src/agent/claude_code.rs),
     // unbounded in size — before the fix, `child_env_prefix` re-broadcast that
     // whole map as individual `new-session` argv words, and tmux's client
     // packs the entire `new-session` argv into a single control-socket

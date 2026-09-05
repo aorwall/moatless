@@ -240,7 +240,7 @@ jobs:
   # (tests/api/specs/sandbox-replacement-ordering.spec.ts) and runs with it.
 
   # ── Codex CLI E2E in Docker ──
-  # Runs the production `codex exec` path (sandbox/tests/agent_transport_e2e.rs::
+  # Runs the production `codex exec` path (crates/sandbox/tests/agent_transport_e2e.rs::
   # test_spawn_agent_codex) inside the sandbox base image, which already ships the
   # pinned `codex` CLI — no external Codex source checkout needed. This matches how
   # the sandbox actually runs Codex at runtime (NOT the in-process codex-sdk crate).

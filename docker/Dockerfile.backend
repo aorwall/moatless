@@ -3,7 +3,7 @@
 # Build natively on host arch, cross-compile to target arch.
 # This avoids QEMU emulation which makes Rust compilation 5-10x slower.
 #
-# IMPORTANT: Build context must be the repo root (not backend/), because
+# IMPORTANT: Build context must be the repo root (not crates/server/), because
 # the workspace Cargo.toml is needed for workspace-level lint configs.
 
 # --- Chef stage: install cargo-chef (runs on build host natively) ---

@@ -1,6 +1,6 @@
 //! Carrying a git-host token failure into this band's error.
 
-use moatless_backend_core::identity::GitHostTokenError;
+use moatless_ports::identity::GitHostTokenError;
 
 use super::error::RepositoryError;
 

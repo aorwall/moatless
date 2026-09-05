@@ -112,9 +112,8 @@ async fn record_turn_change(
     rows_affected: u64,
 ) -> Result<(), sqlx::Error> {
     if rows_affected > 0 {
-        moatless_backend_core::change_feed::conversation::record_session_change(tx, task_id)
-            .await?;
-        moatless_backend_core::change_feed::listing::record_change(tx, task_id).await?;
+        moatless_core::change_feed::conversation::record_session_change(tx, task_id).await?;
+        moatless_core::change_feed::listing::record_change(tx, task_id).await?;
     }
     Ok(())
 }
@@ -619,9 +618,8 @@ impl TaskTurnDao for PgTaskTurnDao {
         // advisory lock and both `task_turns` writes — `record_change`'s "call
         // this last", with the conversation's allocator ahead of it.
         task_dao::clear_settled_for_all_followers(&mut tx, task_id).await?;
-        moatless_backend_core::change_feed::conversation::record_session_change(&mut tx, task_id)
-            .await?;
-        moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+        moatless_core::change_feed::conversation::record_session_change(&mut tx, task_id).await?;
+        moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
 
         tx.commit().await?;
         Ok(turn_number)

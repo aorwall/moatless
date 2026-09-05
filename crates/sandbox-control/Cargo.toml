@@ -1,44 +1,45 @@
 [package]
 name = "moatless-sandbox-control"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Sandbox-control band: provider-agnostic sandbox lifecycle, gRPC ingress, preflight, secrets, and status reads for Moatless"
 
+authors.workspace = true
 [dependencies]
-async-trait = "0.1"
-axum = { version = "0.8", features = ["macros"] }
-base64 = "0.22"
-chrono = { version = "0.4", features = ["serde"] }
-futures = "0.3"
+async-trait = { workspace = true }
+axum = { workspace = true, features = ["macros"] }
+base64 = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+futures = { workspace = true }
 # JWT minting/verification for sandbox and user tokens. jsonwebtoken 10's default
 # features enable no crypto backend, so `aws_lc_rs` is explicit — matching the
 # backend and identity crates (see backend/Cargo.toml).
-jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 # Counter/histogram instrumentation for provision/restart durations.
-metrics = "0.24"
+metrics = { workspace = true }
 # Event-dedup admission cache.
-moka = { version = "0.12", features = ["future"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
-thiserror = "2"
-tokio = { version = "1", features = ["full"] }
+moka = { workspace = true, features = ["future"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 # gRPC server + status types for the sandbox ingress service.
-tonic = "0.14"
-tracing = "0.1"
-uuid = { version = "1", features = ["v4", "serde"] }
-utoipa = { version = "5", features = ["axum_extras"] }
-utoipa-axum = "0.2"
+tonic = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+utoipa = { workspace = true, features = ["axum_extras"] }
+utoipa-axum = { workspace = true }
 
-moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
-moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
-moatless-core = { path = "../core", features = ["openapi"] }
-moatless-s3 = { path = "../s3" }
-moatless-types = { path = "../types", features = ["openapi"] }
+moatless-api-schemas = { workspace = true, features = ["openapi"] }
+moatless-ports = { workspace = true, features = ["openapi"] }
+moatless-core = { workspace = true, features = ["openapi"] }
+moatless-s3 = { workspace = true }
+moatless-types = { workspace = true, features = ["openapi"] }
 # What a runtime implements and the machinery it reuses — the band below.
-moatless-sandbox-runtime = { path = "../sandbox-runtime" }
+moatless-sandbox-runtime = { workspace = true }
 # Shared gRPC wire vocabulary (proto types) — a floor crate, legal downward.
-sandbox-proto = { path = "../sandbox-proto" }
+sandbox-proto = { workspace = true }
 
 [features]
 # Gate the `#[sqlx::test]` blocks that need a running PostgreSQL (lifecycle DAO,
@@ -53,17 +54,17 @@ db-tests = [
 workspace = true
 
 [dev-dependencies]
-http-body-util = "0.1"
+http-body-util = { workspace = true }
 # The unit tests name mock DAOs and test-only constructors across the crate
 # boundary off each lower band's `test-support` gate. Required when the crate is
 # built in isolation (`-p moatless-sandbox-control`); a `--workspace` build masks
 # them through the backend's own dev-dependencies.
-moatless-backend-core = { path = "../backend-core", features = ["test-support"] }
-moatless-core = { path = "../core", features = ["test-support"] }
-moatless-sandbox-runtime = { path = "../sandbox-runtime", features = ["test-support"] }
+moatless-ports = { workspace = true, features = ["test-support"] }
+moatless-core = { workspace = true, features = ["test-support"] }
+moatless-sandbox-runtime = { workspace = true, features = ["test-support"] }
 # Test-only. The `db-tests` plan test assembles `ProvisionDeps` straight from a
 # pool, so it names the concrete workspace DAOs; production code here reaches
 # the workspace domain only through `WorkspaceResolver` and
 # `WorkspaceCredentialReader`, so this edge must never appear under
 # `[dependencies]`.
-moatless-workspaces = { path = "../workspaces" }
+moatless-workspaces = { workspace = true }

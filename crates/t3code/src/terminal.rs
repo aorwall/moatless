@@ -24,10 +24,10 @@ use tracing::{debug, warn};
 
 use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
-use moatless_types::sandbox::SandboxDesiredState;
-use moatless_backend_core::sandbox::SandboxError;
-use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
+use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::sandbox::SandboxDesiredState;
+use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 
 const TERMINAL_EVENT_BUFFER: usize = 512;
 

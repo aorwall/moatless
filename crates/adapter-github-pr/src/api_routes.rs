@@ -22,21 +22,20 @@ use axum::Json;
 use axum::extract::{Path, State};
 use moatless_api_schemas::github::{
     GithubBindPrRequest, GithubBindPrResponse, GithubCommentRequest, GithubCommentResponse,
-    GithubCreatePrRequest, GithubExternalEventRequest, GithubExternalEventResponse,
-    GithubExternalEventSubject,
-    GithubCreatePrResponse, GithubReplyRequest,
+    GithubCreatePrRequest, GithubCreatePrResponse, GithubExternalEventRequest,
+    GithubExternalEventResponse, GithubExternalEventSubject, GithubReplyRequest,
 };
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use moatless_backend_core::task::{ExternalEvent, TaskReader, TranscriptAppend};
-use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_access_with};
+use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::footer::FOOTER_MARKER;
-use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
-use moatless_loops::bindings::recently_sent::RecentlySent;
-use moatless_types::access_control::Actor;
 use moatless_core::http_auth::AuthUser;
+use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_access_with};
+use moatless_loops::bindings::recently_sent::RecentlySent;
+use moatless_ports::task::{ExternalEvent, TaskReader, TranscriptAppend};
+use moatless_types::access_control::Actor;
 use moatless_types::repository::GitHostRepo;
 
 use super::adapter::GithubPrAdapter;
@@ -757,7 +756,9 @@ async fn body_with_task_footer(
     body: &str,
 ) -> String {
     let footer = match task_id {
-        Some(tid) => moatless_loops::bindings::footer::task_comment_footer(tasks, frontend_url, tid).await,
+        Some(tid) => {
+            moatless_loops::bindings::footer::task_comment_footer(tasks, frontend_url, tid).await
+        }
         None => None,
     };
     match footer {

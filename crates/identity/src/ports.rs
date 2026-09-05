@@ -1,4 +1,4 @@
-//! Identity's side of the seams declared in `moatless_backend_core::identity`.
+//! Identity's side of the seams declared in `moatless_ports::identity`.
 //!
 //! Each adapter wraps one store and narrows it to the values a peer crate
 //! reads, converting `sqlx::Error` into a `StoreError` that boxes it. The
@@ -8,16 +8,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_backend_core::identity::{
+use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
+use moatless_core::config::Config;
+use moatless_core::db::DbPool;
+use moatless_ports::identity::{
     AppCredentials, AppToken, CodexScopeReader, CommitIdentity, GitIdentity, HarnessCredentials,
     LinkedUser, ProviderIdentityLink, SecretCatalog, SecretResolver, UserDisplay, UserResolver,
 };
-use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
-use moatless_backend_core::store::StoreError;
-use moatless_core::config::Config;
-use moatless_core::db::DbPool;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::CodexScope;
+use moatless_types::store::StoreError;
 use moatless_types::user::UserRole;
 use uuid::Uuid;
 
@@ -46,9 +46,7 @@ impl UserDirectory {
     /// a user that does not exist.
     async fn actor(&self, user_id: &str) -> Result<Option<User>, StoreError> {
         let Ok(uuid) = user_id.parse::<Uuid>() else {
-            return Err(StoreError::new(format!(
-                "'{user_id}' is not a user id"
-            )));
+            return Err(StoreError::new(format!("'{user_id}' is not a user id")));
         };
         self.users
             .get_user(&uuid)
@@ -201,9 +199,10 @@ impl ProviderIdentityLink for UserDirectory {
         provider: &str,
         login: &str,
     ) -> Result<Option<String>, StoreError> {
-        let Some(user) = self.users.get_user_by_login(login).await.map_err(|e| {
-            StoreError::with_source(format!("read the user with login {login}"), e)
-        })?
+        let Some(user) =
+            self.users.get_user_by_login(login).await.map_err(|e| {
+                StoreError::with_source(format!("read the user with login {login}"), e)
+            })?
         else {
             return Ok(None);
         };
@@ -271,11 +270,10 @@ impl ProviderIdentityLink for UserDirectory {
 #[async_trait]
 impl AppCredentials for HarnessTokens {
     async fn app_token(&self, provider: &str) -> Result<Option<AppToken>, StoreError> {
-        let row = self
-            .tokens
-            .find_app_token(provider)
-            .await
-            .map_err(|e| StoreError::with_source(format!("read the {provider} app token"), e))?;
+        let row =
+            self.tokens.find_app_token(provider).await.map_err(|e| {
+                StoreError::with_source(format!("read the {provider} app token"), e)
+            })?;
         Ok(row.map(|row| AppToken {
             access_token: row.access_token,
             refresh_token: row.refresh_token,
@@ -285,11 +283,7 @@ impl AppCredentials for HarnessTokens {
         }))
     }
 
-    async fn store_app_token(
-        &self,
-        provider: &str,
-        token: &AppToken,
-    ) -> Result<(), StoreError> {
+    async fn store_app_token(&self, provider: &str, token: &AppToken) -> Result<(), StoreError> {
         self.tokens
             .upsert_app_token(
                 provider,

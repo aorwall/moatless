@@ -1,0 +1,23 @@
+[package]
+name = "moatless-arch-rules"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Architecture rules for the workspace, reported by a binary and enforced as tests against a shrinking baseline"
+
+[dependencies]
+proc-macro2 = "1"
+regex.workspace = true
+anyhow = "1"
+serde_json = { workspace = true }
+# `full` is needed to parse whole files rather than just derive input.
+syn = { version = "2", features = ["full", "visit"] }
+toml = { version = "0.9", default-features = false, features = ["parse", "std", "serde"] }
+walkdir = "2"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "arch-report"
+path = "src/bin/arch-report.rs"

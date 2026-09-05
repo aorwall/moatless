@@ -18,12 +18,12 @@ use super::models::Task;
 use super::relations::{TaskRelation, TaskRelationDao};
 use super::schemas::*;
 use crate::tag::dao::TagDao;
+use crate::task::bindings::TaskBindings;
 use crate::task::dao::TaskDao;
 use crate::task::models::SandboxIntentView;
 use moatless_api_schemas::bindings::TaskBindingSummary;
-use moatless_backend_core::binding::TaskBindings;
-use moatless_backend_core::identity::UserDisplay;
-use moatless_backend_core::workspace::{RepositoryReader, WorkspaceResolver};
+use moatless_ports::identity::UserDisplay;
+use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 
 /// The eight ports a task response is assembled from, held together because a
 /// `TaskResponse` has eight independent sources and `enrich_task` reads all of

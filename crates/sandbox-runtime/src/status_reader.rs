@@ -3,7 +3,7 @@
 //! This crate's `handlers` module serves `SandboxStatusFullResponse` — the
 //! thirteen-field status body — as a documented HTTP response, so that route
 //! reads through this trait rather than the runtime contract. The contract
-//! `moatless_backend_core::sandbox::SandboxObserver` carries a two-field status
+//! `moatless_ports::sandbox::SandboxObserver` carries a two-field status
 //! and is implemented for the same adapters by projecting from this read; the
 //! projection lives in the backend's `t3code::projection`.
 //!

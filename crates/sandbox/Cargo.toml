@@ -1,0 +1,91 @@
+[package]
+name = "moatless-sandbox"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "In-container sandbox process for Moatless Vibe"
+
+[lib]
+name = "moatless_sandbox"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sandbox"
+path = "src/main.rs"
+
+[dependencies]
+# Claude Agent SDK
+claude-agent-sdk = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true, features = ["rt"] }
+
+# HTTP server
+axum = { workspace = true, features = ["macros"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+
+# UUID + timestamps
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+
+# Shared type definitions
+moatless-types = { workspace = true }
+
+# Typed API schemas (shared codex tool shapes)
+
+# gRPC (backend communication — replaces Redis + HTTP polling)
+sandbox-proto = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+tokio-stream = "0.1"
+
+# CORS + tracing middleware
+tower-http = { version = "0.7", features = ["cors", "trace"] }
+
+# Async streams + traits
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# Interactive terminal PTY sessions for the T3 compatibility surface.
+portable-pty = "0.9"
+
+# Filesystem walking (respects .gitignore, skips hidden dirs)
+ignore = "0.4"
+
+# Tar archives for the Claude transcript sync (projects/<dashed-cwd>/ → S3)
+tar = "0.4"
+
+# Gzip for the workspace snapshot: source trees compress several-fold, which
+# cuts both the S3 transfer and the tar's in-memory footprint. `rust_backend`
+# keeps this pure Rust (miniz_oxide) with no C toolchain dependency.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+# Filesystem watch (detects Codex CLI rotating ~/.codex/auth.json so we can
+# write the rotated refresh token back to the backend).
+notify = "8"
+
+# Base64 encoding (binary file support)
+base64 = { workspace = true }
+
+# HTTP client for the `s3` storage backend's workspace sync: the sandbox
+# transfers the workspace tar directly to/from S3 via backend-minted presigned
+# URLs (rustls to match the rest of the workspace; no default features).
+reqwest = { workspace = true, features = ["rustls"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full", "test-util"] }
+
+[lints]
+workspace = true

@@ -8,11 +8,11 @@
 //! private to this crate.
 
 use async_trait::async_trait;
-use moatless_backend_core::store::StoreError;
+use moatless_types::store::StoreError;
 
+use crate::loops::dao::LoopDao;
 use moatless_adapter_model::loops::LoopReader;
 use moatless_types::loops::SubscriptionMatch;
-use crate::loops::dao::LoopDao;
 
 /// The Loop tables answer the Subscription reads directly: `LoopDao` is the
 /// only store over them, so a wrapper here would be a second surface over one
@@ -74,10 +74,7 @@ impl LoopReader for LoopDao {
         self.find_subscription_wildcard(adapter_kind)
             .await
             .map_err(|e| {
-                StoreError::with_source(
-                    format!("read the {adapter_kind} wildcard subscription"),
-                    e,
-                )
+                StoreError::with_source(format!("read the {adapter_kind} wildcard subscription"), e)
             })
     }
 }

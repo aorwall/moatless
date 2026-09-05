@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure what a per-file S3 workspace mirror would cost against the tar today.
 
-`sandbox/src/init/workspace_sync.rs` uploads one gzipped tar per sync. A mirror
+`crates/sandbox/src/init/workspace_sync.rs` uploads one gzipped tar per sync. A mirror
 that stores every file under its own key makes each file readable while the
 sandbox is down, and charges per object instead of per archive. This script
 produces the two numbers that decision needs: the file set a workspace holds

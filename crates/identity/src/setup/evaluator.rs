@@ -54,7 +54,8 @@ pub async fn evaluate_setup(ctx: &SetupContext<'_>) -> SetupStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::test_support::{github_row, StubProviderTokens};
+    use crate::auth::test_support::StubProviderTokens;
+    use crate::auth::test_support::github_row;
 
     fn context(tokens: &StubProviderTokens, is_admin: bool) -> SetupContext<'_> {
         SetupContext {

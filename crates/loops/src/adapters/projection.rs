@@ -5,14 +5,14 @@ use cron::Schedule as CronSchedule;
 use serde::Deserialize;
 
 use moatless_adapter_model::error::{AdapterError, ReplyTarget, SharedAdapterError};
-use moatless_types::adapter::AdapterConnection;
-use moatless_types::adapter::TaskBinding;
 use moatless_api_schemas::adapters::AdapterConnectionResponse;
 use moatless_api_schemas::bindings::{ReplyTargetDescriptor, TaskBindingResponse};
 use moatless_api_schemas::loops::{
     Loop, LoopConfig, LoopExecutionState, LoopSource, ManualSource, Schedule, Subscription,
 };
+use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::AdapterKind;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::loops::{LoopConfigSource, LoopKind};
 
 use crate::loops::dao::{LoopRecord, LoopSourceRow};

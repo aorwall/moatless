@@ -53,7 +53,7 @@ impl ServerOverride {
 /// Raise from tonic's 4 MB default so binary files (audio, images) can round-trip.
 const MAX_GRPC_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 const SHORT_RPC_TIMEOUT: Duration = Duration::from_secs(10);
-const JOIN_TASK_TIMEOUT: Duration = Duration::from_secs(300);
+const JOIN_TASK_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Errors that can occur when constructing a [`SandboxClient`].
 #[derive(Debug, thiserror::Error)]
@@ -802,6 +802,11 @@ pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test fixtures must succeed"
+)]
 mod tests {
     use super::*;
 
@@ -845,6 +850,6 @@ mod tests {
     #[test]
     fn join_task_deadline_allows_clone_scale_materialization() {
         assert!(SandboxClient::join_task_timeout() > SHORT_RPC_TIMEOUT);
-        assert!(SandboxClient::join_task_timeout() >= Duration::from_secs(120));
+        assert!(SandboxClient::join_task_timeout() >= Duration::from_mins(2));
     }
 }

@@ -9,7 +9,7 @@
 //!   plus a drain wait, and is deleted with the sandbox. Without it the
 //!   workspace is a node-local `emptyDir` that dies with the pod.
 //! - **S3** ([`StorageBackend::s3`]) — the copy that outlives the Deployment;
-//!   `sandbox/src/init/workspace_sync.rs` owns the file set.
+//!   `crates/sandbox/src/init/workspace_sync.rs` owns the file set.
 //!
 //! The pair decides how a start treats the volume it finds:
 //!

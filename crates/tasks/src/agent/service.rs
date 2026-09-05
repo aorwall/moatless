@@ -2,9 +2,9 @@
 
 use std::collections::HashSet;
 
-use super::catalog::{catalog, AgentEntry};
+use super::catalog::{AgentEntry, catalog};
 use super::schemas::{AgentDescriptor, AgentModel};
-use moatless_backend_core::identity::{HarnessCredentials, SecretCatalog};
+use moatless_ports::identity::{HarnessCredentials, SecretCatalog};
 use moatless_types::access_control::ScopeContext;
 
 /// Materialize the full catalog with `installed` populated per the given scope.
@@ -94,10 +94,7 @@ async fn collect_provider_token_providers(
         .collect();
 
     for provider in &relevant {
-        match provider_tokens
-            .provider_token(&ctx.user_id, provider)
-            .await
-        {
+        match provider_tokens.provider_token(&ctx.user_id, provider).await {
             Ok(Some(_)) => {
                 providers.insert((*provider).to_string());
             }

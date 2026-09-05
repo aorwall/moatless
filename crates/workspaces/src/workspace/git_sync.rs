@@ -32,19 +32,19 @@ use crate::repository::config_reader::fetch_provider_file;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::error::{RepositoryError, is_remote_url_conflict};
 use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
-use moatless_types::workspace::ScriptConfig;
-use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 use crate::repository::models::Repository;
 use crate::workspace::dao::{WorkspaceDao, WorkspacePatch, ensure_shadow_workspace};
 use crate::workspace::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
-use moatless_types::workspace::{ResourceConfig, ServerConfig};
-use moatless_types::access_control::ScopeContext;
 use moatless_core::db::DbPool;
-use moatless_types::access_control::Actor;
 use moatless_core::http_auth::AuthUser;
+use moatless_ports::identity::GitHostTokenIssuer;
+use moatless_types::access_control::Actor;
+use moatless_types::access_control::ScopeContext;
 use moatless_types::repository::GitHostRepo;
-use moatless_backend_core::identity::GitHostTokenIssuer;
+use moatless_types::repository::{RepositoryKind, RepositoryProvider};
+use moatless_types::workspace::ScriptConfig;
+use moatless_types::workspace::{ResourceConfig, ServerConfig};
 
 // =============================================================================
 // `.moatless/` file schemas

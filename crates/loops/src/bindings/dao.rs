@@ -3,7 +3,7 @@
 //! Binding is this crate's own concept, so both the port and its
 //! implementation live here. Peers reach it through the narrow seams in
 //! `bindings::ports` — `BindingProbe`, `BindingLookup`, `BindingStatus` for the
-//! Adapters beside this crate, and `moatless_backend_core::binding::TaskBindings`
+//! Adapters beside this crate, and `moatless_tasks::task::bindings::TaskBindings`
 //! for the Task band below it.
 
 use chrono::{DateTime, Utc};
@@ -12,8 +12,8 @@ use sqlx::AssertSqlSafe;
 use moatless_core::db::DbPool;
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
-use moatless_types::adapter::TaskBinding;
 use moatless_adapter_model::persistence::TaskBindingRow;
+use moatless_types::adapter::TaskBinding;
 
 #[async_trait::async_trait]
 pub trait TaskBindingDao: Send + Sync {
@@ -82,7 +82,7 @@ pub trait TaskBindingDao: Send + Sync {
     async fn mark_task_link_sent(&self, id: &str) -> Result<(), sqlx::Error>;
 
     async fn touch_cursor(&self, id: &str, last_external_event_id: &str)
-        -> Result<(), sqlx::Error>;
+    -> Result<(), sqlx::Error>;
 
     /// Persist the external status of a binding's connected subject (GitHub PR
     /// / Linear issue). Writes the dedicated `external_status*` columns and
@@ -169,7 +169,6 @@ pub struct TaskBindingInfo {
     pub source_id: String,
     pub source_name: Option<String>,
 }
-
 
 pub struct PgTaskBindingDao(DbPool);
 
@@ -731,10 +730,7 @@ impl PgTaskBindingDao {
         Ok(())
     }
 
-    async fn find_by_task_ids(
-        &self,
-        task_ids: &[String],
-    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+    async fn find_by_task_ids(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error> {
         if task_ids.is_empty() {
             return Ok(vec![]);
         }

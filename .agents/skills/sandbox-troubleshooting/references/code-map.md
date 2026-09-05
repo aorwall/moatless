@@ -28,9 +28,9 @@ sequence, gRPC API, preview-server state machine).
 
 | Concern | File | What lives there |
 |---|---|---|
-| Health/liveness endpoints | `sandbox/src/main.rs` | `GET /health` (startup probe, 200 iff Ready), `GET /livez` (heartbeat-backed liveness) |
-| Agent state machine | `sandbox/src/agent/agent_state.rs` | agent states surfaced via gRPC `GetAgentStatus` |
-| Server monitoring | `sandbox/src/server/` | preview/files server process + status |
+| Health/liveness endpoints | `crates/sandbox/src/main.rs` | `GET /health` (startup probe, 200 iff Ready), `GET /livez` (heartbeat-backed liveness) |
+| Agent state machine | `crates/sandbox/src/agent/agent_state.rs` | agent states surfaced via gRPC `GetAgentStatus` |
+| Server monitoring | `crates/sandbox/src/server_control.rs` | preview/files server process + status |
 
 ## Event types (`crates/types/src/event.rs`)
 

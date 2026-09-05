@@ -5,7 +5,7 @@
 use moatless_adapter_model::footer::render_footer;
 use moatless_types::access_control::ScopeContext;
 
-use moatless_backend_core::task::TaskReader;
+use moatless_ports::task::TaskReader;
 
 /// Build the footer suffix appended to an outbound comment body, or `None` when
 /// no frontend URL is configured. Loads the task name (best effort) to use as

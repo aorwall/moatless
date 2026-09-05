@@ -18,10 +18,11 @@ use super::container_builder::{
     CREATED_BY_LABEL, CREATED_BY_VALUE, SANDBOX_SERVICE, SERVICE_LABEL,
 };
 use moatless_core::events::EventPublisher;
-use moatless_sandbox_runtime::classify::ObservedTransition;
-use moatless_sandbox_runtime::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
-use moatless_sandbox_control::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
 use moatless_sandbox_control::lifecycle::Lifecycle;
+use moatless_sandbox_control::lifecycle::watcher::classify_observation;
+use moatless_sandbox_runtime::classify::ObservedTransition;
+use moatless_sandbox_runtime::observation_events::publish_sandbox_observation;
+use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
 
 /// Spawn a background task that watches Docker container events and publishes
 /// lifecycle events to the event system.
@@ -183,9 +184,10 @@ async fn handle_docker_event(
                 .publishes
             {
                 let (status, message) = match transition {
-                    ObservedTransition::Crash | ObservedTransition::NonZeroStop => {
-                        (moatless_types::sandbox::SandboxStatus::Error, "Container crashed")
-                    }
+                    ObservedTransition::Crash | ObservedTransition::NonZeroStop => (
+                        moatless_types::sandbox::SandboxStatus::Error,
+                        "Container crashed",
+                    ),
                     _ => (moatless_types::sandbox::SandboxStatus::Stopped, "Stopped"),
                 };
                 event_publisher

@@ -5,7 +5,7 @@
 //! the migration both go through it, so the two cannot drift into two different
 //! answers for the same block.
 
-pub use moatless_backend_core::activity::{
+pub use moatless_types::activity::{
     ActivityKind, ActivityStatus, PLAN_APPROVE, PLAN_QUESTION, PLAN_REJECT, PLAN_TOOL,
     QUESTION_TOOL, item_type, result_text,
 };

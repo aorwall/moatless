@@ -1,8 +1,7 @@
 # crates/loops
 
 The loops band: Adapter vocabulary, durable inbound delivery, bindings, and
-loop sync. It sits below the backend and above the provider crates
-(`adapter-linear`, `adapter-github-pr`, …), which is why both ends can name it.
+loop sync. [BANDS](../../tooling/arch-rules/src/band_order.rs) owns dependency order.
 
 ## Ownership
 
@@ -12,7 +11,7 @@ loop sync. It sits below the backend and above the provider crates
 - Two seams a crate that does **not** drive the Binding lifecycle reads:
   `BindingProbe` (is this subject bound?), published by the Adapter kernel at
   `moatless_adapter_model::binding`, and, through
-  `moatless_backend_core::binding::TaskBindings`, the Task band's downward edge.
+  `moatless_tasks::task::bindings::TaskBindings`, the Task band's downward edge.
   `BindingDirectory` in `bindings/ports.rs` implements both.
 - **Loop** — the four Loop tables and their `LoopDao` store. The Adapter kernel
   publishes `LoopReader` (`moatless_adapter_model::loops`), the Subscription reads
@@ -50,11 +49,7 @@ change would put a trait every provider implements, the registry, an ingress
 vocabulary, or a read seam a provider names back in here, it belongs in the
 kernel instead.
 
-`scripts/check-crate-seams.sh` enforces this: invariant 3 fails a `pub use` of
-another crate's item anywhere under `src/adapters/` unless it is listed in the
-script's `ALLOWED_REEXPORTS` with the change that removes it — a list that is
-empty and only shrinks — and invariant 4 fails a `moatless_loops` reference in
-`adapter-slack` or `adapter-webhook`, the two provider crates the kernel freed.
+[Adapter boundaries](../../tooling/arch-rules/src/adapter_boundaries.rs) enforce these imports.
 
 ## Two seams join a provider to the rest of the system
 

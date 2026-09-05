@@ -15,8 +15,8 @@ use moatless_core::http_auth::AuthUser;
 use super::models::WorkspaceCredentialMetadata;
 use super::service::WorkspaceCredentialService;
 use crate::workspace::error::WorkspaceError;
-use moatless_types::workspace::WorkspaceCredentialProvider;
 use crate::workspace::schemas::{SetWorkspaceCredentialRequest, WorkspaceCredentialResponse};
+use moatless_types::workspace::WorkspaceCredentialProvider;
 
 pub(super) fn credential_response(
     metadata: WorkspaceCredentialMetadata,

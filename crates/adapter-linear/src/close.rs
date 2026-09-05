@@ -17,16 +17,16 @@ use std::fmt::Write as _;
 
 use tracing::{debug, info, warn};
 
-use moatless_types::task::TaskStatus;
-use moatless_types::access_control::ScopeContext;
-use moatless_core::config::Config;
-use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
-use moatless_types::loops::SubscriptionMatch;
-use moatless_types::adapter::TaskBinding;
+use moatless_adapter_model::error::AdapterError;
+use moatless_core::config::Config;
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_backend_core::task::{CloseReason, TaskFinisher};
-use moatless_backend_core::task::TaskReader;
+use moatless_ports::task::TaskReader;
+use moatless_ports::task::{CloseReason, TaskFinisher};
+use moatless_types::access_control::ScopeContext;
+use moatless_types::adapter::TaskBinding;
+use moatless_types::loops::SubscriptionMatch;
+use moatless_types::task::TaskStatus;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::webhook_payloads::IssuePayload;

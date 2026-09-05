@@ -1,0 +1,168 @@
+//! Explicit exceptions tied to one declaration or one dependency edge.
+
+use anyhow::Result;
+
+use crate::source_index::{Record, attrs, doc_value};
+use crate::workspace::{Member, Workspace};
+use crate::{RULES, Violation};
+
+pub const RULE: &str = "arch-allow-names-a-rule";
+
+/// A parsed item exception.
+pub struct Allow<'a> {
+    pub rule: &'a str,
+    pub reason: &'a str,
+}
+
+fn parse(line: &str) -> Result<Option<Allow<'_>>, &'static str> {
+    let line = line.trim();
+    if !line.starts_with("arch-allow") {
+        return Ok(None);
+    }
+    let rest = line
+        .strip_prefix("arch-allow(")
+        .ok_or("expected arch-allow(rule): reason")?;
+    let (rule, reason) = rest
+        .split_once("):")
+        .ok_or("expected arch-allow(rule): reason")?;
+    let rule = rule.trim();
+    let reason = reason.trim();
+    if !RULES.iter().any(|(name, _)| *name == rule) {
+        return Err("unknown architecture rule");
+    }
+    if reason.is_empty() {
+        return Err("an exception requires a reason");
+    }
+    if dependency_rule(rule) {
+        return Err("dependency exceptions belong in package.metadata.arch.allow");
+    }
+    Ok(Some(Allow { rule, reason }))
+}
+
+fn dependency_rule(rule: &str) -> bool {
+    matches!(
+        rule,
+        "band-order" | "dependency-privacy" | "closed-dependency-list" | "base-surface"
+    )
+}
+
+/// Whether this declaration carries a valid exception to an item rule.
+pub fn permits(record: &Record, rule: &str) -> bool {
+    attrs(&record.item)
+        .iter()
+        .filter(|a| a.path().is_ident("doc"))
+        .filter_map(doc_value)
+        .any(|line| parse(&line).ok().flatten().is_some_and(|a| a.rule == rule))
+}
+
+/// Whether a manifest excuses exactly this rule and target package.
+pub fn permits_dependency(member: &Member, rule: &str, dependency: &str) -> bool {
+    member.metadata["arch"]["allow"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|a| {
+            a["rule"].as_str() == Some(rule)
+                && a["dependency"].as_str() == Some(dependency)
+                && a["reason"].as_str().is_some_and(|r| !r.trim().is_empty())
+                && dependency_rule(rule)
+        })
+}
+
+pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
+    let mut out = Vec::new();
+    for r in &ws.index()?.records {
+        for line in attrs(&r.item)
+            .iter()
+            .filter(|a| a.path().is_ident("doc"))
+            .filter_map(doc_value)
+        {
+            match parse(&line) {
+                Err(why) => out.push(Violation::at(
+                    RULE,
+                    format!("{}: {}", r.id, line.trim()),
+                    why,
+                    &r.file,
+                )),
+                Ok(Some(a)) => {
+                    let applicable = match a.rule {
+                        "port-admission" => matches!(r.package.as_str(), "moatless-ports"),
+                        "floor-type-admission" => r.package == "moatless-types",
+                        "single-implementation-trait" => matches!(r.item, syn::Item::Trait(_)),
+                        "composition-root"
+                        | "store-privacy"
+                        | "table-ownership"
+                        | "adapter-boundaries"
+                        | "row-stays-with-query" => true,
+                        _ => false,
+                    };
+                    if !applicable {
+                        out.push(Violation::at(
+                            RULE,
+                            format!("{}: {}", r.id, a.rule),
+                            "exception is not applicable to this item",
+                            &r.file,
+                        ));
+                    }
+                }
+                Ok(None) => {}
+            }
+        }
+    }
+    for member in ws.members() {
+        if let Some(allows) = member.metadata.get("arch").and_then(|a| a.get("allow")) {
+            let Some(allows) = allows.as_array() else {
+                out.push(Violation::at(
+                    RULE,
+                    &member.name,
+                    "arch.allow must be an array of tables",
+                    ws.relative(&member.dir.join("Cargo.toml")),
+                ));
+                continue;
+            };
+            for a in allows {
+                let rule = a["rule"].as_str().unwrap_or_default();
+                let dependency = a["dependency"].as_str().unwrap_or_default();
+                if !RULES.iter().any(|(name, _)| *name == rule)
+                    || !dependency_rule(rule)
+                    || !member.normal_deps.contains(dependency)
+                    || a["reason"].as_str().is_none_or(|r| r.trim().is_empty())
+                {
+                    out.push(Violation::at(RULE, format!("{}: {rule} -> {dependency}", member.name),
+                        "dependency exception requires a registered dependency rule, a declared target and a reason",
+                        ws.relative(&member.dir.join("Cargo.toml"))));
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "fixtures must parse")]
+mod tests {
+    use super::*;
+    #[test]
+    fn malformed_empty_and_unknown_tags_fail() {
+        for line in [
+            "arch-allow(unknown): why",
+            "arch-allow(port-admission): ",
+            "arch-allow(port-admission)",
+        ] {
+            assert!(parse(line).is_err(), "{line}");
+        }
+    }
+    #[test]
+    fn item_exception_keeps_the_reason() {
+        let a = parse(" arch-allow(port-admission): keeps the read projection independent")
+            .unwrap()
+            .unwrap();
+        assert_eq!(a.rule, "port-admission");
+        assert_eq!(a.reason, "keeps the read projection independent");
+        assert!(parse("ordinary documentation").unwrap().is_none());
+    }
+    #[test]
+    fn a_doc_tag_cannot_excuse_a_cargo_edge() {
+        assert!(parse("arch-allow(band-order): deliberate").is_err());
+    }
+}

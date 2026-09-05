@@ -11,7 +11,7 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use moatless_backend_core::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
+use moatless_types::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -19,14 +19,14 @@ use super::api_key::validate_key_cached;
 use super::api_keys::ApiKeyDao;
 use super::cache::AuthCache;
 use super::cookie::{CSRF_COOKIE_NAME, get_all_cookie_values, get_cookie_value};
-use moatless_types::auth::{AuthIdentity, AuthMethod};
 use super::jwt;
 use super::session;
 use super::sessions::SessionDao;
 use super::users::UserDao;
-use moatless_core::http_auth::UserTokenVerifier;
-use moatless_core::config::Config;
 use moatless_api_schemas::error::ErrorBody;
+use moatless_core::config::Config;
+use moatless_core::http_auth::UserTokenVerifier;
+use moatless_types::auth::{AuthIdentity, AuthMethod};
 
 /// The one route that accepts a ticket in its query string.
 const WEBSOCKET_PATH: &str = "/ws";

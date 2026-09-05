@@ -357,7 +357,7 @@ the Task re-activates (a Loop's `skills`), and the backend unions the two onto
 `PendingAgentDelivery.skills`. Only the pod resolves the body: it reads the
 `SKILL.md` from the repo's own skill roots or the harness's installed home skills
 dir and prepends `Activated <root>/<name>:` plus that body to the turn
-(`sandbox/src/agent/skills.rs`).
+(`crates/sandbox/src/agent/skills.rs`).
 
 _Known debt_: the wire variant for a repository skill is `SkillSource::Workspace`,
 named before Repository and Workspace were separated. It means Repository. Rename
@@ -393,7 +393,7 @@ _Avoid_: scope (means tenancy elsewhere in this codebase), link, enable flag
 Claude Code's own `marketplace.json` manifest format, which a Plugin repository
 may use to declare where its plugins live. The word is theirs, not ours — it is
 allowed only in the code that parses that file (`backend/src/skill/fetcher.rs`,
-`sandbox/src/init/plugin_skills.rs`, `sandbox/src/agent/options.rs`) and never
+`crates/sandbox/src/init/plugin_skills.rs`, `crates/sandbox/src/agent/options.rs`) and never
 names one of our own concepts.
 
 ### Conversation
@@ -450,7 +450,7 @@ ordering a transactional outbox.
 
 **Sandbox event send buffer**:
 The Sandbox's in-memory queue between an event producer and the single drainer
-that publishes to the backend (`sandbox/src/outbox.rs`). Ordered, non-durable
+that publishes to the backend (`crates/sandbox/src/outbox.rs`). Ordered, non-durable
 across process death, and **bounded where the producer submits**, so a stalled
 drainer cannot let it grow. At capacity the oldest non-lifecycle event is
 evicted; when only **lifecycle** events (`taskTurn.*`, terminal `agent.*`)
@@ -638,14 +638,14 @@ adapter translates into its own wire shape instead of re-reading the storage
 rules. **ActivitySource** is the port: the tail since a cursor, the rows one
 batch of Messages produced, the rows a set of ids names, and the single call a
 `tool_use_id` names.
-_Note_: the vocabulary lives in `moatless-backend-core`, below both the crate
+_Note_: the vocabulary lives in `moatless-ports`, below both the crate
 that stores the rows and the read models that project them, so a projection
 reads activities without naming the Task crate.
 
 **Binding ports**:
 The two seams `loops` publishes over the Binding store. **BindingProbe** —
 whether a subject is bound at all, for an Adapter that needs the predicate and
-none of the rows. **TaskBindings** (in `moatless-backend-core`) — the Bindings a
+none of the rows. **TaskBindings** (in `moatless-ports`) — the Bindings a
 Task carries, each labelled with the Loop that owns it, and stop-listening; the
 Task band sits below `loops` so its edge goes through `backend-core`.
 _Note_: an Adapter that drives the Binding lifecycle — upserts as well as reads
@@ -680,7 +680,7 @@ both report that writer's value rather than failing.
 
 **Store error**:
 The error every port returns (`StoreError`, in `moatless-types`, re-exported by
-`moatless_backend_core::store`). It carries
+`moatless_ports::store`). It carries
 a human context plus an optional boxed source, so a store driver stays out of a
 caller's dependency list.
 _Avoid_: returning `sqlx::Error` across a crate seam.

@@ -22,7 +22,7 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::task::dao::TaskDao;
-use moatless_backend_core::sandbox::CredentialBroadcast;
+use moatless_ports::sandbox::CredentialBroadcast;
 use moatless_types::agent::CodexScope;
 use moatless_workspaces::credentials::codex::refresh::CodexRefreshOutcome;
 use moatless_workspaces::credentials::{
@@ -32,7 +32,7 @@ use moatless_workspaces::credentials::{
 /// The sandbox band's view of this orchestrator: one `auth.json`, with "no
 /// credential anywhere" told apart from a failure.
 #[async_trait::async_trait]
-impl moatless_backend_core::sandbox::CodexCredentials for CredentialSync {
+impl moatless_ports::sandbox::CodexCredentials for CredentialSync {
     async fn ensure_fresh_codex_for(
         &self,
         user_id: &str,
@@ -293,11 +293,13 @@ mod tests {
     use super::*;
     use crate::task::dao::MockTaskDao;
     use async_trait::async_trait;
-    use moatless_backend_core::sandbox::{CredentialBroadcast, SandboxError};
-    use moatless_identity::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
+    use moatless_identity::auth::models::{
+        GithubTokenPresence, ProviderAccessToken, ProviderToken,
+    };
     use moatless_identity::auth::provider_token_dao::{
         CodexBlobOutcome, CodexBlobRefresher, ProviderTokenDao,
     };
+    use moatless_ports::sandbox::{CredentialBroadcast, SandboxError};
 
     /// A `CredentialBroadcast` that must never be reached. Every test below
     /// either keeps `list_open_codex_tasks_for_scope` returning empty (nothing
@@ -365,49 +367,52 @@ mod tests {
 
     #[async_trait]
     impl ProviderTokenDao for FakeTokens {
-    async fn find_user_by_provider_login(
-        &self,
-        _provider: &str,
-        _provider_login: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
-        Ok(None)
-    }
+        async fn find_user_by_provider_login(
+            &self,
+            _provider: &str,
+            _provider_login: &str,
+        ) -> Result<Option<String>, sqlx::Error> {
+            Ok(None)
+        }
 
-    async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error> {
-        Ok(Vec::new())
-    }
+        async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error> {
+            Ok(Vec::new())
+        }
 
-    async fn find_user_by_provider_account(
-        &self,
-        _provider: &str,
-        _provider_user_id: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
-        Ok(None)
-    }
+        async fn find_user_by_provider_account(
+            &self,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<Option<String>, sqlx::Error> {
+            Ok(None)
+        }
 
-    async fn find_app_token(&self, _provider: &str) -> Result<Option<ProviderToken>, sqlx::Error> {
-        Ok(None)
-    }
+        async fn find_app_token(
+            &self,
+            _provider: &str,
+        ) -> Result<Option<ProviderToken>, sqlx::Error> {
+            Ok(None)
+        }
 
-    async fn upsert_app_token(
-        &self,
-        _provider: &str,
-        _access_token: &str,
-        _refresh_token: Option<&str>,
-        _token_type: Option<&str>,
-        _metadata: Option<&serde_json::Value>,
-        _expires_at: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> Result<(), sqlx::Error> {
-        Ok(())
-    }
+        async fn upsert_app_token(
+            &self,
+            _provider: &str,
+            _access_token: &str,
+            _refresh_token: Option<&str>,
+            _token_type: Option<&str>,
+            _metadata: Option<&serde_json::Value>,
+            _expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        ) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
 
-    async fn refresh_codex_blob(
-        &self,
-        _scope: &CodexScope,
-        _refresher: &(dyn CodexBlobRefresher + '_),
-    ) -> Result<Option<CodexBlobOutcome>, sqlx::Error> {
-        Ok(None)
-    }
+        async fn refresh_codex_blob(
+            &self,
+            _scope: &CodexScope,
+            _refresher: &(dyn CodexBlobRefresher + '_),
+        ) -> Result<Option<CodexBlobOutcome>, sqlx::Error> {
+            Ok(None)
+        }
 
         async fn find_provider_token(
             &self,

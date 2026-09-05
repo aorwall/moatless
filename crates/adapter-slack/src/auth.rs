@@ -7,8 +7,8 @@
 use tracing::warn;
 use uuid::Uuid;
 
-use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_adapter_model::error::AdapterError;
+use moatless_ports::identity::ProviderIdentityLink;
 
 use super::api::{SlackApi, SlackUserInfo};
 
@@ -246,7 +246,7 @@ impl ProviderIdentityLink for UnreachableUsers {
         &self,
         _provider: &str,
         _login: &str,
-    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+    ) -> Result<Option<String>, moatless_types::store::StoreError> {
         panic!("this path must resolve no sender")
     }
 
@@ -254,7 +254,7 @@ impl ProviderIdentityLink for UnreachableUsers {
         &self,
         _provider: &str,
         _login: &str,
-    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+    ) -> Result<Option<String>, moatless_types::store::StoreError> {
         panic!("this path must resolve no sender")
     }
 
@@ -262,7 +262,7 @@ impl ProviderIdentityLink for UnreachableUsers {
         &self,
         _provider: &str,
         _provider_user_id: &str,
-    ) -> Result<Option<moatless_backend_core::identity::LinkedUser>, moatless_backend_core::store::StoreError>
+    ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
     {
         panic!("this path must resolve no sender")
     }
@@ -270,7 +270,7 @@ impl ProviderIdentityLink for UnreachableUsers {
     async fn user_by_email(
         &self,
         _email: &str,
-    ) -> Result<Option<moatless_backend_core::identity::LinkedUser>, moatless_backend_core::store::StoreError>
+    ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
     {
         panic!("this path must resolve no sender")
     }
@@ -279,7 +279,7 @@ impl ProviderIdentityLink for UnreachableUsers {
         &self,
         _provider: &str,
         _provider_user_id: &str,
-    ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+    ) -> Result<Option<String>, moatless_types::store::StoreError> {
         panic!("this path must resolve no sender")
     }
 
@@ -288,7 +288,7 @@ impl ProviderIdentityLink for UnreachableUsers {
         _user_id: &Uuid,
         _provider: &str,
         _provider_user_id: &str,
-    ) -> Result<bool, moatless_backend_core::store::StoreError> {
+    ) -> Result<bool, moatless_types::store::StoreError> {
         panic!("this path must link no sender")
     }
 }
@@ -297,8 +297,8 @@ impl ProviderIdentityLink for UnreachableUsers {
 mod tests {
     use moatless_adapter_model::test_support::ProviderStub;
 
-    use crate::api::SlackApi;
     use super::{SenderIdentity, UnreachableUsers, bot_user_id, resolve_inbound_sender};
+    use crate::api::SlackApi;
 
     async fn stub(user: serde_json::Value) -> ProviderStub {
         ProviderStub::start(move |path| match path {
@@ -346,10 +346,9 @@ mod tests {
     async fn an_allowed_bot_is_never_resolved_by_email() {
         let stub = stub(bot("ci")).await;
 
-        let identity =
-            resolve_inbound_sender(&api(&stub), &UnreachableUsers, "U1BOT", true, false)
-                .await
-                .expect("an allowed bot skips every query");
+        let identity = resolve_inbound_sender(&api(&stub), &UnreachableUsers, "U1BOT", true, false)
+            .await
+            .expect("an allowed bot skips every query");
 
         let SenderIdentity::Unmapped {
             is_bot,
@@ -439,8 +438,10 @@ mod tests {
 
     #[tokio::test]
     async fn an_unreachable_slack_leaves_the_bot_unidentified() {
-        let api =
-            SlackApi::with_base_url("xoxb-test", moatless_adapter_model::test_support::UNREACHABLE_BASE);
+        let api = SlackApi::with_base_url(
+            "xoxb-test",
+            moatless_adapter_model::test_support::UNREACHABLE_BASE,
+        );
         assert_eq!(bot_user_id(&api, None).await, None);
     }
 }
@@ -507,7 +508,10 @@ mod db_tests {
     async fn a_found_row_resolves_to_the_user_id(pool: PgPool) {
         let user_id = seed_user(&pool, "alice@example.com", Some("U1")).await;
 
-        assert_eq!(user_by_slack_id(&users(&pool), "U1").await.unwrap(), Some(user_id));
+        assert_eq!(
+            user_by_slack_id(&users(&pool), "U1").await.unwrap(),
+            Some(user_id)
+        );
         assert_eq!(
             user_by_email(&users(&pool), "U1", "alice@example.com")
                 .await
@@ -532,7 +536,10 @@ mod db_tests {
         .await
         .unwrap();
         assert_eq!(cached, Some((user_id, "U1".to_string())));
-        assert_eq!(user_by_slack_id(&users(&pool), "U1").await.unwrap(), Some(user_id));
+        assert_eq!(
+            user_by_slack_id(&users(&pool), "U1").await.unwrap(),
+            Some(user_id)
+        );
     }
 
     /// Best-effort, and it stays that way: a second write of the same pair is a

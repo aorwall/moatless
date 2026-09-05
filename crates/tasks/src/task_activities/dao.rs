@@ -2,12 +2,13 @@
 //! change log that order and announce them.
 
 use chrono::{DateTime, Utc};
-use sqlx::PgConnection;
+use moatless_types::activity::ActivityStatus;
+use sqlx::{PgConnection, Row, postgres::PgRow};
 
 use super::mapping::{self, ActivityRow, ToolOutcome};
-pub use moatless_backend_core::activity::Activity;
-use moatless_backend_core::change_feed::conversation::record_activity_change;
+use moatless_core::change_feed::conversation::record_activity_change;
 use moatless_core::db::DbPool;
+pub use moatless_types::activity::Activity;
 /// The kinds this build can decode, as SQL.
 ///
 /// The narrowing is what keeps a rollback survivable: a row written by a newer
@@ -255,12 +256,13 @@ pub async fn admit_usage(
 /// assembled on demand behind the `Agent` call that spawned them, and they
 /// outnumber the rows that render.
 pub async fn for_task(pool: &DbPool, task_id: &str) -> Result<Vec<Activity>, sqlx::Error> {
-    sqlx::query_as::<_, Activity>(read_activities!(
+    sqlx::query_as::<_, StoredActivity>(read_activities!(
         "task_id = $1 AND parent_uuid IS NULL ORDER BY position, ordinal, activity_id"
     ))
     .bind(task_id)
     .fetch_all(pool)
     .await
+    .map(|rows| rows.into_iter().map(|row| row.0).collect())
 }
 
 /// A Task's own activities from a point in time onwards.
@@ -274,7 +276,7 @@ pub async fn for_task_since(
     task_id: &str,
     since: Option<DateTime<Utc>>,
 ) -> Result<Vec<Activity>, sqlx::Error> {
-    sqlx::query_as::<_, Activity>(read_activities!(
+    sqlx::query_as::<_, StoredActivity>(read_activities!(
         "task_id = $1 AND parent_uuid IS NULL \
          AND ($2::timestamptz IS NULL OR created_at >= $2) \
          ORDER BY position, ordinal, activity_id"
@@ -283,6 +285,7 @@ pub async fn for_task_since(
     .bind(since)
     .fetch_all(pool)
     .await
+    .map(|rows| rows.into_iter().map(|row| row.0).collect())
 }
 
 /// One subagent's activities, behind the `Agent` call that spawned it.
@@ -291,13 +294,14 @@ pub async fn for_subagent(
     task_id: &str,
     parent_uuid: &str,
 ) -> Result<Vec<Activity>, sqlx::Error> {
-    sqlx::query_as::<_, Activity>(read_activities!(
+    sqlx::query_as::<_, StoredActivity>(read_activities!(
         "task_id = $1 AND parent_uuid = $2 ORDER BY position, ordinal, activity_id"
     ))
     .bind(task_id)
     .bind(parent_uuid)
     .fetch_all(pool)
     .await
+    .map(|rows| rows.into_iter().map(|row| row.0).collect())
 }
 
 /// The activities that happened on a named set of Messages.
@@ -309,13 +313,14 @@ pub async fn for_messages(
     if message_uuids.is_empty() {
         return Ok(Vec::new());
     }
-    sqlx::query_as::<_, Activity>(read_activities!(
+    sqlx::query_as::<_, StoredActivity>(read_activities!(
         "task_id = $1 AND message_uuid = ANY($2) ORDER BY position, ordinal, activity_id"
     ))
     .bind(task_id)
     .bind(message_uuids)
     .fetch_all(pool)
     .await
+    .map(|rows| rows.into_iter().map(|row| row.0).collect())
 }
 
 /// The activities named directly by their own id — the ones that happened on no
@@ -328,13 +333,14 @@ pub async fn for_activity_ids(
     if activity_ids.is_empty() {
         return Ok(Vec::new());
     }
-    sqlx::query_as::<_, Activity>(read_activities!(
+    sqlx::query_as::<_, StoredActivity>(read_activities!(
         "task_id = $1 AND activity_id = ANY($2) ORDER BY position, ordinal, activity_id"
     ))
     .bind(task_id)
     .bind(activity_ids)
     .fetch_all(pool)
     .await
+    .map(|rows| rows.into_iter().map(|row| row.0).collect())
 }
 
 /// One tool call by the id it was made under.
@@ -346,11 +352,12 @@ pub async fn find_tool_call(
     task_id: &str,
     tool_use_id: &str,
 ) -> Result<Option<Activity>, sqlx::Error> {
-    sqlx::query_as::<_, Activity>(read_activities!("task_id = $1 AND tool_use_id = $2"))
+    sqlx::query_as::<_, StoredActivity>(read_activities!("task_id = $1 AND tool_use_id = $2"))
         .bind(task_id)
         .bind(tool_use_id)
         .fetch_optional(pool)
         .await
+        .map(|row| row.map(|row| row.0))
 }
 
 /// How many tool calls a Task made and how many came back failed.
@@ -370,9 +377,49 @@ pub async fn tool_call_counts(pool: &DbPool, task_id: &str) -> Result<(i64, i64)
     Ok(row)
 }
 
+struct StoredActivity(Activity);
+
+impl sqlx::FromRow<'_, PgRow> for StoredActivity {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        let kind: String = row.try_get("kind")?;
+        let status: String = row.try_get("status")?;
+        Ok(Self(Activity {
+            activity_id: row.try_get("activity_id")?,
+            task_id: row.try_get("task_id")?,
+            position: row.try_get("position")?,
+            ordinal: row.try_get("ordinal")?,
+            message_uuid: row.try_get("message_uuid")?,
+            parent_uuid: row.try_get("parent_uuid")?,
+            kind: kind
+                .parse()
+                .map_err(|e: String| sqlx::Error::ColumnDecode {
+                    index: "kind".to_string(),
+                    source: e.into(),
+                })?,
+            status: match status.as_str() {
+                "in_progress" => ActivityStatus::InProgress,
+                "completed" => ActivityStatus::Completed,
+                "failed" => ActivityStatus::Failed,
+                other => {
+                    return Err(sqlx::Error::ColumnDecode {
+                        index: "status".to_string(),
+                        source: format!("unknown activity status: {other:?}").into(),
+                    });
+                }
+            },
+            tool_use_id: row.try_get("tool_use_id")?,
+            summary: row.try_get("summary")?,
+            payload: row.try_get("payload")?,
+            detail: row.try_get("detail")?,
+            is_error: row.try_get("is_error")?,
+            created_at: row.try_get("created_at")?,
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use moatless_backend_core::activity::ActivityKind;
+    use moatless_types::activity::ActivityKind;
 
     /// The SQL narrowing and the enum are two spellings of one list. A kind the
     /// enum knows but the SQL leaves out is a row this build writes and then

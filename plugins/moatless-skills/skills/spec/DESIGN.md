@@ -215,7 +215,7 @@ For structural change, use two fenced trees under `**Today**` and `**After**` he
 
 ```
 Today                          After
-sandbox/src/                   sandbox/src/
+crates/sandbox/src/                   crates/sandbox/src/
 ├── services/          →       ├── features/
 │   ├── file.service.ts        │   ├── files/
 │   └── git.service.ts         │   └── git/

@@ -11,19 +11,19 @@ use moatless_api_schemas::message::{
     ReplyToMessageResponse,
 };
 
-use moatless_adapter_model::registry::Adapters;
 use crate::adapters::access::{
     ensure_task_access_only, ensure_task_access_with, load_adapter_connection_for_auth_with,
     load_loop_for_auth_with,
 };
 use crate::adapters::projection::task_binding_response;
-use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::reply::ExternalReplyService;
-use moatless_core::http_auth::AuthUser;
 use crate::loops::dao::LoopDao;
-use moatless_backend_core::task::TaskReader;
+use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::registry::Adapters;
+use moatless_core::http_auth::AuthUser;
+use moatless_ports::task::TaskReader;
 use moatless_types::adapter::TaskBinding;
 
 #[utoipa::path(
@@ -247,7 +247,13 @@ pub async fn reply_to_message(
 ) -> Result<Json<ReplyToMessageResponse>, AdapterError> {
     let ctx = auth.scope_context();
     let response = external_reply
-        .reply_to_message(&ctx, &message_id, &req.text, &req.file_ids, req.presentation)
+        .reply_to_message(
+            &ctx,
+            &message_id,
+            &req.text,
+            &req.file_ids,
+            req.presentation,
+        )
         .await?;
     Ok(Json(response))
 }

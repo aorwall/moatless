@@ -5,16 +5,18 @@ use std::fmt::Write as _;
 
 use tracing::warn;
 
+use moatless_adapter_model::capabilities::{
+    AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
+};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::AdapterConnection;
-use moatless_types::loops::SubscriptionMatch;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{
     BindingContext, DestinationPostResult, OutboundPresentation, OutboundReply, SlackBlock,
     SlackText, TaskProvenance,
 };
 use moatless_types::loops::LoopContext;
-use moatless_adapter_model::capabilities::{AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply};
+use moatless_types::loops::SubscriptionMatch;
 
 use super::adapter::SlackAdapter;
 use super::api::{PostMessage, SlackApi};
@@ -111,7 +113,9 @@ impl AdapterBindingReply for SlackAdapter {
         config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+        let app = self
+            .app(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+            .await?;
         let coordinates = subject::thread_coordinates(&thread.destination_config);
         let channel = coordinates.channel.ok_or_else(|| {
             SharedAdapterError::Internal("No channel in thread properties".into())
@@ -146,8 +150,9 @@ impl AdapterBindingReply for SlackAdapter {
         rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        let app_key =
-            moatless_adapter_model::apps::app_key_from_transport_config(&_connection.transport_config);
+        let app_key = moatless_adapter_model::apps::app_key_from_transport_config(
+            &_connection.transport_config,
+        );
         let app = self.app(app_key).await?;
         let thread = moatless_adapter_model::binding::binding_context(binding);
         let config = rule.map_or_else(
@@ -228,7 +233,9 @@ impl AdapterDirectDestination for SlackAdapter {
         destination: &str,
         message: &OutboundReply,
     ) -> Result<DestinationPostResult, AdapterError> {
-        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+        let app = self
+            .app(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+            .await?;
         let workspace_id = self.ensure_workspace_id().await?;
         let (channel, thread_ts) = subject::parse_destination(destination)?;
 
@@ -275,7 +282,9 @@ impl AdapterDirectMessage for SlackAdapter {
     /// Slack has to ask its API for the DM channel that pairs the bot with the
     /// user before anything can be posted there.
     async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
-        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+        let app = self
+            .app(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+            .await?;
         let dm_channel = app.api.open_dm(provider_user_id).await?;
         Ok(Some(format!("dm:{dm_channel}")))
     }
@@ -283,14 +292,16 @@ impl AdapterDirectMessage for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
+    use moatless_adapter_model::capabilities::{
+        AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage,
+    };
+    use moatless_adapter_model::test_support::ProviderStub;
+    use moatless_types::access_control::Scope;
     use moatless_types::adapter::{
         BindingContext, OutboundFile, OutboundPresentation, OutboundReply, SlackBlock,
         SlackPlainText, TaskOrigin, TaskProvenance,
     };
     use moatless_types::loops::{LoopContext, RoutingMode};
-    use moatless_adapter_model::test_support::ProviderStub;
-    use moatless_adapter_model::capabilities::{AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage};
-    use moatless_types::access_control::Scope;
 
     use crate::adapter::SlackAdapter;
     use crate::api::SlackApi;
@@ -699,8 +710,8 @@ mod tests {
     /// existence.
     #[tokio::test]
     async fn slack_rejecting_the_blocks_reposts_the_message_without_them() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let seen = Arc::new(AtomicUsize::new(0));
         let counter = seen.clone();
@@ -802,7 +813,9 @@ mod tests {
             ])
         );
         assert!(
-            posted["text"].as_str().is_some_and(|t| t.contains("loop: prod-release")),
+            posted["text"]
+                .as_str()
+                .is_some_and(|t| t.contains("loop: prod-release")),
             "text carries the footer too, for the notification and the timeline"
         );
     }
@@ -860,45 +873,41 @@ mod tests {
     struct LinkedLogins;
 
     #[async_trait::async_trait]
-    impl moatless_backend_core::identity::ProviderIdentityLink for LinkedLogins {
+    impl moatless_ports::identity::ProviderIdentityLink for LinkedLogins {
         async fn user_at(
             &self,
             _provider: &str,
             _provider_user_id: &str,
-        ) -> Result<
-            Option<moatless_backend_core::identity::LinkedUser>,
-            moatless_backend_core::store::StoreError,
-        > {
+        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
+        {
             Ok(None)
         }
         async fn user_by_email(
             &self,
             _email: &str,
-        ) -> Result<
-            Option<moatless_backend_core::identity::LinkedUser>,
-            moatless_backend_core::store::StoreError,
-        > {
+        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
+        {
             Ok(None)
         }
         async fn provider_id_for_login(
             &self,
             provider: &str,
             login: &str,
-        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
             Ok((provider == "slack" && login == "aorwall").then(|| "U0AAQ".to_string()))
         }
         async fn user_who_connected(
             &self,
             _provider: &str,
             _provider_user_id: &str,
-        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
             Ok(None)
         }
         async fn user_with_login(
             &self,
             _provider: &str,
             _login: &str,
-        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
             Ok(None)
         }
         async fn link(
@@ -906,7 +915,7 @@ mod tests {
             _user_id: &uuid::Uuid,
             _provider: &str,
             _provider_user_id: &str,
-        ) -> Result<bool, moatless_backend_core::store::StoreError> {
+        ) -> Result<bool, moatless_types::store::StoreError> {
             Ok(false)
         }
     }

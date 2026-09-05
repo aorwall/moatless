@@ -8,22 +8,22 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::adapters::projection::next_fire_at;
-use moatless_types::loops::LoopSpawnConfig;
-use moatless_types::loops::Schedule;
-use moatless_types::adapter::{AdapterKind, Audience, InboundMessage};
-use moatless_types::loops::LoopContext;
-use moatless_adapter_model::capabilities::AdapterInboundPresentation;
-use moatless_adapter_model::registry::Adapters;
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::metrics::record_schedule_firing;
-use moatless_types::task::TaskStatus;
-use moatless_types::access_control::ScopeContext;
+use moatless_adapter_model::capabilities::AdapterInboundPresentation;
+use moatless_adapter_model::registry::Adapters;
 use moatless_core::leader::LeaderGuard;
-use moatless_backend_core::task::{
+use moatless_ports::sandbox::SandboxWaker;
+use moatless_ports::task::TaskReader;
+use moatless_ports::task::{
     InboundTurn, MessageAcceptor, SandboxProvision, TaskOpenError, TaskOpener, TurnOrigin,
 };
-use moatless_backend_core::task::TaskReader;
-use moatless_backend_core::sandbox::SandboxWaker;
+use moatless_types::access_control::ScopeContext;
+use moatless_types::adapter::{AdapterKind, Audience, InboundMessage};
+use moatless_types::loops::LoopContext;
+use moatless_types::loops::LoopSpawnConfig;
+use moatless_types::loops::Schedule;
+use moatless_types::task::TaskStatus;
 
 /// Durable schedule-firing runner: claims due schedules and fires each as an
 /// inbound message, holding the ports it needs rather than the whole `AppState`.

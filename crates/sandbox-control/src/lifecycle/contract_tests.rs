@@ -20,13 +20,14 @@ use tokio::sync::Notify;
 use moatless_types::sandbox::SandboxStopReason;
 
 use super::dao::PgLifecycleDao;
-use super::events::{EventFact, LifecycleEvent};
+use super::events::LifecycleEvent;
 use super::lock::PgLifecycleLock;
 use super::orchestrator::{AgentStopPort, LifecycleDao, LifecycleEventSink};
-use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use super::test_support::seed_task_with as seed;
-use moatless_sandbox_runtime::runtime::RuntimeError;
+use moatless_sandbox_runtime::observation_events::EventFact;
 use moatless_sandbox_runtime::operation::{ObservedStatus, OperationKind};
+use moatless_sandbox_runtime::runtime::RuntimeError;
+use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use moatless_types::sandbox::ArchiveRetention;
 
 use super::{Lifecycle, LifecycleError, SystemWallClock};
@@ -307,11 +308,12 @@ async fn stop_commits_completion_and_clears_marker(opts: PgPoolOptions, conn: Pg
 // The running count the column holds, and the number of listing-change rows the
 // task has accumulated — the two things `record_running_commands` decides.
 async fn commands_state(pool: &PgPool, task_id: &str) -> (i32, i64) {
-    let running: i32 = sqlx::query_scalar("SELECT running_commands FROM sandboxes WHERE sandbox_id = $1")
-        .bind(task_id)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let running: i32 =
+        sqlx::query_scalar("SELECT running_commands FROM sandboxes WHERE sandbox_id = $1")
+            .bind(task_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     let changes: i64 =
         sqlx::query_scalar("SELECT count(*) FROM task_listing_changes WHERE task_id = $1")
             .bind(task_id)

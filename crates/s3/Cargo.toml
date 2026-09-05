@@ -1,17 +1,17 @@
 [package]
 name = "moatless-s3"
-version = "0.1.0"
-edition = "2021"
-authors = ["Moatless Team"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 description = "S3 object operations and presigning — a leaf over aws-sdk-s3, named from band 8 upward"
 
 [dependencies]
-aws-sdk-s3 = "1"
+aws-sdk-s3 = { workspace = true }
 # `head_object_modified_at` returns the object's mtime as a `DateTime<Utc>`.
-chrono = "0.4"
+chrono = { workspace = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

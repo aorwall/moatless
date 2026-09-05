@@ -2,16 +2,18 @@
 
 use std::sync::Arc;
 
-use moatless_backend_core::identity::GitHostTokenIssuer;
+use moatless_adapter_model::capabilities::{
+    Adapter, AdapterInboundPresentation, AdapterOutboundContent,
+};
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::AdapterKind;
-use moatless_adapter_model::capabilities::{Adapter, AdapterInboundPresentation, AdapterOutboundContent};
-use moatless_adapter_model::registry::Adapters;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_adapter_model::registry::Adapters;
 use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_ports::identity::GitHostTokenIssuer;
+use moatless_ports::identity::ProviderIdentityLink;
+use moatless_types::adapter::AdapterKind;
 
 use super::auth::GithubPrAuth;
 
@@ -138,9 +140,7 @@ impl GithubPrAdapter {
 
     /// Resolves an inbound GitHub handle to the system user it belongs to.
     pub(super) fn require_users(&self) -> Result<&dyn ProviderIdentityLink, AdapterError> {
-        self.users
-            .as_deref()
-            .ok_or_else(|| missing_port("users"))
+        self.users.as_deref().ok_or_else(|| missing_port("users"))
     }
 
     /// The durable delivery seam admitted webhook work is handed to.
@@ -253,9 +253,11 @@ impl AdapterInboundPresentation for GithubPrAdapter {
 mod tests {
     use std::sync::Arc;
 
+    use moatless_adapter_model::capabilities::{
+        Adapter, AdapterDestinationBuilder, AdapterInboundPresentation, AdapterOutboundContent,
+    };
     use moatless_core::db::DbPool;
     use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-    use moatless_adapter_model::capabilities::{Adapter, AdapterDestinationBuilder, AdapterInboundPresentation, AdapterOutboundContent};
 
     use super::GithubPrAdapter;
 

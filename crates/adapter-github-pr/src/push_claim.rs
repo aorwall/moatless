@@ -11,8 +11,8 @@
 //! arrives. Routing reads it back through [`external_id::aliases`] and passes
 //! over the Task the claim names.
 
-use moatless_backend_core::store::StoreError;
-use moatless_backend_core::task::{ExternalEvent, TranscriptAppend};
+use moatless_ports::task::{ExternalEvent, TranscriptAppend};
+use moatless_types::store::StoreError;
 
 use super::external_id;
 use super::routing::ADAPTER_LABEL;

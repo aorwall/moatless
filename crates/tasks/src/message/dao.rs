@@ -22,9 +22,9 @@ use crate::task::dao as task_dao;
 use crate::task_activities;
 use crate::task_activities::dao::Activity;
 use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
-use moatless_backend_core::db_enum::decode_required;
-use moatless_backend_core::task::EventSubject;
 use moatless_core::db::DbPool;
+use moatless_core::db_enum::decode_required;
+use moatless_ports::task::EventSubject;
 
 /// The tool calls that hand a conversation back to a person. A sidebar shows
 /// whether one is outstanding, so the message that raises one moves a listing
@@ -605,7 +605,7 @@ pub(crate) use bind_message;
 /// flag, so a wake that survives always names someone. Backed by the partial
 /// index `task_messages_pending_user_idx`.
 ///
-/// Reached through `moatless_backend_core::task::PendingWorkReader`.
+/// Reached through `moatless_ports::task::PendingWorkReader`.
 pub async fn members_awaiting_dispatch(
     pool: &DbPool,
     task_id: &str,
@@ -739,7 +739,7 @@ impl MessageDao for PgMessageDao {
         //
         // Ahead of the change-feed writes below because this statement takes the
         // `sandboxes` row, per the lock order in
-        // `moatless_backend_core::change_feed`.
+        // `moatless_core::change_feed`.
         if msg.message_type == MessageType::User && msg.agent_session_id.is_none() {
             sqlx::query(
                 r#"UPDATE sandboxes s
@@ -814,7 +814,7 @@ impl MessageDao for PgMessageDao {
         // activity that happened on it, so they interleave in one stream.
         let position = match msg.parent_uuid.as_deref() {
             None => {
-                moatless_backend_core::change_feed::conversation::record_message_change(
+                moatless_core::change_feed::conversation::record_message_change(
                     &mut tx,
                     &msg.task_id,
                     &msg.uuid,
@@ -865,8 +865,7 @@ impl MessageDao for PgMessageDao {
         // last", and this is the busiest transaction that allocates.
         if moves_a_listing_row(msg, conversation) {
             task_dao::clear_settled_for_all_followers(&mut tx, &msg.task_id).await?;
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, &msg.task_id)
-                .await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, &msg.task_id).await?;
         }
 
         tx.commit().await?;
@@ -896,7 +895,7 @@ impl MessageDao for PgMessageDao {
         let position = match parent_uuid {
             Some(parent_uuid) => next_subagent_position(&mut tx, task_id, parent_uuid).await?,
             None => {
-                moatless_backend_core::change_feed::conversation::record_message_change(
+                moatless_core::change_feed::conversation::record_message_change(
                     &mut tx,
                     task_id,
                     message_uuid,
@@ -920,7 +919,7 @@ impl MessageDao for PgMessageDao {
             activity.kind == ActivityKind::ToolCall
                 && INTERACTIVE_TOOLS.contains(&activity.summary.as_str())
         }) {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
 
         tx.commit().await?;
@@ -949,7 +948,7 @@ impl MessageDao for PgMessageDao {
         // `record_activity_change`, not `record_session_change`: the change names
         // this activity, so a live reader re-reads the one row rather than the
         // conversation's own session, which nothing about the reading moved.
-        let position = moatless_backend_core::change_feed::conversation::record_activity_change(
+        let position = moatless_core::change_feed::conversation::record_activity_change(
             &mut tx,
             &activity.task_id,
             &activity.activity_id,

@@ -1,49 +1,44 @@
 [package]
 name = "moatless-tasks"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Tasks band: task lifecycle, messages, tags, listing feed, activities, and ingress for Moatless"
 
+authors.workspace = true
 [dependencies]
-async-trait = "0.1"
-axum = { version = "0.8", features = ["macros"] }
-base64 = "0.22"
-chrono = { version = "0.4", features = ["serde"] }
-futures = "0.3"
+async-trait = { workspace = true }
+axum = { workspace = true, features = ["macros"] }
+base64 = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+futures = { workspace = true }
 # Counter/gauge instrumentation (event ingress, reaper).
-metrics = "0.24"
+metrics = { workspace = true }
 # Short id generation (task creation).
 nanoid = "0.5"
 # Mock generation, enabled off `test-support` so the sandbox-control and server
 # bands (still in the backend) can name `MockTaskDao` across the crate boundary.
-mockall = { version = "0.15", optional = true }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.11"
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
-thiserror = "2"
-tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7" }
+mockall = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
 # gRPC status type for the event-ingress admission return.
-tonic = "0.14"
-tracing = "0.1"
-uuid = { version = "1", features = ["v4", "v5", "serde"] }
-utoipa = { version = "5", features = ["axum_extras"] }
-utoipa-axum = "0.2"
+tonic = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5", "serde"] }
+utoipa = { workspace = true, features = ["axum_extras"] }
+utoipa-axum = { workspace = true }
 
-moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
-moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
-moatless-core = { path = "../core", features = ["openapi"] }
-moatless-types = { path = "../types" }
-moatless-workspaces = { path = "../workspaces" }
+moatless-api-schemas = { workspace = true, features = ["openapi"] }
+moatless-ports = { workspace = true, features = ["openapi"] }
+moatless-core = { workspace = true, features = ["openapi"] }
+moatless-types = { workspace = true }
+moatless-workspaces = { workspace = true }
 
 [features]
-# Exposes the `#[cfg(any(test, feature = "test-support"))]` DAO mocks and the
-# `seed_bare_task` db-test seeder to other crates' test builds. The gate keeps the
-# `test,` disjunct FIRST: the census keys on the substring "test" in the cfg token
-# stream (crate-census scan.rs), so items gated this way stay test-context and are
-# never scored as a production edge. No shipping build enables it. `dep:mockall`
-# provides the generators.
 test-support = ["dep:mockall"]
 # Gate the `#[sqlx::test]` blocks that need a running PostgreSQL (task/dao.rs and
 # message/dao.rs projections). Empty because those blocks reach the `seed_bare_task`
@@ -56,22 +51,22 @@ db-tests = []
 workspace = true
 
 [dev-dependencies]
-async-trait = "0.1"
+async-trait = { workspace = true }
 # Test-only: the credential-sync tests build the concrete provider-token store
 # behind the `CodexScopeReader` port. Production code here names no identity
 # type, so this edge must never appear under `[dependencies]`.
-moatless-identity = { path = "../identity" }
-http-body-util = "0.1"
-mockall = "0.15"
-tokio-test = "0.4"
+moatless-identity = { workspace = true }
+http-body-util = { workspace = true }
+mockall = { workspace = true }
+tokio-test = { workspace = true }
 # `RecordingPublisher` lives in core (core owns `EventPublisher`); the tasks
 # unit tests reach it across the crate boundary off core's `test-support` gate.
-moatless-core = { path = "../core", features = ["test-support"] }
+moatless-core = { workspace = true, features = ["test-support"] }
 # `MockTaskDao`'s sibling `MockRepositoryDao` (task::creation tests) lives in
 # workspaces, reached off its `test-support` gate. Required when the crate is
 # built in isolation (`-p moatless-tasks`); a `--workspace` build otherwise masks
 # it through the backend's own workspaces dev-dependency.
-moatless-workspaces = { path = "../workspaces", features = ["test-support"] }
+moatless-workspaces = { workspace = true, features = ["test-support"] }
 # `MockPreflightPort` / `MockSandboxJoiner` (task::creation tests) live with the
 # ports themselves in backend-core, off its `test-support` gate.
-moatless-backend-core = { path = "../backend-core", features = ["test-support"] }
+moatless-ports = { workspace = true, features = ["test-support"] }

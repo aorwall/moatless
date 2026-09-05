@@ -21,7 +21,7 @@
 //! for the whole deployment — a per-activity record through it would put every
 //! conversation write in the deployment behind one lock.
 //!
-//! A `bigserial` will not do; `moatless_backend_core::change_feed` states why.
+//! A `bigserial` will not do; `moatless_core::change_feed` states why.
 //!
 //! No T3 vocabulary appears here — [`moatless_t3code`] turns a row into the event
 //! that surface carries, which is also why a change record names a Message rather

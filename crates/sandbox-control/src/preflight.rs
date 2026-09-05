@@ -20,20 +20,20 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tracing::warn;
 
+use crate::lifecycle::orchestrator::SandboxShape;
 use crate::secrets::{
     resolve_task_actor, resolve_task_github_token, resolve_workspace_credentials,
 };
-use moatless_types::repository::RepositoryProvider as GitHostProvider;
+use moatless_ports::identity::CommitIdentity;
+use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
+use moatless_ports::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
+use moatless_ports::workspace::{WorkspaceCredentialReader, WorkspaceResolver};
 use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
 use moatless_types::repository::GitHostRepo;
-use moatless_backend_core::identity::{GitHostTokenError, GitHostTokenIssuer};
-use crate::lifecycle::orchestrator::SandboxShape;
-use moatless_backend_core::identity::CommitIdentity;
-use moatless_backend_core::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
-use moatless_backend_core::workspace::{WorkspaceCredentialReader, WorkspaceResolver};
-use moatless_types::task::Task;
-use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 use moatless_types::repository::Repository;
+use moatless_types::repository::RepositoryProvider as GitHostProvider;
+use moatless_types::repository::{RepositoryKind, RepositoryProvider};
+use moatless_types::task::Task;
 
 /// The exact set of credential-resolution dependencies the preflight consumes.
 /// Assembled once at the composition root and consumed by `RealPreflight`,
@@ -430,7 +430,7 @@ mod tests {
 
     /// A `CommitIdentity` that reports one role for every lookup.
     fn users_with_role(role: UserRole) -> impl CommitIdentity {
-        let mut users = moatless_backend_core::identity::MockCommitIdentity::new();
+        let mut users = moatless_ports::identity::MockCommitIdentity::new();
         users
             .expect_is_platform_admin()
             .returning(move |_| Ok(role == UserRole::Admin));
@@ -440,9 +440,9 @@ mod tests {
     /// A `CommitIdentity` that reports an unresolvable actor — what the seam
     /// answers for the `system` sentinel, which is not a user id.
     fn users_rejecting_the_actor() -> impl CommitIdentity {
-        let mut users = moatless_backend_core::identity::MockCommitIdentity::new();
+        let mut users = moatless_ports::identity::MockCommitIdentity::new();
         users.expect_is_platform_admin().returning(|id| {
-            Err(moatless_backend_core::store::StoreError::new(format!(
+            Err(moatless_types::store::StoreError::new(format!(
                 "'{id}' is not a user id"
             )))
         });

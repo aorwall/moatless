@@ -26,7 +26,6 @@ pub mod auto_provision;
 pub mod event_dedup;
 pub mod file_handlers;
 pub mod handlers;
-pub mod jwt;
 pub mod lifecycle;
 pub mod notify;
 pub mod preflight;

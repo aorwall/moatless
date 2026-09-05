@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_types::access_control::ScopeContext;
 use moatless_core::git_provider::GitProviderError;
 use moatless_core::secret_keys::GITHUB_TOKEN;
+use moatless_types::access_control::ScopeContext;
 
 use crate::auth::credentials::{
     GITHUB_OAUTH_STASH_KEY, read_github_oauth_stash, stash_github_oauth_token,
@@ -13,9 +13,9 @@ use crate::auth::credentials::{
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::{AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER};
 use crate::secret::error::SecretError;
-use moatless_types::secret::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::SecretService;
+use moatless_types::secret::SecretKind;
 
 #[derive(Clone, Debug)]
 pub struct GitHostPrincipal {

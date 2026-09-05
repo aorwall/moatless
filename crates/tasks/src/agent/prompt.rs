@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use moatless_backend_core::workspace::WorkspaceResolver;
 use moatless_core::config::Config;
+use moatless_ports::workspace::WorkspaceResolver;
 use moatless_types::workspace::ServerConfig;
 
 use crate::task::models::Task;
@@ -568,18 +568,16 @@ mod tests {
         assert!(prompt.contains("moat feedback --category <category> --comment"));
         // Every `FeedbackCategory` variant must be named, or the agent cannot
         // pick one: the CLI rejects an unknown value.
-        for category in [
-            "`environment`",
-            "`codebase`",
-            "`instruction`",
-            "`other`",
-        ] {
+        for category in ["`environment`", "`codebase`", "`instruction`", "`other`"] {
             assert!(prompt.contains(category), "prompt must name {category}");
         }
         assert!(prompt.contains("an empty inbox is a\nfine result"));
         let cli_idx = prompt.find("# Sandbox CLI Reference").unwrap();
         let inbox_idx = prompt.find("# Feedback Inbox").unwrap();
-        assert!(cli_idx < inbox_idx, "inbox section must follow the CLI list");
+        assert!(
+            cli_idx < inbox_idx,
+            "inbox section must follow the CLI list"
+        );
     }
 
     #[test]

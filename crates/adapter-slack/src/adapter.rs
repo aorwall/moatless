@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use tokio::sync::OnceCell;
 
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::AdapterKind;
-use moatless_adapter_model::capabilities::{Adapter, AdapterOutboundContent};
-use moatless_adapter_model::registry::Adapters;
 use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
-use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_adapter_model::capabilities::{Adapter, AdapterOutboundContent};
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::registry::Adapters;
 use moatless_core::config::Config;
+use moatless_ports::identity::ProviderIdentityLink;
+use moatless_types::adapter::AdapterKind;
 
 use super::api::SlackApi;
 
@@ -153,7 +153,9 @@ impl SlackAdapter {
     pub(super) async fn ensure_workspace_id(&self) -> Result<String, AdapterError> {
         self.workspace_id
             .get_or_try_init(|| async {
-                let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+                let app = self
+                    .app(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+                    .await?;
                 let info = app.api.auth_test().await?;
                 info.team_id.ok_or_else(|| {
                     SharedAdapterError::AdapterApi("Slack auth.test returned no team_id".into())

@@ -6,9 +6,9 @@ use tracing::{info, warn};
 
 use super::dao::UserCredentialDao;
 use super::hash::{PasswordHashError, generate_password, hash_password};
-use moatless_types::user::UserRole;
 use crate::auth::users::{User, UserDao};
 use moatless_types::auth::AuthConfig;
+use moatless_types::user::UserRole;
 
 /// Length of a generated bootstrap password.
 const GENERATED_PASSWORD_LEN: usize = 24;

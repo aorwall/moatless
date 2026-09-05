@@ -8,13 +8,13 @@ use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use moatless_adapter_model::dao::AdapterConnectionDao;
+use crate::bindings::dao::TaskBindingDao;
 use crate::loops::dao::LoopDao;
 use crate::loops::sync::LoopSyncService;
-use moatless_backend_core::identity::UserResolver;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_core::http_auth::UserTokenVerifier;
-use crate::bindings::dao::TaskBindingDao;
-use moatless_backend_core::workspace::RepositoryReader;
+use moatless_ports::identity::UserResolver;
+use moatless_ports::workspace::RepositoryReader;
 
 #[derive(OpenApi)]
 #[openapi(

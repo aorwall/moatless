@@ -29,7 +29,7 @@ use moatless_sandbox_runtime::fleet::{FleetObserver, RuntimeObservation};
 use super::attempt::AttemptBudget;
 use super::orchestrator::{Lifecycle, LifecycleDao, SandboxMember, WallClock};
 use super::reconcile::{ReconcileInput, decide};
-use moatless_backend_core::task::PendingWorkReader;
+use moatless_ports::task::PendingWorkReader;
 use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus};
 use moatless_sandbox_runtime::runtime::ErrorClass;
 use moatless_types::sandbox::ArchiveRetention;
@@ -1166,18 +1166,19 @@ mod db_tests {
 
     use super::super::dao::PgLifecycleDao;
     use super::super::error::LifecycleError;
-    use super::super::events::{EventFact, LifecycleEvent};
+    use super::super::events::LifecycleEvent;
     use super::super::lock::PgLifecycleLock;
     use super::super::orchestrator::{
         AgentStopPort, IntentWrite, LifecycleEventSink, SystemWallClock,
     };
     use super::super::test_support::{seed_bare_task, seed_task_with as seed};
     use moatless_sandbox_runtime::fleet::ObserveError;
-    use moatless_sandbox_runtime::runtime::{
-        RuntimeOperationContext, RuntimeOutcome, SandboxRuntime,
-    };
+    use moatless_sandbox_runtime::observation_events::EventFact;
     use moatless_sandbox_runtime::operation::{
         CorrelationMarker, ObservedStatus, OperationGeneration, OperationKind,
+    };
+    use moatless_sandbox_runtime::runtime::{
+        RuntimeOperationContext, RuntimeOutcome, SandboxRuntime,
     };
     use moatless_types::sandbox::SandboxDesiredState;
     use moatless_types::task::TaskStatus;
@@ -1330,7 +1331,7 @@ mod db_tests {
         async fn members_awaiting_dispatch(
             &self,
             task_id: &str,
-        ) -> Result<Vec<String>, moatless_backend_core::store::StoreError> {
+        ) -> Result<Vec<String>, moatless_types::store::StoreError> {
             sqlx::query_scalar(
                 r#"SELECT peer.task_id
                      FROM tasks t
@@ -1349,7 +1350,7 @@ mod db_tests {
             .bind(task_id)
             .fetch_all(&self.0)
             .await
-            .map_err(|e| moatless_backend_core::store::StoreError::with_source("pending", e))
+            .map_err(|e| moatless_types::store::StoreError::with_source("pending", e))
         }
     }
 

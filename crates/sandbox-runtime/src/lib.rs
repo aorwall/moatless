@@ -35,3 +35,5 @@ pub mod schemas;
 pub mod server_runner;
 pub mod status_reader;
 pub mod storage;
+
+pub mod observation_events;

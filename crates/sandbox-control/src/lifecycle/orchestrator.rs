@@ -26,24 +26,25 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tracing::Instrument;
 
-use moatless_backend_core::sandbox as core_sandbox;
+use moatless_ports::sandbox as core_sandbox;
 
+use moatless_ports::sandbox::{SandboxLifecycle, SandboxOpError};
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_types::access_control::{Scope, ScopedResource};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
+pub use moatless_types::store::StoreError;
 use moatless_types::task::TaskStatus;
 use moatless_types::task::{CheckoutMode, Visibility};
-use moatless_backend_core::sandbox::{SandboxLifecycle, SandboxOpError};
-pub use moatless_backend_core::store::StoreError;
 
 use super::error::LifecycleError;
-use super::events::{self, EventContext, EventFact, FailureDetail, LifecycleEvent};
-use moatless_sandbox_runtime::outcome::LifecycleOutcome;
-use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
+use super::events::{self, EventContext, FailureDetail, LifecycleEvent};
+use moatless_sandbox_runtime::observation_events::EventFact;
 use moatless_sandbox_runtime::operation::{
     CorrelationMarker, IntentEffect, ObservedStatus, OperationGeneration, OperationKind,
     RuntimeEffect,
 };
+use moatless_sandbox_runtime::outcome::LifecycleOutcome;
+use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use moatless_types::sandbox::ArchiveRetention;
 
 /// Persisted lifecycle intent for one Task's Sandbox membership.
@@ -220,11 +221,7 @@ pub trait LifecycleDao: Send + Sync {
     /// Notifies the listing only when the count crosses zero: the sidebar
     /// renders "is anything running", so a 2→3 move changes no row and a feed
     /// record for it would wake every connected client for nothing.
-    async fn record_running_commands(
-        &self,
-        task_id: &str,
-        running: i32,
-    ) -> Result<(), StoreError>;
+    async fn record_running_commands(&self, task_id: &str, running: i32) -> Result<(), StoreError>;
 }
 
 /// The narrow internal agent-stop port. Graceful stop is lifecycle's ordering
@@ -443,12 +440,14 @@ impl Lifecycle {
                 moatless_sandbox_runtime::marker::EDGE_SUPPRESSION_STALE_AFTER,
             )
         });
-        Ok(moatless_sandbox_runtime::classify::classify_with_correlation(
-            observation,
-            intent.desired_state,
-            intent.marker,
-            suppression_active,
-        ))
+        Ok(
+            moatless_sandbox_runtime::classify::classify_with_correlation(
+                observation,
+                intent.desired_state,
+                intent.marker,
+                suppression_active,
+            ),
+        )
     }
 
     // ---- Public operations (detached from the caller future) ----
@@ -730,13 +729,15 @@ impl Lifecycle {
             .await
         {
             Ok(outcome) => {
-                moatless_sandbox_runtime::metrics::record_storage_reclaim(match (outcome.effect, rescuing) {
-                    // Nothing was there to reclaim — a task cooled by an earlier
-                    // pass, or one that never had a volume.
-                    (RuntimeEffect::NoOp, _) => "skipped",
-                    (_, true) => "rescued",
-                    (_, false) => "reclaimed",
-                });
+                moatless_sandbox_runtime::metrics::record_storage_reclaim(
+                    match (outcome.effect, rescuing) {
+                        // Nothing was there to reclaim — a task cooled by an earlier
+                        // pass, or one that never had a volume.
+                        (RuntimeEffect::NoOp, _) => "skipped",
+                        (_, true) => "rescued",
+                        (_, false) => "reclaimed",
+                    },
+                );
                 // Storage is now provably absent (the runtime proves absence
                 // before returning, and `NoOp` means it was already gone), so
                 // record it and stop offering this Task to the cold branch. A
@@ -1400,8 +1401,8 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    use moatless_sandbox_runtime::runtime::RuntimeError;
     use chrono::TimeZone;
+    use moatless_sandbox_runtime::runtime::RuntimeError;
 
     // ---- In-memory / recording doubles ----
 

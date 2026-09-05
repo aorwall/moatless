@@ -10,12 +10,12 @@
 
 use tracing::{debug, info};
 
-use moatless_types::adapter::AdapterKind;
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::access::AccessDecision;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_ports::identity::ProviderIdentityLink;
+use moatless_types::adapter::AdapterKind;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
-use moatless_backend_core::identity::ProviderIdentityLink;
 
 use super::access::{self, DmDecision, DmSender};
 use super::config::TelegramAdapterConfig;

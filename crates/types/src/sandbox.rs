@@ -746,7 +746,10 @@ mod wire_contract {
         ] {
             assert_eq!(value.as_str(), wire);
             assert_eq!(SandboxDesiredState::try_from(wire), Ok(value));
-            assert_eq!(serde_json::to_string(&value).unwrap(), format!("\"{wire}\""));
+            assert_eq!(
+                serde_json::to_string(&value).unwrap(),
+                format!("\"{wire}\"")
+            );
         }
         for (value, wire) in [
             (SandboxStopReason::User, "user"),
@@ -757,7 +760,40 @@ mod wire_contract {
         ] {
             assert_eq!(value.as_str(), wire);
             assert_eq!(SandboxStopReason::try_from(wire), Ok(value));
-            assert_eq!(serde_json::to_string(&value).unwrap(), format!("\"{wire}\""));
+            assert_eq!(
+                serde_json::to_string(&value).unwrap(),
+                format!("\"{wire}\"")
+            );
         }
     }
+}
+
+/// Whether failing to reach a sandbox means there is no sandbox to reach.
+///
+/// This is the gate on every snapshot fallback: only a task with nothing
+/// running may be answered from a stored copy. A sandbox that *is* up and
+/// refused the request has current files, and serving it an older tree would
+/// present a stale answer as the live one.
+pub fn no_live_sandbox(error: &SandboxError) -> bool {
+    matches!(error, SandboxError::NotReady(_) | SandboxError::NotFound(_))
+}
+
+/// The sandbox's own HTTP control port.
+pub const SANDBOX_HTTP_PORT: u16 = 8001;
+/// The dind Docker socket inside the sandbox.
+pub const SANDBOX_DIND_PORT: u16 = 2375;
+
+/// Whether `port` belongs to the sandbox's own control plane rather than to
+/// anything a workspace may expose.
+///
+/// The rule lives beside `SandboxPortPublisher` because it is part of that
+/// trait's contract rather than any one runtime's: routing the authenticated
+/// preview edge onto the control port, the agent gRPC channel or the Docker
+/// socket would be a sandbox escape, and that is true of every runtime — the
+/// one that publishes nothing externally included, where the collision instead
+/// shadows the sandbox's own listener inside the container. Takes the gRPC port
+/// rather than a `Config` so the rule sits in the same band as the trait.
+#[must_use]
+pub fn is_reserved_sandbox_port(port: u16, grpc_port: u16) -> bool {
+    port == SANDBOX_HTTP_PORT || port == grpc_port || port == SANDBOX_DIND_PORT
 }

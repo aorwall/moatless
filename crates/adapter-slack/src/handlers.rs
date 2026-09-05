@@ -6,15 +6,14 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use tracing::debug;
 
+use moatless_adapter_model::binding::BindingProbe;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::ingress::{IngressError, Outcome};
-use moatless_adapter_model::metrics::record_webhook;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_backend_core::identity::ProviderIdentityLink;
-use moatless_adapter_model::binding::BindingProbe;
-
+use moatless_adapter_model::metrics::record_webhook;
+use moatless_ports::identity::ProviderIdentityLink;
 
 use super::adapter::SlackAdapter;
 use super::ingress::{Received, WebhookRequest};

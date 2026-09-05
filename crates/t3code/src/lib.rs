@@ -27,8 +27,6 @@ pub mod auth;
 mod checkout;
 mod commands;
 pub mod dao;
-pub mod task_dao;
-pub mod workspace_dao;
 mod feed;
 pub mod files;
 mod git_actions;
@@ -47,17 +45,22 @@ mod scripts;
 mod servers;
 mod skills;
 mod subtasks;
+pub mod task_dao;
 mod terminal;
 mod usage;
 pub mod workspace;
+pub mod workspace_dao;
 
-pub use feed::{ShellFeed, ThreadFeed};
-use moatless_backend_core::sandbox::SandboxError;
-pub use moatless_backend_core::sandbox::{ClusterDiagnostics, SandboxIntentReader, SandboxObserver, SandboxPortPublisher, SandboxStarter, SandboxStopper, WorkspaceSnapshotSource};
-pub use sandbox_proto::client::SandboxConnector;
 pub use checkout::Sources;
-pub use moatless_backend_core::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
+pub use feed::{ShellFeed, ThreadFeed};
 pub use moatless_identity::auth::pairing::DevicePairing;
+use moatless_ports::sandbox::SandboxError;
+pub use moatless_ports::sandbox::{
+    ClusterDiagnostics, SandboxIntentReader, SandboxObserver, SandboxPortPublisher, SandboxStarter,
+    SandboxStopper, WorkspaceSnapshotSource,
+};
+pub use moatless_types::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
+pub use sandbox_proto::client::SandboxConnector;
 
 pub type UiRpcDbPool = sqlx::PgPool;
 
@@ -84,8 +87,6 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::agent::catalog::UiRpcAgentKind;
 use crate::dao::{Conversation, ConversationDao, Transcript};
-use crate::task_dao::T3TaskDao;
-use crate::workspace_dao::T3WorkspaceDao;
 use crate::listing::{UiRpcEnvironmentIdentity, UiRpcResume};
 use crate::preview::{PreviewError, PreviewState};
 use crate::preview_tabs::PreviewTabDao;
@@ -93,8 +94,10 @@ use crate::sandbox::{SandboxRpcError, SandboxState};
 use crate::scripts::{ScriptsError, ScriptsState};
 use crate::servers::{ServersError, ServersState};
 use crate::subtasks::{SubtasksError, SubtasksState};
+use crate::task_dao::T3TaskDao;
 use crate::workspace::WorkspaceAccessError;
-use moatless_backend_core::change_feed::conversation::{ConversationHead, Resume, resume};
+use crate::workspace_dao::T3WorkspaceDao;
+use moatless_core::change_feed::conversation::{ConversationHead, Resume, resume};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::auth::AllowedOrigin;
 
@@ -996,7 +999,11 @@ pub async fn thread_subscription(
         // nothing checks nothing. So the visibility rule is applied here as
         // well, or subscribing to a conversation this viewer may not see would
         // succeed for as long as it stayed still.
-        if conversations.readable_by_id(viewer, task_id).await?.is_none() {
+        if conversations
+            .readable_by_id(viewer, task_id)
+            .await?
+            .is_none()
+        {
             return Ok(None);
         }
         let mut feed = ThreadFeed::resuming_from(task_id.to_string(), cursor);
@@ -1642,7 +1649,9 @@ fn remote_span_context(
     span_id: Option<&str>,
     sampled: Option<bool>,
 ) -> Option<opentelemetry::Context> {
-    use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState};
+    use opentelemetry::trace::{
+        SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState,
+    };
 
     // `from_hex` parses any valid hex string regardless of length (it does not
     // zero-pad), so a short client value like "deadbeef" would otherwise parse
@@ -1753,7 +1762,10 @@ impl ProtocolSession {
             Ok(value) => value,
             Err(error) => {
                 return ProtocolOutput {
-                    frames: vec![connection_defect("malformed_json", format!("Malformed JSON frame: {error}"))],
+                    frames: vec![connection_defect(
+                        "malformed_json",
+                        format!("Malformed JSON frame: {error}"),
+                    )],
                     eof: false,
                 };
             }
@@ -1794,9 +1806,10 @@ impl ProtocolSession {
                 }
                 ClientFrame::Ack { request_id } => {
                     if !valid_request_id(request_id.as_str()) {
-                        output
-                            .frames
-                            .push(connection_defect("invalid_ack_id", "Ack requestId is not a decimal string"));
+                        output.frames.push(connection_defect(
+                            "invalid_ack_id",
+                            "Ack requestId is not a decimal string",
+                        ));
                         continue;
                     }
                     if let Some(stream) = self.streams.get_mut(request_id.as_str()) {
@@ -3989,7 +4002,10 @@ fn scripts_error_response(error: &ScriptsError) -> Response {
                 .into_response()
         }
         ScriptsError::Terminal(terminal_error) => {
-            warn!(?terminal_error, "scripts.run's terminal could not be started");
+            warn!(
+                ?terminal_error,
+                "scripts.run's terminal could not be started"
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "The script's terminal could not be started." })),
@@ -4105,14 +4121,20 @@ fn connection_defect(reason: &'static str, defect: impl Into<String>) -> Value {
 mod tests {
     use super::*;
     use crate::dao::MockConversationDao;
+    use crate::listing::UiRpcListingHead;
     use crate::task_dao::{MockT3TaskDao, TaskView};
     use crate::workspace_dao::MockT3WorkspaceDao;
-    use crate::listing::UiRpcListingHead;
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
-    use moatless_backend_core::sandbox::{LiveStatus, LogOptions, SandboxDesiredState, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher, SandboxStatus, ContractSandboxStatus, ServerLogStream};
+    use moatless_identity::auth::pairing::{
+        PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key,
+    };
+    use moatless_ports::sandbox::{
+        ContractSandboxStatus, LiveStatus, LogOptions, SandboxDesiredState,
+        SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher,
+        SandboxStatus, ServerLogStream,
+    };
     use moatless_types::task::TaskStatus;
-    use moatless_identity::auth::pairing::{PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key};
     use uuid::Uuid;
 
     /// The stub's database. Every read in these tests reports it, so nothing
@@ -4242,10 +4264,7 @@ mod tests {
 
     #[async_trait]
     impl SandboxStarter for UnreachableSandboxes {
-        async fn start(
-            &self,
-            task_id: &str,
-        ) -> Result<(), moatless_backend_core::sandbox::SandboxError> {
+        async fn start(&self, task_id: &str) -> Result<(), moatless_ports::sandbox::SandboxError> {
             Err(unreachable(task_id))
         }
     }
@@ -4256,7 +4275,7 @@ mod tests {
             &self,
             task_id: &str,
             _reason: moatless_types::sandbox::SandboxStopReason,
-        ) -> Result<(), moatless_backend_core::sandbox::SandboxError> {
+        ) -> Result<(), moatless_ports::sandbox::SandboxError> {
             Err(unreachable(task_id))
         }
     }
@@ -4266,8 +4285,8 @@ mod tests {
         async fn list_sandbox_diagnostics(
             &self,
         ) -> Result<
-            Vec<moatless_backend_core::sandbox::SandboxDiagnosticsEntry>,
-            moatless_backend_core::sandbox::SandboxError,
+            Vec<moatless_ports::sandbox::SandboxDiagnosticsEntry>,
+            moatless_ports::sandbox::SandboxError,
         > {
             Ok(Vec::new())
         }
@@ -4948,10 +4967,18 @@ mod tests {
     /// exists to end, just moved to the start of the stream.
     #[tokio::test]
     async fn subscribing_to_a_sandbox_status_answers_before_the_first_poll() {
-        let frame = request("1", "sandbox.subscribeStatus", json!({ "threadId": "task-1" }));
+        let frame = request(
+            "1",
+            "sandbox.subscribeStatus",
+            json!({ "threadId": "task-1" }),
+        );
         let mut session = session();
         let output = session
-            .handle_json(&frame, &state_with_sandbox_status(SandboxStatus::Ready), &viewer())
+            .handle_json(
+                &frame,
+                &state_with_sandbox_status(SandboxStatus::Ready),
+                &viewer(),
+            )
             .await;
 
         assert_eq!(output.frames[0]["_tag"], "Chunk");
@@ -5071,7 +5098,11 @@ mod tests {
         let value = &output.frames[0]["exit"]["value"];
 
         assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
-        assert!(value["attachmentId"].as_str().is_some_and(|id| !id.is_empty()));
+        assert!(
+            value["attachmentId"]
+                .as_str()
+                .is_some_and(|id| !id.is_empty())
+        );
         assert!(
             value["relativeUrl"]
                 .as_str()
@@ -5110,7 +5141,11 @@ mod tests {
         );
         let mut session = session();
         let output = session
-            .handle_json(&frame, &state_with_attachments(attachments.clone()), &viewer())
+            .handle_json(
+                &frame,
+                &state_with_attachments(attachments.clone()),
+                &viewer(),
+            )
             .await;
 
         assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
@@ -5148,7 +5183,11 @@ mod tests {
         );
         let mut session = session();
         let output = session
-            .handle_json(&frame, &state_with_attachments(attachments.clone()), &viewer())
+            .handle_json(
+                &frame,
+                &state_with_attachments(attachments.clone()),
+                &viewer(),
+            )
             .await;
 
         assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");

@@ -35,7 +35,7 @@ COPY --from=binaries ${TARGETARCH}/ /test-bins/
 RUN chmod +x /test-bins/*
 
 # Declarative scenarios and the recording moat shim used only by agent-cli-eval.
-COPY sandbox/tests/moat_cli_eval /test-assets/moat-cli-eval
+COPY crates/sandbox/tests/moat_cli_eval /test-assets/moat-cli-eval
 
 # The agent path resolves the CLI from this env (default /usr/local/bin/claude).
 ENV CLAUDE_CLI_PATH=/usr/local/bin/claude

@@ -10,16 +10,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tracing::warn;
 
-use moatless_backend_core::identity::{
-    GitHostTokenError, GitHostTokenIssuer, PlainGitHost,
-};
-use moatless_backend_core::store::StoreError;
-use moatless_backend_core::workspace::WorkspaceCredentialReader;
-use moatless_types::workspace::WorkspaceCredentialProvider;
 use moatless_core::secret_keys::GITHUB_TOKEN;
+use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer, PlainGitHost};
+use moatless_ports::workspace::WorkspaceCredentialReader;
 use moatless_types::repository::RepositoryProvider;
+use moatless_types::store::StoreError;
+use moatless_types::workspace::WorkspaceCredentialProvider;
 
-use moatless_types::access_control::Actor;
 use crate::auth::error::AuthError;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
@@ -29,10 +26,11 @@ use crate::auth::provider_tokens::{
     AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF, ProviderTokenAuthDao,
 };
 use crate::auth::token_refresh::ensure_fresh_token;
+use crate::secret::service::SecretService;
+use moatless_types::access_control::Actor;
+use moatless_types::access_control::Scope;
 use moatless_types::repository::GitHostRepo;
 use moatless_types::secret::SecretKind;
-use crate::secret::service::SecretService;
-use moatless_types::access_control::Scope;
 
 /// The one way to obtain a git-host token.
 ///
@@ -94,15 +92,16 @@ impl GitHostTokens {
         else {
             return Ok(None);
         };
-        let env = store.resolve_env(workspace_id).await.map_err(|e| {
-            GitHostTokenError::Broken {
+        let env = store
+            .resolve_env(workspace_id)
+            .await
+            .map_err(|e| GitHostTokenError::Broken {
                 actor: actor.clone(),
                 provider,
                 source: Box::new(AuthError::Config(format!(
                     "Failed to read the credentials pinned to workspace '{workspace_id}': {e}"
                 ))),
-            }
-        })?;
+            })?;
         let key = WorkspaceCredentialProvider::from(provider).env_key();
         Ok(env.get(key).filter(|token| !token.is_empty()).cloned())
     }
@@ -331,7 +330,6 @@ pub fn seam_over(provider_tokens: Arc<dyn ProviderTokenDao>) -> Arc<dyn GitHostT
         Arc::new(crate::secret::test_support::service_with(vec![])),
     ))
 }
-
 
 /// Freshness is handled here: OAuth rows refresh through [`ensure_fresh_token`]
 /// and installation rows mint, so a returned token is usable now and must not
@@ -631,7 +629,11 @@ mod tests {
     }
 
     impl PinnedCredentials {
-        fn holding(workspace_id: &'static str, key: &str, value: &str) -> Arc<dyn WorkspaceCredentialReader> {
+        fn holding(
+            workspace_id: &'static str,
+            key: &str,
+            value: &str,
+        ) -> Arc<dyn WorkspaceCredentialReader> {
             Arc::new(Self {
                 workspace_id,
                 env: HashMap::from([(key.to_string(), value.to_string())]),
@@ -653,9 +655,9 @@ mod tests {
         async fn resolve_env(
             &self,
             workspace_id: &str,
-        ) -> Result<HashMap<String, String>, moatless_backend_core::store::StoreError> {
+        ) -> Result<HashMap<String, String>, moatless_types::store::StoreError> {
             if self.fails {
-                return Err(moatless_backend_core::store::StoreError::new("unreadable"));
+                return Err(moatless_types::store::StoreError::new("unreadable"));
             }
             Ok(if workspace_id == self.workspace_id {
                 self.env.clone()
@@ -688,12 +690,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_workspace_pin_answers_for_an_identity_holding_no_row_at_all() {
-        let seam = tokens(StubProviderTokens::default(), service_with(vec![]))
-            .with_workspace_credentials(PinnedCredentials::holding(
-                "ws_1",
-                "GITHUB_TOKEN",
-                "ghp_workspace",
-            ));
+        let seam =
+            tokens(StubProviderTokens::default(), service_with(vec![])).with_workspace_credentials(
+                PinnedCredentials::holding("ws_1", "GITHUB_TOKEN", "ghp_workspace"),
+            );
         let actor = Actor::of("u1").on_workspace(Some("ws_1"));
 
         assert_eq!(
@@ -759,19 +759,20 @@ mod tests {
             .token(&Actor::of("u1").on_workspace(Some("ws_1")), &github_repo())
             .await
             .expect_err("an unreadable pin is not an absent pin");
-        assert!(matches!(error, GitHostTokenError::Broken { .. }), "got {error}");
+        assert!(
+            matches!(error, GitHostTokenError::Broken { .. }),
+            "got {error}"
+        );
     }
 
     #[tokio::test]
     async fn a_workspace_pin_governs_gitlab_the_same_way() {
         let repo = GitHostRepo::parse(RepositoryProvider::Gitlab, "https://gitlab.com/acme/repo")
             .expect("parses");
-        let seam = tokens(StubProviderTokens::default(), service_with(vec![]))
-            .with_workspace_credentials(PinnedCredentials::holding(
-                "ws_1",
-                "GITLAB_TOKEN",
-                "glpat_workspace",
-            ));
+        let seam =
+            tokens(StubProviderTokens::default(), service_with(vec![])).with_workspace_credentials(
+                PinnedCredentials::holding("ws_1", "GITLAB_TOKEN", "glpat_workspace"),
+            );
 
         assert_eq!(
             seam.token(&Actor::of("u1").on_workspace(Some("ws_1")), &repo)
@@ -780,9 +781,12 @@ mod tests {
             "glpat_workspace"
         );
         assert_eq!(
-            seam.host_token(&Actor::of("u1").on_workspace(Some("ws_1")), PlainGitHost::Gitlab)
-                .await
-                .expect("the repository-free read resolves the same pin"),
+            seam.host_token(
+                &Actor::of("u1").on_workspace(Some("ws_1")),
+                PlainGitHost::Gitlab
+            )
+            .await
+            .expect("the repository-free read resolves the same pin"),
             "glpat_workspace"
         );
     }

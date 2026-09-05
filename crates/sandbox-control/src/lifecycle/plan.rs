@@ -7,13 +7,13 @@
 use std::sync::Arc;
 
 use crate::auto_provision::{build_provision_request, get_server_configs_for_workspace};
+use moatless_ports::identity::CommitIdentity;
+use moatless_ports::workspace::WorkspaceResolver;
 use moatless_sandbox_runtime::provisioning::ProvisionRequest;
 use moatless_types::workspace::ServerConfig;
-use moatless_backend_core::identity::CommitIdentity;
-use moatless_backend_core::workspace::WorkspaceResolver;
 
-use moatless_sandbox_runtime::runtime::RuntimeError;
 use super::orchestrator::{LifecycleDao, TaskIntent};
+use moatless_sandbox_runtime::runtime::RuntimeError;
 use moatless_sandbox_runtime::runtime::map_sandbox_error;
 
 /// The three seams a fresh runtime plan is assembled from. `sandboxes` is the
@@ -91,9 +91,9 @@ impl ProvisionDeps {
 
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
-    use moatless_sandbox_runtime::runtime::ErrorClass;
     use super::super::test_support::seed_task_with;
     use super::*;
+    use moatless_sandbox_runtime::runtime::ErrorClass;
     use sqlx::PgPool;
 
     /// Assemble deps straight from a test pool, bypassing the composition root
@@ -117,8 +117,8 @@ mod db_tests {
     }
 
     /// A `CommitIdentity` that grants nobody platform admin.
-    fn non_admin() -> moatless_backend_core::identity::MockCommitIdentity {
-        let mut users = moatless_backend_core::identity::MockCommitIdentity::new();
+    fn non_admin() -> moatless_ports::identity::MockCommitIdentity {
+        let mut users = moatless_ports::identity::MockCommitIdentity::new();
         users.expect_is_platform_admin().returning(|_| Ok(false));
         users
     }

@@ -22,15 +22,15 @@ use tracing::{info, warn};
 use moatless_adapter_model::apps::AdapterAppReader;
 use std::sync::Arc;
 
-use moatless_backend_core::identity::AppCredentials;
+use moatless_ports::identity::AppCredentials;
 
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::delivery::AdapterDeliveryRequest;
+use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::loops::LoopReader;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::loops::SubscriptionMatch;
-use moatless_adapter_model::loops::LoopReader;
 
 use super::adapter::LinearAdapter;
 use super::agent_api::ActivityKind;
@@ -472,9 +472,7 @@ pub(super) async fn resolve_rules_for_team(
     connection: &AdapterConnection,
     team_id: &str,
 ) -> Result<Vec<SubscriptionMatch>, AdapterError> {
-    let rules = loops
-        .subscriptions_for_source(ADAPTER, team_id)
-        .await?;
+    let rules = loops.subscriptions_for_source(ADAPTER, team_id).await?;
     Ok(rules
         .into_iter()
         .filter(|r| {

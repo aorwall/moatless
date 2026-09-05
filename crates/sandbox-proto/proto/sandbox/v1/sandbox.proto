@@ -805,7 +805,7 @@ message GetAgentStatusResponse {
   optional string run_id = 7;
 }
 
-// Snapshot of one registered scheduled job — see sandbox/src/agent/scheduled_job.rs.
+// Snapshot of one registered scheduled job — see crates/sandbox/src/agent/scheduled_job.rs.
 // `kind` is a oneof to keep room for future job kinds; field tag 3 is reserved
 // for the now-removed MonitorJobInfo so existing wire payloads decode cleanly.
 message ScheduledJobInfo {

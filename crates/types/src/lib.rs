@@ -3,9 +3,7 @@
 //! Every type here is pure data: no I/O, no behaviour beyond what the data
 //! itself can answer.
 //!
-//! A type moves in when all three hold: it is pure data; three or more
-//! crates other than its owner name it; neither its body nor its impls name
-//! a foreign crate. See `crates/types/AGENTS.md` for the rest.
+//! Admission is enforced by `tooling/arch-rules`; see `crates/types/AGENTS.md`.
 
 // Test code asserts a parse succeeded; production code keeps the workspace deny.
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
@@ -80,3 +78,9 @@ pub mod store;
 pub mod task;
 pub mod user;
 pub mod workspace;
+
+pub mod activity;
+pub mod codex;
+pub mod plugin;
+pub mod running;
+pub mod ui_rpc;

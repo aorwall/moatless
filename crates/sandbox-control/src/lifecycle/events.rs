@@ -15,58 +15,9 @@ use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 
 use moatless_types::sandbox::SandboxStopReason;
 
-use moatless_sandbox_runtime::outcome::LifecycleOutcome;
+use moatless_sandbox_runtime::observation_events::{EventFact, event_id};
 use moatless_sandbox_runtime::operation::{ObservedStatus, OperationGeneration, OperationKind};
-
-/// The deterministic fact an event records for an operation generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EventFact {
-    /// Watcher convergence: the generation's replacement became Ready.
-    Ready,
-    /// Acceptance: intent moved to `Removed`.
-    Removing,
-    /// Completion: the operation newly established a stopped sandbox.
-    Stopped,
-    /// Completion: the operation newly established a removed sandbox.
-    Removed,
-    /// Infrastructure: start/restart/redeploy actually did work.
-    Initializing,
-    /// Failure fact for an attempt.
-    Error,
-    /// Terminal fact: the reconciler's attempt cap for this generation is spent
-    /// and it will not retry until a new caller operation or a wake. Distinct
-    /// from [`Error`](Self::Error) because it needs its own deterministic id —
-    /// sharing the `Error` id would dedup it away against the failure that
-    /// caused it.
-    RecoveryExhausted,
-}
-
-impl EventFact {
-    /// Stable slug used as the last segment of the deterministic event id.
-    pub fn slug(self) -> &'static str {
-        match self {
-            Self::Ready => "ready",
-            Self::Removing => "removing",
-            Self::Stopped => "stopped",
-            Self::Removed => "removed",
-            Self::Initializing => "initializing",
-            Self::Error => "error",
-            Self::RecoveryExhausted => "recovery_exhausted",
-        }
-    }
-
-    /// The `SandboxStatus` sub-type the event publishes under.
-    pub fn sandbox_status(self) -> SandboxStatus {
-        match self {
-            Self::Ready => SandboxStatus::Ready,
-            Self::Removing => SandboxStatus::Removing,
-            Self::Stopped => SandboxStatus::Stopped,
-            Self::Removed => SandboxStatus::Removed,
-            Self::Initializing => SandboxStatus::Initializing,
-            Self::Error | Self::RecoveryExhausted => SandboxStatus::Error,
-        }
-    }
-}
+use moatless_sandbox_runtime::outcome::LifecycleOutcome;
 
 /// Why an operation failed, carried on a failure fact so the durable event
 /// explains itself instead of reading "Sandbox operation failed".
@@ -203,11 +154,6 @@ fn stop_reason_tags(reason: SandboxStopReason) -> (Option<&'static str>, &'stati
         SandboxStopReason::System => (None, "system"),
         SandboxStopReason::Error => (Some("crash_autostop"), "crash_autostop"),
     }
-}
-
-/// The deterministic event id for a `(task, generation, fact)` triple.
-pub fn event_id(task_id: &str, generation: OperationGeneration, fact: EventFact) -> String {
-    format!("sandbox:{task_id}:{generation}:{}", fact.slug())
 }
 
 /// Everything the derivation needs about a completed operation.
@@ -357,8 +303,9 @@ pub fn recovery_exhausted_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_sandbox_runtime::outcome::LifecycleOutcome;
+    use moatless_sandbox_runtime::observation_events::{EventFact, event_id};
     use moatless_sandbox_runtime::operation::{IntentEffect, RuntimeEffect};
+    use moatless_sandbox_runtime::outcome::LifecycleOutcome;
 
     fn gen(n: i64) -> OperationGeneration {
         OperationGeneration(n)

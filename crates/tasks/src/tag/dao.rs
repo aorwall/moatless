@@ -49,7 +49,7 @@ impl TagDao for PgTagDao {
         // Only when a tag was actually added — re-adding changes nothing and
         // must not advance the position. Last, per "call this last".
         if added > 0 {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -104,7 +104,7 @@ impl TagDao for PgTagDao {
         // moved the tag set, and the whole set is replaced here rather than
         // diffed, so "removed nothing and added nothing" is the only silence.
         if removed > 0 || !tag_ids.is_empty() {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
         Ok(())

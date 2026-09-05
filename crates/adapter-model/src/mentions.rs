@@ -10,7 +10,7 @@
 
 use std::sync::LazyLock;
 
-use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_ports::identity::ProviderIdentityLink;
 use regex::Regex;
 use tracing::warn;
 
@@ -80,8 +80,8 @@ pub async fn render_mentions(
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
-    use moatless_backend_core::identity::{LinkedUser, ProviderIdentityLink};
-    use moatless_backend_core::store::StoreError;
+    use moatless_ports::identity::{LinkedUser, ProviderIdentityLink};
+    use moatless_types::store::StoreError;
     use uuid::Uuid;
 
     use super::render_mentions;
@@ -107,8 +107,7 @@ mod tests {
             if self.fail {
                 return Err(StoreError::new("the directory is down"));
             }
-            Ok((provider == "slack" && login == "aorwall")
-                .then(|| "U0000000001".to_string()))
+            Ok((provider == "slack" && login == "aorwall").then(|| "U0000000001".to_string()))
         }
         async fn user_who_connected(&self, _: &str, _: &str) -> Result<Option<String>, StoreError> {
             Ok(None)
@@ -124,17 +123,15 @@ mod tests {
     fn slack_id(token: &str) -> bool {
         token.len() >= 8
             && token.starts_with(['U', 'W'])
-            && token[1..].chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+            && token[1..]
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
     }
 
     async fn render(text: &str, fail: bool) -> String {
-        render_mentions(
-            &OneLink { fail },
-            "slack",
-            text,
-            slack_id,
-            |id| format!("<@{id}>"),
-        )
+        render_mentions(&OneLink { fail }, "slack", text, slack_id, |id| {
+            format!("<@{id}>")
+        })
         .await
     }
 

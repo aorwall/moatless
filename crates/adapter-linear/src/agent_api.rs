@@ -23,7 +23,7 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::metrics::record_api_call;
 use std::sync::Arc;
 
-use moatless_backend_core::identity::{AppCredentials, AppToken};
+use moatless_ports::identity::{AppCredentials, AppToken};
 
 /// Linear's API host. Every endpoint this client speaks to hangs off it, so
 /// replacing this one value points the whole client — GraphQL and the OAuth
@@ -848,11 +848,7 @@ impl LinearAgentApi {
                 }}
             }))
             .await?;
-        require_mutation_success(
-            &value,
-            "/data/issueRelationCreate",
-            "issueRelationCreate",
-        )?;
+        require_mutation_success(&value, "/data/issueRelationCreate", "issueRelationCreate")?;
         value
             .pointer("/data/issueRelationCreate/issueRelation")
             .cloned()
@@ -1234,7 +1230,7 @@ mod error_source_tests {
         async fn app_token(
             &self,
             _provider: &str,
-        ) -> Result<Option<AppToken>, moatless_backend_core::store::StoreError> {
+        ) -> Result<Option<AppToken>, moatless_types::store::StoreError> {
             Ok(None)
         }
 
@@ -1242,7 +1238,7 @@ mod error_source_tests {
             &self,
             _provider: &str,
             _token: &AppToken,
-        ) -> Result<(), moatless_backend_core::store::StoreError> {
+        ) -> Result<(), moatless_types::store::StoreError> {
             Ok(())
         }
     }

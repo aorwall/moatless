@@ -10,15 +10,19 @@ use tracing::warn;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 
 use crate::repository::dao::RepositoryDao;
-use moatless_backend_core::access_control::resolve_scope_for_create;
-use moatless_backend_core::identity::UserResolver;
 use moatless_core::http_auth::AuthUser;
+use moatless_ports::identity::UserResolver;
+use moatless_types::access_control::resolve_scope_for_create;
 
 use super::dao::{WorkspaceDao, WorkspacePatch};
 use super::error::WorkspaceError;
 use super::git_sync::{GitSyncService, SyncForce};
 use super::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
-use super::schemas::{AddRepoRequest, CreateWorkspaceRequest, ResetGitWorkspaceResponse, UpdateWorkspaceRequest, WorkspaceRepoInput, WorkspaceResponse, resource_config_from_wire, script_configs_from_wire, server_configs_from_wire, workspace_response};
+use super::schemas::{
+    AddRepoRequest, CreateWorkspaceRequest, ResetGitWorkspaceResponse, UpdateWorkspaceRequest,
+    WorkspaceRepoInput, WorkspaceResponse, resource_config_from_wire, script_configs_from_wire,
+    server_configs_from_wire, workspace_response,
+};
 
 /// Serialize a typed run-config value into the jsonb column shape, dropping it
 /// on the (practically impossible) serialization failure rather than erroring.
@@ -894,7 +898,8 @@ mod tests {
 
     #[test]
     fn git_workspace_is_read_only() {
-        let err = ensure_workspace_mutable(&workspace_with_source(WorkspaceSource::Git)).unwrap_err();
+        let err =
+            ensure_workspace_mutable(&workspace_with_source(WorkspaceSource::Git)).unwrap_err();
         assert!(matches!(err, WorkspaceError::Conflict(_)));
     }
 

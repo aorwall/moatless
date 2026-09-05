@@ -27,9 +27,9 @@ use tracing::warn;
 use super::checkout::{Body, Checkout, Sources};
 use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
-use moatless_backend_core::sandbox::SandboxError;
-use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
+use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::ScopeContext;
+use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 
 /// The most entries one listing carries.
 ///
@@ -100,7 +100,7 @@ fn entry(path: &str) -> Option<Value> {
 /// bounded browse** — the contract says so out loud
 /// (`packages/contracts/src/project.ts:19`), it is what the file picker opens
 /// with, and the Sandbox's walker returns nothing for it
-/// (`sandbox/src/files/search.rs:49`) — so that case is answered from the same
+/// (`crates/sandbox/src/files/search.rs:49`) — so that case is answered from the same
 /// listing [`list_entries`] reads, cut to `limit`.
 ///
 /// The reference server orders that browse by frecency. Moatless records no
@@ -136,7 +136,7 @@ pub async fn search_entries(
         let truncated = found.len() >= limit;
         // Always files: neither backing has a directory to offer here — the
         // Sandbox's walker skips anything that is not a file
-        // (`sandbox/src/files/search.rs:69`) and the mirror stores only files.
+        // (`crates/sandbox/src/files/search.rs:69`) and the mirror stores only files.
         let entries: Vec<Value> = found
             .iter()
             .filter(|path| !path.is_empty())
@@ -321,9 +321,7 @@ mod tests {
             turn_status: None,
             turn_started_at: None,
             turn_ended_at: None,
-            sandbox_desired_state: Some(
-                moatless_types::sandbox::SandboxDesiredState::Running,
-            ),
+            sandbox_desired_state: Some(moatless_types::sandbox::SandboxDesiredState::Running),
             sandbox_stop_reason_raw: None,
             sandbox_started_at: None,
             sandbox_updated_at: None,

@@ -31,11 +31,11 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 use moatless_adapter_model::apps::AdapterAppReader;
-use moatless_backend_core::identity::AppCredentials;
 use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_ports::identity::AppCredentials;
 
-use moatless_backend_core::task::TranscriptAppend;
 use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_ports::task::TranscriptAppend;
 
 use super::agent_api::LinearAgentApi;
 
@@ -79,13 +79,8 @@ async fn resolve_linear_sessions_for_task(
         };
 
         let Some(api) =
-            super::auth::api_for_binding(
-                adapter_connections,
-                app_tokens.clone(),
-                apps,
-                &binding,
-            )
-            .await
+            super::auth::api_for_binding(adapter_connections, app_tokens.clone(), apps, &binding)
+                .await
         else {
             continue;
         };
@@ -115,14 +110,14 @@ pub async fn notify_linear_status(
     body: String,
     ephemeral: bool,
 ) {
-    for (api, session_id) in
-        resolve_linear_sessions_for_task(
-            &app_tokens,
-            task_bindings.as_ref(),
-            adapter_connections.as_ref(),
-            apps.as_ref(),
-            &task_id,
-        ).await
+    for (api, session_id) in resolve_linear_sessions_for_task(
+        &app_tokens,
+        task_bindings.as_ref(),
+        adapter_connections.as_ref(),
+        apps.as_ref(),
+        &task_id,
+    )
+    .await
     {
         if let Err(e) = api
             .agent_activity_create(&session_id, kind, &body, ephemeral)
@@ -159,14 +154,14 @@ pub async fn notify_linear_action(
     result: Option<String>,
     ephemeral: bool,
 ) {
-    for (api, session_id) in
-        resolve_linear_sessions_for_task(
-            &app_tokens,
-            task_bindings.as_ref(),
-            adapter_connections.as_ref(),
-            apps.as_ref(),
-            &task_id,
-        ).await
+    for (api, session_id) in resolve_linear_sessions_for_task(
+        &app_tokens,
+        task_bindings.as_ref(),
+        adapter_connections.as_ref(),
+        apps.as_ref(),
+        &task_id,
+    )
+    .await
     {
         if let Err(e) = api
             .agent_activity_create_action(
@@ -214,15 +209,14 @@ pub async fn notify_linear_message_activities(
         return;
     }
 
-    let sessions =
-        resolve_linear_sessions_for_task(
-            &app_tokens,
-            task_bindings.as_ref(),
-            adapter_connections.as_ref(),
-            apps.as_ref(),
-            &task_id,
-        )
-            .await;
+    let sessions = resolve_linear_sessions_for_task(
+        &app_tokens,
+        task_bindings.as_ref(),
+        adapter_connections.as_ref(),
+        apps.as_ref(),
+        &task_id,
+    )
+    .await;
     if sessions.is_empty() {
         return;
     }
@@ -328,15 +322,14 @@ pub async fn notify_linear_tool_results(
         return;
     }
 
-    let sessions =
-        resolve_linear_sessions_for_task(
-            &app_tokens,
-            task_bindings.as_ref(),
-            adapter_connections.as_ref(),
-            apps.as_ref(),
-            &task_id,
-        )
-            .await;
+    let sessions = resolve_linear_sessions_for_task(
+        &app_tokens,
+        task_bindings.as_ref(),
+        adapter_connections.as_ref(),
+        apps.as_ref(),
+        &task_id,
+    )
+    .await;
     if sessions.is_empty() {
         return;
     }

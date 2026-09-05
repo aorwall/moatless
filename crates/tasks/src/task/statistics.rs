@@ -2,7 +2,10 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use moatless_api_schemas::task::{TaskMessageTokenUsage, TaskSkillUsage, TaskStatisticsResponse, TaskTokenTotals, TaskToolCallStats};
+use moatless_api_schemas::task::{
+    TaskMessageTokenUsage, TaskSkillUsage, TaskStatisticsResponse, TaskTokenTotals,
+    TaskToolCallStats,
+};
 
 use super::models::Task;
 use crate::message::models::{MessageType, TaskMessage};
@@ -225,17 +228,21 @@ mod tests {
     use serde_json::Value;
 
     use crate::message::models::{MessageRole, MessageType};
-    use moatless_types::task::Visibility;
     use crate::task::models::TaskStatus;
     use crate::task_activities::mapping::ActivityStatus;
     use moatless_types::agent::AgentType;
+    use moatless_types::task::Visibility;
 
     fn task() -> Task {
         Task {
             task_id: "task-1".to_string(),
             short_id: None,
-            created_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000Z").expect("fixture timestamp").with_timezone(&chrono::Utc),
-            last_message_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000Z").expect("fixture timestamp").with_timezone(&chrono::Utc),
+            created_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000Z")
+                .expect("fixture timestamp")
+                .with_timezone(&chrono::Utc),
+            last_message_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000Z")
+                .expect("fixture timestamp")
+                .with_timezone(&chrono::Utc),
             agent_type: AgentType("codex".to_string()),
             repository_id: "repo-1".to_string(),
             status: TaskStatus::Open,

@@ -21,13 +21,13 @@ use super::dao::{TaskDao, TaskPatch};
 use super::error::TaskError;
 use super::handlers::{deactivate_task_bindings, task_resource};
 use super::models::TaskStatus;
-use moatless_types::sandbox::ArchiveRetention;
-use moatless_types::task::TaskRelationType;
 use super::relations::TaskRelationDao;
-use moatless_backend_core::sandbox::SandboxLifecycle;
-use moatless_backend_core::binding::TaskBindings;
+use crate::task::bindings::TaskBindings;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
+use moatless_ports::sandbox::SandboxLifecycle;
+use moatless_types::sandbox::ArchiveRetention;
+use moatless_types::task::TaskRelationType;
 
 /// The ports a close reads. Bundled because single and cascaded closes thread
 /// the same set through every frame; constructed once at the composition root.

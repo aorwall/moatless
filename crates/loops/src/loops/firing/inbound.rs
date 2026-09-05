@@ -1,9 +1,9 @@
 //! Inbound message processing — unified message → task flow.
 
+use moatless_ports::task::{NewTask, TaskOpenError, TaskOpened, TaskOpener};
 use moatless_types::loops::LoopContext;
-use moatless_backend_core::task::{NewTask, TaskOpenError, TaskOpened, TaskOpener};
-use moatless_types::task::Visibility;
 use moatless_types::task::RelatedTask;
+use moatless_types::task::Visibility;
 
 use moatless_types::adapter::InboundMessage;
 

@@ -9,7 +9,7 @@
 //! beside a store it already holds is a second surface, not a seam.
 //!
 //! The Task band sits *below* this crate and reaches Binding through
-//! `moatless_backend_core::binding::TaskBindings`, implemented at the bottom of
+//! `moatless_tasks::task::bindings::TaskBindings`, implemented at the bottom of
 //! this file.
 
 use std::collections::HashMap;
@@ -17,9 +17,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use moatless_adapter_model::binding::BindingProbe;
+use moatless_api_schemas::bindings::TaskBindingSummary;
+use moatless_tasks::task::bindings::TaskBindings;
 use moatless_types::adapter::TaskBinding;
-use moatless_backend_core::binding::{TaskBindingSummary, TaskBindings};
-use moatless_backend_core::store::StoreError;
+use moatless_types::store::StoreError;
 
 use crate::bindings::dao::TaskBindingDao;
 use crate::loops::dao::LoopDao;
@@ -60,11 +61,10 @@ impl BindingProbe for BindingDirectory {
 #[async_trait]
 impl TaskBindings for BindingDirectory {
     async fn summaries(&self, task_id: &str) -> Result<Vec<TaskBindingSummary>, StoreError> {
-        let bindings = self
-            .bindings
-            .find_by_task_id(task_id)
-            .await
-            .map_err(|e| StoreError::with_source(format!("read bindings on task {task_id}"), e))?;
+        let bindings =
+            self.bindings.find_by_task_id(task_id).await.map_err(|e| {
+                StoreError::with_source(format!("read bindings on task {task_id}"), e)
+            })?;
 
         let mut summaries = Vec::with_capacity(bindings.len());
         for binding in &bindings {
@@ -96,26 +96,33 @@ impl TaskBindings for BindingDirectory {
 
         let mut out: HashMap<String, Vec<TaskBindingSummary>> = HashMap::new();
         for row in rows {
-            out.entry(row.task_id).or_default().push(TaskBindingSummary {
-                loop_id: row.loop_id,
-                adapter_kind: moatless_types::adapter::AdapterKind::parse_or_webhook(&row.adapter_kind),
-                source_id: row.source_id,
-                source_name: row.source_name,
-                thread_id: None,
-                external_thread_id: None,
-                subject_key: None,
-                binding_id: None,
-                origin: None,
-                last_event_at: None,
-            });
+            out.entry(row.task_id)
+                .or_default()
+                .push(TaskBindingSummary {
+                    loop_id: row.loop_id,
+                    adapter_kind: moatless_types::adapter::AdapterKind::parse_or_webhook(
+                        &row.adapter_kind,
+                    ),
+                    source_id: row.source_id,
+                    source_name: row.source_name,
+                    thread_id: None,
+                    external_thread_id: None,
+                    subject_key: None,
+                    binding_id: None,
+                    origin: None,
+                    last_event_at: None,
+                });
         }
         Ok(out)
     }
 
     async fn deactivate_for_task(&self, task_id: &str) -> Result<u64, StoreError> {
-        self.bindings.deactivate_by_task(task_id).await.map_err(|e| {
-            StoreError::with_source(format!("deactivate bindings on task {task_id}"), e)
-        })
+        self.bindings
+            .deactivate_by_task(task_id)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(format!("deactivate bindings on task {task_id}"), e)
+            })
     }
 }
 

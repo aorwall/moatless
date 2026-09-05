@@ -11,9 +11,9 @@ use super::models::{
     CheckoutMode, SandboxDesiredState, SandboxIntentView, Task, TaskRow, TaskStatus, Visibility,
     sandbox_intent_epoch,
 };
-use moatless_backend_core::db_enum::decode_optional;
-use moatless_backend_core::workspace::WorkspaceProvisioner;
 use moatless_core::db::DbPool;
+use moatless_core::db_enum::decode_optional;
+use moatless_ports::workspace::WorkspaceProvisioner;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 use moatless_types::agent::AgentType;
 
@@ -476,7 +476,7 @@ impl TaskDao for PgTaskDao {
 
         // A conversation coming into existence is a listing change. Last, after
         // the `tasks` insert — `record_change`'s "call this last".
-        moatless_backend_core::change_feed::listing::record_change(&mut tx, &row.task_id).await?;
+        moatless_core::change_feed::listing::record_change(&mut tx, &row.task_id).await?;
         tx.commit().await?;
 
         // Auto-follow the task for its creator so it lands in their personal
@@ -526,7 +526,7 @@ impl TaskDao for PgTaskDao {
                 .await?;
         let did_delete = deleted.is_some();
         if did_delete {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
         Ok(did_delete)
@@ -612,8 +612,7 @@ impl TaskDao for PgTaskDao {
             .execute(&mut *tx)
             .await?;
 
-        moatless_backend_core::change_feed::listing::record_change(&mut tx, &deleted_task_id)
-            .await?;
+        moatless_core::change_feed::listing::record_change(&mut tx, &deleted_task_id).await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -921,7 +920,7 @@ impl TaskDao for PgTaskDao {
         // because most of this patch is not sidebar-visible and the busiest of
         // those paths runs once per turn.
         if patch.touches_listing() && first_affected.is_some_and(|n| n > 0) {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
 
@@ -977,7 +976,7 @@ impl TaskDao for PgTaskDao {
         // matches nothing here, and a no-op must not advance the position.
         // Last, after the `tasks` row lock — `record_change`'s "call this last".
         if res.rows_affected() > 0 {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
         Ok(res.rows_affected() > 0)
@@ -1025,8 +1024,7 @@ impl TaskDao for PgTaskDao {
             // foreign key precisely so that a deletion is still replayable. A
             // watching client re-reads this id, finds nothing, and drops the row it
             // holds.
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, &deleted_task_id)
-                .await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, &deleted_task_id).await?;
         }
         tx.commit().await?;
         Ok(did_delete)
@@ -1211,7 +1209,7 @@ impl TaskDao for PgTaskDao {
         // NOTHING` makes the call idempotent; recording on the effect rather
         // than the call keeps a re-follow from advancing the position.
         if res.rows_affected() > 0 {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -1228,7 +1226,7 @@ impl TaskDao for PgTaskDao {
         // path re-reads it per viewer, so the one whose follow this was finds
         // nothing and the rest see no change at all.
         if res.rows_affected() > 0 {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -1254,7 +1252,7 @@ impl TaskDao for PgTaskDao {
         .execute(&mut *tx)
         .await?;
         if res.rows_affected() > 0 {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -1274,7 +1272,7 @@ impl TaskDao for PgTaskDao {
         .execute(&mut *tx)
         .await?;
         if res.rows_affected() > 0 {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -1302,7 +1300,7 @@ impl TaskDao for PgTaskDao {
         .execute(&mut *tx)
         .await?;
         if res.rows_affected() > 0 {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -1322,7 +1320,7 @@ impl TaskDao for PgTaskDao {
         .execute(&mut *tx)
         .await?;
         if res.rows_affected() > 0 {
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
         }
         tx.commit().await?;
         Ok(())

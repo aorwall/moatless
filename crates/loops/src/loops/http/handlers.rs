@@ -8,21 +8,27 @@ use axum::http::StatusCode;
 use chrono::Utc;
 use moatless_api_schemas::bindings::TaskBindingResponse;
 use moatless_api_schemas::enums::TaskStatus;
-use moatless_api_schemas::loops::{ActivateLoopRequest, CreateLoopRequest, Loop, LoopRecentTaskItem, LoopRecentTaskSummary, ResetGitLoopResponse, UpdateLoopRequest, UpdateLoopSource};
+use moatless_api_schemas::loops::{
+    ActivateLoopRequest, CreateLoopRequest, Loop, LoopRecentTaskItem, LoopRecentTaskSummary,
+    ResetGitLoopResponse, UpdateLoopRequest, UpdateLoopSource,
+};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::adapters::access::{ensure_repository_exists, load_adapter_connection_for_auth_with, load_loop_for_auth_with, resolve_scope_for_adapter_create};
+use crate::adapters::access::{
+    ensure_repository_exists, load_adapter_connection_for_auth_with, load_loop_for_auth_with,
+    resolve_scope_for_adapter_create,
+};
 use crate::adapters::projection::{LoopFilter, loop_response, next_fire_at};
+use crate::bindings::dao::{LoopRecentTaskRow, TaskBindingDao};
+use crate::loops::dao::{AdapterSourceUpdate, LoopDao, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource, UpdateLoopSource as StoreUpdateSource};
+use crate::loops::sync::LoopSyncService;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use crate::loops::dao::{AdapterSourceUpdate, LoopDao, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource, UpdateLoopSource as StoreUpdateSource};
-use moatless_types::loops::LoopKind as DomainLoopKind;
-use crate::loops::sync::LoopSyncService;
-use moatless_backend_core::identity::UserResolver;
 use moatless_core::http_auth::AuthUser;
-use crate::bindings::dao::{LoopRecentTaskRow, TaskBindingDao};
-use moatless_backend_core::workspace::RepositoryReader;
+use moatless_ports::identity::UserResolver;
+use moatless_ports::workspace::RepositoryReader;
+use moatless_types::loops::LoopKind as DomainLoopKind;
 
 fn require_admin(auth: &AuthUser) -> Result<(), AdapterError> {
     if auth.role.as_deref() == Some("admin") {
@@ -315,7 +321,9 @@ pub async fn update_loop(
     require_admin(&auth)?;
     let ctx = auth.scope_context();
     let current = load_loop_for_auth_with(loops.as_ref(), &ctx, &id).await?;
-    if current.loop_.config_source != moatless_types::loops::LoopConfigSource::Manual || current.loop_.deleted {
+    if current.loop_.config_source != moatless_types::loops::LoopConfigSource::Manual
+        || current.loop_.deleted
+    {
         return Err(SharedAdapterError::Conflict(
             "Git-synced Loops are read-only; override the Loop before editing it".to_string(),
         )
@@ -386,9 +394,7 @@ pub async fn update_loop(
         repository_id: rule
             .repository_id
             .unwrap_or_else(|| current.config.repository_id.clone()),
-        routing_mode: rule
-            .routing_mode
-            .unwrap_or(current.config.routing_mode),
+        routing_mode: rule.routing_mode.unwrap_or(current.config.routing_mode),
         ongoing_task_id: rule
             .ongoing_task_id
             .unwrap_or_else(|| current.config.ongoing_task_id.clone()),

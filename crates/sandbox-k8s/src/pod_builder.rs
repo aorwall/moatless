@@ -17,7 +17,7 @@ use tracing::{debug, info, warn};
 
 use super::naming::generate_pod_name;
 use moatless_core::config::Config;
-use moatless_sandbox_control::jwt::{self, MintedSandboxTokens};
+use moatless_core::sandbox_jwt::{self as jwt, MintedSandboxTokens};
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::provisioning::{ProvisionPlan, allocated_port};
 use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
@@ -1455,9 +1455,9 @@ pub fn build_servers_map(plan: &ProvisionPlan, task_id: &str) -> HashMap<String,
 }
 
 /// Docker-in-Docker daemon port; served in plaintext on the sandbox pod.
-use moatless_backend_core::sandbox::SANDBOX_DIND_PORT as DIND_PORT;
+use moatless_types::sandbox::SANDBOX_DIND_PORT as DIND_PORT;
 /// Sandbox HTTP control port.
-use moatless_backend_core::sandbox::SANDBOX_HTTP_PORT;
+use moatless_types::sandbox::SANDBOX_HTTP_PORT;
 
 /// Ports the sandbox pod reserves for its control plane / infrastructure: the
 /// HTTP control port, the agent gRPC channel, and the dind Docker socket. A
@@ -1465,7 +1465,7 @@ use moatless_backend_core::sandbox::SANDBOX_HTTP_PORT;
 /// authenticated preview edge to the Docker socket or the gRPC control plane
 /// would be a sandbox escape (see backend/src/sandbox/CLAUDE.md).
 ///
-/// The rule itself is `moatless_backend_core::sandbox::is_reserved_sandbox_port`,
+/// The rule itself is `moatless_types::sandbox::is_reserved_sandbox_port`,
 /// which every runtime shares; this returns it as the array the declared-server
 /// filter below reads.
 pub fn reserved_sandbox_ports(config: &Config) -> [u16; 3] {

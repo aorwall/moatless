@@ -8,7 +8,7 @@ use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 use moatless_sandbox_runtime::operation::ObservedStatus;
 
 use crate::lifecycle::{Lifecycle, LifecycleError, NotifyPort};
-use moatless_backend_core::sandbox::{CredentialBroadcast, SandboxError, SandboxWaker};
+use moatless_ports::sandbox::{CredentialBroadcast, SandboxError, SandboxWaker};
 
 /// Ping a Task's sandbox through the connector so background owners never
 /// construct service names or raw gRPC URLs.

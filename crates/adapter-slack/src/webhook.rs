@@ -9,14 +9,14 @@
 
 use tracing::{debug, info, warn};
 
-use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::access::AccessDecision;
 use moatless_adapter_model::access::MessageTrigger;
+use moatless_adapter_model::error::AdapterError;
+use moatless_types::adapter::AdapterKind;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::LoopContext;
-use moatless_types::adapter::AdapterKind;
 
-use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_ports::identity::ProviderIdentityLink;
 
 use super::access::enforce_slack_access;
 use super::api::SlackApi;
@@ -318,10 +318,7 @@ fn screen(
 /// Slack knows it by, else stays an id. The bot's own id is deliberately left
 /// alone: its system prompt tells it that `<@its_id>` is how it is addressed,
 /// and renaming it there would break that.
-async fn name_mentioned_users(
-    text: &str,
-    ctx: &NormalizeContext<'_>,
-) -> String {
+async fn name_mentioned_users(text: &str, ctx: &NormalizeContext<'_>) -> String {
     let ids = super::format::mentioned_user_ids(text);
     if ids.is_empty() {
         return text.to_string();

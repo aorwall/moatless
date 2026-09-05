@@ -8,10 +8,10 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::{info, warn};
 
-use moatless_backend_core::identity::ProviderIdentityLink;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::ingress::{IngressError, Outcome};
 use moatless_adapter_model::metrics::record_webhook;
+use moatless_ports::identity::ProviderIdentityLink;
 
 use super::adapter::TelegramAdapter;
 use super::ingress::{self, Transport};

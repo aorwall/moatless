@@ -19,9 +19,9 @@ use super::dao::PgSecretDao;
 use super::schemas::PutSecretRequest;
 use super::service::{LocalEnvelopeSecretCipher, SecretService};
 use moatless_api_schemas::enums::Scope;
-use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
 use moatless_core::db;
+use moatless_types::access_control::ScopeContext;
 
 #[derive(Args, Debug)]
 pub struct SecretsCli {
@@ -200,17 +200,12 @@ fn owner_for(
             Err("--owner-user-id cannot be empty".into())
         }
         (Scope::User, owner) => Ok(owner),
-        (Scope::Global, Some(_)) => {
-            Err("--owner-user-id is not valid with --scope global".into())
-        }
+        (Scope::Global, Some(_)) => Err("--owner-user-id is not valid with --scope global".into()),
         (Scope::Global, None) => Ok(None),
     }
 }
 
-async fn list(
-    service: &SecretService,
-    args: ListArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn list(service: &SecretService, args: ListArgs) -> Result<(), Box<dyn std::error::Error>> {
     let scope: Scope = args.scope.into();
     let owner = owner_for(scope, args.owner_user_id)?;
     let rows = service
@@ -237,10 +232,7 @@ async fn list(
     Ok(())
 }
 
-async fn put(
-    service: &SecretService,
-    args: PutArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn put(service: &SecretService, args: PutArgs) -> Result<(), Box<dyn std::error::Error>> {
     let scope: Scope = args.scope.into();
     let owner = owner_for(scope, args.owner_user_id)?;
     let value = resolve_value(args.value, args.value_stdin)?;
@@ -271,9 +263,7 @@ async fn delete(
     let scope: Scope = args.scope.into();
     let owner = owner_for(scope, args.owner_user_id)?;
     let ctx = &scope_context(owner.as_deref());
-    let rows = service
-        .list_metadata(ctx, Some(scope))
-        .await?;
+    let rows = service.list_metadata(ctx, Some(scope)).await?;
     let match_id = rows
         .iter()
         .find(|row| row.key == args.key)
@@ -309,7 +299,7 @@ fn resolve_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_backend_core::access_control::resolve_scope_for_create;
+    use moatless_types::access_control::resolve_scope_for_create;
 
     const ALBIN: &str = "8b925a56-eb87-46a0-b81e-8ebeb3393a66";
 

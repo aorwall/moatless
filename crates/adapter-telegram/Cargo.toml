@@ -1,28 +1,29 @@
 [package]
 name = "moatless-adapter-telegram"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Telegram Adapter: Telegram Bot API inbound, polling, replies, and reactions for Moatless"
 
+authors.workspace = true
 [dependencies]
-async-trait = "0.1"
-axum = { version = "0.8", features = ["macros"] }
-chrono = { version = "0.4", features = ["serde"] }
-rand = "0.10"
-reqwest = { version = "0.13", features = ["json", "rustls"], default-features = false }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
-tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["rt"] }
-tracing = "0.1"
-utoipa = { version = "5", features = ["axum_extras"] }
+async-trait = { workspace = true }
+axum = { workspace = true, features = ["macros"] }
+chrono = { workspace = true, features = ["serde"] }
+rand = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true, features = ["rt"] }
+tracing = { workspace = true }
+utoipa = { workspace = true, features = ["axum_extras"] }
 
-moatless-adapter-model = { path = "../adapter-model", features = ["http"] }
-moatless-backend-core = { path = "../backend-core", features = ["database"] }
-moatless-core = { path = "../core" }
-moatless-loops = { path = "../loops" }
-moatless-types = { path = "../types" }
+moatless-adapter-model = { workspace = true, features = ["http"] }
+moatless-ports = { workspace = true, features = [] }
+moatless-core = { workspace = true }
+moatless-loops = { workspace = true }
+moatless-types = { workspace = true }
 
 [features]
 db-tests = ["moatless-loops/test-support"]
@@ -31,8 +32,8 @@ db-tests = ["moatless-loops/test-support"]
 workspace = true
 
 [dev-dependencies]
-uuid = { version = "1", features = ["v4"] }
-http-body-util = "0.1"
-moatless-loops = { path = "../loops", features = ["test-support"] }
-moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }
-tokio = { version = "1", features = ["test-util"] }
+uuid = { workspace = true, features = ["v4"] }
+http-body-util = { workspace = true }
+moatless-loops = { workspace = true, features = ["test-support"] }
+moatless-adapter-model = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["test-util"] }

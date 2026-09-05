@@ -74,8 +74,7 @@ pub const CLAUDE_CODE: AgentEntry = AgentEntry {
             label: "Claude Fable",
         },
     ],
-    missing_credential_hint:
-        "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
+    missing_credential_hint: "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
 };
 
 pub const CLAUDE_CODE_TUI: AgentEntry = AgentEntry {
@@ -108,8 +107,7 @@ pub const CLAUDE_CODE_TUI: AgentEntry = AgentEntry {
             label: "Claude Fable",
         },
     ],
-    missing_credential_hint:
-        "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
+    missing_credential_hint: "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
 };
 
 pub const CLAUDE_CODE_CLI: AgentEntry = AgentEntry {
@@ -142,8 +140,7 @@ pub const CLAUDE_CODE_CLI: AgentEntry = AgentEntry {
             label: "Claude Fable",
         },
     ],
-    missing_credential_hint:
-        "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
+    missing_credential_hint: "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
 };
 
 pub const CLAUDE_CODE_FABLE: AgentEntry = AgentEntry {
@@ -158,8 +155,7 @@ pub const CLAUDE_CODE_FABLE: AgentEntry = AgentEntry {
         id: "fable",
         label: "Claude Fable",
     }],
-    missing_credential_hint:
-        "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
+    missing_credential_hint: "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
 };
 
 pub const CODEX: AgentEntry = AgentEntry {
@@ -171,7 +167,7 @@ pub const CODEX: AgentEntry = AgentEntry {
     provider_token_providers: &["codex", "openai"],
     default_model: "default",
     // "Default" resolves to `DEFAULT_CODEX_MODEL` (`gpt-6-astra`) in the sandbox —
-    // see `sandbox/src/agent/codex_app_server/mod.rs`. The explicit entries below mirror
+    // see `crates/sandbox/src/agent/codex_app_server/mod.rs`. The explicit entries below mirror
     // the Codex CLI's own `model/list` at the version pinned in
     // `docker/cli-versions.env`, in the order it returns them.
     models: &[

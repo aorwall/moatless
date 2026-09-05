@@ -22,12 +22,12 @@
 
 use std::sync::Arc;
 
+use crate::bindings::runtime::RoutingService;
 use moatless_adapter_model::delivery::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler,
 };
 use moatless_adapter_model::metrics::record_webhook;
 use moatless_types::adapter::InboundDeliveryPayload;
-use crate::bindings::runtime::RoutingService;
 
 /// Routes one admitted inbound message.
 ///
@@ -219,12 +219,12 @@ mod tests {
 
     #[test]
     fn a_backend_failure_is_retried_and_keeps_its_cause() {
-        let failure = AdapterDeliveryFailure::from(AdapterError::from(
-            SharedAdapterError::Store(moatless_backend_core::store::StoreError::with_source(
+        let failure = AdapterDeliveryFailure::from(AdapterError::from(SharedAdapterError::Store(
+            moatless_types::store::StoreError::with_source(
                 "read the connection",
                 sqlx::Error::PoolTimedOut,
-            )),
-        ));
+            ),
+        )));
         assert!(matches!(failure, AdapterDeliveryFailure::Retryable(_)));
         let source = std::error::Error::source(&failure).expect("the routing error is retained");
         assert!(source.to_string().contains("read the connection"));
@@ -263,7 +263,9 @@ mod db_tests {
     use sqlx::PgPool;
     use tokio_util::sync::CancellationToken;
 
-    use crate::adapters::delivery::{AdapterDeliveryPolicy, AdapterDeliveryStore, spawn_adapter_delivery_worker};
+    use crate::adapters::delivery::{
+        AdapterDeliveryPolicy, AdapterDeliveryStore, spawn_adapter_delivery_worker,
+    };
     use moatless_adapter_model::delivery::{
         AdapterDeliveryHandlers, AdapterDeliveryRequest, DeliveryAdmission,
     };

@@ -6,18 +6,18 @@
 
 use tracing::{debug, warn};
 
+use moatless_adapter_model::binding::BindingProbe;
+use moatless_adapter_model::capabilities::Adapter;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::delivery::DeliveryAdmission;
-use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::delivery::inbound_delivery_request;
-use moatless_types::adapter::InboundDeliveryPayload;
+use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::ingress::{IngressError, Outcome};
+use moatless_adapter_model::loops::LoopReader;
+use moatless_ports::identity::ProviderIdentityLink;
+use moatless_types::adapter::InboundDeliveryPayload;
 use moatless_types::adapter::{BindingDestination, InboundMessage};
 use moatless_types::loops::LoopContext;
-use moatless_adapter_model::capabilities::Adapter;
-use moatless_adapter_model::loops::LoopReader;
-use moatless_adapter_model::binding::BindingProbe;
-use moatless_backend_core::identity::ProviderIdentityLink;
 
 use super::adapter::{ResolvedSlackApp, SlackAdapter};
 use super::webhook::{self, Normalization, NormalizeContext};
@@ -139,14 +139,15 @@ async fn resolve(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("default");
-    let Some((connection, subscription)) = moatless_adapter_model::routing::resolve_chat_provider_event(
-        adapter_connections,
-        loops,
-        "slack",
-        team_id,
-        source_id,
-    )
-    .await?
+    let Some((connection, subscription)) =
+        moatless_adapter_model::routing::resolve_chat_provider_event(
+            adapter_connections,
+            loops,
+            "slack",
+            team_id,
+            source_id,
+        )
+        .await?
     else {
         debug!(
             source_id,
@@ -192,8 +193,10 @@ async fn resolve(
         config: moatless_adapter_model::loops::subscription_context(&subscription),
         source_id: source_id.to_string(),
         connection_id: connection.id,
-        app_key: moatless_adapter_model::apps::app_key_from_transport_config(&connection.transport_config)
-            .to_string(),
+        app_key: moatless_adapter_model::apps::app_key_from_transport_config(
+            &connection.transport_config,
+        )
+        .to_string(),
         subscription_id: subscription.id,
         destination,
         is_tracked_thread,
@@ -395,17 +398,17 @@ mod characterization {
     use moatless_types::access_control::Scope;
     use sha2::Sha256;
 
-    use moatless_types::adapter::AdapterKind;
     use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+    use moatless_adapter_model::test_support::ProviderStub;
+    use moatless_ports::identity::ProviderIdentityLink;
+    use moatless_types::adapter::AdapterKind;
     use moatless_types::adapter::{Audience, InboundMessage};
     use moatless_types::loops::{LoopContext, RoutingMode};
-    use moatless_adapter_model::test_support::ProviderStub;
-    use moatless_backend_core::identity::ProviderIdentityLink;
 
+    use super::{IngressError, WebhookRequest, challenge, normalize_and_apply, parse_body, verify};
     use crate::adapter::SlackAdapter;
     use crate::api::SlackApi;
     use crate::webhook::Normalization;
-    use super::{IngressError, WebhookRequest, challenge, normalize_and_apply, parse_body, verify};
 
     pub(super) const SIGNING_SECRET: &str = "8f742231b10e8888abcd99yez67676hg";
     pub(super) const BOT_USER_ID: &str = "U0BOT";
@@ -491,45 +494,41 @@ mod characterization {
             &self,
             _provider: &str,
             _login: &str,
-        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
-            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
+            Err(moatless_types::store::StoreError::new("no directory here"))
         }
 
         async fn user_at(
             &self,
             _provider: &str,
             _provider_user_id: &str,
-        ) -> Result<
-            Option<moatless_backend_core::identity::LinkedUser>,
-            moatless_backend_core::store::StoreError,
-        > {
-            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
+        {
+            Err(moatless_types::store::StoreError::new("no directory here"))
         }
 
         async fn user_by_email(
             &self,
             _email: &str,
-        ) -> Result<
-            Option<moatless_backend_core::identity::LinkedUser>,
-            moatless_backend_core::store::StoreError,
-        > {
-            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
+        {
+            Err(moatless_types::store::StoreError::new("no directory here"))
         }
 
         async fn user_who_connected(
             &self,
             _provider: &str,
             _provider_user_id: &str,
-        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
-            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
+            Err(moatless_types::store::StoreError::new("no directory here"))
         }
 
         async fn user_with_login(
             &self,
             _provider: &str,
             _login: &str,
-        ) -> Result<Option<String>, moatless_backend_core::store::StoreError> {
-            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        ) -> Result<Option<String>, moatless_types::store::StoreError> {
+            Err(moatless_types::store::StoreError::new("no directory here"))
         }
 
         async fn link(
@@ -537,8 +536,8 @@ mod characterization {
             _user_id: &uuid::Uuid,
             _provider: &str,
             _provider_user_id: &str,
-        ) -> Result<bool, moatless_backend_core::store::StoreError> {
-            Err(moatless_backend_core::store::StoreError::new("no directory here"))
+        ) -> Result<bool, moatless_types::store::StoreError> {
+            Err(moatless_types::store::StoreError::new("no directory here"))
         }
     }
 
@@ -682,7 +681,14 @@ mod characterization {
         let body =
             serde_json::json!({"type": "url_verification", "challenge": "abc123"}).to_string();
 
-        let result = parse(&adapter, &body, &trigger(None), &crate::auth::UnreachableUsers, false).await;
+        let result = parse(
+            &adapter,
+            &body,
+            &trigger(None),
+            &crate::auth::UnreachableUsers,
+            false,
+        )
+        .await;
 
         let Ok(Parsed::Challenge(challenge)) = result else {
             panic!("expected a challenge");

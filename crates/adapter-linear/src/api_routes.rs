@@ -28,18 +28,18 @@ use moatless_api_schemas::linear::{
 use serde_json::{Value, json};
 use tracing::warn;
 
-use moatless_types::adapter::AdapterKind;
-use moatless_loops::adapters::access::{ensure_task_access_only, resolve_connection};
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::AdapterConnection;
 use moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN;
-use moatless_backend_core::identity::UserDisplay;
-use moatless_backend_core::task::TaskReader;
-use moatless_loops::bindings::runtime::upsert_binding_into;
-use moatless_core::http_auth::AuthUser;
-use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_types::access_control::ScopeContext;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_core::config::Config;
+use moatless_core::http_auth::AuthUser;
+use moatless_loops::adapters::access::{ensure_task_access_only, resolve_connection};
+use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_loops::bindings::runtime::upsert_binding_into;
+use moatless_ports::identity::UserDisplay;
+use moatless_ports::task::TaskReader;
+use moatless_types::access_control::ScopeContext;
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::AdapterKind;
 
 use super::SUBJECT_KIND_ISSUE;
 use super::adapter::LinearAdapter;
@@ -489,10 +489,7 @@ pub async fn relate_issue(
     let related_uuid = resolve_optional_issue(&api, Some(&req.related_issue))
         .await?
         .ok_or_else(|| {
-            SharedAdapterError::NotFound(format!(
-                "Linear issue {} not found",
-                req.related_issue
-            ))
+            SharedAdapterError::NotFound(format!("Linear issue {} not found", req.related_issue))
         })?;
 
     let relation = api
@@ -526,10 +523,7 @@ pub async fn list_issues(
 
     let mut filter = serde_json::Map::new();
     if let Some(query) = params.query.as_deref().filter(|q| !q.is_empty()) {
-        filter.insert(
-            "searchableContent".into(),
-            json!({ "contains": query }),
-        );
+        filter.insert("searchableContent".into(), json!({ "contains": query }));
     }
     if let Some(team) = params.team.as_deref() {
         let team_id = resolve_team_id(&api, team).await?;

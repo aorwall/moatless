@@ -3,23 +3,26 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use moatless_core::secret_keys::{ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN, GITNESS_TOKEN, OPENAI_API_KEY};
+use moatless_core::secret_keys::{
+    ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN,
+    GITNESS_TOKEN, OPENAI_API_KEY,
+};
 use tracing::warn;
 
-use moatless_types::repository::RepositoryProvider as GitHostProvider;
+use moatless_core::secret_keys::is_reserved_key;
 use moatless_types::access_control::Actor;
 use moatless_types::repository::GitHostRepo;
-use moatless_core::secret_keys::is_reserved_key;
+use moatless_types::repository::RepositoryProvider as GitHostProvider;
 
 use crate::lifecycle::orchestrator::LifecycleDao;
-use moatless_backend_core::identity::{
+use moatless_ports::identity::{
     CommitIdentity, GitHostTokenError, GitHostTokenIssuer, HarnessCredentials, PlainGitHost,
     SecretResolver,
 };
-use moatless_backend_core::sandbox::CodexCredentials;
-use moatless_backend_core::store::StoreError;
-use moatless_backend_core::workspace::{WorkspaceCredentialReader, WorkspaceResolver};
+use moatless_ports::sandbox::CodexCredentials;
+use moatless_ports::workspace::{WorkspaceCredentialReader, WorkspaceResolver};
 use moatless_types::repository::Repository;
+use moatless_types::store::StoreError;
 
 pub const GIT_USER_NAME: &str = "GIT_USER_NAME";
 pub const GIT_USER_EMAIL: &str = "GIT_USER_EMAIL";
@@ -331,7 +334,7 @@ const GIT_TOKEN: &str = "GIT_TOKEN";
 ///   resolver, it would suppress it. Preflight and runtime delivery would then
 ///   disagree about which token the sandbox holds.
 /// - `init::credentials` sets `GIT_TOKEN` in the process env only *if* a
-///   provider token resolved (`sandbox/src/init/credentials.rs:190`). With
+///   provider token resolved (`crates/sandbox/src/init/credentials.rs:190`). With
 ///   none, a Workspace `GIT_TOKEN` that arrived in the pod spec is still
 ///   sitting there, and `init::git::provider_git_token` and `init::workspace`
 ///   read it straight out of the environment.
@@ -735,7 +738,7 @@ mod tests {
     // here is the flattening around it: a failure leaves the slot empty, and a
     // pinned Workspace credential outranks every other source.
 
-    use moatless_backend_core::identity::{
+    use moatless_ports::identity::{
         MockCommitIdentity, MockGitHostTokenIssuer, MockHarnessCredentials, MockSecretResolver,
     };
 
@@ -838,9 +841,9 @@ mod tests {
         env_vars: Option<HashMap<String, String>>,
     ) -> Arc<dyn WorkspaceResolver> {
         let run_as = run_as_user_id.map(str::to_string);
-        let mut resolver = moatless_backend_core::workspace::MockWorkspaceResolver::new();
+        let mut resolver = moatless_ports::workspace::MockWorkspaceResolver::new();
         resolver.expect_resolve().returning(move |id| {
-            Ok(Some(moatless_backend_core::workspace::ResolvedWorkspace {
+            Ok(Some(moatless_ports::workspace::ResolvedWorkspace {
                 id: id.to_string(),
                 name: "ws".to_string(),
                 docker_image: None,
@@ -870,8 +873,7 @@ mod tests {
                 "from-workspace".to_string(),
             )])),
         );
-        let workspace_env_vars =
-            resolve_workspace_env_vars(Some(&workspaces), Some("ws_1")).await;
+        let workspace_env_vars = resolve_workspace_env_vars(Some(&workspaces), Some("ws_1")).await;
 
         let mut credentials: HashMap<String, String> = HashMap::new();
         for (key, value) in workspace_env_vars {
@@ -904,7 +906,10 @@ mod tests {
 
         let env_vars = resolve_workspace_env_vars(Some(&workspaces), Some("ws_1")).await;
 
-        assert_eq!(env_vars, HashMap::from([("CARGO_BUILD_JOBS".to_string(), "4".to_string())]));
+        assert_eq!(
+            env_vars,
+            HashMap::from([("CARGO_BUILD_JOBS".to_string(), "4".to_string())])
+        );
     }
 
     /// `fill_git_host_tokens` fills only a slot that is still empty, so a
@@ -930,7 +935,10 @@ mod tests {
 
         let env_vars = resolve_workspace_env_vars(Some(&workspaces), Some("ws_1")).await;
 
-        assert_eq!(env_vars, HashMap::from([("CARGO_BUILD_JOBS".to_string(), "4".to_string())]));
+        assert_eq!(
+            env_vars,
+            HashMap::from([("CARGO_BUILD_JOBS".to_string(), "4".to_string())])
+        );
     }
 
     /// And the merge refuses one too, so a caller that assembles
@@ -990,10 +998,22 @@ mod tests {
 
     #[tokio::test]
     async fn no_workspace_yields_no_env_vars() {
-        assert!(resolve_workspace_env_vars(None, Some("ws_1")).await.is_empty());
+        assert!(
+            resolve_workspace_env_vars(None, Some("ws_1"))
+                .await
+                .is_empty()
+        );
         let workspaces = workspace_resolving_to(None, None);
-        assert!(resolve_workspace_env_vars(Some(&workspaces), None).await.is_empty());
-        assert!(resolve_workspace_env_vars(Some(&workspaces), Some("ws_1")).await.is_empty());
+        assert!(
+            resolve_workspace_env_vars(Some(&workspaces), None)
+                .await
+                .is_empty()
+        );
+        assert!(
+            resolve_workspace_env_vars(Some(&workspaces), Some("ws_1"))
+                .await
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -1108,12 +1128,11 @@ mod tests {
         // token can only have come from the issuer.
         let repository = github_repository(moatless_types::access_control::Scope::User);
         let mut mock = MockGitHostTokenIssuer::new();
-        mock.expect_token().returning(|actor, repo| {
-            match actor.workspace_id() {
+        mock.expect_token()
+            .returning(|actor, repo| match actor.workspace_id() {
                 Some("ws_1") => Ok("ghp_workspace".to_string()),
                 _ => Err(no_credential(actor, repo.provider())),
-            }
-        });
+            });
         mock.expect_host_token()
             .returning(|actor, host| Err(no_credential(actor, host.provider())));
         let git_host_tokens: Arc<dyn GitHostTokenIssuer> = Arc::new(mock);
@@ -1171,13 +1190,10 @@ mod tests {
         // sandbox starts without the variable rather than with somebody else's
         // token. Preflight is where the absence becomes a refusal.
         let repository = github_repository(moatless_types::access_control::Scope::User);
-        let token = resolve_task_github_token(
-            Some(&issuer(None)),
-            &Actor::of("u1"),
-            Some(&repository),
-        )
-        .await
-        .and_then(Result::ok);
+        let token =
+            resolve_task_github_token(Some(&issuer(None)), &Actor::of("u1"), Some(&repository))
+                .await
+                .and_then(Result::ok);
         assert_eq!(token, None);
     }
 
@@ -1211,7 +1227,7 @@ mod tests {
     ) -> Arc<dyn CommitIdentity> {
         let mut users = MockCommitIdentity::new();
         users.expect_git_identity().returning(move |_| {
-            Ok(Some(moatless_backend_core::identity::GitIdentity {
+            Ok(Some(moatless_ports::identity::GitIdentity {
                 is_bot,
                 login: login.to_string(),
                 name: name.map(str::to_string),

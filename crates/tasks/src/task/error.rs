@@ -3,8 +3,8 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_types::access_control::AccessControlError;
 use moatless_core::error::error_response;
+use moatless_types::access_control::AccessControlError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TaskError {
@@ -23,7 +23,7 @@ pub enum TaskError {
     /// A published store seam failed. Distinct from [`Self::Db`] only in where
     /// the failure was raised; both are an internal error to a caller.
     #[error("{0}")]
-    Store(#[from] moatless_backend_core::store::StoreError),
+    Store(#[from] moatless_types::store::StoreError),
 
     #[error("Internal error: {0}")]
     Internal(String),
@@ -35,14 +35,14 @@ pub enum TaskError {
     Conflict(String),
 }
 
-impl From<moatless_backend_core::sandbox::SandboxOpError> for TaskError {
+impl From<moatless_ports::sandbox::SandboxOpError> for TaskError {
     /// The tasks-band lifecycle port error, mapped the rest of the way to an HTTP
     /// outcome. The sandbox-band implementation already classified the underlying
     /// `LifecycleError`; this preserves the three client-visible codes — a closed
     /// task is a 400, lock contention a 409, a missing task a 404 — and renders
     /// everything else as a 500.
-    fn from(value: moatless_backend_core::sandbox::SandboxOpError) -> Self {
-        use moatless_backend_core::sandbox::SandboxOpError as Op;
+    fn from(value: moatless_ports::sandbox::SandboxOpError) -> Self {
+        use moatless_ports::sandbox::SandboxOpError as Op;
         match value {
             Op::NotFound(id) => Self::NotFound(id),
             Op::NotAllowed(msg) => Self::BadRequest(msg),

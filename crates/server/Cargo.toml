@@ -1,0 +1,204 @@
+[package]
+name = "moatless-backend"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Backend service for Moatless Vibe (sandbox orchestration, auth, tasks, agent)"
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+
+# HTTP server + client
+axum = { workspace = true, features = ["macros", "ws"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "http2", "tokio"] }
+http-body-util = { workspace = true }
+
+# Caching
+moka = { workspace = true, features = ["future"] }
+
+# TLS crypto provider (installed in main before any TLS use). The Kubernetes SDK
+# (kube/k8s-openapi) moved to moatless-sandbox-k8s with the provider it served.
+rustls = { version = "0.23", features = ["aws-lc-rs"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# JWT
+# jsonwebtoken 10's default features only enable `use_pem` — no crypto backend.
+# Without exactly one of `aws_lc_rs`/`rust_crypto`, it panics at runtime trying to
+# resolve a CryptoProvider. Enable aws_lc_rs to match the rest of the TLS stack.
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+metrics = { workspace = true }
+metrics-exporter-prometheus = "0.18"
+
+# OTel tracing, exported to Tempo (crates/server/src/startup.rs::init_tracing). Off
+# unless an OTLP endpoint is configured — see OtelConfig. Metrics/logs features
+# are left out: Prometheus stays the metrics pipeline (see `metrics` above).
+opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = { version = "0.33", default-features = false }
+
+# Config
+dotenvy = "0.15"
+
+# Database
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
+
+# Redis
+redis = { workspace = true, features = ["tokio-rustls-comp", "connection-manager"] }
+
+# UUID + timestamps
+uuid = { workspace = true, features = ["v4", "v5", "serde"] }
+chrono = { workspace = true, features = ["serde"] }
+
+# HTTP client (OAuth token exchange)
+reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
+
+# Crypto (API key hashing)
+aes-gcm = "0.11"
+rand = { workspace = true }
+argon2 = { version = "0.5", features = ["std"] }
+base64 = { workspace = true }
+
+# URL encoding
+serde_urlencoded = "0.7"
+
+# Regex (Slack mrkdwn parsing)
+regex = { workspace = true }
+
+# Cookie parsing/building
+cookie = "0.18"
+
+# Error handling
+thiserror = { workspace = true }
+
+# OpenAPI documentation
+utoipa = { workspace = true, features = ["axum_extras"] }
+utoipa-axum = { workspace = true }
+
+# Async streams
+futures = { workspace = true }
+async-stream = "0.3"
+
+# Cancellation
+tokio-util = { workspace = true, features = ["rt"] }
+
+# Async traits
+async-trait = { workspace = true }
+
+# S3 file storage
+aws-sdk-s3 = { workspace = true }
+aws-config = "1"
+
+# Multipart uploads
+axum-extra = { version = "0.12", features = ["multipart"] }
+
+# Cron scheduling
+cron = "0.17"
+
+# ID generation
+nanoid = "0.5"
+
+# CLI parsing (secrets subcommand on the backend binary)
+clap = { workspace = true, features = ["derive"] }
+
+# Shared type definitions
+moatless-types = { workspace = true, features = ["openapi"] }
+
+# Shared API schemas (DTOs shared with CLI)
+moatless-api-schemas = { workspace = true, features = ["openapi"] }
+
+# Pure backend access-control policy and scope types
+moatless-ports = { workspace = true, features = ["openapi"] }
+# Lowest-band crate: config, db, error, events, and the core-clean vocabularies
+moatless-core = { workspace = true, features = ["openapi"] }
+# Adapter domain types + adapter_connections persistence (lifted out of adapters/)
+moatless-adapter-model = { workspace = true, features = ["postgres", "http"] }
+moatless-identity = { workspace = true }
+moatless-workspaces = { workspace = true }
+moatless-s3 = { workspace = true }
+moatless-tasks = { workspace = true }
+moatless-loops = { workspace = true }
+moatless-adapter-webhook = { workspace = true }
+moatless-adapter-slack = { workspace = true }
+moatless-adapter-telegram = { workspace = true }
+moatless-adapter-linear = { workspace = true }
+moatless-adapter-github-pr = { workspace = true }
+moatless-sandbox-runtime = { workspace = true }
+moatless-sandbox-control = { workspace = true }
+moatless-sandbox-k8s = { workspace = true }
+moatless-sandbox-docker = { workspace = true }
+moatless-t3code = { workspace = true }
+
+# Claude agent SDK types (for OpenAPI schema generation)
+claude-agent-sdk = { workspace = true, features = ["openapi"] }
+
+# gRPC (sandbox ↔ backend communication)
+sandbox-proto = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+
+[features]
+# Gate integration tests that need a running PostgreSQL (DATABASE_URL). Forwards
+# to core's test-support so the db-tests-gated `Config::test_minimal` caller
+# (`sandbox::grpc_server::for_ingress_tests`, defined in this crate) compiles;
+# no shipping build enables it.
+db-tests = [
+    "moatless-core/test-support",
+    "moatless-identity/test-support",
+    "moatless-tasks/test-support",
+    # Forwards so the control crate's `for_ingress_tests` harness, reached from
+    # crates/server/tests/integration_*, compiles with its DB-backed blocks.
+    "moatless-sandbox-control/db-tests",
+    # `AdapterEventSubscribers::keys` is gated `test-support` in moatless-loops and
+    # read by the db-tests integration binaries, which link the normal dependency
+    # rather than the dev-dependency, so the feature is forwarded here.
+    "moatless-loops/test-support",
+]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# core's test-support (Config::test_minimal, MockTagDao) for the backend's own
+# `#[cfg(test)]` unit tests. Dev-dependency features do not unify into the normal
+# build under resolver 2, so this stays out of `cargo build`.
+moatless-core = { workspace = true, features = ["test-support"] }
+moatless-identity = { workspace = true, features = ["test-support"] }
+moatless-workspaces = { workspace = true, features = ["test-support"] }
+moatless-tasks = { workspace = true, features = ["test-support"] }
+moatless-loops = { workspace = true, features = ["test-support"] }
+# The Adapter kernel's loopback provider stubs (`stub_provider`,
+# `UNREACHABLE_BASE`) the integration tests drive. Dev-dependency features do not
+# unify into the normal build under resolver 2, so this stays out of `cargo build`.
+moatless-adapter-model = { workspace = true, features = ["test-support"] }
+tokio-test = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "migrate"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = { workspace = true }
+mockall = { workspace = true }
+tempfile = { workspace = true }
+# Webhook signature helpers used by backend integration tests.
+hex = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+# Thread-local recorder + snapshotter, so a test can assert what a code path
+# actually wrote to a counter rather than that it compiled. Used by
+# `tests/integration_adapters/telegram_ingress_test.rs`, which only builds under `db-tests`.
+metrics-util = { version = "0.20", features = ["debugging"], default-features = false }
+
+# In-memory span exporter, so ui_rpc::tests can assert a request's spans share
+# the client's trace id without a real OTLP collector.
+opentelemetry_sdk = { version = "0.32", features = ["testing"] }
+
+[[example]]
+name = "codex_refresh_smoke"
+path = "examples/codex_refresh_smoke.rs"

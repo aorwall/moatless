@@ -10,25 +10,25 @@ use moatless_api_schemas::workspace::WorkspaceSyncSummary;
 
 use std::sync::Arc;
 
-use moatless_types::repository::RepositoryProvider as GitHostProvider;
-use moatless_backend_core::access_control::resolve_scope_for_create;
-use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_core::db::DbPool;
-use moatless_types::access_control::Actor;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_core::http_auth::AuthUser;
-use moatless_types::repository::GitHostRepo;
-use moatless_backend_core::identity::GitHostTokenIssuer;
 use moatless_core::secret_keys::looks_like_secret_key;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_ports::identity::GitHostTokenIssuer;
+use moatless_types::access_control::Actor;
+use moatless_types::access_control::resolve_scope_for_create;
+use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::repository::GitHostRepo;
+use moatless_types::repository::RepositoryProvider as GitHostProvider;
 
 use super::access::git_host_token_error;
 use super::dao::{RepositoryDao, RepositoryPatch};
 use super::error::RepositoryError;
-use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 use super::models::Repository;
 use super::schemas::*;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::{GitSyncService, SyncForce};
+use moatless_types::repository::{RepositoryKind, RepositoryProvider};
 
 pub(crate) fn validate_non_secret_env_vars(
     env_vars: Option<&std::collections::HashMap<String, String>>,
@@ -67,8 +67,7 @@ pub async fn create_repository(
     let now = chrono::Utc::now();
     let user_id = auth.user_id;
 
-    let resolved_scope =
-        resolve_scope_for_create(&auth.scope_context(), req.scope)?;
+    let resolved_scope = resolve_scope_for_create(&auth.scope_context(), req.scope)?;
     let scope_ctx = auth.scope_context();
 
     ensure_unique_remote_url(

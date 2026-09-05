@@ -9,17 +9,16 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
-
 use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::delivery::AdapterDeliveryRequest;
+use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::ingress::{IngressError, Outcome};
+use moatless_adapter_model::loops::LoopReader;
+use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_ports::identity::ProviderIdentityLink;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::loops::SubscriptionMatch;
-use moatless_adapter_model::loops::LoopReader;
-use moatless_backend_core::identity::ProviderIdentityLink;
-use moatless_loops::bindings::dao::TaskBindingDao;
 
 use super::adapter::GithubPrAdapter;
 use super::config::GithubPrRuleConfig;

@@ -839,3 +839,43 @@ user   public  admin read=allow interact=allow control=allow write=allow";
         assert_eq!(Actor::run_as(None, None), None);
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct ResolvedScope {
+    pub scope: Scope,
+    pub owner_user_id: Option<String>,
+}
+
+/// Resolve the scope for a new resource: defaults to `User` owned by the
+/// caller; requesting `Global` requires admin.
+pub fn resolve_scope_for_create(
+    ctx: &ScopeContext,
+    requested_scope: Option<Scope>,
+) -> Result<ResolvedScope, AccessControlError> {
+    let scope = requested_scope.unwrap_or(Scope::User);
+    let owner_user_id = (scope == Scope::User).then(|| ctx.user_id.clone());
+
+    if !ctx.can_create_scope(scope, owner_user_id.as_deref()) {
+        return Err(AccessControlError::Forbidden(format!(
+            "Cannot create {scope} scoped resources"
+        )));
+    }
+
+    Ok(ResolvedScope {
+        scope,
+        owner_user_id,
+    })
+}
+
+pub fn ensure_can_use_repository(
+    ctx: &ScopeContext,
+    repository: &ScopedResource,
+) -> Result<(), AccessControlError> {
+    if ctx.can_use_repository(repository) {
+        Ok(())
+    } else {
+        Err(AccessControlError::Forbidden(
+            "No access to repository".to_string(),
+        ))
+    }
+}

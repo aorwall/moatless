@@ -27,15 +27,15 @@
 use std::sync::Arc;
 
 use moatless_adapter_model::apps::AdapterAppReader;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_core::config::Config;
-use moatless_backend_core::identity::AppCredentials;
+use moatless_loops::adapters::events::{TaskEventSubscriber, TaskEventSubscribers};
 use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_ports::identity::AppCredentials;
+use moatless_ports::task::{TaskReader, TranscriptAppend};
+use moatless_tasks::agent_event::{AgentEvent, EventKey};
 use moatless_types::agent::AgentSubType;
 use moatless_types::sandbox::SandboxStatus;
-use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_loops::adapters::events::{TaskEventSubscriber, TaskEventSubscribers};
-use moatless_backend_core::task::{TaskReader, TranscriptAppend};
-use moatless_tasks::agent_event::{AgentEvent, EventKey};
 
 use super::active_turns::ActiveLinearTurns;
 use super::activity::{

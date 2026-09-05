@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use moatless_backend_core::identity::ProviderIdentityLink;
+use moatless_ports::identity::ProviderIdentityLink;
 use std::time::Duration;
 
 use tokio::task::JoinHandle;
@@ -151,7 +151,14 @@ pub fn spawn_telegram_poller(
 
                         // Long polling carries no secret, so there is nothing
                         // for this transport to verify.
-                        match ingress::receive(&telegram_provider, users.as_ref(), &body, Transport::Poll).await {
+                        match ingress::receive(
+                            &telegram_provider,
+                            users.as_ref(),
+                            &body,
+                            Transport::Poll,
+                        )
+                        .await
+                        {
                             Ok(_) => {}
                             Err(e) if is_worth_redelivering(&e) => {
                                 warn!(

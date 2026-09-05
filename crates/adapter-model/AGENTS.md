@@ -1,12 +1,7 @@
 # crates/adapter-model
 
-The Adapter kernel: the whole Adapter contract in one crate. It sits above
-`moatless-types`, `moatless-core`, `moatless-api-schemas` and
-`moatless-backend-core`, and below the loops band and every provider crate
-(`adapter-slack`, `adapter-webhook`, `adapter-telegram`, `adapter-github-pr`,
-`adapter-linear`). A provider implements an Adapter by naming this crate and
-nothing above it; the loops band that orchestrates providers names the same
-items from the same paths.
+The Adapter contract. Dependency bands and feature gates are enforced by
+[arch-rules](../../tooling/arch-rules/src/base_surface.rs).
 
 ## What the kernel holds
 
@@ -44,22 +39,10 @@ supervised worker, `AdapterDeliveryPolicy` — stays in
 `moatless_loops::adapters::delivery`. The contract descends; the machine that
 keeps it does not.
 
-## Features keep the base surface to the contract
+## Feature boundaries
 
-- `postgres = ["dep:sqlx"]` — the connection store and the row shapes it
-  decodes.
-- `http = ["dep:axum", "dep:moatless-api-schemas", "dep:moatless-core"]` — the
-  `IntoResponse` rendering of `AdapterError`.
-- `test-support = ["http", "dep:tokio"]` — the error/renderer test helpers, the
-  loopback provider stubs, and `FakeAdmission`.
-
-Built with neither `postgres` nor `http`, the kernel pulls no database driver,
-no axum, and no `moatless-core`. `tracing`, `regex` and `moatless-backend-core`
-are unconditional. A `--workspace` clippy run unifies features and hides an
-ungated import, so check the floor with a dedicated per-crate build —
-`cargo build -p moatless-adapter-model` — before assuming a new item can sit
-ungated, and `cargo tree -p moatless-adapter-model --no-default-features
--e normal` for the driver/axum count.
+Run `cargo build -p moatless-adapter-model` to catch imports hidden by workspace
+feature unification. The manifest owns the feature-to-dependency mapping.
 
 **A row shape is contract; its decoder is a driver concern.** `AdapterDelivery`
 exposes every field unconditionally and derives `sqlx::FromRow` only under
@@ -71,28 +54,8 @@ that binds its fields compiles no driver.
 store, so the `sqlx::Error` survives as the source without appearing in the type
 provider crates match on.
 
-## One path to every type
+## Boundaries
 
-Name kernel items directly — `moatless_adapter_model::…` — from the loops band
-and from every provider crate. Do not re-export them through
-`crate::adapters`; one path to a type is the point, enforced by
-`scripts/check-crate-seams.sh` invariant 3.
-
-## The provider crates that read no loops band
-
-`adapter-slack` and `adapter-webhook` implement the contract by naming this
-crate alone; neither declares `moatless-loops`. `adapter-telegram` keeps one
-edge — `pairing.rs`, which reads and writes a Loop's config through `LoopDao`
-(a behaviour question recorded in `docs/deferred-changes.md`).
-`scripts/check-crate-seams.sh` invariant 4 fails the build if either freed crate
-names `moatless_loops` anywhere under `src/`, or if telegram names it outside
-that one file.
-
-## A trait here earns its keep with a second implementation
-
-The repo forbids a trait with a single implementation. `DeliveryAdmission` has
-two: `AdapterDeliveryStore` (the real durable store, in `moatless-loops`) and
-`FakeAdmission` (in `test_support`), and the second is what lets a webhook
-handler assert every admission outcome — admitted, duplicate, at-capacity,
-store-failed — without a database. Do not add a kernel trait without a real
-second implementer or a test that drives a fake one.
+[Adapter boundaries](../../tooling/arch-rules/src/adapter_boundaries.rs) enforce
+provider dependencies and direct imports. The exercised-fake requirement is
+checked by [trait admission](../../tooling/arch-rules/src/single_implementation_trait.rs).

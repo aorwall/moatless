@@ -24,24 +24,22 @@ use super::pvc;
 use super::rescue_pod;
 use super::service;
 use super::status_resolver::StatusResolver;
-use moatless_backend_core::sandbox as core_sandbox;
 use moatless_core::config::Config;
+use moatless_ports::sandbox as core_sandbox;
+use moatless_sandbox_control::lifecycle::ProvisionDeps;
 use moatless_sandbox_runtime::client::SandboxClient;
+use moatless_sandbox_runtime::container_status::PodPhase;
 use moatless_sandbox_runtime::error::SandboxError;
+use moatless_sandbox_runtime::operation::{ObservedStatus, OperationGeneration, RuntimeEffect};
 use moatless_sandbox_runtime::outcome::{DegradationWarning, Diagnostics};
+use moatless_sandbox_runtime::provisioning::{ProvisionPlan, ProvisionRequest};
 use moatless_sandbox_runtime::runtime::{
     RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, map_sandbox_error,
 };
-use moatless_sandbox_control::lifecycle::ProvisionDeps;
-use moatless_sandbox_runtime::operation::{
-    ObservedStatus, OperationGeneration, RuntimeEffect,
-};
-use moatless_types::sandbox::ArchiveRetention;
-use moatless_sandbox_runtime::container_status::PodPhase;
-use moatless_sandbox_runtime::provisioning::{ProvisionPlan, ProvisionRequest};
 use moatless_sandbox_runtime::schemas::*;
 use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
 use moatless_sandbox_runtime::storage::StorageBackend;
+use moatless_types::sandbox::ArchiveRetention;
 
 /// Kubernetes adapter for lifecycle mutation, observation, and connection.
 pub struct K8sSandboxAdapter {
@@ -1045,7 +1043,7 @@ impl core_sandbox::SandboxPortPublisher for K8sSandboxAdapter {
         name: &str,
         port: u16,
     ) -> Result<Option<String>, core_sandbox::SandboxError> {
-        if core_sandbox::is_reserved_sandbox_port(port, self.config.sandbox.grpc_port) {
+        if moatless_types::sandbox::is_reserved_sandbox_port(port, self.config.sandbox.grpc_port) {
             return Err(core_sandbox::SandboxError::BadRequest(format!(
                 "Port {port} is reserved by the sandbox and cannot be exposed"
             )));

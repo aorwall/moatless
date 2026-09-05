@@ -22,8 +22,8 @@ cargo build -p moatless-backend        # or moatless-sandbox
 cargo clippy --workspace --all-targets -- -D warnings        # the floor: every member
 cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
 cargo clippy -p moatless-core --all-targets -- -D warnings
-cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
-cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
+cargo clippy -p moatless-ports --all-targets --all-features -- -D warnings
+cargo clippy -p moatless-ports --all-targets --no-default-features -- -D warnings
 cargo clippy -p moatless-backend --all-targets --features db-tests -- -D warnings
 cargo test -p <crate>                       # scope to the crate you changed — never --workspace
 task rust:gc                                # reclaim target/debug/incremental
@@ -123,6 +123,6 @@ A comment carries a fact the code cannot show: an invariant, a "do not do X" and
 - The repo owns its own agent-config compatibility: every `AGENTS.md` has a committed `CLAUDE.md` symlink beside it, and `.claude/skills` is a committed symlink to `.agents/skills`. Nothing creates these at runtime — add a new `AGENTS.md` → commit `ln -s AGENTS.md CLAUDE.md` alongside it.
 - Keep local `AGENTS.md` guidance concise and operational: what future agents must do, what they must not do, and the current reason when it is not obvious. Do not add history dumps, plan transcripts, or long rejected-option writeups.
 - Rust conventions live in the model-invoked `rust-dev-guidelines` skill for
-  `crates/backend/`, `sandbox/`, and `crates/`. Frontend baseline conventions live in
+  `crates/server/`, `crates/sandbox/`, and `crates/`. Frontend baseline conventions live in
   `.agents/skills/frontend-dev-guidelines/SKILL.md` and its resources.
 - `routeTree.gen.ts` is generated — excluded from lint/format. Edit the routes, not the tree.

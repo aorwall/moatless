@@ -11,8 +11,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use moatless_backend_core::db_enum::{decode_optional, decode_required};
 use moatless_core::db::DbPool;
+use moatless_core::db_enum::{decode_optional, decode_required};
 use moatless_types::access_control::Scope;
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason, sandbox_intent_epoch};
 
@@ -345,17 +345,15 @@ impl LifecycleDao for PgLifecycleDao {
         // Only when intent actually moved: the marker is rewritten on every
         // operation, and `changed` is the axis that reaches the session status.
         // Last, after the `sandboxes` row this statement holds `FOR UPDATE`, per
-        // the lock order in `moatless_backend_core::change_feed`.
+        // the lock order in `moatless_core::change_feed`.
         if changed == Some(true) {
             // The conversation shows the same axis as its session status, so it
             // is told too — ahead of the listing's allocator, per the lock order
-            // in `moatless_backend_core::change_feed`.
-            moatless_backend_core::change_feed::conversation::record_session_change(
-                &mut tx, task_id,
-            )
-            .await
-            .map_err(|e| StoreError::with_source("record conversation change for intent", e))?;
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, task_id)
+            // in `moatless_core::change_feed`.
+            moatless_core::change_feed::conversation::record_session_change(&mut tx, task_id)
+                .await
+                .map_err(|e| StoreError::with_source("record conversation change for intent", e))?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id)
                 .await
                 .map_err(|e| StoreError::with_source("record listing change for intent", e))?;
         }
@@ -506,13 +504,13 @@ impl LifecycleDao for PgLifecycleDao {
 
         if crossed == Some(true) {
             // Ahead of the listing's allocator, per the lock order in
-            // `moatless_backend_core::change_feed`.
-            moatless_backend_core::change_feed::conversation::record_session_change(
-                &mut tx, sandbox_id,
-            )
-            .await
-            .map_err(|e| StoreError::with_source("record conversation change for commands", e))?;
-            moatless_backend_core::change_feed::listing::record_change(&mut tx, sandbox_id)
+            // `moatless_core::change_feed`.
+            moatless_core::change_feed::conversation::record_session_change(&mut tx, sandbox_id)
+                .await
+                .map_err(|e| {
+                    StoreError::with_source("record conversation change for commands", e)
+                })?;
+            moatless_core::change_feed::listing::record_change(&mut tx, sandbox_id)
                 .await
                 .map_err(|e| StoreError::with_source("record listing change for commands", e))?;
         }
@@ -556,9 +554,9 @@ mod tests {
 /// applies `backend/migrations` (including the `sandboxes` table).
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
-    use super::super::events::EventFact;
     use super::super::test_support::{seed_bare_task, seed_task as seed};
     use super::*;
+    use moatless_sandbox_runtime::observation_events::EventFact;
     use moatless_types::sandbox::SandboxStatus;
     use sqlx::PgPool;
 
@@ -1021,7 +1019,7 @@ mod db_tests {
             IntentEffect::Changed
         );
 
-        let changes = moatless_backend_core::change_feed::listing::changes_after(&pool, 0, 10)
+        let changes = moatless_core::change_feed::listing::changes_after(&pool, 0, 10)
             .await
             .unwrap();
         assert_eq!(
@@ -1030,7 +1028,7 @@ mod db_tests {
             "the session moved and nothing recorded it"
         );
         assert_eq!(changes[0].task_id, "t1");
-        let after_move = moatless_backend_core::change_feed::listing::current_position(&pool)
+        let after_move = moatless_core::change_feed::listing::current_position(&pool)
             .await
             .unwrap();
 
@@ -1045,7 +1043,7 @@ mod db_tests {
             IntentEffect::Unchanged
         );
         assert_eq!(
-            moatless_backend_core::change_feed::listing::current_position(&pool)
+            moatless_core::change_feed::listing::current_position(&pool)
                 .await
                 .unwrap(),
             after_move,
@@ -1100,7 +1098,7 @@ mod db_tests {
         let mut unrelated = pool.begin().await.unwrap();
         tokio::time::timeout(
             Duration::from_secs(3),
-            moatless_backend_core::change_feed::listing::record_change(&mut unrelated, "t2"),
+            moatless_core::change_feed::listing::record_change(&mut unrelated, "t2"),
         )
         .await
         .expect(

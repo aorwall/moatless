@@ -22,17 +22,17 @@ use tracing::{debug, info, warn};
 
 use moatless_core::config::Config;
 
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_ports::sandbox::SandboxWaker;
+use moatless_ports::task::TaskFinisher;
+use moatless_ports::task::TaskOpener;
+use moatless_ports::task::TaskReader;
+use moatless_ports::task::{InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::loops::SubscriptionMatch;
-use moatless_backend_core::task::{InboundTurn, MessageAcceptor, TurnOrigin};
-use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_backend_core::task::TaskFinisher;
-use moatless_backend_core::task::TaskOpener;
-use moatless_backend_core::task::TaskReader;
 use moatless_types::task::Visibility;
-use moatless_backend_core::sandbox::SandboxWaker;
 
 use super::active_turns::ActiveLinearTurns;
 use super::agent_api::LinearAgentApi;
@@ -669,7 +669,7 @@ pub(super) async fn insert_event_task(
     )
     .await
     .map_err(|e| match e {
-        moatless_backend_core::task::TaskOpenError::Refused(msg) => {
+        moatless_ports::task::TaskOpenError::Refused(msg) => {
             SharedAdapterError::AccessDenied(msg).into()
         }
         other => AdapterError::task_handoff("open a task from a provider event", other),

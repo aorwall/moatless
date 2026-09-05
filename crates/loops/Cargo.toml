@@ -1,57 +1,53 @@
 [package]
 name = "moatless-loops"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Loops band: loops, bindings, and the Adapter core that no single Adapter owns"
 
+authors.workspace = true
 [dependencies]
-async-trait = "0.1"
-axum = { version = "0.8", features = ["macros"] }
-chrono = { version = "0.4", features = ["serde"] }
+async-trait = { workspace = true }
+axum = { workspace = true, features = ["macros"] }
+chrono = { workspace = true, features = ["serde"] }
 # Cron-expression parsing for loop schedules (loops/firing).
 cron = "0.17"
-futures = "0.3"
-hex = "0.4"
+futures = { workspace = true }
+hex = { workspace = true }
 # HMAC-SHA256 webhook-signature verification (adapters/signature).
-hmac = "0.13"
+hmac = { workspace = true }
 http = "1"
 # Counter/gauge instrumentation (adapters/metrics, delivery, bindings, firing).
-metrics = "0.24"
+metrics = { workspace = true }
 # In-memory caches (loops/sync fetcher, dedup).
-moka = { version = "0.12", features = ["future"] }
+moka = { workspace = true, features = ["future"] }
 # Canonical `<@login>` mention matching (adapters/mentions).
-regex = "1"
-reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 # LOOP.md manifest parsing (loops/sync).
-serde_yaml = "0.9"
-sha2 = "0.11"
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
-thiserror = "2"
-tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["rt"] }
-tracing = "0.1"
-utoipa = { version = "5", features = ["axum_extras"] }
-utoipa-axum = "0.2"
-uuid = { version = "1", features = ["v4", "v5", "serde"] }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true, features = ["rt"] }
+tracing = { workspace = true }
+utoipa = { workspace = true, features = ["axum_extras"] }
+utoipa-axum = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 # Percent-encoding for outbound provider URLs.
-urlencoding = "2"
+urlencoding = { workspace = true }
 
-moatless-adapter-model = { path = "../adapter-model", features = ["postgres", "http"] }
-moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
-moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
-moatless-core = { path = "../core", features = ["openapi"] }
-moatless-s3 = { path = "../s3" }
-moatless-tasks = { path = "../tasks" }
-moatless-types = { path = "../types" }
+moatless-adapter-model = { workspace = true, features = ["postgres", "http"] }
+moatless-api-schemas = { workspace = true, features = ["openapi"] }
+moatless-ports = { workspace = true, features = ["openapi"] }
+moatless-core = { workspace = true, features = ["openapi"] }
+moatless-s3 = { workspace = true }
+moatless-tasks = { workspace = true }
+moatless-types = { workspace = true }
 
 [features]
-# Exposes the adapter test-support stubs (`ProviderStub`, `stub_provider`) to
-# other crates' test builds (the provider and server bands still in the backend
-# reach them across the facade). The `test,` disjunct stays FIRST so the census
-# keeps items gated this way in test-context (crate-census scan.rs keys on the
-# substring "test").
 test-support = []
 # Gate the `#[sqlx::test]` blocks that need a running PostgreSQL. Empty because
 # those blocks reach helpers through the crate's own `test` cfg.
@@ -61,20 +57,20 @@ db-tests = []
 workspace = true
 
 [dev-dependencies]
-moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }
-async-trait = "0.1"
-http-body-util = "0.1"
-tokio-test = "0.4"
+moatless-adapter-model = { workspace = true, features = ["test-support"] }
+async-trait = { workspace = true }
+http-body-util = { workspace = true }
+tokio-test = { workspace = true }
 # Test-support fakes/seeders reached across crate boundaries by this crate's own
 # tests (Config::test_minimal, auth::test_support::StubProviderTokens, etc.).
-moatless-core = { path = "../core", features = ["test-support"] }
+moatless-core = { workspace = true, features = ["test-support"] }
 # Test-only: this crate's tests build the concrete identity stores behind the
 # ports it reads. Production code here names no identity type, so this edge must
 # never appear under `[dependencies]`.
-moatless-identity = { path = "../identity", features = ["test-support"] }
-moatless-tasks = { path = "../tasks", features = ["test-support"] }
+moatless-identity = { workspace = true, features = ["test-support"] }
+moatless-tasks = { workspace = true, features = ["test-support"] }
 # Test-only: this crate's tests seed workspace rows. Production code here names
 # no workspace type — it reads the workspace domain through the ports
-# `moatless-backend-core` declares — so this edge must never appear under
+# `moatless-ports` declares — so this edge must never appear under
 # `[dependencies]`.
-moatless-workspaces = { path = "../workspaces", features = ["test-support"] }
+moatless-workspaces = { workspace = true, features = ["test-support"] }

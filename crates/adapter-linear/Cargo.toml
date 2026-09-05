@@ -1,39 +1,40 @@
 [package]
 name = "moatless-adapter-linear"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Linear Adapter: Linear Agents webhook handling, GraphQL API calls, and delivery for Moatless"
 
+authors.workspace = true
 [dependencies]
-async-trait = "0.1"
-axum = { version = "0.8", features = ["macros"] }
-chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.13", features = ["json", "rustls"], default-features = false }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
-tokio = { version = "1", features = ["rt"] }
-tracing = "0.1"
-utoipa = { version = "5", features = ["axum_extras"] }
-uuid = { version = "1", features = ["v4", "serde"] }
+async-trait = { workspace = true }
+axum = { workspace = true, features = ["macros"] }
+chrono = { workspace = true, features = ["serde"] }
+reqwest = { workspace = true, features = ["json", "rustls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+tracing = { workspace = true }
+utoipa = { workspace = true, features = ["axum_extras"] }
+uuid = { workspace = true, features = ["v4", "serde"] }
 
-moatless-adapter-model = { path = "../adapter-model" }
-moatless-api-schemas = { path = "../api-schemas", features = ["openapi"] }
-moatless-backend-core = { path = "../backend-core", features = ["database"] }
-moatless-core = { path = "../core" }
-moatless-loops = { path = "../loops" }
-moatless-tasks = { path = "../tasks" }
-moatless-types = { path = "../types" }
+moatless-adapter-model = { workspace = true }
+moatless-api-schemas = { workspace = true, features = ["openapi"] }
+moatless-ports = { workspace = true, features = [] }
+moatless-core = { workspace = true }
+moatless-loops = { workspace = true }
+moatless-tasks = { workspace = true }
+moatless-types = { workspace = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-hex = "0.4"
-hmac = "0.13"
-moatless-loops = { path = "../loops", features = ["test-support"] }
+hex = { workspace = true }
+hmac = { workspace = true }
+moatless-loops = { workspace = true, features = ["test-support"] }
 # Test-only: the loopback provider stub (`ProviderStub`) these tests drive lives
 # in the Adapter kernel's `test_support`.
-moatless-adapter-model = { path = "../adapter-model", features = ["test-support"] }
-sha2 = "0.11"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+moatless-adapter-model = { workspace = true, features = ["test-support"] }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

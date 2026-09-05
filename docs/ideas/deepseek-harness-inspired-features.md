@@ -20,7 +20,7 @@ later pass.
 
 ## 1. Approval-policy / permission presets as a Workspace setting
 
-`sandbox/src/agent/codex_app_server/mod.rs` hardcodes
+`crates/sandbox/src/agent/codex_app_server/mod.rs` hardcodes
 `approval_policy: AskForApproval::Never` — every Task runs with no approval
 gate. `crates/codex-sdk/src/options.rs` already has `approval_policy` and
 `sandbox_mode` fields sitting unused for this. `dsh`'s permission-preset
@@ -47,7 +47,7 @@ already proves out.
 
 ## 3. Task export
 
-`crates/backend/src/sandbox/grpc_server.rs::download_transcript` already
+`crates/server/src/sandbox/grpc_server.rs::download_transcript` already
 builds a transcript archive, but only for internal session restore over gRPC.
 Expose the same artifact as `GET /api/v1/tasks/{id}/export` for user-facing
 download (compliance, sharing, offline review).
@@ -72,7 +72,7 @@ relation model.
 ## 5. Runtime invariant framework for Adapters and Plugins
 
 No matches for `invariant`/`HealthCheck`/`self-check` in
-`crates/backend/src/adapters` or `crates/workspaces/src/plugin`. `dsh`'s
+`crates/server/src/adapters` or `crates/workspaces/src/plugin`. `dsh`'s
 `runtime-diagnostics` package: each package registers live health assertions
 checked continuously against real event streams, violations attributed to the
 owning package, filterable and CI-gatable. Worth building once the Adapter/

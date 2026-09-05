@@ -4,29 +4,29 @@ use std::sync::Arc;
 
 use tracing::warn;
 
+use moatless_core::config::S3Config;
+use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{
     AdapterKind, OutboundFile, OutboundPresentation, OutboundReply, TaskOrigin, TaskProvenance,
 };
-use moatless_types::loops::SubscriptionMatch;
-use moatless_types::access_control::ScopeContext;
-use moatless_core::config::S3Config;
 use moatless_types::auth::AuthConfig;
+use moatless_types::loops::SubscriptionMatch;
 
-use moatless_adapter_model::dao::AdapterConnectionDao;
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::registry::Adapters;
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::metrics::record_outbound;
 use crate::bindings::recently_sent::RecentlySent;
-use moatless_core::file_storage::dao::FileDao;
-use moatless_s3::S3Storage;
 use crate::loops::dao::LoopDao;
-use moatless_backend_core::identity::UserDisplay;
-use moatless_backend_core::workspace::WorkspaceResolver;
-use moatless_backend_core::task::{
+use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::registry::Adapters;
+use moatless_core::file_storage::dao::FileDao;
+use moatless_ports::identity::UserDisplay;
+use moatless_ports::task::{
     ExternalEvent, TaskReader, TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TurnCounter,
 };
+use moatless_ports::workspace::WorkspaceResolver;
+use moatless_s3::S3Storage;
 
 /// Whether this thread has already carried a provenance footer.
 ///
@@ -165,7 +165,8 @@ impl OutboundSender {
             None
         };
 
-        let provider = providers.outbound_for_binding_reply_by_name(binding.adapter_kind.as_str())?;
+        let provider =
+            providers.outbound_for_binding_reply_by_name(binding.adapter_kind.as_str())?;
         let adapter_label = provider.provider_key();
 
         let binding_loop_id = binding.loop_id.as_deref().unwrap_or("");
@@ -342,7 +343,9 @@ impl OutboundSender {
             match self.workspaces.resolve(workspace_id).await {
                 Ok(Some(w)) => workspace_name = Some(w.name),
                 Ok(None) => {}
-                Err(e) => warn!(task_id, error = %e, "Failed to load workspace for provenance footer"),
+                Err(e) => {
+                    warn!(task_id, error = %e, "Failed to load workspace for provenance footer");
+                }
             }
         }
 
@@ -352,7 +355,10 @@ impl OutboundSender {
             Some(r) => TaskOrigin::Loop {
                 name: r.name.clone(),
             },
-            None => self.started_by(task.as_ref().and_then(|t| t.created_by.as_deref())).await,
+            None => {
+                self.started_by(task.as_ref().and_then(|t| t.created_by.as_deref()))
+                    .await
+            }
         };
 
         Some(TaskProvenance {
@@ -575,7 +581,6 @@ mod tests {
             serde_json::json!({"task_link_sent": "yes"})
         )));
     }
-
 
     #[test]
     fn truncate_under_max_returns_input() {
