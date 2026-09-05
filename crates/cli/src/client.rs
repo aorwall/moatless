@@ -18,6 +18,18 @@ pub enum ClientError {
     Unauthorized,
     #[error("Not logged in — run `moat login` to authenticate")]
     NotLoggedIn,
+    /// The request succeeded and the body would not decode into the type this
+    /// CLI expects. Almost always version skew — a sandbox carries the `moat`
+    /// baked into its image, so a long-lived sandbox reads a backend that has
+    /// moved on. Named separately from [`ClientError::Api`] because reporting it
+    /// as a server status sends the reader after a backend fault that never
+    /// happened.
+    #[error(
+        "Could not read the response: {0}\n\
+         The server answered, so this is most likely a `moat` older than the backend — \
+         a sandbox uses the CLI baked into its image. Restart the sandbox to pick up a newer one."
+    )]
+    UndecodableResponse(String),
     #[error("{0}")]
     Other(String),
 }
@@ -34,10 +46,7 @@ impl From<ApiError> for ClientError {
                 }
             }
             ApiError::Unauthorized => ClientError::Unauthorized,
-            ApiError::InvalidJson(msg) => ClientError::Api {
-                status: 500,
-                body: format!("Invalid response: {msg}"),
-            },
+            ApiError::InvalidJson(msg) => ClientError::UndecodableResponse(msg),
         }
     }
 }
@@ -454,5 +463,41 @@ impl MoatClient {
             .default_headers(default_headers)
             .build()
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A body that will not decode is the CLI's problem, not the server's. It
+    /// used to surface as `API error (500)`, which reads as a backend fault and
+    /// sends the reader to the wrong logs — the request had in fact returned
+    /// 200.
+    #[test]
+    fn an_undecodable_body_is_not_reported_as_a_server_status() {
+        let err = ClientError::from(ApiError::InvalidJson(
+            "invalid type: null, expected u16".to_string(),
+        ));
+
+        assert!(
+            matches!(err, ClientError::UndecodableResponse(_)),
+            "expected UndecodableResponse, got {err:?}"
+        );
+        let shown = err.to_string();
+        assert!(!shown.contains("500"), "must not invent a status: {shown}");
+        assert!(shown.contains("invalid type: null, expected u16"));
+        // The reader is told what to actually do about it.
+        assert!(shown.contains("Restart the sandbox"), "{shown}");
+    }
+
+    /// A real server status still travels as one.
+    #[test]
+    fn a_server_error_keeps_its_status() {
+        let err = ClientError::from(ApiError::Api {
+            status: 503,
+            body: "upstream down".to_string(),
+        });
+        assert!(matches!(err, ClientError::Api { status: 503, .. }));
     }
 }
