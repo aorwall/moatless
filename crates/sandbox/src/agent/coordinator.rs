@@ -872,6 +872,11 @@ pub(crate) struct CoordinatorService {
     /// The pod-wide upload baseline. Turn boundaries are the primary durability
     /// point on the PVC tier (where the periodic loop is off), and sharing this
     /// keeps a turn that changed nothing from shipping a duplicate tar.
+    ///
+    /// Cloned into a background task at each boundary rather than awaited here:
+    /// this loop also drains user messages, stop requests and background-command
+    /// wakes, so an upload that awaits holds all of them up
+    /// ([`workspace_sync::spawn_after_turn`]).
     workspace_sync: WorkspaceSyncTracker,
 }
 
@@ -1072,12 +1077,11 @@ impl CoordinatorService {
                                     self.credential_recovery_attempts = 0;
                                     // Arm any self-scheduled jobs the completed Turn requested.
                                     self.arm_scheduled_jobs(&task_id).await;
-                                    workspace_sync::upload_after_turn(
-                                        &self.config,
-                                        self.backend_client.as_ref(),
-                                        &self.workspace_sync,
-                                    )
-                                    .await;
+                                    workspace_sync::spawn_after_turn(
+                                        self.config.clone(),
+                                        self.backend_client.clone(),
+                                        self.workspace_sync.clone(),
+                                    );
                                 }
                                 Outcome::Cancelled => {
                                     self.retry_attempt = 0;
@@ -1129,12 +1133,11 @@ impl CoordinatorService {
                                         let _ = ack.send(());
                                     }
                                     self.stopping = false;
-                                    workspace_sync::upload_after_turn(
-                                        &self.config,
-                                        self.backend_client.as_ref(),
-                                        &self.workspace_sync,
-                                    )
-                                    .await;
+                                    workspace_sync::spawn_after_turn(
+                                        self.config.clone(),
+                                        self.backend_client.clone(),
+                                        self.workspace_sync.clone(),
+                                    );
                                 }
                                 Outcome::Failed(err) => {
                                     // A failed Turn arms no wakeup; a retry re-emits
@@ -1179,12 +1182,11 @@ impl CoordinatorService {
                                         // settled before the publish, above.
                                         self.retry_at = None;
                                         self.retry_attempt = 0;
-                                        workspace_sync::upload_after_turn(
-                                            &self.config,
-                                            self.backend_client.as_ref(),
-                                            &self.workspace_sync,
-                                        )
-                                        .await;
+                                        workspace_sync::spawn_after_turn(
+                                            self.config.clone(),
+                                            self.backend_client.clone(),
+                                            self.workspace_sync.clone(),
+                                        );
                                     }
                                 }
                             }

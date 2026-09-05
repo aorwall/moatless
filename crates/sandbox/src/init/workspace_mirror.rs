@@ -646,7 +646,11 @@ async fn put_file(client: &reqwest::Client, url: &str, path: &Path) -> Result<u6
         Err(e) => return Err(format!("reading {} failed: {e}", path.display())),
     };
     let bytes = body.len() as u64;
-    http_put(client, url, body).await?;
+    // Name the object: one bad file fails the whole sync, and the bare transport
+    // error left no way to tell which — or how big it was.
+    http_put(client, url, body)
+        .await
+        .map_err(|e| format!("{e} ({}, {bytes} bytes)", path.display()))?;
     Ok(bytes)
 }
 

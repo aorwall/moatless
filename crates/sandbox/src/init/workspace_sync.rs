@@ -91,6 +91,27 @@ pub struct WorkspaceSyncTracker {
     mirror_baseline: Arc<tokio::sync::Mutex<Option<sandbox_proto::workspace_manifest::Manifest>>>,
     /// Written by [`Self::mark_mirror_unusable`], read by [`Self::adopt_current`].
     mirror_unusable: Arc<AtomicBool>,
+    turn_upload: Arc<TurnUpload>,
+}
+
+/// Admission control for the turn-boundary upload, which runs off the agent's
+/// main loop ([`spawn_after_turn`]).
+///
+/// Turns arrive faster than a large workspace uploads, so spawning one task per
+/// turn would pile up transfers of the same tree. At most one upload runs and at
+/// most one waits: the upload ships the workspace *as it is when it starts*, not
+/// a per-turn delta, so a single trailing run covers every turn that landed
+/// while the first was in flight.
+#[derive(Default)]
+struct TurnUpload {
+    /// Held for one upload. Also what makes "one waiting" a real queue rather
+    /// than a second concurrent transfer.
+    gate: tokio::sync::Mutex<()>,
+    /// Set by whoever spawns, cleared by that task once it holds the gate —
+    /// never earlier. Clearing it before the gate would let a third turn spawn
+    /// behind a queue that is still only one deep, which is the unbounded growth
+    /// this exists to prevent.
+    queued: AtomicBool,
 }
 
 impl WorkspaceSyncTracker {
@@ -483,12 +504,60 @@ pub async fn upload(state: &SandboxState) -> SyncOutcome {
         .await
 }
 
+/// Start the turn-boundary upload and return; the transfer runs on its own task.
+///
+/// # Why this does not block its caller
+///
+/// The caller is the agent coordinator's main loop, the same loop that drains
+/// the command channel — user messages, stop requests, and the wake a
+/// [`BackgroundWatchJob`](crate::agent::background_watch_job) injects when a
+/// `moat cmd` finishes. Awaiting the upload there put every one of those behind
+/// an S3 transfer. When the mirror started failing on zero-byte files, each
+/// attempt burned its full retry budget and a task sat idle for four minutes
+/// with its wake already queued (task `5f0f1eaf`): the agent looked hung, and a
+/// user message appeared to be what unstuck it, when it was really the upload
+/// finishing.
+///
+/// Durability is unchanged. The upload still starts at the same boundary, the
+/// shared [`WorkspaceSyncTracker`] still gates it on a moved fingerprint, and a
+/// failure still leaves the baseline alone. What a slow transfer now delays is
+/// only the *next* upload — via [`TurnUpload`] — not the agent.
+///
+/// [`flush_on_shutdown`] remains the ordered flush: it takes the same tracker
+/// locks, so an in-flight background upload either completes first or the flush
+/// gives up on its own timeout rather than the two racing.
+pub fn spawn_after_turn(
+    config: Arc<Config>,
+    backend_client: Arc<dyn BackendClient>,
+    tracker: WorkspaceSyncTracker,
+) {
+    // `upload_after_turn` checks this too — it is the gate. Checking here as
+    // well just avoids spawning a task per turn to do nothing.
+    if !config.workspace_sync_enabled {
+        return;
+    }
+    if tracker.turn_upload.queued.swap(true, Ordering::SeqCst) {
+        debug!(task_id = %config.task_id, "Workspace upload already queued; coalescing this turn into it");
+        return;
+    }
+    tokio::spawn(async move {
+        let _gate = tracker.turn_upload.gate.lock().await;
+        // Whatever landed while we waited is in the tree we are about to read,
+        // so it is covered; a turn that lands from here on must queue its own.
+        tracker.turn_upload.queued.store(false, Ordering::SeqCst);
+        upload_after_turn(&config, backend_client.as_ref(), &tracker).await;
+    });
+}
+
 /// Upload the workspace when an agent turn reaches a terminal boundary.
 ///
 /// This is the normal durability point between turns — and on the PVC tier the
 /// only periodic one, since the loop is off there. Startup restore, the
 /// pre-stop RPC and the shutdown flush stay separate.
-pub async fn upload_after_turn(
+///
+/// The agent reaches this through [`spawn_after_turn`], which runs it off the
+/// main loop.
+async fn upload_after_turn(
     config: &Config,
     backend_client: &dyn BackendClient,
     tracker: &WorkspaceSyncTracker,
@@ -693,6 +762,16 @@ pub(super) fn http_client(timeout: Duration) -> Result<reqwest::Client, String> 
 }
 
 /// `PUT` bytes to a presigned S3 URL.
+///
+/// # `Content-Length` is set by hand
+///
+/// For an empty body reqwest sends neither `Content-Length` nor
+/// `Transfer-Encoding`, and S3 answers an unframed `PUT` with `411 Length
+/// Required`. The mirror puts one object per file, so a single zero-byte file —
+/// a `.gitkeep` is the usual one — failed that sync and every later one, since
+/// the manifest is only written once the objects land. Setting the header
+/// explicitly frames all three cases: an empty body, a small one, and a large
+/// one.
 pub(super) async fn http_put(
     client: &reqwest::Client,
     url: &str,
@@ -700,6 +779,7 @@ pub(super) async fn http_put(
 ) -> Result<(), String> {
     let resp = client
         .put(url)
+        .header(reqwest::header::CONTENT_LENGTH, body.len())
         .body(body)
         .send()
         .await
@@ -1183,11 +1263,39 @@ mod tests {
     #[derive(Default)]
     struct CountingBackend {
         url_requests: AtomicUsize,
+        gate: Option<UploadGate>,
+    }
+
+    /// Turns the URL mint into a valve: it announces each entry on `started` and
+    /// then parks until the test hands out a permit, so an upload can be held
+    /// in flight while the test drives more turns at the tracker.
+    struct UploadGate {
+        started: tokio::sync::mpsc::UnboundedSender<()>,
+        release: tokio::sync::Semaphore,
     }
 
     impl CountingBackend {
         fn attempts(&self) -> usize {
             self.url_requests.load(Ordering::SeqCst)
+        }
+
+        /// A backend that blocks inside every upload, plus the receiver that
+        /// reports each one starting.
+        fn gated() -> (Arc<Self>, tokio::sync::mpsc::UnboundedReceiver<()>) {
+            let (started, rx) = tokio::sync::mpsc::unbounded_channel();
+            let backend = Arc::new(Self {
+                url_requests: AtomicUsize::new(0),
+                gate: Some(UploadGate {
+                    started,
+                    release: tokio::sync::Semaphore::new(0),
+                }),
+            });
+            (backend, rx)
+        }
+
+        /// Let `n` blocked uploads through.
+        fn release(&self, n: usize) {
+            self.gate.as_ref().unwrap().release.add_permits(n);
         }
     }
 
@@ -1257,6 +1365,10 @@ mod tests {
             _task_id: &str,
         ) -> Result<GetWorkspaceSyncUrlsResponse, tonic::Status> {
             self.url_requests.fetch_add(1, Ordering::SeqCst);
+            if let Some(gate) = &self.gate {
+                let _ = gate.started.send(());
+                let _permit = gate.release.acquire().await.unwrap();
+            }
             Err(tonic::Status::failed_precondition("no S3 in tests"))
         }
     }
@@ -1455,6 +1567,75 @@ mod tests {
         let tracker = WorkspaceSyncTracker::new();
 
         upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(backend.attempts(), 0);
+    }
+
+    /// The turn-boundary upload must not hold up the loop that spawned it, and
+    /// the turns that arrive while it runs must not each get their own transfer.
+    ///
+    /// Both halves are the same incident: a mirror that failed on zero-byte
+    /// files made every upload burn its full retry budget, and because the
+    /// coordinator awaited it, an already-queued wake sat unread for four
+    /// minutes (task `5f0f1eaf`).
+    #[tokio::test]
+    async fn turn_uploads_run_off_the_caller_and_coalesce() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        init_repo(&repo);
+        std::fs::write(repo.join("a.txt"), "hello").unwrap();
+        git_add(&repo, &["a.txt"]);
+        git_commit(&repo, "init");
+
+        // The tar path: the mirror has its own transport and this is about
+        // scheduling, not about what travels.
+        let mut config = sync_config(tmp.path(), true, true);
+        config.workspace_mirror_enabled = false;
+        let config = Arc::new(config);
+        let (backend, mut started) = CountingBackend::gated();
+        let tracker = WorkspaceSyncTracker::new();
+
+        // First boundary. Returning at all is the point: the upload it starts
+        // never finishes on its own.
+        spawn_after_turn(config.clone(), backend.clone(), tracker.clone());
+        started.recv().await.expect("the first upload started");
+
+        // Three more turns land while that one is stuck. One queues behind it;
+        // the other two fold into that one.
+        for _ in 0..3 {
+            spawn_after_turn(config.clone(), backend.clone(), tracker.clone());
+        }
+        assert_eq!(
+            started.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty),
+            "no second transfer starts while the first holds the gate"
+        );
+
+        backend.release(8);
+        started.recv().await.expect("the queued upload runs");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(250), started.recv())
+                .await
+                .is_err(),
+            "the three turns behind the first upload share one, not three"
+        );
+        assert_eq!(backend.attempts(), 2);
+    }
+
+    /// A sandbox with no snapshot configured spawns nothing to skip.
+    #[tokio::test]
+    async fn a_sandbox_without_the_s3_switch_spawns_no_upload() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = Arc::new(sync_config(tmp.path(), false, false));
+        let (backend, mut started) = CountingBackend::gated();
+        let tracker = WorkspaceSyncTracker::new();
+
+        spawn_after_turn(config, backend.clone(), tracker);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(250), started.recv())
+                .await
+                .is_err(),
+            "the switch is off, so no upload is attempted"
+        );
         assert_eq!(backend.attempts(), 0);
     }
 
@@ -1929,5 +2110,58 @@ mod tests {
         rescue_upload(repo.to_str().unwrap(), "http://127.0.0.1:1/put")
             .await
             .expect_err("a rejected transfer must surface, not be swallowed");
+    }
+
+    /// The framing regression behind `411 Length Required`.
+    ///
+    /// reqwest sends an empty body with neither `Content-Length` nor
+    /// `Transfer-Encoding`, and S3 rejects an unframed `PUT`. The mirror writes
+    /// one object per file, so a single `.gitkeep` failed every sync of that
+    /// workspace — permanently, because the manifest is only written after the
+    /// objects land.
+    #[tokio::test]
+    async fn an_empty_body_is_still_framed_with_a_content_length() {
+        let framing = framing_seen_by_a_server(Vec::new()).await;
+        assert_eq!(
+            framing.as_deref(),
+            Some("content-length: 0"),
+            "an unframed PUT is what S3 answers with 411"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_non_empty_body_is_framed_with_its_length() {
+        let framing = framing_seen_by_a_server(b"hello".to_vec()).await;
+        assert_eq!(framing.as_deref(), Some("content-length: 5"));
+    }
+
+    /// `http_put` one body at a throwaway socket; report the framing header the
+    /// server actually received, lowercased.
+    async fn framing_seen_by_a_server(body: Vec<u8>) -> Option<String> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.expect("accept");
+            let mut buf = vec![0u8; 4096];
+            let n = sock.read(&mut buf).await.expect("read");
+            sock.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
+                .await
+                .ok();
+            String::from_utf8_lossy(&buf[..n])
+                .lines()
+                .map(str::to_ascii_lowercase)
+                .find(|l| l.starts_with("content-length") || l.starts_with("transfer-encoding"))
+        });
+
+        let client = http_client(Duration::from_secs(5)).expect("client");
+        http_put(&client, &format!("http://127.0.0.1:{port}/obj"), body)
+            .await
+            .expect("the throwaway server answers 200");
+        server.await.expect("server task")
     }
 }
