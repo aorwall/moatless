@@ -162,6 +162,12 @@ spec:
             - name: T3_UI_RPC_ALLOWED_ORIGINS
               value: {{ concat (list (include "moatless-vibe.t3Origin" .)) .Values.t3.extraAllowedOrigins | join "," | quote }}
             {{- end }}
+            # Origins trusted for cookie-authenticated REST writes. The derived
+            # T3 origin only — deliberately not t3.extraAllowedOrigins, whose
+            # wildcard preview entries admit a socket but must never carry a
+            # write. Add an exact origin to auth.csrfTrustedOrigins.
+            - name: CSRF_TRUSTED_ORIGINS
+              value: {{ concat (ternary (list (include "moatless-vibe.t3Origin" .)) (list) .Values.t3.enabled) .Values.auth.csrfTrustedOrigins | join "," | quote }}
             - name: K8S_POD_STARTUP_TIMEOUT_SECS
               value: {{ .Values.kubernetes.podStartupTimeout | default "120" | quote }}
             - name: K8S_SANDBOX_LIVENESS_ENABLED

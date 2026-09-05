@@ -386,6 +386,11 @@ fn valid_csrf(headers: &axum::http::HeaderMap, expected_hash: &[u8], config: &Co
         .and_then(|value| value.to_str().ok())
         .is_some_and(|origin| {
             origin.trim_end_matches('/') == config.auth.frontend_url.trim_end_matches('/')
+                || config
+                    .auth
+                    .csrf_trusted_origins
+                    .iter()
+                    .any(|allowed| allowed.matches(origin))
         })
 }
 
@@ -460,6 +465,32 @@ mod tests {
         headers.insert(header::ORIGIN, "https://evil.example".parse().unwrap());
         assert!(!valid_csrf(&headers, &expected, &config));
         headers.insert("x-csrf-token", "another-token".parse().unwrap());
+        assert!(!valid_csrf(&headers, &expected, &config));
+    }
+
+    #[test]
+    fn csrf_accepts_a_trusted_origin_that_is_not_the_frontend_url() {
+        let mut config = Config::test_minimal();
+        config.auth.csrf_trusted_origins =
+            moatless_types::auth::parse_allowed_origins("https://moatless-t3.example.com");
+        let token = "csrf-token";
+        let expected = session::hash_token(token);
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            format!("{CSRF_COOKIE_NAME}={token}").parse().unwrap(),
+        );
+        headers.insert("x-csrf-token", token.parse().unwrap());
+
+        // The T3 host is not `frontend_url` but is trusted, so it passes.
+        headers.insert(
+            header::ORIGIN,
+            "https://moatless-t3.example.com".parse().unwrap(),
+        );
+        assert!(valid_csrf(&headers, &expected, &config));
+
+        // An origin on neither list still fails.
+        headers.insert(header::ORIGIN, "https://evil.example".parse().unwrap());
         assert!(!valid_csrf(&headers, &expected, &config));
     }
 

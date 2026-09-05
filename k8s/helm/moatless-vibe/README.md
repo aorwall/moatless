@@ -265,6 +265,17 @@ a desktop or mobile build pointed at this deployment. The origin T3 is served
 on is derived from `t3.host` (or `ingress.hosts[0].host`) and `proxy.protocol`,
 so it is never configured twice.
 
+The REST API's CSRF check keeps its own list. A cookie-authenticated PATCH/POST
+is refused unless its `Origin` is `auth.frontendUrl`, the derived T3 origin
+(added whenever `t3.enabled`), or an entry in `auth.csrfTrustedOrigins`.
+
+`t3.extraAllowedOrigins` is **not** inherited by that check, and the two lists
+are separate for a reason: this one may carry a wildcard such as
+`https://*.preview.moatless.xyz` so sandbox previews can open a socket, and
+a preview serves agent-authored code. Trusting it for writes would let a
+preview page spend a visitor's session under any `auth.cookieDomain` covering
+both. Add a REST origin to `auth.csrfTrustedOrigins`, exactly and by name.
+
 ### Kubernetes execution
 
 | Parameter | Description | Default |

@@ -16,6 +16,10 @@ services:
       # Vite normally preserves the page origin. Some proxy versions rewrite it
       # to their target, so both exact local origins are admitted.
       T3_UI_RPC_ALLOWED_ORIGINS: ${T3_UI_RPC_ALLOWED_ORIGINS:-http://localhost:5733,http://localhost:8080}
+      # The same two origins, for the REST CSRF check. Kept as its own variable
+      # because the list above may gain a wildcard preview origin, which admits
+      # a socket but must never carry a cookie-authenticated write.
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:5733,http://localhost:8080}
 
   frontend:
     # The published nginx image's entrypoint renders its own template over

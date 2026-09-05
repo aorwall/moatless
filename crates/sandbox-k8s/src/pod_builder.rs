@@ -1687,6 +1687,7 @@ mod tests {
                 session_max_age_secs: 3600,
                 session_absolute_age_secs: 3600,
                 frontend_url: "http://localhost:3000".into(),
+                csrf_trusted_origins: Vec::new(),
                 cookie_domain: None,
                 session_cookie_name: "test".into(),
                 is_production: false,

@@ -90,6 +90,14 @@ pub struct AuthConfig {
     pub session_absolute_age_secs: u64,
     /// Frontend URL for redirects (default: "<http://localhost:3000>")
     pub frontend_url: String,
+    /// Browser origins trusted for the double-submit CSRF check beyond
+    /// [`Self::frontend_url`]. A first-party client served from another host —
+    /// the T3 web client — reaches `/api` on its own origin through the same
+    /// Traefik route, so its `Origin` never equals `frontend_url`. Env:
+    /// `CSRF_TRUSTED_ORIGINS`. Name a first-party UI origin exactly; a wildcard
+    /// here trusts every host under it with the session cookie
+    /// (`moatless_core::config::csrf_trusted_origins_from_env`).
+    pub csrf_trusted_origins: Vec<AllowedOrigin>,
     /// Cookie domain (e.g., ".moatless.xyz"). None for localhost.
     pub cookie_domain: Option<String>,
     /// Session cookie name (default: "`moatless_session`")
@@ -213,6 +221,66 @@ impl fmt::Debug for GitHubAppConfig {
     }
 }
 
+/// One entry of a browser origin allow-list.
+///
+/// Each list says what its own origins may do and is configured separately —
+/// [`AuthConfig::csrf_trusted_origins`] admits a cookie-authenticated write,
+/// where the T3 WebSocket list admits a socket. The grants are not
+/// interchangeable, so an entry earns its place on one list at a time.
+///
+/// An entry whose host is `*.<domain>` admits any host under that domain on the
+/// same scheme. Sandbox previews are reached at a per-workspace hostname that
+/// only exists once the workspace does, so naming each one is not something a
+/// deployment can do in advance.
+///
+/// The wildcard is a host suffix and nothing more: it never spans a scheme, and
+/// a port makes the origin a different one it does not cover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AllowedOrigin {
+    Exact(String),
+    /// `prefix` is `<scheme>://`, `suffix` is `.<domain>`.
+    Subdomain { prefix: String, suffix: String },
+}
+
+impl AllowedOrigin {
+    pub fn parse(entry: &str) -> Self {
+        match entry.split_once("://*.") {
+            Some((scheme, domain)) if !scheme.is_empty() && !domain.is_empty() => Self::Subdomain {
+                prefix: format!("{scheme}://"),
+                suffix: format!(".{domain}"),
+            },
+            _ => Self::Exact(entry.to_string()),
+        }
+    }
+
+    pub fn matches(&self, origin: &str) -> bool {
+        match self {
+            Self::Exact(allowed) => allowed == origin,
+            Self::Subdomain { prefix, suffix } => origin
+                .strip_prefix(prefix.as_str())
+                // A browser sends a host and nothing else, but this header is
+                // attacker-controlled: without these, `https://evil.example/
+                // x.preview.moatless.xyz` ends with the suffix and passes.
+                .is_some_and(|host| {
+                    host.len() > suffix.len()
+                        && host.ends_with(suffix.as_str())
+                        && !host.contains(['/', '\\', '?', '#', '@', ':'])
+                }),
+        }
+    }
+}
+
+/// Parse a comma-separated origin allow-list, as `T3_UI_RPC_ALLOWED_ORIGINS`
+/// carries it. Blank entries are dropped, so an unset variable yields no origins.
+pub fn parse_allowed_origins(value: &str) -> Vec<AllowedOrigin> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|origin| !origin.is_empty())
+        .map(AllowedOrigin::parse)
+        .collect()
+}
+
 #[allow(clippy::missing_fields_in_debug)]
 impl fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -229,6 +297,7 @@ impl fmt::Debug for AuthConfig {
             .field("session_max_age_secs", &self.session_max_age_secs)
             .field("session_absolute_age_secs", &self.session_absolute_age_secs)
             .field("frontend_url", &self.frontend_url)
+            .field("csrf_trusted_origins", &self.csrf_trusted_origins)
             .field("cookie_domain", &self.cookie_domain)
             .field("is_production", &self.is_production)
             .field("admin_username", &self.admin_username)
@@ -303,6 +372,76 @@ mod tests {
         assert!(!debug.contains("real-app-secret"));
         assert!(debug.contains("[REDACTED]"));
         assert!(debug.contains("dev-bot")); // the key is an identifier, not a secret
+    }
+
+    #[test]
+    fn wildcard_entry_admits_hosts_under_its_domain() {
+        let allowed = AllowedOrigin::parse("https://*.preview.moatless.xyz");
+        assert_eq!(
+            allowed,
+            AllowedOrigin::Subdomain {
+                prefix: "https://".into(),
+                suffix: ".preview.moatless.xyz".into(),
+            }
+        );
+        for origin in [
+            "https://8d38cf39-4659-4a5e-92b1-49e8dfc9efb1--5733.preview.moatless.xyz",
+            "https://anything.preview.moatless.xyz",
+            "https://deeper.nested.preview.moatless.xyz",
+        ] {
+            assert!(allowed.matches(origin), "{origin} should be admitted");
+        }
+    }
+
+    #[test]
+    fn wildcard_entry_refuses_everything_outside_its_domain() {
+        let allowed = AllowedOrigin::parse("https://*.preview.moatless.xyz");
+        for origin in [
+            // the domain itself, which the wildcard label does not stand for
+            "https://preview.moatless.xyz",
+            // an empty label
+            "https://.preview.moatless.xyz",
+            // the parent domain, and a lookalike registered elsewhere
+            "https://moatless.xyz",
+            "https://evil-preview.moatless.xyz",
+            "https://preview.moatless.xyz.evil.example",
+            // a scheme the entry does not name
+            "http://a.preview.moatless.xyz",
+            // a port makes it a different origin
+            "https://a.preview.moatless.xyz:8443",
+            // a path or userinfo smuggling the suffix past a bare ends_with
+            "https://evil.example/x.preview.moatless.xyz",
+            "https://evil.example@x.preview.moatless.xyz",
+            "https://evil.example?.preview.moatless.xyz",
+            "https://evil.example#.preview.moatless.xyz",
+            "https://evil.example\\.preview.moatless.xyz",
+        ] {
+            assert!(!allowed.matches(origin), "{origin} should be refused");
+        }
+    }
+
+    #[test]
+    fn entry_without_a_wildcard_label_stays_exact() {
+        assert_eq!(
+            AllowedOrigin::parse("https://moatless.xyz"),
+            AllowedOrigin::Exact("https://moatless.xyz".into())
+        );
+        // A `*` that is not the whole leading label is not a wildcard.
+        let partial = AllowedOrigin::parse("https://*preview.moatless.xyz");
+        assert!(matches!(partial, AllowedOrigin::Exact(_)));
+        assert!(!partial.matches("https://a.preview.moatless.xyz"));
+    }
+
+    #[test]
+    fn parse_allowed_origins_drops_blanks_and_trims() {
+        assert!(parse_allowed_origins("").is_empty());
+        assert_eq!(
+            parse_allowed_origins(" https://a.example , ,https://b.example "),
+            vec![
+                AllowedOrigin::Exact("https://a.example".into()),
+                AllowedOrigin::Exact("https://b.example".into()),
+            ]
+        );
     }
 }
 

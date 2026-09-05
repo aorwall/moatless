@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 use moatless_types::adapter::LinearConfig;
 use moatless_types::agent::CodexOAuthConfig;
-use moatless_types::auth::{AuthConfig, AuthProvider, GitHubAppConfig, OidcConfig};
+use moatless_types::auth::{AllowedOrigin, AuthConfig, AuthProvider, GitHubAppConfig, OidcConfig};
 use moatless_types::sandbox::SandboxProviderType;
 use moatless_types::secret::SecretsConfig;
 
@@ -146,6 +146,20 @@ fn env_opt(key: &str) -> Option<String> {
 /// Read an environment variable with a string default.
 fn env_str(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+/// Origins the CSRF check trusts beyond `FRONTEND_URL`, from
+/// `CSRF_TRUSTED_ORIGINS`.
+///
+/// Deliberately not defaulted from `T3_UI_RPC_ALLOWED_ORIGINS`, which the
+/// WebSocket upgrade reads: that list carries wildcard sandbox-preview origins,
+/// and a preview serves agent-authored code. Under a `COOKIE_DOMAIN` covering
+/// both, inheriting it would let a preview origin drive cookie-authenticated
+/// writes. Name a REST origin here, exactly.
+fn csrf_trusted_origins_from_env() -> Vec<AllowedOrigin> {
+    moatless_types::auth::parse_allowed_origins(
+        &env_opt("CSRF_TRUSTED_ORIGINS").unwrap_or_default(),
+    )
 }
 
 /// Parse the `GITHUB_APPS_JSON` env var into a list of `GitHubAppConfig`.
@@ -951,6 +965,7 @@ impl Config {
                 session_max_age_secs: env_or("SESSION_MAX_AGE", 604_800),
                 session_absolute_age_secs: env_or("SESSION_ABSOLUTE_MAX_AGE", 2_592_000),
                 frontend_url: env_str("FRONTEND_URL", "http://localhost:3000"),
+                csrf_trusted_origins: csrf_trusted_origins_from_env(),
                 cookie_domain: env_opt("COOKIE_DOMAIN"),
                 session_cookie_name: env_str("SESSION_COOKIE_NAME", "moatless_session"),
                 is_production: env::var("APP_ENV")
@@ -1374,6 +1389,7 @@ impl Config {
                 session_max_age_secs: 3600,
                 session_absolute_age_secs: 7200,
                 frontend_url: "http://localhost:3000".into(),
+                csrf_trusted_origins: Vec::new(),
                 cookie_domain: None,
                 session_cookie_name: "test".into(),
                 is_production: false,
@@ -1439,7 +1455,73 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+    use std::sync::{Mutex, PoisonError};
+
     use super::*;
+
+    // =========================================================================
+    // CSRF trusted origins
+    // =========================================================================
+
+    /// Restore whatever the process had, so this test does not leak into the
+    /// others sharing the environment.
+    const ORIGIN_VARS: [&str; 2] = ["CSRF_TRUSTED_ORIGINS", "T3_UI_RPC_ALLOWED_ORIGINS"];
+
+    /// The environment is process-wide and `cargo test` runs a binary's tests on
+    /// several threads, so the two tests below would otherwise interleave: one
+    /// sets `CSRF_TRUSTED_ORIGINS` while the other asserts it is absent.
+    static ORIGIN_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn apply_origin_vars(values: [Option<String>; 2]) {
+        for (name, value) in ORIGIN_VARS.into_iter().zip(values) {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+
+    /// Run `check` with the two variables set, restoring what the process had.
+    ///
+    /// Restores through a panic as well: a failed assertion that leaked its
+    /// variables would fail an unrelated test later, far from the cause.
+    fn with_origin_vars(csrf: Option<&str>, websocket: Option<&str>, check: impl FnOnce()) {
+        // A failing test poisons the lock. The guarded data is `()`, so there is
+        // no torn state to protect the next test from.
+        let _guard = ORIGIN_ENV_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+
+        let previous = ORIGIN_VARS.map(|name| std::env::var(name).ok());
+        apply_origin_vars([csrf.map(str::to_string), websocket.map(str::to_string)]);
+
+        let outcome = catch_unwind(AssertUnwindSafe(check));
+
+        apply_origin_vars(previous);
+        if let Err(panic) = outcome {
+            resume_unwind(panic);
+        }
+    }
+
+    /// The WebSocket allow-list must not reach the CSRF check: it carries
+    /// wildcard preview origins, and a preview serves agent-authored code.
+    #[test]
+    fn the_websocket_allow_list_is_not_a_source_of_csrf_trust() {
+        with_origin_vars(
+            None,
+            Some("https://*.preview.example,https://t3.example"),
+            || assert!(csrf_trusted_origins_from_env().is_empty()),
+        );
+    }
+
+    #[test]
+    fn csrf_trust_is_read_from_its_own_variable() {
+        with_origin_vars(Some("https://t3.example"), None, || {
+            assert_eq!(
+                csrf_trusted_origins_from_env(),
+                vec![AllowedOrigin::Exact("https://t3.example".into())]
+            );
+        });
+    }
 
     // =========================================================================
     // AuthProvider parsing

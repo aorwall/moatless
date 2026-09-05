@@ -131,7 +131,8 @@ t3:
   # origin the T3 UI is served on is always included. Add entries only for
   # clients served from another host — a desktop or mobile build against this
   # deployment, say. Each is matched exactly, or as `*.<domain>` for one level
-  # of subdomain.
+  # of subdomain. This admits a socket and nothing more: an origin that must
+  # also write goes in `auth.csrfTrustedOrigins`, exactly and by name.
   extraAllowedOrigins: []
   # -- Resources for the T3 SPA pod
   resources: {}
@@ -469,6 +470,13 @@ auth:
   frontendUrl: ""
   # -- Cookie domain for cross-subdomain sharing (e.g., ".moatless.xyz")
   cookieDomain: ""
+  # -- Extra browser origins allowed to make cookie-authenticated writes past
+  # the CSRF check, beyond `auth.frontendUrl`. The derived T3 origin is added
+  # automatically when `t3.enabled`, so serving T3 needs nothing here.
+  # `t3.extraAllowedOrigins` is deliberately NOT inherited: it may carry
+  # wildcard sandbox-preview origins, which serve agent-authored code and must
+  # not be able to write with a visitor's session. Name origins exactly.
+  csrfTrustedOrigins: []
   # -- Session max age in seconds (default: 604800 = 7 days)
   sessionMaxAge: ""
   # -- Absolute auth-session lifetime in seconds (default: 2592000 = 30 days)
