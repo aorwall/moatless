@@ -2,9 +2,11 @@
 
 This plugin packages general-purpose agent skills that are useful both when
 developing using the Moatless platform and when working outside Moatless.
-Moatless-specific operational skills, such as installation, Kubernetes, Docker,
-sandbox troubleshooting, and repository-specific frontend/testing guidance,
-remain in the repository-level `.agents/skills` directory.
+Skills for operating the Moatless platform — sandbox resource tuning and cluster
+right-sizing — live in the `moatless-admin` plugin. Repository-specific guidance,
+such as installation, Kubernetes, Docker, sandbox troubleshooting, and
+frontend/testing conventions, lives in the repository-level `.agents/skills`
+directory.
 
 ## Attribution
 

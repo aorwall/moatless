@@ -1,0 +1,3 @@
+interface:
+  display_name: "Workspace Resource Tuning"
+  short_description: "Right-size Moatless sandbox CPU and memory from measured usage"

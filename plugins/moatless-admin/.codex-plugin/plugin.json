@@ -1,0 +1,15 @@
+{
+  "name": "moatless-admin",
+  "version": "0.1.0",
+  "description": "Operational skills for running the Moatless platform — sandbox resource tuning and cluster right-sizing.",
+  "author": {
+    "name": "Albert Örwall"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Moatless Admin",
+    "shortDescription": "Operational skills for running the Moatless platform.",
+    "developerName": "Albert Örwall",
+    "category": "Development"
+  }
+}
