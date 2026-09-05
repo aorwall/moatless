@@ -1602,6 +1602,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let actor = resolve_task_actor(
             handlers.map(|h| &h.workspace_resolver),
             targets.workspace_id.as_deref(),
+            targets.run_as_user_id.as_deref(),
             &grant.ctx.user_id,
         )
         .await;
@@ -2777,6 +2778,7 @@ mod tests {
             visibility: moatless_types::task::Visibility::Private,
             scope,
             owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
+            run_as_user_id: None,
             updated_at: None,
             append_system_prompt: None,
             headless: false,

@@ -46,6 +46,12 @@ one of `repository_id` / `workspace_id` is required.
    */
   repositoryId?: string | null;
   /**
+   * The identity the task's Sandbox acts as outward — a user id or a login.
+Only an admin naming a bot may set it; omit it to run as the caller.
+   * @nullable
+   */
+  runAsUserId?: string | null;
+  /**
    * Existing running Sandbox to join. Omit to create the task's own Sandbox.
    * @nullable
    */

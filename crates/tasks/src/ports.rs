@@ -310,6 +310,9 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
                     branch: None,
                     model: req.model,
                     created_by: req.created_by,
+                    // An adapter-opened Task has no admin behind it to name a
+                    // run-as, so it inherits the Workspace's account.
+                    run_as_user_id: None,
                     headless: true,
                     visibility: req.visibility,
                     loop_id: Some(req.loop_id),

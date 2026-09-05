@@ -97,6 +97,12 @@ pub enum TaskAction {
         name: Option<String>,
         #[arg(long)]
         parent: Option<String>,
+        /// Identity the task's sandbox acts as on a git host — a moatless login
+        /// or user id. Admin only, and only a bot user; omit it to run as
+        /// yourself. Use it to reproduce what a bot sees, e.g.
+        /// `--run-as 'soap-reviewer[bot]'`.
+        #[arg(long, value_name = "USER")]
+        run_as: Option<String>,
         #[arg(long)]
         message: Option<String>,
         /// Relevant repo file path to attach as a message context. Repeatable.
@@ -357,6 +363,7 @@ pub async fn run(
             checkout_mode,
             name,
             parent,
+            run_as,
             message,
             context_files,
             branch,
@@ -402,6 +409,7 @@ pub async fn run(
                 message,
                 branch,
                 parent_task_id,
+                run_as_user_id: run_as,
                 // The CLI always drives the agent in edit mode; plan mode is a UI affordance.
                 agent_mode: Some(AgentMode("edit".to_string())),
                 agent_type: Some(AgentType(agent_type)),

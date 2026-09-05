@@ -384,10 +384,11 @@ impl TaskDao for PgTaskDao {
         // alone. A creation that names one joins an existing Sandbox and writes
         // no row.
         //
-        // `run_as_user_id` follows `Actor::run_as`: the Workspace's account
-        // outranks the owner of the work. `storage_reclaimed_at` is stamped
-        // because a Sandbox that has never started owns no volume; the first
-        // intent toward Running clears it.
+        // `run_as_user_id` follows `Actor::run_as`, with the Task's own choice
+        // ahead of it: the Task outranks the Workspace's account, which outranks
+        // the owner of the work. `storage_reclaimed_at` is stamped because a
+        // Sandbox that has never started owns no volume; the first intent toward
+        // Running clears it.
         let sandbox_id = row
             .sandbox_id
             .clone()
@@ -399,7 +400,8 @@ impl TaskDao for PgTaskDao {
                        sandbox_id, workspace_id, scope, owner_user_id, run_as_user_id,
                        branch, headless, agent_type, use_tmux, storage_reclaimed_at
                    )
-                   SELECT $1, w.id, $2, $3, COALESCE(NULLIF(w.run_as_user_id, ''), $3),
+                   SELECT $1, w.id, $2, $3,
+                          COALESCE(NULLIF($9, ''), NULLIF(w.run_as_user_id, ''), $3),
                           $4, $5, $6, $7, NOW()
                    FROM workspaces w
                    WHERE w.id = $8"#,
@@ -414,6 +416,7 @@ impl TaskDao for PgTaskDao {
             // it lives in this band. The control plane reads the answer.
             .bind(crate::agent::catalog::use_tmux_for(row.agent_type.as_str()))
             .bind(&workspace_id)
+            .bind(&row.run_as_user_id)
             .execute(&mut *tx)
             .await?;
             if inserted.rows_affected() == 0 {
@@ -430,15 +433,15 @@ impl TaskDao for PgTaskDao {
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, scope, owner_user_id,
+                created_by, visibility, scope, owner_user_id, run_as_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
                 inactive_ttl_days, loop_id, model,
                 workspace_id, sandbox_id, checkout_mode, skills
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                $21, NOW(), $22, $23, $24, $25,
-                $26, $27, $28, $29, $30
+                $21, $22, NOW(), $23, $24, $25, $26,
+                $27, $28, $29, $30, $31
             )"#,
         )
         .bind(&row.task_id)
@@ -461,6 +464,7 @@ impl TaskDao for PgTaskDao {
         .bind(row.visibility.as_str())
         .bind(row.scope.as_str())
         .bind(&row.owner_user_id)
+        .bind(&row.run_as_user_id)
         .bind(&row.append_system_prompt)
         .bind(row.headless)
         .bind(row.ttl_minutes)
@@ -662,6 +666,7 @@ impl TaskDao for PgTaskDao {
             visibility: Option<String>,
             scope: Option<String>,
             owner_user_id: Option<String>,
+            run_as_user_id: Option<String>,
             updated_at: Option<DateTime<Utc>>,
             append_system_prompt: Option<String>,
             headless: Option<bool>,
@@ -717,6 +722,7 @@ impl TaskDao for PgTaskDao {
                     visibility: Visibility::try_from(self.visibility?.as_str()).ok()?,
                     scope: Scope::try_from(self.scope?).ok()?,
                     owner_user_id: self.owner_user_id,
+                    run_as_user_id: self.run_as_user_id,
                     updated_at: self.updated_at,
                     append_system_prompt: self.append_system_prompt,
                     headless: self.headless?,
@@ -753,6 +759,7 @@ impl TaskDao for PgTaskDao {
                     t.sandbox_id, t.checkout_mode,
                     t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                     t.model, t.created_by, t.visibility, t.scope, t.owner_user_id,
+                    t.run_as_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
                     t.headless, t.ttl_minutes,
                     t.inactive_ttl_days, t.loop_id, t.skills
@@ -1624,6 +1631,7 @@ mod tests {
             visibility: Visibility::Private,
             scope: Scope::User,
             owner_user_id: Some("user-1".to_string()),
+            run_as_user_id: None,
             updated_at: None,
             append_system_prompt: None,
             headless: false,
@@ -1717,6 +1725,33 @@ mod tests {
                 .as_deref(),
             Some("bot-9"),
             "the workspace names the account its tasks act as"
+        );
+    }
+
+    /// A Task naming its own run-as outranks the Workspace's account. This is
+    /// what `moat tasks create --run-as` writes; `service::normalize` is where
+    /// the admin-and-bot check that admits it lives.
+    #[sqlx::test]
+    async fn the_task_run_as_account_outranks_the_workspace(pool: PgPool) {
+        seed_bare_task(&pool, "seed", "open").await;
+        let dao = store_over(&pool);
+        sqlx::query("UPDATE workspaces SET run_as_user_id = 'bot-9' WHERE id = 'ws_repo-x'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let mut row = task_row("t1");
+        row.run_as_user_id = Some("bot-3".to_string());
+        dao.insert_task(&row).await.unwrap();
+
+        assert_eq!(
+            sandbox_shape(&pool, "t1")
+                .await
+                .expect("sandbox row")
+                .run_as_user_id
+                .as_deref(),
+            Some("bot-3"),
+            "the Task's own choice wins over the workspace account"
         );
     }
 

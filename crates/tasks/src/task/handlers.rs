@@ -23,6 +23,7 @@ use crate::task_turn::dao::TaskTurnDao;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::http_auth::AuthUser;
+use moatless_ports::identity::UserResolver;
 use moatless_ports::sandbox::PreflightPort;
 use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
@@ -60,6 +61,7 @@ use super::service;
 pub async fn create_task(
     State(workspaces): State<Arc<dyn WorkspaceResolver>>,
     State(repositories): State<Arc<dyn RepositoryReader>>,
+    State(users): State<Arc<dyn UserResolver>>,
     State(credential_sync): State<Arc<CredentialSync>>,
     State(config): State<Arc<Config>>,
     State(task_creation): State<Arc<TaskCreationService>>,
@@ -79,10 +81,13 @@ pub async fn create_task(
     let uid_ev = user_id.clone();
     let enriched_ev = enriched.clone();
     let new_task = service::normalize(
-        workspaces.as_ref(),
-        repositories.as_ref(),
-        &credential_sync,
-        &config,
+        service::CreateTaskPorts {
+            workspaces: workspaces.as_ref(),
+            repositories: repositories.as_ref(),
+            users: users.as_ref(),
+            credential_sync: &credential_sync,
+            config: &config,
+        },
         &auth.scope_context(),
         &user_id,
         service::CreateTaskIntent::new(req),
@@ -165,6 +170,7 @@ pub async fn create_task(
 pub async fn fork_task(
     State(workspaces): State<Arc<dyn WorkspaceResolver>>,
     State(repositories): State<Arc<dyn RepositoryReader>>,
+    State(users): State<Arc<dyn UserResolver>>,
     State(credential_sync): State<Arc<CredentialSync>>,
     State(config): State<Arc<Config>>,
     State(task_creation): State<Arc<TaskCreationService>>,
@@ -206,6 +212,9 @@ pub async fn fork_task(
         contexts: Vec::new(),
         file_ids: Vec::new(),
         parent_task_id: None,
+        // A fork inherits the source Task's run-as through its Sandbox row, so
+        // naming one here would be a second answer to the same question.
+        run_as_user_id: None,
         headless: None,
         skills: req.skills.clone(),
     };
@@ -222,10 +231,13 @@ pub async fn fork_task(
     let enriched: Arc<Mutex<Option<TaskResponse>>> = Arc::new(Mutex::new(None));
     let create_result = async {
         let mut new_task = service::normalize(
-            workspaces.as_ref(),
-            repositories.as_ref(),
-            &credential_sync,
-            &config,
+            service::CreateTaskPorts {
+                workspaces: workspaces.as_ref(),
+                repositories: repositories.as_ref(),
+                users: users.as_ref(),
+                credential_sync: &credential_sync,
+                config: &config,
+            },
             &scope_ctx,
             &user_id,
             service::CreateTaskIntent {

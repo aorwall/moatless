@@ -31,6 +31,7 @@ use crate::credential_sync::CredentialSync;
 use crate::message::send::MessageSendService;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
+use moatless_ports::identity::UserResolver;
 use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_types::access_control::ensure_can_use_repository;
@@ -202,6 +203,18 @@ async fn publish_user_stop(events: Option<&dyn EventPublisher>, task_id: &str) {
     }
 }
 
+/// What [`normalize`] resolves a create request against.
+///
+/// Grouped because every caller supplies all five together and none of them
+/// varies independently of the rest.
+pub struct CreateTaskPorts<'a> {
+    pub workspaces: &'a dyn WorkspaceResolver,
+    pub repositories: &'a dyn RepositoryReader,
+    pub users: &'a dyn UserResolver,
+    pub credential_sync: &'a CredentialSync,
+    pub config: &'a Config,
+}
+
 /// Turn a create request into the normalised form the creation service takes.
 ///
 /// The repository, access and scope resolution lives here, apart from
@@ -209,14 +222,18 @@ async fn publish_user_stop(events: Option<&dyn EventPublisher>, task_id: &str) {
 /// calls and hands the [`NewTaskRequest`] on. A caller that needs the resolved
 /// request without creating anything stops here.
 pub async fn normalize(
-    workspaces: &dyn WorkspaceResolver,
-    repositories: &dyn RepositoryReader,
-    credential_sync: &CredentialSync,
-    config: &Config,
+    ports: CreateTaskPorts<'_>,
     scope_ctx: &ScopeContext,
     user_id: &str,
     intent: CreateTaskIntent,
 ) -> Result<NewTaskRequest, TaskError> {
+    let CreateTaskPorts {
+        workspaces,
+        repositories,
+        users,
+        credential_sync,
+        config,
+    } = ports;
     let CreateTaskIntent {
         request: req,
         task_id,
@@ -280,6 +297,8 @@ pub async fn normalize(
         validate_task_name(name)?;
     }
 
+    let run_as_user_id = resolve_run_as(users, scope_ctx, req.run_as_user_id.as_deref()).await?;
+
     let is_template = repo.kind == RepositoryKind::Template;
 
     // Fast-fail codex tasks with no usable credential: a missing connection
@@ -310,6 +329,7 @@ pub async fn normalize(
         branch: req.branch.clone().or(repo.default_branch.clone()),
         model: req.model.clone(),
         created_by: Some(user_id.to_string()),
+        run_as_user_id,
         headless: req.headless.unwrap_or(false),
         visibility: Visibility::Private,
         loop_id: None,
@@ -363,6 +383,34 @@ pub async fn normalize(
     })
 }
 
+/// Resolve and authorize an explicit run-as target.
+///
+/// `None` in, `None` out: the task then runs as its Workspace's account or its
+/// owner, unchanged. A reference that names nobody is a bad request rather than
+/// a silent fallback, because falling back would run the work as the caller
+/// under a name they did not ask for.
+async fn resolve_run_as(
+    users: &dyn UserResolver,
+    scope_ctx: &ScopeContext,
+    requested: Option<&str>,
+) -> Result<Option<String>, TaskError> {
+    let Some(requested) = requested.map(str::trim).filter(|r| !r.is_empty()) else {
+        return Ok(None);
+    };
+    let target = users
+        .run_as_target(requested)
+        .await
+        .map_err(|e| TaskError::Internal(e.to_string()))?
+        .ok_or_else(|| TaskError::BadRequest(format!("Run-as user {requested} does not exist")))?;
+    if !scope_ctx.can_run_as(&target.id.to_string(), target.is_bot) {
+        return Err(TaskError::Forbidden(format!(
+            "Not allowed to run as {}. An admin may run a task as a bot user; anyone else only as themselves",
+            target.login
+        )));
+    }
+    Ok(Some(target.id.to_string()))
+}
+
 pub(super) fn validate_task_name(name: &str) -> Result<(), TaskError> {
     if name.is_empty() {
         return Err(TaskError::BadRequest(
@@ -397,4 +445,98 @@ fn agent_type_error(reason: &str) -> TaskError {
         .collect::<Vec<_>>()
         .join(", ");
     TaskError::BadRequest(format!("{reason}. Available options: {options}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use moatless_ports::identity::{MockUserResolver, RunAsUser};
+    use uuid::Uuid;
+
+    use super::*;
+
+    const ADMIN: &str = "11111111-1111-1111-1111-111111111111";
+    const BOT: &str = "22222222-2222-2222-2222-222222222222";
+    const OTHER: &str = "33333333-3333-3333-3333-333333333333";
+
+    fn ctx(user_id: &str, is_admin: bool) -> ScopeContext {
+        ScopeContext {
+            user_id: user_id.to_string(),
+            is_admin,
+        }
+    }
+
+    fn resolving_to(id: &'static str, login: &'static str, is_bot: bool) -> MockUserResolver {
+        let mut users = MockUserResolver::new();
+        users.expect_run_as_target().returning(move |_| {
+            Ok(Some(RunAsUser {
+                id: Uuid::parse_str(id).unwrap(),
+                login: login.to_string(),
+                is_bot,
+            }))
+        });
+        users
+    }
+
+    #[tokio::test]
+    async fn no_run_as_asked_for_resolves_to_none() {
+        let mut users = MockUserResolver::new();
+        users.expect_run_as_target().never();
+        // Whitespace is not a reference: the CLI passes a bare `--run-as ''`
+        // through, and treating it as a name would 400 on a request that asked
+        // for nothing.
+        for requested in [None, Some(""), Some("   ")] {
+            let resolved = resolve_run_as(&users, &ctx(ADMIN, true), requested)
+                .await
+                .expect("no run-as is not an error");
+            assert_eq!(resolved, None, "requested {requested:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_admin_may_run_as_a_bot() {
+        let users = resolving_to(BOT, "soap-reviewer[bot]", true);
+        let resolved = resolve_run_as(&users, &ctx(ADMIN, true), Some("soap-reviewer[bot]"))
+            .await
+            .expect("admin over a bot");
+        assert_eq!(resolved.as_deref(), Some(BOT));
+    }
+
+    #[tokio::test]
+    async fn an_admin_may_not_borrow_a_persons_account() {
+        let users = resolving_to(OTHER, "someone", false);
+        let error = resolve_run_as(&users, &ctx(ADMIN, true), Some("someone"))
+            .await
+            .expect_err("a person is not a bot");
+        assert!(matches!(error, TaskError::Forbidden(_)), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn a_non_admin_may_not_run_as_a_bot() {
+        let users = resolving_to(BOT, "soap-reviewer[bot]", true);
+        let error = resolve_run_as(&users, &ctx(OTHER, false), Some("soap-reviewer[bot]"))
+            .await
+            .expect_err("running as another identity is an admin power");
+        assert!(matches!(error, TaskError::Forbidden(_)), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn naming_yourself_is_allowed_and_needs_no_admin() {
+        let users = resolving_to(OTHER, "someone", false);
+        let resolved = resolve_run_as(&users, &ctx(OTHER, false), Some("someone"))
+            .await
+            .expect("acting as yourself changes nothing");
+        assert_eq!(resolved.as_deref(), Some(OTHER));
+    }
+
+    /// A reference nobody matches is a bad request. Falling back to the caller
+    /// would run the work under a name they did not ask for.
+    #[tokio::test]
+    async fn an_unknown_run_as_reference_is_rejected() {
+        let mut users = MockUserResolver::new();
+        users.expect_run_as_target().returning(|_| Ok(None));
+        let error = resolve_run_as(&users, &ctx(ADMIN, true), Some("nobody"))
+            .await
+            .expect_err("unknown reference");
+        assert!(matches!(error, TaskError::BadRequest(_)), "{error:?}");
+    }
 }

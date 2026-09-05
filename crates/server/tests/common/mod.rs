@@ -602,6 +602,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         visibility: Visibility::Private,
         scope: moatless_types::access_control::Scope::User,
         owner_user_id: Some(user_id.to_string()),
+        run_as_user_id: None,
         updated_at: None,
         append_system_prompt: None,
         headless: false,

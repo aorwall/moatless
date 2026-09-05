@@ -249,6 +249,7 @@ pub async fn preflight_validate_github_token(
     let actor = resolve_task_actor(
         Some(&creds.workspaces),
         task.workspace_id.as_deref(),
+        task.run_as_user_id.as_deref(),
         task.created_by.as_deref().unwrap_or("system"),
     )
     .await;
@@ -413,6 +414,7 @@ mod tests {
             visibility: moatless_types::task::Visibility::Private,
             scope,
             owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
+            run_as_user_id: None,
             updated_at: None,
             append_system_prompt: None,
             headless: false,

@@ -398,6 +398,7 @@ mod tests {
             visibility: Visibility::Private,
             scope: Scope::User,
             owner_user_id: None,
+            run_as_user_id: None,
             updated_at: None,
             append_system_prompt: None,
             headless: false,

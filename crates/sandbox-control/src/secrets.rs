@@ -231,6 +231,9 @@ pub async fn resolve_server_env(
 pub struct TaskCredentialTargets {
     pub repository: Option<Repository>,
     pub workspace_id: Option<String>,
+    /// The Sandbox row's own run-as identity, which
+    /// [`resolve_task_actor`] takes ahead of the Workspace's.
+    pub run_as_user_id: Option<String>,
 }
 
 /// Resolve the repository and workspace a task's sandbox draws credentials
@@ -250,6 +253,13 @@ pub async fn resolve_task_credential_targets(
     let Ok(Some(intent)) = sandboxes.load(task_id).await else {
         return TaskCredentialTargets::default();
     };
+    let run_as_user_id = match sandboxes.sandbox_shape(&intent.sandbox_id).await {
+        Ok(shape) => shape.and_then(|shape| shape.run_as_user_id),
+        Err(e) => {
+            warn!(task_id, error = %e, "Failed to read the sandbox run-as identity");
+            None
+        }
+    };
     let primary = match workspaces.placements(&intent.workspace_id).await {
         Ok(placements) => placements.into_iter().next(),
         Err(e) => {
@@ -265,6 +275,7 @@ pub async fn resolve_task_credential_targets(
     TaskCredentialTargets {
         repository: primary.and_then(|placement| placement.repository),
         workspace_id: Some(intent.workspace_id),
+        run_as_user_id,
     }
 }
 
@@ -351,9 +362,10 @@ pub fn is_git_auth_key(key: &str) -> bool {
 
 /// The identity a Task's sandbox acts as on a git host.
 ///
-/// The Workspace's `run_as_user_id` when it names one, otherwise the identity
-/// the Task is attributed to. A Workspace names the account it runs as, so it
-/// outranks whoever started the Task.
+/// `task_run_as` when the Task names one, else the Workspace's
+/// `run_as_user_id`, else the identity the Task is attributed to. A Task's own
+/// choice is what an admin set for that one Task, so it outranks the Workspace,
+/// which in turn outranks whoever started the Task.
 ///
 /// The returned Actor carries the Workspace itself, so a credential the
 /// Workspace pins for a git host is the one every call on this Task presents —
@@ -366,9 +378,16 @@ pub fn is_git_auth_key(key: &str) -> bool {
 pub async fn resolve_task_actor(
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     workspace_id: Option<&str>,
+    task_run_as: Option<&str>,
     owner_user_id: &str,
 ) -> Actor {
     let owner = Actor::of(owner_user_id).on_workspace(workspace_id);
+    // A Task naming its own run-as answers the question outright; the Workspace
+    // is consulted only when it does not. `Actor::run_as` folds the owner
+    // fallback in, so it is never `None` here and cannot be the branch's guard.
+    if let Some(task_run_as) = task_run_as.filter(|id| !id.is_empty()) {
+        return Actor::of(task_run_as).on_workspace(workspace_id);
+    }
     let (Some(workspaces), Some(workspace_id)) = (workspaces, workspace_id) else {
         return owner;
     };
@@ -1021,14 +1040,26 @@ mod tests {
         // The point of the feature: the workspace names the account, not
         // whoever happened to start the task.
         let workspaces = workspace_running_as(Some("bot"));
-        let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), "starter").await;
+        let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), None, "starter").await;
         assert_eq!(actor.user_id(), "bot");
+    }
+
+    #[tokio::test]
+    async fn a_task_run_as_identity_beats_the_workspace_account() {
+        // `moat tasks create --run-as` is one admin naming one bot for one
+        // task; a Workspace account applies to everything that runs in it, so
+        // the narrower statement wins.
+        let workspaces = workspace_running_as(Some("bot"));
+        let actor =
+            resolve_task_actor(Some(&workspaces), Some("ws_1"), Some("reviewer"), "starter").await;
+        assert_eq!(actor.user_id(), "reviewer");
+        assert_eq!(actor.workspace_id(), Some("ws_1"));
     }
 
     #[tokio::test]
     async fn a_workspace_naming_nobody_leaves_the_task_owner_acting() {
         let workspaces = workspace_running_as(None);
-        let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), "starter").await;
+        let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), None, "starter").await;
         assert_eq!(actor.user_id(), "starter");
     }
 
@@ -1040,7 +1071,7 @@ mod tests {
         // about which account the task presents.
         for run_as in [Some("bot"), None] {
             let workspaces = workspace_running_as(run_as);
-            let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), "starter").await;
+            let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), None, "starter").await;
             assert_eq!(actor.workspace_id(), Some("ws_1"), "run_as {run_as:?}");
         }
     }
@@ -1050,7 +1081,7 @@ mod tests {
         // The pin is looked up from the id alone, so a workspace row that
         // cannot be read narrows the run-as identity without also dropping the
         // credential the workspace pins.
-        let actor = resolve_task_actor(None, Some("ws_1"), "starter").await;
+        let actor = resolve_task_actor(None, Some("ws_1"), None, "starter").await;
         assert_eq!(actor.user_id(), "starter");
         assert_eq!(actor.workspace_id(), Some("ws_1"));
     }
@@ -1059,13 +1090,13 @@ mod tests {
     async fn a_task_with_no_workspace_acts_as_its_own_owner() {
         let workspaces = workspace_running_as(Some("bot"));
         assert_eq!(
-            resolve_task_actor(Some(&workspaces), None, "starter")
+            resolve_task_actor(Some(&workspaces), None, None, "starter")
                 .await
                 .user_id(),
             "starter"
         );
         assert_eq!(
-            resolve_task_actor(None, Some("ws_1"), "starter")
+            resolve_task_actor(None, Some("ws_1"), None, "starter")
                 .await
                 .user_id(),
             "starter"

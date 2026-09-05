@@ -62,6 +62,10 @@ pub struct NewTaskRequest {
     pub branch: Option<String>,
     pub model: Option<String>,
     pub created_by: Option<String>,
+    /// See [`moatless_types::task::Task::run_as_user_id`]. Already authorized
+    /// by the time it reaches here — `service::normalize` is where the
+    /// `ScopeContext::can_run_as` check lives.
+    pub run_as_user_id: Option<String>,
     pub headless: bool,
     pub visibility: Visibility,
     pub loop_id: Option<String>,
@@ -315,6 +319,7 @@ impl TaskCreationService {
             visibility: req.visibility,
             scope: Scope::User,
             owner_user_id,
+            run_as_user_id: req.run_as_user_id.clone(),
             updated_at: None,
             append_system_prompt: req.append_system_prompt.clone(),
             headless: req.headless,
@@ -638,6 +643,7 @@ mod tests {
             branch: None,
             model: None,
             created_by: Some("user1".into()),
+            run_as_user_id: None,
             headless: false,
             visibility: Visibility::Private,
             loop_id: None,

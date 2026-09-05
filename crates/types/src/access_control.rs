@@ -375,9 +375,14 @@ impl ScopeContext {
         self.can_read(repository)
     }
 
-    /// Explicit run-as helper for automation rules.
-    pub fn can_run_as(&self, target_user_id: &str) -> bool {
-        self.is_admin || self.user_id == target_user_id
+    /// Whether this context may start work that acts as `target_user_id`.
+    ///
+    /// Acting as yourself is always allowed and changes nothing. Acting as
+    /// another identity is an admin power, and only ever over a bot: a bot has
+    /// no session of its own to take over, so no person is impersonated. An
+    /// admin therefore cannot borrow another person's account.
+    pub fn can_run_as(&self, target_user_id: &str, target_is_bot: bool) -> bool {
+        self.user_id == target_user_id || (self.is_admin && target_is_bot)
     }
 }
 
@@ -554,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn run_as_allows_self_or_admin_only() {
+    fn run_as_allows_self_or_an_admin_over_a_bot() {
         let user = ScopeContext {
             user_id: "u1".into(),
             is_admin: false,
@@ -564,9 +569,15 @@ mod tests {
             ..user.clone()
         };
 
-        assert!(user.can_run_as("u1"));
-        assert!(!user.can_run_as("u2"));
-        assert!(admin.can_run_as("u2"));
+        assert!(user.can_run_as("u1", false));
+        assert!(!user.can_run_as("u2", false));
+        assert!(!user.can_run_as("bot", true), "a bot needs admin too");
+
+        assert!(admin.can_run_as("bot", true));
+        assert!(
+            !admin.can_run_as("u2", false),
+            "an admin may not borrow a person's account"
+        );
     }
 
     #[test]

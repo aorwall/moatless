@@ -11371,6 +11371,13 @@
             ],
             "description": "The repository to run the task against. Optional when `workspace_id` is\nsupplied — the workspace's primary repository is used instead. At least\none of `repository_id` / `workspace_id` is required."
           },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The identity the task's Sandbox acts as outward — a user id or a login.\nOnly an admin naming a bot may set it; omit it to run as the caller."
+          },
           "sandboxId": {
             "type": [
               "string",

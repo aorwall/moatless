@@ -476,6 +476,11 @@ pub struct Task {
     pub visibility: Visibility,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
+    /// The identity this task's Sandbox acts as outward — git-host credentials
+    /// and delivered plugins — when the task names one itself. `None` leaves
+    /// the Workspace's account in charge, falling back to the owner, per
+    /// [`crate::access_control::Actor::run_as`].
+    pub run_as_user_id: Option<String>,
     pub updated_at: Option<DateTime<Utc>>,
     pub append_system_prompt: Option<String>,
     pub headless: bool,

@@ -76,6 +76,8 @@ pub struct TaskRow {
     #[sqlx(try_from = "String")]
     pub scope: Scope,
     pub owner_user_id: Option<String>,
+    /// See [`moatless_types::task::Task::run_as_user_id`].
+    pub run_as_user_id: Option<String>,
     pub created_at_db: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub append_system_prompt: Option<String>,
@@ -127,6 +129,7 @@ impl TryFrom<TaskRow> for Task {
             visibility: row.visibility,
             scope: row.scope,
             owner_user_id: row.owner_user_id,
+            run_as_user_id: row.run_as_user_id,
             updated_at: row.updated_at,
             append_system_prompt: row.append_system_prompt,
             headless: row.headless,

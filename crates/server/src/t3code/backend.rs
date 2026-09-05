@@ -980,6 +980,8 @@ impl ThreadCommandSink for AppStateCommands {
             contexts: vec![],
             file_ids: attachments.file_ids.clone(),
             parent_task_id: None,
+            // The T3 surface has no run-as control; a task it opens runs as its caller.
+            run_as_user_id: None,
             headless: Some(false),
             skills: thread
                 .first_message
@@ -1003,10 +1005,13 @@ impl ThreadCommandSink for AppStateCommands {
         // unreachable object per retry. Only what this call stored is taken
         // back; an uploaded attachment is the client's and outlives the retry.
         let new_task = match task_service::normalize(
-            self.0.workspace_resolver.as_ref(),
-            self.0.repository_reader.as_ref(),
-            &self.0.credential_sync,
-            &self.0.config,
+            task_service::CreateTaskPorts {
+                workspaces: self.0.workspace_resolver.as_ref(),
+                repositories: self.0.repository_reader.as_ref(),
+                users: self.0.user_directory.as_ref(),
+                credential_sync: &self.0.credential_sync,
+                config: &self.0.config,
+            },
             viewer,
             &viewer.user_id,
             intent,
@@ -1084,6 +1089,8 @@ impl ThreadCommandSink for AppStateCommands {
             contexts: Vec::new(),
             file_ids: Vec::new(),
             parent_task_id: None,
+            // The T3 surface has no run-as control; a task it opens runs as its caller.
+            run_as_user_id: None,
             headless: None,
             // T3 has no skill picker of its own.
             skills: Vec::new(),
@@ -1091,10 +1098,13 @@ impl ThreadCommandSink for AppStateCommands {
 
         let create_result = async {
             let mut new_task = task_service::normalize(
-                self.0.workspace_resolver.as_ref(),
-                self.0.repository_reader.as_ref(),
-                &self.0.credential_sync,
-                &self.0.config,
+                task_service::CreateTaskPorts {
+                    workspaces: self.0.workspace_resolver.as_ref(),
+                    repositories: self.0.repository_reader.as_ref(),
+                    users: self.0.user_directory.as_ref(),
+                    credential_sync: &self.0.credential_sync,
+                    config: &self.0.config,
+                },
                 viewer,
                 &viewer.user_id,
                 task_service::CreateTaskIntent {
@@ -1707,6 +1717,7 @@ mod tests {
                 visibility: moatless_types::task::Visibility::Private,
                 scope: Scope::User,
                 owner_user_id: Some(owner.to_string()),
+                run_as_user_id: None,
                 updated_at: None,
                 append_system_prompt: None,
                 headless: false,

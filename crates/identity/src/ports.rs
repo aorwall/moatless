@@ -13,7 +13,8 @@ use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_ports::identity::{
     AppCredentials, AppToken, CodexScopeReader, CommitIdentity, GitIdentity, HarnessCredentials,
-    LinkedUser, ProviderIdentityLink, SecretCatalog, SecretResolver, UserDisplay, UserResolver,
+    LinkedUser, ProviderIdentityLink, RunAsUser, SecretCatalog, SecretResolver, UserDisplay,
+    UserResolver,
 };
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::CodexScope;
@@ -101,6 +102,21 @@ impl UserResolver for UserDirectory {
         }
         .map_err(|e| StoreError::with_source(format!("resolve user reference {reference}"), e))?;
         Ok(user.map(|u| u.id))
+    }
+
+    async fn run_as_target(&self, reference: &str) -> Result<Option<RunAsUser>, StoreError> {
+        // A login is tried only when the reference is not a uuid, so a login
+        // shaped like one still resolves to the row it names.
+        let user = match reference.parse::<Uuid>() {
+            Ok(id) => self.users.get_user(&id).await,
+            Err(_) => self.users.get_user_by_login(reference).await,
+        }
+        .map_err(|e| StoreError::with_source(format!("resolve run-as target {reference}"), e))?;
+        Ok(user.map(|u| RunAsUser {
+            id: u.id,
+            login: u.login,
+            is_bot: u.is_bot,
+        }))
     }
 }
 

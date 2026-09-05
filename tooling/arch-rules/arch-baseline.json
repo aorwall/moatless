@@ -129,7 +129,6 @@
   "single-implementation-trait::moatless_ports::identity::CodexScopeReader implemented by moatless_identity::ports::HarnessTokens",
   "single-implementation-trait::moatless_ports::identity::SecretCatalog implemented by moatless_identity::secret::service::SecretService",
   "single-implementation-trait::moatless_ports::identity::UserDisplay implemented by moatless_identity::ports::UserDirectory",
-  "single-implementation-trait::moatless_ports::identity::UserResolver implemented by moatless_identity::ports::UserDirectory",
   "single-implementation-trait::moatless_ports::sandbox::CodexCredentials implemented by moatless_tasks::credential_sync::CredentialSync",
   "single-implementation-trait::moatless_ports::sandbox::WorkspaceSnapshotSource implemented by moatless_sandbox_control::workspace_snapshot::S3WorkspaceSnapshots",
   "single-implementation-trait::moatless_ports::task::MessageAcceptor implemented by moatless_tasks::message::send::MessageSendService",

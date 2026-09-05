@@ -39,6 +39,25 @@ pub trait UserDisplay: Send + Sync {
 #[async_trait]
 pub trait UserResolver: Send + Sync {
     async fn canonical_id(&self, reference: &str) -> Result<Option<Uuid>, StoreError>;
+
+    /// Resolve a run-as reference — a uuid or a login — to the identity a
+    /// [`ScopeContext::can_run_as`] check reads. `None` when nobody matches.
+    ///
+    /// Accepts a login because a run-as target is named by a person, who knows
+    /// `soap-reviewer[bot]` and not its uuid.
+    ///
+    /// [`ScopeContext::can_run_as`]: moatless_types::access_control::ScopeContext::can_run_as
+    async fn run_as_target(&self, reference: &str) -> Result<Option<RunAsUser>, StoreError>;
+}
+
+/// A user a run-as request may name.
+#[derive(Debug, Clone)]
+pub struct RunAsUser {
+    pub id: Uuid,
+    pub login: String,
+    /// `true` for a GitHub App bot identity — the only account an admin may
+    /// borrow. See [`crate::identity::UserResolver::run_as_target`].
+    pub is_bot: bool,
 }
 
 /// A user, as the log line that recorded a first sighting names them.

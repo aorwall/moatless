@@ -22,6 +22,7 @@ use crate::task_turn::dao::TaskTurnDao;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::http_auth::UserTokenVerifier;
+use moatless_ports::identity::UserResolver;
 use moatless_ports::sandbox::PreflightPort;
 use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
@@ -76,6 +77,7 @@ where
     Arc<dyn WorkspaceResolver>: FromRef<S>,
     Arc<dyn SandboxLifecycle>: FromRef<S>,
     Arc<dyn PreflightPort>: FromRef<S>,
+    Arc<dyn UserResolver>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
     Arc<TaskPresenter>: FromRef<S>,
     Arc<TaskCloser>: FromRef<S>,
