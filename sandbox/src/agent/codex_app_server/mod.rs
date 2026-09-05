@@ -63,7 +63,10 @@ use super::types::AgentRunRequest;
 /// Used when neither the request, the repo `agent_config.model`, nor the
 /// `DEFAULT_CODEX_MODEL` env var supplies a model. Keep this aligned with the
 /// backend's default so direct sandbox runs and orchestrated pods behave alike.
-pub(crate) const DEFAULT_CODEX_MODEL: &str = "gpt-5.6-sol";
+///
+/// The slug must be one the Codex CLI pinned in `docker/cli-versions.env`
+/// serves from `model/list`; an older CLI in an un-rebuilt image rejects it.
+pub(crate) const DEFAULT_CODEX_MODEL: &str = "gpt-6-astra";
 
 /// Default Codex reasoning effort, sent as `TurnStartParams.effort`.
 pub(crate) const DEFAULT_CODEX_REASONING_EFFORT: &str = "high";

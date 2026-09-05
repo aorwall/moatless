@@ -63,6 +63,10 @@ const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"]
 /// hands out a choice that cannot run.
 const CODEX_EFFORT_LEVELS: &[(&str, &[&str])] = &[
     (
+        "gpt-6-astra",
+        &["low", "medium", "high", "xhigh", "max", "ultra"],
+    ),
+    (
         "gpt-5.6-sol",
         &["low", "medium", "high", "xhigh", "max", "ultra"],
     ),
@@ -431,7 +435,18 @@ mod tests {
     #[test]
     fn codex_models_keep_the_catalogues_own_names() {
         let list = published();
-        assert_eq!(names(&list[1])[0], "GPT-5.6 Sol");
+        assert_eq!(
+            names(&list[1]),
+            vec![
+                "GPT-6 Astra",
+                "GPT-5.6 Sol",
+                "GPT-5.6 Terra",
+                "GPT-5.6 Luna",
+                "GPT-5.5",
+                "GPT-5.4 Mini",
+                "GPT-5.3 Codex Spark"
+            ]
+        );
     }
 
     /// Every name is a matching key in `resolveSelectableModel`'s second step,
@@ -454,11 +469,11 @@ mod tests {
         assert_eq!(
             slugs(&list[1]),
             vec![
+                "gpt-6-astra",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
                 "gpt-5.5",
-                "gpt-5.4",
                 "gpt-5.4-mini",
                 "gpt-5.3-codex-spark"
             ]

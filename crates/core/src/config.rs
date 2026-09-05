@@ -16,7 +16,7 @@ use moatless_types::secret::SecretsConfig;
 
 /// Default Codex model forwarded to sandbox agents when the deployment does not
 /// override `DEFAULT_CODEX_MODEL`.
-pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.6-sol";
+pub const DEFAULT_CODEX_MODEL: &str = "gpt-6-astra";
 
 /// Default GitHub REST API base URL.
 const DEFAULT_API_BASE: &str = "https://api.github.com";

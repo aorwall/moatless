@@ -21,10 +21,12 @@
 //! --test agent_transport_e2e -- --ignored --nocapture` (use `CLAUDE_TMUX_E2E=1`
 //! for the tmux variant).
 //!
-//! The agent binary is resolved from `CLAUDE_CLI_PATH` (default
-//! `/usr/local/bin/claude`), and the auth token from `CLAUDE_CODE_OAUTH_TOKEN`
-//! or `ANTHROPIC_API_KEY` — set so the tests can run hermetically inside the
-//! sandbox image (which ships both the CLI and `tmux`).
+//! The agent binaries are resolved from `CLAUDE_CLI_PATH` and `CODEX_CLI_PATH`
+//! (defaults `/usr/local/bin/claude` and `/usr/local/bin/codex`), and the auth
+//! token from `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` — set so the
+//! tests can run hermetically inside the sandbox image (which ships both CLIs
+//! and `tmux`). Point the two path vars at a candidate build to check a CLI
+//! upgrade before its pin lands in `docker/cli-versions.env`.
 
 #![allow(
     clippy::unwrap_used,
@@ -58,8 +60,15 @@ use sandbox_proto::{
 use tempfile::TempDir;
 use tokio::sync::RwLock;
 
-/// Cheapest model — keeps E2E cost low.
-const TEST_MODEL: &str = "claude-haiku-4-5-20251001";
+/// Cheapest model — keeps E2E cost low. `CLAUDE_TEST_MODEL` overrides it to
+/// check an upgraded CLI against the model a deployment actually runs.
+const DEFAULT_CLAUDE_TEST_MODEL: &str = "claude-haiku-4-5-20251001";
+
+fn claude_test_model() -> String {
+    std::env::var("CLAUDE_TEST_MODEL")
+        .unwrap_or_else(|_| DEFAULT_CLAUDE_TEST_MODEL.to_string())
+}
+
 /// A no-tool prompt. `build_options` installs an interactive permission handler
 /// (NOT `--dangerously-skip-permissions`), and the tmux transport IGNORES the
 /// permission handler entirely — so a tool-using prompt would stall on a
@@ -67,8 +76,8 @@ const TEST_MODEL: &str = "claude-haiku-4-5-20251001";
 const TEST_PROMPT: &str = "What is 2+2? Reply with only the number.";
 
 /// Codex model under test. `None` lets `codex_app_server::resolve_codex_model` fall
-/// through to `DEFAULT_CODEX_MODEL` (`gpt-5.6-sol`); override with `CODEX_TEST_MODEL`
-/// to pin a cheaper model.
+/// through to `DEFAULT_CODEX_MODEL`; override with `CODEX_TEST_MODEL` to pin a
+/// cheaper model.
 fn codex_test_model() -> Option<String> {
     std::env::var("CODEX_TEST_MODEL").ok()
 }
@@ -201,14 +210,17 @@ impl BackendClient for NoopBackend {
 
 // ── Actor wiring ────────────────────────────────────────────────────────────
 
-fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
+fn test_config(tmp: &TempDir, use_tmux: bool, agent_type: &str) -> Config {
     let home = tmp.path().join("home");
     Config {
         port: 0,
         grpc_port: 0,
         task_id: "agent-transport-e2e".to_string(),
         sandbox_id: "agent-transport-e2e".to_string(),
-        agent_type: None,
+        // The Sandbox's fixed harness. `None` reaches `resolve_agent_harness` as
+        // `""`, which it rejects — every session then fails to start with
+        // `invalid_configuration` before any CLI is spawned.
+        agent_type: Some(agent_type.to_string()),
         workspace_dir: tmp.path().join("workspace").display().to_string(),
         repo_dir: tmp.path().join("workspace").display().to_string(),
         data_dir: tmp.path().join("data").display().to_string(),
@@ -222,7 +234,8 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         agent_config: AgentConfig::default(),
         claude_cli_path: std::env::var("CLAUDE_CLI_PATH")
             .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),
-        codex_cli_path: "/usr/local/bin/codex".to_string(),
+        codex_cli_path: std::env::var("CODEX_CLI_PATH")
+            .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
         proxy: ProxyConfig::default(),
         servers: vec![],
         frontend_url: None,
@@ -258,7 +271,10 @@ type EventLog = Arc<std::sync::Mutex<Vec<String>>>;
 /// Spawn the production agent lifecycle task wired with a no-op backend. Returns the
 /// handle, the shared agent state, the published-event log, and the `TempDir`
 /// (kept alive by the caller).
-fn spawn_test_agent(use_tmux: bool) -> (AgentHandle, Arc<AgentState>, EventLog, TempDir) {
+fn spawn_test_agent(
+    use_tmux: bool,
+    agent_type: &str,
+) -> (AgentHandle, Arc<AgentState>, EventLog, TempDir) {
     let tmp = TempDir::new().expect("create tempdir");
     // The harness persists credential files under these dirs. `claude-config`
     // is the cold CLAUDE_CONFIG_DIR (outside HOME) — see `test_config`.
@@ -272,13 +288,24 @@ fn spawn_test_agent(use_tmux: bool) -> (AgentHandle, Arc<AgentState>, EventLog, 
     ] {
         std::fs::create_dir_all(tmp.path().join(sub)).expect("create test dir");
     }
-    let (handle, agent_state, events) = spawn_test_agent_in(&tmp, use_tmux);
+    // In a pod `init::credentials` turns CODEX_AUTH_JSON into this file; these
+    // tests drive `spawn_agent` directly and never run init, so without it the
+    // Codex CLI sees an empty CODEX_HOME and every turn 401s.
+    if let Ok(auth_json) = std::env::var("CODEX_AUTH_JSON") {
+        std::fs::write(tmp.path().join("home/.codex/auth.json"), auth_json)
+            .expect("write Codex auth.json");
+    }
+    let (handle, agent_state, events) = spawn_test_agent_in(&tmp, use_tmux, agent_type);
     (handle, agent_state, events, tmp)
 }
 
 /// Spawn a fresh actor against an EXISTING test dir — used by the restart-
 /// resume test to simulate a pod restart (new actor, same on-disk transcripts).
-fn spawn_test_agent_in(tmp: &TempDir, use_tmux: bool) -> (AgentHandle, Arc<AgentState>, EventLog) {
+fn spawn_test_agent_in(
+    tmp: &TempDir,
+    use_tmux: bool,
+    agent_type: &str,
+) -> (AgentHandle, Arc<AgentState>, EventLog) {
     use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 
     let event_log: EventLog = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -294,7 +321,7 @@ fn spawn_test_agent_in(tmp: &TempDir, use_tmux: bool) -> (AgentHandle, Arc<Agent
         tokio_util::sync::CancellationToken::new(),
     );
     let events = GrpcEventPublisher::new(outbox);
-    let config = Arc::new(test_config(tmp, use_tmux));
+    let config = Arc::new(test_config(tmp, use_tmux, agent_type));
 
     // Mirror the cluster: the `claude` child inherits CLAUDE_CONFIG_DIR from the
     // process env (the sandbox does NOT pass it through `options.env`), and the
@@ -370,12 +397,12 @@ async fn wait_until_not_running(agent_state: &AgentState, timeout: Duration, wha
 
 async fn run_agent_roundtrip(use_tmux: bool) {
     init_tracing();
-    let (handle, agent_state, events, _tmp) = spawn_test_agent(use_tmux);
+    let (handle, agent_state, events, _tmp) = spawn_test_agent(use_tmux, "claude-code");
 
     // `send` resolves on SessionInit (session started), not on completion.
     let ack = handle.send(
         TEST_PROMPT.to_string(),
-        Some(TEST_MODEL.to_string()),
+        Some(claude_test_model()),
         None,  // agent_type → claude-code
         None,  // agent_mode
         None,  // effort
@@ -416,7 +443,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
 /// tmux/`session_context_lost` assertions (both are Claude-specific).
 async fn run_codex_roundtrip() {
     init_tracing();
-    let (handle, agent_state, _events, _tmp) = spawn_test_agent(false);
+    let (handle, agent_state, _events, _tmp) = spawn_test_agent(false, "codex");
 
     let ack = handle.send(
         TEST_PROMPT.to_string(),
@@ -460,12 +487,12 @@ async fn run_codex_roundtrip() {
 /// `JsonlNotFound`).
 async fn run_agent_resume(use_tmux: bool) {
     init_tracing();
-    let (handle, agent_state, _events, tmp) = spawn_test_agent(use_tmux);
+    let (handle, agent_state, _events, tmp) = spawn_test_agent(use_tmux, "claude-code");
 
     // ── Turn 1: fresh session on actor A ────────────────────────────────────
     let ack = handle.send(
         TEST_PROMPT.to_string(),
-        Some(TEST_MODEL.to_string()),
+        Some(claude_test_model()),
         None,  // agent_type → claude-code
         None,  // agent_mode
         None,  // effort
@@ -486,12 +513,12 @@ async fn run_agent_resume(use_tmux: bool) {
 
     // ── Simulated pod restart: stop actor A, spawn actor B on the same dirs ──
     handle.stop(StopSource::User);
-    let (handle, agent_state, _events2) = spawn_test_agent_in(&tmp, use_tmux);
+    let (handle, agent_state, _events2) = spawn_test_agent_in(&tmp, use_tmux, "claude-code");
 
     // ── Turn 2: resume the turn-1 session by id on actor B ───────────────────
     let ack = handle.send(
         "What is 3+3? Reply with only the number.".to_string(),
-        Some(TEST_MODEL.to_string()),
+        Some(claude_test_model()),
         None,                     // agent_type → claude-code
         None,                     // agent_mode
         None,                     // effort
@@ -527,12 +554,12 @@ async fn run_agent_resume(use_tmux: bool) {
 /// the turn boundary.
 async fn run_agent_multi_turn(use_tmux: bool) {
     init_tracing();
-    let (handle, agent_state, _events, _tmp) = spawn_test_agent(use_tmux);
+    let (handle, agent_state, _events, _tmp) = spawn_test_agent(use_tmux, "claude-code");
 
     // ── Turn 1 ───────────────────────────────────────────────────────────────
     let ack = handle.send(
         TEST_PROMPT.to_string(),
-        Some(TEST_MODEL.to_string()),
+        Some(claude_test_model()),
         None,
         None,
         None,
@@ -554,7 +581,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
     // ── Turn 2: pasted into the live session ─────────────────────────────────
     let ack = handle.send(
         "What is 3+3? Reply with only the number.".to_string(),
-        Some(TEST_MODEL.to_string()),
+        Some(claude_test_model()),
         None,
         None,
         None,
@@ -591,7 +618,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
 /// making the `Running` window sub-millisecond and unpollable.
 async fn run_agent_internal_wakeup(use_tmux: bool) {
     init_tracing();
-    let (handle, agent_state, events, _tmp) = spawn_test_agent(use_tmux);
+    let (handle, agent_state, events, _tmp) = spawn_test_agent(use_tmux, "claude-code");
 
     let count = |needle: &str| {
         events
@@ -607,7 +634,7 @@ async fn run_agent_internal_wakeup(use_tmux: bool) {
          prompt=\"Reply with only the word DONE\", reason=\"e2e test\". \
          After calling it, reply with only the word SCHEDULED."
             .to_string(),
-        Some(TEST_MODEL.to_string()),
+        Some(claude_test_model()),
         None,
         None,
         None,
@@ -716,7 +743,7 @@ async fn run_missing_session_resume_is_lost() {
             .await
             .expect("create dir");
     }
-    let config = test_config(&tmp, false);
+    let config = test_config(&tmp, false, "claude-code");
 
     // The absent restore target: the fresh, isolated CLAUDE_CONFIG_DIR holds no
     // sessions, so `projects/` (where the CLI writes and looks up transcripts,

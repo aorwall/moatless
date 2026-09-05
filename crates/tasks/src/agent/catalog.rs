@@ -170,13 +170,18 @@ pub const CODEX: AgentEntry = AgentEntry {
     credential_keys: &[CODEX_AUTH_JSON, OPENAI_API_KEY],
     provider_token_providers: &["codex", "openai"],
     default_model: "default",
-    // "Default" resolves to `DEFAULT_CODEX_MODEL` (`gpt-5.6-sol`) in the sandbox —
+    // "Default" resolves to `DEFAULT_CODEX_MODEL` (`gpt-6-astra`) in the sandbox —
     // see `sandbox/src/agent/codex_app_server/mod.rs`. The explicit entries below mirror
-    // the current Codex CLI model picker (`gpt-5.6-sol` is its current default).
+    // the Codex CLI's own `model/list` at the version pinned in
+    // `docker/cli-versions.env`, in the order it returns them.
     models: &[
         ModelEntry {
             id: "default",
             label: "Default",
+        },
+        ModelEntry {
+            id: "gpt-6-astra",
+            label: "GPT-6 Astra",
         },
         ModelEntry {
             id: "gpt-5.6-sol",
@@ -193,10 +198,6 @@ pub const CODEX: AgentEntry = AgentEntry {
         ModelEntry {
             id: "gpt-5.5",
             label: "GPT-5.5",
-        },
-        ModelEntry {
-            id: "gpt-5.4",
-            label: "GPT-5.4",
         },
         ModelEntry {
             id: "gpt-5.4-mini",

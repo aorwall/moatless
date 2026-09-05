@@ -24,7 +24,7 @@ Everything downstream of `sandbox-base` is a thin overlay. Install a tool in
 bottom, one CLI per layer, and nothing goes below them.**
 
 The image is ~2 GB over 26 layers and the two CLI pins in `cli-versions.env` are
-Renovate-driven and by far the most frequent reason it rebuilds. When those
+bumped daily and are by far the most frequent reason it rebuilds. When those
 layers sat in the middle, one CLI bump invalidated 1.23 GB — 60% of the image,
 including Playwright's 467 MB and Vite+'s 186 MB — none of which depends on
 them. Adding a new tool means adding it *above* the CLI layers.
@@ -76,8 +76,25 @@ tool.
 every build path passes as `--build-arg`; the `ARG` defaults in the Dockerfiles
 are inert fallbacks for a bare `docker build`. Bump versions there, and keep the
 `# renovate:` annotation on the line directly above each pin. A pin nothing
-consumes still triggers a full rebuild when Renovate bumps it — delete the pin
-when you delete its consumer.
+consumes still triggers a full rebuild when it is bumped — delete the pin when
+you delete its consumer.
+
+**`CLAUDE_CLI_VERSION` and `CODEX_CLI_VERSION` are bumped by the
+`agent-cli-upgrade` loop (`.moatless/loops/agent-cli-upgrade/LOOP.md`), not by
+Renovate.** Renovate has never opened a PR on this repository — the
+`# renovate:` customManager in `renovate.json` is written and correct, but the
+bot is not onboarded here, so the annotations describe a backstop that does not
+currently run. Even onboarded it would not serve these two pins: the shared
+preset (`soaplabs/renovate-config`) schedules Mondays with a three-day
+`minimumReleaseAge`, and `soaplabs/moatless` is absent from its auto-merge
+repository list, so a CLI that ships several releases a week would land up to
+ten days late behind a manual merge. The loop runs daily and, unlike a version
+rewrite, drives the candidate CLIs through `sandbox/tests/agent_transport_e2e.rs`
+before it opens the PR.
+
+A Claude bump moves five files and a Codex bump two; the loop file lists them.
+Bumping by hand means bumping all of them — `crates/claude-agent-sdk`'s smoke
+test asserts the version and fails on a partial bump.
 
 `RUST_VERSION` in `Dockerfile.sandbox-base` must match `rust-toolchain.toml`;
 the `toolchain-drift` CI job fails when they diverge.
