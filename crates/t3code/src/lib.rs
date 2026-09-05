@@ -3241,8 +3241,30 @@ impl ProtocolSession {
         started
     }
 
+    /// Drop the streams whose producer has already reached its terminal `Exit`.
+    ///
+    /// Nothing else reclaims a slot. [`ClientFrame::Interrupt`] is the only
+    /// other path that removes one, and an Effect RPC client sends that only
+    /// for a stream it abandons early: one the client saw end is complete on
+    /// its side, so it interrupts nothing. Without this a finished poller holds
+    /// its slot until the socket closes and a long-lived connection reaches
+    /// [`MAX_ACTIVE_STREAMS`] on subscriptions that ended long ago.
+    fn reap_finished_streams(&mut self) {
+        self.streams.retain(|_, stream| {
+            stream
+                .producer
+                .as_ref()
+                .is_none_or(|producer| !producer.is_finished())
+        });
+    }
+
     fn start_stream(&mut self, id: &RequestId, values: Option<Vec<Value>>) -> Vec<Value> {
+        self.reap_finished_streams();
         if self.streams.len() >= MAX_ACTIVE_STREAMS {
+            warn!(
+                active_streams = self.streams.len(),
+                "T3 UI stream refused; this connection is at its subscription cap"
+            );
             return vec![failure_exit(
                 id,
                 format!("At most {MAX_ACTIVE_STREAMS} RPC streams may be active"),
@@ -5900,6 +5922,64 @@ mod tests {
             .await;
         assert!(!session.streams.contains_key("3"));
         assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Interrupt");
+    }
+
+    /// A producer that has finished, as a stream the client never interrupted.
+    async fn ended_stream() -> StreamState {
+        let producer = tokio::spawn(async {});
+        while !producer.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        StreamState {
+            awaiting_ack: false,
+            producer: Some(producer),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_subscription_that_ended_gives_its_slot_back() {
+        let mut session = session();
+        session
+            .streams
+            .insert("3".to_string(), ended_stream().await);
+
+        session
+            .handle_json(
+                &request("4", "subscribeVcsStatus", json!({})),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert!(!session.streams.contains_key("3"));
+        assert!(session.streams.contains_key("4"));
+    }
+
+    #[tokio::test]
+    async fn a_connection_holding_live_subscriptions_is_refused_at_the_cap() {
+        let mut session = session();
+        // Producer-less streams are the ones that stay open saying nothing, so
+        // the reap leaves them and the cap is reached on live subscriptions.
+        for id in 0..MAX_ACTIVE_STREAMS {
+            session.streams.insert(
+                id.to_string(),
+                StreamState {
+                    awaiting_ack: false,
+                    producer: None,
+                },
+            );
+        }
+
+        let output = session
+            .handle_json(
+                &request("9999", "subscribeVcsStatus", json!({})),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");
+        assert_eq!(session.streams.len(), MAX_ACTIVE_STREAMS);
     }
 
     #[tokio::test]
