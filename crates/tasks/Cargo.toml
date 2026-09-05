@@ -27,7 +27,7 @@ tokio-util = { version = "0.7" }
 # gRPC status type for the event-ingress admission return.
 tonic = "0.14"
 tracing = "0.1"
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 

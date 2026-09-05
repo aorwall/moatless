@@ -82,6 +82,21 @@ impl MessageSendService {
     }
 }
 
+/// Fixed namespace for agent→task send idempotency uuids. Arbitrary but stable —
+/// changing it would stop old rows from deduping against new resends.
+const AGENT_SEND_NAMESPACE: uuid::Uuid =
+    uuid::Uuid::from_u128(0x9b1e_5c0e_4a7d_4f21_8f3a_2c6b_0d5e_7a91);
+
+/// Deterministic uuid for an agent→task send, so an identical resend from the
+/// same source task dedups on the `message_uuid` guard. Keyed on source +
+/// destination + text (unit-separated so the fields can't run together), which
+/// makes it unique to this (child, parent, message) triple and unable to collide
+/// with any other task's row.
+fn agent_send_idempotency_uuid(source_task_id: &str, task_id: &str, text: &str) -> String {
+    let name = format!("{source_task_id}\u{1f}{task_id}\u{1f}{text}");
+    uuid::Uuid::new_v5(&AGENT_SEND_NAMESPACE, name.as_bytes()).to_string()
+}
+
 fn attached_file_ids(file_ids: &[String], contexts: &[MessageContextInput]) -> Vec<String> {
     let mut attached = Vec::new();
 
@@ -150,6 +165,20 @@ impl MessageSendService {
             }
             return Err(MessageError::TaskClosed(task_id.to_string()));
         }
+
+        // Idempotency for agent→task sends. Any `moat send` from inside a sandbox
+        // (a child reporting to its parent, most notably) carries a source_task_id.
+        // Give it a deterministic uuid keyed on (source, destination, text) so an
+        // identical resend — a report the agent retried because the first looked
+        // like it failed — collapses onto the first row via the message_uuid guard
+        // below instead of landing twice. Human sends carry no source_task_id and
+        // keep a fresh random uuid; an explicit caller-owned uuid (the T3 surface)
+        // always wins over this derivation.
+        let message_uuid = message_uuid.or_else(|| {
+            origin
+                .source_task_id
+                .map(|source| agent_send_idempotency_uuid(source, task_id, message))
+        });
 
         // Dedup: if this external message was already persisted (or was just sent
         // outbound and is racing the webhook), skip the insert entirely. Prevents
@@ -744,6 +773,33 @@ pub async fn settle_answered_prompt(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn idempotency_uuid_is_stable_for_identical_agent_send() {
+        // The same child reporting the same text to the same parent twice must
+        // produce the same uuid, so the resend dedups onto the first row.
+        let a = agent_send_idempotency_uuid("child", "parent", "phase 1 done");
+        let b = agent_send_idempotency_uuid("child", "parent", "phase 1 done");
+        assert_eq!(a, b);
+        // And it is a well-formed uuid.
+        assert!(uuid::Uuid::parse_str(&a).is_ok());
+    }
+
+    #[test]
+    fn idempotency_uuid_differs_on_text_source_or_destination() {
+        let base = agent_send_idempotency_uuid("child", "parent", "phase 1 done");
+        // A reworded resend (e.g. corrupted vs clean) is a distinct message and
+        // must not collapse onto the first.
+        assert_ne!(base, agent_send_idempotency_uuid("child", "parent", "phase 1 done."));
+        // Different sender or recipient can never collide.
+        assert_ne!(base, agent_send_idempotency_uuid("other", "parent", "phase 1 done"));
+        assert_ne!(base, agent_send_idempotency_uuid("child", "elsewhere", "phase 1 done"));
+        // The unit separator keeps field boundaries unambiguous.
+        assert_ne!(
+            agent_send_idempotency_uuid("a", "bc", "d"),
+            agent_send_idempotency_uuid("ab", "c", "d")
+        );
+    }
 
     #[test]
     fn attached_file_ids_include_file_context_references() {
