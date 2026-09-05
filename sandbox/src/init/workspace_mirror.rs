@@ -506,6 +506,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
         repo_dir.clone()
     } else {
         warn!(task_id = %task_id, "Stored manifest carries no primary .git; falling back to the tar");
+        state.workspace_sync.mark_mirror_unusable();
         return None;
     };
 
@@ -513,6 +514,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
         Ok(bytes) => bytes,
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Workspace mirror restore failed; clearing partial state and cloning");
+            state.workspace_sync.mark_mirror_unusable();
             clear_dir_contents(&workspace_dir).await;
             state
                 .backend_client

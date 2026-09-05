@@ -25,6 +25,7 @@ use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use flate2::Compression;
@@ -88,6 +89,8 @@ pub struct SyncOutcome {
 pub struct WorkspaceSyncTracker {
     last_uploaded: Arc<tokio::sync::Mutex<Option<u64>>>,
     mirror_baseline: Arc<tokio::sync::Mutex<Option<sandbox_proto::workspace_manifest::Manifest>>>,
+    /// Written by [`Self::mark_mirror_unusable`], read by [`Self::adopt_current`].
+    mirror_unusable: Arc<AtomicBool>,
 }
 
 impl WorkspaceSyncTracker {
@@ -109,11 +112,23 @@ impl WorkspaceSyncTracker {
     pub async fn adopt_current(&self, config: &Config, backend_client: &dyn BackendClient) {
         let dir = PathBuf::from(&config.workspace_dir);
         *self.last_uploaded.lock().await = workspace_fingerprint(dir).await;
-        *self.mirror_baseline.lock().await = if config.workspace_mirror_enabled {
-            workspace_mirror::stored_baseline(&config.task_id, backend_client).await
-        } else {
-            None
-        };
+        *self.mirror_baseline.lock().await =
+            if config.workspace_mirror_enabled && !self.mirror_unusable.load(Ordering::Relaxed) {
+                workspace_mirror::stored_baseline(&config.task_id, backend_client).await
+            } else {
+                None
+            };
+    }
+
+    /// Record that S3 holds a mirror this sandbox could not restore from.
+    ///
+    /// Such a manifest names objects S3 may not hold, so it must not become the
+    /// delta base: [`Self::adopt_current`] then leaves the base unset and the
+    /// next upload ships the whole tree. Without this a task poisoned by a
+    /// pre-#686 sandbox never re-uploads what it is missing, because every
+    /// unchanged file keeps matching the poisoned manifest.
+    pub fn mark_mirror_unusable(&self) {
+        self.mirror_unusable.store(true, Ordering::Relaxed);
     }
 
     /// The baseline the upload gate compares against. `None` means nothing has
@@ -1385,6 +1400,42 @@ mod tests {
         // With no baseline the untouched clone is itself the delta, so it ships.
         upload_after_turn(&config, &backend, &tracker).await;
         assert_eq!(backend.attempts(), 2, "the clone itself is uploaded");
+    }
+
+    /// A mirror that would not restore is not a delta base either. A task
+    /// poisoned by a pre-#686 sandbox holds a manifest naming objects S3 never
+    /// stored; adopting it again leaves every unchanged file matching the
+    /// manifest, so the missing objects are never re-uploaded and the task can
+    /// only ever restore what it already has.
+    #[tokio::test]
+    async fn a_mirror_that_would_not_restore_is_not_adopted_as_the_baseline() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        init_repo(&repo);
+        std::fs::write(repo.join("a.txt"), "hello").unwrap();
+        git_add(&repo, &["a.txt"]);
+        git_commit(&repo, "init");
+
+        let config = sync_config(tmp.path(), true, true);
+        assert!(config.workspace_mirror_enabled);
+        let backend = CountingBackend::default();
+        let tracker = WorkspaceSyncTracker::new();
+
+        tracker.mark_mirror_unusable();
+        tracker.adopt_current(&config, &backend).await;
+        assert_eq!(
+            backend.attempts(),
+            0,
+            "a manifest that failed to restore is not re-fetched"
+        );
+        assert!(
+            !tracker.has_mirror_baseline().await,
+            "a mirror we could not restore from is not a delta base"
+        );
+
+        // The whole tree is the delta, so the next upload ships what S3 lacks.
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(backend.attempts(), 1, "the whole tree is uploaded");
     }
 
     /// The turn-boundary upload is gated on the S3 switch, not just on the
