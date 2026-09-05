@@ -38,7 +38,7 @@ use moatless_sandbox_runtime::runtime::{
 use moatless_sandbox_control::lifecycle::ProvisionDeps;
 use moatless_sandbox_runtime::operation::{ObservedStatus, RuntimeEffect};
 use moatless_types::sandbox::ArchiveRetention;
-use moatless_sandbox_runtime::models::*;
+use moatless_sandbox_runtime::provisioning::ProvisionRequest;
 use moatless_sandbox_runtime::schemas::*;
 use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
 

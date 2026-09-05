@@ -1,16 +1,19 @@
-//! Sandbox domain types — config, provisioning, and K8s status types.
+//! Container and pod observation, projected to server and sandbox status.
+//!
+//! The status resolvers read a container's probes ([`ContainerObservedStatus`])
+//! and a pod's phase ([`PodPhase`]) and turn them into the
+//! `ServerStatus`/`SandboxStatus` the surface shows;
+//! [`ContainerObservedStatus::to_server_status`] is the seam. Pure data and
+//! projection, unit-tested without a runtime.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
-use tracing::warn;
 use utoipa::ToSchema;
 
-use moatless_types::workspace::{Port, RepoCheckout, ServerConfig};
+use moatless_types::sandbox::{SandboxStatus, ServerCapabilities, ServerStatus};
 
-/// Waiting reasons that map a *server* container to `"failed"` status. Read by
-/// `ContainerObservedStatus::to_server_status()` below — pure string data, so it
-/// lives in the sandbox-control domain model, not under `k8s/`. Both the k8s and
-/// docker status resolvers reach it here on a legal downward edge.
+/// Waiting reasons that map a *server* container to `"failed"` status, read by
+/// [`ContainerObservedStatus::to_server_status`]. Both the k8s and docker status
+/// resolvers reach it here.
 pub const SERVER_FAILURE_REASONS: &[&str] = &[
     "ErrImagePull",
     "ImagePullBackOff",
@@ -19,126 +22,9 @@ pub const SERVER_FAILURE_REASONS: &[&str] = &[
     "CrashLoopBackOff",
 ];
 
-/// Default readiness grace period for the pod watcher (no per-server config
-/// available). Provider-agnostic, so it lives in the control-band model beside
-/// the status logic that consumes it, not under `k8s/`.
+/// Default readiness grace period for the pod watcher, used when no per-server
+/// timeout is configured.
 pub const DEFAULT_SERVER_READINESS_TIMEOUT_SECS: u32 = 120;
-
-/// Provision plan sent from TS backend
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ProvisionRequest {
-    pub plan: ProvisionPlan,
-    pub user_id: String,
-}
-
-/// Provision plan with all configuration needed to create a workspace
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ProvisionPlan {
-    pub repo_config: RepoConfig,
-    /// The primary repository's clone URL. Mirrors `repos[0]`, which is always
-    /// the primary checkout; kept as its own field for the `GIT_CLONE_URL` env.
-    pub git_clone_url: String,
-    /// The primary repository's branch. Mirrors `repos[0].branch`.
-    pub git_branch: Option<String>,
-    /// The primary repository's git provider (e.g. "github", "gitlab", "gitness")
-    #[serde(default = "default_git_provider")]
-    pub git_provider: String,
-    /// Custom environment variables
-    pub env_vars: Option<HashMap<String, String>>,
-    /// Every repository the task's workspace places in the sandbox, primary
-    /// first. Empty only when `git_clone_url` is the sole checkout.
-    #[serde(default)]
-    pub repos: Vec<RepoCheckout>,
-}
-
-fn default_git_provider() -> String {
-    "github".to_string()
-}
-
-/// Repository config for provisioning and sandbox environment
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RepoConfig {
-    pub name: String,
-    /// Per-repository sandbox image override
-    pub docker_image: Option<String>,
-    /// Servers with allocated ports
-    #[schema(value_type = Vec<moatless_api_schemas::workspace::ServerConfig>)]
-    pub servers: Option<Vec<ServerConfig>>,
-    // --- Pass-through fields for REPO_CONFIG env var ---
-    /// System prompt for the agent
-    pub system_prompt: Option<String>,
-    /// Code execution configuration (dockerImage, envVars, etc.)
-    #[schema(value_type = Object)]
-    pub code_execution: Option<serde_json::Value>,
-    /// Preview server configuration
-    #[schema(value_type = Object)]
-    pub preview_config: Option<serde_json::Value>,
-    // --- K8s resource configuration (opt-in per-repo) ---
-    /// Per-repo K8s resource requests/limits override for server containers.
-    #[schema(value_type = moatless_api_schemas::workspace::ResourceConfig)]
-    pub resources: Option<moatless_types::workspace::ResourceConfig>,
-    // --- Plugins (resolved from the task owner's activation records) ---
-    /// The plugins this task's owner has turned on, each with the skills they
-    /// picked. The sandbox clones each one and removes the skills not named.
-    pub plugins: Option<Vec<moatless_api_schemas::plugin::PluginDelivery>>,
-    // --- Docker access (opt-in) ---
-    /// Mount Docker socket inside sandbox container (default: false).
-    /// Overrides global `DOCKER_ENABLE_SOCKET_MOUNT` when set.
-    #[serde(default)]
-    pub docker_access: Option<bool>,
-    /// Additional Docker networks to connect sandbox to.
-    /// Overrides global `DOCKER_EXTRA_NETWORKS` when set.
-    #[serde(default)]
-    pub docker_networks: Option<Vec<String>>,
-    // --- Kubernetes ServiceAccount (opt-in per-repo) ---
-    /// Per-repo Kubernetes `ServiceAccount` for the sandbox pod. Overrides the
-    /// global default (`K8S_SANDBOX_SERVICE_ACCOUNT`) when set. Ignored in Docker
-    /// mode. Enables "shadow" dev sandboxes that run under an SA bound to the
-    /// backend's RBAC.
-    #[serde(default)]
-    pub sandbox_service_account: Option<String>,
-    // --- Network profile (opt-in per-repo) ---
-    /// Per-repo network profile. When set, the sandbox pod carries the label
-    /// `moatless.io/network-profile=<value>`, which a static (GitOps-owned)
-    /// `NetworkPolicy` can select to govern the pod's egress/ingress. Selects a
-    /// policy only; grants nothing on its own. Ignored in Docker mode.
-    #[serde(default)]
-    pub network_profile: Option<String>,
-}
-
-/// A live override of one preview server's start command and env.
-///
-/// Whole-state, not a delta: callers always send the complete set to the
-/// sandbox, which never merges.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerOverride {
-    /// Replaces the server's configured start command. `None` = use the
-    /// workspace's.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_command: Option<String>,
-    /// Env entries exported after `server.env`, so they win over it.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    /// Keys to remove — the only way to drop a variable the container spec
-    /// injected, since sourcing an env file can add but never remove.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unset_env: Vec<String>,
-}
-
-impl ServerOverride {
-    /// True when nothing is overridden, so the entry can be dropped from the
-    /// persisted map rather than stored empty.
-    pub fn is_empty(&self) -> bool {
-        self.start_command.is_none() && self.env.is_empty() && self.unset_env.is_empty()
-    }
-}
-
-pub use super::live_status::SandboxStatus;
-pub use moatless_types::sandbox::ServerStatus;
 
 /// Pod phase as returned by K8s API
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,17 +98,6 @@ pub struct ServerSnapshot {
     pub error: Option<String>,
     pub pid: Option<u32>,
 }
-
-// Resource metrics are part of the sandbox status response body, so they live in
-// `moatless-api-schemas`; re-exported so this crate's `models::` paths keep
-// naming them.
-pub use moatless_api_schemas::sandbox::ResourceMetrics;
-
-pub use moatless_types::sandbox::ServerCapabilities;
-
-// =============================================================================
-// Container status types (K8s API-based server monitoring)
-// =============================================================================
 
 /// Observed state of a K8s container.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -407,35 +282,6 @@ impl ContainerObservedStatus {
             running_since: None,
         }
     }
-}
-
-/// Derive capabilities from a `ServerConfig`.
-pub fn server_capabilities_from_config(config: &ServerConfig) -> ServerCapabilities {
-    ServerCapabilities {
-        address_bar: config.enable_inspector,
-        inspector: config.enable_inspector,
-        reload: true,
-        open_external: true,
-        viewport: true,
-        console: true,
-    }
-}
-
-/// The port a runtime can act on for this server, or `None` with a log.
-///
-/// Every server in a provision plan has been through `assign_missing_ports`, so
-/// a server without a port here means the plan was assembled some other way. A
-/// runtime can neither start nor observe such a server, so it is skipped rather
-/// than given an invented port.
-pub fn allocated_port(server: &ServerConfig, task_id: &str) -> Option<u16> {
-    if server.port.is_none() {
-        warn!(
-            task_id,
-            server = %server.name,
-            "Skipping a server with no allocated port"
-        );
-    }
-    server.port.map(Port::get)
 }
 
 /// Derive capabilities from a `ServerSnapshot` (cached path).
@@ -656,36 +502,6 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn capabilities_with_inspector_enabled() {
-        let config = ServerConfig {
-            name: "preview".to_string(),
-            enable_inspector: true,
-            ..Default::default()
-        };
-        let caps = server_capabilities_from_config(&config);
-        assert!(caps.inspector);
-        assert!(caps.address_bar);
-        assert!(caps.reload);
-        assert!(caps.viewport);
-        assert!(caps.console);
-    }
-
-    #[test]
-    fn capabilities_with_inspector_disabled() {
-        let config = ServerConfig {
-            name: "files".to_string(),
-            enable_inspector: false,
-            ..Default::default()
-        };
-        let caps = server_capabilities_from_config(&config);
-        assert!(!caps.inspector);
-        assert!(!caps.address_bar);
-        assert!(caps.reload);
-        assert!(caps.viewport);
-        assert!(caps.console);
-    }
-
-    #[test]
     fn capabilities_from_snapshot_matches_config() {
         let snapshot = ServerSnapshot {
             name: "test".to_string(),
@@ -701,81 +517,6 @@ mod tests {
         let caps = server_capabilities_from_snapshot(&snapshot);
         assert!(caps.inspector);
         assert!(caps.address_bar);
-    }
-
-    // =========================================================================
-    // ServerStatus serde + From
-    // =========================================================================
-
-    #[test]
-    fn server_status_enum_serializes_lowercase() {
-        assert_eq!(
-            serde_json::to_string(&ServerStatus::Stopped).unwrap(),
-            "\"stopped\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ServerStatus::Starting).unwrap(),
-            "\"starting\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ServerStatus::Started).unwrap(),
-            "\"started\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ServerStatus::Failed).unwrap(),
-            "\"failed\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ServerStatus::Installing).unwrap(),
-            "\"installing\""
-        );
-    }
-
-    #[test]
-    fn server_status_enum_from_str() {
-        assert!(matches!(
-            ServerStatus::from("stopped"),
-            ServerStatus::Stopped
-        ));
-        assert!(matches!(
-            ServerStatus::from("installing"),
-            ServerStatus::Installing
-        ));
-        assert!(matches!(
-            ServerStatus::from("starting"),
-            ServerStatus::Starting
-        ));
-        assert!(matches!(
-            ServerStatus::from("started"),
-            ServerStatus::Started
-        ));
-        assert!(matches!(ServerStatus::from("failed"), ServerStatus::Failed));
-        assert!(matches!(
-            ServerStatus::from("unknown"),
-            ServerStatus::Stopped
-        ));
-    }
-
-    // =========================================================================
-    // SandboxStatus Display
-    // =========================================================================
-
-    #[test]
-    fn sandbox_status_display() {
-        assert_eq!(SandboxStatus::NotCreated.to_string(), "not_created");
-        assert_eq!(SandboxStatus::Initializing.to_string(), "initializing");
-        assert_eq!(SandboxStatus::Ready.to_string(), "ready");
-        assert_eq!(SandboxStatus::Stopped.to_string(), "stopped");
-        assert_eq!(SandboxStatus::Removing.to_string(), "removing");
-        assert_eq!(SandboxStatus::Error.to_string(), "error");
-    }
-
-    #[test]
-    fn sandbox_status_serde_roundtrip() {
-        let json = serde_json::to_string(&SandboxStatus::Ready).unwrap();
-        assert_eq!(json, "\"ready\"");
-        let back: SandboxStatus = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, SandboxStatus::Ready);
     }
 
     // =========================================================================
@@ -916,28 +657,6 @@ mod tests {
     fn server_status_terminated_zero_exit_no_reason_is_stopped() {
         let cs = ContainerObservedStatus::test_terminated("preview-server", None, Some(0));
         assert_eq!(cs.to_server_status(), ServerStatus::Stopped);
-    }
-
-    // =========================================================================
-    // ProvisionRequest deserialization
-    // =========================================================================
-
-    #[test]
-    fn provision_request_deserializes() {
-        let json = r#"{
-            "plan": {
-                "repoConfig": {
-                    "name": "test-repo"
-                },
-                "gitCloneUrl": "https://github.com/test/repo.git"
-            },
-            "userId": "user-1"
-        }"#;
-        let req: super::ProvisionRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.user_id, "user-1");
-        assert_eq!(req.plan.repo_config.name, "test-repo");
-        assert_eq!(req.plan.git_clone_url, "https://github.com/test/repo.git");
-        assert!(req.plan.git_branch.is_none());
     }
 
     // =========================================================================

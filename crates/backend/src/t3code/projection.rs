@@ -146,13 +146,13 @@ fn server_entry(entry: crate::sandbox::schemas::ServerEntry) -> core_sandbox::Se
         label: entry.label,
         port: entry.port,
         status: match entry.status {
-            crate::sandbox::models::ServerStatus::Stopped => core_sandbox::ServerStatus::Stopped,
-            crate::sandbox::models::ServerStatus::Installing => {
+            moatless_types::sandbox::ServerStatus::Stopped => core_sandbox::ServerStatus::Stopped,
+            moatless_types::sandbox::ServerStatus::Installing => {
                 core_sandbox::ServerStatus::Installing
             }
-            crate::sandbox::models::ServerStatus::Starting => core_sandbox::ServerStatus::Starting,
-            crate::sandbox::models::ServerStatus::Started => core_sandbox::ServerStatus::Started,
-            crate::sandbox::models::ServerStatus::Failed => core_sandbox::ServerStatus::Failed,
+            moatless_types::sandbox::ServerStatus::Starting => core_sandbox::ServerStatus::Starting,
+            moatless_types::sandbox::ServerStatus::Started => core_sandbox::ServerStatus::Started,
+            moatless_types::sandbox::ServerStatus::Failed => core_sandbox::ServerStatus::Failed,
         },
         url: entry.url,
         error: entry.error,
@@ -181,7 +181,8 @@ pub(crate) fn log_options(options: core_sandbox::LogOptions) -> backend_sandbox:
 mod tests {
     use super::*;
     use crate::sandbox::live_status::AgentStatus;
-    use crate::sandbox::models::{ResourceMetrics, ServerCapabilities, ServerStatus};
+    use moatless_api_schemas::sandbox::ResourceMetrics;
+    use moatless_types::sandbox::{ServerCapabilities, ServerStatus};
     use crate::sandbox::schemas::{
         CommandSummary, ContainerDiagnostics, ManagedCommand, ManagedCommandState, RuntimeEvent,
         SandboxStatusFullResponse, ScheduledJobInfo, ScheduledJobKind, ServerEntry, WakeupJobInfo,

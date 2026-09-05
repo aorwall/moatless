@@ -47,7 +47,7 @@ use moatless_sandbox_runtime::runtime::{
 use moatless_sandbox_control::lifecycle::watcher::{
     classify_observation, publish_sandbox_observation,
 };
-use moatless_sandbox_runtime::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
+use moatless_sandbox_runtime::container_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 
 /// Dependencies the watcher needs to remediate a crash-looping sandbox. The
 /// lifecycle owns plan construction and intent, so the watcher only carries the

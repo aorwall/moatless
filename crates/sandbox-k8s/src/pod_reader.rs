@@ -15,7 +15,7 @@ use super::pod_status::{extract_all_container_statuses, extract_container_observ
 use moatless_types::workspace::{Cpu, Memory};
 use moatless_backend_core::sandbox::{SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};
 use moatless_sandbox_runtime::access::LogOptions;
-use moatless_sandbox_runtime::models::{ContainerObservedStatus, ContainerState, PodPhase};
+use moatless_sandbox_runtime::container_status::{ContainerObservedStatus, ContainerState, PodPhase};
 use moatless_sandbox_runtime::schemas::RuntimeEvent;
 
 /// Errors from log streaming, distinguishing "not ready yet" from other failures.

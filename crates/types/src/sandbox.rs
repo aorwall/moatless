@@ -585,6 +585,26 @@ mod tests {
     }
 
     #[test]
+    fn sandbox_status_display_covers_every_variant() {
+        for (status, text) in [
+            (SandboxStatus::NotCreated, "not_created"),
+            (SandboxStatus::Initializing, "initializing"),
+            (SandboxStatus::Ready, "ready"),
+            (SandboxStatus::Stopped, "stopped"),
+            (SandboxStatus::Removing, "removing"),
+            (SandboxStatus::Removed, "removed"),
+            (SandboxStatus::Error, "error"),
+        ] {
+            assert_eq!(status.to_string(), text);
+        }
+    }
+
+    #[test]
+    fn server_status_from_unrecognized_is_stopped() {
+        assert_eq!(ServerStatus::from("nonsense"), ServerStatus::Stopped);
+    }
+
+    #[test]
     fn server_sub_type_serializes() {
         assert_eq!(
             serde_json::to_string(&ServerSubType::Started).unwrap(),

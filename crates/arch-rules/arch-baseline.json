@@ -30,6 +30,5 @@
   "duplicate-type-name::ServerStatusResponse in moatless-api-schemas, moatless-sandbox-runtime",
   "duplicate-type-name::UpdateServerConfigRequest in moatless-api-schemas, moatless-sandbox-runtime",
   "duplicate-type-name::WriteFileRequestBody in moatless-api-schemas, moatless-sandbox-runtime",
-  "generic-module-name::crates/sandbox-runtime/src/models",
   "generic-module-name::crates/sandbox-runtime/src/schemas"
 ]

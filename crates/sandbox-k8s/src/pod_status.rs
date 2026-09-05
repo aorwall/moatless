@@ -12,7 +12,10 @@
 
 use k8s_openapi::api::core::v1::Pod;
 
-use moatless_sandbox_runtime::models::{ContainerObservedStatus, ContainerState, PodPhase, SandboxStatus};
+use moatless_sandbox_runtime::container_status::{
+    ContainerObservedStatus, ContainerState, PodPhase,
+};
+use moatless_types::sandbox::SandboxStatus;
 
 // =============================================================================
 // Shared failure-reason constants
@@ -341,7 +344,7 @@ pub mod test_helpers {
 mod tests {
     use super::test_helpers::*;
     use super::*;
-    use moatless_sandbox_runtime::models::ServerStatus;
+    use moatless_types::sandbox::ServerStatus;
     use k8s_openapi::api::core::v1::{
         ContainerState as K8sState, ContainerStateRunning, ContainerStateWaiting, ContainerStatus,
         Pod, PodStatus,

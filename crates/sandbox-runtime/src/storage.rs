@@ -24,7 +24,7 @@
 //! volume the snapshot is a fallback; without one it is the only persistence
 //! there is.
 
-use crate::models::ProvisionPlan;
+use crate::provisioning::ProvisionPlan;
 
 /// How a sandbox's workspace is persisted — two independent switches, not a
 /// choice between tiers.
@@ -126,7 +126,7 @@ pub fn workspace_object_key(prefix: &str, task_id: &str, path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::RepoConfig;
+    use crate::provisioning::RepoConfig;
     use moatless_types::workspace::ResourceConfig;
 
     /// Build a minimal plan whose repo sets each switch independently, so

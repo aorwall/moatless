@@ -19,7 +19,7 @@ use super::naming::generate_pod_name;
 use moatless_core::config::Config;
 use moatless_sandbox_control::jwt::{self, MintedSandboxTokens};
 use moatless_sandbox_runtime::error::SandboxError;
-use moatless_sandbox_runtime::models::{ProvisionPlan, allocated_port};
+use moatless_sandbox_runtime::provisioning::{ProvisionPlan, allocated_port};
 use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
 use moatless_sandbox_runtime::server_runner::build_server_start_script;
 use moatless_types::workspace::{
@@ -1502,7 +1502,7 @@ pub fn admitted_server_ports(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_sandbox_runtime::models::RepoConfig;
+    use moatless_sandbox_runtime::provisioning::RepoConfig;
     use moatless_types::workspace::ServerConfig;
 
     /// Build a `ResourceQuantities` from optional quantity spellings.

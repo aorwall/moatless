@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::live_status::SandboxStatus;
-use super::models::{ServerOverride, ServerSnapshot};
+use super::container_status::ServerSnapshot;
+use super::provisioning::ServerOverride;
 
 // The sandbox status-read response and its parts are request/response bodies, so
 // they live in `moatless-api-schemas` (their single home); re-exported here so

@@ -17,7 +17,7 @@ use super::naming::{
     generate_sandbox_host_path, generate_server_container_name,
 };
 use moatless_core::config::Config;
-use moatless_sandbox_runtime::models::ProvisionPlan;
+use moatless_sandbox_runtime::provisioning::ProvisionPlan;
 use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
 use moatless_sandbox_runtime::server_runner::build_server_start_script;
 use moatless_types::workspace::{Memory, Port, ServerConfig, WORKSPACE_REPOS_ENV};
@@ -481,7 +481,7 @@ pub fn build_server_container_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_sandbox_runtime::models::{ProvisionPlan, RepoConfig};
+    use moatless_sandbox_runtime::provisioning::{ProvisionPlan, RepoConfig};
 
     fn test_config() -> Config {
         use moatless_core::config::*;

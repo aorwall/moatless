@@ -8,7 +8,7 @@
 //! satisfy: [`runtime::SandboxRuntime`] for mutation, [`fleet::FleetObserver`]
 //! for observation, and the values both sides speak in — a
 //! [`runtime::RuntimeOutcome`], an [`operation::OperationGeneration`], a
-//! [`convergence::SandboxObservedStatus`], a [`models::ProvisionRequest`]. The
+//! [`convergence::SandboxObservedStatus`], a [`provisioning::ProvisionRequest`]. The
 //! **machinery** is everything a runtime needs to answer with: the gRPC client
 //! and its error classification, the status reads, the storage plan, the
 //! response schemas, and the ingress counters.
@@ -20,15 +20,16 @@
 pub mod access;
 pub mod classify;
 pub mod client;
+pub mod container_status;
 pub mod convergence;
 pub mod error;
 pub mod fleet;
 pub mod live_status;
 pub mod marker;
 pub mod metrics;
-pub mod models;
 pub mod operation;
 pub mod outcome;
+pub mod provisioning;
 pub mod runtime;
 pub mod schemas;
 pub mod server_runner;
