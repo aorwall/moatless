@@ -4023,6 +4023,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry_sdk",
  "redis",
+ "reqwest 0.13.4",
  "sandbox-proto",
  "serde",
  "serde_json",

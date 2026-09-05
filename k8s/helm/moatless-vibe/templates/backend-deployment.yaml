@@ -90,6 +90,13 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: {{ $.Values.backend.otel.serviceName | default "moatless-vibe-backend" | quote }}
             {{- end }}
+            {{- with .Values.backend.otel.clientTracesEndpoint }}
+            # Rendered outside the `otlpEndpoint` block above: forwarding the T3
+            # client's spans is a separate endpoint on a separate protocol, and a
+            # deployment may want either half on its own.
+            - name: T3_CLIENT_OTLP_TRACES_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
             - name: SANDBOX_IMAGE
               value: {{ include "moatless-vibe.sandboxImage" . | quote }}
             - name: SANDBOX_IMAGE_PULL_POLICY

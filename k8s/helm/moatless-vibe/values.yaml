@@ -347,6 +347,16 @@ backend:
     samplingRatio: "0.1"
     # -- OTel `service.name` resource (OTEL_SERVICE_NAME).
     serviceName: "moatless-vibe-backend"
+    # -- OTLP/**HTTP** traces URL the T3 client's own spans are forwarded to,
+    # e.g. "http://otel-collector:4318/v1/traces". A different protocol and a
+    # different port from `otlpEndpoint` above, because this one is a browser's
+    # OTLP/JSON batch relayed verbatim, not this process's gRPC export
+    # (`T3_CLIENT_OTLP_TRACES_ENDPOINT`; crates/t3code/src/observability.rs).
+    # Point it at the same collector as `otlpEndpoint`: a client span that is
+    # not exported leaves this backend's spans parented to a trace nothing
+    # else ever wrote, so half the waterfall is missing. Unset ⇒ the client's
+    # batches are accepted and dropped.
+    clientTracesEndpoint: ""
 
 # Traefik Dashboard (requires Traefik api.dashboard=true)
 traefikDashboard:

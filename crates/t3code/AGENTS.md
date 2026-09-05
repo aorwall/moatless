@@ -58,6 +58,31 @@ what a viewer is shown of a Task tree is settled by the same rule a link is.
 band's own and existed before this crate wanted them. Add a seam, not a
 dependency on the crate behind it.
 
+## One seam measures the RPC surface
+
+Every request is counted, timed and marked in `record_request` (`lib.rs`),
+called from the one `ClientFrame::Request` arm. It reads the outcome off the
+frames the handler returned, because the fifty dispatch arms each build their
+own frames and none of them reports an outcome of its own. **Do not add a
+counter to a dispatch arm** — add whatever the outcome needs to
+`rpc_metrics::Outcome` and let the seam emit it, or the two counts drift and a
+reader cannot tell which is the surface's.
+
+**The `tag` label is bounded by outcome, not by trust.** A tag is a string the
+client chose, so labelling with it directly is an unbounded label set. Only an
+outcome a matched dispatch arm could have produced carries the raw tag;
+`Unsupported` (the `_ =>` catch-all, reachable for any string at all) and
+`Rejected` (the pre-dispatch id checks, which run before the tag is looked at)
+collapse to a constant. `Outcome::tag_label` is where that holds, and a new
+outcome reachable without a matched arm has to be added to it.
+
+For the same reason `connection_defect` takes a fixed `reason` word rather than
+labelling with its message: the message carries a serde error or a request id.
+
+**Deployments run at `RUST_LOG=info`.** A refusal logged at `debug!` is a
+refusal nobody will ever read. Log a decision this surface makes about a
+client's request at `warn!`.
+
 ## The client renames a thread, it does not name one
 
 A Task created from T3 is created unnamed, and a `thread.meta.update` carrying a

@@ -34,12 +34,14 @@ pub mod files;
 mod git_actions;
 pub mod listing;
 mod oauth;
+mod observability;
 pub mod ports;
 mod preview;
 pub mod preview_tabs;
 mod projection;
 mod providers;
 mod review;
+mod rpc_metrics;
 mod sandbox;
 mod scripts;
 mod servers;
@@ -318,6 +320,8 @@ struct UiRpcState {
     /// In-process fan-out for terminal metadata and events observed through
     /// this backend instance.
     terminal: terminal::TerminalHub,
+    /// Where the T3 client's own spans are forwarded — see [`observability`].
+    client_traces: observability::ClientTraceForwarder,
 }
 
 /// What this deployment is, for the parts of a thread projection that are not
@@ -405,8 +409,13 @@ pub async fn router_from_env(
         attachment_uploads: session_jwt_secret.is_some(),
     };
     config.validate()?;
+    let client_traces = observability::ClientTraceForwarder::from_env();
     info!(
         environment_id = %config.environment_id,
+        // Absent means the T3 client's own spans are dropped rather than
+        // forwarded, which is the difference between half a trace and a whole
+        // one — see [`observability`].
+        client_traces_endpoint = client_traces.endpoint().unwrap_or("(none)"),
         "T3 UI RPC compatibility routes registered"
     );
     Ok(Some(router(UiRpcState {
@@ -451,6 +460,7 @@ pub async fn router_from_env(
         attachments,
         usage,
         terminal: terminal::TerminalHub::default(),
+        client_traces,
     })))
 }
 
@@ -542,6 +552,7 @@ fn environment_id(identity: &UiRpcEnvironmentIdentity) -> String {
 }
 
 fn router(state: UiRpcState) -> Router {
+    rpc_metrics::describe();
     // The client pulls a thread body over HTTP rather than the socket so the
     // transport can compress it (T3's `threadSnapshotHttp.ts`), and unencoded a
     // long conversation is ~2MB against ~400KB gzipped. Scoped to the JSON reads
@@ -582,6 +593,7 @@ fn router(state: UiRpcState) -> Router {
             "/api/orchestration/scripts/{thread_id}/{script_id}/run",
             post(scripts_run_http),
         )
+        .route(observability::TRACES_ROUTE, post(observability::receive))
         .route("/ws", get(websocket_upgrade))
         .with_state(state)
 }
@@ -1582,9 +1594,16 @@ fn request_root_span(
     span_id: Option<&str>,
     sampled: Option<bool>,
 ) -> tracing::Span {
+    // `otel.*` are `tracing-opentelemetry`'s own field names, and a field it can
+    // record has to be declared here: a span records only what it was built
+    // with. `outcome` and the status are filled in once the handler answers, in
+    // [`ProtocolSession::handle_json`].
     let span = tracing::info_span!(
         "ui_rpc.request",
         tag = %tag,
+        otel.kind = "server",
+        otel.status_code = tracing::field::Empty,
+        outcome = tracing::field::Empty,
         client_trace_id = tracing::field::Empty,
     );
     match remote_span_context(trace_id, span_id, sampled) {
@@ -1598,6 +1617,61 @@ fn request_root_span(
         }
     }
     span
+}
+
+/// Count one answered request, mark its span with what the client was told, and
+/// log the failures nothing else logs.
+///
+/// The one place this surface is measured. The fifty dispatch arms of
+/// [`ProtocolSession::handle_request`] each build their own frames and return
+/// them, so the frames are the only thing that states an outcome — and a `Die`
+/// built by [`failure_exit`] or [`unsupported_exit`] passes no other log or
+/// counter on its way out.
+///
+/// The per-domain failure builders (`file_failure_exit` and its siblings) log
+/// the sqlx or gRPC cause behind their failure, which this cannot see. A `Die`
+/// therefore logs twice on those paths: once here with the tag and the viewer,
+/// once there with the cause.
+fn record_request(
+    span: &tracing::Span,
+    tag: &str,
+    frames: &[Value],
+    elapsed: Duration,
+    identity: &UiRpcAuthIdentity,
+) {
+    let outcome = rpc_metrics::classify(frames);
+    let label = outcome.tag_label(tag).to_owned();
+
+    metrics::counter!(
+        rpc_metrics::REQUESTS,
+        "tag" => label.clone(),
+        "outcome" => outcome.as_str(),
+    )
+    .increment(1);
+    metrics::histogram!(
+        rpc_metrics::REQUEST_DURATION,
+        "tag" => label,
+        "outcome" => outcome.as_str(),
+    )
+    .record(elapsed.as_secs_f64());
+
+    span.record("outcome", outcome.as_str());
+    if outcome.is_failure() {
+        span.record("otel.status_code", "ERROR");
+    }
+
+    // A `Die` is the only outcome the client can render nothing but "this
+    // server is broken" for, so it is the only one worth a line on its own. The
+    // rest are counted, and the refusals that are worth reading have their own
+    // `warn!` at the site that decided them.
+    if outcome == rpc_metrics::Outcome::Die {
+        warn!(
+            %tag,
+            user_id = %identity.user_id,
+            defect = rpc_metrics::defect(frames).unwrap_or("(none)"),
+            "A T3 UI request failed as an unexpected server defect"
+        );
+    }
 }
 
 /// Parses a client-supplied trace/span id pair into a remote OTel span
@@ -1682,7 +1756,7 @@ impl ProtocolSession {
             Ok(value) => value,
             Err(error) => {
                 return ProtocolOutput {
-                    frames: vec![connection_defect(format!("Malformed JSON frame: {error}"))],
+                    frames: vec![connection_defect("malformed_json", format!("Malformed JSON frame: {error}"))],
                     eof: false,
                 };
             }
@@ -1694,9 +1768,10 @@ impl ProtocolSession {
         };
         if values.len() > MAX_MESSAGES_PER_FRAME {
             return ProtocolOutput {
-                frames: vec![connection_defect(format!(
-                    "A frame may contain at most {MAX_MESSAGES_PER_FRAME} messages"
-                ))],
+                frames: vec![connection_defect(
+                    "frame_too_large",
+                    format!("A frame may contain at most {MAX_MESSAGES_PER_FRAME} messages"),
+                )],
                 eof: true,
             };
         }
@@ -1706,9 +1781,10 @@ impl ProtocolSession {
             let frame: ClientFrame = match serde_json::from_value(value) {
                 Ok(frame) => frame,
                 Err(error) => {
-                    output.frames.push(connection_defect(format!(
-                        "Malformed RPC envelope: {error}"
-                    )));
+                    output.frames.push(connection_defect(
+                        "malformed_envelope",
+                        format!("Malformed RPC envelope: {error}"),
+                    ));
                     continue;
                 }
             };
@@ -1723,7 +1799,7 @@ impl ProtocolSession {
                     if !valid_request_id(request_id.as_str()) {
                         output
                             .frames
-                            .push(connection_defect("Ack requestId is not a decimal string"));
+                            .push(connection_defect("invalid_ack_id", "Ack requestId is not a decimal string"));
                         continue;
                     }
                     if let Some(stream) = self.streams.get_mut(request_id.as_str()) {
@@ -1733,6 +1809,7 @@ impl ProtocolSession {
                 ClientFrame::Interrupt { request_id } => {
                     if !valid_request_id(request_id.as_str()) {
                         output.frames.push(connection_defect(
+                            "invalid_interrupt_id",
                             "Interrupt requestId is not a decimal string",
                         ));
                         continue;
@@ -1753,11 +1830,13 @@ impl ProtocolSession {
                     drop(headers);
                     let span =
                         request_root_span(&tag, trace_id.as_deref(), span_id.as_deref(), sampled);
-                    output.frames.extend(
-                        self.handle_request(id, tag, payload, state, identity)
-                            .instrument(span)
-                            .await,
-                    );
+                    let started = std::time::Instant::now();
+                    let frames = self
+                        .handle_request(id, tag.clone(), payload, state, identity)
+                        .instrument(span.clone())
+                        .await;
+                    record_request(&span, &tag, &frames, started.elapsed(), identity);
+                    output.frames.extend(frames);
                 }
             }
         }
@@ -1774,13 +1853,15 @@ impl ProtocolSession {
     ) -> Vec<Value> {
         if !valid_request_id(id.as_str()) {
             return vec![connection_defect(
+                "invalid_request_id",
                 "Request id is not a decimal string and cannot be correlated",
             )];
         }
         if self.streams.contains_key(id.as_str()) {
-            return vec![connection_defect(format!(
-                "Duplicate in-flight RPC request id: {id}"
-            ))];
+            return vec![connection_defect(
+                "duplicate_request_id",
+                format!("Duplicate in-flight RPC request id: {id}"),
+            )];
         }
 
         // The grant this deployment advertised, enforced. A client is told at
@@ -1792,7 +1873,10 @@ impl ProtocolSession {
         // credential carrying all of it.
         let required = oauth::required_scope(&tag);
         if !oauth::GRANTED_SCOPES.contains(&required) {
-            debug!(%tag, %required, user_id = %identity.user_id, "T3 UI request refused; scope not granted");
+            // `warn!`, not `debug!`: deployments run at `RUST_LOG=info`, and a
+            // client asking for a method this deployment withholds is the
+            // refusal an operator most needs to see.
+            warn!(%tag, %required, user_id = %identity.user_id, "T3 UI request refused; scope not granted");
             return vec![typed_failure_exit(
                 &id,
                 json!({
@@ -1829,7 +1913,10 @@ impl ProtocolSession {
                 match commands::dispatch(&ctx, &viewer_scope(identity), &payload).await {
                     Ok(result) => vec![success_exit(&id, result)],
                     Err(refusal) => {
-                        debug!(
+                        // `warn!`, not `debug!`: this is the surface's only
+                        // write, and at `RUST_LOG=info` a refused one would
+                        // otherwise leave nothing behind at all.
+                        warn!(
                             %tag,
                             user_id = %identity.user_id,
                             reason = %refusal.message(),
@@ -3234,6 +3321,22 @@ fn now_rfc3339() -> String {
 
 async fn server_config(state: &UiRpcState, identity: &UiRpcAuthIdentity) -> Value {
     let agents = state.agents.list(&viewer_scope(identity)).await;
+    // `otlpTracesEnabled` is this backend's own span export; `otlpTracesUrl` is
+    // where the client's spans are forwarded ([`observability`]). Two knobs, and
+    // the Settings panel's one sentence reads true only when both name the same
+    // collector.
+    let mut observability = json!({
+        "logsDirectoryPath": "/moatless/logs",
+        "localTracingEnabled": false,
+        "otlpTracesEnabled": state.rpc.otlp_traces_enabled,
+        "otlpMetricsEnabled": false
+    });
+    // The contract declares this key optional, not nullable, so an unset
+    // collector omits it — a `null` would fail the client's config decode and
+    // take the whole connection down with it.
+    if let Some(endpoint) = state.client_traces.endpoint() {
+        observability["otlpTracesUrl"] = json!(endpoint);
+    }
     json!({
         "environment": descriptor(&state.rpc),
         "auth": auth_descriptor(state),
@@ -3243,12 +3346,7 @@ async fn server_config(state: &UiRpcState, identity: &UiRpcAuthIdentity) -> Valu
         "issues": [],
         "providers": providers::providers(&agents, &state.model_defaults, &now_rfc3339()),
         "availableEditors": [],
-        "observability": {
-            "logsDirectoryPath": "/moatless/logs",
-            "localTracingEnabled": false,
-            "otlpTracesEnabled": state.rpc.otlp_traces_enabled,
-            "otlpMetricsEnabled": false
-        },
+        "observability": observability,
         "settings": {},
         "shellResumeCompletionMarker": true,
         "threadResumeCompletionMarker": true
@@ -3849,7 +3947,14 @@ fn interrupted_exit(request_id: &RequestId) -> Value {
     })
 }
 
-fn connection_defect(defect: impl Into<String>) -> Value {
+/// Refuse a frame the socket could not act on at all.
+///
+/// A `Defect` answers the connection rather than a request, so it is what the
+/// checks that run before any dispatch emit. `reason` is a fixed word, not the
+/// message: the message carries a serde error or a request id and would make the
+/// counter's label set unbounded.
+fn connection_defect(reason: &'static str, defect: impl Into<String>) -> Value {
+    metrics::counter!(rpc_metrics::CONNECTION_DEFECTS, "reason" => reason).increment(1);
     json!({
         "_tag": "Defect",
         "defect": defect.into()
@@ -4487,6 +4592,7 @@ mod tests {
             usage: Arc::new(UnreachableUsage),
             model_defaults: Arc::new(AgentModelDefaults::default()),
             terminal: terminal::TerminalHub::default(),
+            client_traces: observability::ClientTraceForwarder::default(),
         }
     }
 
@@ -6231,6 +6337,90 @@ mod tests {
             assert_eq!(
                 recorded.map(|kv| kv.value.as_str().to_string()),
                 Some("not-a-trace-id".to_string())
+            );
+        }
+
+        /// A `Die` reaches Tempo as an error span, which is what makes "show me
+        /// the failing requests" a search rather than a read of every span.
+        #[test]
+        fn a_failed_request_marks_its_span_as_an_error() {
+            let exporter = InMemorySpanExporter::default();
+            let provider = SdkTracerProvider::builder()
+                .with_simple_exporter(exporter.clone())
+                .build();
+            let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("test"));
+            let subscriber = tracing_subscriber::registry().with(otel_layer);
+            let _guard = tracing::subscriber::set_default(subscriber);
+
+            {
+                let span = request_root_span("shell.list", None, None, None);
+                let _entered = span.enter();
+                record_request(
+                    &span,
+                    "shell.list",
+                    &[json!({
+                        "_tag": "Exit",
+                        "requestId": "1",
+                        "exit": { "_tag": "Failure", "cause": [{ "_tag": "Die", "defect": "boom" }] }
+                    })],
+                    Duration::from_millis(3),
+                    &viewer(),
+                );
+            }
+            provider.force_flush().expect("flush the simple exporter");
+
+            let spans = exporter.get_finished_spans().expect("exporter is readable");
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0].status, opentelemetry::trace::Status::error(""));
+            let outcome = spans[0]
+                .attributes
+                .iter()
+                .find(|kv| kv.key.as_str() == "outcome");
+            assert_eq!(
+                outcome.map(|kv| kv.value.as_str().to_string()),
+                Some("die".to_string())
+            );
+        }
+
+        /// The counterpart: a success must not be searchable as an error, and
+        /// it still carries the outcome so a Tempo search can name it.
+        #[test]
+        fn a_successful_request_leaves_its_span_unset() {
+            let exporter = InMemorySpanExporter::default();
+            let provider = SdkTracerProvider::builder()
+                .with_simple_exporter(exporter.clone())
+                .build();
+            let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("test"));
+            let subscriber = tracing_subscriber::registry().with(otel_layer);
+            let _guard = tracing::subscriber::set_default(subscriber);
+
+            {
+                let span = request_root_span("server.probe", None, None, None);
+                let _entered = span.enter();
+                record_request(
+                    &span,
+                    "server.probe",
+                    &[json!({
+                        "_tag": "Exit",
+                        "requestId": "1",
+                        "exit": { "_tag": "Success", "value": {} }
+                    })],
+                    Duration::from_millis(1),
+                    &viewer(),
+                );
+            }
+            provider.force_flush().expect("flush the simple exporter");
+
+            let spans = exporter.get_finished_spans().expect("exporter is readable");
+            assert_eq!(spans.len(), 1);
+            assert_ne!(spans[0].status, opentelemetry::trace::Status::error(""));
+            let outcome = spans[0]
+                .attributes
+                .iter()
+                .find(|kv| kv.key.as_str() == "outcome");
+            assert_eq!(
+                outcome.map(|kv| kv.value.as_str().to_string()),
+                Some("success".to_string())
             );
         }
     }
