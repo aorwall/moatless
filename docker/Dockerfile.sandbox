@@ -51,7 +51,6 @@ ENV CODEX_HOME=/opt/moatless/.codex
 ENV CLAUDE_BIN_DIR=/usr/local/bin
 ENV DATA_DIR=/opt/moatless/data
 ENV DEVCONTAINER=true
-ENV NODE_ENV=production
 ENV TZ="UTC"
 ENV UV_THREADPOOL_SIZE=16
 
