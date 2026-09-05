@@ -16,7 +16,7 @@ use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use moatless_types::sandbox::SandboxStopReason;
 
 use moatless_sandbox_runtime::outcome::LifecycleOutcome;
-use moatless_sandbox_runtime::types::{ObservedStatus, OperationGeneration, OperationKind};
+use moatless_sandbox_runtime::operation::{ObservedStatus, OperationGeneration, OperationKind};
 
 /// The deterministic fact an event records for an operation generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -358,7 +358,7 @@ pub fn recovery_exhausted_event(
 mod tests {
     use super::*;
     use moatless_sandbox_runtime::outcome::LifecycleOutcome;
-    use moatless_sandbox_runtime::types::{IntentEffect, RuntimeEffect};
+    use moatless_sandbox_runtime::operation::{IntentEffect, RuntimeEffect};
 
     fn gen(n: i64) -> OperationGeneration {
         OperationGeneration(n)

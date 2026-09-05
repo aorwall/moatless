@@ -32,7 +32,7 @@ use super::reconcile::{ReconcileInput, decide};
 use moatless_backend_core::task::PendingWorkReader;
 use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus};
 use moatless_sandbox_runtime::runtime::ErrorClass;
-use moatless_sandbox_runtime::types::ArchiveRetention;
+use moatless_types::sandbox::ArchiveRetention;
 
 /// Delivers a pending-message wake to an already-Ready sandbox over gRPC.
 ///
@@ -654,7 +654,7 @@ impl Reconciler {
         if let Some(g) = generation {
             retry
                 .budget
-                .begin(moatless_sandbox_runtime::types::OperationGeneration(g));
+                .begin(moatless_sandbox_runtime::operation::OperationGeneration(g));
         }
 
         // Backing off between transient retries.
@@ -795,7 +795,7 @@ mod tests {
 
     use super::super::events::LifecycleEvent;
     use super::super::orchestrator::{IntentWrite, StoreError, TaskIntent};
-    use moatless_sandbox_runtime::types::{IntentEffect, OperationGeneration};
+    use moatless_sandbox_runtime::operation::{IntentEffect, OperationGeneration};
 
     struct MemberStore {
         members: Result<Vec<SandboxMember>, StoreError>,
@@ -1176,7 +1176,7 @@ mod db_tests {
     use moatless_sandbox_runtime::runtime::{
         RuntimeOperationContext, RuntimeOutcome, SandboxRuntime,
     };
-    use moatless_sandbox_runtime::types::{
+    use moatless_sandbox_runtime::operation::{
         CorrelationMarker, ObservedStatus, OperationGeneration, OperationKind,
     };
     use moatless_types::sandbox::SandboxDesiredState;

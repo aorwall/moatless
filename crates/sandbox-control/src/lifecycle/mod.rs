@@ -30,7 +30,7 @@
 // `pub(crate)`, so a lifecycle mutation still cannot bypass `Lifecycle`.
 //
 // The four decision modules a runtime also reads — `convergence`, `classify`,
-// `marker`, `types` — and the runtime seam itself live in
+// `marker`, `operation` — and the runtime seam itself live in
 // `moatless-sandbox-runtime`.
 pub(crate) mod attempt;
 pub(crate) mod reconcile;

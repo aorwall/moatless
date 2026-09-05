@@ -836,7 +836,9 @@ mod tests {
         let mut cc = build_container_config(&config, "task-1", &plan, None);
         stamp_operation_generation(
             &mut cc,
-            RuntimeOperationContext::new(moatless_sandbox_runtime::types::OperationGeneration(17)),
+            RuntimeOperationContext::new(moatless_sandbox_runtime::operation::OperationGeneration(
+                17,
+            )),
         );
         assert_eq!(
             cc.labels

@@ -25,14 +25,14 @@ use moatless_core::config::{
     S3Config, SandboxConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig,
 };
 use moatless_core::events::test_support::RecordingPublisher;
+use moatless_sandbox_runtime::operation::ObservedStatus;
 use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
-use moatless_sandbox_runtime::types::{ArchiveRetention, ObservedStatus};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::LinearConfig;
 use moatless_types::agent::AgentType;
 use moatless_types::agent::CodexOAuthConfig;
 use moatless_types::auth::{AuthConfig, AuthProvider};
-use moatless_types::sandbox::SandboxProviderType;
+use moatless_types::sandbox::{ArchiveRetention, SandboxProviderType};
 use moatless_types::secret::SecretsConfig;
 use sandbox_proto::client::SandboxConnector;
 

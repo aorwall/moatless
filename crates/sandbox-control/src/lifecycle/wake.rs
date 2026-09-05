@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::task::TaskStatus;
 
-use moatless_sandbox_runtime::types::ArchiveRetention;
+use moatless_types::sandbox::ArchiveRetention;
 
 /// The persisted intent a pending message is evaluated against.
 #[derive(Debug, Clone, Copy)]

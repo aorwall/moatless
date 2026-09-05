@@ -7,7 +7,7 @@
 //! Two things live here. The **contract** is what a container runtime must
 //! satisfy: [`runtime::SandboxRuntime`] for mutation, [`fleet::FleetObserver`]
 //! for observation, and the values both sides speak in — a
-//! [`runtime::RuntimeOutcome`], an [`types::OperationGeneration`], a
+//! [`runtime::RuntimeOutcome`], an [`operation::OperationGeneration`], a
 //! [`convergence::SandboxObservedStatus`], a [`models::ProvisionRequest`]. The
 //! **machinery** is everything a runtime needs to answer with: the gRPC client
 //! and its error classification, the status reads, the storage plan, the
@@ -27,10 +27,10 @@ pub mod live_status;
 pub mod marker;
 pub mod metrics;
 pub mod models;
+pub mod operation;
 pub mod outcome;
 pub mod runtime;
 pub mod schemas;
 pub mod server_runner;
 pub mod status_reader;
 pub mod storage;
-pub mod types;

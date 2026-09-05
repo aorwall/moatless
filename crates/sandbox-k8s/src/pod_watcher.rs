@@ -39,7 +39,7 @@ use super::provider::{StorageFallback, StorageFallbackOutcome};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_core::events::EventPublisher;
 use moatless_sandbox_control::lifecycle::Lifecycle;
-use moatless_sandbox_runtime::types::OperationGeneration;
+use moatless_sandbox_runtime::operation::OperationGeneration;
 use moatless_sandbox_runtime::classify::ObservedTransition;
 use moatless_sandbox_runtime::runtime::{
     OPERATION_GENERATION_LABEL, generation_from_label,

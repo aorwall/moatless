@@ -55,10 +55,6 @@ impl FromStr for SandboxProviderType {
 /// managed provider-local disk archives (opt-in Kubernetes node hostPaths and
 /// Docker task directories).
 ///
-/// The lifecycle store, providers, and reconciler that persist and apply it
-/// reach it re-exported from `sandbox::lifecycle`, so their paths name the
-/// lifecycle module rather than this one.
-///
 /// Persisted alongside `Removed` intent in the same atomic write so a crashed
 /// remove can be retried with the *original* policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -542,6 +538,23 @@ mod tests {
             assert_eq!(parsed.to_string(), wire);
             assert_eq!(AgentStatus::from(wire), parsed);
         }
+    }
+
+    #[test]
+    fn archive_retention_retains_only_when_asked() {
+        assert!(ArchiveRetention::RetainArchives.retains());
+        assert!(!ArchiveRetention::DeleteArchives.retains());
+    }
+
+    #[test]
+    fn archive_retention_db_str_round_trips() {
+        for r in [
+            ArchiveRetention::RetainArchives,
+            ArchiveRetention::DeleteArchives,
+        ] {
+            assert_eq!(ArchiveRetention::from_db_str(r.as_str()), Some(r));
+        }
+        assert_eq!(ArchiveRetention::from_db_str("bogus"), None);
     }
 
     #[test]

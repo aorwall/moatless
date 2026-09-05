@@ -15,7 +15,7 @@ use tracing::{error, info, warn};
 use moatless_sandbox_runtime::access::LogOptions;
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::live_status::apply_running_rule;
-use moatless_sandbox_runtime::types::ArchiveRetention;
+use moatless_types::sandbox::ArchiveRetention;
 
 use super::lifecycle::{Lifecycle, TaskIntent};
 use moatless_sandbox_runtime::models::*;
@@ -914,7 +914,7 @@ mod authz_tests {
     //! control over one `TaskIntent`, and which refusal each case earns.
     use super::*;
 
-    use moatless_sandbox_runtime::types::ArchiveRetention;
+    use moatless_types::sandbox::ArchiveRetention;
     use moatless_types::access_control::Scope;
     use moatless_types::sandbox::SandboxDesiredState;
     use moatless_types::task::TaskStatus;

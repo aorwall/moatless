@@ -9,7 +9,7 @@
 
 use std::time::Duration;
 
-use moatless_sandbox_runtime::types::OperationGeneration;
+use moatless_sandbox_runtime::operation::OperationGeneration;
 
 /// A single Task's leader-local retry budget.
 #[derive(Debug, Clone)]

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 
-use moatless_sandbox_runtime::types::ObservedStatus;
+use moatless_sandbox_runtime::operation::ObservedStatus;
 
 use crate::lifecycle::{Lifecycle, LifecycleError, NotifyPort};
 use moatless_backend_core::sandbox::{CredentialBroadcast, SandboxError, SandboxWaker};

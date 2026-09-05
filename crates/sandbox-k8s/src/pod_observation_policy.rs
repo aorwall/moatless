@@ -1005,7 +1005,7 @@ mod tests {
         let state = super::super::pod_watcher::extract_pod_observed_state(&pod, "pod-1", "task-1");
         assert_eq!(
             state.operation_generation,
-            Some(moatless_sandbox_runtime::types::OperationGeneration(12))
+            Some(moatless_sandbox_runtime::operation::OperationGeneration(12))
         );
     }
 }

@@ -33,7 +33,7 @@ response error lives beside `LifecycleError`, in the band that raises it.
   (`observe_fleet`), plus the authoritative per-Task read (`observe`) the
   reconciler confirms a divergence with. `status_reader::confirm` is the shared
   live-status helper both provider implementations delegate to.
-- `convergence`, `classify`, `marker` and `types` are the decision vocabulary a
+- `convergence`, `classify`, `marker` and `operation` are the decision vocabulary a
   runtime and the orchestrator both read. They decide nothing on their own —
   the reconciler and the watcher that call them stay above.
 - `client.rs` re-exports `SandboxConnector` and `classify_grpc_error` from

@@ -17,7 +17,7 @@ pub use moatless_types::sandbox::SandboxStatus;
 ///
 /// Distinct from the display [`SandboxStatus`] (which mixes intent-derived
 /// values like `Removed`) and from the operation-level
-/// [`super::types::ObservedStatus`]. `Absent` means **every runtime resource
+/// [`super::operation::ObservedStatus`]. `Absent` means **every runtime resource
 /// is gone, PVC unconditionally included** — the reconciler treats an existing
 /// PVC as not-absent. `Terminating` is accepted-but-still-terminating: a
 /// delete was accepted but resources persist, which is *not* converged for

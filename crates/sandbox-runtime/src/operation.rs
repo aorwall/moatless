@@ -1,10 +1,11 @@
-//! Core lifecycle vocabulary.
+//! The operation vocabulary: one operation's kind, its intended and actual
+//! effect, its generation, and its correlation marker, plus the observed status
+//! an operation reconciles against.
 //!
-//! These types are the shared alphabet the rest of the module reasons over.
-//! They are deliberately small, `Copy`, and side-effect free so the decision
-//! logic (convergence, classification, marker acknowledgement, event
-//! derivation) can be exhaustively unit-tested without any runtime, database,
-//! or event transport.
+//! Deliberately small, `Copy`, and side-effect free so the decision logic
+//! (convergence, classification, marker acknowledgement, event derivation) can
+//! be exhaustively unit-tested without any runtime, database, or event
+//! transport.
 
 use std::fmt;
 
@@ -147,13 +148,6 @@ impl fmt::Display for ObservedStatus {
     }
 }
 
-/// `ArchiveRetention` lives in `task::models` (tasks band): the close, reap, and
-/// delete sites that choose a retention policy are tasks-band and name it
-/// intra-band, while the lifecycle store, providers, and reconciler reach it on
-/// the legal downward edge. Re-exported here so `super::types::ArchiveRetention`
-/// and the `lifecycle` module's re-export keep resolving unchanged.
-pub use moatless_types::sandbox::ArchiveRetention;
-
 /// Monotonic, comparable operation identity.
 ///
 /// Stamped onto the runtime resources an operation creates (K8s pod-template
@@ -245,12 +239,6 @@ mod tests {
     }
 
     #[test]
-    fn archive_retention_semantics() {
-        assert!(ArchiveRetention::RetainArchives.retains());
-        assert!(!ArchiveRetention::DeleteArchives.retains());
-    }
-
-    #[test]
     fn db_str_round_trips() {
         for kind in [
             OperationKind::Start,
@@ -262,14 +250,6 @@ mod tests {
             assert_eq!(OperationKind::from_db_str(kind.as_str()), Some(kind));
         }
         assert_eq!(OperationKind::from_db_str("bogus"), None);
-
-        for r in [
-            ArchiveRetention::RetainArchives,
-            ArchiveRetention::DeleteArchives,
-        ] {
-            assert_eq!(ArchiveRetention::from_db_str(r.as_str()), Some(r));
-        }
-        assert_eq!(ArchiveRetention::from_db_str("bogus"), None);
     }
 
     #[test]

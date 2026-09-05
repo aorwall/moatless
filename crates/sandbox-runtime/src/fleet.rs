@@ -11,7 +11,7 @@ use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::task::TaskStatus;
 
 use crate::convergence::SandboxObservedStatus;
-use crate::types::OperationGeneration;
+use crate::operation::OperationGeneration;
 
 /// Runtime observation paired with the lifecycle generation stamped on the
 /// currently observed pod/container. Legacy resources have no generation.

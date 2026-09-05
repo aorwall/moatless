@@ -20,7 +20,8 @@ use thiserror::Error;
 use crate::error::SandboxError;
 
 use crate::outcome::Diagnostics;
-use crate::types::{ArchiveRetention, ObservedStatus, OperationGeneration, RuntimeEffect};
+use crate::operation::{ObservedStatus, OperationGeneration, RuntimeEffect};
+use moatless_types::sandbox::ArchiveRetention;
 
 /// Runtime-resource label carrying lifecycle's operation identity.
 pub const OPERATION_GENERATION_LABEL: &str = "moatless.io/operation-generation";

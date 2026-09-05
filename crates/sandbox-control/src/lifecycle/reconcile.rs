@@ -15,7 +15,7 @@ use moatless_types::sandbox::SandboxDesiredState;
 
 use moatless_sandbox_runtime::convergence::{ReconcileAction, SandboxObservedStatus, reconcile_action};
 use super::orchestrator::TaskIntent;
-use moatless_sandbox_runtime::types::OperationKind;
+use moatless_sandbox_runtime::operation::OperationKind;
 use super::wake::{WakeIntent, message_supersedes_intent};
 
 /// One Task's reconcile inputs: persisted intent, observed runtime status, and
@@ -108,7 +108,8 @@ mod tests {
     use moatless_types::sandbox::SandboxStopReason;
     use moatless_types::task::{TaskStatus, Visibility};
 
-    use moatless_sandbox_runtime::types::{ArchiveRetention, CorrelationMarker, OperationGeneration};
+    use moatless_sandbox_runtime::operation::{CorrelationMarker, OperationGeneration};
+    use moatless_types::sandbox::ArchiveRetention;
 
     fn at(secs: i64) -> DateTime<Utc> {
         Utc.timestamp_opt(secs, 0).single().expect("valid ts")

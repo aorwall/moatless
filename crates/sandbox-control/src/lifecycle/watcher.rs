@@ -9,7 +9,7 @@ use moatless_core::events::EventPublisher;
 
 use moatless_sandbox_runtime::classify::{Observation, ObservedTransition};
 use super::events::{self, EventFact};
-use moatless_sandbox_runtime::types::OperationGeneration;
+use moatless_sandbox_runtime::operation::OperationGeneration;
 
 use super::Lifecycle;
 

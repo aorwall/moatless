@@ -36,7 +36,8 @@ use moatless_sandbox_runtime::runtime::{
     RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, map_sandbox_error,
 };
 use moatless_sandbox_control::lifecycle::ProvisionDeps;
-use moatless_sandbox_runtime::types::{ArchiveRetention, ObservedStatus, RuntimeEffect};
+use moatless_sandbox_runtime::operation::{ObservedStatus, RuntimeEffect};
+use moatless_types::sandbox::ArchiveRetention;
 use moatless_sandbox_runtime::models::*;
 use moatless_sandbox_runtime::schemas::*;
 use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
@@ -1163,7 +1164,7 @@ impl DockerSandboxAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_sandbox_runtime::types::OperationGeneration;
+    use moatless_sandbox_runtime::operation::OperationGeneration;
     use moatless_sandbox_runtime::runtime::OPERATION_GENERATION_LABEL;
     use std::collections::HashMap;
 

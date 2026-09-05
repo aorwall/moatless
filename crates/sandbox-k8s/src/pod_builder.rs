@@ -1543,7 +1543,9 @@ mod tests {
         let mut pod = Pod::default();
         stamp_operation_generation(
             &mut pod,
-            RuntimeOperationContext::new(moatless_sandbox_runtime::types::OperationGeneration(31)),
+            RuntimeOperationContext::new(moatless_sandbox_runtime::operation::OperationGeneration(
+                31,
+            )),
         );
         assert_eq!(
             pod.metadata

@@ -16,7 +16,7 @@ use sqlx::Postgres;
 use moatless_core::db::DbPool;
 
 use super::orchestrator::{LifecycleLock, LockGuard};
-use moatless_sandbox_runtime::types::OperationKind;
+use moatless_sandbox_runtime::operation::OperationKind;
 
 /// Two-int advisory-lock namespace ("LF"). The two-int space never conflicts
 /// with one-int `pg_advisory_*` keys used by other subsystems.

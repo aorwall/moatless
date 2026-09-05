@@ -26,7 +26,8 @@ use super::orchestrator::{AgentStopPort, LifecycleDao, LifecycleEventSink};
 use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use super::test_support::seed_task_with as seed;
 use moatless_sandbox_runtime::runtime::RuntimeError;
-use moatless_sandbox_runtime::types::{ArchiveRetention, ObservedStatus, OperationKind};
+use moatless_sandbox_runtime::operation::{ObservedStatus, OperationKind};
+use moatless_types::sandbox::ArchiveRetention;
 
 use super::{Lifecycle, LifecycleError, SystemWallClock};
 
@@ -177,7 +178,7 @@ impl LifecycleEventSink for CollectSink {
     async fn publish_diagnostics(
         &self,
         _task_id: &str,
-        _generation: moatless_sandbox_runtime::types::OperationGeneration,
+        _generation: moatless_sandbox_runtime::operation::OperationGeneration,
         _observed: ObservedStatus,
         _diagnostics: &moatless_sandbox_runtime::outcome::Diagnostics,
     ) {

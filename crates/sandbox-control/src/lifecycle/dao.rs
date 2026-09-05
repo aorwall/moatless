@@ -21,9 +21,10 @@ use super::orchestrator::{
     IntentWrite, LifecycleDao, ReconcileCandidate, SandboxMember, SandboxShape, StoreError,
     TaskIntent,
 };
-use moatless_sandbox_runtime::types::{
-    ArchiveRetention, CorrelationMarker, IntentEffect, OperationGeneration, OperationKind,
+use moatless_sandbox_runtime::operation::{
+    CorrelationMarker, IntentEffect, OperationGeneration, OperationKind,
 };
+use moatless_types::sandbox::ArchiveRetention;
 
 /// Postgres-backed lifecycle store over the main pool.
 pub struct PgLifecycleDao {

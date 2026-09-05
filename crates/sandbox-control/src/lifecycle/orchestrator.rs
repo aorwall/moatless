@@ -40,10 +40,11 @@ use super::error::LifecycleError;
 use super::events::{self, EventContext, EventFact, FailureDetail, LifecycleEvent};
 use moatless_sandbox_runtime::outcome::LifecycleOutcome;
 use moatless_sandbox_runtime::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
-use moatless_sandbox_runtime::types::{
-    ArchiveRetention, CorrelationMarker, IntentEffect, ObservedStatus, OperationGeneration,
-    OperationKind, RuntimeEffect,
+use moatless_sandbox_runtime::operation::{
+    CorrelationMarker, IntentEffect, ObservedStatus, OperationGeneration, OperationKind,
+    RuntimeEffect,
 };
+use moatless_types::sandbox::ArchiveRetention;
 
 /// Persisted lifecycle intent for one Task's Sandbox membership.
 ///

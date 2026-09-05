@@ -7,7 +7,7 @@ routes/handlers, JWT, secrets, and preflight.
 What a runtime *implements* — the mutation and observation contract — and the
 machinery every runtime reuses live a band below, in `moatless-sandbox-runtime`
 (band 5): `SandboxRuntime`, `FleetObserver`, the decision vocabulary
-(`convergence`, `classify`, `marker`, `types`), the gRPC client, the status
+(`convergence`, `classify`, `marker`, `operation`), the gRPC client, the status
 reads, the storage plan, and the schemas. Name that crate directly; this crate
 re-exports nothing from it.
 

@@ -13,7 +13,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 
 use crate::convergence::SandboxObservedStatus;
-use crate::types::{CorrelationMarker, OperationKind};
+use crate::operation::{CorrelationMarker, OperationKind};
 
 /// An edge older than this bound no longer suppresses watcher observations.
 pub const EDGE_SUPPRESSION_STALE_AFTER: Duration = Duration::from_mins(5);
@@ -131,7 +131,7 @@ pub fn edge_suppression_active(
 mod tests {
     use super::SandboxObservedStatus as O;
     use super::*;
-    use crate::types::OperationGeneration;
+    use crate::operation::OperationGeneration;
     use chrono::TimeZone;
 
     fn at(secs: i64) -> DateTime<Utc> {
