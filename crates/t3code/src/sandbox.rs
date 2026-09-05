@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
 use tracing::warn;
 
+use crate::subscription::{StreamFailure, StreamResult, StreamSink};
 use crate::task_dao::{T3TaskDao, TaskView};
 use moatless_ports::sandbox::{
     ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxStarter,
@@ -129,13 +129,12 @@ pub async fn status(
 /// detector, because a subscriber that has been told "ready" and is then told
 /// "ready" again a moment later has been sent a change that did not happen.
 pub async fn watch_status(
-    request_id: crate::RequestId,
+    sink: StreamSink,
     state: SandboxState,
     viewer: ScopeContext,
     task_id: String,
     seeded: Value,
-    frames: mpsc::Sender<Value>,
-) {
+) -> StreamResult {
     let mut last = Some(seeded);
     loop {
         tokio::time::sleep(STATUS_POLL_INTERVAL).await;
@@ -149,10 +148,9 @@ pub async fn watch_status(
                     task_id,
                     "A T3 UI sandbox subscription's thread stopped being readable"
                 );
-                let _ = frames
-                    .send(crate::sandbox_stream_refusal(&request_id))
-                    .await;
-                return;
+                return Err(StreamFailure::frame(crate::sandbox_stream_refusal(
+                    sink.request_id(),
+                )));
             }
             Err(error) => {
                 warn!(%error, task_id, "Failed to read a Task's sandbox status");
@@ -163,13 +161,8 @@ pub async fn watch_status(
             continue;
         }
         last = Some(snapshot.clone());
-        let chunk = json!({
-            "_tag": "Chunk",
-            "requestId": request_id.wire(),
-            "values": [snapshot],
-        });
-        if frames.send(chunk).await.is_err() {
-            return;
+        if !sink.send(snapshot).await {
+            return Ok(());
         }
     }
 }
@@ -233,6 +226,7 @@ mod tests {
     };
     use moatless_types::sandbox::{CommandSummary, ManagedCommandState};
     use moatless_types::task::TaskStatus;
+    use tokio::sync::mpsc;
 
     use crate::task_dao::{MockT3TaskDao, TaskView};
 
@@ -398,14 +392,17 @@ mod tests {
         let observer = Arc::new(MovingStatus::at(false));
         let (frames, mut received) = mpsc::channel(8);
         let request_id: crate::RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
-        let watcher = tokio::spawn(watch_status(
-            request_id,
-            watched_state(observer.clone()),
-            viewer(),
-            "task-1".to_string(),
-            json!({ "sandboxStatus": "initializing" }),
-            frames,
-        ));
+        let mut streams = crate::subscription::StreamSet::new(frames);
+        let watched = observer.clone();
+        streams.start_produced(&request_id, None, move |sink| {
+            watch_status(
+                sink,
+                watched_state(watched.clone()),
+                viewer(),
+                "task-1".to_string(),
+                json!({ "sandboxStatus": "initializing" }),
+            )
+        });
 
         tokio::time::sleep(STATUS_POLL_INTERVAL * 3).await;
         assert!(
@@ -417,8 +414,6 @@ mod tests {
         tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;
         let frame = received.try_recv().expect("the move is news");
         assert_eq!(frame["values"][0]["sandboxStatus"], "ready");
-
-        watcher.abort();
     }
 
     /// The key is present when there is an agent to report on, and *absent* —
@@ -501,14 +496,10 @@ mod tests {
 
         let (tx, mut received) = mpsc::channel(4);
         let request_id: crate::RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
-        let watcher = tokio::spawn(watch_status(
-            request_id,
-            state,
-            viewer(),
-            "task-1".to_string(),
-            seeded,
-            tx,
-        ));
+        let mut streams = crate::subscription::StreamSet::new(tx);
+        streams.start_produced(&request_id, None, move |sink| {
+            watch_status(sink, state, viewer(), "task-1".to_string(), seeded)
+        });
 
         tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;
         assert!(
@@ -524,7 +515,5 @@ mod tests {
         // Nothing moved since, so nothing more is sent.
         tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;
         assert!(received.try_recv().is_err(), "a steady command is silent");
-
-        watcher.abort();
     }
 }

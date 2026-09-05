@@ -44,6 +44,7 @@ mod sandbox;
 mod scripts;
 mod servers;
 mod skills;
+pub(crate) mod subscription;
 mod subtasks;
 pub mod task_dao;
 mod terminal;
@@ -80,7 +81,6 @@ use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 use tower_http::compression::CompressionLayer;
 use tracing::{Instrument, debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -93,6 +93,7 @@ use crate::preview_tabs::PreviewTabDao;
 use crate::sandbox::{SandboxRpcError, SandboxState};
 use crate::scripts::{ScriptsError, ScriptsState};
 use crate::servers::{ServersError, ServersState};
+use crate::subscription::{StreamFailure, StreamResult, StreamSet};
 use crate::subtasks::{SubtasksError, SubtasksState};
 use crate::task_dao::T3TaskDao;
 use crate::workspace::WorkspaceAccessError;
@@ -202,7 +203,6 @@ struct UiRpcConfig {
     /// their attachment rather than fall back.
     attachment_uploads: bool,
 }
-
 
 #[derive(Debug, thiserror::Error)]
 pub enum UiRpcConfigError {
@@ -1674,24 +1674,6 @@ fn remote_span_context(
     Some(opentelemetry::Context::new().with_remote_span_context(span_context))
 }
 
-#[derive(Debug, Default)]
-struct StreamState {
-    awaiting_ack: bool,
-    /// The task producing this stream's frames, for streams that produce any.
-    /// Aborted when the client interrupts the request or the connection ends —
-    /// a poller outliving its socket would query the database on behalf of
-    /// nobody.
-    producer: Option<JoinHandle<()>>,
-}
-
-impl Drop for StreamState {
-    fn drop(&mut self) {
-        if let Some(producer) = self.producer.take() {
-            producer.abort();
-        }
-    }
-}
-
 /// The most `cwd`s one connection keeps skill listings for.
 ///
 /// A person browsing threads all afternoon addresses a new `cwd` each time, and
@@ -1701,9 +1683,7 @@ const MAX_WORKSPACE_SNAPSHOTS: usize = 32;
 
 #[derive(Debug)]
 struct ProtocolSession {
-    streams: HashMap<String, StreamState>,
-    /// Where a stream's producer puts frames for the socket writer.
-    frames: mpsc::Sender<Value>,
+    streams: StreamSet,
     /// The open `subscribeServerConfig` request, when the client has one. A
     /// refreshed provider list reaches the client's state through that stream
     /// and nowhere else — the reply to `server.refreshProviders` only tells the
@@ -1721,8 +1701,7 @@ struct ProtocolSession {
 impl ProtocolSession {
     fn new(frames: mpsc::Sender<Value>) -> Self {
         Self {
-            streams: HashMap::new(),
-            frames,
+            streams: StreamSet::new(frames),
             config_stream: None,
             workspace_snapshots: Vec::new(),
         }
@@ -1812,9 +1791,7 @@ impl ProtocolSession {
                         ));
                         continue;
                     }
-                    if let Some(stream) = self.streams.get_mut(request_id.as_str()) {
-                        stream.awaiting_ack = false;
-                    }
+                    self.streams.ack(&request_id);
                 }
                 ClientFrame::Interrupt { request_id } => {
                     if !valid_request_id(request_id.as_str()) {
@@ -1824,7 +1801,7 @@ impl ProtocolSession {
                         ));
                         continue;
                     }
-                    self.streams.remove(request_id.as_str());
+                    self.streams.interrupt(&request_id);
                     if self.config_stream.as_ref() == Some(&request_id) {
                         self.config_stream = None;
                     }
@@ -1870,7 +1847,7 @@ impl ProtocolSession {
                 "Request id is not a decimal string and cannot be correlated",
             )];
         }
-        if self.streams.contains_key(id.as_str()) {
+        if self.streams.contains_active(&id) {
             return vec![connection_defect(
                 "duplicate_request_id",
                 format!("Duplicate in-flight RPC request id: {id}"),
@@ -2151,13 +2128,10 @@ impl ProtocolSession {
                         return vec![terminal_failure_exit(&id, &payload, &error, identity)];
                     }
                 };
-                let producer = tokio::spawn(terminal::forward_attach_stream(
-                    stream,
-                    state.terminal.clone(),
-                    id.clone(),
-                    self.frames.clone(),
-                ));
-                self.start_produced_stream(&id, None, producer)
+                let terminal = state.terminal.clone();
+                self.streams.start_produced(&id, None, move |sink| {
+                    terminal::forward_attach_stream(stream, terminal, sink)
+                })
             }
             "terminal.write" => {
                 let viewer = viewer_scope(identity);
@@ -2360,15 +2334,11 @@ impl ProtocolSession {
                     Ok(status) => status,
                     Err(error) => return vec![sandbox_failure_exit(&id, &tag, &error, identity)],
                 };
-                let producer = tokio::spawn(sandbox::watch_status(
-                    id.clone(),
-                    state.sandbox.clone(),
-                    viewer,
-                    task_id,
-                    seeded.clone(),
-                    self.frames.clone(),
-                ));
-                self.start_produced_stream(&id, Some(vec![seeded]), producer)
+                let sandbox = state.sandbox.clone();
+                self.streams
+                    .start_produced(&id, Some(vec![seeded.clone()]), move |sink| {
+                        sandbox::watch_status(sink, sandbox, viewer, task_id, seeded)
+                    })
             }
             "sandbox.listDiagnostics" => match sandbox::list_diagnostics(&state.sandbox).await {
                 Ok(entries) => vec![success_exit(&id, entries)],
@@ -2398,14 +2368,11 @@ impl ProtocolSession {
                     }),
                     Err(error) => return vec![servers_failure_exit(&id, &error, identity)],
                 };
-                let producer = tokio::spawn(servers::watch_status(
-                    id.clone(),
-                    state.servers.clone(),
-                    viewer,
-                    task_id,
-                    self.frames.clone(),
-                ));
-                self.start_produced_stream(&id, Some(vec![seeded]), producer)
+                let servers = state.servers.clone();
+                self.streams
+                    .start_produced(&id, Some(vec![seeded]), move |sink| {
+                        servers::watch_status(sink, servers, viewer, task_id)
+                    })
             }
             "servers.subscribeLogs" => {
                 let viewer = viewer_scope(identity);
@@ -2418,19 +2385,16 @@ impl ProtocolSession {
                         "servers.subscribeLogs requires a threadId and a name",
                     )];
                 };
-                let producer = tokio::spawn(servers::watch_logs(
-                    id.clone(),
-                    state.servers.clone(),
-                    viewer,
-                    task_id.to_string(),
-                    name.to_string(),
-                    payload
-                        .get("previous")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
-                    self.frames.clone(),
-                ));
-                self.start_produced_stream(&id, None, producer)
+                let servers = state.servers.clone();
+                let task_id = task_id.to_string();
+                let name = name.to_string();
+                let previous = payload
+                    .get("previous")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.streams.start_produced(&id, None, move |sink| {
+                    servers::watch_logs(sink, servers, viewer, task_id, name, previous)
+                })
             }
             "projects.listEntries" => {
                 let Some(cwd) = workspace_cwd(&payload) else {
@@ -2684,15 +2648,10 @@ impl ProtocolSession {
                     // permission to stop rendering itself as synchronizing.
                     values.push(json!({ "kind": "synchronized" }));
                 }
-                let frames = self.frames.clone();
-                let producer = tokio::spawn(Self::watch_shell(
-                    id.clone(),
-                    subscription.feed,
-                    state.clone(),
-                    viewer,
-                    frames,
-                ));
-                self.start_produced_stream(&id, Some(values), producer)
+                let state = state.clone();
+                self.streams.start_produced(&id, Some(values), move |sink| {
+                    Self::watch_shell(sink, subscription.feed, state, viewer)
+                })
             }
             "orchestration.subscribeThread" => {
                 let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
@@ -2734,15 +2693,10 @@ impl ProtocolSession {
                 let Some((values, feed)) = opened else {
                     return vec![failure_exit(&id, "Conversation not found")];
                 };
-                let frames = self.frames.clone();
-                let producer = tokio::spawn(Self::watch_thread(
-                    id.clone(),
-                    feed,
-                    state.clone(),
-                    viewer,
-                    frames,
-                ));
-                self.start_produced_stream(&id, Some(values), producer)
+                let state = state.clone();
+                self.streams.start_produced(&id, Some(values), move |sink| {
+                    Self::watch_thread(sink, feed, state, viewer)
+                })
             }
             // A conversation's checkout exists inside its Sandbox and nowhere
             // else, so an asset is minted as a route this backend serves the
@@ -2820,13 +2774,13 @@ impl ProtocolSession {
                         &self.published_workspace_snapshots(),
                     ).await
                 });
-                let started = self.start_stream(&id, Some(vec![snapshot]));
-                if self.streams.contains_key(id.as_str()) {
+                let started = self.streams.start(&id, Some(vec![snapshot]));
+                if self.streams.contains(id.as_str()) {
                     self.config_stream = Some(id.clone());
                 }
                 started
             }
-            "subscribeServerLifecycle" => self.start_stream(
+            "subscribeServerLifecycle" => self.streams.start(
                 &id,
                 Some(vec![json!({
                     "version": 1,
@@ -2839,7 +2793,7 @@ impl ProtocolSession {
                     }
                 })]),
             ),
-            "subscribeAuthAccess" => self.start_stream(
+            "subscribeAuthAccess" => self.streams.start(
                 &id,
                 Some(vec![json!({
                     "version": 1,
@@ -2852,30 +2806,25 @@ impl ProtocolSession {
                 })]),
             ),
             "subscribePreviewEvents" => {
-                let producer = tokio::spawn(Self::watch_preview_events(
-                    id.clone(),
-                    state.clone(),
-                    viewer_scope(identity),
-                    self.frames.clone(),
-                ));
-                self.start_produced_stream(&id, None, producer)
+                let state = state.clone();
+                let viewer = viewer_scope(identity);
+                self.streams.start_produced(&id, None, move |sink| {
+                    Self::watch_preview_events(sink, state, viewer)
+                })
             }
             "subscribeTerminalEvents" => {
-                let producer = tokio::spawn(terminal::forward_value_subscription(
-                    state.terminal.subscribe_events(),
-                    id.clone(),
-                    self.frames.clone(),
-                ));
-                self.start_produced_stream(&id, None, producer)
+                let events = state.terminal.subscribe_events();
+                self.streams.start_produced(&id, None, move |sink| {
+                    terminal::forward_value_subscription(events, sink)
+                })
             }
             "subscribeTerminalMetadata" => {
                 let snapshot = state.terminal.metadata_snapshot().await;
-                let producer = tokio::spawn(terminal::forward_value_subscription(
-                    state.terminal.subscribe_metadata(),
-                    id.clone(),
-                    self.frames.clone(),
-                ));
-                self.start_produced_stream(&id, Some(vec![snapshot]), producer)
+                let metadata = state.terminal.subscribe_metadata();
+                self.streams
+                    .start_produced(&id, Some(vec![snapshot]), move |sink| {
+                        terminal::forward_value_subscription(metadata, sink)
+                    })
             }
             "subscribeVcsStatus" => {
                 // A `cwd` this surface does not address is not a failure here:
@@ -2883,16 +2832,13 @@ impl ProtocolSession {
                 // including ones with no sandbox, and a stream that says nothing
                 // is what "there is no repository to report on" looks like.
                 let Some(cwd) = workspace_cwd(&payload) else {
-                    return self.start_stream(&id, None);
+                    return self.streams.start(&id, None);
                 };
-                let producer = tokio::spawn(Self::watch_vcs_status(
-                    id.clone(),
-                    cwd,
-                    state.clone(),
-                    viewer_scope(identity),
-                    self.frames.clone(),
-                ));
-                self.start_produced_stream(&id, None, producer)
+                let state = state.clone();
+                let viewer = viewer_scope(identity);
+                self.streams.start_produced(&id, None, move |sink| {
+                    Self::watch_vcs_status(sink, cwd, state, viewer)
+                })
             }
             "git.runStackedAction" => {
                 // The action is not run here or in the Sandbox: the button press
@@ -2976,12 +2922,11 @@ impl ProtocolSession {
     /// — the ordinary state of most conversations — as a permanent answer the
     /// client would then hold until it reconnects.
     async fn watch_vcs_status(
-        request_id: RequestId,
+        sink: subscription::StreamSink,
         cwd: String,
         state: UiRpcState,
         viewer: ScopeContext,
-        frames: mpsc::Sender<Value>,
-    ) {
+    ) -> StreamResult {
         let mut last_sent: Option<Value> = None;
         loop {
             if let Ok(snapshot) = review::status(
@@ -2997,13 +2942,8 @@ impl ProtocolSession {
                 // of every surface that reads git status, so only a change goes
                 // on the wire.
                 if last_sent.as_ref() != Some(&snapshot) {
-                    let chunk = json!({
-                        "_tag": "Chunk",
-                        "requestId": request_id.wire(),
-                        "values": [snapshot.clone()]
-                    });
-                    if frames.send(chunk).await.is_err() {
-                        return;
+                    if !sink.send(snapshot.clone()).await {
+                        return Ok(());
                     }
                     last_sent = Some(snapshot);
                 }
@@ -3031,12 +2971,11 @@ impl ProtocolSession {
     /// why nothing between the first chunk and the first live poll can fall
     /// through the join: it is the same feed either way.
     async fn watch_shell(
-        request_id: RequestId,
+        sink: subscription::StreamSink,
         mut feed: ShellFeed,
         state: UiRpcState,
         viewer: ScopeContext,
-        frames: mpsc::Sender<Value>,
-    ) {
+    ) -> StreamResult {
         loop {
             tokio::time::sleep(SHELL_POLL_INTERVAL).await;
             let values = match feed
@@ -3070,11 +3009,6 @@ impl ProtocolSession {
             if values.is_empty() {
                 continue;
             }
-            let chunk = json!({
-                "_tag": "Chunk",
-                "requestId": request_id.wire(),
-                "values": values
-            });
             // A chunk that cannot be queued is not the poll's problem, and the
             // cursor is deliberately left where the poll put it: the receiver
             // is held by the `ProtocolSession`, so a closed channel means the
@@ -3086,8 +3020,8 @@ impl ProtocolSession {
             // successfully may still fail on the wire in `send_frames`, so
             // treating the queue as delivery confirmation would be wrong in the
             // other direction too.
-            if frames.send(chunk).await.is_err() {
-                return;
+            if !sink.send_values(values).await {
+                return Ok(());
             }
         }
     }
@@ -3105,12 +3039,11 @@ impl ProtocolSession {
     /// again, so it ends rather than idling silently on a screen that would keep
     /// rendering the last snapshot as current.
     async fn watch_thread(
-        request_id: RequestId,
+        sink: subscription::StreamSink,
         mut feed: ThreadFeed,
         state: UiRpcState,
         viewer: ScopeContext,
-        frames: mpsc::Sender<Value>,
-    ) {
+    ) -> StreamResult {
         loop {
             tokio::time::sleep(THREAD_POLL_INTERVAL).await;
             let polled = feed
@@ -3119,10 +3052,7 @@ impl ProtocolSession {
             let values = match polled {
                 Ok(Some(values)) => values,
                 Ok(None) => {
-                    let _ = frames
-                        .send(failure_exit(&request_id, "Conversation not found"))
-                        .await;
-                    return;
+                    return Err(StreamFailure::message("Conversation not found"));
                 }
                 Err(error) => {
                     // As in `watch_shell`: a failed poll leaves the cursor where
@@ -3139,13 +3069,8 @@ impl ProtocolSession {
             if values.is_empty() {
                 continue;
             }
-            let chunk = json!({
-                "_tag": "Chunk",
-                "requestId": request_id.wire(),
-                "values": values
-            });
-            if frames.send(chunk).await.is_err() {
-                return;
+            if !sink.send_values(values).await {
+                return Ok(());
             }
         }
     }
@@ -3159,11 +3084,10 @@ impl ProtocolSession {
     /// remembered: tab events are rare, and a scoped read per event would put
     /// a database round trip on a fan-out path.
     async fn watch_preview_events(
-        request_id: RequestId,
+        sink: subscription::StreamSink,
         state: UiRpcState,
         viewer: ScopeContext,
-        frames: mpsc::Sender<Value>,
-    ) {
+    ) -> StreamResult {
         let mut events = state.preview.tabs.subscribe();
         let mut readable: HashMap<String, bool> = HashMap::new();
         loop {
@@ -3176,7 +3100,7 @@ impl ProtocolSession {
                     warn!(missed, user_id = %viewer.user_id, "A preview event subscriber lagged");
                     continue;
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
             };
             let Some(task_id) = event.get("threadId").and_then(Value::as_str) else {
                 continue;
@@ -3197,13 +3121,8 @@ impl ProtocolSession {
             if !allowed {
                 continue;
             }
-            let chunk = json!({
-                "_tag": "Chunk",
-                "requestId": request_id.wire(),
-                "values": [event]
-            });
-            if frames.send(chunk).await.is_err() {
-                return;
+            if !sink.send(event).await {
+                return Ok(());
             }
         }
     }
@@ -3233,74 +3152,6 @@ impl ProtocolSession {
             .await;
         let snapshot = skills::snapshot(cwd, &now_rfc3339(), &listed);
         self.remember_workspace_snapshot(cwd, snapshot);
-    }
-
-    /// Register a stream and hand it the task that produces its frames.
-    ///
-    /// The two are registered together because the stream limit can refuse the
-    /// registration, and a producer nothing will read has to be aborted rather
-    /// than left polling on behalf of nobody.
-    fn start_produced_stream(
-        &mut self,
-        id: &RequestId,
-        values: Option<Vec<Value>>,
-        producer: JoinHandle<()>,
-    ) -> Vec<Value> {
-        let started = self.start_stream(id, values);
-        match self.streams.get_mut(id.as_str()) {
-            Some(stream) => stream.producer = Some(producer),
-            None => producer.abort(),
-        }
-        started
-    }
-
-    /// Drop the streams whose producer has already reached its terminal `Exit`.
-    ///
-    /// Nothing else reclaims a slot. [`ClientFrame::Interrupt`] is the only
-    /// other path that removes one, and an Effect RPC client sends that only
-    /// for a stream it abandons early: one the client saw end is complete on
-    /// its side, so it interrupts nothing. Without this a finished poller holds
-    /// its slot until the socket closes and a long-lived connection reaches
-    /// [`MAX_ACTIVE_STREAMS`] on subscriptions that ended long ago.
-    fn reap_finished_streams(&mut self) {
-        self.streams.retain(|_, stream| {
-            stream
-                .producer
-                .as_ref()
-                .is_none_or(|producer| !producer.is_finished())
-        });
-    }
-
-    fn start_stream(&mut self, id: &RequestId, values: Option<Vec<Value>>) -> Vec<Value> {
-        self.reap_finished_streams();
-        if self.streams.len() >= MAX_ACTIVE_STREAMS {
-            warn!(
-                active_streams = self.streams.len(),
-                "T3 UI stream refused; this connection is at its subscription cap"
-            );
-            return vec![failure_exit(
-                id,
-                format!("At most {MAX_ACTIVE_STREAMS} RPC streams may be active"),
-            )];
-        }
-
-        let awaiting_ack = values.is_some();
-        self.streams.insert(
-            id.as_str().to_string(),
-            StreamState {
-                awaiting_ack,
-                producer: None,
-            },
-        );
-        values
-            .map(|values| {
-                vec![json!({
-                    "_tag": "Chunk",
-                    "requestId": id.wire(),
-                    "values": values
-                })]
-            })
-            .unwrap_or_default()
     }
 }
 
@@ -5584,13 +5435,13 @@ mod tests {
         assert_eq!(output.frames[0]["_tag"], "Chunk");
         assert_eq!(output.frames[0]["values"][0]["kind"], "snapshot");
         assert_eq!(output.frames[0]["values"][1]["kind"], "synchronized");
-        assert!(session.streams["2"].awaiting_ack);
+        assert_eq!(session.streams.awaiting_ack("2"), Some(true));
 
         let ack = session
             .handle_json(br#"{"_tag":"Ack","requestId":"2"}"#, &state(), &viewer())
             .await;
         assert!(ack.frames.is_empty());
-        assert!(!session.streams["2"].awaiting_ack);
+        assert_eq!(session.streams.awaiting_ack("2"), Some(false));
     }
 
     #[test]
@@ -5687,7 +5538,7 @@ mod tests {
             .await;
         assert_eq!(output.frames[0]["_tag"], "Exit");
         assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");
-        assert!(!session.streams.contains_key("6"));
+        assert!(!session.streams.contains("6"));
     }
 
     #[tokio::test]
@@ -5879,7 +5730,7 @@ mod tests {
             )
             .await;
 
-        assert!(session.streams.contains_key("7"));
+        assert!(session.streams.contains("7"));
         assert_eq!(output.frames[0]["_tag"], "Chunk");
         assert_eq!(output.frames[0]["values"][0]["type"], "snapshot");
         assert_eq!(output.frames[0]["values"][0]["terminals"], json!([]));
@@ -5951,7 +5802,7 @@ mod tests {
                 &viewer(),
             )
             .await;
-        assert!(session.streams.contains_key("3"));
+        assert!(session.streams.contains("3"));
         let output = session
             .handle_json(
                 br#"{"_tag":"Interrupt","requestId":"3"}"#,
@@ -5959,20 +5810,8 @@ mod tests {
                 &viewer(),
             )
             .await;
-        assert!(!session.streams.contains_key("3"));
+        assert!(!session.streams.contains("3"));
         assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Interrupt");
-    }
-
-    /// A producer that has finished, as a stream the client never interrupted.
-    async fn ended_stream() -> StreamState {
-        let producer = tokio::spawn(async {});
-        while !producer.is_finished() {
-            tokio::task::yield_now().await;
-        }
-        StreamState {
-            awaiting_ack: false,
-            producer: Some(producer),
-        }
     }
 
     #[tokio::test]
@@ -5980,7 +5819,8 @@ mod tests {
         let mut session = session();
         session
             .streams
-            .insert("3".to_string(), ended_stream().await);
+            .start_produced(&request_id("3"), None, |_| async { Ok(()) });
+        session.streams.wait_until_finished("3").await;
 
         session
             .handle_json(
@@ -5990,23 +5830,37 @@ mod tests {
             )
             .await;
 
-        assert!(!session.streams.contains_key("3"));
-        assert!(session.streams.contains_key("4"));
+        assert!(!session.streams.contains("3"));
+        assert!(session.streams.contains("4"));
+    }
+
+    #[tokio::test]
+    async fn a_request_id_can_be_reused_after_its_producer_finishes() {
+        let mut session = session();
+        session
+            .streams
+            .start_produced(&request_id("3"), None, |_| async { Ok(()) });
+        session.streams.wait_until_finished("3").await;
+
+        let output = session
+            .handle_json(&request("3", "server.probe", json!({})), &state(), &viewer())
+            .await;
+
+        assert_eq!(output.frames[0]["_tag"], "Exit");
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
     }
 
     #[tokio::test]
     async fn a_connection_holding_live_subscriptions_is_refused_at_the_cap() {
         let mut session = session();
-        // Producer-less streams are the ones that stay open saying nothing, so
-        // the reap leaves them and the cap is reached on live subscriptions.
         for id in 0..MAX_ACTIVE_STREAMS {
-            session.streams.insert(
-                id.to_string(),
-                StreamState {
-                    awaiting_ack: false,
-                    producer: None,
-                },
-            );
+            session
+                .handle_json(
+                    &request(&id.to_string(), "subscribeVcsStatus", json!({})),
+                    &state(),
+                    &viewer(),
+                )
+                .await;
         }
 
         let output = session

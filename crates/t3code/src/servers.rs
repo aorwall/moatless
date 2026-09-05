@@ -16,9 +16,9 @@ use std::time::Duration;
 use chrono::Utc;
 use futures::StreamExt;
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
 use tracing::warn;
 
+use crate::subscription::{StreamFailure, StreamResult, StreamSink};
 use crate::task_dao::{T3TaskDao, TaskView};
 use moatless_ports::sandbox::{
     LogOptions, SandboxError, SandboxIntentReader, SandboxObserver, ServerEntry,
@@ -154,12 +154,11 @@ async fn status_snapshot(
 /// survives: ending it would present a transient K8s error as a dead panel, and
 /// the next poll covers the same ground.
 pub async fn watch_status(
-    request_id: crate::RequestId,
+    sink: StreamSink,
     state: ServersState,
     viewer: ScopeContext,
     task_id: String,
-    frames: mpsc::Sender<Value>,
-) {
+) -> StreamResult {
     let mut last: Option<Value> = None;
     loop {
         tokio::time::sleep(STATUS_POLL_INTERVAL).await;
@@ -169,10 +168,7 @@ pub async fn watch_status(
                 // The conversation stopped being readable. No poll can recover
                 // from that, and a silent stream would leave the panel showing
                 // its last list as current.
-                let _ = frames
-                    .send(crate::failure_exit(&request_id, "Conversation not found"))
-                    .await;
-                return;
+                return Err(StreamFailure::message("Conversation not found"));
             }
             Err(error) => {
                 warn!(%error, task_id, "Failed to read a Task's servers");
@@ -185,13 +181,8 @@ pub async fn watch_status(
             continue;
         }
         last = servers;
-        let chunk = json!({
-            "_tag": "Chunk",
-            "requestId": request_id.wire(),
-            "values": [snapshot],
-        });
-        if frames.send(chunk).await.is_err() {
-            return;
+        if !sink.send(snapshot).await {
+            return Ok(());
         }
     }
 }
@@ -202,25 +193,18 @@ pub async fn watch_status(
 /// that reconnects receives only new lines and the gap is not backfilled —
 /// which is a fact the panel states rather than hides.
 pub async fn watch_logs(
-    request_id: crate::RequestId,
+    sink: StreamSink,
     state: ServersState,
     viewer: ScopeContext,
     task_id: String,
     server_name: String,
     previous: bool,
-    frames: mpsc::Sender<Value>,
-) {
+) -> StreamResult {
     if let Err(error) = authorized_task(&state, &viewer, &task_id).await {
-        let _ = frames
-            .send(crate::failure_exit(
-                &request_id,
-                match error {
-                    ServersError::NotFound => "Conversation not found".to_string(),
-                    error => format!("Failed to read the Task: {error}"),
-                },
-            ))
-            .await;
-        return;
+        return Err(StreamFailure::message(match error {
+            ServersError::NotFound => "Conversation not found".to_string(),
+            error => format!("Failed to read the Task: {error}"),
+        }));
     }
 
     // A subscription is open-ended by definition, so it follows. `previous`
@@ -242,13 +226,9 @@ pub async fn watch_logs(
             // "Not ready" and "no previous logs" are ordinary answers a
             // reviewer needs to see, so the reason reaches the client rather
             // than only the log.
-            let _ = frames
-                .send(crate::failure_exit(
-                    &request_id,
-                    format!("Server logs unavailable: {error}"),
-                ))
-                .await;
-            return;
+            return Err(StreamFailure::message(format!(
+                "Server logs unavailable: {error}"
+            )));
         }
     };
 
@@ -257,22 +237,23 @@ pub async fn watch_logs(
             Ok(line) => line,
             Err(error) => {
                 warn!(%error, task_id, server_name, "A server log stream failed");
-                return;
+                return Err(StreamFailure::message(
+                    "The server log stream ended unexpectedly",
+                ));
             }
         };
-        let chunk = json!({
-            "_tag": "Chunk",
-            "requestId": request_id.wire(),
-            "values": [{
+        if !sink
+            .send(json!({
                 "threadId": task_id,
                 "name": server_name,
                 "line": line,
-            }],
-        });
-        if frames.send(chunk).await.is_err() {
-            return;
+            }))
+            .await
+        {
+            return Ok(());
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]

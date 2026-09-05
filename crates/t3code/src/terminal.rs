@@ -24,6 +24,7 @@ use tracing::{debug, warn};
 
 use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
+use crate::subscription::{StreamFailure, StreamResult, StreamSink};
 use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::SandboxDesiredState;
@@ -445,58 +446,43 @@ pub async fn close(
 pub async fn forward_attach_stream(
     mut stream: Streaming<TerminalAttachStreamEvent>,
     hub: TerminalHub,
-    request_id: super::RequestId,
-    frames: tokio::sync::mpsc::Sender<Value>,
-) {
+    sink: StreamSink,
+) -> StreamResult {
     while let Some(next) = stream.next().await {
         let event = match next {
             Ok(event) => event,
             Err(error) => {
                 warn!(%error, "Terminal attach stream ended with a sandbox error");
-                let _ = frames
-                    .send(super::failure_exit(
-                        &request_id,
-                        "The terminal stream ended unexpectedly",
-                    ))
-                    .await;
-                return;
+                return Err(StreamFailure::message(
+                    "The terminal stream ended unexpectedly",
+                ));
             }
         };
         let Some(value) = hub.observe_event(&event).await.map(attach_event) else {
             continue;
         };
-        let chunk = json!({
-            "_tag": "Chunk",
-            "requestId": request_id.wire(),
-            "values": [value]
-        });
-        if frames.send(chunk).await.is_err() {
-            return;
+        if !sink.send(value).await {
+            return Ok(());
         }
     }
+    Ok(())
 }
 
 pub async fn forward_value_subscription(
     mut rx: broadcast::Receiver<Value>,
-    request_id: super::RequestId,
-    frames: tokio::sync::mpsc::Sender<Value>,
-) {
+    sink: StreamSink,
+) -> StreamResult {
     loop {
         match rx.recv().await {
             Ok(value) => {
-                let chunk = json!({
-                    "_tag": "Chunk",
-                    "requestId": request_id.wire(),
-                    "values": [value]
-                });
-                if frames.send(chunk).await.is_err() {
-                    return;
+                if !sink.send(value).await {
+                    return Ok(());
                 }
             }
             Err(broadcast::error::RecvError::Lagged(missed)) => {
                 debug!(missed, "A T3 terminal subscriber lagged");
             }
-            Err(broadcast::error::RecvError::Closed) => return,
+            Err(broadcast::error::RecvError::Closed) => return Ok(()),
         }
     }
 }
