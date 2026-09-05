@@ -1391,7 +1391,7 @@ impl UsageReporter for AppStateUsage {
         // with `metrics ->> 'model'` as the name. The two arms are unioned
         // rather than coalesced: a Claude turn using two models has to fan out
         // into two rows, and a Codex turn must not.
-        let access = viewer.access_filter(ScopedEntity::Task, "k.", 5);
+        let access = viewer.access_filter(ScopedEntity::Task, "k.", 4);
         let bucket_expr = if window.hourly {
             "to_char(date_trunc('hour', t.started_at AT TIME ZONE $3), 'YYYY-MM-DD\"T\"HH24:00:00\"Z\"')"
         } else {

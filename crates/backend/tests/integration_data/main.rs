@@ -17,6 +17,7 @@ mod repository_dao_test;
 mod repository_handler_test;
 mod session_bot_dao_test;
 mod supervisor_test;
+mod t3_usage_port_test;
 mod tag_dao_test;
 mod tag_handler_test;
 mod task_bindings_port_test;
