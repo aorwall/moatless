@@ -1,7 +1,9 @@
 //! `moatless-backend secrets …` CLI entry.
 //!
 //! The CLI reuses the same binary and the same `SecretService`/`LocalEnvelopeSecretCipher`
-//! the HTTP server uses. It runs as an admin `ScopeContext` (actor id `cli`).
+//! the HTTP server uses. Its `ScopeContext` comes from [`scope_context`]: admin
+//! when no owner is named, and the named owner otherwise. The audit actor is
+//! `cli` either way.
 
 // reason: CLI subcommand writes results to stdout by design.
 #![allow(clippy::print_stdout)]
@@ -138,12 +140,11 @@ pub async fn run(cli: SecretsCli) -> Result<(), Box<dyn std::error::Error>> {
     let cipher = LocalEnvelopeSecretCipher::from_config(&config.secrets)
         .ok_or("SECRETS_ENCRYPTION_KEY must be set (base64 or raw 32 bytes) for secrets CLI")?;
     let service = SecretService::new(secrets_repo, audit_repo, Some(cipher));
-    let ctx = admin_context();
 
     match cli.command {
-        SecretsCommand::List(args) => list(&service, &ctx, args).await?,
-        SecretsCommand::Put(args) => put(&service, &ctx, args).await?,
-        SecretsCommand::Delete(args) => delete(&service, &ctx, args).await?,
+        SecretsCommand::List(args) => list(&service, args).await?,
+        SecretsCommand::Put(args) => put(&service, args).await?,
+        SecretsCommand::Delete(args) => delete(&service, args).await?,
         SecretsCommand::MigrateRepoEnvVars(args) => {
             if !args.dry_run && std::env::var("MOATLESS_CLI_CONFIRM").ok().as_deref() != Some("yes")
             {
@@ -154,7 +155,7 @@ pub async fn run(cli: SecretsCli) -> Result<(), Box<dyn std::error::Error>> {
             run_migrate_repo_env_vars(
                 &pool,
                 &service,
-                &ctx,
+                &scope_context(None),
                 CLI_ACTOR,
                 MigrateOptions {
                     dry_run: args.dry_run,
@@ -167,21 +168,53 @@ pub async fn run(cli: SecretsCli) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn admin_context() -> ScopeContext {
+/// The context a subcommand acts under.
+///
+/// `resolve_scope_for_create` takes a new row's `owner_user_id` from
+/// `ctx.user_id`, so targeting another user means running *as* them rather
+/// than passing their id alongside an admin context. `is_admin` is therefore
+/// false whenever an owner is named: it scopes reads and deletes to that
+/// user's rows plus the global ones, so `--owner-user-id` cannot reach a
+/// third user's secret. The audit actor stays [`CLI_ACTOR`], passed separately.
+fn scope_context(owner_user_id: Option<&str>) -> ScopeContext {
     ScopeContext {
-        user_id: CLI_ACTOR.to_string(),
-        is_admin: true,
+        user_id: owner_user_id.unwrap_or(CLI_ACTOR).to_string(),
+        is_admin: owner_user_id.is_none(),
+    }
+}
+
+/// A user-scoped row is owned by exactly one user and a global row by nobody,
+/// so the flag is required for one scope and rejected for the other. Without
+/// this a `--scope user` put silently wrote `owner_user_id = 'cli'`, which no
+/// user's secret resolution ever matches.
+fn owner_for(
+    scope: Scope,
+    owner_user_id: Option<String>,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    match (scope, owner_user_id) {
+        (Scope::User, None) => Err("--owner-user-id is required with --scope user".into()),
+        // `--owner-user-id "$USER_ID"` on an unset variable reaches clap as an
+        // empty string, not as absent, and would write the same unreachable row
+        // this function exists to prevent.
+        (Scope::User, Some(owner)) if owner.trim().is_empty() => {
+            Err("--owner-user-id cannot be empty".into())
+        }
+        (Scope::User, owner) => Ok(owner),
+        (Scope::Global, Some(_)) => {
+            Err("--owner-user-id is not valid with --scope global".into())
+        }
+        (Scope::Global, None) => Ok(None),
     }
 }
 
 async fn list(
     service: &SecretService,
-    ctx: &ScopeContext,
     args: ListArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let scope: Scope = args.scope.into();
+    let owner = owner_for(scope, args.owner_user_id)?;
     let rows = service
-        .list_metadata(ctx, Some(scope))
+        .list_metadata(&scope_context(owner.as_deref()), Some(scope))
         .await?;
     if rows.is_empty() {
         println!("(no secrets)");
@@ -206,10 +239,10 @@ async fn list(
 
 async fn put(
     service: &SecretService,
-    ctx: &ScopeContext,
     args: PutArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let scope: Scope = args.scope.into();
+    let owner = owner_for(scope, args.owner_user_id)?;
     let value = resolve_value(args.value, args.value_stdin)?;
     let req = PutSecretRequest {
         scope: Some(scope),
@@ -219,17 +252,25 @@ async fn put(
         value: Some(value),
         external_ref: None,
     };
-    let row = service.put_secret(ctx, CLI_ACTOR, req).await?;
-    println!("ok: secret {} @ {}", row.key, row.scope);
+    let row = service
+        .put_secret(&scope_context(owner.as_deref()), CLI_ACTOR, req)
+        .await?;
+    println!(
+        "ok: secret {} @ {} {}",
+        row.key,
+        row.scope,
+        row.owner_user_id.as_deref().unwrap_or("")
+    );
     Ok(())
 }
 
 async fn delete(
     service: &SecretService,
-    ctx: &ScopeContext,
     args: DeleteArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let scope: Scope = args.scope.into();
+    let owner = owner_for(scope, args.owner_user_id)?;
+    let ctx = &scope_context(owner.as_deref());
     let rows = service
         .list_metadata(ctx, Some(scope))
         .await?;
@@ -262,5 +303,55 @@ fn resolve_value(
         }
         (None, false) => Err("one of --value or --value-stdin is required".into()),
         (Some(_), true) => Err("--value and --value-stdin are mutually exclusive".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moatless_backend_core::access_control::resolve_scope_for_create;
+
+    const ALBIN: &str = "8b925a56-eb87-46a0-b81e-8ebeb3393a66";
+
+    #[test]
+    fn a_named_owner_owns_the_row_put_creates() {
+        let ctx = scope_context(Some(ALBIN));
+        let resolved = resolve_scope_for_create(&ctx, Some(Scope::User)).expect("resolve");
+        assert_eq!(resolved.scope, Scope::User);
+        assert_eq!(resolved.owner_user_id.as_deref(), Some(ALBIN));
+    }
+
+    #[test]
+    fn a_named_owner_drops_admin_so_reads_stay_scoped_to_them() {
+        let ctx = scope_context(Some(ALBIN));
+        assert!(!ctx.is_admin);
+        assert!(scope_context(None).is_admin);
+    }
+
+    #[test]
+    fn global_puts_still_run_as_the_admin_cli_actor() {
+        let ctx = scope_context(None);
+        let resolved = resolve_scope_for_create(&ctx, Some(Scope::Global)).expect("resolve");
+        assert_eq!(resolved.scope, Scope::Global);
+        assert_eq!(resolved.owner_user_id, None);
+    }
+
+    #[test]
+    fn owner_is_required_for_user_scope_and_rejected_for_global() {
+        assert!(owner_for(Scope::User, None).is_err());
+        assert_eq!(
+            owner_for(Scope::User, Some(ALBIN.to_string()))
+                .expect("user scope")
+                .as_deref(),
+            Some(ALBIN)
+        );
+        assert!(owner_for(Scope::Global, Some(ALBIN.to_string())).is_err());
+        assert_eq!(owner_for(Scope::Global, None).expect("global scope"), None);
+    }
+
+    #[test]
+    fn a_blank_owner_is_rejected_rather_than_owning_a_row() {
+        assert!(owner_for(Scope::User, Some(String::new())).is_err());
+        assert!(owner_for(Scope::User, Some("  ".to_string())).is_err());
     }
 }
