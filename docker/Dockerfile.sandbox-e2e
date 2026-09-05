@@ -4,7 +4,8 @@
 # tmux) and the Codex CLI test (`codex exec`) runnable hermetically against
 # production tooling. The harness selects which via the run command:
 #   sandbox-transport → CLAUDE_SDK_E2E/CLAUDE_TMUX_E2E, both claude transports
-#   codex-transport   → CODEX_E2E + OPENAI_API_KEY, the codex exec path
+#   codex-transport   → CODEX_E2E + OPENAI_API_KEY, the Codex agent path
+#   agent-cli-eval    → safe recorded moat CLI discovery evaluation
 #
 # IMPORTANT: this image mirrors the *cluster* runtime so the tmux transport's
 # cold-start failure modes are reproduced (and guarded) locally:
@@ -32,6 +33,9 @@ FROM ${SANDBOX_BASE}
 ARG TARGETARCH
 COPY --from=binaries ${TARGETARCH}/ /test-bins/
 RUN chmod +x /test-bins/*
+
+# Declarative scenarios and the recording moat shim used only by agent-cli-eval.
+COPY sandbox/tests/moat_cli_eval /test-assets/moat-cli-eval
 
 # The agent path resolves the CLI from this env (default /usr/local/bin/claude).
 ENV CLAUDE_CLI_PATH=/usr/local/bin/claude

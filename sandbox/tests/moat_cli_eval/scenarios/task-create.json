@@ -1,0 +1,78 @@
+{
+  "id": "MOAT-CLI-001",
+  "prompt": "create a new moatless task",
+  "systemInstruction": "The `moat` CLI is available in this sandbox for Moatless operations.",
+  "expectations": [
+    {
+      "command": ["tasks", "create"],
+      "minInvocations": 1,
+      "requiredArgs": [],
+      "forbiddenArgs": []
+    }
+  ],
+  "mockResponses": {
+    "agents models": {
+      "text": "AGENT       MODEL          LABEL          DEFAULT  INSTALLED\nclaude-code default        Default        yes      yes\ncodex       gpt-5.6-sol    GPT-5.6 Sol    yes      yes",
+      "json": {
+        "agents": [
+          {
+            "id": "claude-code",
+            "label": "Claude Code",
+            "installed": true,
+            "defaultModel": "default",
+            "models": [{ "id": "default", "label": "Default" }]
+          },
+          {
+            "id": "codex",
+            "label": "Codex",
+            "installed": true,
+            "defaultModel": "gpt-5.6-sol",
+            "models": [{ "id": "gpt-5.6-sol", "label": "GPT-5.6 Sol" }]
+          }
+        ]
+      }
+    },
+    "workspaces list": {
+      "text": "ID                 NAME                SOURCE  PRIMARY REPOSITORY\nws_eval_sandbox    Moatless            manual  moatless",
+      "json": [
+        {
+          "id": "ws_eval_sandbox",
+          "name": "Moatless",
+          "source": "manual",
+          "primaryRepositoryId": "repo_eval_moatless"
+        }
+      ]
+    },
+    "repos list": {
+      "text": "ID                  NAME      PROVIDER  BRANCH\nrepo_eval_moatless  moatless  github    main",
+      "json": [
+        {
+          "id": "repo_eval_moatless",
+          "name": "moatless",
+          "provider": "github",
+          "branch": "main"
+        }
+      ]
+    },
+    "tasks list": {
+      "text": "TASK_ID  SHORT     STATUS   TITLE                  REPO\ntask_eval EVAL0001  running  Current evaluation task  moatless",
+      "json": {
+        "tasks": [
+          {
+            "taskId": "task_eval",
+            "shortId": "EVAL0001",
+            "status": "running",
+            "name": "Current evaluation task"
+          }
+        ]
+      }
+    },
+    "tasks create": {
+      "text": "Task task_mock_created created and started (status: running). Sandbox provisioning; agent will begin once the sandbox is ready.",
+      "json": {
+        "taskId": "task_mock_created",
+        "status": "running"
+      }
+    }
+  }
+}

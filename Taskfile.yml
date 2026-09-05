@@ -455,6 +455,11 @@ tasks:
     cmds:
       - ./crates/claude-agent-sdk/scripts/test-docker.sh codex-transport {{.CLI_ARGS}}
 
+  test:moat-cli:eval:
+    desc: Evaluate whether production agents discover and invoke the moat CLI (live, credentialed)
+    cmds:
+      - ./crates/claude-agent-sdk/scripts/test-docker.sh agent-cli-eval
+
   # ── Cleanup ────────────────────────────────────────────────────
 
   clean:workers:

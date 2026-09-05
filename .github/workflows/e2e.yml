@@ -11,18 +11,17 @@ name: E2E (manual)
 # because only a sandbox has a login for it (see the e2e-testing skill).
 #
 # Required repo secrets (set the ones you need for the parts you enable):
-#   CLAUDE_CODE_OAUTH_TOKEN | ANTHROPIC_API_KEY  — agent-tier chains + claude-sdk
-#   OPENAI_API_KEY | CODEX_AUTH_JSON             — Codex chains + codex-sdk
+#   CLAUDE_CODE_OAUTH_TOKEN | ANTHROPIC_API_KEY  — Claude chains, SDK, and CLI eval
+#   OPENAI_API_KEY | CODEX_AUTH_JSON             — Codex chains, SDK, and CLI eval
 #   E2E_GITHUB_PAT                               — repo-clone / Playwright api suite
 #
 # Runner: the playwright suite runs on staging-runners-large (its
 # playwright-runner.sh needs only `docker`, which the DinD sidecar provides).
-# The other three jobs shell out to a host Rust toolchain — test-docker.sh
-# requires ziglang, and cargo-zigbuild is installed prebuilt below — which the
-# arc-runner image does not ship. They default to ubuntu-latest for that
-# reason. Once rust + ziglang are baked into soap-platform-ci's runner image,
-# set the repo variable `E2E_RUST_RUNNER` to that pool's label to move them; no
-# change to this file is needed.
+# The Rust-backed jobs shell out to a host Rust toolchain, which the arc-runner
+# image does not ship. They default to ubuntu-latest for that reason. The test
+# runner uses native Cargo when host and target match and requires cargo-zigbuild
+# only for cross-host local runs. Once Rust is baked into soap-platform-ci's
+# runner image, set `E2E_RUST_RUNNER` to that pool's label to move them.
 #
 # The playwright suite needs two compiled artifacts: the backend under test, and
 # the `moat` CLI every tests/api chain speaks through. `build-binaries` produces
@@ -53,6 +52,10 @@ on:
         default: false
       run_codex_sdk:
         description: 'Run the Codex CLI E2E in Docker (codex exec, sandbox base image)'
+        type: boolean
+        default: false
+      run_agent_cli_eval:
+        description: 'Evaluate whether Claude Code and Codex discover and invoke moat'
         type: boolean
         default: false
 
@@ -215,16 +218,6 @@ jobs:
     runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
-      - name: Install cross-compile toolchain
-        run: |
-          rustup target add x86_64-unknown-linux-gnu
-          pipx install ziglang || pip3 install ziglang
-      # Prebuilt binary. `cargo install --locked cargo-zigbuild` compiled it
-      # from source on every run, before any test work started.
-      - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
-        with:
-          tool: cargo-zigbuild
       - name: Run claude-agent-sdk smoke test in Docker
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -237,16 +230,6 @@ jobs:
     runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
-      - name: Install cross-compile toolchain
-        run: |
-          rustup target add x86_64-unknown-linux-gnu
-          pipx install ziglang || pip3 install ziglang
-      # Prebuilt binary. `cargo install --locked cargo-zigbuild` compiled it
-      # from source on every run, before any test work started.
-      - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
-        with:
-          tool: cargo-zigbuild
       - name: Run Claude sandbox transport E2E in Docker
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -267,18 +250,30 @@ jobs:
     runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
-      - name: Install cross-compile toolchain
-        run: |
-          rustup target add x86_64-unknown-linux-gnu
-          pipx install ziglang || pip3 install ziglang
-      # Prebuilt binary. `cargo install --locked cargo-zigbuild` compiled it
-      # from source on every run, before any test work started.
-      - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
-        with:
-          tool: cargo-zigbuild
       - name: Run Codex CLI E2E in Docker
         env:
           # The sandbox base image is pulled by the harness (SANDBOX_BASE arg).
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: ./crates/claude-agent-sdk/scripts/test-docker.sh codex-transport
+
+  # ── Agent discovery of the moat CLI in the production sandbox image ──
+  agent-cli-eval:
+    name: moat CLI agent evaluation
+    if: inputs.run_agent_cli_eval
+    runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run moat CLI agent evaluation in Docker
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: ./crates/claude-agent-sdk/scripts/test-docker.sh agent-cli-eval
+      - name: Upload moat CLI agent evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: moat-cli-agent-eval
+          path: test-results/moat-cli-eval/results.json
+          if-no-files-found: warn

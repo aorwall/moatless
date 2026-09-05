@@ -9,6 +9,7 @@
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh sdk-e2e test_simple_query  # Run a single SDK test
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh smoke                  # Run claude-agent-sdk smoke tests
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh sandbox-e2e            # Run moatless-sandbox E2E tests
+#   ./crates/claude-agent-sdk/scripts/test-docker.sh agent-cli-eval          # Evaluate agent discovery of the moat CLI
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh all                    # Run all E2E tests
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh build                  # Build image only
 #
@@ -27,10 +28,10 @@ ROOT_DIR="$(cd "$CRATE_DIR/../.." && pwd)"
 MODE="${1:-sdk-e2e}"
 TEST_FILTER="${2:-}"
 
-# The `sandbox-transport` and `codex-transport` modes run moatless-sandbox agent
+# The sandbox transport and agent CLI evaluation modes run moatless-sandbox agent
 # tests inside the real sandbox base image (ships the pinned `claude` CLI, `tmux`
 # AND the `codex` CLI). All other modes use the slim Dockerfile.test image.
-if [ "$MODE" = "sandbox-transport" ] || [ "$MODE" = "codex-transport" ]; then
+if [ "$MODE" = "sandbox-transport" ] || [ "$MODE" = "codex-transport" ] || [ "$MODE" = "agent-cli-eval" ]; then
     IMAGE_NAME="moatless-sandbox-e2e"
 else
     IMAGE_NAME="claude-sdk-test"
@@ -42,7 +43,7 @@ fi
 # Override with SANDBOX_E2E_ARCH=arm64 if you've built a local arm64 base via
 # `docker/build-sandbox.sh --local --only base`. Other modes use the multi-arch
 # Dockerfile.test base, so match the host arch.
-if [ "$MODE" = "sandbox-transport" ] || [ "$MODE" = "codex-transport" ]; then
+if [ "$MODE" = "sandbox-transport" ] || [ "$MODE" = "codex-transport" ] || [ "$MODE" = "agent-cli-eval" ]; then
     DEFAULT_ARCH="amd64"
 else
     case "$(uname -m)" in
@@ -57,8 +58,17 @@ case "$ARCH_DIR" in
     arm64) RUST_TARGET="aarch64-unknown-linux-gnu"; DOCKER_PLATFORM="linux/arm64" ;;
     *) echo "Unsupported SANDBOX_E2E_ARCH: $ARCH_DIR (use amd64 or arm64)"; exit 1 ;;
 esac
+HOST_RUST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
 
 cd "$ROOT_DIR"
+
+cargo_target_build() {
+    if [ "$HOST_RUST_TARGET" = "$RUST_TARGET" ]; then
+        cargo build "$@" --target "$RUST_TARGET"
+    else
+        cargo zigbuild "$@" --target "$RUST_TARGET"
+    fi
+}
 
 # ── Auth tokens ───────────────────────────────────────────────────────────
 # Tokens are passed through from the host environment via `docker run -e`.
@@ -77,7 +87,7 @@ trap cleanup EXIT
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
     if [ "${SKIP_COMPILE:-0}" != "1" ]; then
-        if ! command -v cargo-zigbuild &> /dev/null; then
+        if [ "$HOST_RUST_TARGET" != "$RUST_TARGET" ] && ! command -v cargo-zigbuild &> /dev/null; then
             echo "Error: cargo-zigbuild required for cross-compilation."
             echo "Install: cargo install cargo-zigbuild && pip3 install ziglang"
             exit 1
@@ -95,46 +105,71 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
         mkdir -p "$BINARIES_DIR/$ARCH_DIR"
 
         echo ""
-        echo "=== Cross-compiling test binaries for $RUST_TARGET ==="
+        echo "=== Building test binaries for $RUST_TARGET (host: $HOST_RUST_TARGET) ==="
 
-        # Build SDK E2E test binary
-        echo "Compiling claude-agent-sdk tests..."
-        cargo zigbuild --tests -p claude-agent-sdk --target "$RUST_TARGET" 2>&1
+        if [ "$MODE" = "agent-cli-eval" ]; then
+            # This throwaway cross-target unit only stages two binaries. Debug
+            # info and incremental state consume substantial disk and linker
+            # memory without improving the JSON evaluation report.
+            export CARGO_INCREMENTAL=0
+            export CARGO_PROFILE_TEST_DEBUG=0
+            export CARGO_PROFILE_DEV_DEBUG=0
 
-        # Find and copy the SDK e2e test binary (exclude .d dep-info files)
-        SDK_E2E_BIN=$(find "$TARGET_DIR/$RUST_TARGET/debug/deps" -name "e2e-*" -type f ! -name "*.d" 2>/dev/null | head -1)
-        if [ -n "$SDK_E2E_BIN" ]; then
-            cp "$SDK_E2E_BIN" "$BINARIES_DIR/$ARCH_DIR/sdk-e2e"
-            echo "  -> sdk-e2e"
+            echo "Compiling moat CLI agent evaluation..."
+            cargo_target_build -p moatless-sandbox --test moat_cli_eval 2>&1
+
+            AGENT_CLI_EVAL_BIN=$(find "$TARGET_DIR/$RUST_TARGET/debug/deps" -name "moat_cli_eval-*" -type f ! -name "*.d" -exec ls -t {} + 2>/dev/null | head -1)
+            if [ -z "$AGENT_CLI_EVAL_BIN" ]; then
+                echo "Error: moat CLI agent evaluation binary not found"
+                exit 1
+            fi
+            cp "$AGENT_CLI_EVAL_BIN" "$BINARIES_DIR/$ARCH_DIR/moat-cli-eval"
+            echo "  -> moat-cli-eval"
+
+            echo "Compiling real moat CLI for help output..."
+            cargo_target_build -p moatless-cli --bin moat 2>&1
+            cp "$TARGET_DIR/$RUST_TARGET/debug/moat" "$BINARIES_DIR/$ARCH_DIR/moat-real"
+            echo "  -> moat-real"
         else
-            echo "Warning: SDK E2E test binary not found"
-        fi
+            # Build SDK E2E test binary
+            echo "Compiling claude-agent-sdk tests..."
+            cargo_target_build --tests -p claude-agent-sdk 2>&1
 
-        # Find and copy the SDK smoke test binary (exclude .d dep-info files)
-        SDK_SMOKE_BIN=$(find "$TARGET_DIR/$RUST_TARGET/debug/deps" -name "smoke-*" -type f ! -name "*.d" 2>/dev/null | head -1)
-        if [ -n "$SDK_SMOKE_BIN" ]; then
-            cp "$SDK_SMOKE_BIN" "$BINARIES_DIR/$ARCH_DIR/smoke"
-            echo "  -> smoke"
-        else
-            echo "Warning: SDK smoke test binary not found"
-        fi
+            # Find and copy the SDK e2e test binary (exclude .d dep-info files)
+            SDK_E2E_BIN=$(find "$TARGET_DIR/$RUST_TARGET/debug/deps" -name "e2e-*" -type f ! -name "*.d" 2>/dev/null | head -1)
+            if [ -n "$SDK_E2E_BIN" ]; then
+                cp "$SDK_E2E_BIN" "$BINARIES_DIR/$ARCH_DIR/sdk-e2e"
+                echo "  -> sdk-e2e"
+            else
+                echo "Warning: SDK E2E test binary not found"
+            fi
 
-        # Build sandbox E2E test binary
-        echo "Compiling moatless-sandbox tests..."
-        cargo zigbuild --tests -p moatless-sandbox --target "$RUST_TARGET" 2>&1
+            # Find and copy the SDK smoke test binary (exclude .d dep-info files)
+            SDK_SMOKE_BIN=$(find "$TARGET_DIR/$RUST_TARGET/debug/deps" -name "smoke-*" -type f ! -name "*.d" 2>/dev/null | head -1)
+            if [ -n "$SDK_SMOKE_BIN" ]; then
+                cp "$SDK_SMOKE_BIN" "$BINARIES_DIR/$ARCH_DIR/smoke"
+                echo "  -> smoke"
+            else
+                echo "Warning: SDK smoke test binary not found"
+            fi
 
-        # Find and copy the sandbox e2e test binary (exclude .d dep-info files)
-        SANDBOX_E2E_BIN=$(find "$TARGET_DIR/$RUST_TARGET/debug/deps" -name "agent_e2e-*" -type f ! -name "*.d" 2>/dev/null | head -1)
-        if [ -n "$SANDBOX_E2E_BIN" ]; then
-            cp "$SANDBOX_E2E_BIN" "$BINARIES_DIR/$ARCH_DIR/sandbox-e2e"
-            echo "  -> sandbox-e2e"
-        fi
+            # Build sandbox E2E test binary
+            echo "Compiling moatless-sandbox tests..."
+            cargo_target_build --tests -p moatless-sandbox 2>&1
 
-        # Find and copy the both-transports agent test binary (subprocess + tmux)
-        AGENT_TRANSPORT_BIN=$(find "$TARGET_DIR/$RUST_TARGET/debug/deps" -name "agent_transport_e2e-*" -type f ! -name "*.d" 2>/dev/null | head -1)
-        if [ -n "$AGENT_TRANSPORT_BIN" ]; then
-            cp "$AGENT_TRANSPORT_BIN" "$BINARIES_DIR/$ARCH_DIR/agent-transport-e2e"
-            echo "  -> agent-transport-e2e"
+            # Find and copy the sandbox e2e test binary (exclude .d dep-info files)
+            SANDBOX_E2E_BIN=$(find "$TARGET_DIR/$RUST_TARGET/debug/deps" -name "agent_e2e-*" -type f ! -name "*.d" 2>/dev/null | head -1)
+            if [ -n "$SANDBOX_E2E_BIN" ]; then
+                cp "$SANDBOX_E2E_BIN" "$BINARIES_DIR/$ARCH_DIR/sandbox-e2e"
+                echo "  -> sandbox-e2e"
+            fi
+
+            # Find and copy the both-transports agent test binary (subprocess + tmux)
+            AGENT_TRANSPORT_BIN=$(find "$TARGET_DIR/$RUST_TARGET/debug/deps" -name "agent_transport_e2e-*" -type f ! -name "*.d" 2>/dev/null | head -1)
+            if [ -n "$AGENT_TRANSPORT_BIN" ]; then
+                cp "$AGENT_TRANSPORT_BIN" "$BINARIES_DIR/$ARCH_DIR/agent-transport-e2e"
+                echo "  -> agent-transport-e2e"
+            fi
         fi
 
         echo ""
@@ -153,7 +188,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
 
     echo ""
     echo "=== Building Docker test image: $IMAGE_NAME ==="
-    if [ "$MODE" = "sandbox-transport" ] || [ "$MODE" = "codex-transport" ]; then
+    if [ "$MODE" = "sandbox-transport" ] || [ "$MODE" = "codex-transport" ] || [ "$MODE" = "agent-cli-eval" ]; then
         # Run inside the real sandbox base image (pinned claude CLI + tmux).
         # Requires aorwall/moatless-sandbox-base:latest locally — build it with
         # `docker/build-sandbox.sh --local --only base` or override via SANDBOX_BASE.
@@ -218,8 +253,8 @@ case "$MODE" in
         fi
         ;;
     codex-transport)
-        # Drives the production spawn_agent path for Codex (`codex exec --json`
-        # subprocess) inside the sandbox base image, which ships the `codex` CLI.
+        # Drives the production spawn_agent path for Codex inside the sandbox
+        # base image, which ships the pinned `codex` CLI.
         # Reuses the agent-transport-e2e binary; the codex test self-gates on
         # CODEX_E2E. Serial (--test-threads=1) to keep one live CLI at a time.
         if [ -n "$TEST_FILTER" ]; then
@@ -228,13 +263,16 @@ case "$MODE" in
             TEST_CMD="CODEX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture --test-threads=1 test_spawn_agent_codex"
         fi
         ;;
+    agent-cli-eval)
+        TEST_CMD="MOAT_CLI_EVAL=1 MOAT_CLI_EVAL_ASSETS=/test-assets/moat-cli-eval MOAT_CLI_REAL_BIN=/test-bins/moat-real MOAT_CLI_EVAL_REPORT=/test-results/moat-cli-eval/results.json /test-bins/moat-cli-eval --ignored --nocapture --test-threads=1 evaluate_agents_using_moat_cli"
+        ;;
     all)
         TEST_CMD="CLAUDE_SDK_E2E=1 /test-bins/sdk-e2e --ignored --nocapture && CLAUDE_SDK_E2E=1 /test-bins/sandbox-e2e --ignored --nocapture"
         ;;
     *)
         echo "Unknown mode: $MODE"
         echo ""
-        echo "Usage: $0 {sdk-e2e|smoke|sandbox-e2e|sandbox-transport|codex-transport|all|build} [test_filter]"
+        echo "Usage: $0 {sdk-e2e|smoke|sandbox-e2e|sandbox-transport|codex-transport|agent-cli-eval|all|build} [test_filter]"
         echo ""
         echo "Modes:"
         echo "  sdk-e2e           Run claude-agent-sdk E2E tests (default)"
@@ -242,6 +280,7 @@ case "$MODE" in
         echo "  sandbox-e2e       Run moatless-sandbox E2E tests"
         echo "  sandbox-transport Run the spawn_agent both-transports test (subprocess + tmux) in the sandbox base image"
         echo "  codex-transport   Run the spawn_agent Codex CLI test (codex exec) in the sandbox base image"
+        echo "  agent-cli-eval    Evaluate whether Claude Code and Codex discover and invoke moat"
         echo "  all               Run all E2E tests"
         echo "  build             Build Docker image only"
         echo ""
@@ -250,6 +289,7 @@ case "$MODE" in
         echo "  $0 sdk-e2e test_simple_query      # Run a single test"
         echo "  $0 sandbox-transport              # Both transports in the sandbox image"
         echo "  OPENAI_API_KEY=sk-... $0 codex-transport   # Codex CLI path in the sandbox image"
+        echo "  $0 agent-cli-eval                # Three fresh trials per agent and scenario"
         echo "  SKIP_BUILD=1 $0 sdk-e2e           # Skip image rebuild"
         exit 1
         ;;
@@ -262,6 +302,19 @@ echo "=== Running tests: $MODE ==="
 echo "Command: $TEST_CMD"
 echo ""
 
+DOCKER_EXTRA_ARGS=()
+if [ "$MODE" = "agent-cli-eval" ]; then
+    mkdir -p "$ROOT_DIR/test-results/moat-cli-eval"
+    DOCKER_EXTRA_ARGS+=(
+        -v "$ROOT_DIR/test-results/moat-cli-eval:/test-results/moat-cli-eval"
+        -e MOAT_CLI_EVAL_AGENTS
+        -e MOAT_CLI_EVAL_SCENARIOS
+        -e MOAT_CLI_EVAL_REPETITIONS
+        -e MOAT_CLI_EVAL_MIN_PASSES
+        -e MOAT_CLI_EVAL_COMMIT="${MOAT_CLI_EVAL_COMMIT:-$(git rev-parse HEAD)}"
+    )
+fi
+
 docker run --rm \
     --platform "$DOCKER_PLATFORM" \
     -e CLAUDE_CODE_OAUTH_TOKEN \
@@ -272,6 +325,7 @@ docker run --rm \
     -e OPENAI_API_KEY \
     -e CODEX_AUTH_JSON \
     -e CODEX_TEST_MODEL \
+    "${DOCKER_EXTRA_ARGS[@]}" \
     -e RUST_LOG="${RUST_LOG:-claude_agent_sdk=debug,moatless_sandbox=debug}" \
     "$IMAGE_NAME" \
     "$TEST_CMD"
