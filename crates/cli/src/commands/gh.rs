@@ -393,8 +393,7 @@ async fn run_stack(
 fn passthrough(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     // Thread the git-credential token exactly as the typed and stack paths do,
     // so a passthrough (`pr view`, `api`, `run watch`, …) authenticates the
-    // same way. `github_token_for_gh` yields `None` when `GH_TOKEN` /
-    // `GITHUB_TOKEN` is already set, preserving that env precedence.
+    // same way. See [`resolve_gh_token`] for which source wins.
     let token = github_token_for_gh();
     let status = gh_command(args, token.as_deref())
         .status()
@@ -438,13 +437,42 @@ fn gh_command(args: &[String], token: Option<&str>) -> std::process::Command {
     cmd
 }
 
+/// The broker socket `docker/moatless-git-cred.sh` pulls from. Must match the
+/// path that script bakes in, and the one `moatless-sandbox` binds.
+const BROKER_SOCKET: &str = "/run/moatless/credentials.sock";
+
 fn github_token_for_gh() -> Option<String> {
-    if std::env::var("GH_TOKEN").is_ok_and(|v| !v.trim().is_empty())
+    resolve_gh_token(
+        std::path::Path::new(BROKER_SOCKET).exists(),
+        env_github_token_is_set(),
+        || git_credential_password("github.com").ok(),
+    )
+}
+
+fn env_github_token_is_set() -> bool {
+    std::env::var("GH_TOKEN").is_ok_and(|v| !v.trim().is_empty())
         || std::env::var("GITHUB_TOKEN").is_ok_and(|v| !v.trim().is_empty())
-    {
+}
+
+/// Pick the token to hand `gh`, or `None` to let `gh` resolve its own.
+///
+/// With the broker present the credential helper wins over `GH_TOKEN`: inside a
+/// sandbox that variable and `hosts.yml` are snapshots taken at provision, and
+/// both 401 once the installation token behind them expires, while the helper
+/// mints a fresh one per call. Off the broker an exported `GH_TOKEN` is a
+/// deliberate override and keeps precedence.
+///
+/// `None` leaves `gh` to resolve its own token, so a failed credential read
+/// still reaches the ambient `GH_TOKEN` rather than going unauthenticated.
+fn resolve_gh_token(
+    broker_present: bool,
+    env_token_set: bool,
+    credential: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    if env_token_set && !broker_present {
         return None;
     }
-    git_credential_password("github.com").ok()
+    credential()
 }
 
 fn git_credential_password(host: &str) -> Result<String, Box<dyn std::error::Error>> {
@@ -1482,5 +1510,39 @@ mod tests {
             created.kind.event_subject(id),
             GithubExternalEventSubject::ReviewComment(987)
         ));
+    }
+
+    /// The reported 401: `GH_TOKEN` is seeded at provision and expires with the
+    /// installation token behind it, so in a sandbox the broker's per-call
+    /// token has to outrank it.
+    #[test]
+    fn the_broker_outranks_a_stale_env_token() {
+        assert_eq!(
+            resolve_gh_token(true, true, || Some("fresh".to_string())),
+            Some("fresh".to_string())
+        );
+    }
+
+    #[test]
+    fn an_exported_env_token_still_wins_off_the_broker() {
+        assert_eq!(
+            resolve_gh_token(false, true, || Some("helper".to_string())),
+            None
+        );
+    }
+
+    #[test]
+    fn the_credential_helper_answers_when_no_env_token_is_set() {
+        assert_eq!(
+            resolve_gh_token(false, false, || Some("helper".to_string())),
+            Some("helper".to_string())
+        );
+    }
+
+    /// A broker read that fails leaves `gh` to find the ambient `GH_TOKEN`,
+    /// which beats sending the call unauthenticated.
+    #[test]
+    fn a_failed_broker_read_falls_back_to_gh_s_own_resolution() {
+        assert_eq!(resolve_gh_token(true, true, || None), None);
     }
 }
