@@ -140,25 +140,61 @@ pub struct AppStateBoundPullRequests(pub AppState);
 
 #[async_trait]
 impl BoundPullRequestSource for AppStateBoundPullRequests {
-    async fn bound_pull_request(&self, task_id: &str) -> Option<BoundPullRequest> {
-        let bindings = self.0.task_bindings.find_by_task_id(task_id).await.ok()?;
-        // The active GitHub PR binding, if any. A Task has at most one.
-        let binding = bindings.into_iter().find(|binding| {
+    async fn bound_pull_requests(&self, task_id: &str) -> Vec<BoundPullRequest> {
+        let Ok(bindings) = self.0.task_bindings.find_by_task_id(task_id).await else {
+            return Vec::new();
+        };
+        let mut bound = Vec::new();
+        for binding in bindings.into_iter().filter(|binding| {
             binding.active
                 && binding.adapter_kind == moatless_types::adapter::AdapterKind::Github
                 && binding.subject_kind == "github_pr"
-        })?;
-        if let Some(pr) = bound_pull_request_from_binding(&binding) {
-            return Some(pr);
+        }) {
+            if let Some(pr) = bound_pull_request_from_binding(&binding) {
+                bound.push(pr);
+                continue;
+            }
+            // The persisted blob predates base and head, so it yields no
+            // reportable pull request. This is the only path that reads the
+            // binding — the task-connections endpoint's stale-status refresh
+            // never runs here — so refresh it once through the same
+            // write-through, then rebuild from what the fetch filled in. A
+            // refresh that cannot be done (no token, API error, no adapter)
+            // drops that pull request rather than the ones beside it.
+            if let Some(pr) = self
+                .refresh_incomplete_binding(task_id, &binding)
+                .await
+                .as_ref()
+                .and_then(bound_pull_request_from_binding)
+            {
+                bound.push(pr);
+            }
         }
-        // The persisted blob predates base and head, so it yields no reportable
-        // pull request. This is the only path that reads the binding — the
-        // task-connections endpoint's stale-status refresh never runs here — so
-        // refresh it once through the same write-through, then rebuild from what
-        // the fetch filled in. A refresh that cannot be done (no token, API
-        // error, no adapter) leaves the toolbar showing no pull request.
-        let refreshed = self.refresh_incomplete_binding(task_id, &binding).await?;
-        bound_pull_request_from_binding(&refreshed)
+        bound
+    }
+
+    async fn pull_requests_bound_to(
+        &self,
+        repository: &str,
+        number: u64,
+    ) -> Vec<(String, BoundPullRequest)> {
+        let subject_key = format!("{repository}#{number}");
+        let Ok(bindings) = self
+            .0
+            .task_bindings
+            .find_by_subject("github", "github_pr", &subject_key)
+            .await
+        else {
+            return Vec::new();
+        };
+        bindings
+            .into_iter()
+            .filter(|binding| binding.active)
+            .filter_map(|binding| {
+                let pr = bound_pull_request_from_binding(&binding)?;
+                Some((binding.task_id, pr))
+            })
+            .collect()
     }
 
     async fn resolve_pull_request(
@@ -466,7 +502,8 @@ impl TaskRelationSource for AppStateTaskRelations {
 /// surface reports. `None` when the persisted blob predates base and head, so
 /// the toolbar shows no pull request rather than one with blank branches.
 fn bound_pull_request_from_binding(binding: &TaskBinding) -> Option<BoundPullRequest> {
-    let number = binding.subject_key.rsplit_once('#')?.1.parse().ok()?;
+    let (repository, number) = binding.subject_key.rsplit_once('#')?;
+    let number = number.parse().ok()?;
     let raw = binding.external_status_raw.as_ref()?;
     let non_empty = |key: &str| {
         raw.get(key)
@@ -477,26 +514,27 @@ fn bound_pull_request_from_binding(binding: &TaskBinding) -> Option<BoundPullReq
     let base_ref = non_empty("baseRef")?;
     let head_ref = non_empty("headRef")?;
     let title = non_empty("title").unwrap_or_else(|| binding.subject_key.clone());
-    let url = non_empty("url").unwrap_or_else(|| pull_request_url(&binding.subject_key, number));
+    let url = non_empty("url")
+        .unwrap_or_else(|| format!("https://github.com/{repository}/pull/{number}"));
     let state_kind = binding
         .external_state_kind
         .clone()
         .unwrap_or_else(|| "open".to_string());
     Some(BoundPullRequest {
         number,
+        repository: repository.to_string(),
         title,
         url,
         base_ref,
         head_ref,
         state_kind,
+        // `last_event_at` stands in for a binding whose status has never been
+        // refreshed: it moves whenever the adapter touches the binding, so it
+        // never reports a fresher read than actually happened.
+        status_read_at: binding
+            .external_status_updated_at
+            .unwrap_or(binding.last_event_at),
     })
-}
-
-/// `https://github.com/{owner}/{repo}/pull/{number}` from a `owner/repo#N`
-/// subject key, for a binding whose blob recorded no url.
-fn pull_request_url(subject_key: &str, number: u64) -> String {
-    let repo = subject_key.split('#').next().unwrap_or(subject_key);
-    format!("https://github.com/{repo}/pull/{number}")
 }
 
 pub struct AppStateCommands(pub AppState);

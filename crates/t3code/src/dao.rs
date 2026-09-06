@@ -19,7 +19,9 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
+use sqlx::types::Json;
 use tokio::sync::Semaphore;
 use tracing::warn;
 
@@ -106,6 +108,28 @@ pub struct Conversation {
     pub settled_at: Option<DateTime<Utc>>,
     pub snoozed_until: Option<DateTime<Utc>>,
     pub snoozed_at: Option<DateTime<Utc>>,
+
+    /// Every GitHub pull request this Task is bound to, primary first.
+    ///
+    /// A Task with no active PR binding reports an empty list rather than
+    /// `None`; `None` is only the absence of the column, which no listing
+    /// produces. The order is the one [`crate::ports::primary_pull_request`]
+    /// makes for the status surface — restated in the query's `ORDER BY`, since
+    /// the two read the bindings through different paths and must not disagree
+    /// about which is primary.
+    pub pull_requests: Option<Json<Vec<ConversationPullRequest>>>,
+}
+
+/// One GitHub pull request bound to a Task, as the listing query aggregates it.
+///
+/// A binding too old to name both branches is left out entirely — half a pull
+/// request is not one, and the refresh that fills such a blob in writes through,
+/// so the next poll of the listing picks it up.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationPullRequest {
+    pub repository: String,
+    pub number: i64,
+    pub url: String,
 }
 
 impl Conversation {
@@ -764,7 +788,8 @@ impl PgConversationDao {
                    t.settled_override,
                    t.settled_at,
                    t.snoozed_until,
-                   t.snoozed_at
+                   t.snoozed_at,
+                   COALESCE(pr.pull_requests, '[]'::jsonb) AS pull_requests
                FROM listed t
                LEFT JOIN sandboxes s ON s.sandbox_id = t.sandbox_id
                LEFT JOIN LATERAL (
@@ -855,6 +880,47 @@ impl PgConversationDao {
                            LIMIT 1
                          )
                ) pending ON TRUE
+               -- The pull requests the thread row links to, read from the
+               -- Task's GitHub PR bindings rather than from its branch: the
+               -- agent commits on whatever branch it cut, and `tasks.branch`
+               -- holds the base the Task was created on, so a branch-matched
+               -- read reports nothing for most Tasks that have a PR. A Task can
+               -- carry several — the unique index keys on `subject_key`, and
+               -- nothing retires the binding a new one lands beside.
+               --
+               -- `subject_key` is `owner/repo#N`; the regex guard is what makes
+               -- the `::bigint` casts total, so a malformed key drops its row
+               -- instead of failing the whole listing.
+               LEFT JOIN LATERAL (
+                   SELECT jsonb_agg(
+                              jsonb_build_object(
+                                  'repository', bound.repository,
+                                  'number', bound.number,
+                                  'url', bound.url
+                              )
+                              ORDER BY bound.live DESC, bound.number DESC
+                          ) AS pull_requests
+                   FROM (
+                       SELECT
+                           split_part(b.subject_key, '#', 1) AS repository,
+                           split_part(b.subject_key, '#', 2)::bigint AS number,
+                           COALESCE(
+                               NULLIF(b.external_status_raw ->> 'url', ''),
+                               'https://github.com/' || split_part(b.subject_key, '#', 1)
+                                   || '/pull/' || split_part(b.subject_key, '#', 2)
+                           ) AS url,
+                           (COALESCE(b.external_state_kind, 'open')
+                                NOT IN ('merged', 'closed')) AS live
+                       FROM task_bindings b
+                       WHERE b.task_id = t.task_id
+                         AND b.active
+                         AND b.adapter_kind = 'github'
+                         AND b.subject_kind = 'github_pr'
+                         AND b.subject_key ~ '^.+#[0-9]+$'
+                         AND NULLIF(b.external_status_raw ->> 'baseRef', '') IS NOT NULL
+                         AND NULLIF(b.external_status_raw ->> 'headRef', '') IS NOT NULL
+                   ) bound
+               ) pr ON TRUE
                -- Determinism for this query's own output, and nothing more.
                -- This is *not* the sidebar's order: T3 sorts client-side, in
                -- `resolveSettledTimestamp` (`Sidebar.logic.ts:484-502`), from

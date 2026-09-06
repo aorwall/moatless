@@ -177,6 +177,7 @@ mod tests {
             settled_at: None,
             snoozed_until: None,
             snoozed_at: None,
+            pull_requests: None,
         }
     }
 

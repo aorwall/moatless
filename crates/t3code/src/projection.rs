@@ -761,6 +761,7 @@ fn conversation_row(
     defaults: &AgentModelDefaults,
 ) -> Map<String, Value> {
     let created = created_at(conversation);
+    let linked = linked_pull_requests(conversation, project_id);
     let Value::Object(row) = json!({
         "id": conversation.task_id,
         "projectId": project_id,
@@ -780,6 +781,14 @@ fn conversation_row(
             .and_then(non_empty)
             .map_or(Value::Null, Value::String),
         "worktreePath": worktree_path(conversation),
+        // `linkedPullRequest` is the primary of `linkedPullRequests`. Both are
+        // emitted: upstream's surfaces read the single reference, and only the
+        // fork's multi-pull-request rows read the list.
+        "linkedPullRequest": linked
+            .first()
+            .cloned()
+            .unwrap_or(Value::Null),
+        "linkedPullRequests": Value::Array(linked),
         "latestTurn": latest_turn(conversation),
         "createdAt": instant(created),
         "updatedAt": instant(conversation.updated_at.unwrap_or(created)),
@@ -1479,6 +1488,34 @@ fn worktree_path(conversation: &Conversation) -> Value {
     }
 }
 
+/// Every pull request a thread row links to, as T3's `ThreadLinkedPullRequest`,
+/// primary first — see [`Conversation::pull_requests`] for that order.
+///
+/// A T3 project is a Moatless Workspace, so each reference is placed against the
+/// same `projectId` the row carries. Empty where the Task has no reportable
+/// GitHub PR binding.
+fn linked_pull_requests(conversation: &Conversation, project_id: &str) -> Vec<Value> {
+    let Some(bound) = conversation.pull_requests.as_deref() else {
+        return Vec::new();
+    };
+    bound
+        .iter()
+        .filter_map(|pr| {
+            let repository = non_empty(&pr.repository)?;
+            let url = non_empty(&pr.url)?;
+            if pr.number <= 0 {
+                return None;
+            }
+            Some(json!({
+                "projectId": project_id,
+                "repository": repository,
+                "number": pr.number,
+                "url": url,
+            }))
+        })
+        .collect()
+}
+
 /// A distinct, stable, nominal worktree path for one conversation.
 pub(crate) fn nominal_worktree(task_id: &str) -> String {
     format!("{NOMINAL_WORKTREE_PREFIX}/{task_id}")
@@ -1841,7 +1878,9 @@ mod tests {
     use moatless_types::activity::{ActivityKind, ActivityStatus};
     use moatless_types::agent::AgentType;
     use moatless_types::message::MessageRole;
+    use crate::dao::ConversationPullRequest;
     use moatless_types::sandbox::SandboxStopReason;
+    use sqlx::types::Json;
 
     fn matched(workspace_id: Option<&str>, from_user: bool, text: &str) -> ConversationMatch {
         ConversationMatch {
@@ -1987,7 +2026,13 @@ mod tests {
         "snoozedUntil",
         "snoozedAt",
     ];
-    const THREAD_OPTIONAL: &[&str] = &["interactionMode", "archivedAt", "backgroundLiveness"];
+    const THREAD_OPTIONAL: &[&str] = &[
+        "interactionMode",
+        "archivedAt",
+        "backgroundLiveness",
+        "linkedPullRequest",
+        "linkedPullRequests",
+    ];
     const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
 
     // `ModelSelection` (`:64-68`), after the wire transform. `provider` is the
@@ -2094,6 +2139,7 @@ mod tests {
             settled_at: None,
             snoozed_until: None,
             snoozed_at: None,
+            pull_requests: None,
         }
     }
 
@@ -2424,6 +2470,74 @@ mod tests {
         );
     }
 
+    fn bound(repository: &str, number: i64) -> ConversationPullRequest {
+        ConversationPullRequest {
+            repository: repository.to_string(),
+            number,
+            url: format!("https://github.com/{repository}/pull/{number}"),
+        }
+    }
+
+    /// The link is the Task's binding, so it holds whatever branch the checkout
+    /// is on — including none at all, which is the ordinary case for a Task
+    /// created without picking one.
+    #[test]
+    fn a_thread_row_links_its_bound_pull_request_regardless_of_the_branch() {
+        let mut row = conversation("task-a", "ws-a");
+        row.branch = None;
+        row.pull_requests = Some(Json(vec![bound("acme/web", 42)]));
+
+        let linked = &one_thread(&row)["linkedPullRequest"];
+        assert_eq!(linked["projectId"], "ws-a");
+        assert_eq!(linked["repository"], "acme/web");
+        assert_eq!(linked["number"], 42);
+        assert_eq!(linked["url"], "https://github.com/acme/web/pull/42");
+    }
+
+    /// The query orders the list, so the row takes its first element as the
+    /// primary rather than choosing again on a shape that has lost the states
+    /// the choice was made from.
+    #[test]
+    fn a_thread_row_links_every_bound_pull_request_with_the_primary_first() {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![bound("acme/web", 7), bound("acme/web", 42)]));
+
+        let thread = one_thread(&row);
+        let linked = thread["linkedPullRequests"]
+            .as_array()
+            .expect("linkedPullRequests is an array");
+        assert_eq!(linked.len(), 2);
+        assert_eq!(linked[0]["number"], 7);
+        assert_eq!(linked[1]["number"], 42);
+        assert_eq!(thread["linkedPullRequest"]["number"], 7);
+    }
+
+    #[test]
+    fn a_thread_row_with_no_binding_links_no_pull_request() {
+        let thread = one_thread(&conversation("task-a", "ws-a"));
+        assert_eq!(thread["linkedPullRequest"], Value::Null);
+        assert_eq!(thread["linkedPullRequests"], json!([]));
+    }
+
+    /// A reference is written whole, so a half-filled one is a bug upstream of
+    /// here rather than something to put on the wire.
+    #[test]
+    fn a_thread_row_drops_a_pull_request_it_cannot_name() {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![
+            ConversationPullRequest {
+                repository: String::new(),
+                number: 42,
+                url: "https://github.com/acme/web/pull/42".to_string(),
+            },
+            bound("acme/web", 7),
+        ]));
+
+        let thread = one_thread(&row);
+        assert_eq!(thread["linkedPullRequests"].as_array().map(Vec::len), Some(1));
+        assert_eq!(thread["linkedPullRequest"]["number"], 7);
+    }
+
     /// The chain has to end in an answer, because the contract refuses an empty
     /// one and supplies no default of its own.
     #[test]
@@ -2732,7 +2846,13 @@ mod tests {
         "snoozedUntil",
         "snoozedAt",
     ];
-    const DETAIL_OPTIONAL: &[&str] = &["interactionMode", "archivedAt", "proposedPlans"];
+    const DETAIL_OPTIONAL: &[&str] = &[
+        "interactionMode",
+        "archivedAt",
+        "proposedPlans",
+        "linkedPullRequest",
+        "linkedPullRequests",
+    ];
 
     // `OrchestrationMessage` (`:227-236`).
     const MESSAGE_REQUIRED: &[&str] = &[

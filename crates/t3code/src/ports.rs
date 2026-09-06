@@ -312,6 +312,8 @@ pub trait RepositoryBranchSource: Send + Sync {
 /// branches.
 pub struct BoundPullRequest {
     pub number: u64,
+    /// The binding's repository, as `owner/repo`.
+    pub repository: String,
     pub title: String,
     pub url: String,
     pub base_ref: String,
@@ -320,6 +322,30 @@ pub struct BoundPullRequest {
     /// `closed`. The status surface collapses `draft` to `open` for T3's
     /// three-value set.
     pub state_kind: String,
+    /// When this deployment last read the pull request's state from GitHub —
+    /// not when GitHub last changed it, which no binding records. The client
+    /// orders two observations of one pull request by it, so it only has to
+    /// advance when the status does.
+    pub status_read_at: DateTime<Utc>,
+}
+
+/// The one of a Task's bound pull requests the singular surfaces report.
+///
+/// T3's `pr` field and `linkedPullRequest` each hold one reference while a Task
+/// may be bound to several, so the choice is made here rather than by whichever
+/// binding a query returned first: a live pull request outranks a settled one,
+/// and the newest number breaks the tie. Ordering on the number rather than on
+/// the binding's timestamps keeps the same answer across the status stream and
+/// the thread projection, which read the bindings through different queries.
+pub fn primary_pull_request(bound: &[BoundPullRequest]) -> Option<&BoundPullRequest> {
+    bound
+        .iter()
+        .max_by_key(|pr| (is_live_pull_request(&pr.state_kind), pr.number))
+}
+
+/// Whether a binding's state kind is one a person can still act on.
+fn is_live_pull_request(state_kind: &str) -> bool {
+    !matches!(state_kind, "merged" | "closed")
 }
 
 /// A pull request resolved from a reference, in the shape T3's
@@ -358,10 +384,29 @@ pub enum PullRequestError {
 /// request is recovered or resolved lives on the backend side of this boundary.
 #[async_trait]
 pub trait BoundPullRequestSource: Send + Sync {
-    /// The pull request `task_id` is bound to, or `None` when it has none the
+    /// Every pull request `task_id` is bound to, empty when it has none the
     /// surface can report yet. Access to the Task is checked before this is
     /// called, so it takes no viewer.
-    async fn bound_pull_request(&self, task_id: &str) -> Option<BoundPullRequest>;
+    ///
+    /// A Task may be bound to several — nothing retires a binding when the
+    /// agent opens a second pull request — and the order is not significant;
+    /// callers that report one pick it with [`primary_pull_request`].
+    async fn bound_pull_requests(&self, task_id: &str) -> Vec<BoundPullRequest>;
+
+    /// The Tasks bound to `repository#number`, each with the pull request that
+    /// binding recovers, for the linked-thread summary the sidebar reads.
+    ///
+    /// Answers with the task ids rather than deciding anything, because access
+    /// is the caller's to settle: this surface shows a pull request to a viewer
+    /// who can read a Task bound to it, and only [`ConversationDao`] knows
+    /// which those are.
+    ///
+    /// [`ConversationDao`]: crate::dao::ConversationDao
+    async fn pull_requests_bound_to(
+        &self,
+        repository: &str,
+        number: u64,
+    ) -> Vec<(String, BoundPullRequest)>;
 
     /// Resolve a pull-request reference against a repository, for the attach-PR
     /// dialog. `reference` is already trimmed and is a bare number or

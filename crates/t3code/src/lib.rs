@@ -2866,6 +2866,44 @@ impl ProtocolSession {
                     Err(error) => vec![git_action_failure_exit(&id, &error, identity)],
                 }
             }
+            // The one method of the `pullRequests.*` group this backend serves.
+            // The rest of the group reads a git host and is refused, which is
+            // why `capabilities.pullRequests` stays absent: the listing route,
+            // the right-panel surface and the review actions all gate on it,
+            // and none of them can be served from a binding.
+            "pullRequests.summary" => {
+                let Some((project_id, repository, number)) = pull_request_ref(&payload) else {
+                    return vec![pull_request_summary_failure_exit(
+                        &id,
+                        "A pull request reference needs a projectId, repository and number.",
+                    )];
+                };
+                match review::pull_request_summary(
+                    state.conversations.as_ref(),
+                    state.pull_requests.as_ref(),
+                    &viewer_scope(identity),
+                    &project_id,
+                    &repository,
+                    number,
+                )
+                .await
+                {
+                    Ok(summary) => vec![success_exit(&id, summary)],
+                    Err(review::PullRequestSummaryError::Unknown) => {
+                        vec![pull_request_summary_failure_exit(
+                            &id,
+                            "No pull request is linked to a task you can read.",
+                        )]
+                    }
+                    Err(review::PullRequestSummaryError::Store(error)) => {
+                        error!(%error, user_id = %identity.user_id, "T3 pull-request summary read failed");
+                        vec![pull_request_summary_failure_exit(
+                            &id,
+                            "The pull request could not be read.",
+                        )]
+                    }
+                }
+            }
             "git.resolvePullRequest" => {
                 match git_actions::resolve_pull_request(
                     state.workspaces.as_ref(),
@@ -3570,6 +3608,37 @@ fn git_action_failure_exit(
 /// request, or a repository the viewer cannot be shown, is an ordinary outcome
 /// there; a database failure is logged and reported the same way, since a `Die`
 /// would reach the dialog as an undecodable defect.
+/// A `pullRequests.summary` refusal, as the contract's `PullRequestRpcError`
+/// union carries one. `PullRequestUnavailableError` is the wrong tag: its
+/// reasons all name a git host this method never reaches.
+fn pull_request_summary_failure_exit(request_id: &RequestId, detail: &str) -> Value {
+    typed_failure_exit(
+        request_id,
+        json!({
+            "_tag": "PullRequestOperationError",
+            "operation": "pullRequests.summary",
+            "detail": detail,
+        }),
+    )
+}
+
+/// The `PullRequestRef` a summary request carries.
+fn pull_request_ref(payload: &Value) -> Option<(String, String, u64)> {
+    let text = |key: &str| {
+        payload
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let number = payload.get("number").and_then(Value::as_u64)?;
+    if number == 0 {
+        return None;
+    }
+    Some((text("projectId")?, text("repository")?, number))
+}
+
 fn pull_request_failure_exit(
     request_id: &RequestId,
     tag: &str,
@@ -4314,8 +4383,15 @@ mod tests {
 
     #[async_trait]
     impl ports::BoundPullRequestSource for NoBoundPullRequests {
-        async fn bound_pull_request(&self, _task_id: &str) -> Option<ports::BoundPullRequest> {
-            None
+        async fn bound_pull_requests(&self, _task_id: &str) -> Vec<ports::BoundPullRequest> {
+            Vec::new()
+        }
+        async fn pull_requests_bound_to(
+            &self,
+            _repository: &str,
+            _number: u64,
+        ) -> Vec<(String, ports::BoundPullRequest)> {
+            Vec::new()
         }
         async fn resolve_pull_request(
             &self,

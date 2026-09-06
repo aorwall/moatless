@@ -23,6 +23,7 @@ use sha2::{Digest, Sha256};
 use super::dao::ConversationDao;
 use super::ports::{
     BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource,
+    primary_pull_request,
 };
 use super::projection;
 use super::workspace::{self, WorkspaceAccessError};
@@ -453,8 +454,8 @@ pub async fn status(
     viewer: &ScopeContext,
     cwd: &str,
 ) -> Result<Value, WorkspaceAccessError> {
-    let (status, pr) = read_status(conversations, sandboxes, pull_requests, viewer, cwd).await?;
-    Ok(status_snapshot(&status, pr.as_ref()))
+    let (status, bound) = read_status(conversations, sandboxes, pull_requests, viewer, cwd).await?;
+    Ok(status_snapshot(&status, primary_pull_request(&bound)))
 }
 
 /// One `snapshot` event of the contract's status stream.
@@ -484,8 +485,8 @@ pub async fn status_result(
     viewer: &ScopeContext,
     cwd: &str,
 ) -> Result<Value, WorkspaceAccessError> {
-    let (status, pr) = read_status(conversations, sandboxes, pull_requests, viewer, cwd).await?;
-    Ok(flat_status(&status, pr.as_ref()))
+    let (status, bound) = read_status(conversations, sandboxes, pull_requests, viewer, cwd).await?;
+    Ok(flat_status(&status, primary_pull_request(&bound)))
 }
 
 /// Both halves in one object, which is what the client's own reducer builds out
@@ -498,7 +499,7 @@ fn flat_status(status: &GetGitStatusResponse, pr: Option<&BoundPullRequest>) -> 
     flat
 }
 
-/// The Sandbox's branch state and the pull request the Task is bound to, read
+/// The Sandbox's branch state and the pull requests the Task is bound to, read
 /// together so a pull request that appears without the checkout changing still
 /// makes the snapshot differ and reaches the poll's dedupe.
 async fn read_status(
@@ -507,7 +508,7 @@ async fn read_status(
     pull_requests: &dyn BoundPullRequestSource,
     viewer: &ScopeContext,
     cwd: &str,
-) -> Result<(GetGitStatusResponse, Option<BoundPullRequest>), WorkspaceAccessError> {
+) -> Result<(GetGitStatusResponse, Vec<BoundPullRequest>), WorkspaceAccessError> {
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
@@ -519,8 +520,8 @@ async fn read_status(
         .map_err(|status| {
             workspace::sandbox_access(classify_grpc_error(status, "get_git_status"))
         })?;
-    let pr = pull_requests.bound_pull_request(&task_id).await;
-    Ok((status, pr))
+    let bound = pull_requests.bound_pull_requests(&task_id).await;
+    Ok((status, bound))
 }
 
 /// The half of the status one `git status --porcelain=2 --branch` reads about
@@ -587,6 +588,69 @@ fn pull_request_json(pr: &BoundPullRequest) -> Value {
         "baseRef": pr.base_ref,
         "headRef": pr.head_ref,
         "state": t3_pr_state(&pr.state_kind),
+    })
+}
+
+/// Why a linked pull request could not be summarized.
+pub enum PullRequestSummaryError {
+    /// No active binding names this reference, or none the viewer may read.
+    /// One answer for both: telling them apart would say a Task exists.
+    Unknown,
+    Store(sqlx::Error),
+}
+
+/// The live fields of one linked pull request, as T3's `PullRequestSummary`.
+///
+/// Read from the Task's binding rather than from GitHub: every field the
+/// summary declares is already persisted there, so the sidebar's per-thread
+/// status check costs a database read and no API request. That is also what
+/// bounds this method — it answers for a pull request some Task is bound to,
+/// never for an arbitrary reference, which is `pullRequests.detail`'s job and
+/// is not served.
+pub async fn pull_request_summary(
+    conversations: &dyn ConversationDao,
+    pull_requests: &dyn BoundPullRequestSource,
+    viewer: &ScopeContext,
+    project_id: &str,
+    repository: &str,
+    number: u64,
+) -> Result<Value, PullRequestSummaryError> {
+    let bound = pull_requests.pull_requests_bound_to(repository, number).await;
+    if bound.is_empty() {
+        return Err(PullRequestSummaryError::Unknown);
+    }
+    let task_ids: Vec<String> = bound.iter().map(|(task_id, _)| task_id.clone()).collect();
+    let readable = conversations
+        .readable_by_ids(viewer, &task_ids)
+        .await
+        .map_err(PullRequestSummaryError::Store)?;
+    // Every binding on one reference recovers the same pull request, so which
+    // readable Task carried it does not matter — only that one did.
+    bound
+        .iter()
+        .find(|(task_id, _)| {
+            readable
+                .iter()
+                .any(|conversation| &conversation.task_id == task_id)
+        })
+        .map(|(_, pr)| pull_request_summary_json(project_id, repository, pr))
+        .ok_or(PullRequestSummaryError::Unknown)
+}
+
+fn pull_request_summary_json(project_id: &str, repository: &str, pr: &BoundPullRequest) -> Value {
+    json!({
+        "provider": "github",
+        "projectId": project_id,
+        // The reference the caller asked with, so the answer keys against the
+        // request even where the binding recorded a different capitalization.
+        "repository": repository,
+        "number": pr.number,
+        "title": pr.title,
+        "url": pr.url,
+        "state": t3_pr_state(&pr.state_kind),
+        "headBranch": pr.head_ref,
+        "baseBranch": pr.base_ref,
+        "updatedAt": pr.status_read_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
     })
 }
 
@@ -862,8 +926,11 @@ mod tests {
 
     // -- workspace_branches: the draft-thread branch listing ------------------
 
+    use crate::dao::{Conversation, MockConversationDao};
+    use crate::ports::{PullRequestError, ResolvedPullRequest};
     use crate::workspace_dao::MockT3WorkspaceDao;
     use async_trait::async_trait;
+    use moatless_types::agent::AgentType;
     use std::sync::Mutex;
 
     /// A branch source that answers with a fixed list, or a fixed failure, and
@@ -1036,14 +1103,57 @@ mod tests {
     }
 
     fn bound_pr(state_kind: &str) -> BoundPullRequest {
+        numbered_bound_pr(7, state_kind)
+    }
+
+    fn numbered_bound_pr(number: u64, state_kind: &str) -> BoundPullRequest {
         BoundPullRequest {
-            number: 7,
+            number,
+            repository: "acme/web".into(),
             title: "Add widgets".into(),
-            url: "https://github.com/acme/web/pull/7".into(),
+            url: format!("https://github.com/acme/web/pull/{number}"),
             base_ref: "main".into(),
             head_ref: "feature".into(),
             state_kind: state_kind.into(),
+            status_read_at: chrono::Utc::now(),
         }
+    }
+
+    /// The singular `pr` field reports the newest binding a person can still
+    /// act on, so a Task that opened a second pull request stops reporting
+    /// whichever one the binding query happened to return first.
+    #[test]
+    fn the_primary_pull_request_prefers_a_live_binding_over_a_newer_settled_one() {
+        let bound = vec![
+            numbered_bound_pr(11, "open"),
+            numbered_bound_pr(42, "merged"),
+        ];
+        assert_eq!(primary_pull_request(&bound).map(|pr| pr.number), Some(11));
+    }
+
+    #[test]
+    fn the_primary_pull_request_takes_the_newest_of_several_live_bindings() {
+        let bound = vec![
+            numbered_bound_pr(11, "open"),
+            numbered_bound_pr(42, "draft"),
+        ];
+        assert_eq!(primary_pull_request(&bound).map(|pr| pr.number), Some(42));
+    }
+
+    /// Every binding settled still reports one, so a merged pull request stays
+    /// on the toolbar instead of the surface going blank.
+    #[test]
+    fn the_primary_pull_request_falls_back_to_the_newest_settled_binding() {
+        let bound = vec![
+            numbered_bound_pr(11, "closed"),
+            numbered_bound_pr(42, "merged"),
+        ];
+        assert_eq!(primary_pull_request(&bound).map(|pr| pr.number), Some(42));
+    }
+
+    #[test]
+    fn no_bindings_report_no_primary_pull_request() {
+        assert!(primary_pull_request(&[]).is_none());
     }
 
     #[test]
@@ -1149,5 +1259,160 @@ mod tests {
             assert_eq!(&flat[key], value, "{key} differs from the snapshot's");
         }
         assert!(flat.get("_tag").is_none(), "a result, not a stream event");
+    }
+
+    // -- pullRequests.summary: the linked thread's live fields ----------------
+
+    /// A binding source that answers with fixed Task-to-pull-request pairs.
+    struct StubBoundPullRequests(Vec<(String, BoundPullRequest)>);
+
+    #[async_trait]
+    impl BoundPullRequestSource for StubBoundPullRequests {
+        async fn bound_pull_requests(&self, _task_id: &str) -> Vec<BoundPullRequest> {
+            Vec::new()
+        }
+
+        async fn pull_requests_bound_to(
+            &self,
+            _repository: &str,
+            _number: u64,
+        ) -> Vec<(String, BoundPullRequest)> {
+            self.0
+                .iter()
+                .map(|(task_id, pr)| {
+                    (
+                        task_id.clone(),
+                        BoundPullRequest {
+                            repository: pr.repository.clone(),
+                            title: pr.title.clone(),
+                            url: pr.url.clone(),
+                            base_ref: pr.base_ref.clone(),
+                            head_ref: pr.head_ref.clone(),
+                            state_kind: pr.state_kind.clone(),
+                            ..*pr
+                        },
+                    )
+                })
+                .collect()
+        }
+
+        async fn resolve_pull_request(
+            &self,
+            _viewer: &ScopeContext,
+            _repository_id: &str,
+            _reference: &str,
+        ) -> Result<ResolvedPullRequest, PullRequestError> {
+            unreachable!("the summary resolves no reference")
+        }
+
+        async fn open_pull_request_for_head(
+            &self,
+            _viewer: &ScopeContext,
+            _repository_id: &str,
+            _head: &str,
+        ) -> Option<ResolvedPullRequest> {
+            unreachable!("the summary looks up no head")
+        }
+    }
+
+    /// The summary path reads nothing off the row but its id — it is an access
+    /// answer, not a projection — so the rest is left at its empty value.
+    fn a_conversation(task_id: &str) -> Conversation {
+        Conversation {
+            task_id: task_id.to_string(),
+            workspace_id: Some("ws-1".to_string()),
+            name: None,
+            branch: None,
+            agent_type: AgentType(AgentType::CLAUDE_CODE.to_string()),
+            created_at: "2026-07-01T09:00:00.000Z".to_string(),
+            created_at_db: None,
+            updated_at: None,
+            closed_at: None,
+            turn_number: None,
+            turn_status: None,
+            turn_started_at: None,
+            turn_ended_at: None,
+            sandbox_desired_state_raw: None,
+            sandbox_stop_reason_raw: None,
+            sandbox_started_at: None,
+            sandbox_updated_at: None,
+            running_commands: 0,
+            latest_user_message_at: None,
+            assistant_model: None,
+            requested_model: None,
+            pending_question: false,
+            pending_plan: false,
+            settled_override: None,
+            settled_at: None,
+            snoozed_until: None,
+            snoozed_at: None,
+            pull_requests: None,
+        }
+    }
+
+    fn readable_conversations(readable: bool) -> MockConversationDao {
+        let mut dao = MockConversationDao::new();
+        dao.expect_readable_by_ids().returning(move |_, task_ids| {
+            Ok(if readable {
+                task_ids.iter().map(|id| a_conversation(id)).collect()
+            } else {
+                Vec::new()
+            })
+        });
+        dao
+    }
+
+    async fn summary(readable: bool) -> Result<Value, PullRequestSummaryError> {
+        let bound = StubBoundPullRequests(vec![("task-a".to_string(), bound_pr("open"))]);
+        pull_request_summary(
+            &readable_conversations(readable),
+            &bound,
+            &viewer(),
+            "ws-1",
+            "acme/web",
+            7,
+        )
+        .await
+    }
+
+    /// Every field of T3's `PullRequestSummary` comes off the binding, so the
+    /// sidebar's per-thread status check reaches no git host.
+    #[tokio::test]
+    async fn a_linked_pull_request_is_summarized_from_its_binding() {
+        let summary = summary(true).await.ok().expect("a readable task answers");
+        assert_eq!(summary["provider"], "github");
+        assert_eq!(summary["projectId"], "ws-1");
+        assert_eq!(summary["repository"], "acme/web");
+        assert_eq!(summary["number"], 7);
+        assert_eq!(summary["title"], "Add widgets");
+        assert_eq!(summary["url"], "https://github.com/acme/web/pull/7");
+        assert_eq!(summary["state"], "open");
+        assert_eq!(summary["headBranch"], "feature");
+        assert_eq!(summary["baseBranch"], "main");
+        assert!(summary["updatedAt"].as_str().is_some_and(|at| at.ends_with('Z')));
+    }
+
+    /// The bound Task is the access rule: a viewer who cannot read it is told
+    /// the same thing as one asking about a pull request nothing is bound to.
+    #[tokio::test]
+    async fn a_pull_request_on_an_unreadable_task_is_not_summarized() {
+        assert!(matches!(
+            summary(false).await,
+            Err(PullRequestSummaryError::Unknown)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_pull_request_nothing_is_bound_to_is_not_summarized() {
+        let result = pull_request_summary(
+            &readable_conversations(true),
+            &StubBoundPullRequests(Vec::new()),
+            &viewer(),
+            "ws-1",
+            "acme/web",
+            7,
+        )
+        .await;
+        assert!(matches!(result, Err(PullRequestSummaryError::Unknown)));
     }
 }
