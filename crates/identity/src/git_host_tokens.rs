@@ -23,7 +23,8 @@ use crate::auth::github::service::GitHubAppService;
 use crate::auth::models::ProviderToken;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::{
-    AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF, ProviderTokenAuthDao,
+    AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_APP_USER, AUTH_METHOD_SECRET_REF,
+    ProviderTokenAuthDao,
 };
 use crate::auth::token_refresh::ensure_fresh_token;
 use crate::secret::service::SecretService;
@@ -127,20 +128,13 @@ impl GitHostTokens {
             })
     }
 
-    /// Whether `actor`'s GitHub credential is usable, with no repository in
-    /// hand to name.
-    ///
-    /// For reporting connection state, not for calling GitHub — there is no
-    /// token to return, because minting needs an owner to resolve the
-    /// installation, which only a repository names. Such a row is reported
-    /// usable on the strength of the App handle alone; every path that actually
-    /// reaches GitHub names a repository and goes through
-    /// [`GitHostTokenIssuer::token`], where the mint either succeeds or says
-    /// why not.
+    /// An App-installation row is reported usable on the strength of the App
+    /// handle alone — see [`GitHostTokenIssuer::github_is_usable`], which this
+    /// serves.
     ///
     /// A Workspace pin is usable on its own: it is the token every call on that
     /// Workspace presents, so the identity needs no row of its own behind it.
-    pub async fn github_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError> {
+    async fn github_credential_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError> {
         if self
             .pinned_token(actor, RepositoryProvider::Github)
             .await?
@@ -164,7 +158,7 @@ impl GitHostTokens {
         let checked = match row.auth_method.as_deref() {
             Some(AUTH_METHOD_APP_INSTALLATION) => self.installation_app(&row).await.map(|_| ()),
             Some(AUTH_METHOD_SECRET_REF) => self.read_secret_ref_token(actor).await.map(|_| ()),
-            Some("github_app") => {
+            Some(AUTH_METHOD_APP_USER) => {
                 self.refreshed_oauth_token(&row, actor).await;
                 Ok(())
             }
@@ -199,7 +193,7 @@ impl GitHostTokens {
         let resolved = match row.auth_method.as_deref() {
             Some(AUTH_METHOD_APP_INSTALLATION) => self.mint_installation_token(&row, repo).await,
             Some(AUTH_METHOD_SECRET_REF) => self.read_secret_ref_token(actor).await,
-            Some("github_app") => Ok(self.refreshed_oauth_token(&row, actor).await),
+            Some(AUTH_METHOD_APP_USER) => Ok(self.refreshed_oauth_token(&row, actor).await),
             _ => Ok(row.access_token.clone()),
         };
 
@@ -359,6 +353,10 @@ impl GitHostTokenIssuer for GitHostTokens {
             return Ok(pinned);
         }
         self.stored_host_token(actor, host).await
+    }
+
+    async fn github_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError> {
+        self.github_credential_is_usable(actor).await
     }
 }
 
@@ -521,6 +519,50 @@ mod tests {
         assert!(
             error.to_string().contains("unknown GitHub App key"),
             "got {error}"
+        );
+    }
+
+    async fn usable(row: Option<ProviderToken>) -> Result<(), GitHostTokenError> {
+        tokens(StubProviderTokens::with_user_row(row), service_with(vec![]))
+            .github_is_usable(&Actor::of("u1"))
+            .await
+    }
+
+    #[tokio::test]
+    async fn an_app_backed_identity_is_never_reported_as_never_connected() {
+        // What the T3 source-control panel reads. An installation row holds no
+        // token and no login, so a caller that reads the row itself sees an
+        // identity with nothing in it and concludes "connect an account" — while
+        // the identity's tasks are already pushing as the App. The distinction
+        // this must keep is between "no credential" and "a credential whose App
+        // could not be resolved": only the first is an invitation to connect.
+        let mut row = github_row(
+            AUTH_METHOD_APP_INSTALLATION,
+            crate::auth::provider_tokens::APP_INSTALLATION_TOKEN_PLACEHOLDER,
+        );
+        row.provider_user_id = Some("unregistered".to_string());
+        let error = usable(Some(row))
+            .await
+            .expect_err("the test registry has no App");
+        assert!(
+            matches!(error, GitHostTokenError::Broken { .. }),
+            "an App-backed row is a broken credential, not an absent one: got {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stored_row_is_a_usable_github_credential() {
+        usable(Some(github_row("pat", "ghp_stored")))
+            .await
+            .expect("a stored token needs no App to be usable");
+    }
+
+    #[tokio::test]
+    async fn no_row_is_the_one_state_that_invites_connecting_an_account() {
+        let error = usable(None).await.expect_err("nothing is stored");
+        assert!(
+            matches!(error, GitHostTokenError::NoCredential { .. }),
+            "got {error:?}"
         );
     }
 

@@ -26,3 +26,26 @@ caller side of `UserTokenVerifier` and nothing more.
 This crate names no provider. An Adapter resolves its stored credentials
 through `AdapterAppReader`, declared in `moatless-adapter-model` beside the
 Adapter vocabulary. Adding a provider must not edit this crate.
+
+## GitHub: signing in and having access are separate
+
+`config.auth.provider` decides how somebody signs in.
+`provider_tokens.auth_method` decides how their git operations get a token. A
+deployment that signs people in with OIDC still hands them GitHub access, by
+either of two writers into the same row:
+
+- `auth/github/user_credential.rs` holds the App user token. GitHub App *login*
+  (`auth/session.rs`) and *connect* (`auth/github_connect.rs`) both go through
+  its one `persist`, because the row they leave behind has to match.
+- `git_host_access.rs` holds a Personal Access Token, stored as a secret with
+  the row carrying `secret_ref` and a placeholder. Setting one stashes whatever
+  App token it displaced, so removing it later restores a live credential.
+
+Two asymmetries are deliberate. `github_required_org` gates login only: it
+decides who may sign in, and a connect issues no session, because the person is
+already signed in by the configured provider and this is their own credential
+for their own git operations. Gating it here would be a second, different policy
+wearing the same setting's name, and enforcing org membership on *access* wants
+its own setting. A connect also never revokes and never re-issues a session — it
+writes the credential row and stops. Anything that changes who the caller is
+belongs in the login path.

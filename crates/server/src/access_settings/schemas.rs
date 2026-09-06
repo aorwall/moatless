@@ -10,9 +10,18 @@ pub struct GitHubProviderTokenStatusResponse {
     pub login: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_type: Option<String>,
-    /// True when a GitHub App user has an active PAT override.
+    /// How the stored credential mints a token: `github_app` for a GitHub App
+    /// user token, `github_app_installation` for an installation, `secret_ref`
+    /// for a Personal Access Token held in the secret store.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_pat_override: Option<bool>,
+    pub auth_method: Option<String>,
+    /// Whether a Personal Access Token is standing in front of a GitHub App
+    /// credential that `DELETE /settings/github/pat` can put back. A PAT with
+    /// nothing behind it is the only credential there is, not an override.
+    pub has_pat_override: bool,
+    /// Whether `GET /auth/github-app/connect` can run on this deployment.
+    /// False leaves a Personal Access Token as the only way to connect.
+    pub app_connect_available: bool,
 }
 
 #[derive(Serialize, Deserialize, utoipa::ToSchema)]

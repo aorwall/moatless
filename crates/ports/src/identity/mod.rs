@@ -302,4 +302,17 @@ pub trait GitHostTokenIssuer: Send + Sync {
         actor: &Actor,
         host: PlainGitHost,
     ) -> Result<String, GitHostTokenError>;
+
+    /// Whether `actor`'s GitHub credential is usable, with no repository in
+    /// hand to name.
+    ///
+    /// For reporting connection state, not for calling GitHub: there is no
+    /// token to return, because an App installation is resolved from a
+    /// repository's owner and no repository is named here. Every path that
+    /// actually reaches GitHub goes through [`Self::token`] instead.
+    ///
+    /// Answers for the credential the actor would really present — a Workspace
+    /// pin, an App installation, a stored PAT — so a caller cannot conclude
+    /// "not connected" from the absence of one particular kind of row.
+    async fn github_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError>;
 }

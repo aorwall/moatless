@@ -153,6 +153,23 @@ pub struct AuthConfig {
     pub github_apps: Vec<GitHubAppConfig>,
 }
 
+impl AuthConfig {
+    /// The credentials the GitHub App user-authorization flow needs, present
+    /// only when all three are configured.
+    ///
+    /// The one authority on whether that flow can run at all. Both GitHub App
+    /// *login* and *connect* go through it, so a deployment that signs people
+    /// in some other way still answers `Some` here and can still offer GitHub
+    /// access without a Personal Access Token.
+    pub fn github_app_oauth(&self) -> Option<(&str, &str, &str)> {
+        Some((
+            self.github_app_client_id.as_deref()?,
+            self.github_app_client_secret.as_deref()?,
+            self.github_app_callback_url.as_deref()?,
+        ))
+    }
+}
+
 #[derive(Clone)]
 pub struct OidcConfig {
     pub provider_id: String,

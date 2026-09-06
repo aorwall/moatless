@@ -24,9 +24,12 @@ pub struct GitHubAppOAuthProvider {
 impl GitHubAppOAuthProvider {
     /// Create from config. Returns None if GitHub App OAuth is not configured.
     pub fn from_config(config: &Config) -> Option<Self> {
-        let client_id = config.auth.github_app_client_id.clone()?;
-        let client_secret = config.auth.github_app_client_secret.clone()?;
-        let callback_url = config.auth.github_app_callback_url.clone()?;
+        let (client_id, client_secret, callback_url) = config.auth.github_app_oauth()?;
+        let (client_id, client_secret, callback_url) = (
+            client_id.to_string(),
+            client_secret.to_string(),
+            callback_url.to_string(),
+        );
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()

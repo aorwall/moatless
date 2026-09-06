@@ -11,6 +11,7 @@ pub mod cookie;
 pub mod credentials;
 pub mod error;
 pub mod github;
+mod github_connect;
 pub mod jwt;
 pub mod middleware;
 pub mod models;

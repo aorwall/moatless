@@ -10,8 +10,12 @@ use moatless_types::access_control::ScopeContext;
 use crate::auth::credentials::{
     GITHUB_OAUTH_STASH_KEY, read_github_oauth_stash, stash_github_oauth_token,
 };
+use crate::auth::models::ProviderToken;
 use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::auth::provider_tokens::{AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER};
+use crate::auth::provider_tokens::{
+    AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_APP_USER, AUTH_METHOD_SECRET_REF,
+    SECRET_REF_TOKEN_PLACEHOLDER,
+};
 use crate::secret::error::SecretError;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::SecretService;
@@ -20,8 +24,6 @@ use moatless_types::secret::SecretKind;
 #[derive(Clone, Debug)]
 pub struct GitHostPrincipal {
     pub user_id: String,
-    pub login: String,
-    pub is_github_app_user: bool,
     pub scope_context: ScopeContext,
 }
 
@@ -30,7 +32,17 @@ pub struct GitHubProviderTokenStatus {
     pub connected: bool,
     pub login: Option<String>,
     pub token_type: Option<String>,
-    pub has_pat_override: Option<bool>,
+    /// How the stored credential mints a token — `provider_tokens.auth_method`.
+    /// Says which of the connect paths the person is on, so a screen can name
+    /// the credential instead of guessing from `token_type`.
+    pub auth_method: Option<String>,
+    /// Whether a PAT is standing in front of an App-issued credential that
+    /// [`GitHostAccess::restore_github_app_token`] can put back. A PAT with
+    /// nothing behind it is the only credential there is, not an override.
+    pub has_pat_override: bool,
+    /// Whether this deployment can run the App authorization flow at all. False
+    /// leaves a PAT as the only way to connect, which is what the screen offers.
+    pub app_connect_available: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,6 +145,9 @@ pub struct GitHostAccess {
     provider_tokens: Arc<dyn ProviderTokenDao>,
     secrets: Arc<SecretService>,
     validator: Arc<dyn GitHostTokenValidator>,
+    /// Start-up state, so it is passed in rather than read per request. See
+    /// [`GitHubProviderTokenStatus::app_connect_available`].
+    app_connect_available: bool,
 }
 
 impl GitHostAccess {
@@ -140,11 +155,13 @@ impl GitHostAccess {
         provider_tokens: Arc<dyn ProviderTokenDao>,
         secrets: Arc<SecretService>,
         validator: Arc<dyn GitHostTokenValidator>,
+        app_connect_available: bool,
     ) -> Self {
         Self {
             provider_tokens,
             secrets,
             validator,
+            app_connect_available,
         }
     }
 
@@ -161,18 +178,41 @@ impl GitHostAccess {
                 connected: false,
                 login: None,
                 token_type: None,
-                has_pat_override: principal.is_github_app_user.then_some(false),
+                auth_method: None,
+                has_pat_override: false,
+                app_connect_available: self.app_connect_available,
             });
         };
-        let login = metadata_string(row.metadata.as_ref(), "login");
         Ok(GitHubProviderTokenStatus {
             connected: true,
-            login,
-            has_pat_override: principal
-                .is_github_app_user
-                .then_some(row.token_type.as_deref() == Some("pat")),
+            login: metadata_string(row.metadata.as_ref(), "login"),
+            has_pat_override: self
+                .has_stashed_app_token(&principal.user_id, row.token_type.as_deref())
+                .await,
+            auth_method: row.auth_method,
             token_type: row.token_type,
+            app_connect_available: self.app_connect_available,
         })
+    }
+
+    /// Whether an App-issued credential is stashed behind this user's PAT —
+    /// that is, whether [`Self::restore_github_app_token`] would hand back a
+    /// working credential rather than fail.
+    ///
+    /// Keyed on the stash itself, not on the row's metadata: the App
+    /// authorization flow stashes a displaced PAT's predecessor without ever
+    /// writing to the row, so metadata answers for only one of the two writers.
+    async fn has_stashed_app_token(&self, user_id: &str, token_type: Option<&str>) -> bool {
+        if token_type != Some("pat") {
+            return false;
+        }
+        match read_github_oauth_stash(&self.secrets, user_id).await {
+            Ok(stash) => stash.is_some(),
+            Err(error) => {
+                tracing::warn!(%error, user_id, "Failed to read the GitHub App token stash");
+                false
+            }
+        }
     }
 
     pub async fn save_github_provider_token(
@@ -187,32 +227,32 @@ impl GitHostAccess {
             .map_err(GitHostAccessError::Provider)?;
         let mut metadata = serde_json::json!({ "login": login });
 
-        if principal.is_github_app_user {
-            if let Some(existing) = self
-                .provider_tokens
-                .find_provider_token_full(&principal.user_id, "github")
-                .await?
-            {
-                if existing.token_type.as_deref() == Some("pat") {
-                    for key in ["oauth_login", "oauth_auth_method"] {
-                        if let Some(value) = metadata_string(existing.metadata.as_ref(), key) {
-                            metadata[key] = serde_json::Value::String(value);
-                        }
-                    }
-                } else {
-                    stash_github_oauth_token(
-                        &self.secrets,
-                        &principal.user_id,
-                        &existing.access_token,
-                    )
-                    .await?;
-                    if let Some(value) = metadata_string(existing.metadata.as_ref(), "login") {
-                        metadata["oauth_login"] = serde_json::Value::String(value);
-                    }
-                    if let Some(value) = existing.auth_method {
-                        metadata["oauth_auth_method"] = serde_json::Value::String(value);
+        if let Some(existing) = self
+            .provider_tokens
+            .find_provider_token_full(&principal.user_id, "github")
+            .await?
+        {
+            if existing.token_type.as_deref() == Some("pat") {
+                // Replacing one PAT with another leaves whatever the first one
+                // displaced still stashed and still restorable.
+                for key in ["oauth_login", "oauth_auth_method"] {
+                    if let Some(value) = metadata_string(existing.metadata.as_ref(), key) {
+                        metadata[key] = serde_json::Value::String(value);
                     }
                 }
+            } else if let Some(auth_method) = restorable_auth_method(&existing) {
+                // Keyed on the token being real rather than on one auth_method:
+                // rows predating the column were backfilled to `manual` by
+                // migration 0027 and still hold a live OAuth token, and losing
+                // one means the person cannot get back to App access by
+                // removing the PAT.
+                stash_github_oauth_token(&self.secrets, &principal.user_id, &existing.access_token)
+                    .await?;
+                if let Some(value) = metadata_string(existing.metadata.as_ref(), "login") {
+                    metadata["oauth_login"] = serde_json::Value::String(value);
+                }
+                // The row's own method, so a restore puts back what was there.
+                metadata["oauth_auth_method"] = serde_json::Value::String(auth_method);
             }
         }
 
@@ -246,7 +286,11 @@ impl GitHostAccess {
             connected: true,
             login: Some(login),
             token_type: Some("pat".to_string()),
-            has_pat_override: principal.is_github_app_user.then_some(true),
+            auth_method: Some(AUTH_METHOD_SECRET_REF.to_string()),
+            has_pat_override: self
+                .has_stashed_app_token(&principal.user_id, Some("pat"))
+                .await,
+            app_connect_available: self.app_connect_available,
         })
     }
 
@@ -263,7 +307,9 @@ impl GitHostAccess {
             connected: false,
             login: None,
             token_type: None,
-            has_pat_override: None,
+            auth_method: None,
+            has_pat_override: false,
+            app_connect_available: self.app_connect_available,
         })
     }
 
@@ -271,11 +317,6 @@ impl GitHostAccess {
         &self,
         principal: &GitHostPrincipal,
     ) -> Result<GitHubProviderTokenStatus, GitHostAccessError> {
-        if !principal.is_github_app_user {
-            return Err(GitHostAccessError::BadRequest(
-                "PAT override removal is only available for GitHub App users".to_string(),
-            ));
-        }
         let token = self
             .provider_tokens
             .find_provider_token_full(&principal.user_id, "github")
@@ -293,11 +334,16 @@ impl GitHostAccess {
                     "Cannot restore GitHub App token — original token not preserved".to_string(),
                 )
             })?;
-        let login = metadata_string(token.metadata.as_ref(), "oauth_login")
-            .unwrap_or_else(|| principal.login.clone());
+        // No fallback to the caller's Moatless login: a screen reading this
+        // field renders it as the GitHub account the credential acts as, and
+        // absent beats wrong.
+        let login = metadata_string(token.metadata.as_ref(), "oauth_login");
         let restored_auth_method = metadata_string(token.metadata.as_ref(), "oauth_auth_method")
-            .unwrap_or_else(|| "github_app".to_string());
-        let metadata = serde_json::json!({ "login": login });
+            .unwrap_or_else(|| AUTH_METHOD_APP_USER.to_string());
+        let metadata = login.as_ref().map_or_else(
+            || serde_json::json!({}),
+            |login| serde_json::json!({ "login": login }),
+        );
 
         self.provider_tokens
             .upsert_token_with_auth_method(
@@ -315,9 +361,11 @@ impl GitHostAccess {
 
         Ok(GitHubProviderTokenStatus {
             connected: true,
-            login: Some(login),
+            login,
             token_type: Some("bearer".to_string()),
-            has_pat_override: Some(false),
+            auth_method: Some(restored_auth_method),
+            has_pat_override: false,
+            app_connect_available: self.app_connect_available,
         })
     }
 
@@ -402,6 +450,29 @@ impl GitHostAccess {
     }
 }
 
+/// The `auth_method` to restore `row` under once a PAT override is removed, or
+/// `None` when the row holds nothing worth stashing.
+///
+/// A `secret_ref` row stores [`SECRET_REF_TOKEN_PLACEHOLDER`] rather than a
+/// token, and an installation token is minted per install and short-lived —
+/// stashing either offers a restore that hands back a string GitHub rejects.
+/// Everything else is a real user token, including the `manual` rows migration
+/// 0027 backfilled.
+fn restorable_auth_method(row: &ProviderToken) -> Option<String> {
+    if row.access_token.is_empty() || row.access_token == SECRET_REF_TOKEN_PLACEHOLDER {
+        return None;
+    }
+    match row.auth_method.as_deref() {
+        Some(AUTH_METHOD_SECRET_REF | AUTH_METHOD_APP_INSTALLATION) => None,
+        // The column is nullable, and only the App login path writes a real
+        // token without going through one of the methods above. A floor, not a
+        // claim about history: migration 0027 backfilled the rows that predate
+        // the column to `manual`.
+        None => Some(AUTH_METHOD_APP_USER.to_string()),
+        Some(auth_method) => Some(auth_method.to_string()),
+    }
+}
+
 fn metadata_string(metadata: Option<&serde_json::Value>, key: &str) -> Option<String> {
     metadata
         .and_then(|value| value.get(key))
@@ -414,6 +485,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use super::*;
+    use crate::auth::models::ProviderToken;
     use crate::auth::test_support::StubProviderTokens;
     use crate::secret::test_support::service_with;
 
@@ -438,19 +510,82 @@ mod tests {
         }
     }
 
+    /// Accepts any token as `ada`'s, so a test can reach the write path.
+    struct AcceptingValidator;
+
+    #[async_trait]
+    impl GitHostTokenValidator for AcceptingValidator {
+        async fn validate_github(&self, _token: &str) -> Result<String, GitProviderError> {
+            Ok("ada".to_string())
+        }
+
+        async fn validate_gitness(
+            &self,
+            _base_url: &str,
+            _token: &str,
+        ) -> Result<String, GitProviderError> {
+            Ok("ada".to_string())
+        }
+    }
+
     fn access(tokens: Arc<StubProviderTokens>) -> GitHostAccess {
+        access_with_stash(tokens, None)
+    }
+
+    /// The secret store is handed back so a test can read what a save wrote to
+    /// it — the stash is the whole subject of these cases.
+    fn accepting_access(row: ProviderToken) -> (GitHostAccess, Arc<SecretService>) {
+        let secrets = Arc::new(service_with(Vec::new()));
+        let access = GitHostAccess::new(
+            Arc::new(StubProviderTokens::with_user_row(Some(row))),
+            Arc::clone(&secrets),
+            Arc::new(AcceptingValidator),
+            true,
+        );
+        (access, secrets)
+    }
+
+    /// Save a PAT over `row` and report what was stashed behind it.
+    ///
+    /// The displaced row is the one a PAT is being set *over*, so it carries
+    /// the OAuth `token_type` rather than the `pat` a previous override left.
+    async fn stash_after_saving_a_pat_over(mut row: ProviderToken) -> Option<String> {
+        row.token_type = Some("bearer".to_string());
+        let (access, secrets) = accepting_access(row);
+        access
+            .save_github_provider_token(&principal(), "ghp_new".to_string())
+            .await
+            .expect("save the PAT");
+        read_github_oauth_stash(&secrets, "u1")
+            .await
+            .expect("read the stash")
+    }
+
+    /// `stash` is the App user token held behind a PAT, which is what makes a
+    /// restore possible and so what `has_pat_override` reports.
+    fn access_with_stash(tokens: Arc<StubProviderTokens>, stash: Option<&str>) -> GitHostAccess {
+        let records = stash
+            .map(|token| {
+                vec![crate::secret::test_support::secret(
+                    "user",
+                    Some("u1"),
+                    SecretKind::Internal.as_str(),
+                    GITHUB_OAUTH_STASH_KEY,
+                    token,
+                )]
+            })
+            .unwrap_or_default();
         GitHostAccess::new(
             tokens,
-            Arc::new(service_with(Vec::new())),
+            Arc::new(service_with(records)),
             Arc::new(RejectingValidator),
+            true,
         )
     }
 
     fn principal() -> GitHostPrincipal {
         GitHostPrincipal {
             user_id: "u1".to_string(),
-            login: "user".to_string(),
-            is_github_app_user: false,
             scope_context: ScopeContext {
                 user_id: "u1".to_string(),
                 is_admin: false,
@@ -467,6 +602,146 @@ mod tests {
 
         assert!(matches!(result, Err(GitHostAccessError::Provider(_))));
         assert_eq!(tokens.writes.load(Ordering::Relaxed), 0);
+    }
+
+    /// The principal never says how anyone signed in, so every status test
+    /// below runs as somebody who authenticated through OIDC and connected
+    /// GitHub separately — the case the old login-provider gate got wrong.
+    async fn status(row: Option<ProviderToken>) -> GitHubProviderTokenStatus {
+        status_with_stash(row, None).await
+    }
+
+    async fn status_with_stash(
+        row: Option<ProviderToken>,
+        stash: Option<&str>,
+    ) -> GitHubProviderTokenStatus {
+        access_with_stash(Arc::new(StubProviderTokens::with_user_row(row)), stash)
+            .github_status(&principal())
+            .await
+            .expect("status")
+    }
+
+    fn row_with(auth_method: &str, token_type: &str, metadata: serde_json::Value) -> ProviderToken {
+        let mut row = crate::auth::test_support::github_row(auth_method, "tok");
+        row.token_type = Some(token_type.to_string());
+        row.metadata = Some(metadata);
+        row
+    }
+
+    #[tokio::test]
+    async fn an_app_credential_is_not_reported_as_a_pat_override() {
+        let status = status(Some(row_with(
+            AUTH_METHOD_APP_USER,
+            "bearer",
+            serde_json::json!({ "login": "ada" }),
+        )))
+        .await;
+
+        assert!(status.connected);
+        assert!(!status.has_pat_override);
+        assert_eq!(status.auth_method.as_deref(), Some(AUTH_METHOD_APP_USER));
+        assert_eq!(status.login.as_deref(), Some("ada"));
+    }
+
+    #[tokio::test]
+    async fn an_app_token_is_never_an_override_however_much_is_stashed_behind_it() {
+        // A stash outlives nothing here — the live row is the App credential,
+        // so there is no PAT to take away.
+        let status = status_with_stash(
+            Some(row_with(
+                AUTH_METHOD_APP_USER,
+                "bearer",
+                serde_json::json!({ "login": "ada" }),
+            )),
+            Some("ghu_stashed"),
+        )
+        .await;
+
+        assert!(!status.has_pat_override);
+    }
+
+    #[tokio::test]
+    async fn a_pat_standing_in_front_of_an_app_token_is_an_override() {
+        let status = status_with_stash(
+            Some(row_with(
+                AUTH_METHOD_SECRET_REF,
+                "pat",
+                serde_json::json!({ "login": "ada" }),
+            )),
+            Some("ghu_stashed"),
+        )
+        .await;
+
+        assert!(status.has_pat_override);
+    }
+
+    #[tokio::test]
+    async fn a_pat_with_nothing_behind_it_is_the_only_credential_not_an_override() {
+        // Offering "remove override" here would delete the person's only way
+        // to reach GitHub and restore nothing in its place.
+        let status = status(Some(row_with(
+            AUTH_METHOD_SECRET_REF,
+            "pat",
+            serde_json::json!({ "login": "ada" }),
+        )))
+        .await;
+
+        assert!(status.connected);
+        assert!(!status.has_pat_override);
+    }
+
+    #[tokio::test]
+    async fn connect_availability_is_reported_to_someone_holding_no_credential() {
+        // The page needs it precisely when there is no row: that is when it
+        // must choose between offering the App flow and asking for a PAT.
+        let status = status(None).await;
+
+        assert!(!status.connected);
+        assert!(status.app_connect_available);
+        assert!(!status.has_pat_override);
+    }
+
+    #[tokio::test]
+    async fn a_pat_set_over_a_backfilled_row_keeps_the_token_it_displaced() {
+        // Migration 0027 backfilled every pre-existing row to `manual`, and
+        // those rows hold a live OAuth token. Skipping the stash for them means
+        // removing the PAT later cannot get the person back to App access.
+        let row = crate::auth::test_support::github_row("manual", "ghu_displaced");
+        assert_eq!(
+            stash_after_saving_a_pat_over(row).await.as_deref(),
+            Some("ghu_displaced")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pat_set_over_an_app_credential_keeps_the_token_it_displaced() {
+        let row = crate::auth::test_support::github_row(AUTH_METHOD_APP_USER, "ghu_displaced");
+        assert_eq!(
+            stash_after_saving_a_pat_over(row).await.as_deref(),
+            Some("ghu_displaced")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_row_holding_no_real_token_is_not_stashed() {
+        // Restoring either would hand back a string GitHub rejects: the
+        // `secret_ref` row stores a placeholder, and an installation token is
+        // minted per install and short-lived.
+        for row in [
+            crate::auth::test_support::github_row(
+                AUTH_METHOD_SECRET_REF,
+                SECRET_REF_TOKEN_PLACEHOLDER,
+            ),
+            crate::auth::test_support::github_row(AUTH_METHOD_APP_INSTALLATION, "ghs_install"),
+            crate::auth::test_support::github_row(AUTH_METHOD_APP_USER, ""),
+        ] {
+            let auth_method = row.auth_method.clone();
+            assert_eq!(
+                stash_after_saving_a_pat_over(row).await,
+                None,
+                "{auth_method:?} must not be offered for restore"
+            );
+        }
     }
 
     #[tokio::test]

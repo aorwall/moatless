@@ -16,6 +16,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::secret::service::SecretService;
 use crate::setup::{SetupContext, evaluate_setup};
 use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::access_control::ScopeContext;
 use moatless_core::config::Config;
 use moatless_types::auth::AuthProvider;
@@ -31,6 +32,7 @@ use super::github::registry::GitHubAppRegistry;
 use super::github::service::GitHubAppService;
 use moatless_types::auth::AuthIdentity;
 use moatless_types::user::UserRole;
+use super::github_connect;
 use super::oauth::provider::OAuthProvider;
 use super::oidc::OidcService;
 use super::provider_token_dao::ProviderTokenDao;
@@ -195,6 +197,10 @@ pub(super) fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::O
         .route("/api/v1/auth/login", get(login_handler))
         .route("/api/v1/auth/cli/login", get(cli_login_handler))
         .route("/api/v1/auth/github-app", get(github_app_init_handler))
+        .route(
+            "/api/v1/auth/github-app/connect",
+            get(github_app_connect_handler),
+        )
         .route(
             "/api/v1/auth/github-app/callback",
             get(github_app_callback_handler),
@@ -1295,10 +1301,12 @@ async fn initiate_oauth(
 }
 
 /// Handle OAuth callback for a given provider.
+/// `code` is absent when the person declined on the provider's consent screen,
+/// which is a normal outcome rather than a malformed request.
 async fn handle_oauth_callback(
     state: &AuthState,
     provider_id: AuthProvider,
-    code: &str,
+    code: Option<&str>,
     query_state: Option<&str>,
     headers: &HeaderMap,
 ) -> Result<Response, AuthError> {
@@ -1316,6 +1324,26 @@ async fn handle_oauth_callback(
         .providers
         .get(provider_id)
         .ok_or_else(|| AuthError::Config(format!("Provider {provider_id} not configured")))?;
+
+    // Which flow a callback belongs to rides in the CSRF state, so both reach
+    // the one callback URL registered on the App and neither can be flipped
+    // into the other without breaking the state/cookie match above.
+    if let Some(connect_state) = query_state.and_then(github_connect::parse_connect_state) {
+        // No session is a viewer that cannot match, not a request error: a
+        // consent screen left open past the session's lifetime is the common
+        // way to arrive here, and `finish` already returns that person to the
+        // page they started from.
+        let viewer = authenticate_request(state, headers)
+            .await
+            .ok()
+            .map(|identity| identity.user_id);
+        return Ok(
+            github_connect::finish(state, provider.as_ref(), viewer, code, &connect_state).await,
+        );
+    }
+
+    // A login has nowhere to report a decline to, so it stays an error.
+    let code = code.ok_or_else(|| AuthError::OAuth("Authorization was declined".into()))?;
 
     // Exchange code for tokens
     let tokens = provider.exchange_code_for_tokens(code).await?;
@@ -1366,7 +1394,7 @@ async fn handle_oauth_callback(
         state.users.as_ref(),
         state.sessions.as_ref(),
         state.provider_tokens.as_ref(),
-        Some(state.secrets.as_ref()),
+        state.secrets.as_ref(),
         user_id,
         &provider_str,
         &tokens,
@@ -1444,6 +1472,46 @@ async fn github_app_init_handler(State(state): State<AuthState>) -> Result<Respo
     initiate_oauth(&state, AuthProvider::GitHubApp).await
 }
 
+#[derive(serde::Deserialize)]
+struct GitHubConnectQuery {
+    /// Where to send the browser once the App is authorized. Vetted against the
+    /// trusted origins — see [`github_connect::approved_return_url`].
+    return_to: Option<String>,
+}
+
+/// Authorize the GitHub App for the caller's existing session.
+///
+/// Requires a session because the credential is written against it: this
+/// establishes GitHub *access*, and leaves how the caller signed in alone.
+async fn github_app_connect_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<GitHubConnectQuery>,
+) -> Result<Response, AuthError> {
+    // Carried into the CSRF state so the callback writes the credential to
+    // whoever started the flow, not to whoever happens to be signed in when
+    // GitHub redirects back — see [`github_connect::finish`].
+    let identity = authenticate_request(&state, &headers).await?;
+    let provider = state
+        .providers
+        .get(AuthProvider::GitHubApp)
+        .ok_or_else(|| {
+            AuthError::Config(
+                "GitHub App OAuth is not configured — set GITHUB_APP_CLIENT_ID, \
+                 GITHUB_APP_CLIENT_SECRET and GITHUB_APP_CALLBACK_URL"
+                    .to_string(),
+            )
+        })?
+        .clone();
+    github_connect::start(
+        &state,
+        provider.as_ref(),
+        &generate_csrf_state(),
+        identity.user_id,
+        query.return_to.as_deref(),
+    )
+}
+
 async fn github_app_callback_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -1452,7 +1520,7 @@ async fn github_app_callback_handler(
     handle_oauth_callback(
         &state,
         AuthProvider::GitHubApp,
-        &query.code,
+        query.code.as_deref(),
         query.state.as_deref(),
         &headers,
     )
@@ -1475,7 +1543,7 @@ async fn auth0_callback_handler(
     handle_oauth_callback(
         &state,
         AuthProvider::Auth0,
-        &query.code,
+        query.code.as_deref(),
         query.state.as_deref(),
         &headers,
     )
@@ -1546,7 +1614,9 @@ async fn oidc_callback_handler(
     let result = match oidc
         .finish(
             query.state.as_deref().ok_or(AuthError::InvalidState)?,
-            query.code,
+            query
+                .code
+                .ok_or_else(|| AuthError::OAuth("Authorization was declined".into()))?,
         )
         .await
     {
@@ -2489,7 +2559,11 @@ async fn linear_callback_handler(
         }
     }
 
-    let tokens = provider.exchange_code_for_tokens(&query.code).await?;
+    let code = query
+        .code
+        .as_deref()
+        .ok_or_else(|| AuthError::OAuth("Authorization was declined".into()))?;
+    let tokens = provider.exchange_code_for_tokens(code).await?;
     let identity = provider
         .fetch_install_identity(&tokens.access_token)
         .await?;

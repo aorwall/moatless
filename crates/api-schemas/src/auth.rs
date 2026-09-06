@@ -11,10 +11,18 @@ use crate::setup::SetupStatus;
 // ============================================================================
 
 /// Query params for OAuth callback.
+///
+/// `code` is optional because a provider sends `error` instead when the person
+/// declines on the consent screen. Requiring it makes the extractor reject that
+/// callback with a deserialization error, before any handler can redirect the
+/// browser back where it came from.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OAuthCallbackQuery {
-    pub code: String,
+    pub code: Option<String>,
     pub state: Option<String>,
+    /// Set instead of `code` when the person declined — `access_denied` from
+    /// GitHub.
+    pub error: Option<String>,
 }
 
 /// Query params for CLI login initiation.

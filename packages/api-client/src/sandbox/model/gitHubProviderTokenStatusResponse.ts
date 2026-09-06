@@ -7,12 +7,21 @@
  */
 
 export interface GitHubProviderTokenStatusResponse {
-  connected: boolean;
+  /** Whether `GET /auth/github-app/connect` can run on this deployment.
+False leaves a Personal Access Token as the only way to connect. */
+  appConnectAvailable: boolean;
   /**
-   * True when a GitHub App user has an active PAT override.
+   * How the stored credential mints a token: `github_app` for a GitHub App
+user token, `github_app_installation` for an installation, `secret_ref`
+for a Personal Access Token held in the secret store.
    * @nullable
    */
-  hasPatOverride?: boolean | null;
+  authMethod?: string | null;
+  connected: boolean;
+  /** Whether a Personal Access Token is standing in front of a GitHub App
+credential that `DELETE /settings/github/pat` can put back. A PAT with
+nothing behind it is the only credential there is, not an override. */
+  hasPatOverride: boolean;
   /** @nullable */
   login?: string | null;
   /** @nullable */

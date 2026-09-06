@@ -492,6 +492,7 @@ impl AppState {
             provider_tokens.clone(),
             secrets.clone(),
             Arc::new(ProviderGitHostTokenValidator::default()),
+            config.auth.github_app_oauth().is_some(),
         ));
         let agent_harness_access = Arc::new(AgentHarnessAccess::new(
             provider_tokens.clone(),

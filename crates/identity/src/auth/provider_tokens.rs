@@ -17,6 +17,14 @@ pub const AUTH_METHOD_APP_INSTALLATION: &str = "github_app_installation";
 /// yields a clear 401 instead of silently dropping the Authorization header.
 pub const APP_INSTALLATION_TOKEN_PLACEHOLDER: &str = "<github-app-installation>";
 
+/// `provider_tokens.auth_method` value for a GitHub App *user* access token —
+/// the credential a person gets by authorizing the App, as themselves. The
+/// canonical resolver refreshes it near expiry rather than minting a new one.
+///
+/// Named after the App that issued the token, not after a way of signing in:
+/// a row carrying this is unrelated to how its owner authenticated to Moatless.
+pub const AUTH_METHOD_APP_USER: &str = "github_app";
+
 /// `provider_tokens.auth_method` value for rows whose real credential lives in
 /// the encrypted `secrets` table. The row itself carries only non-secret
 /// metadata (`login`, `token_type`) and exists so row-presence consumers —

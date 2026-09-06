@@ -11,3 +11,4 @@
 
 pub mod registry;
 pub mod service;
+pub mod user_credential;

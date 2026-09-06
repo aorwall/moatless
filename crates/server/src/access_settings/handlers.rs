@@ -32,8 +32,6 @@ fn require_admin(auth: &AuthUser, action: &str) -> Result<(), AccessSettingsErro
 fn principal(auth: &AuthUser) -> GitHostPrincipal {
     GitHostPrincipal {
         user_id: auth.user_id.to_string(),
-        login: auth.login.clone(),
-        is_github_app_user: auth.provider.as_deref() == Some("github_app"),
         scope_context: auth.scope_context(),
     }
 }
@@ -595,7 +593,9 @@ fn github_status(status: GitHubProviderTokenStatus) -> GitHubProviderTokenStatus
         connected: status.connected,
         login: status.login,
         token_type: status.token_type,
+        auth_method: status.auth_method,
         has_pat_override: status.has_pat_override,
+        app_connect_available: status.app_connect_available,
     }
 }
 

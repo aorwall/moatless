@@ -12398,18 +12398,28 @@
       "GitHubProviderTokenStatusResponse": {
         "type": "object",
         "required": [
-          "connected"
+          "connected",
+          "hasPatOverride",
+          "appConnectAvailable"
         ],
         "properties": {
+          "appConnectAvailable": {
+            "type": "boolean",
+            "description": "Whether `GET /auth/github-app/connect` can run on this deployment.\nFalse leaves a Personal Access Token as the only way to connect."
+          },
+          "authMethod": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "How the stored credential mints a token: `github_app` for a GitHub App\nuser token, `github_app_installation` for an installation, `secret_ref`\nfor a Personal Access Token held in the secret store."
+          },
           "connected": {
             "type": "boolean"
           },
           "hasPatOverride": {
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "description": "True when a GitHub App user has an active PAT override."
+            "type": "boolean",
+            "description": "Whether a Personal Access Token is standing in front of a GitHub App\ncredential that `DELETE /settings/github/pat` can put back. A PAT with\nnothing behind it is the only credential there is, not an override."
           },
           "login": {
             "type": [

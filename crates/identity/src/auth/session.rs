@@ -7,8 +7,9 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use moatless_types::user::UserRole;
+use super::github::user_credential;
 use super::models::{OAuthTokens, ProviderUserInfo};
-use super::provider_tokens::{ProviderToken, ProviderTokenAuthDao};
+use super::provider_tokens::ProviderTokenAuthDao;
 use super::sessions::{AuthenticatedSession, NewAuthSession, SessionDao};
 use super::users::{User, UserDao};
 
@@ -67,7 +68,7 @@ pub async fn create_session(
     users: &dyn UserDao,
     sessions: &dyn SessionDao,
     provider_tokens: &dyn ProviderTokenAuthDao,
-    secrets: Option<&crate::secret::service::SecretService>,
+    secrets: &crate::secret::service::SecretService,
     user_id: Uuid,
     provider_id: &str,
     tokens: &OAuthTokens,
@@ -142,78 +143,19 @@ pub async fn create_session(
         action,
     );
 
-    // Persist GitHub App user tokens for cross-context access.
-    // If a PAT override is active, update the stashed OAuth token instead of overwriting.
-    let is_github_provider = provider_id == "github_app";
-    if is_github_provider && !tokens.access_token.is_empty() {
-        let existing_token_type = provider_tokens
-            .find_token_type(&user_id_str, "github")
-            .await
-            .unwrap_or(None);
-
-        if existing_token_type.as_deref() == Some("pat") {
-            // PAT override is active — refresh the stashed OAuth token so
-            // removing the override later restores a live credential.
-            match secrets {
-                Some(secrets) => {
-                    if let Err(e) = crate::auth::credentials::stash_github_oauth_token(
-                        secrets,
-                        &user_id_str,
-                        &tokens.access_token,
-                    )
-                    .await
-                    {
-                        warn!(
-                            error = %e,
-                            user_id = %user_id,
-                            "Failed to stash OAuth token behind PAT override"
-                        );
-                    } else {
-                        info!(
-                            user_id = %user_id,
-                            login = %user_info.login,
-                            "Updated stashed OAuth token (PAT override active)"
-                        );
-                    }
-                }
-                None => {
-                    warn!(
-                        user_id = %user_id,
-                        "No secret service wired — cannot stash OAuth token behind PAT override"
-                    );
-                }
-            }
-        } else {
-            let auth_method = "github_app";
-            let pt = ProviderToken {
-                user_id: user_id_str.clone(),
-                provider: "github".to_string(),
-                auth_method: auth_method.to_string(),
-                access_token: tokens.access_token.clone(),
-                refresh_token: tokens.refresh_token.clone(),
-                token_type: Some(tokens.token_type.clone()),
-                scope: tokens.scope.clone(),
-                provider_user_id: Some(user_info.id.clone()),
-                provider_login: Some(user_info.login.clone()),
-                connected_at: now,
-                expires_at: tokens
-                    .expires_in
-                    .map(|secs| now + chrono::Duration::seconds(secs as i64)),
-            };
-            if let Err(e) = provider_tokens.upsert_provider_token(&pt).await {
-                warn!(
-                    error = %e,
-                    user_id = %user_id,
-                    "Failed to persist GitHub token to provider_tokens"
-                );
-            } else {
-                info!(
-                    user_id = %user_id,
-                    login = %user_info.login,
-                    auth_method = %auth_method,
-                    "Persisted GitHub token to provider_tokens"
-                );
-            }
+    // A credential the person can still fix from Settings is not worth failing
+    // a login over, so this warns where `connect` — whose whole purpose is the
+    // write — propagates.
+    if provider_id == "github_app" {
+        if let Err(e) =
+            user_credential::persist(provider_tokens, secrets, &user_id_str, tokens, user_info)
+                .await
+        {
+            warn!(
+                error = %e,
+                user_id = %user_id,
+                "Failed to persist the GitHub App user token"
+            );
         }
     }
 

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use moatless_api_schemas::agent::AgentDescriptor;
-use moatless_types::access_control::{ScopeContext, ScopedResource};
+use moatless_types::access_control::{Actor, ScopeContext, ScopedResource};
 
 use crate::file_storage::error::FileStorageError;
 use crate::file_storage::store as file_store;
@@ -462,15 +462,28 @@ impl SourceControlAuthSource for AppStateSourceControlAuth {
             .provider_tokens
             .find_github_scope_presence(&viewer.user_id)
             .await
-            .ok()??;
+            .ok()
+            .flatten();
         // A row the refresher marked failed is a connection the viewer must
         // renew, so it is not a usable credential the panel should call
-        // authenticated.
-        if presence.refresh_failure {
+        // authenticated. Asked here rather than left to the issuer, which
+        // reports an OAuth row usable on the stored token when a refresh fails.
+        if presence.as_ref().is_some_and(|row| row.refresh_failure) {
             return None;
         }
+        // Whether anything else is usable is the issuer's answer, not this
+        // row's: an App installation row carries no token and no login, so a
+        // caller reading the row alone reports every App-backed identity
+        // unauthenticated — telling someone to connect an account while their
+        // tasks are already pushing as the App. A Workspace pin is invisible
+        // here for the same reason.
+        self.0
+            .git_host_tokens
+            .github_is_usable(&Actor::of(&viewer.user_id))
+            .await
+            .ok()?;
         Some(GithubIdentity {
-            account: presence.login,
+            account: presence.and_then(|row| row.login),
         })
     }
 }
