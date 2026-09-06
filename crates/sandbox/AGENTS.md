@@ -15,14 +15,33 @@ Each module's `//!` doc states what it owns. Two process rules bind all of them:
 `SandboxService` and the sandbox's calls into `BackendSandboxServiceClient`.
 HTTP serves health probes only. Keep runtime control on gRPC.
 
+## Serving a preview
+
+`preview_proxy.rs` is the pod's second inbound listener, on
+`SANDBOX_PREVIEW_PROXY_PORT`. Every port a Script publishes reaches it, and it
+forwards over loopback so the server sees a loopback `Host`. It is not the
+control router, and preview traffic is untrusted: keep it a separate listener
+that reaches only a non-reserved port.
+
+Non-reserved means `moatless_types::sandbox::is_reserved_sandbox_port`, the one
+rule that this proxy and `sandbox-k8s`'s `pod_builder::admitted_server_ports`
+both read. Do not copy it into a second list. A copy that lags the rule admits a
+declared server on the proxy's own port.
+
+"Loopback" is the whole pod's network namespace, which the server sidecars and
+`dind` share. A new sidecar is reachable from the proxy the day it is added, so
+keeping it out of reach means reserving its port.
+
 ## Configuring the pod
 
 `Config` in `config.rs` is the authority for every environment variable, its
 default and its meaning. Each field carries a `///` doc, and `from_env` holds
 the defaults. Read it there rather than from a list here.
 
-`RUNTIME_DIR` is the one value that is not configurable. See Storing
-credentials below.
+Two values are not configurable. `RUNTIME_DIR` is one; see Storing credentials
+below. `SANDBOX_PREVIEW_PROXY_PORT` is the other: the Service's `targetPort` and
+the proxy's listener are two ends of one wire, set by different processes, so a
+per-sandbox value would let them drift with nothing to detect it.
 
 ## Publishing events
 

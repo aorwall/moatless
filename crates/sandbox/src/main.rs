@@ -33,9 +33,11 @@ use moatless_sandbox::credentials::sinks::{ClaudeOauthSink, CodexAuthJsonSink, G
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::grpc_server::SandboxServiceImpl;
 use moatless_sandbox::init::InitPhase;
+use moatless_sandbox::preview_proxy;
 use moatless_sandbox::shutdown;
 use moatless_sandbox::state::{SandboxState, TaskContext};
 use moatless_sandbox::supervisor::{Criticality, SHUTDOWN_JOIN_DEADLINE, Supervisor};
+use moatless_types::sandbox::SANDBOX_PREVIEW_PROXY_PORT;
 
 /// Unix socket file for the in-pod credential broker, inside
 /// [`config::RUNTIME_DIR`].
@@ -413,6 +415,27 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         info!("Sandbox HTTP server stopped");
     });
     registrar.supervise("http-server", Criticality::Fatal, http_server);
+
+    // The preview proxy answers for every published port (see
+    // `preview_proxy`). Optional, and a bind failure is a warning rather than a
+    // `main` error: a task that publishes no port never reaches this listener,
+    // and taking the whole sandbox down would cost the agent its turn.
+    let proxy_addr = SocketAddr::from(([0, 0, 0, 0], SANDBOX_PREVIEW_PROXY_PORT));
+    match TcpListener::bind(proxy_addr).await {
+        Ok(proxy_listener) => {
+            let proxy = tokio::spawn(preview_proxy::serve(
+                proxy_listener,
+                config.grpc_port,
+                state.lifecycle_cancel.clone(),
+            ));
+            registrar.supervise("preview-proxy", Criticality::Optional, proxy);
+        }
+        Err(e) => tracing::warn!(
+            error = %e,
+            port = SANDBOX_PREVIEW_PROXY_PORT,
+            "Preview proxy could not bind; published ports will not be reachable"
+        ),
+    }
 
     // Hand control to the supervisor: it watches until a fatal exit or the
     // lifecycle token fires, then cancels and joins everything within one

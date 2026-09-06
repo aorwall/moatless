@@ -782,6 +782,14 @@ pub fn no_live_sandbox(error: &SandboxError) -> bool {
 pub const SANDBOX_HTTP_PORT: u16 = 8001;
 /// The dind Docker socket inside the sandbox.
 pub const SANDBOX_DIND_PORT: u16 = 2375;
+/// The pod port a published preview reaches, where the sandbox's preview proxy
+/// answers on behalf of every published port.
+///
+/// A constant rather than configuration: the Service's `targetPort` and the
+/// proxy's listener are the two ends of one wire, and they are set by different
+/// processes — `sandbox-k8s`'s `edge::publish_task_port` and the sandbox binary
+/// — so a per-sandbox value would let them drift with nothing to detect it.
+pub const SANDBOX_PREVIEW_PROXY_PORT: u16 = 8003;
 
 /// Whether `port` belongs to the sandbox's own control plane rather than to
 /// anything a workspace may expose.
@@ -793,7 +801,14 @@ pub const SANDBOX_DIND_PORT: u16 = 2375;
 /// one that publishes nothing externally included, where the collision instead
 /// shadows the sandbox's own listener inside the container. Takes the gRPC port
 /// rather than a `Config` so the rule sits in the same band as the trait.
+///
+/// The preview proxy's own port is reserved for the second reason rather than
+/// the first: a server that bound it would shadow the listener every other
+/// preview is routed through.
 #[must_use]
 pub fn is_reserved_sandbox_port(port: u16, grpc_port: u16) -> bool {
-    port == SANDBOX_HTTP_PORT || port == grpc_port || port == SANDBOX_DIND_PORT
+    port == SANDBOX_HTTP_PORT
+        || port == grpc_port
+        || port == SANDBOX_DIND_PORT
+        || port == SANDBOX_PREVIEW_PROXY_PORT
 }

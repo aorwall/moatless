@@ -39,7 +39,9 @@ use moatless_sandbox_runtime::runtime::{
 use moatless_sandbox_runtime::schemas::*;
 use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
 use moatless_sandbox_runtime::storage::StorageBackend;
-use moatless_types::sandbox::ArchiveRetention;
+use moatless_types::sandbox::{
+    ArchiveRetention, SANDBOX_PREVIEW_PROXY_PORT, is_reserved_sandbox_port,
+};
 
 /// Kubernetes adapter for lifecycle mutation, observation, and connection.
 pub struct K8sSandboxAdapter {
@@ -281,10 +283,13 @@ impl K8sSandboxAdapter {
             warn!(task_id = %task_id, "Deployment UID unavailable; Service/IngressRoutes will not be owner-referenced");
         }
 
+        // No script ports: provisioning only knows the declared servers, and a
+        // Script publishes against a sandbox that is already up.
         let service_name = service::create_sandbox_service(
             &self.k8s,
             task_id,
             &server_ports,
+            &BTreeSet::new(),
             self.config.sandbox.grpc_port,
             owner.as_ref(),
         )
@@ -1173,14 +1178,15 @@ impl K8sSandboxAdapter {
         // recreating them under a second name would give Traefik two rules for
         // one hostname.
         let declared: BTreeSet<u16> = server_ports.values().copied().collect();
-        let reserved = pod_builder::reserved_sandbox_ports(&self.config);
-        let mut service_ports = server_ports.clone();
+        let mut script_ports = BTreeSet::new();
         for port in edge::published_task_ports(&self.k8s, task_id).await {
-            if declared.contains(&port) || reserved.contains(&port) {
+            if declared.contains(&port)
+                || is_reserved_sandbox_port(port, self.config.sandbox.grpc_port)
+            {
                 continue;
             }
             info!(task_id = %task_id, port, "Preserving dynamically published port across network heal");
-            service_ports.insert(edge::script_port_name(port), port);
+            script_ports.insert(port);
         }
 
         let owner = match deployment::find_deployment(&self.k8s, task_id).await {
@@ -1195,7 +1201,8 @@ impl K8sSandboxAdapter {
         if let Err(e) = service::create_sandbox_service(
             &self.k8s,
             task_id,
-            &service_ports,
+            &server_ports,
+            &script_ports,
             self.config.sandbox.grpc_port,
             owner.as_ref(),
         )
@@ -1217,7 +1224,14 @@ impl K8sSandboxAdapter {
             {
                 warn!(task_id = %task_id, error = %e, "Failed to recreate IngressRoutes");
             }
-            let preview_ports: BTreeSet<u16> = service_ports.values().copied().collect();
+            // A `NetworkPolicy` admits *pod* ports, and a script port's pod port
+            // is the proxy's. Admitting the script ports themselves would leave
+            // every script preview on the task unanswerable whenever the policy
+            // went missing alongside the Service.
+            let mut preview_ports: BTreeSet<u16> = server_ports.values().copied().collect();
+            if !script_ports.is_empty() {
+                preview_ports.insert(SANDBOX_PREVIEW_PROXY_PORT);
+            }
             if let Err(e) = networkpolicy::create_task_preview_network_policy(
                 &self.k8s,
                 task_id,

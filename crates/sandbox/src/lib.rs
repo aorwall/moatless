@@ -25,6 +25,7 @@ pub mod files;
 pub mod grpc_server;
 pub mod init;
 pub mod outbox;
+pub mod preview_proxy;
 pub mod server_control;
 pub mod shutdown;
 pub mod state;

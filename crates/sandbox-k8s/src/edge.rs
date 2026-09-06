@@ -13,8 +13,9 @@
 
 use std::collections::BTreeSet;
 
-use k8s_openapi::api::core::v1::Service;
+use k8s_openapi::api::core::v1::{Service, ServicePort};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::api::{Api, ListParams, Patch, PatchParams};
 use kube::core::DynamicObject;
 use kube::discovery::ApiResource;
@@ -24,6 +25,7 @@ use super::client::K8sClient;
 use super::naming::generate_service_name;
 use super::{ingress, networkpolicy};
 use moatless_core::config::Config;
+use moatless_types::sandbox::SANDBOX_PREVIEW_PROXY_PORT;
 
 /// The Service port name for a dynamically published port.
 ///
@@ -122,13 +124,13 @@ async fn patch_service_port(
         .owner_references
         .clone()
         .unwrap_or_default();
-    let already_exposed = service
+    let ports = service
         .spec
         .as_ref()
         .and_then(|spec| spec.ports.as_ref())
-        .is_some_and(|ports| ports.iter().any(|p| p.port == i32::from(port)));
-    if already_exposed {
-        debug!(task_id, port, "Service already exposes port");
+        .map_or(&[][..], Vec::as_slice);
+    if !needs_proxy_patch(ports, port) {
+        debug!(task_id, port, "Service already carries an entry for port");
         return Ok(owners);
     }
 
@@ -140,14 +142,47 @@ async fn patch_service_port(
     Ok(owners)
 }
 
+/// Whether `port` still needs the patch that routes it to the preview proxy.
+///
+/// Scoped to the entries this module writes, which is what `script_port_name`
+/// identifies. The strategic merge keys on `port` and so updates whatever
+/// element already holds that number: a guard that asked only whether the entry
+/// was proxied would rewrite a *declared* server's entry — renaming it and
+/// retargeting it at the proxy — whenever a Script named the same port. The
+/// next `heal_network_resources` rebuilds that entry as a declared server
+/// again, so the two writers would disagree about one entry with nothing
+/// reconciling them.
+///
+/// An entry this module does write is re-patched unless it already targets the
+/// proxy: a port published before the proxy existed carries
+/// `targetPort == port`, and leaving it would keep a `127.0.0.1`-bound server
+/// unreachable for the life of the Service.
+fn needs_proxy_patch(ports: &[ServicePort], port: u16) -> bool {
+    let Some(existing) = ports.iter().find(|p| p.port == i32::from(port)) else {
+        return true;
+    };
+    if existing.name.as_deref() != Some(script_port_name(port).as_str()) {
+        return false;
+    }
+    !existing.target_port.as_ref().is_some_and(|target| {
+        *target == IntOrString::Int(i32::from(SANDBOX_PREVIEW_PROXY_PORT))
+    })
+}
+
 /// The one-entry `spec.ports` strategic merge patch that publishes `port`.
+///
+/// `targetPort` is [`SANDBOX_PREVIEW_PROXY_PORT`], not `port`: a script's server
+/// runs inside the sandbox container, and the sandbox's preview proxy answers on
+/// its behalf so the server sees a loopback `Host` and may bind `127.0.0.1`. The
+/// Service port stays `port` because the proxy reads the upstream port back out
+/// of the request's `Host`.
 fn script_service_port_patch(port: u16) -> serde_json::Value {
     serde_json::json!({
         "spec": {
             "ports": [{
                 "name": script_port_name(port),
                 "port": i32::from(port),
-                "targetPort": i32::from(port),
+                "targetPort": i32::from(SANDBOX_PREVIEW_PROXY_PORT),
                 "protocol": "TCP",
             }]
         }
@@ -193,8 +228,15 @@ pub async fn publish_task_port(
         return Ok(None);
     }
 
-    if let Err(e) = networkpolicy::admit_preview_port(k8s, task_id, port, config, owner).await {
-        warn!(task_id, port, error = %e, "Failed to admit script port in the preview NetworkPolicy");
+    // The proxy port, not `port`: the Service sends this route's traffic to
+    // `SANDBOX_PREVIEW_PROXY_PORT` (see `script_service_port_patch`), so that is
+    // the port the policy has to let Traefik reach. Idempotent, so the first
+    // published port pays for every later one.
+    if let Err(e) =
+        networkpolicy::admit_preview_port(k8s, task_id, SANDBOX_PREVIEW_PROXY_PORT, config, owner)
+            .await
+    {
+        warn!(task_id, port, error = %e, "Failed to admit the preview proxy port in the preview NetworkPolicy");
     }
 
     Ok(Some(format!(
@@ -239,9 +281,79 @@ mod tests {
 
         assert_eq!(ports.len(), 1);
         assert_eq!(ports[0]["port"], 3000);
-        assert_eq!(ports[0]["targetPort"], 3000);
         assert_eq!(ports[0]["name"], "scr-3000");
         assert_eq!(ports[0]["protocol"], "TCP");
     }
 
+    /// The Service port is what the route names; the target is the sandbox's
+    /// preview proxy, which reads the real port back out of the `Host`. Sending
+    /// the traffic straight at `port` is what forced a script's server to bind
+    /// `0.0.0.0` and see an external `Host`.
+    #[test]
+    fn the_patch_targets_the_preview_proxy_rather_than_the_published_port() {
+        for port in [3000u16, 8080, 5173] {
+            let patch = script_service_port_patch(port);
+            let entry = &patch["spec"]["ports"][0];
+            assert_eq!(entry["port"], i32::from(port));
+            assert_eq!(entry["targetPort"], i32::from(SANDBOX_PREVIEW_PROXY_PORT));
+        }
+    }
+
+    fn entry(name: &str, port: u16, target: u16) -> ServicePort {
+        ServicePort {
+            name: Some(name.to_string()),
+            port: i32::from(port),
+            target_port: Some(IntOrString::Int(i32::from(target))),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_port_the_service_does_not_carry_needs_the_patch() {
+        assert!(needs_proxy_patch(&[], 3000));
+        assert!(needs_proxy_patch(&[entry("scr-5173", 5173, 8003)], 3000));
+    }
+
+    /// The publish is idempotent once the entry points at the proxy.
+    #[test]
+    fn a_script_port_already_routed_to_the_proxy_needs_nothing() {
+        let ports = [entry("scr-3000", 3000, SANDBOX_PREVIEW_PROXY_PORT)];
+
+        assert!(!needs_proxy_patch(&ports, 3000));
+    }
+
+    /// A port published before the proxy existed carries `targetPort == port`.
+    /// Leaving it keeps a `127.0.0.1`-bound server unreachable for the life of
+    /// the Service.
+    #[test]
+    fn a_script_port_still_pointing_at_the_server_is_re_patched() {
+        let ports = [entry("scr-3000", 3000, 3000)];
+
+        assert!(needs_proxy_patch(&ports, 3000));
+    }
+
+    /// `web: 3000` declared plus a Script started on 3000 is an ordinary
+    /// collision. The strategic merge keys on `port`, so patching here would
+    /// rename the declared server's entry and retarget it at the proxy — and
+    /// the next heal would rebuild it as a declared server, leaving the two
+    /// writers in disagreement about one entry.
+    #[test]
+    fn a_declared_servers_entry_is_never_rewritten_by_a_script_naming_its_port() {
+        let ports = [entry("web", 3000, 3000)];
+
+        assert!(!needs_proxy_patch(&ports, 3000));
+    }
+
+    /// An entry with no name at all is not one this module wrote either.
+    #[test]
+    fn an_unnamed_entry_is_left_alone() {
+        let ports = [ServicePort {
+            name: None,
+            port: 3000,
+            target_port: Some(IntOrString::Int(3000)),
+            ..Default::default()
+        }];
+
+        assert!(!needs_proxy_patch(&ports, 3000));
+    }
 }

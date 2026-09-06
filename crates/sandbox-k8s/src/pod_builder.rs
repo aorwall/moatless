@@ -22,6 +22,7 @@ use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::provisioning::{ProvisionPlan, allocated_port};
 use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
 use moatless_sandbox_runtime::server_runner::build_server_start_script;
+use moatless_types::sandbox::SANDBOX_PREVIEW_PROXY_PORT;
 use moatless_types::workspace::{
     Cpu, Memory, Port, ResourceConfig, ResourceQuantities, StorageMedium,
 };
@@ -1078,6 +1079,12 @@ fn build_sandbox_container(
                 protocol: Some("TCP".to_string()),
                 ..Default::default()
             },
+            ContainerPort {
+                container_port: i32::from(SANDBOX_PREVIEW_PROXY_PORT),
+                name: Some("preview".to_string()),
+                protocol: Some("TCP".to_string()),
+                ..Default::default()
+            },
         ]),
         env: Some(env),
         startup_probe: Some(startup_probe),
@@ -1454,38 +1461,26 @@ pub fn build_servers_map(plan: &ProvisionPlan, task_id: &str) -> HashMap<String,
     servers
 }
 
-/// Docker-in-Docker daemon port; served in plaintext on the sandbox pod.
-use moatless_types::sandbox::SANDBOX_DIND_PORT as DIND_PORT;
-/// Sandbox HTTP control port.
-use moatless_types::sandbox::SANDBOX_HTTP_PORT;
-
-/// Ports the sandbox pod reserves for its control plane / infrastructure: the
-/// HTTP control port, the agent gRPC channel, and the dind Docker socket. A
-/// preview server declared on any of these must never be exposed — routing the
-/// authenticated preview edge to the Docker socket or the gRPC control plane
-/// would be a sandbox escape (see backend/src/sandbox/CLAUDE.md).
-///
-/// The rule itself is `moatless_types::sandbox::is_reserved_sandbox_port`,
-/// which every runtime shares; this returns it as the array the declared-server
-/// filter below reads.
-pub fn reserved_sandbox_ports(config: &Config) -> [u16; 3] {
-    [SANDBOX_HTTP_PORT, config.sandbox.grpc_port, DIND_PORT]
-}
+use moatless_types::sandbox::is_reserved_sandbox_port;
 
 /// Drop any server whose port collides with a reserved sandbox port, logging
 /// each rejection. The retained map is the single source of truth for what gets
 /// a Service port, an `IngressRoute`, and a preview `NetworkPolicy` allowance, so
 /// filtering here keeps a repo from routing the edge onto infrastructure ports.
+///
+/// The rule is `moatless_types::sandbox::is_reserved_sandbox_port`, called
+/// directly rather than copied into a local list: a second copy admitted a
+/// declared server on `SANDBOX_PREVIEW_PROXY_PORT` for as long as it lagged the
+/// rule, and in the shared pod netns that server loses the bind to the proxy.
 pub fn admitted_server_ports(
     servers: BTreeMap<String, u16>,
     config: &Config,
     task_id: &str,
 ) -> BTreeMap<String, u16> {
-    let reserved = reserved_sandbox_ports(config);
     servers
         .into_iter()
         .filter(|(name, port)| {
-            let admitted = !reserved.contains(port);
+            let admitted = !is_reserved_sandbox_port(*port, config.sandbox.grpc_port);
             if !admitted {
                 warn!(
                     task_id,
@@ -1526,6 +1521,7 @@ mod tests {
             ("http".to_string(), 8001u16),
             ("dind".to_string(), 2375u16),
             ("agent".to_string(), grpc),
+            ("proxy".to_string(), SANDBOX_PREVIEW_PROXY_PORT),
             ("api".to_string(), 3000u16),
         ]);
 
@@ -1534,8 +1530,21 @@ mod tests {
         assert_eq!(
             admitted,
             BTreeMap::from([("web".to_string(), 5733u16), ("api".to_string(), 3000u16)]),
-            "8001, dind (2375), and the gRPC port must be filtered out"
+            "8001, dind (2375), the gRPC port and the preview proxy port must be filtered out"
         );
+    }
+
+    /// Every container in the pod shares one network namespace, so a declared
+    /// server admitted on the proxy's port would lose the bind to the proxy and
+    /// die with `EADDRINUSE` — while its route reached the proxy, which refuses
+    /// its own port. The filter and the proxy must read one rule, not two
+    /// lists.
+    #[test]
+    fn a_declared_server_on_the_preview_proxy_port_is_refused() {
+        let config = test_config();
+        let servers = BTreeMap::from([("preview".to_string(), SANDBOX_PREVIEW_PROXY_PORT)]);
+
+        assert!(admitted_server_ports(servers, &config, "task-1").is_empty());
     }
 
     #[test]

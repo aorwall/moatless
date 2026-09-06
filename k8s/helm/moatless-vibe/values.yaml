@@ -1042,13 +1042,20 @@ networkPolicy:
       namespace: traefik
       podLabels:
         app.kubernetes.io/name: traefik
-      # Dev server ports that preview URLs route to. Expand if needed.
+      # Ports preview URLs route to. Expand if needed.
+      #
+      # 8003 is the sandbox's preview proxy, which every port a Script publishes
+      # is routed through; the rest are dev server ports a declared preview
+      # server binds directly. The per-task preview policy normally carries
+      # these on its own, but the write that creates it degrades to a warning on
+      # missing RBAC, so this list is the fallback that keeps a preview working.
       ports:
         - 3000
         - 4000
         - 5000
         - 5173
         - 8000
+        - 8003
         - 8080
         - 8888
     # -- Extra ingress rules appended verbatim.

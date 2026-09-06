@@ -24,6 +24,13 @@ tokio-util = { workspace = true, features = ["rt"] }
 # HTTP server
 axum = { workspace = true, features = ["macros"] }
 
+# The preview proxy speaks HTTP on both ends and has to hand a 101 back as a
+# raw byte stream, which axum's extractors do not expose.
+hyper = { version = "1", features = ["client", "http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = { workspace = true }
+bytes = "1"
+
 # Serialization
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
