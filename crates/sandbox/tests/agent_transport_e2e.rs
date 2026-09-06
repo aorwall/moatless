@@ -241,6 +241,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_type: &str) -> Config {
         frontend_url: None,
         default_model: None,
         default_codex_model: None,
+        openai_base_url: None,
         use_tmux,
         command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
         home_dir: home.display().to_string(),

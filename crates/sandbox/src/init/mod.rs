@@ -283,7 +283,14 @@ pub async fn run_init(state: SandboxState, registrar: Registrar) {
     // time it refreshes its OAuth token; the watcher pushes the rotated blob
     // back to the backend so subsequent tasks (and pod restarts) see the new
     // refresh_token instead of the now-invalidated stored copy.
-    spawn_codex_auth_watcher(&state, &registrar).await;
+    //
+    // A routed Codex authenticates by `env_key` and rotates nothing, so there
+    // is no rotation to mirror. Running the watcher anyway would push the
+    // synthesized proxy-key blob into the user's stored Codex credential and
+    // destroy the OAuth token it replaced.
+    if state.config.openai_base_url.is_none() {
+        spawn_codex_auth_watcher(&state, &registrar).await;
+    }
 
     // Watch each checkout's remote reflogs so a sha this task pushes is claimed
     // before GitHub's `pull_request.synchronize` webhook for it arrives.
@@ -703,7 +710,11 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
 
     // 2b. Write the default Codex config.toml. Disables the broken
     //     `codex_apps` MCP server. Non-fatal — Codex still runs without it.
-    codex_config::write_codex_config(&state.config.codex_home_dir).await;
+    codex_config::write_codex_config(
+        &state.config.codex_home_dir,
+        state.config.openai_base_url.as_deref(),
+    )
+    .await;
 
     // 3. Fetch credentials from backend via gRPC
     {

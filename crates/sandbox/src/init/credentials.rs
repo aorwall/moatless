@@ -361,7 +361,11 @@ pub async fn persist_agent_credentials(
         false
     };
 
-    if mode == PersistMode::Initial && !wrote_codex_auth {
+    // A routed Codex reads its key from `OPENAI_API_KEY` directly
+    // (`requires_openai_auth = false`), so it needs no auth.json. Writing one
+    // would hand the proxy key to the watcher, which mirrors the file back as
+    // the user's stored Codex credential.
+    if mode == PersistMode::Initial && !wrote_codex_auth && config.openai_base_url.is_none() {
         if let Some(api_key) = credentials.get("OPENAI_API_KEY") {
             write_codex_auth_from_api_key(&config.codex_home_dir, api_key).await;
         }
@@ -737,6 +741,7 @@ mod tests {
             headless: false,
             default_model: None,
             default_codex_model: None,
+            openai_base_url: None,
             home_dir: home_dir.display().to_string(),
             codex_home_dir: codex_home_dir.display().to_string(),
             claude_config_dir: claude_config_dir.display().to_string(),

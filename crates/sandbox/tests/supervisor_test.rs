@@ -601,6 +601,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
         default_model: None,
         default_codex_model: None,
+        openai_base_url: None,
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
         workspace_mirror_enabled: true,

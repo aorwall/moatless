@@ -461,6 +461,13 @@ pub enum ApiKeySource {
     Project,
     Org,
     Temporary,
+    /// A source this crate does not model. The CLI names the environment
+    /// variable it read the key from (`ANTHROPIC_API_KEY`), so the set is
+    /// open-ended. Without this fallback an unrecognised value fails
+    /// `SystemInitMessage`, which aborts the init handshake and ends the turn
+    /// with no assistant reply and no error on the task.
+    #[serde(other)]
+    Unknown,
 }
 
 /// System init message — sent once at startup.
@@ -733,6 +740,37 @@ mod tests {
 
         let msg = SdkMessage::from_value(json).unwrap();
         assert!(matches!(msg, SdkMessage::System(_)));
+    }
+
+    /// The CLI names the env var it read the key from, so the value set is open
+    /// ended. Dropping the init message over one costs the whole turn: it is
+    /// discarded here, the session is never established, and the task ends idle
+    /// with no assistant reply and nothing on the task to explain it.
+    #[test]
+    fn parse_system_init_with_unmodelled_api_key_source() {
+        let json = serde_json::json!({
+            "type": "system",
+            "subtype": "init",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "tools": [],
+            "model": "claude-opus-4-8",
+            "mcp_servers": [],
+            "permissionMode": "default",
+            "cwd": "/tmp",
+            "apiKeySource": "ANTHROPIC_API_KEY",
+            "slash_commands": [],
+            "output_style": "normal",
+            "skills": [],
+            "plugins": [],
+            "claude_code_version": "1.0.0"
+        });
+
+        let msg = SdkMessage::from_value(json).expect("init message must survive");
+        let SdkMessage::System(init) = msg else {
+            panic!("expected a system init message");
+        };
+        assert_eq!(init.api_key_source, ApiKeySource::Unknown);
     }
 
     #[test]

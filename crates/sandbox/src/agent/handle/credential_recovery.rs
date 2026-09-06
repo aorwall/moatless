@@ -135,6 +135,7 @@ mod tests {
             frontend_url: None,
             default_model: None,
             default_codex_model: None,
+            openai_base_url: None,
             use_tmux: false,
             command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
