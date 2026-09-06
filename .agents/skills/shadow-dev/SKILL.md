@@ -46,6 +46,11 @@ need the API key even when `/health` succeeds publicly.
 
 ## Rebuild and environment
 
+Confirm a backend server exists first — `moat tasks servers <task-id> list`.
+`rebuild.sh` builds `moatless-backend` and only then bumps the trigger that
+`up.sh` watches, and `up.sh` runs only where a backend server does. With none,
+the whole build is spent and nothing consumes the trigger.
+
 ```bash
 export SHADOW_CARGO_PROFILE=dev
 bash scripts/shadow/rebuild.sh

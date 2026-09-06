@@ -69,6 +69,10 @@ those processes; do not kill other workspace dev servers by a broad name match.
 
 ## Rebuild and diagnose
 
+Confirm a backend server exists before rebuilding — `moat tasks servers <task-id> list`.
+[shadow-dev](../shadow-dev/SKILL.md) owns `rebuild.sh` and states what the build costs
+without one.
+
 Set `SHADOW_CARGO_PROFILE=dev` in both the backend server env and rebuild shell,
 then run `bash scripts/shadow/rebuild.sh`. Verify health and the changed behavior.
 Use root Rust lint/test commands; do not add a `cargo check` loop.
