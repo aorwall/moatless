@@ -122,9 +122,9 @@ pub struct Conversation {
 
 /// One GitHub pull request bound to a Task, as the listing query aggregates it.
 ///
-/// A binding too old to name both branches is left out entirely — half a pull
-/// request is not one, and the refresh that fills such a blob in writes through,
-/// so the next poll of the listing picks it up.
+/// `subject_key` alone makes a row reportable, so a binding links from the
+/// moment it is written. The status blob only sharpens the URL and the
+/// live/terminal ordering once a refresh has filled it in.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationPullRequest {
     pub repository: String,
@@ -891,6 +891,12 @@ impl PgConversationDao {
                -- `subject_key` is `owner/repo#N`; the regex guard is what makes
                -- the `::bigint` casts total, so a malformed key drops its row
                -- instead of failing the whole listing.
+               --
+               -- `subject_key` is the only column a row needs to be reportable,
+               -- so a binding links before its status blob is fetched. Reading
+               -- a key out of that blob as a *condition* would hide every
+               -- freshly opened pull request: the blob is written NULL and
+               -- filled in by a refresh this query cannot trigger.
                LEFT JOIN LATERAL (
                    SELECT jsonb_agg(
                               jsonb_build_object(
@@ -916,9 +922,7 @@ impl PgConversationDao {
                          AND b.active
                          AND b.adapter_kind = 'github'
                          AND b.subject_kind = 'github_pr'
-                         AND b.subject_key ~ '^.+#[0-9]+$'
-                         AND NULLIF(b.external_status_raw ->> 'baseRef', '') IS NOT NULL
-                         AND NULLIF(b.external_status_raw ->> 'headRef', '') IS NOT NULL
+                         AND b.subject_key ~ '^[^#]+#[0-9]+$'
                    ) bound
                ) pr ON TRUE
                -- Determinism for this query's own output, and nothing more.

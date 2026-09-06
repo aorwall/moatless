@@ -4393,11 +4393,7 @@ mod tests {
         async fn bound_pull_requests(&self, _task_id: &str) -> Vec<ports::BoundPullRequest> {
             Vec::new()
         }
-        async fn pull_requests_bound_to(
-            &self,
-            _repository: &str,
-            _number: u64,
-        ) -> Vec<(String, ports::BoundPullRequest)> {
+        async fn tasks_bound_to(&self, _repository: &str, _number: u64) -> Vec<String> {
             Vec::new()
         }
         async fn resolve_pull_request(

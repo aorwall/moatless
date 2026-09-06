@@ -593,20 +593,24 @@ fn pull_request_json(pr: &BoundPullRequest) -> Value {
 
 /// Why a linked pull request could not be summarized.
 pub enum PullRequestSummaryError {
-    /// No active binding names this reference, or none the viewer may read.
-    /// One answer for both: telling them apart would say a Task exists.
+    /// No active binding names this reference, none the viewer may read, or
+    /// no readable Task's binding resolved — a refresh that could not reach
+    /// GitHub leaves the listing linking a pull request this cannot recover.
+    /// One answer for the first two: telling them apart would say a Task exists.
     Unknown,
     Store(sqlx::Error),
 }
 
 /// The live fields of one linked pull request, as T3's `PullRequestSummary`.
 ///
-/// Read from the Task's binding rather than from GitHub: every field the
-/// summary declares is already persisted there, so the sidebar's per-thread
-/// status check costs a database read and no API request. That is also what
-/// bounds this method — it answers for a pull request some Task is bound to,
-/// never for an arbitrary reference, which is `pullRequests.detail`'s job and
-/// is not served.
+/// Read from the readable Task's binding rather than from GitHub: every field
+/// the summary declares is already persisted there, so the sidebar's per-thread
+/// status check is a database read for a binding already fetched. A binding
+/// whose status blob is still NULL — a freshly opened pull request no surface
+/// has polled — costs one GitHub call to fill it, once, per cold binding. That
+/// is also what bounds this method — it answers for a pull request some Task is
+/// bound to, never for an arbitrary reference, which is `pullRequests.detail`'s
+/// job and is not served.
 pub async fn pull_request_summary(
     conversations: &dyn ConversationDao,
     pull_requests: &dyn BoundPullRequestSource,
@@ -615,26 +619,30 @@ pub async fn pull_request_summary(
     repository: &str,
     number: u64,
 ) -> Result<Value, PullRequestSummaryError> {
-    let bound = pull_requests.pull_requests_bound_to(repository, number).await;
-    if bound.is_empty() {
+    let task_ids = pull_requests.tasks_bound_to(repository, number).await;
+    if task_ids.is_empty() {
         return Err(PullRequestSummaryError::Unknown);
     }
-    let task_ids: Vec<String> = bound.iter().map(|(task_id, _)| task_id.clone()).collect();
     let readable = conversations
         .readable_by_ids(viewer, &task_ids)
         .await
         .map_err(PullRequestSummaryError::Store)?;
-    // Every binding on one reference recovers the same pull request, so which
-    // readable Task carried it does not matter — only that one did.
-    bound
-        .iter()
-        .find(|(task_id, _)| {
-            readable
-                .iter()
-                .any(|conversation| &conversation.task_id == task_id)
-        })
-        .map(|(_, pr)| pull_request_summary_json(project_id, repository, pr))
-        .ok_or(PullRequestSummaryError::Unknown)
+    // Resolve only from a readable Task's binding: `bound_pull_requests`
+    // refreshes an unfetched binding on the creator's token, so authorizing
+    // first is what keeps a viewer from spending it on Tasks they cannot read.
+    // Every binding on one reference recovers the same pull request, so the
+    // first readable Task that still carries it answers for all of them.
+    for conversation in &readable {
+        if let Some(pr) = pull_requests
+            .bound_pull_requests(&conversation.task_id)
+            .await
+            .into_iter()
+            .find(|pr| pr.number == number && pr.repository.eq_ignore_ascii_case(repository))
+        {
+            return Ok(pull_request_summary_json(project_id, repository, &pr));
+        }
+    }
+    Err(PullRequestSummaryError::Unknown)
 }
 
 fn pull_request_summary_json(project_id: &str, repository: &str, pr: &BoundPullRequest) -> Value {
@@ -1263,37 +1271,40 @@ mod tests {
 
     // -- pullRequests.summary: the linked thread's live fields ----------------
 
-    /// A binding source that answers with fixed Task-to-pull-request pairs.
-    struct StubBoundPullRequests(Vec<(String, BoundPullRequest)>);
+    /// A binding source that answers with fixed Task-to-pull-request pairs and
+    /// records every Task id `bound_pull_requests` was asked to resolve, so a
+    /// test can prove resolution ran only after authorization.
+    struct StubBoundPullRequests {
+        bound: Vec<(String, BoundPullRequest)>,
+        resolved: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl StubBoundPullRequests {
+        fn new(bound: Vec<(String, BoundPullRequest)>) -> Self {
+            Self {
+                bound,
+                resolved: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        fn resolved(&self) -> Vec<String> {
+            self.resolved.lock().unwrap().clone()
+        }
+    }
 
     #[async_trait]
     impl BoundPullRequestSource for StubBoundPullRequests {
-        async fn bound_pull_requests(&self, _task_id: &str) -> Vec<BoundPullRequest> {
-            Vec::new()
+        async fn bound_pull_requests(&self, task_id: &str) -> Vec<BoundPullRequest> {
+            self.resolved.lock().unwrap().push(task_id.to_string());
+            self.bound
+                .iter()
+                .filter(|(bound_task_id, _)| bound_task_id == task_id)
+                .map(|(_, pr)| pr.clone())
+                .collect()
         }
 
-        async fn pull_requests_bound_to(
-            &self,
-            _repository: &str,
-            _number: u64,
-        ) -> Vec<(String, BoundPullRequest)> {
-            self.0
-                .iter()
-                .map(|(task_id, pr)| {
-                    (
-                        task_id.clone(),
-                        BoundPullRequest {
-                            repository: pr.repository.clone(),
-                            title: pr.title.clone(),
-                            url: pr.url.clone(),
-                            base_ref: pr.base_ref.clone(),
-                            head_ref: pr.head_ref.clone(),
-                            state_kind: pr.state_kind.clone(),
-                            ..*pr
-                        },
-                    )
-                })
-                .collect()
+        async fn tasks_bound_to(&self, _repository: &str, _number: u64) -> Vec<String> {
+            self.bound.iter().map(|(task_id, _)| task_id.clone()).collect()
         }
 
         async fn resolve_pull_request(
@@ -1363,7 +1374,7 @@ mod tests {
     }
 
     async fn summary(readable: bool) -> Result<Value, PullRequestSummaryError> {
-        let bound = StubBoundPullRequests(vec![("task-a".to_string(), bound_pr("open"))]);
+        let bound = StubBoundPullRequests::new(vec![("task-a".to_string(), bound_pr("open"))]);
         pull_request_summary(
             &readable_conversations(readable),
             &bound,
@@ -1406,7 +1417,7 @@ mod tests {
     async fn a_pull_request_nothing_is_bound_to_is_not_summarized() {
         let result = pull_request_summary(
             &readable_conversations(true),
-            &StubBoundPullRequests(Vec::new()),
+            &StubBoundPullRequests::new(Vec::new()),
             &viewer(),
             "ws-1",
             "acme/web",
@@ -1414,5 +1425,29 @@ mod tests {
         )
         .await;
         assert!(matches!(result, Err(PullRequestSummaryError::Unknown)));
+    }
+
+    /// Resolving a binding refreshes it on the Task creator's GitHub token, so
+    /// it must not run for a Task the viewer cannot read: otherwise naming an
+    /// arbitrary reference spends another user's token and turns the `Unknown`
+    /// answer into a slow one that says a Task exists.
+    #[tokio::test]
+    async fn an_unreadable_task_is_never_resolved() {
+        let bound = StubBoundPullRequests::new(vec![("task-a".to_string(), bound_pr("open"))]);
+        let result = pull_request_summary(
+            &readable_conversations(false),
+            &bound,
+            &viewer(),
+            "ws-1",
+            "acme/web",
+            7,
+        )
+        .await;
+        assert!(matches!(result, Err(PullRequestSummaryError::Unknown)));
+        assert!(
+            bound.resolved().is_empty(),
+            "resolved a binding before authorizing the viewer: {:?}",
+            bound.resolved()
+        );
     }
 }

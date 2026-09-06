@@ -1498,6 +1498,137 @@ async fn a_listing_row_by_id_reaches_what_neither_listing_carries(pool: PgPool) 
     );
 }
 
+// =========================================================================
+// Linked pull requests
+// =========================================================================
+
+/// The connection every seeded binding hangs off, since `connection_id` is a
+/// foreign key.
+async fn seed_pr_connection(pool: &PgPool) {
+    sqlx::query(
+        r#"INSERT INTO adapter_connections
+               (id, adapter_kind, connection_kind, external_account_id, created_by,
+                scope, owner_user_id)
+           VALUES ('conn-gh', 'github', 'org', 'acme', 'user-1', 'user', 'user-1')
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Bind a Task to `subject_key`, in the shape the outbound path writes: a
+/// binding carries no status blob until a refresh fetches one, and `state_kind`
+/// is what that refresh later fills in.
+async fn seed_pr_binding(
+    pool: &PgPool,
+    binding_id: &str,
+    task_id: &str,
+    subject_key: &str,
+    state_kind: Option<&str>,
+) {
+    sqlx::query(
+        r#"INSERT INTO task_bindings
+               (id, task_id, adapter_kind, subject_kind, subject_key, connection_id,
+                destination_config, origin, external_state_kind)
+           VALUES ($1, $2, 'github', 'github_pr', $3, 'conn-gh', '{}'::jsonb,
+                   'connected_thread', $4)"#,
+    )
+    .bind(binding_id)
+    .bind(task_id)
+    .bind(subject_key)
+    .bind(state_kind)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// The regression behind the surfaces showing nothing: a binding is written
+/// with `external_status_raw` NULL and only filled in by a refresh the listing
+/// cannot trigger, so a link conditioned on that blob never appeared for a pull
+/// request the agent had just opened.
+#[sqlx::test]
+async fn a_thread_links_a_pull_request_whose_status_was_never_fetched(pool: PgPool) {
+    seed_live_project(&pool).await;
+    seed_task(&pool, "t-pr", "user-1", Some("ws-live")).await;
+    seed_pr_connection(&pool).await;
+    seed_pr_binding(&pool, "b-1", "t-pr", "acme/web#7", None).await;
+
+    let row = thread(&pool, &viewer("user-1"), "t-pr").await;
+
+    assert_eq!(row["linkedPullRequest"]["repository"], "acme/web");
+    assert_eq!(row["linkedPullRequest"]["number"], 7);
+    // Recovered from `subject_key`, with no blob to read it out of.
+    assert_eq!(
+        row["linkedPullRequest"]["url"],
+        "https://github.com/acme/web/pull/7"
+    );
+    assert_eq!(row["linkedPullRequests"].as_array().unwrap().len(), 1);
+}
+
+#[sqlx::test]
+async fn a_thread_links_every_bound_pull_request_live_first_then_newest(pool: PgPool) {
+    seed_live_project(&pool).await;
+    seed_task(&pool, "t-prs", "user-1", Some("ws-live")).await;
+    seed_pr_connection(&pool).await;
+    seed_pr_binding(&pool, "b-1", "t-prs", "acme/web#7", Some("open")).await;
+    seed_pr_binding(&pool, "b-2", "t-prs", "acme/web#9", Some("merged")).await;
+    seed_pr_binding(&pool, "b-3", "t-prs", "acme/api#8", None).await;
+
+    let row = thread(&pool, &viewer("user-1"), "t-prs").await;
+    let linked = row["linkedPullRequests"].as_array().unwrap();
+
+    // Live before terminal, then highest number — so the merged #9 sorts last
+    // and the unrefreshed #8 counts as live.
+    let ordered: Vec<_> = linked
+        .iter()
+        .map(|pr| (pr["repository"].as_str().unwrap(), pr["number"].as_i64()))
+        .collect();
+    assert_eq!(
+        ordered,
+        vec![
+            ("acme/api", Some(8)),
+            ("acme/web", Some(7)),
+            ("acme/web", Some(9)),
+        ]
+    );
+    // The single reference every existing reader uses is the list's primary.
+    assert_eq!(row["linkedPullRequest"], linked[0]);
+}
+
+/// The guard exists so a malformed key drops its own row: the `::bigint` cast
+/// runs after the `WHERE`, so a key that reached it with a non-numeric second
+/// field would fail the whole listing rather than one binding.
+#[sqlx::test]
+async fn a_binding_whose_key_is_not_owner_repo_number_drops_without_failing_the_listing(
+    pool: PgPool,
+) {
+    seed_live_project(&pool).await;
+    seed_task(&pool, "t-odd", "user-1", Some("ws-live")).await;
+    seed_pr_connection(&pool).await;
+    seed_pr_binding(&pool, "b-1", "t-odd", "acme/web#7", None).await;
+    seed_pr_binding(&pool, "b-2", "t-odd", "acme#web#7", None).await;
+    seed_pr_binding(&pool, "b-3", "t-odd", "acme/web#none", None).await;
+
+    let row = thread(&pool, &viewer("user-1"), "t-odd").await;
+    let linked = row["linkedPullRequests"].as_array().unwrap();
+
+    assert_eq!(linked.len(), 1);
+    assert_eq!(linked[0]["repository"], "acme/web");
+    assert_eq!(linked[0]["number"], 7);
+}
+
+#[sqlx::test]
+async fn a_thread_bound_to_no_pull_request_links_none(pool: PgPool) {
+    seed_live_project(&pool).await;
+    seed_task(&pool, "t-bare", "user-1", Some("ws-live")).await;
+
+    let row = thread(&pool, &viewer("user-1"), "t-bare").await;
+
+    assert!(row["linkedPullRequest"].is_null());
+    assert!(row["linkedPullRequests"].as_array().unwrap().is_empty());
+}
+
 /// Absence is one answer with one meaning, and the reader cannot tell which of
 /// its causes applies — which is the point, because each of them is a different
 /// fact about somebody else's work.

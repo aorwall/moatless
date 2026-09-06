@@ -310,6 +310,7 @@ pub trait RepositoryBranchSource: Send + Sync {
 /// binding whose persisted blob predates them yields no `BoundPullRequest` at
 /// all, so the toolbar shows no pull request rather than one with blank
 /// branches.
+#[derive(Clone)]
 pub struct BoundPullRequest {
     pub number: u64,
     /// The binding's repository, as `owner/repo`.
@@ -393,20 +394,19 @@ pub trait BoundPullRequestSource: Send + Sync {
     /// callers that report one pick it with [`primary_pull_request`].
     async fn bound_pull_requests(&self, task_id: &str) -> Vec<BoundPullRequest>;
 
-    /// The Tasks bound to `repository#number`, each with the pull request that
-    /// binding recovers, for the linked-thread summary the sidebar reads.
+    /// The Tasks bound to `repository#number`, for the linked-thread summary
+    /// the sidebar reads.
     ///
-    /// Answers with the task ids rather than deciding anything, because access
-    /// is the caller's to settle: this surface shows a pull request to a viewer
-    /// who can read a Task bound to it, and only [`ConversationDao`] knows
-    /// which those are.
+    /// Ids only, and no side effect: access is the caller's to settle — this
+    /// surface shows a pull request to a viewer who can read a Task bound to
+    /// it, and only [`ConversationDao`] knows which those are — so this must
+    /// not resolve or refresh a binding before the caller has authorized the
+    /// viewer against these Tasks. The caller narrows to a readable Task and
+    /// recovers the pull request through [`Self::bound_pull_requests`], whose
+    /// refresh then runs only for a Task the viewer may read.
     ///
     /// [`ConversationDao`]: crate::dao::ConversationDao
-    async fn pull_requests_bound_to(
-        &self,
-        repository: &str,
-        number: u64,
-    ) -> Vec<(String, BoundPullRequest)>;
+    async fn tasks_bound_to(&self, repository: &str, number: u64) -> Vec<String>;
 
     /// Resolve a pull-request reference against a repository, for the attach-PR
     /// dialog. `reference` is already trimmed and is a bare number or

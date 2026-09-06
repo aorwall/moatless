@@ -154,13 +154,16 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
                 bound.push(pr);
                 continue;
             }
-            // The persisted blob predates base and head, so it yields no
-            // reportable pull request. This is the only path that reads the
-            // binding — the task-connections endpoint's stale-status refresh
-            // never runs here — so refresh it once through the same
-            // write-through, then rebuild from what the fetch filled in. A
-            // refresh that cannot be done (no token, API error, no adapter)
-            // drops that pull request rather than the ones beside it.
+            // The status blob is still NULL — a freshly opened pull request no
+            // surface has polled — so it resolves to nothing until fetched.
+            // Refresh it once through the write-through, then rebuild from what
+            // the fetch filled in. This walks every cold binding on the Task,
+            // not only the one a caller asked after, so resolving one reference
+            // warms the rest. A refresh that cannot be done (no token, API
+            // error, no adapter) drops that pull request rather than the ones
+            // beside it — and the listing, which tolerates a NULL blob, then
+            // still links a reference this cannot resolve. That residual
+            // disagreement is the state left when GitHub is unreachable.
             if let Some(pr) = self
                 .refresh_incomplete_binding(task_id, &binding)
                 .await
@@ -173,11 +176,7 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
         bound
     }
 
-    async fn pull_requests_bound_to(
-        &self,
-        repository: &str,
-        number: u64,
-    ) -> Vec<(String, BoundPullRequest)> {
+    async fn tasks_bound_to(&self, repository: &str, number: u64) -> Vec<String> {
         let subject_key = format!("{repository}#{number}");
         let Ok(bindings) = self
             .0
@@ -187,13 +186,15 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
         else {
             return Vec::new();
         };
+        // Task ids only, and no status refresh: the refresh spends the Task
+        // creator's GitHub token, so it must not run before the caller has
+        // authorized the viewer against these Tasks. The caller resolves the
+        // pull request through `bound_pull_requests`, which does refresh, once
+        // it has narrowed to a Task the viewer may read.
         bindings
             .into_iter()
             .filter(|binding| binding.active)
-            .filter_map(|binding| {
-                let pr = bound_pull_request_from_binding(&binding)?;
-                Some((binding.task_id, pr))
-            })
+            .map(|binding| binding.task_id)
             .collect()
     }
 
