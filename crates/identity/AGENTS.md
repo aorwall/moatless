@@ -41,6 +41,13 @@ either of two writers into the same row:
   the row carrying `secret_ref` and a placeholder. Setting one stashes whatever
   App token it displaced, so removing it later restores a live credential.
 
+A GitHub App has one registered callback URL and every client shares it, so a
+flow started from the T3 client comes back on the frontend's host. That is why
+the state cookie in `auth/cookie.rs` carries `config.auth.cookie_domain` too:
+host-only, the callback host reads no `oauth_state` and the CSRF check rejects
+the flow it was meant to protect. A deployment spanning two hosts must set
+`COOKIE_DOMAIN` to a parent of both.
+
 Two asymmetries are deliberate. `github_required_org` gates login only: it
 decides who may sign in, and a connect issues no session, because the person is
 already signed in by the configured provider and this is their own credential

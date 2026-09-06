@@ -243,7 +243,9 @@ one-way.
 The hostname itself is not the chart's to arrange: it has to resolve to this
 deployment's load balancer, and that load balancer's certificate has to cover
 it. Session cookies are shared with the app host only when `auth.cookieDomain`
-is a parent of both.
+is a parent of both, and so is the OAuth state cookie — a GitHub App has one
+registered callback URL, so a connect started here comes back on the app host
+and fails its CSRF check without it.
 
 Before using it on a shared environment: the T3 UI covers less than the
 Moatless UI. The shell, workspace listing and conversation views work; most
