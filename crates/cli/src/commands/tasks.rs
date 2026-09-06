@@ -1,4 +1,4 @@
-//! Task commands: list, get, create, children, start, stop, close, status, restart, logs, files.
+//! Task commands: list, get, create, children, start, stop, close, reopen, status, restart, logs, files.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -155,6 +155,8 @@ pub enum TaskAction {
         #[arg(long, value_name = "BOOL", num_args = 1)]
         close_children: Option<bool>,
     },
+    /// Reopen a closed task
+    Reopen { task_id: String },
     /// Update task name and/or description
     Update {
         task_id: String,
@@ -539,6 +541,11 @@ pub async fn run(
                 .close_task(&task_id, &CloseTaskRequest { close_children })
                 .await?;
             println!("Task {task_id} closed.");
+        }
+        TaskAction::Reopen { task_id } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
+            client.api().reopen_task(&task_id).await?;
+            println!("Task {task_id} reopened.");
         }
         TaskAction::Update {
             task_id,

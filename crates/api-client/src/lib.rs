@@ -304,6 +304,12 @@ impl ApiClient {
             .await
     }
 
+    /// POST `/api/v1/tasks/{task_id}/reopen`
+    pub async fn reopen_task(&self, task_id: &str) -> Result<(), ApiError> {
+        self.post_empty(&format!("/api/v1/tasks/{task_id}/reopen"))
+            .await
+    }
+
     /// DELETE `/api/v1/tasks/{task_id}`
     pub async fn delete_task(&self, task_id: &str) -> Result<(), ApiError> {
         self.delete_request(&format!("/api/v1/tasks/{task_id}"))
