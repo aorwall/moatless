@@ -1,6 +1,6 @@
-//! The bytes behind `assets.createUrl`: one workspace file, served over HTTP so
-//! a browser can render it, and one chat attachment, addressed at the upload
-//! route that already serves it.
+//! The bytes behind `assets.createUrl`: one file from a conversation's
+//! checkout, served over HTTP so a browser can render it, and one chat
+//! attachment, addressed at the upload route that already serves it.
 //!
 //! T3 asks for a *URL* rather than for content because it points a frame at the
 //! answer. Three properties of that are deliberate.
@@ -30,7 +30,7 @@ use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use moatless_ports::sandbox::SandboxError;
 use serde_json::{Value, json};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::checkout::Checkout;
 use crate::workspace;
@@ -57,21 +57,28 @@ const UPLOAD_ROUTE_PREFIX: &str = "/api/v1/uploads";
 const URL_TTL_MS: i64 = 60 * 60 * 1000;
 
 /// What T3 previews in a browser frame, which is the only thing worth minting a
-/// URL for. Mirrors `packages/shared/src/filePreview.ts`.
+/// URL for. Mirrors `WORKSPACE_BROWSER_PREVIEW_EXTENSIONS` and
+/// `WORKSPACE_IMAGE_PREVIEW_EXTENSIONS` in `packages/shared/src/filePreview.ts`.
+///
+/// Upstream admits video here for a `media-file` and this does not — see
+/// `docs/deferred-changes.md`.
 const PREVIEWABLE: [&str; 11] = [
     ".htm", ".html", ".pdf", ".avif", ".gif", ".ico", ".jpeg", ".jpg", ".png", ".svg", ".webp",
 ];
 
 /// Why a resource has no URL to give.
 ///
-/// Both are tagged errors the contract defines, and the client renders each
+/// Each is a tagged error the contract defines, and the client renders each
 /// with its own sentence, so the distinction reaches the person: one says the
-/// file is not there, the other that it is not the kind of thing a browser
-/// frame shows.
+/// file is not there, one that it is not the kind of thing a browser frame
+/// shows, and one that a project has no icon.
 #[derive(Debug)]
 pub(crate) enum AssetUrlError {
     NotFound,
     NotPreviewable,
+    /// A project favicon, which a Moatless project never has — see
+    /// [`create_url`].
+    NoProjectFavicon,
 }
 
 impl AssetUrlError {
@@ -79,6 +86,7 @@ impl AssetUrlError {
         match self {
             Self::NotFound => "AssetWorkspaceAssetNotFoundError",
             Self::NotPreviewable => "AssetPreviewTypeValidationError",
+            Self::NoProjectFavicon => "AssetProjectFaviconNotFoundError",
         }
     }
 }
@@ -86,13 +94,17 @@ impl AssetUrlError {
 /// The URL a resource is reachable at, in the shape `AssetCreateUrlResult` has
 /// on the wire.
 ///
-/// Two of the three resources have one. A `workspace-file` is served by
-/// [`serve`] below out of the conversation's Sandbox; an `attachment` is an
-/// ordinary Moatless upload and is served by the upload route, which is the
-/// same address the Moatless UI renders the same image from. A project favicon
-/// would be a file in a project's root directory, which a Moatless project does
-/// not have, so that one keeps answering that there is no such asset — which is
-/// what the client renders as a project without an icon.
+/// `workspace-file` and `media-file` both name a file in the conversation's
+/// checkout and both are served by [`serve`] below. The contract separates them
+/// by where the path may point — a `media-file` path may be absolute and lie
+/// outside the workspace — which on this fork is not a distinction: every read
+/// goes through [`Checkout`], addressed inside the Sandbox, so the same path
+/// handling answers both. An `attachment` is an ordinary Moatless upload and is
+/// served by the upload route, the same address the Moatless UI renders it
+/// from. A project favicon would be a file in a project's root directory, which
+/// a Moatless project does not have, so that one answers
+/// `AssetProjectFaviconNotFoundError` — which is what the client renders as a
+/// project without an icon.
 ///
 /// Nothing here reaches the Sandbox or the database. Whether the file exists is
 /// settled by the request that fetches it, because that request has to look
@@ -101,24 +113,43 @@ impl AssetUrlError {
 /// the upload route re-checks the viewer against the upload's own scope, so an
 /// id minted here is no more reachable than the person asking already was.
 pub(crate) fn create_url(resource: &Value) -> Result<Value, AssetUrlError> {
-    if resource["_tag"].as_str() == Some("attachment") {
-        let Some(attachment_id) = resource["attachmentId"]
-            .as_str()
-            .filter(|id| !id.is_empty() && !id.contains('/'))
-        else {
-            return Err(AssetUrlError::NotFound);
-        };
-        return Ok(json!({
-            "relativeUrl": format!("{UPLOAD_ROUTE_PREFIX}/{}", escape(attachment_id)),
-            "expiresAt": Utc::now().timestamp_millis() + URL_TTL_MS
-        }));
+    match resource["_tag"].as_str() {
+        Some("attachment") => attachment_url(resource),
+        Some("workspace-file" | "media-file") => file_url(resource),
+        Some("project-favicon") => Err(AssetUrlError::NoProjectFavicon),
+        // `native-app-icon` and anything a newer client invents. Logged
+        // because this arm is where a resource this surface has never served
+        // lands, and answering every one of them "not found" is exactly how
+        // `media-file` stayed invisible: a whole class of request refused
+        // without a line anyone could grep.
+        other => {
+            warn!(
+                resource = other.unwrap_or("(untagged)"),
+                "Refused an asset resource this surface does not serve"
+            );
+            Err(AssetUrlError::NotFound)
+        }
     }
+}
 
-    let (Some("workspace-file"), Some(thread_id), Some(path)) = (
-        resource["_tag"].as_str(),
-        resource["threadId"].as_str(),
-        resource["path"].as_str(),
-    ) else {
+/// An upload, addressed where uploads already are.
+fn attachment_url(resource: &Value) -> Result<Value, AssetUrlError> {
+    let Some(attachment_id) = resource["attachmentId"]
+        .as_str()
+        .filter(|id| !id.is_empty() && !id.contains('/'))
+    else {
+        return Err(AssetUrlError::NotFound);
+    };
+    Ok(json!({
+        "relativeUrl": format!("{UPLOAD_ROUTE_PREFIX}/{}", escape(attachment_id)),
+        "expiresAt": Utc::now().timestamp_millis() + URL_TTL_MS
+    }))
+}
+
+/// A file in the conversation's checkout, whichever tag named it.
+fn file_url(resource: &Value) -> Result<Value, AssetUrlError> {
+    let (Some(thread_id), Some(path)) = (resource["threadId"].as_str(), resource["path"].as_str())
+    else {
         return Err(AssetUrlError::NotFound);
     };
 
@@ -128,7 +159,15 @@ pub(crate) fn create_url(resource: &Value) -> Result<Value, AssetUrlError> {
     let relative = path
         .strip_prefix(&projection::nominal_worktree(thread_id))
         .map_or(path, |nested| nested.trim_start_matches('/'));
-    if relative.is_empty() {
+    // What is minted has to be something [`serve`] can read, and it reads
+    // through the Sandbox's own `validate_path` (`crates/sandbox/src/files`),
+    // which refuses a leading `/` and any `..` before it looks at the disk.
+    // Minting either answers the frame a 400 carrying that refusal instead of
+    // the tag the client renders as a sentence — the same invisible refusal
+    // this module exists to avoid. A `media-file` may name an absolute path
+    // outside the workspace and this is where that stops: nothing outside the
+    // checkout is reachable from here.
+    if relative.is_empty() || relative.starts_with('/') || relative.contains("..") {
         return Err(AssetUrlError::NotFound);
     }
     let lowered = relative.to_ascii_lowercase();
@@ -354,6 +393,34 @@ mod tests {
         ));
     }
 
+    /// A `media-file` path may name somewhere outside the workspace, and the
+    /// Sandbox refuses a leading `/` or a `..` before it reads anything — so
+    /// minting one would answer the frame a 400 carrying that refusal instead
+    /// of the tag the client renders as a sentence.
+    #[test]
+    fn a_path_the_sandbox_would_refuse_is_refused_in_the_contracts_own_type() {
+        let media = |path: &str| json!({ "_tag": "media-file", "threadId": "t-1", "path": path });
+        for path in [
+            "/etc/passwd.png",
+            "/var/run/secrets/x.png",
+            "../../etc/x.png",
+            "docs/../../x.png",
+        ] {
+            assert!(
+                matches!(create_url(&media(path)), Err(AssetUrlError::NotFound)),
+                "{path} was minted, and the Sandbox would refuse it"
+            );
+        }
+        // The same guard on the tag that has always been here: an absolute path
+        // outside the checkout never resolved, it only failed later.
+        assert!(matches!(
+            create_url(&workspace_file("/etc/passwd.png")),
+            Err(AssetUrlError::NotFound)
+        ));
+        // A path inside the checkout still mints, dots in a name and all.
+        assert!(create_url(&media("/moatless/tasks/t-1/a.b.png")).is_ok());
+    }
+
     /// An attachment is an upload, so it is addressed where uploads are — and
     /// nowhere near the workspace prefix, which is what the Sandbox serves.
     #[test]
@@ -377,12 +444,53 @@ mod tests {
     }
 
     /// A Moatless project is a Workspace and has no root directory to hold an
-    /// icon, so this keeps the answer this surface has always given.
+    /// icon, so this keeps answering that there is none — but as the favicon
+    /// error the contract defines, so the client renders "Project favicon was
+    /// not found." and an operator can tell a project without an icon apart
+    /// from a workspace file that is genuinely missing.
     #[test]
-    fn a_project_favicon_has_no_url() {
+    fn a_project_favicon_has_no_url_and_says_so_as_a_favicon() {
+        let refused = create_url(&json!({
+            "_tag": "project-favicon", "cwd": "/moatless/workspaces/w-1"
+        }))
+        .expect_err("a Moatless project has no icon");
+        assert!(matches!(refused, AssetUrlError::NoProjectFavicon));
+        assert_eq!(refused.tag(), "AssetProjectFaviconNotFoundError");
+    }
+
+    /// The web client asks for a chat image, a video and any preview of a file
+    /// outside the workspace root as a `media-file`
+    /// (`apps/web/src/components/ChatMarkdown.tsx`,
+    /// `components/files/FilePreviewPanel.tsx`), and this surface used to
+    /// refuse every one of them: only `workspace-file` was matched, so an
+    /// agent-written image in a thread never rendered. Both tags name a file in
+    /// the same checkout here, so both mint the same URL.
+    #[test]
+    fn a_media_file_is_minted_the_same_way_a_workspace_file_is() {
+        let media = json!({
+            "_tag": "media-file", "threadId": "t-1",
+            "path": "/moatless/tasks/t-1/docs/shot.png"
+        });
+        let minted = create_url(&media).expect("a previewable file");
+        assert_eq!(minted["relativeUrl"], "/api/assets/t-1/docs/shot.png");
+        assert_eq!(
+            minted["relativeUrl"],
+            create_url(&workspace_file("/moatless/tasks/t-1/docs/shot.png"))
+                .expect("the same file")["relativeUrl"]
+        );
+    }
+
+    /// [`serve`] reads a whole file into memory and answers no range request,
+    /// so a video is refused as a preview type rather than read wholesale to be
+    /// scrubbed — see [`PREVIEWABLE`].
+    #[test]
+    fn a_video_is_refused_as_a_preview_type_rather_than_served_whole() {
         assert!(matches!(
-            create_url(&json!({ "_tag": "project-favicon", "cwd": "/moatless/workspaces/w-1" })),
-            Err(AssetUrlError::NotFound)
+            create_url(&json!({
+                "_tag": "media-file", "threadId": "t-1",
+                "path": "/moatless/tasks/t-1/demo.mp4"
+            })),
+            Err(AssetUrlError::NotPreviewable)
         ));
     }
 

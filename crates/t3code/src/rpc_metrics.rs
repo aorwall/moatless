@@ -132,6 +132,19 @@ pub(crate) fn classify(frames: &[Value]) -> Outcome {
     }
 }
 
+/// The contract error tag a typed failure carried, for the span.
+///
+/// Bounded without having to be trusted: every `_tag` this crate puts inside a
+/// `Fail` is a literal or a `&'static str` from one of its own error enums, so
+/// nothing the client sent reaches this. It is recorded on the span and not
+/// used as a metric label all the same — one method can fail several ways, and
+/// the counter is already split by `tag` and `outcome`.
+pub(crate) fn fail_tag(frames: &[Value]) -> Option<&str> {
+    frames
+        .iter()
+        .find_map(|frame| frame["exit"]["cause"][0]["error"]["_tag"].as_str())
+}
+
 /// The defect string a [`Outcome::Die`] carried, for the log line.
 pub(crate) fn defect(frames: &[Value]) -> Option<&str> {
     frames.iter().find_map(|frame| {
@@ -200,6 +213,23 @@ mod tests {
                 json!({ "_tag": "Fail", "error": { "_tag": "ProjectReadFileError" } })
             )),
             Outcome::Fail
+        );
+    }
+
+    /// `outcome="fail"` is one bucket for every declared refusal a method has,
+    /// so the tag beside it is what makes the bucket readable.
+    #[test]
+    fn a_typed_failure_carries_the_tag_the_client_was_given() {
+        assert_eq!(
+            fail_tag(&exit(json!({
+                "_tag": "Fail",
+                "error": { "_tag": "AssetProjectFaviconNotFoundError" }
+            }))),
+            Some("AssetProjectFaviconNotFoundError")
+        );
+        assert_eq!(
+            fail_tag(&exit(json!({ "_tag": "Die", "defect": "boom" }))),
+            None
         );
     }
 

@@ -1578,6 +1578,7 @@ fn request_root_span(
         otel.kind = "server",
         otel.status_code = tracing::field::Empty,
         outcome = tracing::field::Empty,
+        error.type = tracing::field::Empty,
         client_trace_id = tracing::field::Empty,
     );
     match remote_span_context(trace_id, span_id, sampled) {
@@ -1632,6 +1633,13 @@ fn record_request(
     span.record("outcome", outcome.as_str());
     if outcome.is_failure() {
         span.record("otel.status_code", "ERROR");
+        // Which failure it was. Without this, `outcome="fail"` cannot separate a
+        // refusal the contract declares — a project that has no icon — from a
+        // surface that is broken, and that is what hid `media-file` being
+        // rejected for every request the web client made of it.
+        if let Some(error) = rpc_metrics::fail_tag(frames) {
+            span.record("error.type", error);
+        }
     }
 
     // A `Die` is the only outcome the client can render nothing but "this
@@ -2708,9 +2716,10 @@ impl ProtocolSession {
             // A conversation's checkout exists inside its Sandbox and nowhere
             // else, so an asset is minted as a route this backend serves the
             // file on rather than as a path on this machine — see [`assets`].
-            // An attachment is an upload and is minted at the upload route. A
-            // project's favicon names no file here and keeps answering that
-            // there is none, which is what the client renders as a project
+            // `workspace-file` and `media-file` both name a file in that
+            // checkout. An attachment is an upload and is minted at the upload
+            // route. A project's favicon names no file here and keeps answering
+            // that there is none, which is what the client renders as a project
             // without an icon.
             "assets.createUrl" => {
                 // The error carries the resource back, and the client decodes it
@@ -5658,11 +5667,39 @@ mod tests {
             .await;
         let cause = &output.frames[0]["exit"]["cause"][0];
         assert_eq!(cause["_tag"], "Fail");
-        assert_eq!(cause["error"]["_tag"], "AssetWorkspaceAssetNotFoundError");
+        assert_eq!(cause["error"]["_tag"], "AssetProjectFaviconNotFoundError");
         assert_eq!(
             cause["error"]["resource"],
             json!({ "_tag": "project-favicon", "cwd": "/moatless" }),
             "the error carries back the resource the request named"
+        );
+    }
+
+    /// The web client asks for a chat image as a `media-file` and this surface
+    /// used to refuse every one, so an agent-written image never rendered. The
+    /// dispatch arm is asserted as well as [`assets::create_url`] because the
+    /// arm is what the socket reaches.
+    #[tokio::test]
+    async fn a_media_file_is_minted_rather_than_refused() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request(
+                    "9",
+                    "assets.createUrl",
+                    json!({ "resource": {
+                        "_tag": "media-file", "threadId": "t-1",
+                        "path": "/moatless/tasks/t-1/docs/shot.png"
+                    }}),
+                ),
+                &state(),
+                &viewer(),
+            )
+            .await;
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        assert_eq!(
+            output.frames[0]["exit"]["value"]["relativeUrl"],
+            "/api/assets/t-1/docs/shot.png"
         );
     }
 
