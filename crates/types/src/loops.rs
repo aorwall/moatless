@@ -61,7 +61,8 @@ impl TryFrom<&str> for RoutingMode {
 #[derive(Debug, Clone)]
 pub struct LoopContext {
     pub id: String,
-    /// The Adapter this Loop listens on, or `"scheduled"` for a Loop a cron
+    /// The Adapter this Loop listens on, or
+    /// [`SCHEDULED_ORIGIN`](crate::adapter::SCHEDULED_ORIGIN) for a Loop a cron
     /// rule fires. Wider than [`AdapterKind`] because a schedule-fired Loop has
     /// no Adapter behind it.
     pub adapter_kind: String,

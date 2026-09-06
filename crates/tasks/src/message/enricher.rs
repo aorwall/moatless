@@ -10,6 +10,7 @@ use super::models::{TaskMessage, TaskMessageContext};
 use crate::task::schemas::MessageContextInput;
 use moatless_core::config::Config;
 use moatless_core::file_storage::dao::FileDao;
+use moatless_types::adapter::SCHEDULED_ORIGIN;
 
 /// Content block for agent request.
 #[derive(Debug, serde::Serialize)]
@@ -328,7 +329,12 @@ fn sender_label(row: &TaskMessage, sender_logins: &HashMap<String, String>) -> O
 }
 
 fn build_message_header(row: &TaskMessage, login_cache: &HashMap<String, String>) -> String {
-    if row.external_event_id.is_some() {
+    // A schedule firing stores an `external_event_id` for dedup only; see
+    // [`SCHEDULED_ORIGIN`] for why such a row carries no header.
+    let external =
+        row.external_event_id.is_some() && row.external_adapter.as_deref() != Some(SCHEDULED_ORIGIN);
+
+    if external {
         let mut header = format!("<message_id>{}</message_id>\n", row.uuid);
         if let Some(source) = row.external_adapter.as_deref() {
             let _ = writeln!(header, "<source>{source}</source>");
@@ -850,6 +856,20 @@ mod tests {
              <thread>T06:C0A:1781593153.718929</thread>\n\nhello",
             "a row with no sender id names nobody rather than naming sent_by"
         );
+    }
+
+    #[tokio::test]
+    async fn a_scheduled_row_carries_no_header_and_no_reply_target() {
+        let mut message = pending_message(1, "msg_abc", "/docs-improver");
+        message.external_event_id = Some("scheduled:sch-1:1780000000".to_string());
+        message.external_adapter = Some(SCHEDULED_ORIGIN.to_string());
+        message.external_subject_key = Some("scheduled:sch-1".to_string());
+
+        let deliveries = prompt_builder(&HashMap::new(), None)
+            .build_pending_deliveries(&[message], &HashMap::new())
+            .await;
+
+        assert_eq!(deliveries[0].prompt_text, "/docs-improver");
     }
 
     /// An external row that names a writer.

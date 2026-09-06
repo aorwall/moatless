@@ -118,18 +118,18 @@ pub async fn create_task_from_loop(
     Ok(outcome)
 }
 
-/// Create a new task from an external chat message (Slack / Telegram / Webhook)
-/// or the schedule runner. Thin wrapper over [`create_task_from_loop`] that
-/// fills in the chat-path shape: private visibility, no origin prelude, the
-/// Loop's task name, a truncated message preview, and `{adapter, source_id}`
-/// event metadata. `related_to` carries the optional peer relation the bindings
-/// path computes; the schedule runner passes `None`.
+/// Create a new task from a chat message (Slack / Telegram / Webhook) or a
+/// schedule firing. Thin wrapper over [`create_task_from_loop`] that fills in
+/// the shape both share: private visibility, the Loop's task name, a truncated
+/// message preview, and `{adapter, source_id}` event metadata. `related_to`
+/// carries the optional peer relation the bindings path computes.
 pub(crate) async fn create_task_for_external_message(
     task_creation: &dyn TaskOpener,
     config: &LoopContext,
     msg: &InboundMessage,
     related_to: Option<RelatedTask>,
     reply_instructions: Option<String>,
+    origin_prelude: Option<&str>,
 ) -> Result<TaskOpened, TaskOpenError> {
     create_task_from_loop(
         task_creation,
@@ -138,7 +138,7 @@ pub(crate) async fn create_task_for_external_message(
             name: config.task_name.clone(),
             description: crate::bindings::outbound::truncate_text(&msg.text, 200),
             visibility: Visibility::Private,
-            origin_prelude: None,
+            origin_prelude,
             related_to,
             reply_instructions,
             event_metadata: serde_json::json!({

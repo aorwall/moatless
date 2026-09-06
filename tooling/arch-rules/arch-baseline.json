@@ -135,7 +135,6 @@
   "single-implementation-trait::moatless_ports::task::RelationRecorder implemented by moatless_tasks::ports::TaskRelations",
   "single-implementation-trait::moatless_ports::task::TagResolver implemented by moatless_tasks::ports::TagCatalog",
   "single-implementation-trait::moatless_ports::task::TaskFinisher implemented by moatless_tasks::task::closer::TaskCloser",
-  "single-implementation-trait::moatless_ports::task::TaskOpener implemented by moatless_tasks::task::creation::TaskCreationService",
   "single-implementation-trait::moatless_ports::task::TaskReader implemented by moatless_tasks::ports::TaskProjection",
   "single-implementation-trait::moatless_ports::task::TranscriptAppend implemented by moatless_tasks::ports::Transcript",
   "single-implementation-trait::moatless_ports::task::TurnCounter implemented by moatless_tasks::ports::TurnLedger",

@@ -66,6 +66,15 @@ impl std::fmt::Display for AdapterKind {
     }
 }
 
+/// The origin label a schedule firing records, in `LoopContext.adapter_kind`
+/// and on the message row it writes.
+///
+/// A schedule is not an Adapter, so [`AdapterKind::parse`] rejects this value
+/// and no channel exists to answer a scheduled turn on. A message row carrying
+/// it renders with no inbound header, so the agent never reads a reply target
+/// that would fail.
+pub const SCHEDULED_ORIGIN: &str = "scheduled";
+
 // =============================================================================
 // Adapter contexts
 // =============================================================================
