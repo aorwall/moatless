@@ -227,10 +227,10 @@ pub enum TaskAction {
         action: ServerAction,
     },
     /// Run a workspace's declared scripts against this task's sandbox. Starts
-    /// the command in a terminal and, if the script declares a port, reports
-    /// a preview URL pointing at it. Unlike clicking Run in the chat header,
-    /// this does not start a stopped sandbox for you — run `moat tasks start`
-    /// first if needed
+    /// the command in a terminal and, if the script declares a port, reports a
+    /// preview URL pointing at it and opens a browser tab on it in the T3 UI.
+    /// Unlike clicking Run in the chat header, this does not start a stopped
+    /// sandbox for you — run `moat tasks start` first if needed
     Scripts {
         task_id: String,
         #[command(subcommand)]
@@ -745,6 +745,15 @@ async fn run_task_script_action(
                 println!("Started \"{name}\" in terminal {terminal_id}.");
                 if let Some(url) = resp.get("url").and_then(serde_json::Value::as_str) {
                     println!("Preview: {url}");
+                    // Only when the backend says it opened one. An older one
+                    // answers without the field, and its preview is the URL
+                    // above and nothing else.
+                    if resp
+                        .get("previewTabId")
+                        .is_some_and(serde_json::Value::is_string)
+                    {
+                        println!("Opened a browser tab on it in the T3 UI.");
+                    }
                 } else {
                     println!(
                         "No port declared, so no preview — open the T3 UI to watch its output, or add --port with `moat workspaces scripts update`."

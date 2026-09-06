@@ -406,6 +406,12 @@ pub async fn router_from_env(
         client_traces_endpoint = client_traces.endpoint().unwrap_or("(none)"),
         "T3 UI RPC compatibility routes registered"
     );
+    // Built before the state literal because two of its fields hold it: a
+    // Script with a port opens its own preview tab (`scripts::run`).
+    let preview = PreviewState {
+        tabs: preview_tabs,
+        tasks: tasks.clone(),
+    };
     Ok(Some(router(UiRpcState {
         rpc: Arc::new(config),
         environment: Arc::new(environment),
@@ -422,7 +428,11 @@ pub async fn router_from_env(
             tasks: tasks.clone(),
             intent: intent.clone(),
         },
-        scripts: ScriptsState { workspaces, ports },
+        scripts: ScriptsState {
+            workspaces,
+            ports,
+            preview: preview.clone(),
+        },
         sandbox: SandboxState {
             observer,
             tasks: tasks.clone(),
@@ -435,10 +445,7 @@ pub async fn router_from_env(
             relations,
             conversations,
         },
-        preview: PreviewState {
-            tabs: preview_tabs,
-            tasks,
-        },
+        preview,
         model_defaults: Arc::new(model_defaults),
         agents,
         branches,
@@ -4671,6 +4678,10 @@ mod tests {
             scripts: ScriptsState {
                 workspaces: Arc::new(MockT3WorkspaceDao::new()),
                 ports: Arc::new(UnreachableSandboxes),
+                preview: PreviewState {
+                    tabs: Arc::new(preview_tabs::InMemoryPreviewTabDao::new()),
+                    tasks: Arc::new(MockT3TaskDao::new()),
+                },
             },
             sandbox: SandboxState {
                 observer: Arc::new(UnreachableSandboxes),

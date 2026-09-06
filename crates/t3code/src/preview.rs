@@ -174,6 +174,46 @@ pub async fn open(
     .await
 }
 
+/// Open a tab at a caller-chosen id, replacing whatever that id held.
+///
+/// [`open`] mints an id because two clients opening a tab at the same moment
+/// must not collide. A Script is the opposite case: every run of one Script is
+/// the same tab, so its id is derived from the Script and a second run
+/// re-announces the tab the first run opened rather than stacking another one
+/// beside it — see [`crate::scripts::run`]. The viewport is carried over for
+/// the same reason: a size somebody chose belongs to the tab, not to the run.
+/// `url` is commanded, so a re-open pulls every viewer of the Task back to it
+/// from wherever they had navigated the tab — a restart is a fresh process, and
+/// what it serves is what the tab is for.
+pub async fn open_at(
+    state: &PreviewState,
+    viewer: &ScopeContext,
+    task_id: &str,
+    tab_id: &str,
+    url: &str,
+) -> Result<Value, PreviewError> {
+    authorize(state, viewer, task_id).await?;
+    let viewport = state
+        .tabs
+        .get(task_id, tab_id)
+        .await?
+        .and_then(|tab| tab.viewport);
+    commit(
+        state,
+        PreviewTab {
+            thread_id: task_id.to_string(),
+            tab_id: tab_id.to_string(),
+            nav_status: commanded(url),
+            can_go_back: false,
+            can_go_forward: false,
+            viewport,
+            updated_at: Utc::now().to_rfc3339(),
+        },
+        "opened",
+    )
+    .await
+}
+
 pub async fn navigate(
     state: &PreviewState,
     viewer: &ScopeContext,
@@ -350,8 +390,8 @@ pub fn typed_error(error: &PreviewError) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::task_dao::{MockT3TaskDao, TaskView};
     use crate::preview_tabs::InMemoryPreviewTabDao;
+    use crate::task_dao::{MockT3TaskDao, TaskView};
 
     fn viewer() -> ScopeContext {
         ScopeContext {
@@ -593,6 +633,64 @@ mod tests {
         );
     }
 
+    /// The reason `open_at` exists: running the same Script again must land in
+    /// the tab that Script already has, or a morning of restarts leaves a tab
+    /// strip of dead duplicates.
+    #[tokio::test]
+    async fn opening_at_the_same_id_twice_leaves_one_tab() {
+        let state = state(Some("task"));
+        let mut events = state.tabs.subscribe();
+
+        for url in [
+            "https://task--5733.example.com",
+            "https://task--5733.example.com/next",
+        ] {
+            open_at(&state, &viewer(), "task", "script-dev", url)
+                .await
+                .unwrap();
+        }
+
+        let listed = list(&state, &viewer(), &json!({ "threadId": "task" }))
+            .await
+            .unwrap();
+        assert_eq!(listed["sessions"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["sessions"][0]["tabId"], "script-dev");
+        assert_eq!(
+            listed["sessions"][0]["navStatus"]["url"],
+            "https://task--5733.example.com/next"
+        );
+        // Both runs announce themselves: the second is how a client that has
+        // the tab already is told to show it again.
+        for _ in 0..2 {
+            assert_eq!(events.recv().await.unwrap()["type"], "opened");
+        }
+    }
+
+    /// A re-run is the same tab, so a size somebody chose has to survive it —
+    /// otherwise every restart of a Script snaps the panel back to fill.
+    #[tokio::test]
+    async fn re_opening_at_an_id_keeps_the_viewport_the_tab_was_resized_to() {
+        let state = state(Some("task"));
+        let viewport =
+            json!({ "_tag": "preset", "width": 390, "height": 844, "presetId": "iphone-12-pro" });
+        open_at(&state, &viewer(), "task", "script-dev", "https://a.example")
+            .await
+            .unwrap();
+        resize(
+            &state,
+            &viewer(),
+            &json!({ "threadId": "task", "tabId": "script-dev", "viewport": viewport }),
+        )
+        .await
+        .unwrap();
+
+        let reopened = open_at(&state, &viewer(), "task", "script-dev", "https://a.example")
+            .await
+            .unwrap();
+
+        assert_eq!(reopened["viewport"], viewport);
+    }
+
     /// Every method in the group authorizes first, so a viewer without access
     /// cannot open, list, navigate or close a tab on someone else's Task.
     #[tokio::test]
@@ -602,6 +700,10 @@ mod tests {
                               "viewport": { "_tag": "fill" }, "navStatus": { "_tag": "Idle" } });
         assert!(matches!(
             open(&state, &viewer(), &payload).await,
+            Err(PreviewError::NotFound)
+        ));
+        assert!(matches!(
+            open_at(&state, &viewer(), "task", "a", "https://a.example").await,
             Err(PreviewError::NotFound)
         ));
         assert!(matches!(

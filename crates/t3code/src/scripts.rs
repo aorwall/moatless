@@ -8,6 +8,12 @@
 //! [`replace`] is the editing half — the `project.meta.update` command's
 //! `scripts` field, written back to the Workspace the projection read it from.
 //!
+//! A Script that serves a port also opens the browser tab pointing at it, here
+//! rather than in the client, because a Script is run from two places: the chat
+//! header and `moat tasks scripts run`. Tabs are a Task's rather than a
+//! client's ([`preview_tabs`](crate::preview_tabs)), so opening one here is
+//! what makes the CLI's run reach the browser of everyone watching the Task.
+//!
 //! The terminal is not new machinery — it is the same PTY surface
 //! [`terminal`](crate::terminal) already exposes, addressed by the Task's
 //! nominal worktree path so the sandbox resolves it to the real checkout. The
@@ -24,8 +30,10 @@
 use std::sync::Arc;
 
 use serde_json::{Value, json};
+use tracing::warn;
 
 use crate::dao::ConversationDao;
+use crate::preview::{self, PreviewState};
 use crate::projection;
 use crate::terminal::{self, TerminalError, TerminalHub};
 use crate::workspace_dao::T3WorkspaceDao;
@@ -46,6 +54,8 @@ pub struct ScriptsState {
     /// `None` where the runtime cannot publish ports (Docker), and refuses a
     /// reserved infrastructure port.
     pub ports: Arc<dyn SandboxPortPublisher>,
+    /// Opens the browser tab a Script with a port serves into.
+    pub preview: PreviewState,
 }
 
 /// Why a `scripts.run` could not be carried out.
@@ -126,8 +136,8 @@ pub fn public_script_list(scripts: &[ScriptConfig]) -> Vec<Value> {
         .collect()
 }
 
-/// Start a Script and return the terminal it runs in, plus its preview URL when
-/// it serves a port.
+/// Start a Script and return the terminal it runs in, plus — when it serves a
+/// port — its preview URL and the browser tab now pointing at it.
 pub async fn run(
     state: &ScriptsState,
     conversations: &dyn ConversationDao,
@@ -199,7 +209,28 @@ pub async fn run(
             .map_err(ScriptsError::Terminal)?;
     }
 
-    Ok(json!({ "terminalId": terminal_id, "url": url }))
+    // Last, and never fatal: the Script is running by this point, so a preview
+    // store that cannot be reached costs the automatic tab and nothing else.
+    // The tab is addressed by the same id as the terminal, which is what makes
+    // a re-run reuse the tab it opened — see [`preview::open_at`].
+    let preview_tab_id = match &url {
+        Some(url) => {
+            match preview::open_at(&state.preview, viewer, task_id, &terminal_id, url).await {
+                Ok(_) => Some(terminal_id.clone()),
+                Err(error) => {
+                    warn!(%error, script = %script.name, "A script's preview tab was not opened");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+
+    Ok(json!({
+        "terminalId": terminal_id,
+        "url": url,
+        "previewTabId": preview_tab_id,
+    }))
 }
 
 /// The line written into a freshly opened shell to run `command` *as* that
