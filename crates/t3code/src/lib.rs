@@ -49,6 +49,7 @@ mod subtasks;
 pub mod task_dao;
 mod terminal;
 mod usage;
+pub mod usage_limit_sources;
 pub mod workspace;
 pub mod workspace_dao;
 
@@ -80,7 +81,7 @@ use axum::{Json, Router};
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tower_http::compression::CompressionLayer;
 use tracing::{Instrument, debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -202,6 +203,11 @@ struct UiRpcConfig {
     /// deployment that could not then take the upload would lose the person
     /// their attachment rather than fall back.
     attachment_uploads: bool,
+    /// Whether a `CLIProxyAPI` hub is configured, and therefore whether the
+    /// config stream ever emits `usageLimitSourcesUpdated` — see
+    /// [`usage_limit_sources`]. Reported as `capabilities.usageLimitSources`,
+    /// which the client reads before it will accept the event at all.
+    usage_limit_sources: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -313,6 +319,8 @@ struct UiRpcState {
     terminal: terminal::TerminalHub,
     /// Where the T3 client's own spans are forwarded — see [`observability`].
     client_traces: observability::ClientTraceForwarder,
+    /// Quota read off a `CLIProxyAPI` hub, when the deployment configures one.
+    usage_limit_sources: usage_limit_sources::UsageLimitSources,
 }
 
 /// What this deployment is, for the parts of a thread projection that are not
@@ -388,6 +396,8 @@ pub async fn router_from_env(
         frontend_url,
     } = dependencies;
     let environment = conversations.listing_head().await?.identity;
+    let usage_limit_sources =
+        usage_limit_sources::UsageLimitSources::from_env(reqwest::Client::new());
     let config = UiRpcConfig {
         environment_id: environment_id(&environment),
         allowed_origins: moatless_types::auth::parse_allowed_origins(
@@ -395,6 +405,7 @@ pub async fn router_from_env(
         ),
         otlp_traces_enabled,
         attachment_uploads: session_jwt_secret.is_some(),
+        usage_limit_sources: usage_limit_sources.configured(),
     };
     config.validate()?;
     let client_traces = observability::ClientTraceForwarder::from_env();
@@ -457,6 +468,7 @@ pub async fn router_from_env(
         usage,
         terminal: terminal::TerminalHub::default(),
         client_traces,
+        usage_limit_sources,
     })))
 }
 
@@ -2790,7 +2802,42 @@ impl ProtocolSession {
                         &self.published_workspace_snapshots(),
                     ).await
                 });
-                let started = self.streams.start(&id, Some(vec![snapshot]));
+                // A client that did not ask for `usageLimitSourcesUpdated`
+                // decodes the stream against an event union without it and dies
+                // on one, so the opt-in gates the whole producer rather than
+                // only the first frame.
+                let sources_opted_in = state.rpc.usage_limit_sources
+                    && payload
+                        .get("usageLimitSources")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                let started = if sources_opted_in {
+                    let sources = state.usage_limit_sources.clone();
+                    let mut changes = sources.subscribe();
+                    let first = sources_event(sources.snapshot().await);
+                    self.streams.start_produced(
+                        &id,
+                        Some(vec![snapshot, first]),
+                        move |sink| async move {
+                            loop {
+                                match changes.recv().await {
+                                    Ok(next) => {
+                                        if !sink.send(sources_event(next)).await {
+                                            return Ok(());
+                                        }
+                                    }
+                                    // The next tick republishes the whole set,
+                                    // so a dropped one costs a minute of
+                                    // staleness and nothing else.
+                                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                                    Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                                }
+                            }
+                        },
+                    )
+                } else {
+                    self.streams.start(&id, Some(vec![snapshot]))
+                };
                 if self.streams.contains(id.as_str()) {
                     self.config_stream = Some(id.clone());
                 }
@@ -3281,6 +3328,16 @@ fn descriptor(config: &UiRpcConfig) -> Value {
         }
     }
 
+    // Absent rather than false for the same decode reason, and reported only
+    // where a hub is configured: the client keeps a source event it has already
+    // received until a snapshot without this key clears it, so a deployment
+    // that lost its hub has to stop declaring the capability to clear the rows.
+    if config.usage_limit_sources {
+        if let Some(capabilities) = descriptor["capabilities"].as_object_mut() {
+            capabilities.insert("usageLimitSources".into(), json!(true));
+        }
+    }
+
     descriptor
 }
 
@@ -3358,6 +3415,17 @@ async fn server_config(
         "settings": {},
         "shellResumeCompletionMarker": true,
         "threadResumeCompletionMarker": true
+    })
+}
+
+/// The config stream's only carrier for hub quota. `usageLimitSources` is
+/// never in a snapshot, so a subscriber that opted in gets this frame beside
+/// the snapshot and again on every change.
+fn sources_event(sources: Value) -> Value {
+    json!({
+        "version": 1,
+        "type": "usageLimitSourcesUpdated",
+        "payload": { "sources": sources }
     })
 }
 
@@ -4665,6 +4733,7 @@ mod tests {
                 allowed_origins: vec![AllowedOrigin::parse("http://localhost:5733")],
                 otlp_traces_enabled: false,
                 attachment_uploads: true,
+                usage_limit_sources: false,
             }),
             environment: Arc::new(stub_identity()),
             session_cookie_name: Arc::from("moatless_session"),
@@ -4715,6 +4784,7 @@ mod tests {
             model_defaults: Arc::new(AgentModelDefaults::default()),
             terminal: terminal::TerminalHub::default(),
             client_traces: observability::ClientTraceForwarder::default(),
+            usage_limit_sources: usage_limit_sources::UsageLimitSources::disabled(),
         }
     }
 
@@ -5020,11 +5090,29 @@ mod tests {
             allowed_origins: vec![AllowedOrigin::parse("https://example.com")],
             otlp_traces_enabled: false,
             attachment_uploads: false,
+            usage_limit_sources: false,
         };
         let capabilities = &descriptor(&config)["capabilities"];
 
         assert!(capabilities.get("attachmentUploads").is_none());
         assert!(capabilities.get("fileAttachments").is_none());
+        assert!(capabilities.get("usageLimitSources").is_none());
+    }
+
+    /// The client drops `usageLimitSourcesUpdated` unless the snapshot declared
+    /// this key, so a configured hub that never reaches the descriptor cannot
+    /// reach the Limits view either.
+    #[test]
+    fn a_deployment_with_a_hub_declares_the_usage_limit_source_capability() {
+        let config = UiRpcConfig {
+            environment_id: "moatless".into(),
+            allowed_origins: vec![AllowedOrigin::parse("https://example.com")],
+            otlp_traces_enabled: false,
+            attachment_uploads: false,
+            usage_limit_sources: true,
+        };
+
+        assert_eq!(descriptor(&config)["capabilities"]["usageLimitSources"], true);
     }
 
     /// What the composer gets back before it moves any bytes: the id it will
@@ -5472,6 +5560,65 @@ mod tests {
         assert_eq!(snapshot["skills"][0]["name"], "git-workflow");
         assert_eq!(snapshot["skills"][0]["description"], "Commit and PR flow");
         assert_eq!(snapshot["skills"][0]["scope"], "repo");
+    }
+
+    /// `usageLimitSources` is never in a config snapshot, so a hub that reached
+    /// only the snapshot would leave the Limits view empty on every connect.
+    #[tokio::test]
+    async fn an_opted_in_config_subscriber_gets_the_hub_beside_the_snapshot() {
+        let mut session = session();
+        let mut state = state();
+        state.rpc = Arc::new(UiRpcConfig {
+            usage_limit_sources: true,
+            ..UiRpcConfig::clone(&state.rpc)
+        });
+        state.usage_limit_sources = usage_limit_sources::UsageLimitSources::fixed(json!([{
+            "id": "cliproxy",
+            "kind": "cliproxy",
+            "label": "CLIProxyAPI",
+            "checkedAt": "2026-09-06T12:00:00.000Z",
+            "accounts": []
+        }]));
+
+        let subscribed = session
+            .handle_json(
+                &request(
+                    "1",
+                    "subscribeServerConfig",
+                    json!({ "usageLimitSources": true }),
+                ),
+                &state,
+                &viewer(),
+            )
+            .await;
+
+        let values = &subscribed.frames[0]["values"];
+        assert_eq!(values[0]["type"], "snapshot");
+        assert_eq!(values[1]["type"], "usageLimitSourcesUpdated");
+        assert_eq!(values[1]["payload"]["sources"][0]["label"], "CLIProxyAPI");
+    }
+
+    /// A client that did not opt in decodes the stream against an event union
+    /// without this member, so one would take the whole connection down.
+    #[tokio::test]
+    async fn a_client_that_did_not_opt_in_is_sent_no_hub_event() {
+        let mut session = session();
+        let mut state = state();
+        state.usage_limit_sources =
+            usage_limit_sources::UsageLimitSources::fixed(json!([{ "id": "cliproxy" }]));
+
+        let subscribed = session
+            .handle_json(
+                &request("1", "subscribeServerConfig", json!({})),
+                &state,
+                &viewer(),
+            )
+            .await;
+
+        assert_eq!(
+            subscribed.frames[0]["values"].as_array().map(Vec::len),
+            Some(1)
+        );
     }
 
     /// The client's provider state is fed by `subscribeServerConfig` alone — the
@@ -6088,6 +6235,7 @@ mod tests {
             allowed_origins: vec![],
             otlp_traces_enabled: false,
             attachment_uploads: true,
+            usage_limit_sources: false,
         };
         assert!(config.validate().is_err());
     }
@@ -6101,6 +6249,7 @@ mod tests {
             allowed_origins: vec![AllowedOrigin::parse("https://example.com")],
             otlp_traces_enabled: false,
             attachment_uploads: true,
+            usage_limit_sources: false,
         };
 
         assert_eq!(

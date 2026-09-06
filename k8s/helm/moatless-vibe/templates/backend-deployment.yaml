@@ -161,6 +161,23 @@ spec:
             # derived, not configured — see the t3Origin helper.
             - name: T3_UI_RPC_ALLOWED_ORIGINS
               value: {{ concat (list (include "moatless-vibe.t3Origin" .)) .Values.t3.extraAllowedOrigins | join "," | quote }}
+            {{- if .Values.cliproxy.enabled }}
+            # Quota for the T3 client's Usage -> Limits view. The backend reads
+            # the hub because the T3 client has no server of its own here: the
+            # component that polls a hub upstream is apps/server, and the image
+            # this chart deploys is the SPA alone.
+            #
+            # The hub is addressed in-cluster, so it is never the browser that
+            # holds the management key. This is also why no user configures a
+            # hub through T3 settings: this backend serves no settings write.
+            - name: T3_UI_RPC_CLIPROXY_URL
+              value: {{ printf "http://%s-cliproxy.%s.svc.cluster.local:%v" (include "moatless-vibe.fullname" .) .Release.Namespace .Values.cliproxy.service.port | quote }}
+            - name: T3_UI_RPC_CLIPROXY_MANAGEMENT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: {{ .Values.cliproxy.managementKeySecretKey }}
+            {{- end }}
             {{- end }}
             # Origins trusted for cookie-authenticated REST writes. The derived
             # T3 origin only — deliberately not t3.extraAllowedOrigins, whose

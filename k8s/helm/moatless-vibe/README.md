@@ -339,12 +339,27 @@ Once accounts exist, verify the pool:
 
 ```bash
 curl -s -H "Authorization: Bearer $MANAGEMENT_KEY" \
-  http://localhost:8317/v0/management/quota-scheduler/status | jq .
+  http://localhost:8317/v0/management/auth-files | jq '.files[] | {name, provider, quota}'
 ```
 
-That endpoint is also what a T3 environment reads for **Usage → Limits**
-(Settings → Providers → Usage providers → Add hub). Point it at the
-port-forwarded URL.
+#### Quota in the T3 client
+
+With `cliproxy.enabled` and `t3.enabled` both set, the backend polls the hub
+every minute and publishes each pooled account under **Usage → Limits** in the
+T3 client. The chart wires `T3_UI_RPC_CLIPROXY_URL` and
+`T3_UI_RPC_CLIPROXY_MANAGEMENT_KEY` onto the backend from the Service address
+and the same Secret key the hub reads, so no operator step and no browser hold
+the management key.
+
+The **Settings → Providers → Usage providers** form is T3's own way to add a
+hub, and it does not apply here. It writes through `server.updateSettings`,
+which this backend does not serve.
+
+Two properties of the hub's data show up in those rows. The hub reports the
+rate-limit headers it last saw on a response for an account, so an account
+that has served no request through the hub reports no windows. Codex sends a
+used percent per window and Anthropic sends a status word, so a Claude account
+gets a bar only for a window Anthropic has rejected.
 
 #### Routing agent traffic through the hub
 
