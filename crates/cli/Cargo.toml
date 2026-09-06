@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 base64 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive", "string"] }
 dialoguer = { version = "0.12", features = ["password"] }
 dirs = "6"
 mime_guess = "2"

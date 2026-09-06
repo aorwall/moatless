@@ -5,8 +5,6 @@
 //! - **Sandbox** (inside a pod): no login/logout, adds `set-name` / `set-tags`
 //! - **Standalone** (human user): login/logout, no sandbox-only commands
 
-use std::sync::LazyLock;
-
 use clap::{Parser, Subcommand};
 use moatless_api_schemas::task::{SetTagsRequest, UpdateTaskMetadataRequest};
 
@@ -20,6 +18,17 @@ use moatless_cli::output;
 // ---------------------------------------------------------------------------
 // Global options (shared between both CLI modes)
 // ---------------------------------------------------------------------------
+
+/// What this binary was built from, for `moat --version`.
+///
+/// `GITHUB_SHA` is set for every CI build and absent locally, where the working
+/// tree is the answer. Dates a `moat` against the backend it answers to — see
+/// [`moatless_cli::client::ClientError::UndecodableResponse`] for the skew.
+fn version() -> String {
+    let commit =
+        option_env!("GITHUB_SHA").map_or("local build", |sha| sha.get(..12).unwrap_or(sha));
+    format!("{} ({commit})", env!("CARGO_PKG_VERSION"))
+}
 
 #[derive(Parser, Clone)]
 struct GlobalOpts {
@@ -194,23 +203,6 @@ enum SharedCommands {
 // ---------------------------------------------------------------------------
 // Sandbox mode CLI (inside a pod — no login/logout, adds task shortcuts)
 // ---------------------------------------------------------------------------
-
-/// What this binary was built from, for `moat --version`.
-///
-/// A sandbox image bakes `moat` in and can outlive the backend it answers to by
-/// months: `moatless-dev` is rebuilt by hand, so the drift is silent until a
-/// response stops deserializing, and the failure names a field rather than an
-/// age. The commit is the only thing that dates a binary from the outside — the
-/// package version is shared by every build ever made. `GITHUB_SHA` is set for
-/// every CI build and absent locally, where the working tree is the answer.
-fn version() -> &'static str {
-    static VERSION: LazyLock<String> = LazyLock::new(|| {
-        let commit =
-            option_env!("GITHUB_SHA").map_or("local build", |sha| sha.get(..12).unwrap_or(sha));
-        format!("{} ({commit})", env!("CARGO_PKG_VERSION"))
-    });
-    VERSION.as_str()
-}
 
 #[derive(Parser)]
 #[command(name = "moat", about = "Moatless sandbox CLI", version = version())]

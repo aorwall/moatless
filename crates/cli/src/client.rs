@@ -27,7 +27,8 @@ pub enum ClientError {
     #[error(
         "Could not read the response: {0}\n\
          The server answered, so this is most likely a `moat` older than the backend — \
-         a sandbox uses the CLI baked into its image. Restart the sandbox to pick up a newer one."
+         a sandbox uses the CLI baked into its image. `moat --version` names the commit this one \
+         was built from; restart the sandbox to pick up a newer one."
     )]
     UndecodableResponse(String),
     #[error("{0}")]
@@ -487,8 +488,9 @@ mod tests {
         let shown = err.to_string();
         assert!(!shown.contains("500"), "must not invent a status: {shown}");
         assert!(shown.contains("invalid type: null, expected u16"));
-        // The reader is told what to actually do about it.
-        assert!(shown.contains("Restart the sandbox"), "{shown}");
+        // The reader is told how to check the diagnosis and what to do about it.
+        assert!(shown.contains("moat --version"), "{shown}");
+        assert!(shown.contains("restart the sandbox"), "{shown}");
     }
 
     /// A real server status still travels as one.
