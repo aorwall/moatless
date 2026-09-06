@@ -119,6 +119,10 @@ Then prove the new CLIs actually drive the agent. This is the step a version
 bump alone cannot do, and the reason this runs as a loop: install both candidate
 CLIs into a temp prefix and point the transport E2E at them.
 
+Install both even when only one moved — the other's version is then the pin
+already in `cli-versions.env`, which keeps one command shape for every run.
+Which transport gates the PR is the rule below the block.
+
 ```bash
 npm i --prefix /tmp/cli-probe "@anthropic-ai/claude-code@<new-claude>" "@openai/codex@<new-codex>" --no-audit --no-fund
 export CLAUDE_CLI_PATH=/tmp/cli-probe/node_modules/.bin/claude
@@ -149,8 +153,21 @@ the test: Claude fails the turn and Codex 401s through five reconnects, so an
 empty variable reads as a broken CLI. Echo both as non-empty before trusting a
 failure. A bump verified only by `clippy` is a bump nobody checked.
 
-A failing E2E is the result of the run. Report which CLI and which transport
-failed and open no PR; do not work around it by reverting to the old pin.
+**The gate covers the CLIs this run is bumping, and only those.** When one CLI
+is already at `latest`, its transport is not evidence about this change: its
+result goes in the PR body as context, and a failure there does not hold the
+PR. A failing transport for a CLI you *are* bumping is the result of the run —
+report which CLI and which transport, open no PR, and do not work around it by
+reverting to the old pin.
+
+That distinction is what a credential failure turns on. A dead credential for
+the CLI being bumped leaves the bump unverified, so it blocks. A dead credential
+for a CLI that is not moving blocks nothing — say so in the PR body, and file
+`moat feedback --category environment` so the sign-in gets repaired.
+
+**Never end this run by asking a question.** Nobody is watching a 06:00 schedule,
+so a run that stops for an answer stops until a person finds it. Decide with the
+rules above and finish: open the PR, or report the failure and open none.
 
 ## 5. Open one PR
 
@@ -173,8 +190,9 @@ The body carries what a reviewer cannot get from the diff:
   that says so. A changed `DEFAULT_CODEX_MODEL` is the line to lead with — it
   changes what every task running "Default" costs.
 - The E2E result per transport: passed, failed, or not run for an explicitly
-  named non-credential reason. A missing credential is not one of them — it
-  fails the run, so report it as a failure and open no PR.
+  named reason. When the failure is a credential, section 4 says whether it
+  holds the PR: it does for a CLI this run bumps, and it does not for one
+  already at `latest`.
 
 Create it with `moat gh pr create`, never bare `gh`.
 
