@@ -246,9 +246,9 @@ pub struct Config {
     /// **Default on, unset means on.** A backend that predates the mirror sets
     /// nothing, and a sandbox has no way to ask it; the fallback that covers
     /// that is structural, not this flag —
-    /// [`crate::init::workspace_mirror::upload`] writes a tar whenever the
-    /// backend mints no manifest URL. The flag is the operator's off switch for
-    /// a fleet whose backend *does* support the mirror.
+    /// [`crate::init::workspace_sync`] writes a tar whenever the mirror stored
+    /// nothing. The flag is the operator's off switch for a fleet whose backend
+    /// *does* support the mirror.
     ///
     /// **Turning it off costs a turn of work once.** A mirror-on sandbox writes
     /// objects and a manifest and never touches `workspace.tar`, so the stored

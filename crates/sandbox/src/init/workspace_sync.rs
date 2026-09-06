@@ -171,9 +171,9 @@ impl WorkspaceSyncTracker {
     /// next attempt retries.
     ///
     /// The format is chosen per config: with the mirror on, the per-file mirror
-    /// ships the delta and the tar is written only when the backend mints no
-    /// manifest URL (an older backend), so a task never loses its durable copy
-    /// mid-rollout.
+    /// ships the delta, and the tar is written whenever that mirror left no
+    /// generation in S3 — an older backend minting no manifest URL, or a failed
+    /// transfer — so a mirror outage costs a tar rather than the workspace.
     async fn upload_if_changed(
         &self,
         config: &Config,
@@ -184,7 +184,7 @@ impl WorkspaceSyncTracker {
             match workspace_mirror::upload(config, backend_client, &mut baseline).await {
                 Ok(outcome) => return outcome,
                 Err(()) => {
-                    debug!(task_id = %config.task_id, "Backend has no mirror support; writing a tar");
+                    debug!(task_id = %config.task_id, "Mirror stored nothing; writing a tar");
                 }
             }
         }
@@ -1264,6 +1264,9 @@ mod tests {
     struct CountingBackend {
         url_requests: AtomicUsize,
         gate: Option<UploadGate>,
+        /// Mint URLs pointing at a closed port instead of declining, so a
+        /// transfer is reached and then fails.
+        mint_urls: bool,
     }
 
     /// Turns the URL mint into a valve: it announces each entry on `started` and
@@ -1284,11 +1287,11 @@ mod tests {
         fn gated() -> (Arc<Self>, tokio::sync::mpsc::UnboundedReceiver<()>) {
             let (started, rx) = tokio::sync::mpsc::unbounded_channel();
             let backend = Arc::new(Self {
-                url_requests: AtomicUsize::new(0),
                 gate: Some(UploadGate {
                     started,
                     release: tokio::sync::Semaphore::new(0),
                 }),
+                ..Self::default()
             });
             (backend, rx)
         }
@@ -1296,6 +1299,14 @@ mod tests {
         /// Let `n` blocked uploads through.
         fn release(&self, n: usize) {
             self.gate.as_ref().unwrap().release.add_permits(n);
+        }
+
+        /// A backend whose URLs resolve but whose transfers cannot land.
+        fn minting() -> Self {
+            Self {
+                mint_urls: true,
+                ..Self::default()
+            }
         }
     }
 
@@ -1368,6 +1379,17 @@ mod tests {
             if let Some(gate) = &self.gate {
                 let _ = gate.started.send(());
                 let _permit = gate.release.acquire().await.unwrap();
+            }
+            if self.mint_urls {
+                // Port 1 is bound by nothing, so every transfer is refused
+                // without leaving the host.
+                return Ok(GetWorkspaceSyncUrlsResponse {
+                    put_url: "http://127.0.0.1:1/workspace.tar".to_string(),
+                    get_url: "http://127.0.0.1:1/workspace.tar".to_string(),
+                    expires_in_secs: 900,
+                    manifest_put_url: "http://127.0.0.1:1/manifest.json.gz".to_string(),
+                    manifest_get_url: "http://127.0.0.1:1/manifest.json.gz".to_string(),
+                });
             }
             Err(tonic::Status::failed_precondition("no S3 in tests"))
         }
@@ -1548,6 +1570,39 @@ mod tests {
         // The whole tree is the delta, so the next upload ships what S3 lacks.
         upload_after_turn(&config, &backend, &tracker).await;
         assert_eq!(backend.attempts(), 1, "the whole tree is uploaded");
+    }
+
+    /// A mirror that fails still owes the task a durable copy. Task
+    /// `5f0f1eaf` ran a whole session against a mirror failing every object
+    /// with `411 Length Required`; because a failed transfer returned success,
+    /// no tar was written either, and each restart found no copy of any format
+    /// and cloned over the work.
+    #[tokio::test]
+    async fn a_failed_mirror_falls_back_to_the_tar() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        init_repo(&repo);
+        std::fs::write(repo.join("a.txt"), "hello").unwrap();
+        git_add(&repo, &["a.txt"]);
+        git_commit(&repo, "init");
+
+        let config = sync_config(tmp.path(), true, true);
+        assert!(config.workspace_mirror_enabled);
+        let backend = CountingBackend::minting();
+        let tracker = WorkspaceSyncTracker::new();
+
+        // The mirror mints its URLs and fails the transfer; the tar then mints
+        // its own, so two mints mean both formats were attempted.
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(
+            backend.attempts(),
+            2,
+            "a mirror that stored nothing is followed by a tar"
+        );
+
+        // Neither format landed, so nothing advanced and the next turn retries.
+        assert!(!tracker.has_mirror_baseline().await);
+        assert_eq!(tracker.baseline().await, None);
     }
 
     /// The turn-boundary upload is gated on the S3 switch, not just on the

@@ -261,13 +261,13 @@ fn mtime_nanos(meta: &std::fs::Metadata) -> u64 {
         .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
 }
 
-/// Mirror the workspace, or report that this backend cannot host a mirror.
+/// Mirror the workspace, or report that S3 holds no mirror generation for it.
 ///
 /// `Ok(outcome)` means the mirror is the format in use and `outcome` says what
-/// moved. `Err(())` means the backend minted no manifest URL — it predates the
-/// mirror — and the caller must write a tar instead. A transfer that fails
-/// returns `Ok` with `synced: false` and leaves `baseline` alone, so the next
-/// attempt re-ships the same delta.
+/// moved. `Err(())` means this tree reached no mirror — the backend minted no
+/// manifest URL (it predates the mirror), or the transfer failed — and the
+/// caller must write a tar so the task keeps a durable copy. A failed transfer
+/// leaves `baseline` alone, so the next attempt re-ships the same delta.
 pub(super) async fn upload(
     config: &Config,
     backend_client: &dyn BackendClient,
@@ -345,10 +345,12 @@ pub(super) async fn upload(
         )
         .await;
 
-    let ok = error.is_none();
+    if error.is_some() {
+        return Err(());
+    }
     Ok(SyncOutcome {
-        synced: ok,
-        bytes: if ok { bytes } else { 0 },
+        synced: true,
+        bytes,
     })
 }
 
