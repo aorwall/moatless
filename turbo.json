@@ -38,7 +38,7 @@
 			"outputs": []
 		},
 		"//#test:scripts": {
-			"inputs": ["scripts/**", "vitest.config.ts"],
+			"inputs": ["$TURBO_DEFAULT$", ".agents/skills/**"],
 			"outputs": []
 		},
 		"test": {

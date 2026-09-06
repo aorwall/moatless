@@ -1,38 +1,31 @@
-# Docker Compose Deployment
+# Docker Compose deployment
 
-## Start Everything
+## Starting everything
 ```bash
 docker compose -f docker-compose/docker-compose.yml up -d
 ```
 - Frontend (nginx + SPA): http://localhost:3000
-- Backend API proxied via frontend at /api/
-- Backend direct: http://localhost:8080
+- Backend API, proxied via the frontend at /api/
+- Backend, direct: http://localhost:8080
 
-## Frontend Dev (hot-reload)
-Also run `bun run dev` and use http://localhost:5173 instead.
-Vite proxies `/api/` to the backend automatically.
+## Running the frontend with hot reload
+Also run `bun run dev` and use http://localhost:5173 instead. Vite proxies
+`/api/` to the backend automatically.
 
-## Dev Docker (builds backend locally)
+## Building the backend locally
 ```bash
 docker-compose/dev-docker.sh   # builds backend image, starts all services
 bun run dev                     # optional: frontend with hot-reload
 ```
 
-## Key Services
-- **frontend**: `aorwall/moatless-frontend` (nginx serving React SPA + API proxy)
-- **backend**: `aorwall/moatless-backend` (Rust/Axum on port 8080)
-- **postgres**: PostgreSQL 17 on port 5432
-- **redis**: Redis 7 on port 6379
-- **dozzle**: Log viewer on port 9999
-
-## Building Images Locally
+## Building images locally
 ```bash
 docker/build-app.sh --local       # frontend nginx image
 docker/build-sandbox.sh --local   # sandbox images
-# Backend image is built by dev-docker.sh automatically
+# dev-docker.sh builds the backend image automatically
 ```
 
-## Useful Commands
+## Checking, reading and stopping the stack
 ```bash
 # Health check
 docker-compose/docker-compose-verify.sh
@@ -47,7 +40,16 @@ python docker-compose/e2e-test.py
 docker compose -f docker-compose/docker-compose.yml down
 ```
 
-## Environment
-- Config: `.env` (copy from `.env.example` in project root)
-- Required: `CLAUDE_CODE_OAUTH_TOKEN`, `TASK_TOKEN_SECRET`, `DATA_DIR`
-- Sandbox provider: `docker` (set automatically in compose)
+## Configuring the environment
+
+`docker-compose.yml` names every service, image and port, and every port is an
+overridable variable rather than the fixed number the ports above default to.
+Config comes from `.env`, copied from `.env.example` in the project root.
+
+`TASK_TOKEN_SECRET` is the only variable the stack refuses to start without.
+Everything else carries a default, so a missing value surfaces as a broken
+feature and not as a startup error.
+
+`DATA_DIR` must be an absolute **host** path. The backend creates sibling
+containers and hands them this path directly. A path that means something only
+inside the backend container gives those siblings nothing.

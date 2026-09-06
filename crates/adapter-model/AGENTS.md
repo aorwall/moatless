@@ -1,61 +1,68 @@
 # crates/adapter-model
 
-The Adapter contract. Dependency bands and feature gates are enforced by
-[arch-rules](../../tooling/arch-rules/src/base_surface.rs).
+The Adapter contract.
+[arch-rules](../../tooling/arch-rules/src/base_surface.rs) enforces the
+dependency bands and the feature gates.
 
 ## What the kernel holds
 
-- **What an Adapter offers** — `capabilities`, the traits a provider implements.
-- **What it speaks** — `apps`, `footer`, `signature`, `mentions`
-  (`render_mentions`).
-- **The shapes it persists** — `persistence`: the `*Row` structs and their
-  `From<…Row>` decode into the domain types, `postgres`-gated. The domain types
-  themselves live in `moatless-types`; name them from there, not through this
-  crate, and decode an `adapter_kind` column with
-  `moatless_types::adapter::AdapterKind::parse_or_webhook`.
-- **The access it gates on** — `access`: `SourceAccessPolicy`, `MessageTrigger`,
-  `AccessDecision`, the vocabulary a chat provider consults before it processes
-  an inbound message.
-- **What it can fail with** — `error`: both halves, `SharedAdapterError` and
-  `AdapterError`, plus the `IntoResponse` renderer over them.
-- **Where its connections are stored** — `dao` (`AdapterConnectionDao`,
-  returning `StoreError`).
-- **How inbound work is handed over durably** — `delivery`: the request
-  (`AdapterDeliveryRequest`), what admission did with it (`Admission`,
-  `AdmitError`), the record a handler receives (`AdapterDelivery`), how it
-  reports failure (`AdapterDeliveryFailure`), the handler registry
-  (`AdapterDeliveryHandler`, `AdapterDeliveryHandlers`), and the admission port
-  a webhook handler crosses (`DeliveryAdmission`, one method — `admit`).
-- **How a delivery ends** — `ingress` (`Outcome`, `IngressError`,
-  `log_admission`, and `admit_delivery` over the port) and `routing`
-  (`resolve_chat_provider_event`), plus the ingress/outbound counters
-  (`metrics`), and the `registry` that maps a `kind` to a capability.
-- **The two read seams a provider names but does not own** — `BindingProbe`
-  (`binding`) and `LoopReader` (`loops`). Declared here; `moatless-loops`
-  implements them beside the tables they read.
+| Module | What it holds |
+|---|---|
+| `capabilities` | What an Adapter offers: the traits a provider implements |
+| `apps`, `footer`, `signature`, `mentions` | What an Adapter speaks, `render_mentions` included |
+| `persistence` | The shapes an Adapter persists: the `*Row` structs and their `From<…Row>` decode into the domain types, gated on `postgres` |
+| `access` | What an Adapter gates on: `SourceAccessPolicy`, `MessageTrigger` and `AccessDecision`, the vocabulary a chat provider consults before it processes an inbound message |
+| `error` | What an Adapter can fail with: both halves, `SharedAdapterError` and `AdapterError`, plus the `IntoResponse` renderer over them |
+| `dao` | Where an Adapter's connections are stored: `AdapterConnectionDao`, returning `StoreError` |
+| `delivery` | How inbound work is handed over durably |
+| `ingress`, `routing`, `metrics`, `registry` | How a delivery ends |
+| `binding`, `loops` | The two read seams a provider names and does not own: `BindingProbe` and `LoopReader` |
 
-The machinery that *runs* the delivery contract — the Postgres store, the
-supervised worker, `AdapterDeliveryPolicy` — stays in
-`moatless_loops::adapters::delivery`. The contract descends; the machine that
-keeps it does not.
+`delivery` holds:
 
-## Feature boundaries
+- the request, `AdapterDeliveryRequest`;
+- what admission did with it, `Admission` and `AdmitError`;
+- the record a handler receives, `AdapterDelivery`;
+- how a handler reports failure, `AdapterDeliveryFailure`;
+- the handler registry, `AdapterDeliveryHandler` and `AdapterDeliveryHandlers`;
+- the admission port a webhook handler crosses, `DeliveryAdmission`, which has
+  one method, `admit`.
 
-Run `cargo build -p moatless-adapter-model` to catch imports hidden by workspace
-feature unification. The manifest owns the feature-to-dependency mapping.
+`ingress` holds `Outcome`, `IngressError`, `log_admission`, and
+`admit_delivery` over the port. `routing` holds `resolve_chat_provider_event`.
+`metrics` holds the ingress and outbound counters. `registry` maps a `kind` to
+a capability.
 
-**A row shape is contract; its decoder is a driver concern.** `AdapterDelivery`
-exposes every field unconditionally and derives `sqlx::FromRow` only under
-`postgres` (`#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]`). A crate
-that binds its fields compiles no driver.
+The domain types themselves live in `moatless-types`. Name them from there and
+not through this crate. Decode an `adapter_kind` column with
+`moatless_types::adapter::AdapterKind::parse_or_webhook`.
 
-**An error either delivery seam hands a provider names no database driver.**
-`AdmitError::Store` carries `StoreError`, wrapped at the raise site in the loops
-store, so the `sqlx::Error` survives as the source without appearing in the type
-provider crates match on.
+`moatless-loops` implements `BindingProbe` and `LoopReader` beside the tables
+they read. This crate only declares them.
 
-## Boundaries
+The machinery that *runs* the delivery contract stays in
+`moatless_loops::adapters::delivery`: the Postgres store, the supervised
+worker, and `AdapterDeliveryPolicy`. This crate holds the contract alone.
 
-[Adapter boundaries](../../tooling/arch-rules/src/adapter_boundaries.rs) enforce
-provider dependencies and direct imports. The exercised-fake requirement is
-checked by [trait admission](../../tooling/arch-rules/src/single_implementation_trait.rs).
+## Keeping the base surface driver-free
+
+Run `cargo build -p moatless-adapter-model` to catch an import that workspace
+feature unification hides. The manifest owns the feature-to-dependency mapping.
+
+**A row shape is contract, and its decoder is a driver concern.**
+`AdapterDelivery` exposes every field unconditionally, and derives
+`sqlx::FromRow` only under `postgres`, with
+`#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]`. A crate that binds
+its fields compiles no driver.
+
+**An error that either delivery seam hands a provider names no database
+driver.** `AdmitError::Store` carries `StoreError`. The loops store wraps it at
+the raise site, so the `sqlx::Error` survives as the source and never enters
+the type provider crates match on.
+
+## What the boundary checks enforce
+
+[Adapter boundaries](../../tooling/arch-rules/src/adapter_boundaries.rs)
+enforce provider dependencies and direct imports. [Trait
+admission](../../tooling/arch-rules/src/single_implementation_trait.rs) checks
+the exercised-fake requirement.

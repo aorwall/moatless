@@ -6,7 +6,7 @@ description: >-
   make the working config permanent. Use when a preview server is down, blank,
   crash-looping, serving the wrong thing, or missing an env var; when the start
   command or port needs changing; or when a live override needs promoting to
-  the repo config.
+  the workspace config.
 ---
 
 # Preview Servers
@@ -16,7 +16,7 @@ container, one per entry in the workspace's `servers[]`. It is not supervised by
 the agent — you cannot see or signal its process. Everything you do to it goes
 through the `moat` CLI.
 
-Work in three beats. The override is a **scratchpad**; the repo config is the
+Work in three beats. The override is a **scratchpad**; the workspace config is the
 **record**. Never stop at a working scratchpad.
 
 1. **Observe** — what is it doing, and what is it running?
@@ -30,7 +30,7 @@ moat tasks status  $TASK_ID --json        # servers[] + containerDiagnostics[]
 moat tasks servers $TASK_ID list          # status + the override in effect
 moat tasks logs    $TASK_ID --server dev --no-follow   # `--server <name>`, not `<name>-server`
 moat tasks logs    $TASK_ID --server dev --no-follow --tail 2000   # more history
-moat tasks logs    $TASK_ID --server dev --previous    # the instance that died
+moat tasks logs    $TASK_ID --server dev --previous --no-follow    # the instance that died
 moat tasks logs    $TASK_ID --server dev               # follow live, until Ctrl+C
 ```
 
@@ -101,9 +101,8 @@ nothing about which one was wrong.
 
 The override is **workspace state, not database state** — files under
 `/opt/moatless/workspace/.moatless/servers/`. It wins over the workspace config
-until you `reset`, and it lasts as long as the workspace does: through a
-stop/start and a redeploy on the `ebs`, `s3`, and Docker tiers, and not at all on
-`ephemeral`, where the repo checkout doesn't survive either.
+until you `reset`. Persistence depends on the workspace's independent PVC/S3
+settings and the last successful snapshot; see [server config](references/server-config.md).
 
 One practical consequence: reading an override needs a **running** sandbox.
 `servers list` against a stopped one prints `override: unknown` rather than
@@ -216,3 +215,5 @@ loader for tagging and have no injection hook; treat them as not yet supported.
 For anything wider than the server container — pod evictions, OOM of the sandbox
 itself, the agent unresponsive, the task stuck — switch to the
 [sandbox-troubleshooting](../sandbox-troubleshooting/SKILL.md) skill.
+
+Resolve `workspaceId` and `sandboxId` from task details before promotion or runtime lookup. Use returned preview URLs; shared tasks need not own a sandbox named after their task ID.

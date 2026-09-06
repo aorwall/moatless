@@ -1,143 +1,30 @@
-# values.local.yaml — Schema Cheat Sheet
+# Values review
 
-The chart at `k8s/helm/moatless-vibe/` exposes ~100 values; `moat k8s init` populates the minimum required set. This doc explains which to leave alone and which to review before `install`.
+The [chart defaults](../../../../k8s/helm/moatless-vibe/values.yaml) and templates
+own the schema. `moat k8s init` generates the starting file; review it before apply.
 
-## Image
+| Setting | Check |
+|---|---|
+| `image.tag`, `backend.image.tag`, `sandboxImage.tag`, `t3.image.tag` | Use the same selected release; do not upgrade only two images. |
+| `t3.enabled`, `t3.host` | T3 enabled with an empty host owns the app hostname. Disable T3 for the Moatless frontend, or assign a separate T3 host for both. |
+| `ingress` | Installed class, correct hosts, TLS termination, provider annotations. |
+| `proxyIngress` | Wildcard host and target Traefik service in the release namespace. |
+| `proxy.domain` | Matches the preview DNS suffix. |
+| `postgres.enabled` | False requires an external `DATABASE_URL`; true uses the bundled Postgres. |
+| `redis.enabled` | False requires `redis.url` or `redis.urlSecretKey`; set the latter to `REDIS_URL` to use the app Secret. True uses bundled Redis. |
+| `externalSecrets.enabled`, `externalSecrets.secretName` | Reference the prepared app Secret. |
+| `kubernetes.sandboxStorage` | Match the compute substrate, StorageClass, and namespace. |
 
-```yaml
-image:
-  repository: aorwall/moatless-frontend  # used only when T3 is disabled or has a separate host
-  tag: latest
-backend:
-  image:
-    repository: aorwall/moatless-backend
-    tag: latest
-sandboxImage:
-  repository: aorwall/moatless-sandbox
-  tag: latest
-  pullPolicy: Always
-t3:
-  enabled: true
-  host: ""             # T3 owns the app host; the legacy frontend is omitted
-  image:
-    repository: aorwall/moatless-t3
-    tag: latest
+Use [secret keys](secrets.md) for credentials; keep values files free of real keys.
+The installer storage-mode option and workspace `ResourceConfig` are different
+interfaces. Read the workspace schema for `pvcEnabled`/`s3Enabled` overrides.
+
+Render a provider example without applying it:
+
+```bash
+helm template skill-check k8s/helm/moatless-vibe \
+  --namespace <namespace> -f .agents/skills/k8s-install/examples/values-eks-minimal.yaml
 ```
 
-`moat k8s init --tag <tag>` writes the backend, sandbox, and T3 tag together.
-The pilot default is `latest`; use a release or `sha-*` tag when reproducible
-rollouts matter. Set `t3.enabled: false` to deploy the Moatless frontend instead,
-or give `t3.host` a separate hostname to deploy both front ends.
-
-## Ingress (main app)
-
-```yaml
-ingress:
-  enabled: true
-  className: <provider-specific>  # webapprouting.kubernetes.azure.com | alb | nginx | traefik
-  annotations: { ... }             # provider-specific, see provider-*.md
-  hosts:
-    - host: app.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []                          # populate if terminating TLS in-cluster
-```
-
-## Proxy ingress (sandbox previews)
-
-```yaml
-proxyIngress:
-  enabled: true
-  className: <same as ingress>
-  host: "*.sandbox.example.com"
-  tls:
-    secretName: proxy-wildcard-tls
-    hosts: ["*.sandbox.example.com"]
-```
-
-Preview URLs take the shape `<taskId>--<port>.<proxyDomain>`, so the proxy must terminate a wildcard cert.
-
-## Auth
-
-```yaml
-auth:
-  provider: local | github_app | auth0
-  frontendUrl: https://<domain>
-  githubApp:
-    enabled: true
-    callbackUrl: https://<domain>/api/v1/auth/github-app/callback
-    appId: "<github-app-id>"
-  auth0:
-    enabled: true
-    callbackUrl: https://<domain>/api/auth/auth0/callback
-```
-
-Set exactly one provider. Credentials (client ID/secret) go in the Secret, not values.
-
-## Data stores
-
-```yaml
-# Production: point at managed data stores via the Secret.
-postgres:
-  enabled: false   # bundled Postgres off → supply DATABASE_URL in the Secret
-redis:
-  enabled: false   # bundled Redis off → supply redis.url (or REDIS_URL in the Secret)
-  url: "redis://your-redis:6379"
-```
-
-For production, keep both bundled data stores off and supply `DATABASE_URL` via `moat k8s secrets bootstrap` and an external `redis.url`. The bundled first-party Postgres (`postgres.enabled: true`) and Redis (`redis.enabled: true`, the default) are single-node and meant for local/demo installs, not production.
-
-## Storage
-
-```yaml
-kubernetes:
-  sandboxStorage:
-    storageClass: ""  # empty string → use default StorageClass
-    size: 20Gi        # per-sandbox PVC
-```
-
-## Secrets (important)
-
-```yaml
-secrets:
-  create: false        # moat k8s secrets bootstrap owns this
-externalSecrets:
-  enabled: true        # tells chart the Secret exists out-of-band
-```
-
-`moat k8s init` always sets these — keep that way. The chart won't try to template a Secret from chart values (which would leak them into `values.yaml`).
-
-## Pull secret
-
-```yaml
-imagePullSecrets:
-  - name: ghcr-secret
-```
-
-Created by `moat k8s secrets pull-token` when pulling from GHCR.
-
-## Resource sizing
-
-```yaml
-resources:
-  requests: { cpu: 200m, memory: 512Mi }
-  limits:   { cpu: 2,    memory: 2Gi }
-```
-
-Safe defaults. Tune up for heavy users or add an HPA via `autoscaling.enabled`.
-
-## Monitoring (optional)
-
-```yaml
-monitoring:
-  prometheus:
-    enabled: false          # PodMonitor scraping; requires prometheus-operator CRDs
-    scrapeInterval: "30s"
-    apiVersion: "monitoring.coreos.com/v1"
-  grafana:
-    enabled: false          # bundled dashboards as a ConfigMap; no CRD needed
-    dashboardLabels: {}
-```
-
-`prometheus.enabled` needs prometheus-operator installed; `grafana.enabled` is an independent switch that just ships a dashboard ConfigMap. Leave both off unless you use them.
+Rendering proves template compatibility only. It does not prove DNS, certificates,
+controller support, storage provisioning, or credentials.

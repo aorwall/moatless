@@ -2,79 +2,250 @@
 
 Rust sandbox runtime for Moatless Vibe sandbox pods.
 
-## Commands
+Each module's `//!` doc states what it owns. Two process rules bind all of them:
 
-```bash
-cargo build -p moatless-sandbox
-cargo test -p moatless-sandbox
-# Clippy: run the floor line from the root AGENTS.md — it covers this crate.
+- `SandboxState` is shared through axum `State`. Keep its fields cheap to clone,
+  with `Arc` or internal sharing.
+- A long-lived task registers with the root supervisor and uses lifecycle
+  cancellation.
 
-# E2E tests (requires `claude` CLI + API key, costs ~$0.01-0.05 per test)
-CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
-```
+## How the sandbox and the backend talk
 
-## Ownership Map
+`sandbox.proto` defines both directions: the backend's calls into
+`SandboxService` and the sandbox's calls into `BackendSandboxServiceClient`.
+HTTP serves health probes only. Keep runtime control on gRPC.
 
-- `main.rs` wires config, credentials, supervisor, HTTP health, gRPC server, and init.
-- `agent/coordinator.rs` owns harness-neutral run lifecycle, retry, run IDs, and event publication.
-- `agent/harness/` owns Claude and Codex process/app-server adapters behind the Harness boundary.
-- `agent/dispatcher.rs` fetches pending messages, submits them to the handle, and acknowledges only accepted input.
-- `init/` owns checkout, credentials, repo skill install, transcript restore, workspace restore, and server startup.
-- `outbox.rs` owns the sandbox-to-backend event buffer and delivery retry policy.
-- `server/` owns configured preview/server process monitoring.
-- `commands.rs` owns the registry of `moat cmd` commands: it stays the parent of each child, enforces its deadline, and is the only source of `busy_processes`.
+## Configuring the pod
 
-## Communication Rules
+`Config` in `config.rs` is the authority for every environment variable, its
+default and its meaning. Each field carries a `///` doc, and `from_env` holds
+the defaults. Read it there rather than from a list here.
 
-- Backend calls the sandbox gRPC server (`SandboxService`, port 50052) to execute/stop agents, notify messages, check health/status, search files, and stream logs.
-- Sandbox calls backend gRPC (`BackendSandboxServiceClient`) to publish events, fetch/acknowledge messages, fetch credentials, and sync state archives.
-- HTTP is for health probes only. Keep runtime control on gRPC.
+`RUNTIME_DIR` is the one value that is not configurable. See Storing
+credentials below.
 
-## Environment Variables
+## Publishing events
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| PORT | 8001 | HTTP health probe port |
-| GRPC_PORT | 50052 | gRPC server port |
-| TASK_ID | (required) | Task identifier |
-| WORKSPACE_DIR | /workspace | Working directory |
-| DATA_DIR | /opt/moatless/data | Server artifact directory; mounted into every server sidecar, so no credential file belongs here |
-| UPLOAD_DIR | `$WORKSPACE_DIR/uploads` | Where a message's attached uploads are written. Set by the backend from its `file_mount_path` |
-| LOG_LEVEL | info | Tracing log level |
-| BACKEND_GRPC_URL | (optional) | Backend gRPC endpoint for events/messages |
-| USER_AUTH_TOKEN | (optional) | Auth token for backend calls |
-| REPO_CONFIG | (optional) | JSON repository configuration |
-| WORKSPACE_REPOS | (optional) | JSON array of the workspace's repository checkouts, primary first: `[{cloneUrl, branch, provider, mountName, isPrimary}]`. Each is cloned into `$WORKSPACE_DIR/{mountName}` with its own provider token; the primary one is `repo_dir`. Absent/unparseable → clone `GIT_CLONE_URL` alone |
-| SANDBOX_CLAUDE_EXECUTABLE_PATH | /opt/moatless/bin/claude | Claude CLI path |
-| FRONTEND_URL | (optional) | Frontend URL for constructing task URLs in agent system prompt |
-| SANDBOX_USE_TMUX | false | Use tmux-based Claude SDK transport instead of subprocess/NDJSON |
-| SANDBOX_COMMAND_DEFAULT_TIMEOUT_SECS | 14400 | Deadline for a `moat cmd` command that declares none (4h). The command's own `--timeout` overrides it in either direction; at the deadline the sandbox kills the command, marks it timed out, and wakes the agent |
-| SANDBOX_PERMISSION_MODE | bypassPermissions | Claude CLI permission mode for normal (non-plan) subprocess runs: `default`, `acceptEdits`, `bypassPermissions`, `plan`, `delegate`, `dontAsk`. Plan-mode requests always override with `plan`; ignored in tmux mode |
-| SANDBOX_HEADLESS | false | The task runs with nobody watching it (set by the backend for a headless Task). `AskUserQuestion`, `EnterPlanMode` and `ExitPlanMode` are disallowed, so a turn never parks on an answer that is not coming |
+Publish every event through `EventOutbox`. Do not bypass its bounded retry and
+drop accounting.
 
-## Load-Bearing Rules
+At capacity the outbox evicts the oldest evictable event and counts
+`dropped_overflow`. When only lifecycle events (`taskTurn.*` and terminal
+`agent.*`) remain, it refuses the incoming event and counts
+`rejected_saturated` instead. It always keeps one event, even when that event
+alone exceeds the byte cap.
 
-- `SandboxState` is shared through axum `State`; keep fields cheap to clone (`Arc` or internally shared).
-- Long-lived tasks register with the root supervisor and use lifecycle cancellation.
-- Event publishing goes through `EventOutbox`; do not bypass its bounded retry and drop accounting policy. At capacity it evicts the oldest evictable event (`dropped_overflow`), refuses the incoming one once only lifecycle events (`taskTurn.*`, terminal `agent.*`) remain (`rejected_saturated`), and always keeps a single event even if it alone exceeds the byte cap. Lifecycle events are preferred but share the same `MAX_QUEUE_EVENTS`/`MAX_QUEUE_BYTES` budget, so the newest is refused rather than the oldest: FIFO makes an older event the prefix that keeps the later ones interpretable. An event the backend *permanently* refuses is dropped, not retried — one in-order drainer would otherwise never clear its head and would take the task's whole remaining stream with it, so that one event is at-most-once. Each of the four loss causes has its own counter (`dropped_overflow`, `rejected_saturated`, `dropped_terminal`, `dropped_unrepresentable`) because they are a load condition, a load condition, a wire-contract violation and a bug in this process respectively.
-- `dispatch_pending_messages()` is the only pending-message fetch/submit/ack path; call it from init, gRPC notify, and post-agent completion.
-- `CoordinatorService` mints a `run_id` (UUID) whenever a run
-  starts while the agent is idle, and holds it for the run's lifetime. Every
-  event published from inside the run carries it, and so does the message
-  acknowledgment. The backend maps `run_id` -> turn number, so a turn is exactly
-  one agent run regardless of delivery order.
-- Interactive prompts use `tokio::sync::oneshot` for AskUserQuestion/ExitPlanMode blocking.
-- `init/` does not write into a checkout under `WORKSPACE_DIR`. A file it creates there is untracked and lands in the user's `git status` and PR diff. Anything an agent must discover is staged in a home/config dir instead — `$CLAUDE_CONFIG_DIR`, `$CODEX_HOME`, `/etc/codex/skills` — and a repo that wants `CLAUDE.md` beside its `AGENTS.md`, or `.claude/skills` beside `.agents/skills`, commits that symlink itself. The clone, the configured setup commands, and `workspace_sync`'s restore are the only writers inside a checkout.
-- A message's attached uploads are written under `UPLOAD_DIR`, which sits inside `WORKSPACE_DIR` (`$WORKSPACE_DIR/uploads`). That placement is what makes them survive a restart: `workspace_sync` archives loose directories as well as repos, so a restored pod already holds the bytes and `files::uploads::ensure_upload_on_disk` skips the gRPC re-fetch. It is a sibling of the repo checkouts, not a path inside one, so it stays out of the user's `git status`. The backend owns the value — it renders the same path into the prompt's "Saved to:" line and passes it to the pod as `UPLOAD_DIR` — so do not give the sandbox an independent default that could drift from what the prompt advertises.
-- The prompt's "Saved to:" line is a claim the backend makes before the sandbox has the bytes, so a failed upload fetch has to be contradicted, not just logged. `files::uploads::fetch_uploads_for_messages` returns the `file_id`s that did not land and `agent::dispatcher` appends `failed_upload_note`'s text to the turn's prompt. A fetch failure still does not block the turn — the rest of the message is worth delivering — but it must never leave the agent holding a path that was never written. `BackendClient::download_upload` reassembles a chunk stream (`DownloadUploadChunked`), so an upload's size is bounded by the sandbox's memory and not by any per-message limit on the wire; keep it that way rather than raising a cap.
-- Credential material on disk belongs in `RUNTIME_DIR` (`/run/moatless`, `Config::runtime_dir`) — the credential broker socket and the persisted user auth token. It is the only directory that is neither archived into the workspace snapshot nor mounted into the server sidecars, so a file there cannot ride a snapshot into a pod it was not minted for and cannot be read by the repo code those sidecars run. It is not configurable: `docker/moatless-git-cred.sh` hardcodes the broker socket beneath it. Not `WORKSPACE_DIR` (`workspace_sync` archives and restores it) and not `DATA_DIR` (every sidecar mounts it). `init::credentials::purge_exposed_user_tokens` sweeps both on every successful fetch. Note the sandbox and the agent subprocess share a container and uid, so this bounds exposure rather than making a file unreadable to the agent.
-- No single store reliably holds the freshest backend auth token, so init tries them all. The persisted copy is rewritten on every credential refresh but lives only as long as `RUNTIME_DIR` does, while `USER_AUTH_TOKEN` and the bootstrap token are minted when the pod or container was created and then fixed. `Config::initial_auth_token_candidates` lists them, and on an `Unauthenticated` rejection of the initial `GetCredentials` init presents the next one; only once every candidate is refused is the failure permanent (exit 78), because at that point re-provisioning is the sole remaining fix. Do not collapse this to a fixed precedence — whichever store loses is a crash loop on that runtime.
-- Claude CLI env defaults live in `agent::options::CLAUDE_ENV_DEFAULTS` and are applied with `or_insert`, under whatever the credential channel resolved for the task, so a global- or user-scoped `env`-kind secret of the same key wins. They must not move into `$CLAUDE_CONFIG_DIR/settings.json`: that file's `env` block outranks the process environment, so a default written there cannot be overridden at all. `init::claude_code_settings` therefore writes no `env` block. The same rule bars credentials from that file — it is neither `RUNTIME_DIR` nor readable-only by the agent.
-- Each checked-out repo's root instruction file (`CLAUDE.md`/`AGENTS.md`) is inlined into the agent's system prompt by `agent::options::build_repo_instructions_section`, and excluded from both agents' own memory loading — Claude via `claudeMdExcludes` (`init::claude_code_settings`), Codex via `project_doc_max_bytes = 0` (`init::codex_config`). The section and the exclusion both key off `Config::repo_dirs()`; keep them in sync. Inlining is the default because being pointed at a path does not reliably get it read; `SANDBOX_FRONTLOAD_REPO_INSTRUCTIONS=false`, or `frontloadInstructions` in REPO_CONFIG, reverts to listing paths (`AgentConfig::frontload_instructions_enabled`). Read the file through `agent::options::read_capped`: the size cap has to bound the I/O itself, because the path is repo-controlled and resolves through symlinks, so reading first and trimming after would let a checkout choose how much memory prompt assembly spends.
-- A delivery's `skills` are names, never bodies. `agent::skills::frontload_skills` resolves each against `init::home_skills::REPO_SKILL_ROOTS` under every `Config::repo_dirs()` entry, then the harness's own home skills dir (`$CLAUDE_CONFIG_DIR/skills` or `$CODEX_HOME/skills`), and prepends `Activated <root>/<name>:` plus the `SKILL.md`. Both modules key off that one const — keep them in sync. A name that resolves nowhere is warned and skipped; the turn still runs. A delivery carrying only skills and no message text is enough to open a turn: `dispatcher` gates on `text.is_empty() && skills.is_empty()`, frontloads, then re-gates on the frontloaded text so a delivery whose every skill failed to resolve still opens nothing.
-- A `PluginDelivery`'s `frontload_skill_names` are the skills that lead every turn opening a fresh session, whatever that turn asked for. `agent::skills::with_always_frontloaded` merges them ahead of the delivery's own names, and `dispatcher` applies it only when there is no `resume_session_id` — a resumed session carries the bodies in its transcript already — and only after the emptiness gate, so a standing skill cannot open a turn on a delivery with nothing in it. They arrive resolved: the backend picks them per person and Workspace at provisioning time, so a flag set afterwards reaches the pod on its next start.
-- `busy_processes` in the status response counts *only* commands the agent registered through `moat cmd` and still running inside their deadline — nothing walks `/proc`. That is deliberate: an arbitrary process the agent forked must not defer the idle reaper, and the reaper trusts this signal without its own time cap because the sandbox already kills each command at the deadline `moat cmd` recorded (`command_default_timeout_secs`, 4h default, or the command's own `--timeout`). Keep the registry the sole writer; do not reintroduce process-tree discovery. The background-completion watch (`agent::background_watch_job`) arms off the same registry and wakes on the first command to reach a terminal state. `agent::options::build_managed_command_note` promises that wake unconditionally and tells the agent not to poll or schedule its own fallback wakeup, so the watch has to fire on *any* terminal state — exited, timed out or killed — on the first command rather than the last, and for a command that reached a terminal state *before* the watch armed. That last case is the one that stranded a task: a command with a bad path dies in under a second, so watching only what was still running armed nothing and the sandbox idled out with the agent still waiting. `Entry::reported` is what distinguishes owed from settled — set by `read_for_agent` (the agent read the outcome back through `moat cmd`), by `kill` (it asked for that death), and by a wake that named the command. Both the watch list (`unreported()`) and every poll of it (`unreported_among()`) key on that debt and never on the state: a state filter both drops the command that died before arming and picks up one the agent killed, since `kill` discharges the debt while the process is still winding down and its state is still `Running`. The poll re-reads the debt rather than trusting the armed set, because a `Send` does not cancel an armed watch — a later turn can kill or read back a command an older watch is still polling, and that watch must then wake for nothing and stop. `GetAgentStatus` must keep using `list`, not `read_for_agent`: the backend polls status on its own schedule, so letting that poll mark a command seen would swallow the wake.
-- A `moat cmd` command's cwd is the caller's shell directory, and `grpc_server::run_command` falls back to `workspace_dir` when a request carries none. Never let it inherit the sandbox process's cwd — that is `/opt/moatless`, neither the workspace nor a checkout, so a relative path in the command would resolve somewhere the caller never chose and fail in a way that looks like the command was never run.
-- The `moat cmd` registry is in-memory, so a pod replacement destroys every command, its log under `/tmp`, and the armed watch that promised a wake — the agent that ended its turn expecting one waits forever. `CommandRegistry::with_journal` mirrors the unreported set to `$WORKSPACE_DIR/.moat-commands.json` on every change to the debt, because the S3 workspace snapshot is the only sandbox state that rides a pod replacement. The journal holds metadata only: logs stay in `/tmp` (`default_log_dir`), where an unbounded build log cannot bloat the volume whose size limit causes these evictions. `init::open_for_work` reads it through `take_journal` **before** anything else — a recovered run or a new command would otherwise overwrite it — and `report_lost_commands` turns it into the wake the watch could not deliver. `take_journal` clears the file whether or not it parsed, so the loss is announced exactly once. Keep the journal keyed on the same `Entry::reported` debt as the watch: a state filter would drop a command that finished unread and re-announce one the agent killed. The journal is installed by writing a sibling `.json.tmp` and renaming over it: `rename` is atomic within a filesystem, so a kill or a snapshot racing the write cannot leave the truncated file `take_journal` would discard. Consuming a journal also suppresses `adopt_current` — the delete is local while the S3 archive still carries the file, so adopting this tree as the upload baseline would let a turn that edits nothing skip the upload and let the next replacement restore the stale archive and announce the same loss again.
-- A restart wake resumes the prior session rather than starting fresh. `build_input` resolves resume as pod's last session id, then the backend-provided id, then `--continue` for the Claude family, and init restores transcripts to disk before Ready — so the plain `send(text, None, …, None, false, None)` that `report_lost_commands` and `JobInjector` both use picks the session back up with its context.
-- AGENTS.md is canonical local guidance.
+Lifecycle events are preferred, but they share the `MAX_QUEUE_EVENTS` and
+`MAX_QUEUE_BYTES` budget with every other event. The outbox therefore refuses
+the newest event and keeps the oldest. The drainer is FIFO, so an older event
+is the prefix that keeps the later ones interpretable.
+
+The outbox drops an event the backend *permanently* refuses, and does not retry
+it. One in-order drainer would otherwise never clear its head, and it would
+take the task's whole remaining stream with it. That one event is therefore
+at-most-once.
+
+Each loss cause has its own counter, because each one calls for a different
+response:
+
+| Counter | What it reports |
+|---|---|
+| `dropped_overflow` | A load condition |
+| `rejected_saturated` | A load condition |
+| `dropped_terminal` | A wire-contract violation |
+| `dropped_unrepresentable` | A bug in this process |
+
+## Running a turn
+
+- `dispatch_pending_messages()` is the only path that fetches, submits and
+  acknowledges a pending message. Call it from init, from gRPC notify, and after
+  the agent completes.
+- `CoordinatorService` mints a `run_id` (UUID) when a run starts while the agent
+  is idle, and holds it for the run's lifetime. Every event published inside the
+  run carries it, and so does the message acknowledgment. The backend maps a
+  `run_id` to a turn number, so a turn is exactly one agent run whatever the
+  delivery order.
+- Interactive prompts block on `tokio::sync::oneshot`, for `AskUserQuestion` and
+  `ExitPlanMode`.
+- A restart wake resumes the prior session. `build_input` resolves the resume
+  target in order: the pod's last session id, then the backend-provided id, then
+  `--continue` for the Claude family. Init restores transcripts to disk before
+  Ready. The plain `send(text, None, …, None, false, None)` that
+  `report_lost_commands` and `JobInjector` both use then picks the session back
+  up with its context.
+
+## Writing files inside the pod
+
+`init/` writes nothing into a checkout under `WORKSPACE_DIR`. A file it creates
+there is untracked, and it lands in the user's `git status` and PR diff. Stage
+anything an agent must discover in a home or config directory instead:
+`$CLAUDE_CONFIG_DIR`, `$CODEX_HOME`, or `/etc/codex/skills`. A repo that wants
+`CLAUDE.md` beside its `AGENTS.md`, or `.claude/skills` beside
+`.agents/skills`, commits that symlink itself. The clone, the configured setup
+commands, and `workspace_sync`'s restore are the only writers inside a
+checkout.
+
+A message's attached uploads are written under `UPLOAD_DIR`, at
+`$WORKSPACE_DIR/uploads`. That placement is what makes them survive a restart.
+`workspace_sync` archives loose directories as well as repos, so a restored pod
+already holds the bytes and `files::uploads::ensure_upload_on_disk` skips the
+gRPC re-fetch. The directory is a sibling of the repo checkouts and never a
+path inside one, so it stays out of the user's `git status`. The backend owns
+the value. It renders the same path into the prompt's "Saved to:" line and
+passes it to the pod as `UPLOAD_DIR`. Do not give the sandbox an independent
+default that could drift from what the prompt advertises.
+
+The prompt's "Saved to:" line is a claim the backend makes before the sandbox
+holds the bytes. A failed upload fetch has to be contradicted, not merely
+logged. `files::uploads::fetch_uploads_for_messages` returns the `file_id`s
+that did not land, and `agent::dispatcher` appends `failed_upload_note`'s text
+to the turn's prompt. A fetch failure still does not block the turn, because
+the rest of the message is worth delivering. It must never leave the agent
+holding a path that was never written. `BackendClient::download_upload`
+reassembles a chunk stream (`DownloadUploadChunked`), so the sandbox's memory
+bounds an upload's size and no per-message limit on the wire does. Keep it that
+way instead of raising a cap.
+
+## Storing credentials
+
+Credential material on disk belongs in `RUNTIME_DIR` (`/run/moatless`,
+`Config::runtime_dir`): the credential broker socket and the persisted user
+auth token. It is the only directory that the workspace snapshot does not
+archive and the server sidecars do not mount. A file there cannot ride a
+snapshot into a pod it was not minted for, and the repo code those sidecars run
+cannot read it. `RUNTIME_DIR` is not configurable, because
+`docker/moatless-git-cred.sh` hardcodes the broker socket beneath it.
+
+Use neither `WORKSPACE_DIR` nor `DATA_DIR` for credential material.
+`workspace_sync` archives and restores `WORKSPACE_DIR`, and every sidecar
+mounts `DATA_DIR`. `init::credentials::purge_exposed_user_tokens` sweeps both
+on every successful fetch. The sandbox and the agent subprocess share a
+container and a uid. This bounds exposure. It does not make a file unreadable
+to the agent.
+
+No single store reliably holds the freshest backend auth token, so init tries
+them all. Every credential refresh rewrites the persisted copy, but that copy
+lives only as long as `RUNTIME_DIR` does. `USER_AUTH_TOKEN` and the bootstrap
+token are minted when the pod or container is created, and are fixed after
+that. `Config::initial_auth_token_candidates` lists all of them. When the
+initial `GetCredentials` is rejected as `Unauthenticated`, init presents the
+next candidate. The failure is permanent (exit 78) only once every candidate is
+refused, because re-provisioning is then the sole remaining fix. Do not
+collapse this to a fixed precedence: whichever store loses becomes a crash loop
+on that runtime.
+
+Claude CLI env defaults live in `agent::options::CLAUDE_ENV_DEFAULTS`. They are
+applied with `or_insert`, under whatever the credential channel resolved for
+the task. A global-scoped or user-scoped `env`-kind secret of the same key
+therefore wins. Keep them out of `$CLAUDE_CONFIG_DIR/settings.json`: that
+file's `env` block outranks the process environment, so nothing can override a
+default written there. `init::claude_code_settings` therefore writes no `env`
+block. The same rule bars credentials from that file, which is neither
+`RUNTIME_DIR` nor readable only by the agent.
+
+## Frontloading repo instructions and skills
+
+`agent::options::build_repo_instructions_section` inlines each checked-out
+repo's root instruction file (`CLAUDE.md` or `AGENTS.md`) into the agent's
+system prompt. Both agents' own memory loading excludes the same files: Claude
+through `claudeMdExcludes` (`init::claude_code_settings`), Codex through
+`project_doc_max_bytes = 0` (`init::codex_config`). The section and the
+exclusion both key off `Config::repo_dirs()`. Keep them in sync.
+
+Inlining is the default, because a path the agent is pointed at does not
+reliably get read. `SANDBOX_FRONTLOAD_REPO_INSTRUCTIONS=false`, or
+`frontloadInstructions` in `REPO_CONFIG`, reverts to listing paths
+(`AgentConfig::frontload_instructions_enabled`).
+
+Read the file through `agent::options::read_capped`. The size cap has to bound
+the I/O itself, because the path is repo-controlled and resolves through
+symlinks. Read first and trim after, and a checkout chooses how much memory
+prompt assembly spends.
+
+A delivery's `skills` are names, never bodies.
+`agent::skills::frontload_skills` resolves each name against
+`init::home_skills::REPO_SKILL_ROOTS` under every `Config::repo_dirs()` entry,
+then against the harness's own home skills directory
+(`$CLAUDE_CONFIG_DIR/skills` or `$CODEX_HOME/skills`). It prepends
+`Activated <root>/<name>:` and the `SKILL.md`. Both modules key off that one
+const, so keep them in sync. A name that resolves nowhere is warned and skipped,
+and the turn still runs.
+
+A delivery carrying only skills and no message text is enough to open a turn.
+`dispatcher` gates on `text.is_empty() && skills.is_empty()`, frontloads, then
+re-gates on the frontloaded text, so a delivery whose every skill failed to
+resolve still opens nothing.
+
+A `PluginDelivery`'s `frontload_skill_names` are the skills that lead every
+turn that opens a fresh session, whatever that turn asked for.
+`agent::skills::with_always_frontloaded` merges them ahead of the delivery's
+own names. `dispatcher` applies the merge only when there is no
+`resume_session_id`, because a resumed session already holds the bodies in its
+transcript. It applies the merge only after the emptiness gate, so a standing
+skill cannot open a turn on an empty delivery.
+
+The names arrive resolved. The backend picks them per person and Workspace at
+provisioning time, so a flag set afterwards reaches the pod on its next start.
+
+## Tracking `moat cmd` commands
+
+The `moat-cli` skill states the contract this code owes the agent: an
+unconditional wake on any terminal state, outcomes read back explicitly, and a
+single announcement after a pod replacement. `commands.rs` owns the registry.
+These invariants are what keep that contract true.
+
+`busy_processes` counts only the commands registered through `moat cmd` that are
+still inside their deadline. Nothing walks `/proc`, so a process the agent forked
+by other means must not defer the idle reaper. Keep the registry the sole writer,
+and do not reintroduce process-tree discovery.
+
+The background-completion watch (`agent::background_watch_job`) arms off that
+same registry, and `agent::options::build_managed_command_note` promises the wake
+unconditionally. The watch must therefore fire in three cases a simpler filter
+misses:
+
+1. On *any* terminal state: exited, timed out, or killed.
+2. On the *first* command to reach one, rather than the last.
+3. For a command that reached one *before* the watch armed. A command with a bad
+   path dies in under a second, and a watch armed over what is still running
+   arms nothing.
+
+The watch list (`unreported()`) and every poll of it (`unreported_among()`) key
+on `Entry::reported`, never on process state. A state filter would drop the
+command that died before arming and would pick up one the agent killed: `kill`
+sets `reported` while the process is still winding down and still `Running`.
+Re-read `reported` on each poll. A `Send` does not cancel an armed watch, so a
+later turn can kill or read back a command an older watch still polls.
+
+`GetAgentStatus` must keep calling `list` and never `read_for_agent`. The backend
+polls status on its own schedule, so a poll that marked a command seen would
+swallow the wake.
+
+`grpc_server::run_command` falls back to `workspace_dir` when a request carries
+no cwd. Never let it inherit the sandbox process's cwd, `/opt/moatless`, which is
+neither the workspace nor a checkout. A relative path would then resolve
+somewhere the caller never chose, and fail as though the command never ran.
+
+### Surviving a pod replacement
+
+The registry is in memory, so a replacement destroys every command, its log under
+`/tmp`, and the armed watch. `CommandRegistry::with_journal` mirrors the
+unreported set to `$WORKSPACE_DIR/.moat-commands.json`, because the S3 workspace
+snapshot is the only sandbox state that survives one. The journal holds metadata
+only. Logs stay in `/tmp` (`default_log_dir`), where an unbounded build log
+cannot fill the volume whose size limit causes these evictions.
+
+`init::open_for_work` reads the journal through `take_journal` **before**
+anything else, because a recovered run or a new command would otherwise overwrite
+it. `report_lost_commands` then turns the journal into the wake the watch could
+not deliver. `take_journal` clears the file whether or not it parsed, so the loss
+is announced exactly once. Key it on `Entry::reported`, like the watch.
+
+Install the journal by writing a sibling `.json.tmp` and renaming over it.
+`rename` is atomic within a filesystem, so a kill or a snapshot that races the
+write cannot leave the truncated file `take_journal` would discard.
+
+Consuming a journal also suppresses `adopt_current`. The delete is local while
+the S3 archive still holds the file. Adopt this tree as the upload baseline and a
+turn that edits nothing skips the upload. The next replacement then restores the
+stale archive and announces the same loss again.

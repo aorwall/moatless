@@ -1,143 +1,173 @@
-/**
- * Headless smoke check of the T3 UI against a Moatless backend.
- *
- * Asserts the three things a broken integration gets wrong and a screenshot
- * does not tell you: the app's `/ws` socket opens, a project name the backend
- * actually holds renders in the sidebar (rather than the convincing "No
- * projects yet" empty state a 403'd upgrade produces), and the console is
- * clean.
- *
- * Expects a TLS front door on --port for an allow-listed https origin (see
- * tls-front.mjs) and mints its own session from MOATLESS_API_KEY.
- *
- *   node browser-check.mjs --backend http://localhost:8080 \
- *     --host moatless-t3.staging.moatless.xyz --port 8444
- */
-import { createRequire } from "node:module";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { existsSync, readdirSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
-const arg = (name, fallback) => {
-  const i = process.argv.indexOf(`--${name}`);
-  return i === -1 ? fallback : process.argv[i + 1];
-};
-
-// Playwright is installed in a scratch directory, not in either checkout, and
-// ESM resolves from *this file's* location rather than the cwd — so a bare
-// `import "playwright"` here cannot find it however you invoke the script.
-// Resolve it from the scratch dir explicitly instead.
-const scratch = arg("scratch", process.env.PW_SCRATCH ?? "/tmp/pw");
-const { chromium } = createRequire(`${scratch}/`)("playwright");
-
-/**
- * The chromium the image baked, whatever build that is.
- *
- * Playwright only launches the build its own version pins, and the npm release
- * that pins the baked one drifts as the image is rebuilt — so matching versions
- * is a chase. Naming the binary skips the question: any recent Playwright can
- * drive an older chrome. Returns undefined when nothing is baked, which lets
- * Playwright fall back to its own download.
- */
-function bakedChromium() {
-  const root = process.env.PLAYWRIGHT_BROWSERS_PATH ?? "/opt/playwright-browsers";
-  const dir = fs
-    .readdirSync(root, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && /^chromium-\d+$/.test(e.name))
-    .map((e) => e.name)
-    .sort((a, b) => Number(b.split("-")[1]) - Number(a.split("-")[1]))[0];
-  if (!dir) return undefined;
-  const bin = path.join(root, dir, "chrome-linux", "chrome");
-  return fs.existsSync(bin) ? bin : undefined;
+/** Find a baked Chromium binary, or let Playwright use its installed browser. */
+export function bakedChromium(
+  root = process.env.PLAYWRIGHT_BROWSERS_PATH ?? '/opt/playwright-browsers',
+) {
+  let entries
+  try {
+    entries = readdirSync(root, { withFileTypes: true })
+  } catch (error) {
+    if (error.code === 'ENOENT') return undefined
+    throw error
+  }
+  const versions = entries
+    .filter((entry) => entry.isDirectory() && /^chromium-\d+$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]))
+  for (const version of versions) {
+    for (const layout of ['chrome-linux64', 'chrome-linux']) {
+      const binary = path.join(root, version, layout, 'chrome')
+      if (existsSync(binary)) return binary
+    }
+  }
+  return undefined
 }
 
-const HOST = arg("host", "moatless-t3.staging.moatless.xyz");
-const PORT = arg("port", "8444");
-const BACKEND = arg("backend", "http://localhost:8080");
-const KEY = process.env.MOATLESS_API_KEY;
-if (!KEY) throw new Error("MOATLESS_API_KEY is not set");
-const bearer = { authorization: `Bearer ${KEY}`, "content-type": "application/json" };
-
-// The cookie is minted off the API key: the browser has no other way in, and
-// the socket needs a real session even though the HTTP routes take the bearer.
-const minted = await fetch(`${BACKEND}/api/v1/auth/api-key/session`, {
-  method: "POST",
-  headers: bearer,
-  body: "{}",
-});
-const setCookie = (
-  minted.headers.getSetCookie ? minted.headers.getSetCookie() : [minted.headers.get("set-cookie")]
-).join("\n");
-const session = /moatless_session=([^;]+)/.exec(setCookie)?.[1];
-if (!session) throw new Error(`could not mint a session (${minted.status})`);
-
-// What the sidebar should be showing, straight from the backend. Comparing
-// against live data rather than a hardcoded name is what makes this a check of
-// the *integration* and not of a fixture.
-const listed = await fetch(`${BACKEND}/api/v1/tasks?limit=20`, { headers: bearer });
-const expectedNames = [
-  ...new Set(
-    ((await listed.json()).items ?? [])
-      .map((task) => task.repositoryName)
-      .filter((name) => typeof name === "string" && name.length > 0),
-  ),
-];
-if (expectedNames.length === 0) throw new Error("backend lists no projects; nothing to assert");
-
-const browser = await chromium.launch({
-  executablePath: bakedChromium(),
-  args: [
-    "--no-sandbox",
-    // Makes the allow-listed name resolve to the local front door, so the
-    // browser sends the Origin the backend accepts without any DNS or ingress.
-    `--host-resolver-rules=MAP ${HOST} 127.0.0.1:${PORT}`,
-    "--ignore-certificate-errors",
-  ],
-});
-const context = await browser.newContext({ ignoreHTTPSErrors: true });
-// Domain is the parent so the cookie also covers *.preview hosts.
-await context.addCookies([
-  {
-    name: "moatless_session",
-    value: session,
-    domain: ".moatless.xyz",
-    path: "/",
-    secure: true,
-    httpOnly: true,
-    sameSite: "Lax",
-  },
-]);
-
-const page = await context.newPage();
-const errors = [];
-const sockets = [];
-page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
-page.on("pageerror", (e) => errors.push(`PAGEERROR ${e.message}`));
-// Only the app's socket. Vite's HMR socket is a separate one on the dev
-// server's own origin and path "/", so match the path explicitly.
-page.on("websocket", (ws) => /\/ws(\?|$)/.test(ws.url()) && sockets.push(ws.url()));
-
-await page.goto(`https://${HOST}/`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-
-// Poll for a real project name. Do NOT poll on "No projects yet" clearing:
-// that string disappears on first paint, well before the socket has delivered
-// anything, so a check that waits on its absence passes against a blank page.
-const deadline = Date.now() + 90_000;
-let shown = null;
-let body = "";
-while (Date.now() < deadline && !shown) {
-  body = await page.locator("body").innerText();
-  shown = expectedNames.find((name) => body.includes(name)) ?? null;
-  if (!shown) await page.waitForTimeout(1000);
+/** Mint browser auth and read the project names that the UI must display. */
+export async function backendFixture(backend, key) {
+  const base = new URL(backend)
+  if (!['http:', 'https:'].includes(base.protocol)) throw new Error('Backend must use HTTP(S)')
+  if (!key) throw new Error('MOATLESS_API_KEY is not set')
+  const headers = { authorization: `Bearer ${key}`, 'content-type': 'application/json' }
+  const minted = await fetch(new URL('/api/v1/auth/api-key/session', base), {
+    method: 'POST',
+    headers,
+    body: '{}',
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!minted.ok) throw new Error(`Session request failed: HTTP ${minted.status}`)
+  const cookies = minted.headers.getSetCookie?.() ?? [minted.headers.get('set-cookie')]
+  const session = /(?:^|\n|;\s*)moatless_session=([^;\n]+)/.exec(cookies.join('\n'))?.[1]
+  if (!session) throw new Error('Session response has no moatless_session cookie')
+  const listed = await fetch(new URL('/api/v1/tasks?limit=20', base), {
+    headers,
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!listed.ok) throw new Error(`Task request failed: HTTP ${listed.status}`)
+  const { items } = await listed.json()
+  if (!Array.isArray(items)) throw new Error('Task response has no items array')
+  const names = [
+    ...new Set(
+      items
+        .map((task) => task.repositoryName)
+        .filter((name) => typeof name === 'string' && name.length > 0),
+    ),
+  ]
+  if (names.length === 0) throw new Error('Backend lists no projects; nothing to assert')
+  return { session, names }
 }
 
-console.log(`app /ws sockets: ${sockets.length}`);
-console.log(`project shown:   ${shown ?? "NONE"} (backend lists ${expectedNames.length})`);
-console.log(`empty state:     ${body.includes("No projects yet")}`);
-console.log(`console errors:  ${errors.length}`);
-for (const e of errors.slice(0, 8)) console.log(`  - ${e.slice(0, 160)}`);
-await page.screenshot({ path: arg("screenshot", `${scratch}/browser-check.png`) });
+/** Check an already-running T3 browser harness, closing the browser on every outcome. */
+export async function browserCheck(chromium, options, fixture) {
+  const { host, port, screenshot, executablePath } = options
+  const origin = new URL(`https://${host}/`)
+  if (origin.hostname !== host || origin.port || origin.username || origin.password) {
+    throw new Error('--host must be a hostname without a scheme, port, or path')
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid --port')
+  const browser = await chromium.launch({
+    executablePath,
+    args: [
+      '--no-sandbox',
+      `--host-resolver-rules=MAP ${host} 127.0.0.1:${port}`,
+      '--ignore-certificate-errors',
+    ],
+  })
+  try {
+    const context = await browser.newContext({ ignoreHTTPSErrors: true })
+    await context.addCookies([
+      {
+        name: 'moatless_session',
+        value: fixture.session,
+        url: origin.href,
+        secure: true,
+        httpOnly: true,
+        sameSite: 'Lax',
+      },
+    ])
+    const page = await context.newPage()
+    const errors = []
+    const sockets = []
+    const respondingSockets = new Set()
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', (error) => errors.push(error.message))
+    page.on('websocket', (socket) => {
+      if (new URL(socket.url()).pathname !== '/ws') return
+      sockets.push(socket.url())
+      socket.on('framereceived', () => respondingSockets.add(socket))
+      socket.on('socketerror', (error) => errors.push(`WebSocket: ${error}`))
+    })
+    const response = await page.goto(origin.href, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60_000,
+    })
+    if (!response?.ok())
+      throw new Error(`Page request failed: HTTP ${response?.status() ?? 'no response'}`)
+    const deadline = Date.now() + 90_000
+    let shown
+    while (
+      Date.now() < deadline &&
+      (!shown || respondingSockets.size === 0) &&
+      errors.length === 0
+    ) {
+      const body = await page.locator('body').innerText({ timeout: 5000 })
+      shown = fixture.names.find((name) => body.includes(name))
+      if (!shown || respondingSockets.size === 0) await page.waitForTimeout(1000)
+    }
+    await page.screenshot({ path: screenshot })
+    const result = {
+      sockets: sockets.length,
+      respondingSockets: respondingSockets.size,
+      project: shown ?? null,
+      errors,
+    }
+    console.log(JSON.stringify(result, null, 2))
+    if (sockets.length !== 1 || respondingSockets.size !== 1 || !shown || errors.length > 0)
+      throw new Error('Browser integration check failed')
+    return result
+  } finally {
+    await browser.close()
+  }
+}
 
-await browser.close();
-const ok = sockets.length === 1 && Boolean(shown) && errors.length === 0;
-console.log(ok ? "PASS" : "FAIL");
-process.exit(ok ? 0 : 1);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    const args = process.argv.slice(2)
+    const values = new Map()
+    for (let index = 0; index < args.length; index += 2) {
+      const flag = args[index]
+      if (
+        !['--scratch', '--host', '--port', '--backend', '--screenshot'].includes(flag) ||
+        !args[index + 1] ||
+        args[index + 1].startsWith('--')
+      )
+        throw new Error(`Invalid argument: ${flag}`)
+      values.set(flag, args[index + 1])
+    }
+    const scratch = path.resolve(values.get('--scratch') ?? process.env.PW_SCRATCH ?? '/tmp/pw')
+    const fixture = await backendFixture(
+      values.get('--backend') ?? 'http://localhost:8080',
+      process.env.MOATLESS_API_KEY,
+    )
+    const { chromium } = createRequire(path.join(scratch, 'package.json'))('playwright')
+    await browserCheck(
+      chromium,
+      {
+        host: values.get('--host') ?? 'moatless-t3.staging.moatless.xyz',
+        port: Number(values.get('--port') ?? 8444),
+        screenshot: values.get('--screenshot') ?? path.join(scratch, 'browser-check.png'),
+        executablePath: bakedChromium(),
+      },
+      fixture,
+    )
+  } catch (error) {
+    console.error(error.message)
+    process.exitCode = 1
+  }
+}

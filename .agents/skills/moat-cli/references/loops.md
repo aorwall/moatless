@@ -66,7 +66,7 @@ Pick up this Linear ticket, implement it, and open a PR linked back to the issue
 
 ```bash
 moat repos sync-config <repo-id>                  # fetch + reconcile loops
-moat triggers list --repository-id <repo-id>      # synced loops show up here
+moat loops list      # synced loops show up here
 ```
 
 Notes:
@@ -112,8 +112,8 @@ Notes:
   issue's team and skipped if the issue is already there. When the issue reaches
   a terminal state (`completed`/`canceled`) the spawned task is auto-closed.
   The same knobs work on a hand-made trigger:
-  `moat triggers create-adapter-event --adapter linear --connection-id <id>
-  --source-matcher <team-uuid> --adapter-config
+  `moat loops create-subscription --adapter linear --connection-id <id>
+  --name "Ready Pool" --repository-id <repo-id> --source-matcher <team-uuid> --adapter-config
   '{"create_on_status_entry":true,"trigger_states":["Ready"],"project_ids":["<proj>"],"start_state":"In Progress"}'`.
 - `skills` lists skill names by directory name under `.claude/skills/` or
   `.agents/skills/`. Every task the loop spawns activates them: the sandbox reads

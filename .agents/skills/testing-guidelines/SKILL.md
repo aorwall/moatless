@@ -1,44 +1,48 @@
 ---
 name: testing-guidelines
-description: Vitest testing conventions for the Moatless Vibe frontend and TS packages — tier classification, strategic mocking, naming, coverage. Use when writing or reviewing frontend/TS tests.
+description: "Write and review Vitest tests for the Moatless frontend, TypeScript packages, and repository scripts. Use for test placement, component or hook tests, mocking boundaries, and regression coverage."
 ---
 
-# Testing Guidelines
+# TypeScript testing
 
-Vitest + React Testing Library for `apps/frontend` and TS packages. Backend is
-Rust: `cargo test -p <crate>` with the `rust-dev-guidelines` skill. E2E is one
-Playwright suite under `tests/`, run against Docker Compose or the cluster by
-profile, and is owned by the **e2e-testing** skill.
+Test observable behavior where it can fail. Frontend/component tests use Vitest
+and React Testing Library; E2E uses [e2e-testing](../e2e-testing/SKILL.md), and Rust
+uses [rust-dev-guidelines](../rust-dev-guidelines/SKILL.md).
 
-## Resources
-
-| Topic | File |
-|---|---|
-| Testing philosophy (what to test / skip) | [testing-philosophy.md](resources/testing-philosophy.md) |
-| Tier classification (where coverage goes) | [tier-classification.md](resources/tier-classification.md) |
-| Strategic mocking (what to mock / not) | [strategic-mocking.md](resources/strategic-mocking.md) |
-| Component/hook test how-to | [frontend testing.md](../frontend-dev-guidelines/resources/testing.md) |
-| Worked examples | [complete-examples.md](resources/complete-examples.md) |
-
-## Repo facts
-
-- **Naming**: unit tests are `*.unit.test.tsx` (dominant convention; plain `*.test.ts` also exists), in `__tests__/` next to the code. Integration: `*.integration.test.ts`.
-- **E2E is Playwright**, not Vitest: `bun run test:e2e` (API suite), `test:e2e:ui` — under `tests/`, not `src/`.
-- **Coverage**: `@vitest/coverage-v8` via `bun run test:coverage`.
-- **Render helper**: `render` from `@/test-utils/render` (wraps QueryClient + mock providers).
+- [Test selection](resources/testing-philosophy.md): when coverage earns its cost.
+- [Placement](resources/tier-classification.md): choose the smallest useful boundary.
+- [Mocking](resources/strategic-mocking.md): keep application behavior under test real.
+- [Examples](resources/complete-examples.md): maintained component and hook tests.
 
 ## Commands
 
+From the repository root:
+
 ```bash
-bun run test              # all Vitest (excludes E2E)
-bun run test:unit         # fastest
+bun run test
+bun run test:unit
 bun run test:integration
 bun run test:coverage
-bun run test task-card    # single file/pattern
+bun run test:scripts
 ```
 
-## Principles
+For one frontend file, run Vitest inside that workspace:
 
-- **Tiers drive effort**: Tier 1 (state machines, business logic) 80–90% coverage · Tier 2 (conditional rendering, data fetching) 50–60% · Tier 3 (presentational) 0%. Details: tier-classification.md.
-- **Mock external dependencies only** (APIs, browser APIs, third-party) — never your own application code. Details: strategic-mocking.md.
-- **Assert user-visible behavior**, not internal state. Speed budgets: unit <200ms, integration <2s.
+```bash
+cd apps/frontend
+bun run test src/features/tasks/utils/__tests__/format-duration.unit.test.ts
+```
+
+Root `test` goes through Turbo; an extra bare pattern is interpreted as a Turbo
+task, not a Vitest filter. Name unit tests `*.unit.test.ts(x)` in nearby
+`__tests__` directories; existing `*.test.ts` files are also supported.
+
+## Component and hook tests
+
+Use `render` and `createTestQueryClient` from
+[the repository helper](../../../apps/frontend/src/test-utils/render.tsx).
+Create fresh query state per test. Drive accessible UI controls and await the
+observable result; do not use arbitrary sleeps or assert hook internals.
+For asynchronous hooks, use Testing Library's `renderHook` and `waitFor` with
+the providers the hook actually needs. Clean up timers, network servers, and
+processes even after a failed assertion.

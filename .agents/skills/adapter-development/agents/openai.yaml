@@ -1,4 +1,4 @@
 interface:
   display_name: "Adapter Development"
-  short_description: "Build, change, and migrate Adapters in backend/src/adapters"
-  default_prompt: "Use $adapter-development to plan, implement, or review this Adapter change."
+  short_description: "Develop Rust adapter crates and durable delivery"
+  default_prompt: "Use $adapter-development to implement and verify this adapter change against the current crate boundaries."

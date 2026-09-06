@@ -1,80 +1,21 @@
-# Prerequisites — Install Snippets
+# Installation prerequisites
 
-Moatless Vibe relies on several cluster-level pieces. The skill detects what is missing in preflight; this page is the remediation library.
+Confirm kubectl access to the named context, a compatible Helm installation,
+application and wildcard preview DNS, TLS termination, image access, database
+connectivity, and the selected sandbox storage/compute arrangement.
 
-## Traefik (for IngressRoute CRDs)
+The chart creates standard `Ingress` resources for the app and wildcard proxy.
+The proxy Ingress forwards to `proxyIngress.targetServiceName` (default `traefik`)
+in the release namespace. Sandbox provisioning creates Traefik `IngressRoute`
+resources. An `alb` or Azure ingress class does not replace that Traefik hop.
+Install/configure Traefik and its CRDs, service, namespace watching, and preview
+auth middleware to match the chart and sandbox namespace.
 
-Sandbox preview URLs rely on Traefik `IngressRoute` CRDs for per-task routing. Only required if `proxyIngress.backend == traefik` (the default for some older values files).
+Read [proxy-ingress.yaml](../../../../k8s/helm/moatless-vibe/templates/proxy-ingress.yaml)
+and [sandbox ingress](../../../../crates/sandbox-k8s/src/ingress.rs) before changing
+routing. A Gateway API controller alone does not consume the chart's Ingress
+resources; this chart does not generate a Gateway/HTTPRoute migration.
 
-```bash
-helm repo add traefik https://traefik.github.io/charts
-helm repo update
-helm install traefik traefik/traefik \
-  --namespace traefik --create-namespace \
-  --set ingressRoute.dashboard.enabled=false
-```
-
-CRD verification:
-```bash
-kubectl get crd ingressroutes.traefik.io
-```
-
-Alternative: if the cluster uses a cloud-native ingress (AKS web app routing, ALB), set `proxyIngress.className` to that class in values and skip Traefik entirely — the chart generates an Ingress instead of an IngressRoute when the class is not Traefik.
-
-## cert-manager (for in-cluster TLS)
-
-Skip when TLS terminates upstream (Azure Front Door, ALB with ACM cert).
-
-```bash
-helm repo add jetstack https://charts.jetstack.io
-helm repo update
-helm install cert-manager jetstack/cert-manager \
-  --namespace cert-manager --create-namespace \
-  --set crds.enabled=true
-```
-
-ClusterIssuer for Let's Encrypt:
-```yaml
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@example.com
-    privateKeySecretRef:
-      name: letsencrypt-prod
-    solvers:
-      - http01:
-          ingress:
-            class: <ingress-class>
-```
-
-## External Postgres
-
-Moatless expects Postgres 14+. Providers:
-
-- **Azure Database for PostgreSQL Flexible Server** — pair with AKS, use private endpoint in the AKS vnet
-- **AWS RDS Postgres** — enable private access, security group open to EKS node SG on 5432
-- **Supabase / Neon / Managed DB** — works but latency matters; keep region-local
-
-Set `DATABASE_URL` in the Secret: `postgres://user:pass@host:5432/vibe?sslmode=require`.
-
-## External Redis
-
-Required for event streams. Small (`cache.t3.micro` / `Standard_B1ms`) is fine.
-
-Set `REDIS_URL` in the Secret: `redis://:<password>@host:6379/0` (use `rediss://` for TLS).
-
-## Prometheus (optional)
-
-Only if `monitoring.prometheus.enabled=true` in values (PodMonitor scraping). Install kube-prometheus-stack:
-
-```bash
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm install kube-prom prometheus-community/kube-prometheus-stack \
-  --namespace monitoring --create-namespace
-```
-
-Provides `ServiceMonitor` CRD the chart needs.
+Use [AKS](provider-aks.md) or [EKS](provider-eks.md) instructions for cloud-specific
+constraints. Recheck upstream support at installation time rather than copying a
+fixed controller/chart version into this skill.

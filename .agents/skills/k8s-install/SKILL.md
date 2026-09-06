@@ -1,161 +1,55 @@
 ---
 name: k8s-install
-description: "This skill should be used when the user asks to 'install moatless vibe', 'deploy moatless to kubernetes', 'set up moatless on AKS', 'set up moatless on EKS', 'bootstrap moatless cluster', 'install moatless helm chart', or mentions spinning up a fresh Moatless Vibe installation. It drives a preflight → init → secrets → install → verify flow using the `moat k8s` subcommands."
+description: "Install Moatless on Kubernetes using moat k8s. Use for a fresh Helm installation, AKS or EKS prerequisites, values generation, secrets, and deployment verification."
 ---
 
-# Moatless Vibe Kubernetes Installer
+# Kubernetes installation
 
-Install Moatless Vibe into a Kubernetes cluster with a guided five-step flow. The CLI (`moat k8s …`) does the actual work; this skill orchestrates ordering, interprets JSON output, branches per cloud provider (AKS, EKS), and guides the user through prerequisite installation.
+Use an explicit context and namespace throughout. Read
+[prerequisites](references/prerequisites.md), then the applicable
+[AKS](references/provider-aks.md) or [EKS](references/provider-eks.md) reference.
+The [CLI parser](../../../crates/cli/src/commands/k8s/mod.rs) owns flags and defaults.
 
-## When to trigger
+1. Run `moat k8s preflight --context <context> --namespace <namespace> --json`.
+   Resolve failed checks using [preflight checks](references/preflight-checks.md).
+   For Fargate, pass the matching `--compute-mode` and `--storage-mode` and use
+   the infrastructure handoff; do not apply an EC2 storage recipe.
+2. Generate a values file:
 
-Trigger on phrases like "install moatless on kubernetes", "deploy moatless to my EKS cluster", "set up moatless vibe on AKS", or any bootstrap request where the target is a Kubernetes cluster.
+   ```bash
+   moat k8s init --context <context> --provider <aks|eks|generic> \
+     --namespace <namespace> --sandbox-namespace <sandbox-namespace> \
+     --domain <app-domain> --proxy-domain <preview-domain> \
+     --tag <release-tag> --auth <local|github_app|auth0> --output values.local.yaml
+   ```
 
-Do **not** trigger for: upgrading an existing install (use `moat k8s upgrade --context <target-context> --tag <tag>`), deploying a new image build (use `task deploy`), or Docker Compose installs.
+   Supply the requested values for automation; omitted choices may prompt.
+   An existing output file requires `--force` to overwrite. For provisioned
+   Fargate infrastructure, use `--infrastructure-handoff <file>` and retain its
+   context, namespace, and compute/storage constraints.
+3. Review [values](references/values-schema.md), including every image tag,
+   storage, data stores, auth URLs, and both ingress paths. Render locally before
+   applying. The provider examples require real domains, TLS, and infrastructure.
+4. Bootstrap [secrets](references/secrets.md) from a local file or masked CLI
+   prompts, then inspect key names:
 
-## Prerequisites the user must have
+   ```bash
+   moat k8s secrets bootstrap --context <context> --namespace <namespace> \
+     --values values.local.yaml --env-file .env.local
+   moat k8s secrets list --context <context> --namespace <namespace> --json
+   ```
 
-Before starting, confirm the user has:
+5. Install and verify:
 
-- `kubectl` authenticated against a named target context (`kubectl --context <target-context> cluster-info` works)
-- A `moat` build whose `k8s status --help` lists `--context`; rebuild or reinstall the matching checkout if the flag is absent
-- A Helm version compatible with the target Kubernetes release. Kubernetes 1.35 requires Helm 3.20+ or Helm 4.1+.
-- A domain they control for the main app and another (or wildcard) for sandbox previews
-- An Anthropic API key (required)
-- Cluster admin or namespace-admin on the target namespace
-- Optional: GitHub OAuth app or Auth0 tenant if they want SSO; a PostgreSQL URL and Redis URL if they want external data stores
+   ```bash
+   moat k8s install --context <context> --namespace <namespace> \
+     --values values.local.yaml --wait
+   moat k8s status --context <context> --namespace <namespace> --json
+   ```
 
-If any piece is missing, pause the workflow and ask before proceeding — do not guess.
+   Verify application login and [manual smoke behavior](../e2e-testing/references/manual-smoke.md).
+   Installation secrets do not include a mandatory fleet-wide Anthropic key;
+   users provide agent credentials at runtime.
 
-## The five-step workflow
-
-Execute these in order. Each step has a single `moat k8s …` command; read its JSON output (`--json`) to decide what to do next.
-
-### Step 1 — Preflight
-
-```bash
-moat k8s preflight --context <target-context> --namespace <ns> --json
-```
-
-Reads the cluster and reports `checks[]` plus a derived `cluster_type` (`aks`, `eks`, or `generic`). Interpret:
-
-- Every `check.ok == true` → green light, continue.
-- `check.ok == false` → surface the `check.hint` verbatim and ask the user to fix or let the skill help. Never proceed past a failed tooling check (kubectl/helm missing).
-- Provider detection drives Step 2. If `generic`, ask which cloud they are on so defaults can be picked correctly — a ranked pick, per `/asking-questions`.
-
-Common failures and the right response:
-
-| Failure | Response |
-|---|---|
-| Ingress controller absent on AKS | Offer to enable web app routing (`az aks approuting enable`). See `references/provider-aks.md`. |
-| Ingress controller absent on EKS | Guide installation of the AWS Load Balancer Controller. See `references/provider-eks.md`. |
-| No default StorageClass | On AKS: `managed-csi` is usually present; on EKS: install the EBS CSI driver. |
-| Traefik CRD missing | Moatless uses IngressRoute CRDs from Traefik for per-sandbox proxy routes. Follow `references/prerequisites.md`. |
-| cert-manager CRD missing | Only required if terminating TLS in-cluster. Skip for AKS web app routing + Azure Front Door. |
-
-### Step 2 — Init values
-
-```bash
-moat k8s init --context <target-context> --provider <aks|eks|generic> --domain <app.example.com> --proxy-domain <sandbox.example.com> --namespace <ns>
-```
-
-Interactive prompts fill remaining fields (tag, auth provider, storage backend). Writes `values.local.yaml` to cwd. Before running:
-
-- Confirm the domain and proxy-domain with the user. The proxy domain must be a separate host (typically a wildcard) because sandbox preview URLs use `<taskId>--<port>.<proxy-domain>`.
-- If the user wants GitHub SSO, collect the GitHub App callback URL beforehand: `https://<app-domain>/api/v1/auth/github-app/callback`.
-
-After the file is written, skim `values.local.yaml` and call out anything the user should customise (resource sizes, sandbox storage, monitoring).
-
-### Step 3 — Secrets bootstrap
-
-**Strongly prefer a `.env.local` file.** Before running the bootstrap command, ask the user to create `.env.local` at the repo root with the required credentials — see `references/secrets.md` for the template. Do **not** ask the user to paste secrets into the chat. Chat history is stored, rendered, and often synced to remote transcripts; anything pasted there can leak.
-
-When posting secrets in chat is the only option (user insists, no shell access, etc.), call it out explicitly before proceeding: "Pasting secrets in chat works but is less secure than `.env.local`. Keys may show up in logs or transcripts. Proceed anyway?"
-
-```bash
-moat k8s secrets bootstrap --context <target-context> --namespace <ns>
-```
-
-Collection priority (highest wins, no silent overwrites):
-1. Existing `Secret/vibe-secrets` keys already in the cluster
-2. Keys found in `.env.local` / `.env` / `backend/.env` at repo root — the CLI will prompt before reading any value (preferred path)
-3. Interactive masked prompts for whatever remains — only for keys the user couldn't put in a `.env` file
-
-The CLI **never** reads `std::env` — process environment is noisy and unsafe to auto-consume. The only two safe paths are a `.env` file on disk or a masked terminal prompt.
-
-Pair flags:
-- `moat k8s secrets list --context <target-context>` — show which keys are set vs missing (values masked)
-- `moat k8s secrets set <KEY> --context <target-context>` — one-off change, masked prompt
-- `moat k8s secrets pull-token --context <target-context>` — creates `ghcr-secret` (dockerconfigjson) from a prompted GitHub PAT
-- `--env-file <path>` — use a `.env` file outside the repo root
-
-After bootstrap, confirm required keys are present with `moat k8s secrets list --context <target-context> --namespace <ns> --json` — it returns `{"keys":[...]}`, the names currently stored in the cluster Secret. Check that both `DATABASE_URL` and `SECRETS_ENCRYPTION_KEY` are in the list. The backend refuses to start without `SECRETS_ENCRYPTION_KEY`. `ANTHROPIC_API_KEY` is **not** an install-time secret — users provide their own Claude credentials per task at runtime.
-
-### Step 4 — Install
-
-```bash
-moat k8s install --context <target-context> --namespace <ns> --release moatless-vibe --values values.local.yaml
-```
-
-Runs `helm dependency update` then `helm upgrade --install`. For cautious users, pass `--dry-run` first. Add `--wait` to block until rollout completes (10 minute timeout).
-
-If `helm upgrade --install` fails, the JSON report contains `stderr`. Common failures:
-- `rendered manifests contain a resource that already exists` → a previous broken install; ask user to `helm uninstall` first or pass a new release name.
-- `ImagePullBackOff` once pods start → `ghcr-secret` missing or wrong; run `moat k8s secrets pull-token --context <target-context> --namespace <ns>`.
-- `PVC pending` → StorageClass mismatch; edit `values.local.yaml` `kubernetes.sandboxStorage.storageClass` and re-run install.
-
-### Step 5 — Verify
-
-```bash
-moat k8s status --context <target-context> --namespace <ns> --release moatless-vibe --json
-```
-
-Require `release_status: "deployed"`, at least one deployment, and `all_healthy: true`. If not, the `deployments[]` entries and `pending_pods[]` list tell you what to inspect. Use `kubectl --context <target-context> -n <ns> describe pod <name>` or `kubectl --context <target-context> -n <ns> logs deploy/<name>` for the specific resource.
-
-Once healthy, fetch the ingress address from `ingresses[].address` and give the user the URL they just installed.
-
-## Provider branching
-
-After Step 1 detects the provider, load the matching reference file before any follow-up work:
-
-- **AKS** → read `references/provider-aks.md` (web app routing, Azure monitor operator, sysctls via DaemonSet)
-- **EKS** → read `references/provider-eks.md` (AWS LB Controller, EBS CSI, IRSA for S3)
-
-## Interpreting `--json` outputs
-
-Every `moat k8s` command supports `--json` and emits a machine-readable report. Always pass `--json` when the flow is scripted; parse the report and branch, rather than grepping human output.
-
-Key fields by command:
-
-- `preflight`: `checks[]` (`.ok`, `.hint`), `cluster_type`, `ingress_controllers[]`, `storage_classes[]`
-- `secrets list`: `keys[]` — plain string names currently stored in the cluster Secret
-- `install`: `success`, `stderr` (on failure)
-- `status`: `all_healthy`, `deployments[]`, `pending_pods[]`, `ingresses[]`
-
-## Safe retry behaviour
-
-All commands are idempotent:
-- `init` overwrites `values.local.yaml` — confirm with the user before re-running
-- `secret bootstrap` merges into the existing Secret, never erases keys unless `--overwrite` is set
-- `install` is `helm upgrade --install`, safe to re-run
-- `uninstall --purge` requires a confirmation prompt in interactive mode
-
-If a step fails, re-run **that step**, not the whole flow. The cluster state from earlier steps survives.
-
-## Additional Resources
-
-### Reference files
-
-- **`references/preflight-checks.md`** — what each preflight check means and how to remediate
-- **`references/values-schema.md`** — required/optional values, provider nuances
-- **`references/provider-aks.md`** — AKS-specific gotchas
-- **`references/provider-eks.md`** — EKS-specific gotchas
-- **`references/secrets.md`** — env var catalog and OAuth app setup
-- **`references/prerequisites.md`** — Traefik, cert-manager, Redis install snippets
-- **`references/troubleshooting.md`** — common failures → diagnosis
-
-### Examples
-
-- **`examples/values-aks-minimal.yaml`** — smallest working AKS config
-- **`examples/values-eks-minimal.yaml`** — smallest working EKS config
-- **`examples/vibe-secrets.yaml`** — annotated Secret template
+For rollout failures use [troubleshooting](references/troubleshooting.md).
+For ongoing operations use [sandbox-troubleshooting](../sandbox-troubleshooting/SKILL.md).

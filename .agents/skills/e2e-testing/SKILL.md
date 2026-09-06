@@ -22,8 +22,8 @@ environments without branching on which one it is in.
 a `k8s` run and anything else is `docker`. The resolved profile is printed at the
 top of every run; it is never left implicit.
 
-For operating or debugging a live cluster by hand, see the `kubernetes-testing`
-skill.
+For live runtime diagnosis, use [sandbox-troubleshooting](../sandbox-troubleshooting/SKILL.md).
+For installation verification, use [manual smoke verification](references/manual-smoke.md).
 
 ---
 
@@ -179,23 +179,9 @@ down their own state, which is why the directory is not called `chains/`.
 3. **Speak through the fixtures**, not through raw HTTP — `api` for a single
    call, a step from `../steps` when the action composes:
 
-```typescript
-import { expect, test } from '../fixtures/api-fixtures'
-import { budget } from '../../shared/profile'
-import { createTaskWithMessage, waitForSandboxReady } from '../steps'
-
-test.describe('Chain: My Feature', () => {
-  test.describe.configure({ mode: 'serial' })
-
-  test('FEAT-01: The thing happens', async ({ api }, testInfo) => {
-    testInfo.setTimeout(budget('sandboxReady'))
-
-    const { taskId } = await createTaskWithMessage(api, ctx.repositoryId!, 'do the thing')
-    const { ready } = await waitForSandboxReady(api, taskId)
-    expect(ready, 'the sandbox never became ready').toBe(true)
-  })
-})
-```
+Use [task-crud.spec.ts](../../../tests/api/specs/task-crud.spec.ts) as a complete
+fixture and cleanup example. Initialize the repository and ChainContext before
+calling a creation step; do not rely on an undeclared `ctx`.
 
 Rules that keep the suite worth running:
 

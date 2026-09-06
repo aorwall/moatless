@@ -1,6 +1,6 @@
 # Backend Rust
 
-Apply this reference to Rust changes under `crates/server/`.
+Apply this reference to backend Rust across `crates/`. Read [crate ownership](../../../../crates/AGENTS.md) and the owning crate's guidance before selecting a module; `crates/server` composes domain crates.
 
 ## Module and State Boundaries
 
@@ -17,7 +17,7 @@ Apply this reference to Rust changes under `crates/server/`.
   to be built once and shared instead, not rebuilt per consumer.
 - Direct pool access in handlers is limited to documented authentication,
   infrastructure, or transaction boundaries.
-- Add a trait only when the boundary has more than one real consumer or a test
+- Add a trait only when the boundary has more than one production implementation or a test
   uses a mock/fake implementation.
 
 ## Persistence Naming
@@ -46,25 +46,16 @@ Apply this reference to Rust changes under `crates/server/`.
 
 ## Integration Tests
 
-- The suite is three test targets, each a directory with a `main.rs`, not one
-  target per file: `integration_data` (DAOs and their handlers),
-  `integration_adapters` (ingress, delivery, installation) and
-  `integration_surface` (ui_rpc, agent handlers, pairing). Three is what keeps
-  the `--features db-tests` clippy line off the critical path — one target
-  type-checks in a single rustc unit and cost the line 67s, three cost it 44s.
-- Keep them within sight of each other in compile cost, which is not module
-  count: one module can carry a fifth of a target's time. Put a new test in the
-  target its subject belongs to; move a module across only on a measurement,
-  and re-measure with `cargo clippy -p moatless-backend --all-targets
-  --features db-tests --timings` before and after.
-- A new integration test is a file in one of those directories plus a `mod`
-  line in that directory's `main.rs`, and reaches the shared helpers through
-  `use crate::common;` — `tests/common/mod.rs`, which every target loads by
-  `#[path]` and so compiles once per target.
-- Open the file with `#![cfg(feature = "db-tests")]`, as every module there but
-  `supervisor_test.rs` does.
-- nextest gives each test its own process, so a test may set env vars without
-  disturbing its neighbours.
+Put domain and provider tests in their owning crate. Inspect its Cargo targets and
+`db-tests` feature before selecting a command; plain unit tests omit gated cases.
+The backend composition suite has three directory targets in `crates/server/tests`:
+`integration_data`, `integration_adapters`, and `integration_surface`, each with
+its own `main.rs`. Add modules to the appropriate target and reuse `crate::common`.
+Do not move tests between targets without measuring compile cost.
+
+Follow the exact local commands in root AGENTS.md. CI discovers db-tests packages
+from Cargo metadata; it also compiles the gated tier. Read
+[build costs](build-costs.md) before changing the verification matrix.
 
 ## HTTP and Errors
 

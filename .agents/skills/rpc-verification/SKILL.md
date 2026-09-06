@@ -38,29 +38,32 @@ script connect from localhost where a browser without the ticket gets refused.
 
 ## Probing with rpc.mjs
 
-`.agents/skills/t3-development/references/rpc.mjs` does the exchange, sends one
+Use Node 22 or later (native fetch and WebSocket).
+
+`.agents/skills/rpc-verification/scripts/rpc.mjs` does the exchange, sends one
 Effect-RPC `Request` envelope, answers `Ping` with `Pong`, acks every `Chunk`,
-and prints each frame's tag and serialized byte size. It only needs
+and prints each frame's tag and serialized byte size to stderr. It writes the complete collected frame array as JSON to stdout, without truncation. It only needs
 `MOATLESS_BASE` and `MOATLESS_API_KEY` — nothing else from the T3 harness — so
 it works standalone against the deployed backend.
 
 ```bash
-node .agents/skills/t3-development/references/rpc.mjs <tag> [payloadJson] [--stream] [--wait=ms]
+node .agents/skills/rpc-verification/scripts/rpc.mjs <tag> [payloadJson] [--stream] [--wait=ms]
 
 # a read
-MOATLESS_BASE=$BACKEND_API_URL node .agents/skills/t3-development/references/rpc.mjs \
+MOATLESS_BASE=$BACKEND_API_URL node .agents/skills/rpc-verification/scripts/rpc.mjs \
   sandbox.status '{"threadId":"<task-id>"}'
 
 # a subscription
-MOATLESS_BASE=$BACKEND_API_URL node .agents/skills/t3-development/references/rpc.mjs \
+MOATLESS_BASE=$BACKEND_API_URL node .agents/skills/rpc-verification/scripts/rpc.mjs \
   sandbox.subscribeStatus '{"threadId":"<task-id>"}' --stream --wait=15000
 ```
 
-Without `--stream` the script closes on the first `Exit` — right for reads and
-commands. A subscription needs `--stream` and a `--wait` window wide enough to
-matter: its first frame is a seed, and every frame after that is optional, so a
-window that's too short can't tell "nothing changed" from "didn't wait long
-enough to see it change".
+Without `--stream`, only `Exit/Success` succeeds. With `--stream`, at least one
+`Chunk` must arrive before the bounded observation window ends (or a successful
+Exit ends the stream). Ticket/transport/protocol failures, `Exit/Failure`, and
+empty timeouts return a nonzero process status. `--wait` bounds the whole exchange,
+including ticket acquisition. A successful observation window does not prove a
+state transition occurred; inspect the complete JSON frames for the expected change.
 
 ## Reading the frames
 
@@ -74,10 +77,9 @@ enough to see it change".
   which one you got before deciding which.
 - **`Chunk`** — one push on a subscription; the payload is `values[0]`. The
   script acks it automatically.
-- A subscription's **first `Chunk` is the seed** — the same value a plain read
-  would answer, sent immediately so a subscriber never waits out a poll
-  interval before it knows anything. **No further `Chunk` means nothing
-  changed** since the seed. That is the feature working, not a hang.
+- The state subscriptions shown here seed their current value in the first
+  `Chunk`. Other streams can have different contracts. An unchanged seed alone
+  cannot distinguish stable state from a broken change feed.
 
 ## Proving a push feature actually pushes
 
@@ -88,9 +90,9 @@ without killing the session running the check, so use a disposable one:
 
 1. `moat tasks create --repo <small-repo> --agent-type claude-code --headless true --name <throwaway-name>` — no `--message`, so only the sandbox starts, not an agent turn.
 2. Poll `moat tasks status <id>` until `Sandbox: ready` (~20s for a small repo).
-3. Start the subscription against that task's id in the background with a wide window: `... --stream --wait=25000 > /tmp/sub.log 2>&1 &`
+3. Start the subscription against that task's id in the background with a wide window: `... --stream --wait=25000 > /tmp/sub.json 2> /tmp/sub.stderr &`
 4. A few seconds in, force the transition being tested — `moat tasks stop <id>` / `moat tasks start <id>` for sandbox lifecycle, or the equivalent action for whatever the subscription tracks.
-5. `grep '^<-' /tmp/sub.log` should show the seed chunk **and** a second chunk carrying the new value. One chunk means only the seed path was exercised.
+5. Wait for the probe and check its exit status. Inspect `/tmp/sub.json` for both the seed and the expected changed value. A count of two chunks alone is insufficient; duplicate seeds do not prove a transition.
 6. `moat tasks close <id>` — don't leave throwaway tasks running.
 
 ## Gotchas

@@ -128,7 +128,7 @@ rustfmt --edition 2021 --style-edition 2024 <file>...
 ```
 
 That is a no-op on already-2024 modules such as
-`crates/server/src/adapters/providers/github_pr/`, which is the shape to match.
+`crates/adapter-github-pr/src/`, which is the shape to match.
 
 Naming a `mod.rs` (or any file declaring `mod`) formats its whole subtree, not
 just that file — `rustfmt crates/sandbox/src/init/mod.rs` rewrote all eleven of its

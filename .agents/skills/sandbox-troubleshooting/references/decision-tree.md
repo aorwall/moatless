@@ -1,87 +1,16 @@
-# Symptom decision tree — detect → confirm → cause → fix
+# Narrow the failure
 
-Once you've spotted a symptom (via the detection moves in SKILL.md), jump to the
-matching branch. Command blocks are in [commands.md](commands.md); the
-symptom→cause→fix lookup table and all knobs are in
-[failure-modes.md](failure-modes.md).
+| Symptom | Evidence to collect | Next action |
+|---|---|---|
+| Sandbox will not start | Diagnose, pod conditions, scheduling events, init logs, image pull error | Fix the specific image, mount, quota, credential, or scheduling constraint. |
+| Restarted or OOMKilled | Previous container logs, termination reason, events, resource limits, transcript at that time | Reduce concurrent work or change workspace resource limits; keep enough evidence to distinguish memory from disk pressure. |
+| Evicted | Pod reason/message, node events, workspace disk use | Relieve the named pressure. A larger memory limit does not repair exhausted ephemeral storage. |
+| Agent unresponsive | Agent state, last message/tool, permission request, sandbox connection and logs | Resolve the blocked input/tool or transport fault; do not infer a hang from Open task status. |
+| Server failed | Server status and bounded server logs | Follow the preview skill's live override workflow. |
+| Stops after inactivity | Lifecycle events and configured idle timeout | Confirm idle policy before treating an intentional stop as a crash. |
+| CLI and pod disagree | Timestamps, pod UID, all matching sandbox pods | Trace watcher and status resolver in the code map; do not assume the newest Running pod is ready. |
 
-## Sandbox restarted / turn interrupted
-1. `moat events list <task_id> --types sandbox,server --limit 400 --json` — read
-   the sandbox `payload.lifecycleEvent`s around the restart time (event JSON keys
-   are camelCase; **events are UTC —
-   widen the window before narrowing; a local-vs-UTC mismatch silently returns
-   nothing**).
-2. Classify the cause:
-   - `container_oom_killed` / exit 137 → **OOM** branch below.
-   - `pod_evicted` + "exceeds the limit" → **eviction** branch below.
-   - `node_reclaimed` / `DeletionByPodGC` / `NodeLost` / `NodeShutdown` →
-     **benign spot reclaim**; the pod auto-reschedules. Confirm with
-     `kubectl get node <old-node>` → `NotFound`. Not a real failure.
-   - `container_crash_loop` → sandbox binary crashing; read
-     `moat tasks logs <task_id> --server sandbox --previous`.
-
-## Won't start / stuck Initializing
-- `moat tasks diagnose <task_id>` → look at `containerDiagnostics[].waitingReason`
-  on the **sandbox** container: `ImagePullBackOff` / `ErrImagePull` /
-  `InvalidImageName` / `CreateContainerConfigError` / `CrashLoopBackOff` mark it
-  permanently failed (`environment_status: error`).
-- Startup probe (`GET /health` on :8001) returns 503 until the agent is Ready;
-  if it never flips, check `runtimeEvents` for scheduling problems (no node,
-  volume not bound). See `docs/sandbox-lifecycle.md`.
-
-## OOMKilled
-- Confirm via `moat tasks diagnose --json`: a container's
-  `containerDiagnostics[].terminatedReason == "OOMKilled"` with `exitCode == 137`
-  (camelCase in the API; the `/metrics` label equivalents are `reason`/`exit_code`).
-- Cross-check what was running: read the task transcript
-  (`moat messages list <task_id> --full`) — parallel subagents + build children
-  are the usual cause.
-- Fix: raise the memory **limit** (not the request) on the task's workspace:
-  `moat workspaces override <workspace_id> --resources-json '{"limits":{"memory":"24Gi"}}'`,
-  then `moat tasks restart <task_id>`. (`--resources-json` is the real knob;
-  there is no per-repo `--resource-memory-limit` flag.) Cluster-wide default:
-  `K8S_RESOURCE_LIMIT_MEMORY` in `backend/src/config.rs` + Helm `values.yaml`.
-
-## Evicted (volume overflow — the most common self-inflicted restart)
-- An emptyDir (`shared-data`, workspace when Ephemeral/S3) exceeds
-  its `sizeLimit` → kubelet evicts the pod.
-- Confirm: `kubectl get pod <pod> -n $NS -o jsonpath='{.status.reason}{" "}{.status.message}'`
-  → `Evicted` / "Usage of EmptyDir volume ... exceeds the limit". Same fact shows
-  up as a `runtimeEvents` entry in `moat tasks diagnose`.
-- Fix: clean the offending dir, or raise the size knob
-  (`K8S_SANDBOX_SHARED_DATA_SIZE`, `K8S_SANDBOX_STORAGE_SIZE`). Knob table in [failure-modes.md](failure-modes.md).
-
-## Preview / server container failing
-Switch to the [preview-servers](../../preview-servers/SKILL.md) skill — it owns
-the observe → override → promote loop for server containers, including live
-start-command/env changes that need no redeploy. First moves:
-- `moat tasks status <task_id>` → per-server status/error/detail.
-- `moat tasks logs <task_id> --server preview --previous` (pass the plain server
-  name — `sandbox`, `preview`, `files`, `dev` — not the `*-server` container name).
-- `moat tasks servers <task_id> list` → the config override in effect.
-
-## Agent stuck / not responding / errored
-- `moat tasks status <task_id>` → agent state. `none` while the pod is Running
-  can mean the gRPC `GetAgentStatus` call failed (network/DNS) rather than a
-  genuinely idle agent — check sandbox logs.
-- `moat events list <task_id> --types agent --json` → `error`,
-  `recovery_exhausted`, `session_context_lost`, `retrying` subtypes.
-- `moat messages list <task_id> --full` → read the transcript to see the last
-  thing the agent did, a tool error, or a permission prompt it's blocked on.
-- A `taskTurn` `turn_interrupted` event ⇒ the pod was terminated mid-turn —
-  correlate with the sandbox event at the same UTC timestamp.
-
-## Idle-stopped unexpectedly
-- The reaper stops a sandbox only when TTL is exceeded **and** a live gRPC
-  `GetAgentStatus` confirms idle with no busy processes. Look for a
-  `sandbox/stopped` event with `payload.lifecycleEvent: "idle_reaped"`.
-- Just `moat tasks start <task_id>` to resume (PVC state is preserved).
-
-## restart vs redeploy vs raise-limits
-
-- `moat tasks restart <task_id>` — recreate the pod, **keep** the PVC. First
-  move for a wedged/crashed pod.
-- `moat tasks redeploy <task_id>` — delete+recreate Deployment/Service/Ingress
-  with **fresh repo config**, keep the PVC. Use after changing server config.
-- Raise resource limits (`moat repos update ... --resource-memory-limit`) — for
-  recurring OOM; then restart.
+Resource changes belong to `moat workspaces update <workspace-id> --resources-json`.
+Read the existing config and preserve all fields when replacing JSON. For git-owned
+configuration, edit its source or explicitly take manual ownership. Existing
+containers require reprovisioning to receive changed container limits.

@@ -1,161 +1,70 @@
 ---
 name: shadow-dev
-description: "Run the moatless-vibe backend + frontend from INSIDE a moatless sandbox and preview the full app. The backend runs as a managed server on :8080 (scripts/shadow/up.sh), the frontend dev server proxies /api to it, all against shared dev Postgres/Redis/S3. Use when asked to run the shadow backend, develop moatless-vibe from inside a sandbox, or preview/rebuild backend changes live (scripts/shadow)."
+description: "Run and rebuild the Moatless backend and frontend inside a sandbox using scripts/shadow. Use for a local shadow backend against shared development services and managed preview servers."
 ---
 
-# Shadow Dev — run moatless-vibe from inside a sandbox
+# Shadow development
 
-Run the moatless-vibe **backend + frontend as sidecar servers in a sandbox pod**
-and preview the whole app at the sandbox's preview URLs — no laptop, no redeploy.
-The backend runs on `:8080` via `scripts/shadow/up.sh`; the frontend dev server
-proxies `/api` to it. Both talk to the shared **dev** Postgres/Redis/S3.
+The shadow runs `moatless-backend` on port 8080 through
+[up.sh](../../../scripts/shadow/up.sh). It shares development Postgres, Redis, and
+object storage. Use a dedicated workspace so normal repository tasks do not start
+an extra backend or inherit its elevated service account.
 
-Use it when iterating on `backend/src/**`, `crates/**`, or `apps/frontend/src/**`
-and you want a real, cluster-connected instance instead of Docker Compose or a
-full K8s redeploy.
+## Workspace setup
 
-Iterating on the **T3 Code** client against this backend instead of
-`apps/frontend`? Same shadow, different frontend — see
-[`t3-development`](../t3-development/SKILL.md) for that pair's auth, rebuild
-loop and preview-URL rule.
+Read [shadow configuration](../../../scripts/shadow/config.shadow.json) and
+[the shadow runbook](../../../scripts/shadow/README.md), then create or update a
+workspace with the repository binding, backend server, and frontend server. Run
+configuration belongs to the workspace, not the repository git record.
 
-## 1. Set up a dedicated shadow repo (one time)
-
-Run the shadow backend as a **server** on its own **repository record** — never
-add it to the shared/global `moatless-vibe` repo (that repo is global, so every
-task, agents included, would then compile Rust on start and run under the
-elevated `moatless-dev` SA).
-
-The repo record holds only the git source; the sandbox run-config (service
-account, docker access, servers, storage) lives on a **workspace**. Create the
-repo, then a workspace bound to it — note the repo id the first command prints.
-
-```bash
-# 1. Repo record (git source only)
-moat repos create \
-  --name "moatless-vibe (shadow)" \
-  --git-url https://github.com/soaplabs/moatless-vibe --branch main
-# -> note the returned repo id
-
-# 2. Workspace carrying the shadow run-config, bound to that repo
-moat workspaces create \
-  --name "moatless-vibe (shadow)" \
-  --sandbox-service-account moatless-dev \
-  --docker-access true \
-  --resources-json '{"storage":"40Gi","mode":"s3"}' \
-  --setup-commands-json '["curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash","/opt/moatless/data/.bun/bin/bun install"]' \
-  --servers-json '[
-    {"name":"dev","label":"Dev Server","port":3000,"default":true,
-     "startCommands":["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],
-     "startupTimeoutSeconds":120,"autoReload":true,"enableInspector":true},
-    {"name":"backend","label":"Shadow Backend","port":8080,
-     "startCommands":["bash scripts/shadow/up.sh"],"startupTimeoutSeconds":600}
-  ]' \
-  --repos-json '[{"repositoryId":"<repo_id>"}]'
-```
-
-(Per-server `enableInspector` and storage `mode: s3`/`storage: 40Gi` are the
-real knobs — there are no top-level `--enable-inspector`/`--storage` flags.)
-
-`--sandbox-service-account moatless-dev` lets the shadow backend provision
-sandboxes; it needs the Helm `shadowDev.enabled=true` RBAC deployed (see
-`scripts/shadow/README.md`). Drop the flag if you don't need provisioning.
-
-## 2. Run
-
-Create a task on the **`moatless-vibe (shadow)`** repo. Provisioning builds a
-`backend-server` container (runs `up.sh`) plus the `dev` frontend. `up.sh`:
-syncs the live backend env → `cargo build --profile "${SHADOW_CARGO_PROFILE:-release}"`
-→ runs the binary on `:8080`, restarting on rebuilds.
-
-Open the **`--3000`** preview URL for the full app (frontend proxies `/api` to
-the sibling backend); **`--8080`** hits the backend directly.
-
-Verify (from any container in the pod):
+- Backend start command: `bash scripts/shadow/up.sh`, port 8080, and a startup
+  classification timeout large enough for a cold build (the example uses 600s).
+- Set `SHADOW_CARGO_PROFILE=dev` in the backend server's `envVars` and in the shell
+  running rebuilds. Both scripts default to release; mismatching profiles makes
+  the server start a different binary from the one rebuilt.
+- Set resources through `--resources-json`, for example
+  `{"storage":"40Gi","pvcEnabled":false,"s3Enabled":true}` when snapshot-backed
+  ephemeral storage matches the cluster. Check available disk before compiling.
+- Image selection uses `moat workspaces update <workspace-id> --docker-image
+  <image>`. The optional dev image comes from
+  [Dockerfile.sandbox-dev](../../../docker/Dockerfile.sandbox-dev).
+- `sync-env.sh` needs access to the source backend deployment and Secrets.
+  Provisioning child sandboxes additionally needs the chart's `shadowDev` RBAC
+  and the configured workspace service account. Verify the actual permissions.
 
 ```bash
-curl -s -o /dev/null -w "backend :8080/health -> %{http_code}\n" http://localhost:8080/health
-curl -s -o /dev/null -w "proxy   :3000/api    -> %{http_code}\n" http://localhost:3000/api/v1/repositories
-moat tasks logs $TASK_ID --server backend --no-follow   # print and exit; drop it to follow live
+moat tasks create --workspace <shadow-workspace-id> --agent-type claude-code \
+  --headless false --name "Shadow development"
+moat tasks status <task-id> --json
+moat tasks logs <task-id> --server backend --no-follow --tail 2000
+curl --fail --max-time 10 http://localhost:8080/health
 ```
 
-Healthy backend logs `API server started port=8080`.
+Open the returned frontend preview URL. Do not derive it from task ID: shared
+sandbox tasks can have a different sandbox identity. Authenticated API checks
+need the API key even when `/health` succeeds publicly.
 
-## 3. Rebuild loop
+## Rebuild and environment
 
 ```bash
-export SHADOW_CARGO_PROFILE=dev       # see below — 21s instead of 4m34s
-bash scripts/shadow/rebuild.sh        # compile + signal up.sh to restart the binary
+export SHADOW_CARGO_PROFILE=dev
+bash scripts/shadow/rebuild.sh
+curl --fail --max-time 10 http://localhost:8080/health
 ```
 
-- **Build profile**: `up.sh`/`rebuild.sh` build with
-  `--profile "${SHADOW_CARGO_PROFILE:-release}"`. Measured after one edit under
-  `crates/t3code/`: `release` **4 m 34 s**, `dev` **21 s** (`ci` — release
-  opts without LTO — sits in between). `release` also shares no artifacts with
-  the dev profile `cargo test`/`cargo clippy` use, so iterating while running
-  checks costs two full builds of the same crate; `dev` costs one. Set it on
-  **both** the `backend` server's env and your shell, or not at all — mismatched,
-  `rebuild.sh` builds a binary `up.sh` never starts. `dev` lands the binary in
-  `target/debug/`, and only `release` can use the dev image's baked binary.
-- **Frontend edits** hot-reload — no rebuild.
-- **Env changed** on the real Deployment? `bash scripts/shadow/sync-env.sh` then `rebuild.sh`.
-- **Extra overrides**: add `KEY=value` lines to `/opt/moatless/data/shadow/overrides.env` (e.g. `RUST_LOG=debug`).
+Frontend changes hot-reload. Read bounded backend logs for build errors; run
+`cargo build -p moatless-backend` for a direct dev build if needed. Follow root
+Rust verification commands before calling a code change complete.
 
-Before considering a change done:
-`cargo clippy -p moatless-vibe-backend -- -D warnings && cargo test -p moatless-vibe-backend`.
+[sync-env.sh](../../../scripts/shadow/sync-env.sh) imports deployment configuration
+and applies the isolation settings: distinct Redis consumer identity, disabled
+event handler, idle reaper, reconciliation actions, cron scheduler, Codex refresh,
+and migrations. It also adds localhost/127.0.0.1 port 5733 browser origins.
+These settings do not make shared database writes private.
 
-## Fast rebuilds (precompiled image)
+Additional overrides go in `/opt/moatless/data/shadow/overrides.env` as sourceable
+`export KEY=value` lines. Resync/rebuild after changing environment. Use a separate
+database before enabling migrations for a schema experiment. Do not repair
+workspace service-account configuration by updating repository columns in SQL.
 
-The plain sandbox image recompiles all deps on every provision (~6–10 min).
-`docker/Dockerfile.sandbox-dev` bakes warm caches — the cargo target + crate
-registry (so only changed workspace crates recompile, ~1–2 min) and bun's global
-install cache (so provision-time `bun install` links node_modules offline and the
-frontend dev server starts fast). CI publishes it to Docker Hub as
-`aorwall/moatless-dev:dev` (plus `:latest` and `:sha-<short>`) via an
-**on-demand** job — the `Build dev sandbox image` workflow
-(`.github/workflows/build-dev-image.yml`), run manually from the Actions tab (not
-part of push-to-main). Normally just point the shadow repo at it:
-
-```bash
-moat repos update <shadow_repo_id> --docker-image aorwall/moatless-dev:dev
-```
-
-To build it by hand:
-
-```bash
-docker build -f docker/Dockerfile.sandbox-dev \
-  --build-arg SANDBOX_IMAGE=aorwall/moatless-sandbox:<tag> \
-  -t aorwall/moatless-dev:<tag> .   # + docker push
-```
-
-## Isolation (shared dev state — important)
-
-The shadow reads/writes the **shared dev Postgres/Redis/S3** — treat it as live
-dev data. `sync-env.sh` fences off shared-state consumers so the shadow can't
-disrupt the real backend: distinct `REDIS_CONSUMER_GROUP`/`ID`,
-`EVENT_HANDLER_ENABLED=false`, `SANDBOX_IDLE_REAPER_ENABLED=false` +
-`RECONCILE_*_ENABLED=false` (so it never stops/reprovisions real sandboxes), and
-`RUN_MIGRATIONS=false` (so it never mutates the shared dev schema — point
-`DATABASE_URL` at your own DB in `overrides.env` + `RUN_MIGRATIONS=true` if you
-need new schema).
-
-## Troubleshooting
-
-| Symptom | Fix |
-| --- | --- |
-| `backend-server` never ready | `moat tasks logs $TASK_ID --server backend --no-follow --tail 2000` — usually still compiling (ensure `startupTimeoutSeconds: 600`) or panicked on boot. Without `--no-follow` the command streams until killed, and the compile error is at the *start* of the log. |
-| `/health` never 200 | Check the logs for a build error or a bad synced env var. |
-| Build errors | Run `cargo build -p moatless-vibe-backend` directly for full output (dev profile — fastest, and shares artifacts with clippy/test). |
-| Proxy `/api/...` 404 | Use a real path (`/api/v1/repositories`); confirm `:8080` is up first. |
-| `sync-env.sh` fails | Needs `get deployments`/`get secrets` in `moatless`: `kubectl auth can-i get secrets -n moatless`. |
-| Can't provision sandboxes | Needs the Helm `shadowDev` RBAC + `--sandbox-service-account moatless-dev`. |
-| Put backend server on the global repo by mistake | `moat repos sync-config <repo_id>` restores `servers`; clear the SA directly (API can't null it): `UPDATE repositories SET sandbox_service_account=NULL WHERE id='<repo_id>';`. |
-
-## Files
-
-- `scripts/shadow/up.sh` — sync env → build → run backend, watch for rebuilds
-- `scripts/shadow/rebuild.sh` — compile + trigger a restart
-- `scripts/shadow/sync-env.sh` — live backend env + secrets → sourceable env file
-- `scripts/shadow/config.shadow.json` — the servers config as a committed `.moatless/config.json` (branch alternative to `moat repos create`)
-- `docker/Dockerfile.sandbox-dev` — precompiled image (published on demand as `moatless-dev:latest` by `.github/workflows/build-dev-image.yml`) with warm caches
-- `scripts/shadow/README.md` — deeper details (RBAC, owning child sandboxes)
+For the T3 client pair, read [t3-development](../t3-development/SKILL.md).

@@ -1,24 +1,48 @@
 # codex-sdk
 
-Rust SDK for the [Codex](https://github.com/openai/codex) coding agent, mirroring the `claude-agent-sdk` interface. Uses Codex's **in-process app-server runtime** (not subprocess spawning) for full protocol access: streaming deltas, approval handling, hook observation.
+The sandbox runtime does not use this crate. The sandbox runs Codex through the
+`codex app-server` CLI in `sandbox/src/agent/codex_app_server/`. This crate is
+a standalone in-process SDK.
 
-> Not used by the sandbox runtime — the sandbox runs Codex via the `codex app-server` CLI in `sandbox/src/agent/codex_app_server/`. This crate is a standalone in-process SDK.
+## How it maps onto claude-agent-sdk
 
-## Relationship to claude-agent-sdk
+`query()` and `query_streaming()` match. The rest maps like this:
 
-Mirrors the Claude Agent SDK's interface: `query()`/`query_streaming()` match; `CodexClient` ≈ `ClaudeClient`, `CodexMessage` ≈ `SdkMessage`, `CodexOptions` ≈ `ClaudeOptions`, `ApprovalHandler` ≈ `PermissionHandler`, `HookObserver` ≈ `HookHandler` (read-only — Codex hooks run server-side).
+| codex-sdk | claude-agent-sdk |
+|---|---|
+| `CodexClient` | `ClaudeClient` |
+| `CodexMessage` | `SdkMessage` |
+| `CodexOptions` | `ClaudeOptions` |
+| `ApprovalHandler` | `PermissionHandler` |
+| `HookObserver` (read-only, because Codex hooks run server-side) | `HookHandler` |
 
-**No Codex equivalent**: `SdkMcpServer`/in-process MCP tools, `AgentDefinition`/sub-agents, runtime `set_model()`/`set_permission_mode()`, `max_budget_usd`.
+Codex has no equivalent of `SdkMcpServer` and its in-process MCP tools,
+`AgentDefinition` and sub-agents, the runtime `set_model()` and
+`set_permission_mode()`, or `max_budget_usd`.
 
-**Codex-specific**: `QueryHandle::steer()` (inject context mid-turn), rich sandbox policies (file/network isolation), three separate approval types (command, file change, permissions), thread management (list/resume/fork).
+Codex adds four things of its own:
 
-## Architecture
-- **Transport**: in-process `InProcessAppServerClient` (from `codex-app-server-client`)
-- **Orchestrator**: background tokio task maps `ServerNotification` → `CodexMessage`, routes `ServerRequest` (approvals) to `ApprovalHandler`
-- **Dependencies**: path deps to the codex repo at `~/repos/stuffs/codex/codex-rs/`
+- `QueryHandle::steer()`, to inject context mid-turn.
+- Rich sandbox policies, for file and network isolation.
+- Three separate approval types: command, file change, permissions.
+- Thread management: list, resume, fork.
 
-## Building
-**Standalone workspace** (excluded from the parent moatless workspace) — the codex dependency graph needs its own `[patch.crates-io]` entries and a pinned Rust toolchain (1.93+). Requires the codex repo checked out at `~/repos/stuffs/codex/`. `Cargo.lock` was seeded from the codex workspace for compatible resolution — **do not delete it**.
+## How the crate is wired
+
+- **Transport**: the in-process `InProcessAppServerClient`, from
+  `codex-app-server-client`.
+- **Orchestrator**: a background tokio task that maps a `ServerNotification` to a
+  `CodexMessage` and routes a `ServerRequest` approval to `ApprovalHandler`.
+- **Dependencies**: path deps to the codex repo at
+  `~/repos/stuffs/codex/codex-rs/`.
+
+## Building against the codex repo
+
+This is a **standalone workspace**, excluded from the parent moatless
+workspace. The codex dependency graph needs its own `[patch.crates-io]` entries
+and a pinned Rust toolchain (1.93+). Check out the codex repo at
+`~/repos/stuffs/codex/` first. **Do not delete `Cargo.lock`**: it was seeded
+from the codex workspace for compatible resolution.
 
 ```bash
 cd crates/codex-sdk
@@ -27,16 +51,22 @@ cargo build --examples
 cargo clippy -- -D warnings
 ```
 
-## Testing
+## Running the tests
+
 ```bash
 cargo test                                                    # unit tests, no API key (~24 tests)
 CODEX_SDK_E2E=1 cargo test --ignored -- --nocapture           # E2E (needs OPENAI_API_KEY/codex login, ~$0.01-0.05/test)
 CODEX_SDK_E2E=1 cargo test --ignored test_simple_query -- --nocapture   # single E2E
 CODEX_SDK_E2E=1 cargo test --test smoke -- --ignored --nocapture        # smoke: roundtrip + multi-turn + resume (~30s, ~$0.02)
 ```
-E2E tests live in `tests/e2e.rs`, all gated behind `CODEX_SDK_E2E=1` + `#[ignore]`. The smoke resume test uses a custom 8MB-stack tokio runtime — the in-process app-server's deep call chains overflow the default 2MB stack in debug builds.
 
-## Quick start
+E2E tests live in `tests/e2e.rs`, each gated behind `CODEX_SDK_E2E=1` and
+`#[ignore]`. The smoke resume test uses a custom 8MB-stack tokio runtime. The
+in-process app-server's deep call chains overflow the default 2MB stack in a
+debug build.
+
+## Writing a first query
+
 ```rust
 use codex_sdk::{query, CodexOptions, CodexMessage};
 
@@ -49,4 +79,5 @@ while let Some(msg) = handle.messages.recv().await {
     }
 }
 ```
-Examples: `examples/simple_query.rs`, `multi_turn.rs`, `approvals.rs`.
+
+More examples: `examples/simple_query.rs`, `multi_turn.rs`, `approvals.rs`.
