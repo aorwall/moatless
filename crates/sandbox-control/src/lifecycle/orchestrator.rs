@@ -11,7 +11,8 @@
 //!
 //! Multi-step transitions run **detached** from the caller future (spawned and
 //! awaited through a join handle), so a caller disconnect cannot cancel a
-//! half-applied transition.
+//! half-applied transition. The span is detached with it — see
+//! [`Lifecycle::detached_span`].
 //!
 //! Serialization, durable generation allocation, and intent persistence are
 //! expressed as ports so the ordering and decision logic here is exercised
@@ -452,10 +453,28 @@ impl Lifecycle {
 
     // ---- Public operations (detached from the caller future) ----
 
+    /// The span a detached operation runs under: a root of its own, linked
+    /// back to whoever asked for it.
+    ///
+    /// The spawned task outlives the caller's future by design, so it must not
+    /// carry the caller's span. `tracing-opentelemetry` restamps a span's end
+    /// time on every exit and a spawned task enters its own span on every
+    /// poll, so a caller's span adopted here reports that caller as having
+    /// taken as long as the whole operation. Measured on staging before this:
+    /// `ui_rpc.request` spans of 30s, 53min and 11.5h against requests the
+    /// browser saw answered in under two seconds. The link keeps the two
+    /// findable from each other and leaves each one's duration its own.
+    fn detached_span(op: &'static str, task_id: &str) -> tracing::Span {
+        let span =
+            tracing::info_span!(parent: None, "sandbox.lifecycle", op = %op, task_id = %task_id);
+        span.follows_from(tracing::Span::current());
+        span
+    }
+
     pub async fn start(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
-        let span = tracing::Span::current();
+        let span = Self::detached_span("start", task_id);
         Self::join(
             task_id.to_string(),
             tokio::spawn(async move { me.op_start(id).await }.instrument(span)),
@@ -470,7 +489,7 @@ impl Lifecycle {
     ) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
-        let span = tracing::Span::current();
+        let span = Self::detached_span("stop", task_id);
         Self::join(
             task_id.to_string(),
             tokio::spawn(async move { me.op_stop(id, reason).await }.instrument(span)),
@@ -481,7 +500,7 @@ impl Lifecycle {
     pub async fn restart(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
-        let span = tracing::Span::current();
+        let span = Self::detached_span("restart", task_id);
         Self::join(
             task_id.to_string(),
             tokio::spawn(
@@ -494,7 +513,7 @@ impl Lifecycle {
     pub async fn redeploy(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
-        let span = tracing::Span::current();
+        let span = Self::detached_span("redeploy", task_id);
         Self::join(
             task_id.to_string(),
             tokio::spawn(
@@ -511,7 +530,7 @@ impl Lifecycle {
     ) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
-        let span = tracing::Span::current();
+        let span = Self::detached_span("remove", task_id);
         Self::join(
             task_id.to_string(),
             tokio::spawn(async move { me.op_remove(id, retention).await }.instrument(span)),
@@ -531,7 +550,7 @@ impl Lifecycle {
     pub async fn archive_storage(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
-        let span = tracing::Span::current();
+        let span = Self::detached_span("archive_storage", task_id);
         Self::join(
             task_id.to_string(),
             tokio::spawn(async move { me.op_archive_storage(id).await }.instrument(span)),
@@ -1970,6 +1989,97 @@ mod tests {
     }
 
     // ============================ Tests ============================
+
+    // ---- Tracing ----
+
+    /// A detached operation must not run under the span of whoever asked for
+    /// it: see [`Lifecycle::detached_span`]. Asserted on the span tree because
+    /// that is where the fault was — a task that holds the caller's span
+    /// rewrites the caller's end time for as long as it runs.
+    #[tokio::test]
+    async fn a_detached_operation_gets_a_root_span_linked_back_to_the_caller() {
+        use std::sync::Mutex as StdMutex;
+        use tracing_subscriber::layer::{Context, SubscriberExt};
+        use tracing_subscriber::registry::LookupSpan;
+
+        #[derive(Default)]
+        struct Seen {
+            /// Every span opened, as `(name, parent name)`.
+            opened: Vec<(String, Option<String>)>,
+            /// Every `follows_from`, as `(name, followed name)`.
+            links: Vec<(String, String)>,
+        }
+
+        struct Recorder(Arc<StdMutex<Seen>>);
+
+        impl<S> tracing_subscriber::Layer<S> for Recorder
+        where
+            S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+        {
+            fn on_new_span(
+                &self,
+                attrs: &tracing::span::Attributes<'_>,
+                id: &tracing::Id,
+                ctx: Context<'_, S>,
+            ) {
+                let parent = ctx
+                    .span(id)
+                    .and_then(|span| span.parent().map(|p| p.name().to_owned()));
+                self.0
+                    .lock()
+                    .expect("lock")
+                    .opened
+                    .push((attrs.metadata().name().to_owned(), parent));
+            }
+
+            fn on_follows_from(
+                &self,
+                id: &tracing::Id,
+                follows: &tracing::Id,
+                ctx: Context<'_, S>,
+            ) {
+                let name = |id| {
+                    ctx.span(id)
+                        .map(|s| s.name().to_owned())
+                        .unwrap_or_default()
+                };
+                self.0
+                    .lock()
+                    .expect("lock")
+                    .links
+                    .push((name(id), name(follows)));
+            }
+        }
+
+        let seen = Arc::new(StdMutex::new(Seen::default()));
+        let subscriber = tracing_subscriber::registry().with(Recorder(Arc::clone(&seen)));
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        // Refused on eligibility, which is enough: the span is opened before
+        // the operation is spawned, so what it hangs off does not depend on
+        // the outcome.
+        let h = harness(closed_removed());
+        let caller = tracing::info_span!("caller");
+        let _ = async { h.lifecycle.start("t").await }
+            .instrument(caller)
+            .await;
+
+        let seen = seen.lock().expect("lock");
+        let parent = seen
+            .opened
+            .iter()
+            .find(|(name, _)| name == "sandbox.lifecycle")
+            .map(|(_, parent)| parent.clone())
+            .expect("the operation opened a span");
+        assert_eq!(parent, None, "the operation adopted the caller's span");
+        assert!(
+            seen.links
+                .iter()
+                .any(|(from, to)| from == "sandbox.lifecycle" && to == "caller"),
+            "the operation is not findable from the caller: {:?}",
+            seen.links
+        );
+    }
 
     // ---- Eligibility matrix ----
 

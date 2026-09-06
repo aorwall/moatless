@@ -55,6 +55,9 @@ workspace = true
 
 [dev-dependencies]
 http-body-util = { workspace = true }
+# Test-only. The orchestrator test that pins where a detached operation's span
+# hangs needs a registry it can read parents and links back out of.
+tracing-subscriber = { workspace = true }
 # The unit tests name mock DAOs and test-only constructors across the crate
 # boundary off each lower band's `test-support` gate. Required when the crate is
 # built in isolation (`-p moatless-sandbox-control`); a `--workspace` build masks
