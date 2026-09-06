@@ -1,0 +1,173 @@
+{{- if .Values.cliproxy.enabled }}
+{{- $fullname := include "moatless-vibe.fullname" . -}}
+{{- $image := printf "%s:%s" .Values.cliproxy.image.repository .Values.cliproxy.image.tag -}}
+{{- /*
+CLIProxyAPI — pools Claude / Codex / Gemini CLI subscription accounts behind
+OpenAI-, Gemini- and Claude-compatible endpoints, and serves its own management
+UI at /management.html on the same port.
+
+Everything mutable lives on one PVC at /data, reached three ways:
+
+  -config /data/config.yaml   the config file, which the management API rewrites
+  auth-dir: /data/auth        set in the config seed, NOT the ~/.cli-proxy-api
+                              default, which would put the token pool on the
+                              ephemeral layer
+  WRITABLE_PATH=/data         moves static/ and logs/ off the image
+
+/data deliberately does not shadow the image's /CLIProxyAPI WORKDIR — mounting
+over that would hide the binary's own assets.
+
+The management routes 404 until a key exists. MANAGEMENT_PASSWORD both enables
+them and forces remote-management.allow-remote, which is what a request arriving
+through an ingress needs; that is why the config seed leaves secret-key empty
+rather than carrying a second copy of the key.
+
+replicas is fixed at 1 and the strategy is Recreate: the token-refresh pool is a
+single writer on an RWO volume, and RollingUpdate would deadlock on the mount.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-cliproxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cliproxy
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "moatless-vibe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cliproxy
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "moatless-vibe.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cliproxy
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
+      {{- with .Values.cliproxy.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Seeds the config ONCE and never overwrites it — the pod owns the file
+        # after the first management-API save. Runs the same image as the main
+        # container rather than a shell image: the Kyverno initContainers
+        # allowlist is narrower than the containers one and admits no
+        # docker.io/library/*, and this image is Debian-based, so it has a shell.
+        - name: seed-config
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ .Values.cliproxy.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /data/auth /data/static
+              if [ ! -f /data/config.yaml ]; then
+                cp /seed/config.yaml /data/config.yaml
+                echo "seeded /data/config.yaml"
+              else
+                echo "/data/config.yaml exists; leaving it alone"
+              fi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config-seed
+              mountPath: /seed
+              readOnly: true
+      containers:
+        - name: cliproxy
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ .Values.cliproxy.image.pullPolicy }}
+          {{- with .Values.cliproxy.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # The image declares CMD ["./CLIProxyAPI"] and NO ENTRYPOINT, so `args`
+          # on its own replaces the whole command and the container dies with
+          # `exec: "-config": executable file not found in $PATH`. The command
+          # has to be restated. Absolute, so it does not depend on WORKDIR.
+          command:
+            - /CLIProxyAPI/CLIProxyAPI
+          args:
+            - -config
+            - /data/config.yaml
+          env:
+            # Base dir for static/ and logs/. Keeps the management panel the
+            # binary downloads from GitHub on the volume, so it is fetched once
+            # rather than on every pod start.
+            - name: WRITABLE_PATH
+              value: /data
+            # Enables the /v0/management routes (absent a key they 404) and
+            # forces allow-remote, without which every request through the
+            # ingress is rejected 403 as non-loopback.
+            - name: MANAGEMENT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: {{ .Values.cliproxy.managementKeySecretKey }}
+            {{- with .Values.cliproxy.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.cliproxy.service.port }}
+              protocol: TCP
+          {{- with .Values.cliproxy.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config-seed
+              mountPath: /seed
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.cliproxy.persistence.existingClaim | default (printf "%s-cliproxy" $fullname) }}
+        - name: config-seed
+          configMap:
+            name: {{ $fullname }}-cliproxy
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

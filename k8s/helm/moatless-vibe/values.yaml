@@ -162,6 +162,91 @@ t3:
       add:
         - NET_BIND_SERVICE
 
+# CLIProxyAPI — an optional in-cluster LLM hub that pools Claude / Codex /
+# Gemini CLI *subscription* accounts and re-exposes them behind OpenAI-,
+# Gemini- and Claude-compatible endpoints. Agents point ANTHROPIC_BASE_URL /
+# OPENAI_BASE_URL at its Service instead of holding a provider credential each,
+# and the pool round-robins accounts and cools down the rate-limited ones.
+#
+# It serves its own management UI at /management.html on the same port, so there
+# is no second image and no second Deployment. That page is downloaded from
+# GitHub on first request, so the pod needs egress to api.github.com.
+#
+# Off by default. Turning it on adds a Deployment, a Service, a ConfigMap and an
+# RWO PVC, and requires the management key to exist in the chart's Secret under
+# `managementKeySecretKey`.
+#
+# Exposing it outside the cluster is NOT the chart's business: it renders no
+# Ingress and no IngressRoute for this component. A hostname needs an ingress
+# that separates the two surfaces — the management UI and API, which take a
+# browser session, from the inference API, which takes an api-key — and that
+# split belongs with whatever fronts the deployment.
+cliproxy:
+  # -- Deploy CLIProxyAPI.
+  enabled: false
+  image:
+    # -- Docker image repository
+    repository: eceasy/cli-proxy-api
+    # -- Image tag. Pinned, not floating: the auth-file format and the
+    # management API move between releases and the management panel declares a
+    # minimum backend version.
+    tag: "v7.2.152"
+    # -- Image pull policy
+    pullPolicy: IfNotPresent
+  # -- Key in the chart's Secret holding the management key. It arrives as
+  # MANAGEMENT_PASSWORD, which both enables the /v0/management routes (they 404
+  # without a key) and forces remote-management.allow-remote.
+  managementKeySecretKey: CLIPROXY_MANAGEMENT_KEY
+  persistence:
+    # -- StorageClass for the state volume. Empty uses the cluster default.
+    storageClass: ""
+    # -- Size of the state volume. Holds config, OAuth token files and the
+    # management panel — kilobytes of real data; the floor is the provisioner's.
+    size: 5Gi
+    # -- Use an existing claim instead of creating one.
+    existingClaim: ""
+  service:
+    # -- Port the proxy serves on. The upstream image EXPOSEs 8317 and the
+    # config seed below must agree with this.
+    port: 8317
+  # -- Resources for the proxy pod
+  resources: {}
+  # -- Pod-level security context. Empty by default: the upstream image
+  # declares no USER and runs as root. Setting runAsNonRoot needs an fsGroup
+  # too, so the volume is writable by the chosen UID.
+  podSecurityContext: {}
+  # -- Container-level security context. readOnlyRootFilesystem is NOT safe
+  # here — the binary writes its own config file and token store.
+  containerSecurityContext: {}
+  # -- Extra environment for the proxy container, in the k8s env list form.
+  extraEnv: []
+  # -- Seed for config.yaml, copied onto the volume the first time the pod
+  # starts and NOT the running source of truth afterwards: every management-API
+  # mutation rewrites the file in place. See templates/cliproxy-configmap.yaml.
+  #
+  # api-keys stays empty on purpose. Keys are minted in the management UI and
+  # live on the volume, so no credential passes through a values file. An empty
+  # list is also the reason the inference API must not be published before an
+  # operator has created one.
+  config:
+    host: ""
+    port: 8317
+    # Absolute, not the ~/.cli-proxy-api default: HOME is on the image's
+    # ephemeral layer, and the token pool has to survive a restart.
+    auth-dir: "/data/auth"
+    # Logs to stdout, where the cluster log pipeline can see them.
+    logging-to-file: false
+    api-keys: []
+    remote-management:
+      # Every request arriving through an ingress is non-loopback.
+      allow-remote: true
+      # Left empty deliberately — MANAGEMENT_PASSWORD carries the key. A
+      # plaintext value here is bcrypt-hashed and written back into the config
+      # file on every boot, which is a second copy to keep in step.
+      secret-key: ""
+    routing:
+      strategy: round-robin
+
 service:
   # -- Service type
   type: ClusterIP

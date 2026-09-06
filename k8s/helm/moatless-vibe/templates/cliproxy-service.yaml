@@ -1,0 +1,31 @@
+{{- if .Values.cliproxy.enabled }}
+{{- /*
+The in-cluster address for everything that is not a browser: sandbox agents
+pointing ANTHROPIC_BASE_URL / OPENAI_BASE_URL here, and a `kubectl port-forward`
+for a T3 usage hub. One port serves the inference API, the management API and
+the management UI alike.
+
+Sandboxes reach it only if the deployment also grants it — the sandbox egress
+NetworkPolicy allows 0.0.0.0/0:443 with the private ranges excluded, so a
+ClusterIP on 8317 is denied by default. Add a matching entry to
+networkPolicy.sandbox.extraInClusterEgress.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-cliproxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cliproxy
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.cliproxy.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "moatless-vibe.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: cliproxy
+{{- end }}

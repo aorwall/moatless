@@ -1,0 +1,40 @@
+{{- if and .Values.cliproxy.enabled (not .Values.cliproxy.persistence.existingClaim) }}
+{{- /*
+The whole of CLIProxyAPI's mutable state on one volume, mounted at /data:
+
+  /data/config.yaml  the running config (see cliproxy-configmap.yaml)
+  /data/auth         one OAuth token JSON per pooled account
+  /data/static       the management panel the binary downloads on first request
+
+Losing this volume means re-running the OAuth login for every pooled account,
+and gp3 is reclaimPolicy: Delete — so the claim carries both a Helm and an
+ArgoCD retention marker. `helm.sh/resource-policy: keep` protects the object
+from a chart uninstall; the ArgoCD sync-options protect it from a prune when
+cliproxy.enabled is flipped off, which the moatless-vibe Application (prune +
+selfHeal) would otherwise do immediately.
+
+ReadWriteOnce, single writer: the token-refresh pool writes /data/auth
+continuously and there is no leader election, hence replicas 1 and the Recreate
+strategy in the Deployment.
+*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-cliproxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cliproxy
+  annotations:
+    "helm.sh/resource-policy": keep
+    argocd.argoproj.io/sync-options: Delete=false,Prune=false
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.cliproxy.persistence.storageClass }}
+  storageClassName: {{ .Values.cliproxy.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.cliproxy.persistence.size }}
+{{- end }}

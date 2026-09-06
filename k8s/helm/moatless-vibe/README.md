@@ -278,6 +278,101 @@ a preview serves agent-authored code. Trusting it for writes would let a
 preview page spend a visitor's session under any `auth.cookieDomain` covering
 both. Add a REST origin to `auth.csrfTrustedOrigins`, exactly and by name.
 
+### CLIProxyAPI hub
+
+An optional in-cluster LLM hub. It pools Claude / Codex / Gemini CLI
+*subscription* accounts and re-exposes them behind OpenAI-, Gemini- and
+Claude-compatible endpoints, so agents point a base URL at one Service instead
+of each holding a provider credential, and the pool round-robins accounts and
+cools down the rate-limited ones.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `cliproxy.enabled` | Deploy the hub | `false` |
+| `cliproxy.image.repository` | Image repository | `eceasy/cli-proxy-api` |
+| `cliproxy.image.tag` | Image tag | `v7.2.152` |
+| `cliproxy.managementKeySecretKey` | Key in the chart's Secret holding the management key | `CLIPROXY_MANAGEMENT_KEY` |
+| `cliproxy.persistence.storageClass` | StorageClass for the state volume | `""` (cluster default) |
+| `cliproxy.persistence.size` | Size of the state volume | `5Gi` |
+| `cliproxy.service.port` | Port the proxy serves on | `8317` |
+| `cliproxy.config` | Seed for `config.yaml` — see below | see `values.yaml` |
+
+One image, one port. The management UI is not a second service: the binary
+serves it at `/management.html`, downloading the single-file page from GitHub on
+first request, so the pod needs egress to `api.github.com`.
+
+#### The config file is owned by the pod, not by this chart
+
+`cliproxy.config` renders a ConfigMap that an init container copies onto the PVC
+**only when `/data/config.yaml` does not exist**. From then on the file belongs
+to the pod, because the management API rewrites it on every change — a new
+account, a new API key, a routing tweak. Editing `cliproxy.config` therefore
+does nothing to a running deployment, and ArgoCD reads the ConfigMap as in-sync
+while the live config differs. To re-seed, delete the file on the volume and
+restart, accepting that this discards whatever the UI has written.
+
+`config.api-keys` is empty by design. Keys are minted in the UI and live on the
+volume, so no credential passes through a values file. It also means an
+un-keyed deployment must not be published to the internet before an operator has
+created one.
+
+#### Adding pooled accounts
+
+The management API drives the whole OAuth flow over port 8317, so no extra ports
+need exposing:
+
+1. Reach the UI — through whatever fronts the deployment, or
+   `kubectl port-forward svc/<release>-cliproxy 8317:8317` and
+   `http://localhost:8317/management.html`.
+2. Sign in with the management key (`MANAGEMENT_PASSWORD`).
+3. Start the provider's OAuth flow, complete it in the browser, and **paste the
+   callback URL back into the UI**. The provider redirects to a hard-coded
+   `localhost` port, which will not resolve to the pod — pasting the URL is the
+   path that needs nothing else.
+
+The CLI alternative (`kubectl exec … -- ./CLIProxyAPI -claude-login -no-browser`)
+needs `kubectl port-forward` on the provider's fixed loopback port as well —
+54545 for Claude, 1455 for Codex, 51121 for Antigravity — for the browser
+redirect to land. Prefer the paste flow.
+
+Once accounts exist, verify the pool:
+
+```bash
+curl -s -H "Authorization: Bearer $MANAGEMENT_KEY" \
+  http://localhost:8317/v0/management/quota-scheduler/status | jq .
+```
+
+That endpoint is also what a T3 environment reads for **Usage → Limits**
+(Settings → Providers → Usage providers → Add hub). Point it at the
+port-forwarded URL.
+
+#### Routing agent traffic through the hub
+
+Set these on a Workspace's `env_vars`, which reach the sandbox pod verbatim:
+
+```
+ANTHROPIC_BASE_URL=http://<release>-cliproxy.<namespace>.svc.cluster.local:8317
+ANTHROPIC_AUTH_TOKEN=<an api-key minted in the UI>
+```
+
+Sandbox egress is allow-listed, and the default rule covers `0.0.0.0/0:443` with
+the private ranges excluded — so a ClusterIP on 8317 is **denied** until the
+deployment also grants it. Add a matching entry to
+`networkPolicy.sandbox.extraInClusterEgress`, or the agent hangs instead of
+failing.
+
+#### Exposing it
+
+The chart renders no Ingress and no IngressRoute for this component. A public
+hostname has to separate two surfaces that authenticate differently: the
+management UI and API, which take a browser session, and the inference API,
+which takes an api-key. It also has to leave the app's own `401`/`403` responses
+intact — an errors middleware that rewrites `401` into a sign-in redirect turns
+a wrong management key into a silent "you got signed out" while the server's
+five-strike, thirty-minute IP ban accumulates. That split belongs with whatever
+fronts the deployment.
+
+
 ### Kubernetes execution
 
 | Parameter | Description | Default |
