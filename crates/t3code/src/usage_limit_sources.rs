@@ -9,6 +9,9 @@
 //! The hub reports quota as the upstream rate-limit headers it last saw on a
 //! response for that account, so a window appears only after the account has
 //! served a request through the hub.
+//!
+//! Codex states a used percent per window and Anthropic states a used fraction,
+//! so both providers draw a real bar.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -384,10 +387,9 @@ fn codex_reset(signals: &BTreeMap<String, String>, name: &str) -> Option<DateTim
         .map(|seconds| Utc::now() + chrono::Duration::seconds(seconds))
 }
 
-/// Anthropic reports a status word per window and no percent, so a window
-/// becomes a row only when the status is `rejected` — the one state that
-/// states a number. `allowed` and `allowed_warning` carry no figure a bar
-/// could draw, and a guessed one would read as measured.
+/// Anthropic reports a used fraction per window as `-Utilization`, in 0..1, and
+/// a status word beside it. `rejected` pins the window to 100 rather than
+/// trusting a fraction the upstream has already stopped honouring.
 fn claude_windows(signals: &BTreeMap<String, String>) -> Vec<Value> {
     [
         ("five_hour", "5h", "Session", "session", SESSION_WINDOW_MINS),
@@ -402,20 +404,31 @@ fn claude_windows(signals: &BTreeMap<String, String>) -> Vec<Value> {
     ]
     .into_iter()
     .filter_map(|(id, header, label, kind, mins)| {
-        let status = signal(
+        let rejected = signal(
             signals,
             &format!("Anthropic-Ratelimit-Unified-{header}-Status"),
-        )?;
-        if !status.eq_ignore_ascii_case("rejected") {
-            return None;
-        }
+        )
+        .is_some_and(|status| status.eq_ignore_ascii_case("rejected"));
+        let used = if rejected {
+            100.0
+        } else {
+            signal(
+                signals,
+                &format!("Anthropic-Ratelimit-Unified-{header}-Utilization"),
+            )?
+            .parse::<f64>()
+            .ok()
+            // Rounded to two decimals: `0.0184 * 100.0` is 1.8399999999999999
+            // in binary floating point, and that reaches the client verbatim.
+            .map(|fraction| ((fraction * 10_000.0).round() / 100.0).clamp(0.0, 100.0))?
+        };
         let resets_at = signal(
             signals,
             &format!("Anthropic-Ratelimit-Unified-{header}-Reset"),
         )
         .and_then(|value| value.parse::<i64>().ok())
         .and_then(|seconds| Utc.timestamp_opt(seconds, 0).single());
-        Some(window(id, kind, label, 100.0, mins, resets_at))
+        Some(window(id, kind, label, used, mins, resets_at))
     })
     .collect()
 }
@@ -537,23 +550,57 @@ mod tests {
     }
 
     #[test]
-    fn a_rejected_claude_window_is_the_only_one_that_reports_a_percent() {
+    fn a_claude_window_reports_the_utilization_fraction_as_a_percent() {
         let windows = claude_windows(&signals(&[
             ("Anthropic-Ratelimit-Unified-5h-Status", "allowed"),
-            ("Anthropic-Ratelimit-Unified-7d-Status", "rejected"),
+            ("Anthropic-Ratelimit-Unified-5h-Utilization", "0.0184"),
+            ("Anthropic-Ratelimit-Unified-7d-Status", "allowed_warning"),
+            ("Anthropic-Ratelimit-Unified-7d-Utilization", "0.82"),
             ("Anthropic-Ratelimit-Unified-7d-Reset", "1764010800"),
         ]));
 
         assert_eq!(
             windows,
-            vec![json!({
-                "id": "seven_day",
-                "kind": "weekly",
-                "label": "Weekly",
-                "usedPercent": 100.0,
-                "windowDurationMins": 10080,
-                "resetsAt": "2025-11-24T19:00:00.000Z",
-            })]
+            vec![
+                json!({
+                    "id": "five_hour",
+                    "kind": "session",
+                    "label": "Session",
+                    "usedPercent": 1.84,
+                    "windowDurationMins": 300,
+                }),
+                json!({
+                    "id": "seven_day",
+                    "kind": "weekly",
+                    "label": "Weekly",
+                    "usedPercent": 82.0,
+                    "windowDurationMins": 10080,
+                    "resetsAt": "2025-11-24T19:00:00.000Z",
+                }),
+            ]
+        );
+    }
+
+    /// A rejected window is exhausted whatever fraction came with it, so the
+    /// status wins over `-Utilization` rather than averaging with it.
+    #[test]
+    fn a_rejected_claude_window_is_full_even_when_its_fraction_is_lower() {
+        let windows = claude_windows(&signals(&[
+            ("Anthropic-Ratelimit-Unified-5h-Status", "rejected"),
+            ("Anthropic-Ratelimit-Unified-5h-Utilization", "0.91"),
+        ]));
+
+        assert_eq!(windows[0]["usedPercent"], 100.0);
+    }
+
+    #[test]
+    fn a_claude_window_with_a_status_but_no_fraction_reports_nothing() {
+        assert!(
+            claude_windows(&signals(&[(
+                "Anthropic-Ratelimit-Unified-5h-Status",
+                "allowed"
+            )]))
+            .is_empty()
         );
     }
 
