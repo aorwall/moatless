@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::{MAX_ACTIVE_STREAMS, RequestId, failure_exit, success_exit};
+use crate::{MAX_ACTIVE_STREAMS, MAX_DETACHED_REQUESTS, RequestId, failure_exit, success_exit};
 
 /// Sends values from one live subscription.
 #[derive(Clone, Debug)]
@@ -188,6 +188,96 @@ impl StreamSet {
                 .as_ref()
                 .is_none_or(|producer| !producer.is_finished())
         });
+    }
+}
+
+/// One request running off the frame loop, aborted when it leaves the set: an
+/// interrupted request stops, and so does one whose connection is gone.
+#[derive(Debug)]
+struct DetachedRequest(JoinHandle<()>);
+
+impl Drop for DetachedRequest {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Owns the requests one connection is answering off its frame loop.
+///
+/// A detached request sends its frames on the same channel a subscription's
+/// producer sends on, so `serve_websocket` writes them without knowing which of
+/// the two produced them. Nothing here is ordered against anything else: a
+/// request that needs the client's ordering is answered on the loop instead.
+#[derive(Debug)]
+pub(crate) struct DetachedSet {
+    running: HashMap<String, DetachedRequest>,
+    frames: mpsc::Sender<Value>,
+}
+
+impl DetachedSet {
+    pub(crate) fn new(frames: mpsc::Sender<Value>) -> Self {
+        Self {
+            running: HashMap::new(),
+            frames,
+        }
+    }
+
+    /// Answer `request` off the frame loop, so this connection reads its next
+    /// frame while it runs.
+    ///
+    /// Hands the request back unspawned once the connection is at
+    /// [`MAX_DETACHED_REQUESTS`], for the caller to await inline — the
+    /// behaviour every request had before any of them detached.
+    pub(crate) fn spawn<F>(&mut self, id: &RequestId, request: F) -> Option<F>
+    where
+        F: Future<Output = Vec<Value>> + Send + 'static,
+    {
+        self.reap_finished_requests();
+        if self.running.len() >= MAX_DETACHED_REQUESTS {
+            warn!(
+                detached_requests = self.running.len(),
+                "T3 UI request answered on the frame loop; this connection is at its detached cap"
+            );
+            return Some(request);
+        }
+
+        let frames = self.frames.clone();
+        self.running.insert(
+            id.as_str().to_string(),
+            DetachedRequest(tokio::spawn(async move {
+                for frame in request.await {
+                    if frames.send(frame).await.is_err() {
+                        return;
+                    }
+                }
+            })),
+        );
+        None
+    }
+
+    pub(crate) fn contains_active(&mut self, id: &RequestId) -> bool {
+        self.reap_finished_requests();
+        self.running.contains_key(id.as_str())
+    }
+
+    pub(crate) fn interrupt(&mut self, id: &RequestId) {
+        self.running.remove(id.as_str());
+    }
+
+    /// Wait for every detached request to have sent its frames.
+    #[cfg(test)]
+    pub(crate) async fn wait_until_idle(&self) {
+        for _ in 0..1000 {
+            if self.running.values().all(|request| request.0.is_finished()) {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("a detached request did not finish within 1000 yields");
+    }
+
+    fn reap_finished_requests(&mut self) {
+        self.running.retain(|_, request| !request.0.is_finished());
     }
 }
 

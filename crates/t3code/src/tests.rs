@@ -25,6 +25,7 @@ use crate::rpc::metrics::record_request;
 use crate::rpc::metrics::remote_span_context;
 use crate::rpc::metrics::request_root_span;
 use crate::rpc::session::MAX_ACTIVE_STREAMS;
+use crate::rpc::session::ProtocolOutput;
 use crate::rpc::session::ProtocolSession;
 use crate::rpc::socket::MAX_FRAME_BYTES;
 use crate::rpc::socket::OUTBOUND_FRAMES;
@@ -61,6 +62,7 @@ use serde_json::json;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Notify;
 use tokio::sync::mpsc;
 
 use crate::dao::MockConversationDao;
@@ -730,8 +732,49 @@ fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore>) -> UiRpc
 /// A session whose pushed frames go nowhere. These tests drive the request
 /// side; what a subscription's poller produces is asserted against a real
 /// database in `backend/tests/integration_surface/ui_rpc_shell_test.rs`.
+///
+/// A detached request answers on that channel rather than to its caller, so a
+/// test naming one of the tags `rpc::dispatch::detach` matches uses
+/// [`connection`] instead.
 fn session() -> ProtocolSession {
     ProtocolSession::new(mpsc::channel(OUTBOUND_FRAMES).0)
+}
+
+/// A session holding the frame channel `serve_websocket` writes to the socket.
+struct Connection {
+    session: ProtocolSession,
+    pushed: mpsc::Receiver<Value>,
+}
+
+fn connection() -> Connection {
+    let (frames, pushed) = mpsc::channel(OUTBOUND_FRAMES);
+    Connection {
+        session: ProtocolSession::new(frames),
+        pushed,
+    }
+}
+
+impl Connection {
+    /// Answer one client frame and collect everything it put on the wire: what
+    /// the frame loop returned, then what a detached request pushed, in the
+    /// order `serve_websocket` would have written them.
+    async fn exchange(
+        &mut self,
+        bytes: &[u8],
+        state: &UiRpcState,
+        identity: &UiRpcAuthIdentity,
+    ) -> ProtocolOutput {
+        let mut output = self.session.handle_json(bytes, state, identity).await;
+        self.session.detached.wait_until_idle().await;
+        while let Some(frame) = self.next_pushed() {
+            output.frames.push(frame);
+        }
+        output
+    }
+
+    fn next_pushed(&mut self) -> Option<Value> {
+        self.pushed.try_recv().ok()
+    }
 }
 
 fn viewer() -> UiRpcAuthIdentity {
@@ -770,8 +813,8 @@ async fn a_request_id_returns_in_the_json_type_it_arrived_as() {
             "headers": []
         }))
         .unwrap();
-        let mut session = session();
-        let output = session.handle_json(&frame, &state(), &viewer()).await;
+        let mut connection = connection();
+        let output = connection.exchange(&frame, &state(), &viewer()).await;
         assert_eq!(output.frames[0]["_tag"], "Exit");
         assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
         assert_eq!(
@@ -838,8 +881,8 @@ async fn a_sandbox_list_diagnostics_request_returns_the_mapped_fleet() {
     let mut state = state();
     state.sandbox.diagnostics = Arc::new(FakeFleet);
     let frame = request("1", "sandbox.listDiagnostics", json!({}));
-    let mut session = session();
-    let output = session.handle_json(&frame, &state, &viewer()).await;
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state, &viewer()).await;
 
     assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
     let sandboxes = &output.frames[0]["exit"]["value"]["sandboxes"];
@@ -848,6 +891,64 @@ async fn a_sandbox_list_diagnostics_request_returns_the_mapped_fleet() {
     assert_eq!(sandboxes[0]["containers"][0]["name"], "sandbox");
     assert_eq!(sandboxes[0]["containers"][0]["cpuMillicores"], 100);
     assert_eq!(sandboxes[0]["totalMemoryMb"], 256);
+}
+
+/// A fleet read that answers only once the test releases it, for the ordering
+/// test below.
+struct BlockedFleet(Arc<Notify>);
+
+#[async_trait]
+impl ClusterDiagnostics for BlockedFleet {
+    async fn list_sandbox_diagnostics(&self) -> Result<Vec<SandboxDiagnosticsEntry>, SandboxError> {
+        self.0.notified().await;
+        Ok(Vec::new())
+    }
+}
+
+/// The whole point of detaching: a slow read holds only itself. Before it, one
+/// connection answered one request at a time, so everything a client had sent
+/// sat unread on the socket behind the slowest handler in the batch.
+// Paused time, so the deadline below costs nothing to reach: an inline read
+// would sit on `BlockedFleet` forever, and a hung test says less than a failed
+// one.
+#[tokio::test(start_paused = true)]
+async fn a_slow_read_does_not_hold_the_next_request_behind_it() {
+    let released = Arc::new(Notify::new());
+    let mut state = state();
+    state.sandbox.diagnostics = Arc::new(BlockedFleet(released.clone()));
+    let mut connection = connection();
+
+    let slow = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        connection.session.handle_json(
+            &request("1", "sandbox.listDiagnostics", json!({})),
+            &state,
+            &viewer(),
+        ),
+    )
+    .await
+    .expect("the frame loop is not waiting on the read");
+    assert!(
+        slow.frames.is_empty(),
+        "the read has not answered, and the loop did not wait for it"
+    );
+
+    let fast = connection
+        .session
+        .handle_json(&request("2", "server.probe", json!({})), &state, &viewer())
+        .await;
+    assert_eq!(
+        fast.frames[0]["requestId"], "2",
+        "answered while the read is still running"
+    );
+
+    released.notify_one();
+    connection.session.detached.wait_until_idle().await;
+    let answered = connection
+        .next_pushed()
+        .expect("the read answers in the end");
+    assert_eq!(answered["requestId"], "1");
+    assert_eq!(answered["exit"]["_tag"], "Success");
 }
 
 /// An observer that reports one fixed status, for the subscribe test below.
@@ -958,8 +1059,8 @@ async fn subscribing_to_a_sandbox_status_without_a_thread_is_refused() {
 #[tokio::test]
 async fn the_descriptor_advertises_the_sandbox_status_push() {
     let frame = request("1", "server.getConfig", json!({}));
-    let mut session = session();
-    let output = session.handle_json(&frame, &state(), &viewer()).await;
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state(), &viewer()).await;
 
     assert_eq!(
         output.frames[0]["exit"]["value"]["environment"]["capabilities"]["sandboxStatusPush"],
@@ -974,8 +1075,8 @@ async fn the_descriptor_advertises_the_sandbox_status_push() {
 #[tokio::test]
 async fn the_descriptor_advertises_the_sandbox_agent_status() {
     let frame = request("1", "server.getConfig", json!({}));
-    let mut session = session();
-    let output = session.handle_json(&frame, &state(), &viewer()).await;
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state(), &viewer()).await;
 
     assert_eq!(
         output.frames[0]["exit"]["value"]["environment"]["capabilities"]["sandboxAgentStatus"],
@@ -989,8 +1090,8 @@ async fn the_descriptor_advertises_the_sandbox_agent_status() {
 #[tokio::test]
 async fn the_descriptor_advertises_the_sandbox_commands() {
     let frame = request("1", "server.getConfig", json!({}));
-    let mut session = session();
-    let output = session.handle_json(&frame, &state(), &viewer()).await;
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state(), &viewer()).await;
 
     assert_eq!(
         output.frames[0]["exit"]["value"]["environment"]["capabilities"]["sandboxCommands"],
@@ -1005,8 +1106,8 @@ async fn the_descriptor_advertises_the_sandbox_commands() {
 #[tokio::test]
 async fn the_descriptor_advertises_both_attachment_capabilities_together() {
     let frame = request("1", "server.getConfig", json!({}));
-    let mut session = session();
-    let output = session.handle_json(&frame, &state(), &viewer()).await;
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state(), &viewer()).await;
     let capabilities = &output.frames[0]["exit"]["value"]["environment"]["capabilities"];
 
     assert_eq!(capabilities["attachmentUploads"], json!(true));
@@ -1210,9 +1311,9 @@ async fn ping_returns_effect_rpc_pong() {
 
 #[tokio::test]
 async fn get_config_returns_minimal_decodable_wire_shape() {
-    let mut session = session();
-    let output = session
-        .handle_json(
+    let mut connection = connection();
+    let output = connection
+        .exchange(
             &request("1", "server.getConfig", json!({})),
             &state(),
             &viewer(),
@@ -1253,9 +1354,9 @@ async fn get_config_returns_minimal_decodable_wire_shape() {
 /// have no Sandbox running to ask.
 #[tokio::test]
 async fn list_refs_answers_a_conversation_with_no_sandbox_rather_than_failing() {
-    let mut session = session();
-    let output = session
-        .handle_json(
+    let mut connection = connection();
+    let output = connection
+        .exchange(
             &request(
                 "98",
                 "vcs.listRefs",
@@ -1337,9 +1438,9 @@ async fn switching_an_existing_threads_branch_is_unsupported() {
 /// declares, which is what the panel renders instead of a defect.
 #[tokio::test]
 async fn a_refused_diff_preview_fails_with_the_method_s_own_error() {
-    let mut session = session();
-    let output = session
-        .handle_json(
+    let mut connection = connection();
+    let output = connection
+        .exchange(
             &request(
                 "99",
                 "review.getDiffPreview",
@@ -1382,9 +1483,9 @@ async fn a_vcs_status_subscription_without_an_addressable_cwd_simply_stays_quiet
 /// error rather than the defect an unimplemented method produces.
 #[tokio::test]
 async fn a_status_refresh_answers_rather_than_dying() {
-    let mut session = session();
-    let output = session
-        .handle_json(
+    let mut connection = connection();
+    let output = connection
+        .exchange(
             &request(
                 "101",
                 "vcs.refreshStatus",
@@ -1407,9 +1508,9 @@ async fn a_status_refresh_answers_rather_than_dying() {
 /// the frame that decides whether anybody can type at all.
 #[tokio::test]
 async fn get_config_publishes_one_provider_per_agent_kind() {
-    let mut session = session();
-    let output = session
-        .handle_json(
+    let mut connection = connection();
+    let output = connection
+        .exchange(
             &request("1", "server.getConfig", json!({})),
             &state(),
             &viewer(),
@@ -1440,17 +1541,17 @@ async fn get_config_publishes_one_provider_per_agent_kind() {
 /// disagree would move a thread's provider under it.
 #[tokio::test]
 async fn refreshing_providers_returns_what_the_config_already_published() {
-    let mut session = session();
+    let mut connection = connection();
     let state = state();
-    let config = session
-        .handle_json(
+    let config = connection
+        .exchange(
             &request("1", "server.getConfig", json!({})),
             &state,
             &viewer(),
         )
         .await;
-    let refreshed = session
-        .handle_json(
+    let refreshed = connection
+        .exchange(
             &request("2", "server.refreshProviders", json!({})),
             &state,
             &viewer(),
@@ -1479,9 +1580,9 @@ async fn refreshing_providers_returns_what_the_config_already_published() {
 /// and reads the skills for its `/` menu off the snapshot that comes back.
 #[tokio::test]
 async fn refreshing_providers_for_a_cwd_publishes_that_workspace_s_skills() {
-    let mut session = session();
-    let refreshed = session
-        .handle_json(
+    let mut connection = connection();
+    let refreshed = connection
+        .exchange(
             &request(
                 "1",
                 "server.refreshProviders",
@@ -1563,17 +1664,17 @@ async fn a_client_that_did_not_opt_in_is_sent_no_hub_event() {
 /// snapshot that never reached the stream would leave the menu empty.
 #[tokio::test]
 async fn a_resolved_cwd_reaches_an_open_config_stream() {
-    let mut session = session();
+    let mut connection = connection();
     let state = state();
-    session
-        .handle_json(
+    connection
+        .exchange(
             &request("1", "subscribeServerConfig", json!({})),
             &state,
             &viewer(),
         )
         .await;
-    let refreshed = session
-        .handle_json(
+    let refreshed = connection
+        .exchange(
             &request(
                 "2",
                 "server.refreshProviders",
@@ -1941,9 +2042,9 @@ async fn a_terminal_metadata_subscription_starts_with_a_snapshot() {
 /// take a rendered transcript off the screen over a missing title.
 #[tokio::test]
 async fn a_listing_row_for_a_conversation_this_viewer_cannot_reach_is_null_not_an_error() {
-    let mut session = session();
-    let output = session
-        .handle_json(
+    let mut connection = connection();
+    let output = connection
+        .exchange(
             &request("1", "threads.getShell", json!({ "threadId": "task-1" })),
             &state(),
             &viewer(),
@@ -1959,9 +2060,9 @@ async fn a_listing_row_for_a_conversation_this_viewer_cannot_reach_is_null_not_a
 /// not answer alike, or a client bug reads as an empty deployment.
 #[tokio::test]
 async fn a_listing_row_asked_for_without_a_thread_id_is_a_failure() {
-    let mut session = session();
-    let output = session
-        .handle_json(
+    let mut connection = connection();
+    let output = connection
+        .exchange(
             &request("1", "threads.getShell", json!({})),
             &state(),
             &viewer(),
@@ -1975,11 +2076,11 @@ async fn a_listing_row_asked_for_without_a_thread_id_is_a_failure() {
 /// scan of every Message body to say so.
 #[tokio::test]
 async fn a_thread_search_too_short_to_mean_anything_never_reaches_the_database() {
-    let mut session = session();
+    let mut connection = connection();
     // `state()` sets no `search_conversations` expectation, so the mock
     // panics if this reaches it — which is the assertion.
-    let output = session
-        .handle_json(
+    let output = connection
+        .exchange(
             &request("1", "orchestration.searchThreads", json!({ "query": "a" })),
             &state(),
             &viewer(),
@@ -2121,9 +2222,9 @@ async fn a_refused_file_request_fails_with_the_method_s_own_error() {
             "ProjectReadFileError",
         ),
     ] {
-        let mut session = session();
-        let output = session
-            .handle_json(&request("7", tag, payload), &state(), &viewer())
+        let mut connection = connection();
+        let output = connection
+            .exchange(&request("7", tag, payload), &state(), &viewer())
             .await;
         let exit = &output.frames[0]["exit"];
         assert_eq!(exit["_tag"], "Failure", "{tag}");
@@ -2147,9 +2248,9 @@ async fn a_cwd_outside_the_viewer_s_listing_is_indistinguishable_from_an_unknown
         "/somewhere/else",
         "/moatless/tasks/",
     ] {
-        let mut session = session();
-        let output = session
-            .handle_json(
+        let mut connection = connection();
+        let output = connection
+            .exchange(
                 &request("8", "projects.listEntries", json!({ "cwd": cwd })),
                 &state(),
                 &viewer(),

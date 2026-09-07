@@ -1,7 +1,7 @@
 //! UI-RPC request spans, bounded metric labels and outcome classification.
 //!
-//! Emitted at the one seam every request crosses — the `ClientFrame::Request`
-//! arm of `ProtocolSession::handle_json` — by reading the frames the handler
+//! Emitted at the one seam every request crosses — [`answered`], which wraps
+//! the handler on the frame loop and off it — by reading the frames the handler
 //! produced. [`CONNECTION_BLOCKED`] is the exception and is emitted from
 //! `serve_websocket`, because what it measures is the connection rather than
 //! the request. Nothing else in this crate increments them.
@@ -12,7 +12,9 @@
 
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde_json::Value;
+use std::future::Future;
 use std::time::Duration;
+use tracing::Instrument;
 use tracing::warn;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -29,15 +31,15 @@ pub(crate) const CONNECTION_DEFECTS: &str = "moatless_ui_rpc_connection_defects_
 /// Seconds one connection spent answering a frame and so unable to read its
 /// socket.
 ///
-/// [`REQUEST_DURATION`] starts at dispatch, so a request that waited behind
-/// another on the same connection is measured from the moment its turn came and
-/// its wait is attributed to nothing. This is the other side of that wait: the
-/// time the frame loop was occupied, which is what a queued request was waiting
-/// for. The wait itself is not observable here — a frame is already read by the
-/// time `incoming.next()` yields it. Unlabeled deliberately: which method is
-/// slow is [`REQUEST_DURATION`]'s question, and this one is how long a single
-/// frame holds a loop. Saturation is a further step: it needs a count of open
-/// connections to divide by, which this crate does not export.
+/// Measures the frame loop, which every frame crosses: what a detached request
+/// contributes is the dispatch that spawned it, because the loop reads its next
+/// frame while the handler runs. What a queued frame waited for is not
+/// observable here — a frame is
+/// already read by the time `incoming.next()` yields it. Unlabeled
+/// deliberately: which method is slow is [`REQUEST_DURATION`]'s question, and
+/// this one is how long a single frame holds a loop. Saturation is a further
+/// step: it needs a count of open connections to divide by, which this crate
+/// does not export.
 pub(crate) const CONNECTION_BLOCKED: &str = "moatless_ui_rpc_connection_blocked_seconds";
 
 /// Register the descriptions during compatibility router assembly.
@@ -83,7 +85,8 @@ pub(crate) enum Outcome {
     Fail,
     /// `Die`.
     Die,
-    /// `Interrupt` — the client withdrew the request.
+    /// The request stopped without answering: the client sent `Interrupt`, or
+    /// the connection carrying it went away. See [`answered`].
     Interrupted,
 }
 
@@ -191,7 +194,8 @@ pub(crate) fn request_root_span(
     // `otel.*` are `tracing-opentelemetry`'s own field names, and a field it can
     // record has to be declared here: a span records only what it was built
     // with. `outcome`, `duration_ms` and the status are filled in once the
-    // handler answers, in [`record_request`].
+    // handler answers, in [`record_request`]; `queued_ms` by the caller, which
+    // is the only thing that knows when the frame arrived.
     let span = tracing::info_span!(
         "ui_rpc.request",
         tag = %tag,
@@ -201,6 +205,7 @@ pub(crate) fn request_root_span(
         error.type = tracing::field::Empty,
         client_trace_id = tracing::field::Empty,
         duration_ms = tracing::field::Empty,
+        queued_ms = tracing::field::Empty,
     );
     match remote_span_context(trace_id, span_id, sampled) {
         Some(cx) => {
@@ -215,14 +220,67 @@ pub(crate) fn request_root_span(
     span
 }
 
+/// Run one request inside its span, time it, and record what it answered with.
+///
+/// The one seam this surface is measured at, and the reason a detached request
+/// is spawned already wrapped in it: `duration_ms` then measures the handler
+/// wherever it ran, rather than the moment the frame loop got to it.
+///
+/// A request that never answers is recorded too, as [`Outcome::Interrupted`]:
+/// `DetachedRequest` aborts its task on an `Interrupt` and on a dropped
+/// connection, and an aborted task's future is dropped where it was suspended.
+pub(crate) async fn answered(
+    span: &tracing::Span,
+    tag: &str,
+    identity: &UiRpcAuthIdentity,
+    request: impl Future<Output = Vec<Value>>,
+) -> Vec<Value> {
+    let mut abandoned = Abandoned {
+        span,
+        tag,
+        identity,
+        started: std::time::Instant::now(),
+        answered: false,
+    };
+    let frames = request.instrument(span.clone()).await;
+    abandoned.answered = true;
+    record_request(span, tag, &frames, abandoned.started.elapsed(), identity);
+    frames
+}
+
+/// Records the request [`answered`] is running, for as long as it has not
+/// answered. Dropping it before then is the only account anything gets of a
+/// request that stopped without frames.
+struct Abandoned<'a> {
+    span: &'a tracing::Span,
+    tag: &'a str,
+    identity: &'a UiRpcAuthIdentity,
+    started: std::time::Instant,
+    answered: bool,
+}
+
+impl Drop for Abandoned<'_> {
+    fn drop(&mut self) {
+        if !self.answered {
+            record(
+                self.span,
+                self.tag,
+                Outcome::Interrupted,
+                &[],
+                self.started.elapsed(),
+                self.identity,
+            );
+        }
+    }
+}
+
 /// Count one answered request, mark its span with what the client was told, and
 /// log the failures nothing else logs.
 ///
-/// The one place this surface is measured. The fifty dispatch arms of
-/// [`ProtocolSession::handle_request`] each build their own frames and return
-/// them, so the frames are the only thing that states an outcome — and a `Die`
-/// built by [`failure_exit`] or [`unsupported_exit`] passes no other log or
-/// counter on its way out.
+/// Called by [`answered`] alone. Each dispatch arm builds its own frames and
+/// returns them, so the frames are the only thing that states an outcome — and
+/// a `Die` built by [`failure_exit`] or [`unsupported_exit`] passes no other log
+/// or counter on its way out.
 ///
 /// The per-domain failure builders (`file_failure_exit` and its siblings) log
 /// the sqlx or gRPC cause behind their failure, which this cannot see. A `Die`
@@ -235,7 +293,20 @@ pub(crate) fn record_request(
     elapsed: Duration,
     identity: &UiRpcAuthIdentity,
 ) {
-    let outcome = classify(frames);
+    record(span, tag, classify(frames), frames, elapsed, identity);
+}
+
+/// [`record_request`] for an outcome the frames cannot state, because there are
+/// none. `frames` is read only for what a failure carries, and every outcome
+/// reachable with an empty slice is one that carries nothing.
+fn record(
+    span: &tracing::Span,
+    tag: &str,
+    outcome: Outcome,
+    frames: &[Value],
+    elapsed: Duration,
+    identity: &UiRpcAuthIdentity,
+) {
     let label = outcome.tag_label(tag).to_owned();
 
     metrics::counter!(

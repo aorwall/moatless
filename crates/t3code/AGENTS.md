@@ -48,20 +48,50 @@ so one rule settles what a viewer sees of a Task tree.
 and implemented by the Task band itself (`moatless_tasks::ports::Activities`).
 Add a seam. Do not add a dependency on the crate behind it.
 
+## Answering a request off the frame loop
+
+One connection reads one frame at a time, so a request answered inside the loop
+holds every frame the client sent after it. `rpc::dispatch::detach` is the whole
+list of the methods that do not: it spawns them onto the connection's frame
+channel and the loop reads on.
+
+**Detach a read; keep a transition on the loop.** A method that moves a named
+resource from one state to another — `terminal.*`, `projects.writeFile`,
+`sandbox.start`/`stop`, `scripts.run`, `orchestration.dispatchCommand`,
+`attachments.delete`, `git.runStackedAction`, the mutating `preview.*` — stays
+in `handle_request`. The loop is sequential, so a transition on it finishes
+before anything the client sent after it is dispatched; that is what a detached
+read is allowed to rely on, and detaching a transition would take it away.
+
+**A detached method may not touch `ProtocolSession`.** Each one is a free
+function taking an owned `Request` for that reason — the compiler enforces it.
+State a detached method genuinely needs goes in `SharedSession`
+(`rpc/session.rs`) behind its own lock, held for a single read or write and
+never across an await.
+
+**One function per method, in `dispatch.rs`.** `detach` and `handle_request` are
+routing tables and hold no method body; the two matches together are the whole
+list of what this surface serves. Name a method's function for its tag, snake
+cased: `pullRequests.summary` is `pull_requests_summary`.
+
+The subscription-open arms are on the loop and hold it; see
+`docs/deferred-changes.md`.
+
 ## Measuring the RPC surface
 
-`record_request` (`rpc/metrics.rs`) counts, times and marks every request. The one
-`ClientFrame::Request` arm calls it, and reads the outcome off the frames the
-handler returned. A dispatch arm builds its own frames and reports no outcome of
-its own.
+`rpc::metrics::answered` counts, times and marks every request, on the frame loop
+and off it, reading the outcome off the frames the handler returned. It is the
+only caller of `record_request`, so `duration_ms` measures the handler wherever it
+ran. A dispatch arm builds its own frames and reports no outcome of its own.
 
 **Do not add a counter to a dispatch arm.** Add whatever the outcome needs to
 `rpc::metrics::Outcome` and let the seam emit it; two counters drift.
 
 `rpc::metrics::CONNECTION_BLOCKED` is the one metric emitted outside that seam,
 from `rpc/socket.rs::serve_websocket`, because it measures the connection and
-not the request. A metric whose subject is the connection goes in the connection
-loop; everything a request answers with goes through `record_request`.
+not the request: a detached request contributes the dispatch that spawned it and
+not the handler that follows. A metric whose subject is the connection goes in
+the connection loop; everything a request answers with goes through `answered`.
 
 **The `tag` label is bounded by outcome, and never by trust.** A tag is a
 string the client chose, so only an outcome a matched dispatch arm could have

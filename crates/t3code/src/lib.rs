@@ -67,6 +67,7 @@ pub(crate) use rpc::frames::failure_exit;
 pub(crate) use rpc::frames::sandbox_stream_refusal;
 pub(crate) use rpc::frames::success_exit;
 pub(crate) use rpc::session::MAX_ACTIVE_STREAMS;
+pub(crate) use rpc::session::MAX_DETACHED_REQUESTS;
 pub use snapshots::ShellSnapshot;
 pub use snapshots::ThreadSnapshot;
 pub use snapshots::archived_shell_snapshot;
