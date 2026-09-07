@@ -14,23 +14,22 @@ publishes it at `moatless_adapter_model::binding`. The Task band's downward
 edge arrives through `moatless_tasks::task::bindings::TaskBindings`.
 `BindingDirectory` in `bindings/ports.rs` implements both.
 
-**Loop.** This crate owns the four Loop tables and their `LoopDao` store. The
-Adapter kernel publishes `LoopReader` (`moatless_adapter_model::loops`), the
-Subscription read that an Adapter matches an inbound event against, and
-`loops/ports.rs` implements it for `LoopDao` directly. `LoopDao` is the only
-store over those tables, so a wrapper beside it would be a second surface.
-SQL row decoding belongs to `loops/persistence.rs` and `bindings/persistence.rs`
-beside those stores; the Adapter kernel owns only connection persistence.
+**Loop.** This crate owns the four Loop tables and their `LoopDao` store, the
+only store over them. The Adapter kernel publishes `LoopReader`
+(`moatless_adapter_model::loops`), the Subscription read an Adapter matches an
+inbound event against, and `loops/ports.rs` implements it for `LoopDao`
+directly. SQL row decoding belongs to `loops/persistence.rs` and
+`bindings/persistence.rs` beside those stores; the Adapter kernel owns only
+connection persistence.
 
-An Adapter names `LoopReader` and never `LoopDao`. The store has twenty-six
-inherent functions and the Adapters read five of them. One exception stands:
+An Adapter names `LoopReader` and never `LoopDao`. One exception stands:
 `adapter-telegram/src/pairing.rs` names `LoopDao`, because it reads and writes
-a Loop's adapter config while it approves a pairing code. Whether that module
-survives is a behaviour question; see `docs/deferred-changes.md`.
+a Loop's adapter config while it approves a pairing code. See
+`docs/deferred-changes.md`.
 
 An Adapter that upserts Bindings as well as reading and writing them
 (`adapter-github-pr`, `adapter-linear`) names `TaskBindingDao` directly. Do not
-add a narrow read port for a crate that already holds the store. That leaves
+add a narrow read port for a crate that already holds the store: that leaves
 two surfaces over one table.
 
 ## Naming the Adapter kernel
@@ -77,24 +76,22 @@ Put durable provider work behind `delivery`. Put work that mirrors a task's
 state back to the provider behind `events`.
 
 A delivery handler still emits its own `record_webhook`
-(`moatless_adapter_model::metrics`). The delivery metric is deliberately
-low-cardinality, at `{adapter, kind, outcome}`, so it cannot show one broken
-connection. `record_webhook` carries `event_type`, `loop_id` and
-`connection_id`, and it is what makes one visible.
+(`moatless_adapter_model::metrics`). The delivery metric is low-cardinality at
+`{adapter, kind, outcome}` and cannot show one broken connection;
+`record_webhook` carries `event_type`, `loop_id` and `connection_id`.
 
-`adapters/delivery/store.rs` wraps `AdmitError::Store` at its raise site, so the
-`sqlx::Error` survives as a `StoreError` source and never enters the type
+Wrap `AdmitError::Store` at its raise site in `adapters/delivery/store.rs`, so
+the `sqlx::Error` survives as a `StoreError` source and never enters the type
 providers match on. `crates/adapter-model/AGENTS.md` states the driver-free
-error rule itself.
+error rule.
 
 ## Rules for a `TaskEventSubscriber`
 
 - **Keep `on_task_event` cheap.** It runs inline on the consumer's dispatch, one
   event at a time. Decide there, then `tokio::spawn` the provider call.
 - **Leave that spawn detached.** A progress notification lost to a restart is
-  lost on purpose. The run is unaffected, and the next event carries the task's
-  state again, so there is nothing for a supervisor to own. Work that must not be
-  lost is a delivery and not a subscription.
+  lost on purpose; the next event carries the task's state again. Work that must
+  not be lost is a delivery and not a subscription.
 - **Own the whole reaction, including its ordering.** When a provider keeps
   per-task state, such as Linear's turn gate, the subscriber owns that state.
   Emit the event and change the state there, in the order the provider needs.

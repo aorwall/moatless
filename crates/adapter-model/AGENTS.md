@@ -59,9 +59,8 @@ feature unification hides. The manifest owns the feature-to-dependency mapping.
 its fields compiles no driver.
 
 **An error that either delivery seam hands a provider names no database
-driver.** `AdmitError::Store` carries `StoreError`. The loops store wraps it at
-the raise site, so the `sqlx::Error` survives as the source and never enters
-the type provider crates match on.
+driver.** `AdmitError::Store` carries `StoreError`; the loops store wraps it at
+the raise site, so the `sqlx::Error` survives only as the source.
 
 ## What the boundary checks enforce
 

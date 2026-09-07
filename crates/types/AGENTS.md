@@ -5,19 +5,16 @@ Admission and dependency constraints live in
 
 ## Rules for adding or moving a type
 
-- `string_enum` is private macro support shared by domain modules. It defines
-  no domain of its own; keep its invocation name stable for architecture analysis.
-- **The module is the domain, named from `CONTEXT.md`.** A reader who knows
-  which domain a type belongs to then knows which file to open. Do not add a
-  module named for the kind of thing it holds. `config`, `error`, `kind` and
-  `delivery` are none of them a domain. The glossary's `_Avoid_` list carries
-  bare "delivery": the term is Adapter delivery, and those types are adapter
-  vocabulary.
-- **An entity here is the domain model, never the row.** Every field holds the
-  value the codebase reads. Use a `DateTime<Utc>` and not a text timestamp, an
-  enum and not the string a column holds, a decoded blob and not a
-  `serde_json::Value`. A persistence artifact does not belong on it: no `_raw`
-  twin read through an accessor, and no nullable flag standing in for a `bool`.
+- `string_enum` is private macro support shared by domain modules. Keep its
+  invocation name stable for architecture analysis.
+- **The module is the domain, named from `CONTEXT.md`.** Do not add a module
+  named for the kind of thing it holds. `config`, `error`, `kind` and `delivery`
+  are none of them a domain; the glossary's `_Avoid_` list carries bare
+  "delivery", because the term is Adapter delivery.
+- **An entity here is the domain model, never the row.** Use a `DateTime<Utc>`
+  and not a text timestamp, an enum and not the string a column holds, a decoded
+  blob and not a `serde_json::Value`. No `_raw` twin read through an accessor,
+  and no nullable flag standing in for a `bool`.
 - Decode a database row in the query's own crate. Preserve each decoder's
   failure behavior and logging when you move its domain type.
 - **Renaming a module must not rename a schema.** No type here carries

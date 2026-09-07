@@ -38,16 +38,14 @@ The seams are how this crate reaches anything it does not read directly.
 declared here and implemented over `AppState` in
 `crates/server/src/t3code/backend.rs`, beside each other.
 
-`TaskRelationSource` is a seam and not a sixteenth table, for a stated reason.
-`task_relations` is the Task band's table and `TaskRelationDao` already
-publishes the read. The seam answers with every edge and decides no access.
-`ConversationDao::readable_by_ids` re-reads the children it names. One rule
-therefore settles what a viewer sees of a Task tree and what a link shows.
+`TaskRelationSource` is a seam and not a sixteenth table: `task_relations`
+belongs to the Task band. The seam answers with every edge and decides no
+access, and `ConversationDao::readable_by_ids` re-reads the children it names,
+so one rule settles what a viewer sees of a Task tree.
 
-`ActivitySource` is the exception. It is declared in `moatless_ports::activity`
-and implemented by the Task band itself (`moatless_tasks::ports::Activities`),
-because the reads it serves are the Task band's own. Add a seam. Do not add a
-dependency on the crate behind it.
+`ActivitySource` is the exception: it is declared in `moatless_ports::activity`
+and implemented by the Task band itself (`moatless_tasks::ports::Activities`).
+Add a seam. Do not add a dependency on the crate behind it.
 
 ## Measuring the RPC surface
 
@@ -61,11 +59,9 @@ of them reports an outcome of its own.
 reader then cannot tell which one is the surface's.
 
 `rpc::metrics::CONNECTION_BLOCKED` is the one metric emitted outside that seam,
-from `rpc/socket.rs::serve_websocket`. It measures the connection and not the
-request: a frame is already read by the time `incoming.next()` yields it, so the
-wait a queued request suffers is not observable from the seam that answers it. A
-metric whose subject is the connection goes in the connection loop; everything
-a request answers with still goes through `record_request`.
+from `rpc/socket.rs::serve_websocket`, because it measures the connection and
+not the request. A metric whose subject is the connection goes in the connection
+loop; everything a request answers with goes through `record_request`.
 
 **The `tag` label is bounded by outcome, and never by trust.** A tag is a
 string the client chose, so labelling with it directly gives an unbounded label
@@ -84,17 +80,13 @@ at `debug!`. Log every decision this surface makes about a client's request at
 
 ## Renaming a thread
 
-A Task created from T3 is created unnamed. `rename` in `commands.rs` passes on
-a `thread.meta.update` that carries a title only while the Task already has a
-name.
+A Task created from T3 is created unnamed. `rename` in `commands.rs` drops a
+`thread.meta.update` title unless the Task already has a name. The client's
+auto-title and a person's rename are identical on the wire, and only the
+auto-title arrives while the Task is still unnamed; letting it through sets
+`tasks.name` before the pod boots and suppresses the `# Required First Actions`
+block that has the agent name the Task (`crates/tasks/src/agent/prompt.rs`).
 
-The client titles a new thread from its first message within seconds of
-creating it. That title reaches `tasks.name` before the pod boots, which
-suppresses the `# Required First Actions` block that has the agent name the
-Task (`crates/tasks/src/agent/prompt.rs`). Both writes look identical on the
-wire. The auto-title is separated from a person's rename by one fact: the
-auto-title lands while the Task is still unnamed.
-
-This leaves one gap. A thread created with no first message never runs an
-agent, so it stays unnamed and T3 cannot rename it either. It shows the
-contract's "New thread" placeholder.
+Known gap: a thread created with no first message never runs an agent, so it
+stays unnamed, cannot be renamed, and shows the contract's "New thread"
+placeholder.

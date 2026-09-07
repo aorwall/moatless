@@ -82,26 +82,18 @@ readiness signal and the turn-completion signal.
 appears. Snapshot-diff stays as a defensive fallback for a Stop payload that
 omits the path.
 
-## Design decisions to preserve
+## Rules
 
-- **`SdkMessage` deserialization** uses a custom `from_value()` instead of
-  `#[serde(tag)]`. `"system"` has 8 subtypes, and `"result"` branches on success
-  and error.
-- **Stdin writes** go through `Arc<dyn StdinWriter>`, implemented as
-  `ChildStdinWriter` over `Arc<Mutex<ChildStdin>>`. That enables mock testing.
-- **The transport abstraction** splits reads (`Transport`) from writes
-  (`StdinWriter`). `MockTransport` and `MockStdinWriter` drive the orchestrator
-  tests.
-- **The message channel** is a bounded mpsc of 256, from orchestrator to
-  consumer, for backpressure.
-- **Cancellation** uses `tokio_util::sync::CancellationToken` inside
-  `tokio::select!` loops.
-- **Errors** use `thiserror` only. This is a library crate, so it takes no
-  `anyhow`.
-- **SDK MCP servers**: the orchestrator routes an `McpMessage` control request
-  to the right server's `handle_message()`.
-- **Hooks**: the orchestrator invokes `HookHandler` for a `HookCallback` control
-  request. It auto-responds with empty success when no handler is registered.
+- Deserialize `SdkMessage` with the custom `from_value()`, not `#[serde(tag)]`.
+- Keep stdin writes behind `Arc<dyn StdinWriter>`, and keep reads (`Transport`)
+  split from writes (`StdinWriter`). `MockTransport` and `MockStdinWriter` drive
+  the orchestrator tests.
+- Keep the orchestrator-to-consumer channel a bounded mpsc of 256.
+- Cancel through `tokio_util::sync::CancellationToken` inside `tokio::select!`.
+- Use `thiserror` only. This is a library crate and takes no `anyhow`.
+- Route an `McpMessage` control request to the named server's `handle_message()`.
+- Invoke `HookHandler` for a `HookCallback` control request, and auto-respond
+  with empty success when no handler is registered.
 
 ## Where the flags and the types come from
 

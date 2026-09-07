@@ -145,8 +145,8 @@ A comment carries a fact the code cannot show. Four kinds qualify:
 
 Default to none. A public item gets a one-line doc that says what it is. The
 working ceiling is three lines for a comment and eight for a module doc. Past
-that ceiling the content is durable rationale, and it belongs in the nearest
-`AGENTS.md`, linked and not copied.
+that ceiling the content is rationale, and it belongs in the commit or the pull
+request.
 
 These rules apply to a doc comment and a line comment in every language. The
 `rust-dev-guidelines` skill holds the Rust specifics and
@@ -159,8 +159,8 @@ These rules apply to a doc comment and a line comment in every language. The
 - **State a design fact once, on the symbol that owns it.** An enum owns what its
   variants mean. A field owns its default and its writers. A function owns its
   transition and its side effects. A module doc owns the module invariant. The
-  nearest `AGENTS.md` owns a cross-cutting rule and its rationale. Everywhere
-  else, link to the owner. Two copies diverge on the next change to one of them.
+  nearest `AGENTS.md` owns a cross-cutting rule. Everywhere else, link to the
+  owner. Two copies diverge on the next change to one of them.
 - **Do not copy a doc between siblings.** Sibling types, sibling crates, and
   sibling implementations of one trait share a trait, a base type, or a module.
   Put the shared text there, and link to it.
@@ -168,7 +168,7 @@ These rules apply to a doc comment and a line comment in every language. The
   or invariant that breaks under the alternative. Use `deliberately` and
   `rather than` when what follows names the alternative and what breaks. Cite the
   PR when one produced the decision. Record an alternative you considered in the
-  PR or in the nearest `AGENTS.md`, never in the comment.
+  pull request, never in a comment or an `AGENTS.md`.
 - **Use the code's own names, in backticks**: `kyc_status` and `Pending`, never a
   paraphrase of them.
 - **A negative statement names the wrong assumption it prevents.** "No `Activated`
@@ -188,15 +188,14 @@ These rules apply to a doc comment and a line comment in every language. The
   the status word (`legacy`, `deprecated`) is a design fact. It goes once, on
   the symbol that carries it. This rule covers Markdown too.
 
-## Finding conventions and durable decisions
+## Finding conventions
 
 - `CONTEXT.md` is the domain glossary. Treat current code and tests as the
   authority, and treat a document as a routing aid. Read `.plans/` only when you
   are asked to implement or review that specific plan. Put an unscoped feature
   idea that no plan covers in `docs/ideas/` instead; see `docs/ideas/README.md`.
-- Put a durable local guideline or decision in the nearest relevant `AGENTS.md`.
-  When you edit a path, read the `AGENTS.md` files in that directory and in its
-  parents.
+- Put a durable local guideline in the nearest relevant `AGENTS.md`. When you
+  edit a path, read the `AGENTS.md` files in that directory and in its parents.
 - When you find a real problem you are deliberately not fixing now, record it in
   `docs/deferred-changes.md`. Give it an anchor and the condition that makes it
   worth doing. Read that file before you start work in an area. It holds the known
@@ -205,10 +204,11 @@ These rules apply to a doc comment and a line comment in every language. The
   committed `CLAUDE.md` symlink beside it, and `.claude/skills` is a committed
   symlink to `.agents/skills`. Nothing creates either at runtime. When you add an
   `AGENTS.md`, commit `ln -s AGENTS.md CLAUDE.md` alongside it.
-- Keep local `AGENTS.md` guidance concise and operational. State what a future
-  agent must do and must not do. Add the current reason when that reason is not
-  obvious. Add no history dump, no plan transcript, and no long writeup of a
-  rejected option.
+- An `AGENTS.md` holds operational guidance only: what a future agent must do
+  and must not do, where the code does not already show it. Give a reason only
+  when the rule reads as arbitrary without one, and keep it to a clause. A
+  decision, a rejected alternative and a history note go in the commit or the
+  pull request.
 - The language skills are model-invoked: `rust-dev-guidelines` covers
   `crates/`, and `frontend-dev-guidelines` covers `apps/` and `packages/`.
 - `routeTree.gen.ts` is generated, and lint and format exclude it. Edit the
