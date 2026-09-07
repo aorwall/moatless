@@ -4,8 +4,9 @@
 //! re-export. It is the sandbox's inbound RPC surface — the same task, message,
 //! event and file-storage work the REST routes do, over a different transport —
 //! so it belongs at the edge with the other transports rather than inside the
-//! lifecycle crate. It reaches back down into `event_dedup`, `jwt`, `metrics`,
-//! `secrets` and `storage` through this facade.
+//! lifecycle crate. It reaches back down into `event_dedup`, `metrics`,
+//! `secrets` and `storage` through this facade, and names
+//! `moatless_core::sandbox_jwt` directly.
 //!
 //! See `AGENTS.md` for what each crate owns, the band split, and the
 //! composition root.

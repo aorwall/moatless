@@ -14,16 +14,11 @@ Also run `bun run dev` and use http://localhost:5173 instead. Vite proxies
 
 ## Building the backend locally
 ```bash
-docker-compose/dev-docker.sh   # builds backend image, starts all services
-bun run dev                     # optional: frontend with hot-reload
+docker-compose/dev-docker.sh   # or `bun run dev:docker`; builds the backend
+                               # image, then starts every service
+bun run dev                    # optional: frontend with hot-reload
 ```
-
-## Building images locally
-```bash
-docker/build-app.sh --local       # frontend nginx image
-docker/build-sandbox.sh --local   # sandbox images
-# dev-docker.sh builds the backend image automatically
-```
+`docker/AGENTS.md` covers the other image builds.
 
 ## Checking, reading and stopping the stack
 ```bash
@@ -44,7 +39,12 @@ docker compose -f docker-compose/docker-compose.yml down
 
 `docker-compose.yml` names every service, image and port, and every port is an
 overridable variable rather than the fixed number the ports above default to.
-Config comes from `.env`, copied from `.env.example` in the project root.
+
+**Two install paths read two different `.env` files.** The scripts here take the
+project root's, seeded from `./.env.example` — `docker-compose-setup.sh` passes
+`--env-file ../.env`. `moat docker` takes `<compose-dir>/.env`, seeded from
+`docker-compose/.env.example`; the `docker-install` skill owns that path. Edit
+the one your install path reads.
 
 `TASK_TOKEN_SECRET` is the only variable the stack refuses to start without.
 Everything else carries a default, so a missing value surfaces as a broken

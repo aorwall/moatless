@@ -1,9 +1,6 @@
 # crates
 
-Guidance that spans the banded workspace crates. Read the nearest crate's own
-`AGENTS.md` too. This file covers only what crosses them.
-
-Dependency bands are defined in
+What crosses the banded workspace crates. Dependency bands are defined in
 [BANDS](../tooling/arch-rules/src/band_order.rs).
 
 ## Where a deduplicated shared type belongs

@@ -2,9 +2,8 @@
 //!
 //! Binding is this crate's own concept, so both the port and its
 //! implementation live here. Peers reach it through the narrow seams in
-//! `bindings::ports` — `BindingProbe`, `BindingLookup`, `BindingStatus` for the
-//! Adapters beside this crate, and `moatless_tasks::task::bindings::TaskBindings`
-//! for the Task band below it.
+//! `bindings::ports` — `BindingProbe` for the Adapters beside this crate, and
+//! `moatless_tasks::task::bindings::TaskBindings` for the Task band below it.
 
 use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;

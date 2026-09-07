@@ -25,8 +25,7 @@ bun run check:turbo      # all checks (fastest full validation)
 ```
 
 The `testing-guidelines` skill owns the other test entry points and the Turbo
-filter trap. The `frontend-dev-guidelines` skill owns the component, import and
-styling rules.
+filter trap.
 
 ### Rust backend and sandbox
 ```bash
@@ -37,39 +36,27 @@ cargo clippy -p moatless-core --all-targets -- -D warnings
 cargo clippy -p moatless-ports --all-targets --all-features -- -D warnings
 cargo clippy -p moatless-ports --all-targets --no-default-features -- -D warnings
 cargo clippy -p moatless-backend --all-targets --features db-tests -- -D warnings
-cd crates/codex-sdk && cargo clippy --all-targets -- -D warnings   # excluded from the workspace
 cargo test -p <crate>                       # scope to the crate you changed, never --workspace
 task rust:gc                                # reclaim target/debug/incremental
 CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
 ```
 
 Run those clippy lines verbatim. Do not vary them. Do not add a `-p` line for
-the crate you touched. The floor already lints every workspace member at
-`--all-targets`, so a narrower run finds nothing new and costs another
-incremental unit. Never run `cargo check`: clippy already covers it, and it keys
-a separate set of incremental units.
+the crate you touched. Never run `cargo check`. `crates/codex-sdk` is excluded
+from the workspace and carries its own line; see its `AGENTS.md`.
 
 In a sandbox the workspace volume is capped, and overflowing it evicts the pod.
 Check `df -h /opt/moatless` before the first full build and between commits, and
 run `task rust:gc` when free space falls.
 
 Read the `rust-dev-guidelines` skill before you change a cargo invocation.
-`.agents/skills/rust-dev-guidelines/references/build-costs.md` covers why the set
-is shaped this way, what each invocation costs, and how the local list relates to
-the CI matrix. Its sibling `references/backend.md` covers the db-tests tier and
-the three integration targets.
 
 ### Running the E2E suite
-`tests/api` drives the product through the `moat` CLI, so the same chains run
-against either environment. `E2E_PROFILE` picks the environment, `docker` or
-`k8s`. A test the profile cannot run skips, and names the missing capability.
 The `e2e-testing` skill owns the commands, both profiles, and the sweeper that
 clears what a killed run left behind.
 
 ### Building, deploying and releasing
 ```bash
-./docker/build-app.sh | build-backend.sh | build-sandbox.sh    # sandbox: --local --only base on Apple Silicon
-bun run dev:docker                                              # local Docker Compose
 task deploy [TAG=v2.0.0]                                        # also deploy:frontend, status, logs, restart
 git tag v0.1.21 && git push origin v0.1.21                      # triggers release.yml
 ```
@@ -104,35 +91,28 @@ Write conventional commits: `type(optional-scope): subject`, with a header of
 100 characters or fewer.
 
 **`commitlint.config.ts` is the authority for which types and scopes are
-valid.** This file does not restate either list. `commitlint.config.ts` extends
-`@commitlint/config-conventional` for the types and pins its own `scope-enum`.
-A second copy of an enum drifts from the one that runs, and a reader cannot
-tell which copy is current. To settle a specific case, ask the linter:
+valid.** This file restates neither list. To settle a specific case, ask the
+linter:
 
 ```bash
 printf 'feat: x\n' | bunx commitlint
 ```
 
-**Two checks run, because they cover different commits.** `.husky/commit-msg`
-lints each local commit. `.github/workflows/pr-title.yml` lints the **pull
-request title**, which is the message that reaches `main`. This repo
-squash-merges, and GitHub composes the squash commit from the title
-server-side, where no git hook runs. That workflow triggers on `edited` as well
-as `opened`, so a retitle re-runs it. A title check that ran only at open time
-would attest to a title that no longer ships.
+**Two checks run, and they cover different commits.** `.husky/commit-msg` lints
+each local commit. `.github/workflows/pr-title.yml` lints the **pull request
+title**, which is what reaches `main` — this repo squash-merges, and GitHub
+composes the squash commit from the title server-side, where no git hook runs.
 
 **The title check is advisory.** It is absent from `main`'s
 required-status-check list, so a red title check does not block a merge and a
-reviewer has to notice it. Making it required is a repository setting.
+reviewer has to notice it.
 
-**Land one commit per pull request.** This repo squash-merges, so a branch's
-internal commits never reach `main`. A reviewer sees nothing of a split across
-local commits, and each commit costs the time spent keeping it green. Use the
-PR body to sequence anything a reader needs in order.
+**Land one commit per pull request.** A branch's internal commits never reach
+`main`, so a reviewer sees nothing of a split across them. Use the PR body to
+sequence anything a reader needs in order.
 
 Pre-push runs `bun check:pre-push`, which is Biome and type-check only. It runs
-no tests, so a push proves nothing about test state. Run the verification
-commands above yourself.
+no tests, so run the verification commands above yourself.
 
 ## Writing a comment
 
@@ -197,6 +177,7 @@ These rules apply to a doc comment and a line comment in every language. The
   idea that no plan covers in `docs/ideas/` instead; see `docs/ideas/README.md`.
 - Put a durable local guideline in the nearest relevant `AGENTS.md`. When you
   edit a path, read the `AGENTS.md` files in that directory and in its parents.
+  A rule stated in a parent is not restated in a child.
 - When you find a real problem you are deliberately not fixing now, record it in
   `docs/deferred-changes.md`. Give it an anchor and the condition that makes it
   worth doing. Read that file before you start work in an area. It holds the known
@@ -211,7 +192,5 @@ These rules apply to a doc comment and a line comment in every language. The
   move text here to get a comment under its ceiling. A decision, a rejected
   alternative or a history note goes in the commit or the pull request when a
   reviewer needs it, and nowhere when they do not.
-- The language skills are model-invoked: `rust-dev-guidelines` covers
-  `crates/`, and `frontend-dev-guidelines` covers `apps/` and `packages/`.
 - `routeTree.gen.ts` is generated, and lint and format exclude it. Edit the
   routes, never the tree.

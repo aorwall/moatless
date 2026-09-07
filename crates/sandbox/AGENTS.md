@@ -27,12 +27,11 @@ that reaches only a non-reserved port.
 
 Non-reserved means `moatless_types::sandbox::is_reserved_sandbox_port`, the one
 rule that this proxy and `sandbox-k8s`'s `pod_builder::admitted_server_ports`
-both read. Do not copy it into a second list. A copy that lags the rule admits a
-declared server on the proxy's own port.
+both read. Do not copy it into a second list.
 
 "Loopback" is the whole pod's network namespace, which the server sidecars and
-`dind` share. A new sidecar is reachable from the proxy the day it is added, so
-keeping it out of reach means reserving its port.
+`dind` share, so a new sidecar is reachable from the proxy the day it is added.
+Keep one out of reach by reserving its port.
 
 ## Configuring the pod
 
@@ -56,18 +55,16 @@ At capacity the outbox evicts the oldest evictable event and counts
 `rejected_saturated` instead. It always keeps one event, even when that event
 alone exceeds the byte cap.
 
-Lifecycle events are preferred, but they share the `MAX_QUEUE_EVENTS` and
-`MAX_QUEUE_BYTES` budget with every other event. The outbox therefore refuses
-the newest event and keeps the oldest. The drainer is FIFO, so an older event
-is the prefix that keeps the later ones interpretable.
+Lifecycle events are preferred but share the `MAX_QUEUE_EVENTS` and
+`MAX_QUEUE_BYTES` budget with every other event, so the outbox refuses the
+newest and keeps the oldest — the drainer is FIFO, and an older event is the
+prefix that keeps the later ones interpretable.
 
-The outbox drops an event the backend *permanently* refuses, and does not retry
-it. One in-order drainer would otherwise never clear its head, and it would
-take the task's whole remaining stream with it. That one event is therefore
-at-most-once.
+Drop an event the backend *permanently* refuses; do not retry it. That event is
+at-most-once, because one in-order drainer would otherwise stall on it and take
+the task's whole remaining stream with it.
 
-Each loss cause has its own counter, because each one calls for a different
-response:
+Each loss cause has its own counter, and each calls for a different response:
 
 | Counter | What it reports |
 |---|---|
@@ -107,51 +104,43 @@ commands, and `workspace_sync`'s restore are the only writers inside a
 checkout.
 
 A message's attached uploads are written under `UPLOAD_DIR`, at
-`$WORKSPACE_DIR/uploads`. That placement is what makes them survive a restart.
-`workspace_sync` archives loose directories as well as repos, so a restored pod
-already holds the bytes and `files::uploads::ensure_upload_on_disk` skips the
-gRPC re-fetch. The directory is a sibling of the repo checkouts and never a
-path inside one, so it stays out of the user's `git status`. The backend owns
-the value. It renders the same path into the prompt's "Saved to:" line and
-passes it to the pod as `UPLOAD_DIR`. Do not give the sandbox an independent
-default that could drift from what the prompt advertises.
+`$WORKSPACE_DIR/uploads` — a sibling of the repo checkouts and never a path
+inside one, so it survives a restart through `workspace_sync` and stays out of
+the user's `git status`. The backend owns the value: it renders the same path
+into the prompt's "Saved to:" line and passes it as `UPLOAD_DIR`. Do not give
+the sandbox an independent default.
 
-The prompt's "Saved to:" line is a claim the backend makes before the sandbox
-holds the bytes. A failed upload fetch has to be contradicted, not merely
-logged. `files::uploads::fetch_uploads_for_messages` returns the `file_id`s
-that did not land, and `agent::dispatcher` appends `failed_upload_note`'s text
-to the turn's prompt. A fetch failure still does not block the turn, because
-the rest of the message is worth delivering. It must never leave the agent
-holding a path that was never written. `BackendClient::download_upload`
-reassembles a chunk stream (`DownloadUploadChunked`), so the sandbox's memory
-bounds an upload's size and no per-message limit on the wire does. Keep it that
-way instead of raising a cap.
+The "Saved to:" line is a claim the backend makes before the sandbox holds the
+bytes, so a failed fetch must be contradicted rather than logged.
+`files::uploads::fetch_uploads_for_messages` returns the `file_id`s that did not
+land, and `agent::dispatcher` appends `failed_upload_note`'s text to the turn's
+prompt. A fetch failure does not block the turn, but it must never leave the
+agent holding a path that was never written.
+
+`BackendClient::download_upload` reassembles a chunk stream
+(`DownloadUploadChunked`), so the sandbox's memory bounds an upload's size and
+no per-message limit on the wire does. Keep it that way instead of raising a
+cap.
 
 ## Storing credentials
 
 Credential material on disk belongs in `RUNTIME_DIR` (`/run/moatless`,
-`Config::runtime_dir`): the credential broker socket and the persisted user
-auth token. It is the only directory that the workspace snapshot does not
-archive and the server sidecars do not mount. A file there cannot ride a
-snapshot into a pod it was not minted for, and the repo code those sidecars run
-cannot read it. `RUNTIME_DIR` is not configurable, because
+`Config::runtime_dir`): the credential broker socket and the persisted user auth
+token. It is the only directory the workspace snapshot does not archive and the
+server sidecars do not mount. It is not configurable —
 `docker/moatless-git-cred.sh` hardcodes the broker socket beneath it.
 
-Use neither `WORKSPACE_DIR` nor `DATA_DIR` for credential material.
-`workspace_sync` archives and restores `WORKSPACE_DIR`, and every sidecar
-mounts `DATA_DIR`. `credentials::fetch::purge_exposed_user_tokens` sweeps both
-on every successful fetch. The sandbox and the agent subprocess share a
-container and a uid. This bounds exposure. It does not make a file unreadable
-to the agent.
+Use neither `WORKSPACE_DIR` nor `DATA_DIR` for credential material:
+`workspace_sync` archives and restores the first, every sidecar mounts the
+second, and `credentials::fetch::purge_exposed_user_tokens` sweeps both on every
+successful fetch. The sandbox and the agent subprocess share a container and a
+uid, so this bounds exposure and does not make a file unreadable to the
+agent.
 
 No single store reliably holds the freshest backend auth token, so init tries
-them all. Every credential refresh rewrites the persisted copy, but that copy
-lives only as long as `RUNTIME_DIR` does. `USER_AUTH_TOKEN` and the bootstrap
-token are minted when the pod or container is created, and are fixed after
-that. `Config::initial_auth_token_candidates` lists all of them. When the
-initial `GetCredentials` is rejected as `Unauthenticated`, init presents the
-next candidate. The failure is permanent (exit 78) only once every candidate is
-refused, because re-provisioning is then the sole remaining fix. Do not
+them all. `Config::initial_auth_token_candidates` lists them; when the initial
+`GetCredentials` is rejected as `Unauthenticated`, init presents the next, and
+the failure is permanent (exit 78) only once every candidate is refused. Do not
 collapse this to a fixed precedence: whichever store loses becomes a crash loop
 on that runtime.
 
@@ -173,15 +162,15 @@ through `claudeMdExcludes` (`init::claude_code_settings`), Codex through
 `project_doc_max_bytes = 0` (`init::codex_config`). The section and the
 exclusion both key off `Config::repo_dirs()`. Keep them in sync.
 
-Inlining is the default, because a path the agent is pointed at does not
+Inlining is the default; a path the agent is merely pointed at does not
 reliably get read. `SANDBOX_FRONTLOAD_REPO_INSTRUCTIONS=false`, or
 `frontloadInstructions` in `REPO_CONFIG`, reverts to listing paths
 (`AgentConfig::frontload_instructions_enabled`).
 
-Read the file through `agent::options::read_capped`. The size cap has to bound
-the I/O itself, because the path is repo-controlled and resolves through
-symlinks. Read first and trim after, and a checkout chooses how much memory
-prompt assembly spends.
+Read the file through `agent::options::read_capped`. The cap must bound the I/O
+itself: the path is repo-controlled and resolves through symlinks, so reading
+first and trimming after lets a checkout choose how much memory prompt assembly
+spends.
 
 A delivery's `skills` are names, never bodies.
 `agent::skills::frontload_skills` resolves each name against
@@ -198,15 +187,15 @@ re-gates on the frontloaded text, so a delivery whose every skill failed to
 resolve still opens nothing.
 
 A `PluginDelivery`'s `frontload_skill_names` are the skills that lead every
-turn that opens a fresh session, whatever that turn asked for.
-`agent::skills::with_always_frontloaded` merges them ahead of the delivery's
-own names. `dispatcher` applies the merge only when there is no
-`resume_session_id`, because a resumed session already holds the bodies in its
-transcript. It applies the merge only after the emptiness gate, so a standing
-skill cannot open a turn on an empty delivery.
+turn opening a fresh session, whatever that turn asked for.
+`agent::skills::with_always_frontloaded` merges them ahead of the delivery's own
+names. `dispatcher` merges only when there is no `resume_session_id` — a resumed
+session already holds the bodies — and only after the emptiness gate, so a
+standing skill cannot open a turn on an empty delivery.
 
-The names arrive resolved. The backend picks them per person and Workspace at
-provisioning time, so a flag set afterwards reaches the pod on its next start.
+The names arrive resolved: the backend picks them per person and Workspace at
+provisioning time, so a flag set afterwards reaches the pod on its next
+start.
 
 ## Tracking `moat cmd` commands
 
@@ -222,8 +211,7 @@ and do not reintroduce process-tree discovery.
 
 The background-completion watch (`agent::background_watch_job`) arms off that
 same registry, and `agent::options::build_managed_command_note` promises the wake
-unconditionally. The watch must therefore fire in three cases a simpler filter
-misses:
+unconditionally. The watch must fire in three cases a simpler filter misses:
 
 1. On *any* terminal state: exited, timed out, or killed.
 2. On the *first* command to reach one, rather than the last.
@@ -232,11 +220,11 @@ misses:
    arms nothing.
 
 The watch list (`unreported()`) and every poll of it (`unreported_among()`) key
-on `Entry::reported`, never on process state. A state filter would drop the
-command that died before arming and would pick up one the agent killed: `kill`
-sets `reported` while the process is still winding down and still `Running`.
-Re-read `reported` on each poll. A `Send` does not cancel an armed watch, so a
-later turn can kill or read back a command an older watch still polls.
+on `Entry::reported`, never on process state: a state filter drops the command
+that died before arming and picks up one the agent killed, because `kill` sets
+`reported` while the process is still `Running`. Re-read `reported` on each
+poll. A `Send` does not cancel an armed watch, so a later turn can kill or read
+back a command an older watch still polls.
 
 `GetAgentStatus` must keep calling `list` and never `read_for_agent`. The backend
 polls status on its own schedule, so a poll that marked a command seen would
@@ -244,29 +232,28 @@ swallow the wake.
 
 `grpc_server::run_command` falls back to `workspace_dir` when a request carries
 no cwd. Never let it inherit the sandbox process's cwd, `/opt/moatless`, which is
-neither the workspace nor a checkout. A relative path would then resolve
-somewhere the caller never chose, and fail as though the command never ran.
+neither the workspace nor a checkout: a relative path would resolve somewhere the
+caller never chose.
 
 ### Surviving a pod replacement
 
 The registry is in memory, so a replacement destroys every command, its log under
 `/tmp`, and the armed watch. `CommandRegistry::with_journal` mirrors the
-unreported set to `$WORKSPACE_DIR/.moat-commands.json`, because the S3 workspace
-snapshot is the only sandbox state that survives one. The journal holds metadata
-only. Logs stay in `/tmp` (`default_log_dir`), where an unbounded build log
-cannot fill the volume whose size limit causes these evictions.
+unreported set to `$WORKSPACE_DIR/.moat-commands.json`, the S3 workspace snapshot
+being the only sandbox state that survives one. The journal holds metadata only;
+logs stay in `/tmp` (`default_log_dir`), where an unbounded build log cannot fill
+the volume whose size limit causes these evictions.
 
-`agent::restart::open_for_work` reads the journal through `take_journal` **before**
-anything else, because a recovered run or a new command would otherwise overwrite
-it. `report_lost_commands` then turns the journal into the wake the watch could
-not deliver. `take_journal` clears the file whether or not it parsed, so the loss
-is announced exactly once. Key it on `Entry::reported`, like the watch.
+`agent::restart::open_for_work` reads the journal through `take_journal`
+**before** anything else, or a recovered run or a new command overwrites it.
+`report_lost_commands` turns the journal into the wake the watch could not
+deliver. `take_journal` clears the file whether or not it parsed, so the loss is
+announced exactly once. Key it on `Entry::reported`, like the watch.
 
-Install the journal by writing a sibling `.json.tmp` and renaming over it.
-`rename` is atomic within a filesystem, so a kill or a snapshot that races the
-write cannot leave the truncated file `take_journal` would discard.
+Install the journal by writing a sibling `.json.tmp` and renaming over it, so a
+kill or a snapshot racing the write cannot leave a truncated file.
 
 Consuming a journal also suppresses `adopt_current`. The delete is local while
-the S3 archive still holds the file. Adopt this tree as the upload baseline and a
-turn that edits nothing skips the upload. The next replacement then restores the
-stale archive and announces the same loss again.
+the S3 archive still holds the file, so adopting this tree as the upload baseline
+lets a turn that edits nothing skip the upload — and the next replacement then
+restores the stale archive and announces the same loss again.

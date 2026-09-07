@@ -4,7 +4,8 @@
 
 //! Sandbox-control band (band 6): the orchestrator that drives a sandbox
 //! runtime — durable lifecycle intent, the reconciler and watcher, the gRPC
-//! ingress service, preflight, secrets, JWT, and the HTTP surface over them.
+//! ingress service, preflight, secrets, and the HTTP surface over them. Token
+//! signing and verification live in `moatless_core::sandbox_jwt`.
 //!
 //! What a runtime *implements* — the mutation and observation contract — and
 //! the machinery every runtime reuses live a band below, in

@@ -1,30 +1,13 @@
 # Backend sandbox facade
 
-`crates/server/src/sandbox/mod.rs` is a permanent facade. It re-exports four
-banded crates, so a higher band still inside `moatless-backend` keeps naming
-`crate::sandbox::…`. Add no sandbox logic to this file. Put it in one of the
-crates below, behind the band that crate lives in.
-
-`grpc_server` is the exception. It is a module of `moatless-backend`, and it
-reaches back down into `event_dedup`, `jwt`, `metrics`, `secrets` and `storage`
-through this facade.
+`crates/server/src/sandbox/mod.rs` states what the facade is. Add no sandbox
+logic to it. Put it in one of the crates it re-exports, behind that crate's
+band.
 
 ## Where the code lives
 
-The facade re-exports `moatless-sandbox-runtime`, `-control`, `-k8s` and
-`-docker`. Each crate's own `AGENTS.md` holds its rules.
-
-Start in `moatless-sandbox-control` for any change to sandbox intent, events,
-or the reconciler. It holds the provider-agnostic half:
-
-- durable lifecycle intent and orchestration;
-- event dedup behind the server-owned gRPC transport;
-- routes and handlers;
-- JWT, secrets and preflight;
-- status reads and the resource-quantity parsers.
-
-[BANDS](../../../../tooling/arch-rules/src/band_order.rs) owns the dependency
-order between the four.
+Start in `moatless-sandbox-control` for any change to sandbox intent, events, or
+the reconciler. Each crate's own `AGENTS.md` holds its rules.
 
 Keep every re-export explicit and named. Never write a glob: the crate census
 resolves an edge through the facade to its definition site only when the name

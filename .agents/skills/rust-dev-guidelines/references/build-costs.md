@@ -26,8 +26,8 @@ tier; select the owning crate's feature when testing database behavior.
 ## Keep build artifacts bounded
 
 Different crate/feature/profile/flag combinations can create additional compiler
-artifacts. Run scoped tests and do not run `cargo check`: clippy already performs
-the relevant check. Keep each worktree's own `target/`; do not share it across
+artifacts. Run scoped tests, and observe the `cargo check` prohibition in root
+AGENTS.md. Keep each worktree's own `target/`; do not share it across
 checkouts. If an error names a field present in source, check for shared artifacts
 as one possible cause before assuming the source is wrong.
 

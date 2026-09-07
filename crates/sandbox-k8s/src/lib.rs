@@ -7,7 +7,8 @@
 //! names `kube`/`k8s-openapi` freely — those SDKs are legal in a provider band
 //! and invisible to the control band above it, which depends only on the
 //! ports. The backend composition root wires this provider into `AppState`;
-//! the crate names no concrete `AppState`.
+//! the crate names no concrete `AppState`. The sibling `moatless-sandbox-docker`
+//! crate is the same band and is never named from here.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod client;

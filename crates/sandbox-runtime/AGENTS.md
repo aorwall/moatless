@@ -1,42 +1,18 @@
 # moatless-sandbox-runtime
 
 The crate doc in `src/lib.rs` states what the contract is and what the
-machinery holds.
-
-The **machinery** is what a runtime needs in order to answer:
-
-- the gRPC client and its error classification;
-- the status reads;
-- the storage plan;
-- the response schemas;
-- the resource parsers;
-- the ingress counters.
-
-Dependency order lives in [BANDS](../../tooling/arch-rules/src/band_order.rs).
+machinery holds, and each module's `//!` doc states what it owns.
 
 `error::SandboxError::Lifecycle` boxes its source instead of naming
 `LifecycleError`. The conversion from a lifecycle failure to a response error
 lives beside `LifecycleError`, in the band that raises it.
 
-## What each module owns
-
-- `runtime.rs` owns the mutation seam, `RuntimeError`, and the `ErrorClass` that
-  drives the reconciler's retry policy. Put a failure diagnostic on
-  `RuntimeError`. Never put one on the success value `RuntimeOutcome`.
-- `fleet.rs` owns the observation seam. It holds one batch read per tick
-  (`observe_fleet`) and the authoritative per-Task read (`observe`) that the
-  reconciler confirms a divergence with. Both provider implementations delegate
-  live status to `status_reader::confirm`.
-- `convergence`, `classify`, `marker` and `operation` hold the decision
-  vocabulary that a runtime and the orchestrator both read. The reconciler and
-  the watcher that call them stay above.
-- `client.rs` re-exports `SandboxConnector` and `classify_grpc_error` from
-  `sandbox-proto`, beside the `SandboxClient` they return.
+Put a failure diagnostic on `RuntimeError`. Never put one on the success value
+`RuntimeOutcome`. Both provider implementations delegate live status to
+`status_reader::confirm`, and the reconciler and watcher that read the decision
+vocabulary (`convergence`, `classify`, `marker`, `operation`) stay above it.
 
 ## What every runtime provider must honor
-
-These rules bind `moatless-sandbox-k8s` and `moatless-sandbox-docker` alike. A
-provider guide states only what its own runtime adds.
 
 - Prove observed absence before you report strict success. Report a lingering
   resource as `RuntimeError::NotAbsent`.

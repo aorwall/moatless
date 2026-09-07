@@ -38,7 +38,7 @@ const FORBIDDEN: &[Forbidden] = &[
         source: "moatless-sandbox-docker",
         target: "moatless-api-schemas",
         transitive: false,
-        why: "a runtime driver speaks the runtime contract and the domain floor, never the wire contract — crates/sandbox-docker/AGENTS.md",
+        why: "a runtime driver speaks the runtime contract and the domain floor, never the wire contract — crates/sandbox-runtime/AGENTS.md",
     },
     Forbidden {
         source: "moatless-sandbox-k8s",

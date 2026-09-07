@@ -20,15 +20,13 @@ violation that is absent from the baseline.
 
 **The baseline only shrinks.** `the_baseline_holds_no_fixed_violations` fails
 when an entry no longer occurs, so drop a fixed violation rather than leave it
-to shadow the next one. Running `--update-baseline` to absorb a new violation
-is the one motion this design makes visible in a diff, so review every added
-baseline identity.
+to shadow the next one. Review every baseline identity a `--update-baseline`
+run adds.
 
 **A rule at zero is already locked there.** The ordinary test filters to
-violations absent from the baseline, so a rule with no baseline entries fails
-on any occurrence at all. `dependency-privacy` sits at zero with an empty
-slice, and a new forbidden edge fails CI today. Do not add a per-rule strict
-switch.
+violations absent from the baseline, so a rule with no baseline entries fails on
+any occurrence — `dependency-privacy` sits at zero today. Do not add a per-rule
+strict switch.
 
 `ARCH_STRICT=1` reads the *whole* baseline as empty, which asserts that nothing
 is baselined anywhere. It is global by design. Turn it on once every rule has

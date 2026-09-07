@@ -6,9 +6,7 @@ backend drives the TUI and is hook-driven.
 ## Building and testing
 
 ```bash
-cargo build -p claude-agent-sdk
-cargo test -p claude-agent-sdk
-# Clippy: run the floor line from the root AGENTS.md. It covers this crate.
+# Build, test and clippy: the root AGENTS.md lines cover this crate.
 
 # E2E, subprocess backend (requires the `claude` CLI + an API key, ~$0.01-0.05/test)
 CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture
@@ -69,9 +67,9 @@ readiness signal and the turn-completion signal.
 4. `spawn_hook_listener` drains that channel and republishes a higher-level
    `HookState` on a `watch`: Pending, SessionStarted or TurnEnded.
 5. `tmux/startup.rs` awaits `SessionStarted` before `tmux/query.rs` pastes the prompt, under
-   `init_timeout` (60s by default). No step sleeps for a fixed time. A
-   `trust_dialog_watcher` runs in parallel: it polls `tmux capture-pane`, strips
-   CSI, and presses Enter when both "trust" and "folder" appear.
+   `init_timeout` (60s by default). No step sleeps for a fixed time.
+   `startup_dialog_watcher` runs in parallel: it polls `tmux capture-pane`,
+   strips CSI, and answers the trust and bypass dialogs (`tmux/trust.rs`).
 6. `stop_fallback_loop` watches for a `Stop` event. Each one gives the tail loop
    up to 2s (40 × 50ms) to emit a `Result` from the JSONL `turn_duration`
    record. Past that it synthesizes `ResultSuccess` from the Stop payload's

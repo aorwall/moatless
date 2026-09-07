@@ -1,20 +1,11 @@
 # moatless-sandbox-control
 
-Token signing and verification live in `moatless_core::sandbox_jwt`.
-`lifecycle::watcher::classify_observation` stays here, because it calls
-`Lifecycle`. The drivers' manifest metadata records their dependency
-exceptions. Dependency order lives in
-[BANDS](../../tooling/arch-rules/src/band_order.rs).
+Token signing and verification live in `moatless_core::sandbox_jwt`, not here.
+`lifecycle::watcher::classify_observation` stays in this crate, because it calls
+`Lifecycle`. The drivers' manifest metadata records their dependency exceptions.
 
-## What each module owns
-
-- HTTP routes in `routes.rs` call handlers. A handler owns no provider logic.
-- `lifecycle/` owns durable sandbox intent, and every start, stop, restart,
-  redeploy and remove orchestration.
-- `SandboxRuntime` (`moatless_sandbox_runtime::runtime`) is the provider
-  mutation port. The provider crates implement it natively.
-- File handlers get a ready `SandboxClient` through `SandboxConnector`, then
-  call the file and search methods directly.
+Each module's `//!` doc states what it owns. A handler in `routes.rs` owns no
+provider logic.
 
 Reach the workspace domain only through the ports `moatless-ports` declares:
 `WorkspaceResolver` and `WorkspaceCredentialReader`. Reach identity only
@@ -47,14 +38,14 @@ credentials, on every channel that reaches a pod. There are two such channels:
 the agent env (`secrets::resolve_task_credentials`) and the sidecar env
 (`secrets::resolve_server_env`).
 
-Both express that order structurally. Seed the map with the workspace's values,
-then `or_insert` each lower source. A source added in the wrong place then
-cannot outrank an older one.
+Express that order structurally: seed the map with the workspace's values, then
+`or_insert` each lower source, so a source added in the wrong place cannot
+outrank an older one.
 
-The pod spec's `env_vars` do not establish that order on their own. A pod's
+The pod spec's `env_vars` do not establish the order on their own. A pod's
 environment is only the starting environment, and both the per-turn agent map
-and a sidecar's `server.env` overlay it. A workspace value must therefore
-travel on the two channels above as well as in the plan.
+and a sidecar's `server.env` overlay it, so a workspace value must travel on the
+two channels above as well as in the plan.
 
 Plugin skills resolve in the same order. `auto_provision` passes both the
 run-as identity and `shape.workspace_id` to `plugin_deliveries`, and
@@ -66,11 +57,10 @@ port therefore takes the workspace id as `&str` and not as an `Option`.
 ## Keeping a Workspace's env_vars configuration
 
 A Workspace's `env_vars` are configuration, and
-`secrets::is_platform_owned_key` is what holds them there. Every channel that
-carries them to a pod filters with it: `secrets::resolve_workspace_env_vars`
-for the agent and sidecar env, `auto_provision::parse_env_vars_from_workspace`
-for the pod spec. Each channel has to filter, because no one of them is
-downstream of the others.
+`secrets::is_platform_owned_key` holds them there. Every channel that carries
+them to a pod filters with it — `secrets::resolve_workspace_env_vars` for the
+agent and sidecar env, `auto_provision::parse_env_vars_from_workspace` for the
+pod spec — and each must filter, because none is downstream of the others.
 
 The filter covers two families of key:
 
@@ -94,18 +84,17 @@ therefore becomes the clone and push credential.
 their own merges. Neither a caller that assembles `workspace_env_vars`
 elsewhere nor a scoped `env` secret can re-open the hole.
 
-A Workspace that must act as another git account has two supported paths, and
-both resolve a real token. `run_as_user_id` names the identity to act as. A
-pinned `workspace_credentials` row names a token directly, and the pin is the
+A Workspace that must act as another git account has two supported paths, both
+resolving a real token: `run_as_user_id` names the identity to act as, and a
+pinned `workspace_credentials` row names a token directly — the pin being the
 path that reaches a repository no identity here holds a credential for.
 `env_vars` is neither path.
 
-`moatless_identity::git_host_tokens::GitHostTokens` resolves a pinned git-host
-credential. Seeding it into the sandbox env is not enough on its own: the
-sandbox and every backend-side call must present the same account. The
-Workspace on the `Actor` (`resolve_task_actor`) is what carries the credential
-there. An actor built without that Workspace resolves the identity's own
-credential, so a new caller that holds a Task must name the Task's Workspace.
+Seeding a pinned credential into the sandbox env is not enough: the sandbox and
+every backend-side call must present the same account. The Workspace on the
+`Actor` (`resolve_task_actor`) carries it there, so a new caller that holds a
+Task must name the Task's Workspace or it resolves the identity's own
+credential.
 
 ## Authorizing a request against the Sandbox
 
@@ -113,7 +102,7 @@ HTTP authorization reads the Sandbox. It does not read the Task.
 `authorize_task_read`, `authorize_task_control` and `authorize_task_write` in
 `access.rs` all work from one `TaskIntent`.
 
-There are three grants, and the split between them is permanence:
+Three grants, split on permanence:
 
 | Grant | What it allows |
 |---|---|
@@ -121,12 +110,12 @@ There are three grants, and the split between them is permanence:
 | control | Operate a running Sandbox: start, stop, restart, redeploy, restart a server, and write a file into the workspace |
 | write | Make a persistent change the owner would have to undo: cleanup, remove, and every server-config change |
 
-`visibility = 'public'` grants read and control to any signed-in caller. Anyone
+`visibility = 'public'` grants read and control to any signed-in caller: anyone
 may operate a public Task's Sandbox, and only the owner or an admin may
 reconfigure it or tear it down.
 
-A controller can open a shell. Everything a shell reaches is therefore control,
-the owner's git token included. Write is the boundary a shell cannot cross.
+A controller can open a shell, so everything a shell reaches is control — the
+owner's git token included. Write is the boundary a shell cannot cross.
 
 ## Writing and reconciling sandbox intent
 
@@ -163,8 +152,3 @@ the owner's git token included. Write is the boundary a shell cannot cross.
   matched to the gRPC `ScopeContext::can_write` gate
   (`grpc_server::resolve_write`).
 
-## Where the provider contract lives
-
-[`crates/sandbox-runtime/AGENTS.md`](../sandbox-runtime/AGENTS.md) states the
-contract every provider must satisfy, beside the traits it constrains. Each
-provider crate's guide states what its own runtime adds.

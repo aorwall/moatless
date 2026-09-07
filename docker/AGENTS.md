@@ -1,5 +1,15 @@
 # docker/
 
+## Building an image locally
+
+```bash
+./docker/build-app.sh        # frontend nginx image
+./docker/build-backend.sh
+./docker/build-sandbox.sh    # on Apple Silicon: --local --only base
+```
+
+Each takes `--local` to skip the push.
+
 ## How the images depend on each other
 
 `ci.yml` builds every image and pushes it to Docker Hub under `REGISTRY_ORG`, a

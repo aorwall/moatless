@@ -48,8 +48,10 @@ from the codex workspace for compatible resolution.
 cd crates/codex-sdk
 cargo build
 cargo build --examples
-cargo clippy -- -D warnings
+cargo clippy --all-targets -- -D warnings
 ```
+
+Run that clippy line verbatim. The root floor line does not reach this crate.
 
 ## Running the tests
 

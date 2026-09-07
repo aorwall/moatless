@@ -13,10 +13,6 @@ stores are private to this crate, and a peer band names a port instead.
 `moatless-workspaces` names `ProviderTokenDao` and `SecretAuditDao` across the
 boundary. Leave both as they are; do not add a port over either.
 
-The request extractors are axum plumbing, not identity. They live in
-`moatless_core::http_auth`, and this crate implements the caller side of
-`UserTokenVerifier` and nothing more.
-
 Adapter installation belongs to the provider crate: an Adapter resolves its
 stored credentials through `AdapterAppReader`, declared in
 `moatless-adapter-model`. Adding an Adapter must not edit this crate. User login

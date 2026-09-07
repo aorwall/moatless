@@ -2,18 +2,12 @@
 
 ## What each module owns
 
-- `http_auth` holds the axum request extractors (`AuthUser`, `MaybeAuthUser`,
-  `OptionalScope`) and the two ports they are built over, `UserTokenVerifier`
-  and `TaskAccess`. `moatless-identity` and `moatless-tasks` implement the two
-  ports, and neither crate is a dependency here.
-- `file_storage` owns the `file_metadata` table and its `FileDao` store. A peer
-  crate names `FileDao` directly; do not add a read port over it.
-- `db` opens the pool and runs the migrations for the whole workspace
-  (`run_migrations`). No other crate declares a migration directory.
-  `db::access_control` translates the shared access policy into SQL predicates;
-  keep SQL construction out of `moatless-types`.
+Each module's `//!` doc states what it owns. Three rules bind them:
 
-Bind the `db::access_control` predicate parameters from one `ScopeContext`:
-`is_admin` first, then `user_id`, starting at the index passed to the helper.
-The free functions build SQL only; mixing callers or reversing bindings can
-change which rows the query admits.
+- Do not add a read port over `file_storage`'s `FileDao`. A peer crate names it
+  directly.
+- No other crate declares a migration directory. `db::run_migrations` runs them
+  for the whole workspace.
+- Keep SQL construction out of `moatless-types`. `db::access_control` is where
+  the shared access policy becomes a predicate; `access_filter`'s own doc states
+  how a caller binds it.
