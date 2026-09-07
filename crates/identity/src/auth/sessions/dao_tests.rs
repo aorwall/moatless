@@ -255,42 +255,6 @@ async fn touch_caps_expiry_and_does_not_update_revoked_rows(pool: PgPool) {
     assert_eq!(times, (after.last_seen_at, after.idle_expires_at));
 }
 
-#[tokio::test]
-async fn a_closed_database_preserves_errors_on_every_dao_operation() {
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_lazy("postgres://localhost/postgres")
-        .unwrap();
-    pool.close().await;
-    let sessions = PgSessionDao(pool);
-    let user_id = Uuid::new_v4();
-    assert!(matches!(
-        sessions
-            .insert_session(&new_session(user_id, b"closed"))
-            .await,
-        Err(sqlx::Error::PoolClosed)
-    ));
-    assert!(matches!(
-        sessions
-            .find_active_by_token_hash(b"closed", Utc::now())
-            .await,
-        Err(sqlx::Error::PoolClosed)
-    ));
-    assert!(matches!(
-        sessions.touch(Uuid::new_v4(), Utc::now(), Utc::now()).await,
-        Err(sqlx::Error::PoolClosed)
-    ));
-    assert!(matches!(
-        sessions.revoke_by_token_hash(b"closed", Utc::now()).await,
-        Err(sqlx::Error::PoolClosed)
-    ));
-    assert!(matches!(
-        sessions
-            .delete_sessions_for_user(&user_id.to_string())
-            .await,
-        Err(sqlx::Error::PoolClosed)
-    ));
-}
-
 fn make_user(id: Uuid, login: &str, is_bot: bool) -> User {
     let now = Utc::now();
     User {

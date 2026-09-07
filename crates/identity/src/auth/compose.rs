@@ -11,9 +11,6 @@ use std::sync::Arc;
 
 impl Authentication {
     /// Build authentication with owner-private session persistence.
-    /// ```compile_fail
-    /// use moatless_identity::auth::sessions::dao::PgSessionDao;
-    /// ```
     pub fn build(
         config: Arc<Config>,
         db: DbPool,

@@ -11,9 +11,6 @@ use moatless_core::http_auth::{TaskAccess, UserTokenVerifier};
 
 /// Application-owned ports needed by authentication. Construction pays this
 /// wiring cost once; route callers see only [`Authentication`].
-/// ```compile_fail
-/// use moatless_identity::auth::sessions::PgSessionDao;
-/// ```
 pub struct AuthenticationPorts {
     pub api_keys: Arc<dyn api_keys::ApiKeyDao>,
     pub pairing: Arc<pairing::DevicePairing>,
@@ -32,7 +29,7 @@ pub struct AuthenticationPorts {
 /// Deep authentication capsule: protocol routes and request authentication
 /// share one private state graph and one session policy.
 /// ```compile_fail
-/// use moatless_identity::auth::sessions::SessionDao;
+/// use moatless_identity::auth::sessions;
 /// ```
 pub struct Authentication {
     pub(super) routes: state::AuthState,

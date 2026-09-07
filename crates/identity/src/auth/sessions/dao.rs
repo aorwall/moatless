@@ -199,4 +199,56 @@ impl SessionDao for PgSessionDao {
 
 #[cfg(all(test, feature = "db-tests"))]
 #[path = "dao_tests.rs"]
-mod tests;
+mod db_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::{NewAuthSession, PgSessionDao, SessionDao};
+    use chrono::{Duration, Utc};
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn a_closed_database_preserves_errors_on_every_dao_operation() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/postgres")
+            .unwrap();
+        pool.close().await;
+        let sessions = PgSessionDao(pool);
+        let user_id = Uuid::new_v4();
+        let now = Utc::now();
+        let new_session = NewAuthSession {
+            id: Uuid::new_v4(),
+            user_id,
+            token_hash: b"closed".to_vec(),
+            csrf_token_hash: b"csrf-hash".to_vec(),
+            authenticated_via: "token".to_string(),
+            group_id: None,
+            created_at: now,
+            last_seen_at: now,
+            idle_expires_at: now + Duration::hours(1),
+            absolute_expires_at: now + Duration::days(1),
+        };
+        assert!(matches!(
+            sessions.insert_session(&new_session).await,
+            Err(sqlx::Error::PoolClosed)
+        ));
+        assert!(matches!(
+            sessions.find_active_by_token_hash(b"closed", now).await,
+            Err(sqlx::Error::PoolClosed)
+        ));
+        assert!(matches!(
+            sessions.touch(Uuid::new_v4(), now, now).await,
+            Err(sqlx::Error::PoolClosed)
+        ));
+        assert!(matches!(
+            sessions.revoke_by_token_hash(b"closed", now).await,
+            Err(sqlx::Error::PoolClosed)
+        ));
+        assert!(matches!(
+            sessions
+                .delete_sessions_for_user(&user_id.to_string())
+                .await,
+            Err(sqlx::Error::PoolClosed)
+        ));
+    }
+}
