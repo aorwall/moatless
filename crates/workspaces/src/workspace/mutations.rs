@@ -1,0 +1,631 @@
+use super::dao::{WorkspaceDao, WorkspacePatch};
+use super::error::WorkspaceError;
+use super::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
+use super::schemas::{
+    AddRepoRequest, CreateWorkspaceRequest, UpdateWorkspaceRequest, WorkspaceRepoInput,
+    resource_config_from_wire, script_configs_from_wire, server_configs_from_wire,
+};
+use crate::repository::dao::RepositoryDao;
+use moatless_ports::identity::UserResolver;
+use moatless_types::access_control::{ScopeContext, resolve_scope_for_create};
+
+fn ensure_workspace_mutable(ws: &Workspace) -> Result<(), WorkspaceError> {
+    if ws.deleted {
+        return Err(WorkspaceError::Conflict(
+            "Workspace has been deleted; reset it from Git before editing it".to_string(),
+        ));
+    }
+    if ws.source == WorkspaceSource::Git {
+        return Err(WorkspaceError::Conflict(
+            "Workspace is synced from Git and is read-only; edit .moatless/workspaces.json to change it".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn kind_for(count: usize) -> WorkspaceKind {
+    match count {
+        0 => WorkspaceKind::Blank,
+        1 => WorkspaceKind::Single,
+        _ => WorkspaceKind::Multi,
+    }
+}
+
+async fn ensure_repos_visible(
+    repositories: &dyn RepositoryDao,
+    ctx: &ScopeContext,
+    placements: &[WorkspaceRepoInput],
+) -> Result<(), WorkspaceError> {
+    for p in placements {
+        if repositories
+            .find_by_id(&p.repository_id, ctx)
+            .await?
+            .is_none()
+        {
+            return Err(WorkspaceError::BadRequest(format!(
+                "Repository '{}' not found or not accessible",
+                p.repository_id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn ensure_privileged_sandbox_fields(
+    ctx: &ScopeContext,
+    sandbox_service_account: Option<&String>,
+    network_profile: Option<&String>,
+) -> Result<(), WorkspaceError> {
+    if ctx.is_admin {
+        return Ok(());
+    }
+    let attempted = match (sandbox_service_account, network_profile) {
+        (Some(_), Some(_)) => "sandboxServiceAccount and networkProfile",
+        (Some(_), None) => "sandboxServiceAccount",
+        (None, Some(_)) => "networkProfile",
+        (None, None) => return Ok(()),
+    };
+    Err(WorkspaceError::Forbidden(format!(
+        "{attempted} may only be set by an admin — these fields grant a sandbox \
+         elevated Kubernetes access"
+    )))
+}
+
+async fn resolve_run_as_user(
+    ctx: &ScopeContext,
+    users: &dyn UserResolver,
+    requested: Option<&String>,
+) -> Result<Option<Option<String>>, WorkspaceError> {
+    let Some(requested) = requested else {
+        return Ok(None);
+    };
+    if !ctx.is_admin {
+        return Err(WorkspaceError::Forbidden(
+            "runAsUserId may only be set by an admin — it makes every task on this \
+             workspace act with another account's git-host credential"
+                .to_string(),
+        ));
+    }
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Ok(Some(None));
+    }
+    users
+        .canonical_id(requested)
+        .await
+        .map_err(|e| WorkspaceError::Db(sqlx::Error::Protocol(e.to_string())))?
+        .map(|id| Some(Some(id.to_string())))
+        .ok_or_else(|| {
+            WorkspaceError::BadRequest(format!("Run-as user {requested} does not exist"))
+        })
+}
+
+fn ensure_unique_mount_names(placements: &[WorkspaceRepoInput]) -> Result<(), WorkspaceError> {
+    let mut seen = std::collections::HashSet::new();
+    for p in placements {
+        if let Some(mount) = p.mount_name.as_deref() {
+            if !seen.insert(mount) {
+                return Err(WorkspaceError::BadRequest(format!(
+                    "Duplicate mount name '{mount}' in workspace"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn ensure_writable(
+    workspaces: &dyn WorkspaceDao,
+    ctx: &ScopeContext,
+    workspace_id: &str,
+) -> Result<(), WorkspaceError> {
+    let existing = workspaces
+        .find_by_id(workspace_id, ctx)
+        .await?
+        .ok_or_else(|| WorkspaceError::NotFound(workspace_id.to_string()))?;
+    ensure_workspace_mutable(&existing)?;
+    // Control is enforced in the DAO via write_filter; the read above just
+    // provides an early NotFound / git-sync guard.
+    Ok(())
+}
+
+/// Apply the caller-authorized workspace mutation.
+pub async fn create_workspace(
+    workspaces: &dyn WorkspaceDao,
+    repositories: &dyn RepositoryDao,
+    users: &dyn UserResolver,
+    ctx: &ScopeContext,
+    req: CreateWorkspaceRequest,
+) -> Result<String, WorkspaceError> {
+    ensure_unique_mount_names(&req.repos)?;
+    ensure_repos_visible(repositories, ctx, &req.repos).await?;
+    ensure_privileged_sandbox_fields(
+        ctx,
+        req.sandbox_service_account.as_ref(),
+        req.network_profile.as_ref(),
+    )?;
+    let run_as_user_id = resolve_run_as_user(ctx, users, req.run_as_user_id.as_ref())
+        .await?
+        .flatten();
+
+    let resolved = resolve_scope_for_create(ctx, req.scope)?;
+
+    let workspace_id = format!("ws_{}", uuid::Uuid::new_v4());
+    let row = Workspace {
+        id: workspace_id.clone(),
+        name: req.name,
+        description: req.description,
+        kind: kind_for(req.repos.len()),
+        docker_image: req.docker_image,
+        docker_access: req.docker_access,
+        sandbox_service_account: req.sandbox_service_account,
+        system_prompt: req.system_prompt,
+        setup_commands: req.setup_commands,
+        env_vars: req.env_vars,
+        servers: req.servers.map(server_configs_from_wire).transpose()?,
+        scripts: req.scripts.map(script_configs_from_wire),
+        resources: req.resources.map(resource_config_from_wire).transpose()?,
+        network_profile: req.network_profile,
+        source: WorkspaceSource::Manual,
+        source_repository_id: None,
+        source_key: None,
+        source_config_path: None,
+        scope: resolved.scope,
+        owner_user_id: resolved.owner_user_id,
+        run_as_user_id,
+        created_by: Some(ctx.user_id.clone()),
+        deleted: false,
+        created_at: None,
+        updated_at: None,
+    };
+    workspaces.insert_workspace(&row).await?;
+
+    // Insert placements non-primary, then elect exactly one primary so the
+    // partial unique index never sees two primaries mid-insert.
+    let mut placement_ids: Vec<String> = Vec::with_capacity(req.repos.len());
+    let mut primary_choice: Option<String> = None;
+    for (i, p) in req.repos.iter().enumerate() {
+        let placement_id = format!("wsr_{}", uuid::Uuid::new_v4());
+        workspaces
+            .add_repo(
+                &WorkspaceRepo {
+                    id: placement_id.clone(),
+                    workspace_id: workspace_id.clone(),
+                    repository_id: p.repository_id.clone(),
+                    branch: p.branch.clone(),
+                    mount_name: p.mount_name.clone(),
+                    is_primary: false,
+                    position: p.position.unwrap_or(i as i32),
+                    created_at: None,
+                },
+                ctx,
+            )
+            .await?;
+        if primary_choice.is_none() && p.is_primary == Some(true) {
+            primary_choice = Some(placement_id.clone());
+        }
+        placement_ids.push(placement_id);
+    }
+    // Default the first placement to primary when the caller flagged none.
+    if let Some(target) = primary_choice.or_else(|| placement_ids.first().cloned()) {
+        workspaces.set_primary(&workspace_id, &target, ctx).await?;
+    }
+
+    Ok(workspace_id)
+}
+
+/// Apply the caller-authorized workspace mutation.
+pub async fn update_workspace(
+    workspaces: &dyn WorkspaceDao,
+    users: &dyn UserResolver,
+    ctx: &ScopeContext,
+    workspace_id: String,
+    req: UpdateWorkspaceRequest,
+) -> Result<(), WorkspaceError> {
+    let existing = workspaces
+        .find_by_id(&workspace_id, ctx)
+        .await?
+        .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
+    ensure_workspace_mutable(&existing)?;
+    ensure_privileged_sandbox_fields(
+        ctx,
+        req.sandbox_service_account.as_ref(),
+        req.network_profile.as_ref(),
+    )?;
+    let run_as_user_id = resolve_run_as_user(ctx, users, req.run_as_user_id.as_ref()).await?;
+
+    // Re-resolve owner_user_id when the scope changes.
+    let (scope, owner_user_id) = match req.scope {
+        Some(new_scope) => {
+            let resolved = resolve_scope_for_create(ctx, Some(new_scope))?;
+            (Some(resolved.scope), Some(resolved.owner_user_id))
+        }
+        None => (None, None),
+    };
+
+    let patch = WorkspacePatch {
+        name: req.name,
+        description: req.description.map(Some),
+        scope,
+        owner_user_id,
+        docker_image: req.docker_image.map(Some),
+        docker_access: req.docker_access.map(Some),
+        sandbox_service_account: req.sandbox_service_account.map(Some),
+        system_prompt: req.system_prompt.map(Some),
+        setup_commands: req.setup_commands.map(Some),
+        env_vars: req.env_vars.map(Some),
+        servers: req
+            .servers
+            .map(|configs| server_configs_from_wire(configs).map(Some))
+            .transpose()?,
+        scripts: req
+            .scripts
+            .map(|configs| Some(script_configs_from_wire(configs))),
+        resources: req
+            .resources
+            .map(|config| resource_config_from_wire(config).map(Some))
+            .transpose()?,
+        network_profile: req.network_profile.map(Some),
+        run_as_user_id,
+        kind: None,
+        // Provenance not editable via the write API.
+        source: None,
+        source_repository_id: None,
+        source_key: None,
+        source_config_path: None,
+    };
+    workspaces.update(&workspace_id, &patch, ctx).await?;
+
+    Ok(())
+}
+
+/// Apply the caller-authorized workspace mutation.
+pub async fn override_workspace(
+    workspaces: &dyn WorkspaceDao,
+    users: &dyn UserResolver,
+    ctx: &ScopeContext,
+    workspace_id: String,
+    req: UpdateWorkspaceRequest,
+) -> Result<(), WorkspaceError> {
+    let existing = workspaces
+        .find_by_id(&workspace_id, ctx)
+        .await?
+        .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
+    if existing.deleted {
+        return Err(WorkspaceError::Conflict(
+            "Workspace has been deleted; reset it from Git before overriding it".to_string(),
+        ));
+    }
+    // Intentionally skipping `ensure_workspace_mutable` — this endpoint is the
+    // explicit way to take ownership of a git-synced workspace. The DAO
+    // write_filter ensures only the owner/admin can do this.
+    //
+    // The privileged-field gate is NOT skipped: taking ownership of a workspace
+    // is not the same as being allowed to elevate it.
+    ensure_privileged_sandbox_fields(
+        ctx,
+        req.sandbox_service_account.as_ref(),
+        req.network_profile.as_ref(),
+    )?;
+    let run_as_user_id = resolve_run_as_user(ctx, users, req.run_as_user_id.as_ref()).await?;
+
+    let patch = WorkspacePatch {
+        name: req.name,
+        description: req.description.map(Some),
+        docker_image: req.docker_image.map(Some),
+        docker_access: req.docker_access.map(Some),
+        sandbox_service_account: req.sandbox_service_account.map(Some),
+        system_prompt: req.system_prompt.map(Some),
+        setup_commands: req.setup_commands.map(Some),
+        env_vars: req.env_vars.map(Some),
+        servers: req
+            .servers
+            .map(|configs| server_configs_from_wire(configs).map(Some))
+            .transpose()?,
+        scripts: req
+            .scripts
+            .map(|configs| Some(script_configs_from_wire(configs))),
+        resources: req
+            .resources
+            .map(|config| resource_config_from_wire(config).map(Some))
+            .transpose()?,
+        network_profile: req.network_profile.map(Some),
+        run_as_user_id,
+        // Mark as manually managed; provenance columns stay unchanged.
+        source: Some(WorkspaceSource::Manual),
+        kind: None,
+        scope: None,
+        owner_user_id: None,
+        source_repository_id: None,
+        source_key: None,
+        source_config_path: None,
+    };
+    workspaces.update(&workspace_id, &patch, ctx).await?;
+
+    Ok(())
+}
+
+/// Apply the caller-authorized workspace mutation.
+pub async fn delete_workspace(
+    workspaces: &dyn WorkspaceDao,
+    ctx: &ScopeContext,
+    workspace_id: String,
+) -> Result<(), WorkspaceError> {
+    let existing = workspaces
+        .find_by_id(&workspace_id, ctx)
+        .await?
+        .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
+
+    let deleted = if existing.source_repository_id.is_some() && existing.source_key.is_some() {
+        workspaces
+            .soft_delete_git_origin(&workspace_id, ctx)
+            .await?
+    } else {
+        ensure_workspace_mutable(&existing)?;
+        workspaces.soft_delete(&workspace_id, ctx).await?
+    };
+    if !deleted {
+        return Err(WorkspaceError::NotFound(workspace_id));
+    }
+    Ok(())
+}
+
+/// Apply the caller-authorized workspace mutation.
+pub async fn add_workspace_repo(
+    workspaces: &dyn WorkspaceDao,
+    repositories: &dyn RepositoryDao,
+    ctx: &ScopeContext,
+    workspace_id: String,
+    req: AddRepoRequest,
+) -> Result<(), WorkspaceError> {
+    ensure_writable(workspaces, ctx, &workspace_id).await?;
+
+    if repositories
+        .find_by_id(&req.repository_id, ctx)
+        .await?
+        .is_none()
+    {
+        return Err(WorkspaceError::BadRequest(format!(
+            "Repository '{}' not found or not accessible",
+            req.repository_id
+        )));
+    }
+
+    let existing = workspaces.find_repos(&workspace_id).await?;
+    if let Some(mount) = req.mount_name.as_deref() {
+        if existing
+            .iter()
+            .any(|r| r.mount_name.as_deref() == Some(mount))
+        {
+            return Err(WorkspaceError::BadRequest(format!(
+                "Duplicate mount name '{mount}' in workspace"
+            )));
+        }
+    }
+
+    let placement_id = format!("wsr_{}", uuid::Uuid::new_v4());
+    let position = req.position.unwrap_or(existing.len() as i32);
+    workspaces
+        .add_repo(
+            &WorkspaceRepo {
+                id: placement_id.clone(),
+                workspace_id: workspace_id.clone(),
+                repository_id: req.repository_id,
+                branch: req.branch,
+                mount_name: req.mount_name,
+                is_primary: false,
+                position,
+                created_at: None,
+            },
+            ctx,
+        )
+        .await?;
+
+    // First repo in a previously-blank workspace, or an explicit request, makes
+    // this placement primary.
+    if req.is_primary == Some(true) || existing.is_empty() {
+        workspaces
+            .set_primary(&workspace_id, &placement_id, ctx)
+            .await?;
+    }
+    workspaces.refresh_kind(&workspace_id, ctx).await?;
+
+    Ok(())
+}
+
+/// Apply the caller-authorized workspace mutation.
+pub async fn remove_workspace_repo(
+    workspaces: &dyn WorkspaceDao,
+    ctx: &ScopeContext,
+    workspace_id: String,
+    placement_id: String,
+) -> Result<(), WorkspaceError> {
+    ensure_writable(workspaces, ctx, &workspace_id).await?;
+
+    let removed = workspaces
+        .remove_repo(&workspace_id, &placement_id, ctx)
+        .await?;
+    if !removed {
+        return Err(WorkspaceError::NotFound(placement_id));
+    }
+    workspaces.refresh_kind(&workspace_id, ctx).await?;
+
+    // Preserve the "exactly one primary when n>=1" invariant if we removed the
+    // primary: promote the next-best remaining placement.
+    let repos = workspaces.find_repos(&workspace_id).await?;
+    if !repos.is_empty() && !repos.iter().any(|r| r.is_primary) {
+        workspaces
+            .set_primary(&workspace_id, &repos[0].id, ctx)
+            .await?;
+    }
+
+    Ok(())
+}
+
+/// Apply the caller-authorized workspace mutation.
+pub async fn set_workspace_primary_repo(
+    workspaces: &dyn WorkspaceDao,
+    ctx: &ScopeContext,
+    workspace_id: String,
+    placement_id: String,
+) -> Result<(), WorkspaceError> {
+    ensure_writable(workspaces, ctx, &workspace_id).await?;
+
+    let ok = workspaces
+        .set_primary(&workspace_id, &placement_id, ctx)
+        .await?;
+    if !ok {
+        return Err(WorkspaceError::NotFound(placement_id));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::reset::reset_source;
+    use super::*;
+
+    fn input(mount: Option<&str>) -> WorkspaceRepoInput {
+        WorkspaceRepoInput {
+            repository_id: "repo".to_string(),
+            branch: None,
+            mount_name: mount.map(str::to_string),
+            is_primary: None,
+            position: None,
+        }
+    }
+
+    fn ctx(is_admin: bool) -> ScopeContext {
+        ScopeContext {
+            user_id: "u1".to_string(),
+            is_admin,
+        }
+    }
+
+    /// The two fields that opt a workspace into an elevated `sandboxAccess`
+    /// profile are admin-only, so enabling a profile in Helm values stays an
+    /// operator decision rather than becoming self-serve.
+    #[test]
+    fn privileged_sandbox_fields_are_admin_only() {
+        let sa = "moatless-admin".to_string();
+        let profile = "moatless-admin".to_string();
+
+        for (account, network) in [
+            (Some(&sa), None),
+            (None, Some(&profile)),
+            (Some(&sa), Some(&profile)),
+        ] {
+            let err = ensure_privileged_sandbox_fields(&ctx(false), account, network).unwrap_err();
+            assert!(
+                matches!(err, WorkspaceError::Forbidden(_)),
+                "non-admin must not select a privileged sandbox identity"
+            );
+            assert!(
+                ensure_privileged_sandbox_fields(&ctx(true), account, network).is_ok(),
+                "admin may select a privileged sandbox identity"
+            );
+        }
+    }
+
+    /// An ordinary edit that never mentions the fields is untouched — otherwise
+    /// a non-admin could not rename their own workspace.
+    #[test]
+    fn absent_privileged_fields_are_allowed_for_anyone() {
+        assert!(ensure_privileged_sandbox_fields(&ctx(false), None, None).is_ok());
+    }
+
+    #[test]
+    fn kind_for_derives_label_from_count() {
+        assert_eq!(kind_for(0), WorkspaceKind::Blank);
+        assert_eq!(kind_for(1), WorkspaceKind::Single);
+        assert_eq!(kind_for(2), WorkspaceKind::Multi);
+        assert_eq!(kind_for(9), WorkspaceKind::Multi);
+    }
+
+    fn workspace_with_source(source: WorkspaceSource) -> Workspace {
+        Workspace {
+            id: "ws_1".to_string(),
+            name: "w".to_string(),
+            description: None,
+            kind: WorkspaceKind::Single,
+            docker_image: None,
+            docker_access: None,
+            sandbox_service_account: None,
+            system_prompt: None,
+            setup_commands: None,
+            env_vars: None,
+            servers: None,
+            scripts: None,
+            resources: None,
+            network_profile: None,
+            source,
+            source_repository_id: None,
+            source_key: None,
+            source_config_path: None,
+            scope: moatless_types::access_control::Scope::User,
+            owner_user_id: None,
+            run_as_user_id: None,
+            created_by: None,
+            deleted: false,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn git_workspace_is_read_only() {
+        let err =
+            ensure_workspace_mutable(&workspace_with_source(WorkspaceSource::Git)).unwrap_err();
+        assert!(matches!(err, WorkspaceError::Conflict(_)));
+    }
+
+    #[test]
+    fn manual_workspace_is_mutable() {
+        assert!(ensure_workspace_mutable(&workspace_with_source(WorkspaceSource::Manual)).is_ok());
+    }
+
+    #[test]
+    fn deleted_workspace_is_not_mutable() {
+        let mut workspace = workspace_with_source(WorkspaceSource::Manual);
+        workspace.deleted = true;
+
+        let err = ensure_workspace_mutable(&workspace).unwrap_err();
+        assert!(matches!(err, WorkspaceError::Conflict(_)));
+    }
+
+    #[test]
+    fn reset_source_requires_full_provenance() {
+        // A workspace that was never git-synced has nothing to reset to.
+        let err = reset_source(&workspace_with_source(WorkspaceSource::Manual)).unwrap_err();
+        assert!(matches!(err, WorkspaceError::BadRequest(_)));
+
+        // A half-stamped row is just as unreachable for the sync.
+        let mut half = workspace_with_source(WorkspaceSource::Manual);
+        half.source_repository_id = Some("repo-1".to_string());
+        assert!(reset_source(&half).is_err());
+
+        let mut overridden = workspace_with_source(WorkspaceSource::Manual);
+        overridden.source_repository_id = Some("repo-1".to_string());
+        overridden.source_key = Some("api".to_string());
+        assert_eq!(reset_source(&overridden).unwrap(), ("repo-1", "api"));
+    }
+
+    #[test]
+    fn unique_mount_names_accepts_distinct_and_nulls() {
+        let placements = vec![
+            input(Some("api")),
+            input(Some("web")),
+            input(None),
+            input(None),
+        ];
+        assert!(ensure_unique_mount_names(&placements).is_ok());
+    }
+
+    #[test]
+    fn unique_mount_names_rejects_duplicates() {
+        let placements = vec![input(Some("api")), input(Some("api"))];
+        let err = ensure_unique_mount_names(&placements).unwrap_err();
+        assert!(matches!(err, WorkspaceError::BadRequest(_)));
+    }
+}

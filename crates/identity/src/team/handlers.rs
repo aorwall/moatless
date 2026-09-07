@@ -1,18 +1,19 @@
 //! Team HTTP handlers.
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 
 use super::error::TeamError;
-use super::models::Team;
+use super::models::TeamCaller;
+use super::operations;
 use super::schemas::{
     AddTeamMemberRequest, CreateTeamRequest, TeamMemberResponse, TeamResponse, UpdateTeamRequest,
 };
 use std::sync::Arc;
 
-use moatless_core::http_auth::AuthUser;
 use crate::team::dao::TeamDao;
+use moatless_core::http_auth::AuthUser;
 
 /// List all teams the user belongs to.
 #[utoipa::path(
@@ -27,13 +28,12 @@ pub async fn list_teams(
     State(teams): State<Arc<dyn TeamDao>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<TeamResponse>>, TeamError> {
-    let teams = if auth.role.as_deref() == Some("admin") {
-        teams.list_all().await?
-    } else {
-        teams.find_teams_for_user(&auth.user_id).await?
+    let caller = TeamCaller {
+        user_id: auth.user_id,
+        is_admin: auth.role.as_deref() == Some("admin"),
     };
-    let resp: Vec<TeamResponse> = teams.into_iter().map(Into::into).collect();
-    Ok(Json(resp))
+    let result = operations::list_teams(teams.as_ref(), &caller).await?;
+    Ok(Json(result.into_iter().map(Into::into).collect()))
 }
 
 /// Create a new team.
@@ -52,33 +52,12 @@ pub async fn create_team(
     auth: AuthUser,
     Json(req): Json<CreateTeamRequest>,
 ) -> Result<(StatusCode, Json<TeamResponse>), TeamError> {
-    if teams.find_by_slug(&req.slug).await?.is_some() {
-        return Err(TeamError::Conflict(format!(
-            "Slug '{}' already taken",
-            req.slug
-        )));
-    }
-
-    let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now();
-    let team = Team {
-        id: id.clone(),
-        name: req.name,
-        slug: req.slug,
-        description: req.description,
-        external_id: None,
-        external_provider: None,
-        is_default: false,
-        settings: serde_json::json!({}),
-        created_at: now,
-        updated_at: now,
+    let caller = TeamCaller {
+        user_id: auth.user_id,
+        is_admin: auth.role.as_deref() == Some("admin"),
     };
-
-    teams.insert(&team).await?;
-    // Add creator as owner member
-    teams.add_member(&id, &auth.user_id, "owner").await?;
-
-    Ok((StatusCode::CREATED, Json(team.into())))
+    let result = operations::create_team(teams.as_ref(), &caller, req).await?;
+    Ok((StatusCode::CREATED, Json(result.into())))
 }
 
 /// Get a team by ID.
@@ -97,20 +76,12 @@ pub async fn get_team(
     auth: AuthUser,
     Path(team_id): Path<String>,
 ) -> Result<Json<TeamResponse>, TeamError> {
-    let team = teams
-        .find_by_id(&team_id)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
-
-    // Non-admin must be a member
-    if auth.role.as_deref() != Some("admin") {
-        let is_member = teams.is_member(&team_id, &auth.user_id).await?;
-        if !is_member {
-            return Err(TeamError::Forbidden("Not a team member".into()));
-        }
-    }
-
-    Ok(Json(team.into()))
+    let caller = TeamCaller {
+        user_id: auth.user_id,
+        is_admin: auth.role.as_deref() == Some("admin"),
+    };
+    let result = operations::get_team(teams.as_ref(), &caller, team_id).await?;
+    Ok(Json(result.into()))
 }
 
 /// Update a team.
@@ -131,22 +102,12 @@ pub async fn update_team(
     Path(team_id): Path<String>,
     Json(req): Json<UpdateTeamRequest>,
 ) -> Result<Json<TeamResponse>, TeamError> {
-    let _existing = teams
-        .find_by_id(&team_id)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
-    ensure_team_manager(&teams, &auth, &team_id).await?;
-
-    teams
-        .update(&team_id, &req.name, req.description.as_deref())
-        .await?;
-
-    let updated = teams
-        .find_by_id(&team_id)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id))?;
-
-    Ok(Json(updated.into()))
+    let caller = TeamCaller {
+        user_id: auth.user_id,
+        is_admin: auth.role.as_deref() == Some("admin"),
+    };
+    let result = operations::update_team(teams.as_ref(), &caller, team_id, req).await?;
+    Ok(Json(result.into()))
 }
 
 /// Delete a team.
@@ -165,13 +126,11 @@ pub async fn delete_team(
     auth: AuthUser,
     Path(team_id): Path<String>,
 ) -> Result<StatusCode, TeamError> {
-    let _existing = teams
-        .find_by_id(&team_id)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
-    ensure_team_manager(&teams, &auth, &team_id).await?;
-
-    teams.delete(&team_id).await?;
+    let caller = TeamCaller {
+        user_id: auth.user_id,
+        is_admin: auth.role.as_deref() == Some("admin"),
+    };
+    operations::delete_team(teams.as_ref(), &caller, team_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -190,10 +149,12 @@ pub async fn list_members(
     auth: AuthUser,
     Path(team_id): Path<String>,
 ) -> Result<Json<Vec<TeamMemberResponse>>, TeamError> {
-    require_team_access(&teams, &auth, &team_id).await?;
-    let members = teams.find_members(&team_id).await?;
-    let resp: Vec<TeamMemberResponse> = members.into_iter().map(Into::into).collect();
-    Ok(Json(resp))
+    let caller = TeamCaller {
+        user_id: auth.user_id,
+        is_admin: auth.role.as_deref() == Some("admin"),
+    };
+    let result = operations::list_members(teams.as_ref(), &caller, team_id).await?;
+    Ok(Json(result.into_iter().map(Into::into).collect()))
 }
 
 /// Add a member to a team.
@@ -214,18 +175,11 @@ pub async fn add_member(
     Path(team_id): Path<String>,
     Json(req): Json<AddTeamMemberRequest>,
 ) -> Result<StatusCode, TeamError> {
-    let _existing = teams
-        .find_by_id(&team_id)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
-    ensure_team_manager(&teams, &auth, &team_id).await?;
-
-    let role = req.role.as_deref().unwrap_or("member");
-    let user_id = req
-        .user_id
-        .parse::<uuid::Uuid>()
-        .map_err(|_| TeamError::BadRequest("user_id must be a uuid".to_string()))?;
-    teams.add_member(&team_id, &user_id, role).await?;
+    let caller = TeamCaller {
+        user_id: auth.user_id,
+        is_admin: auth.role.as_deref() == Some("admin"),
+    };
+    operations::add_member(teams.as_ref(), &caller, team_id, req).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -248,55 +202,10 @@ pub async fn remove_member(
     auth: AuthUser,
     Path((team_id, user_id)): Path<(String, String)>,
 ) -> Result<StatusCode, TeamError> {
-    let _existing = teams
-        .find_by_id(&team_id)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
-    ensure_team_manager(&teams, &auth, &team_id).await?;
-
-    let user_id = user_id
-        .parse::<uuid::Uuid>()
-        .map_err(|_| TeamError::NotFound(format!("User '{user_id}' not found")))?;
-    teams.remove_member(&team_id, &user_id).await?;
+    let caller = TeamCaller {
+        user_id: auth.user_id,
+        is_admin: auth.role.as_deref() == Some("admin"),
+    };
+    operations::remove_member(teams.as_ref(), &caller, team_id, user_id).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// Verify the caller is an admin or an owner/admin member of the team.
-async fn ensure_team_manager(
-    teams: &Arc<dyn TeamDao>,
-    auth: &AuthUser,
-    team_id: &str,
-) -> Result<(), TeamError> {
-    if auth.role.as_deref() == Some("admin") {
-        return Ok(());
-    }
-    let members = teams.find_members(team_id).await?;
-    let caller_role = members
-        .iter()
-        .find(|m| m.user_id == auth.user_id)
-        .map(|m| m.role.as_str());
-    match caller_role {
-        Some("owner") | Some("admin") => Ok(()),
-        _ => Err(TeamError::Forbidden("Must be a team owner or admin".into())),
-    }
-}
-
-/// Verify the caller is an admin or a member of the team.
-async fn require_team_access(
-    teams: &Arc<dyn TeamDao>,
-    auth: &AuthUser,
-    team_id: &str,
-) -> Result<(), TeamError> {
-    let _existing = teams
-        .find_by_id(team_id)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id.to_string()))?;
-
-    if auth.role.as_deref() != Some("admin") {
-        let is_member = teams.is_member(team_id, &auth.user_id).await?;
-        if !is_member {
-            return Err(TeamError::Forbidden("Not a team member".into()));
-        }
-    }
-    Ok(())
 }

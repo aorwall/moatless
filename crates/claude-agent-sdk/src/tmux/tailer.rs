@@ -15,15 +15,15 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::error::{Result, SdkError};
 use crate::api::messages::{ApiKeySource, SdkMessage, SystemInitMessage};
 use crate::api::options::ClaudeOptions;
+use crate::error::{Result, SdkError};
 
 use super::hooks::{
     HookEvent, HookLine, extract_last_assistant_message, extract_session_id,
     extract_transcript_path,
 };
-use super::session::{TmuxSession, list_jsonl_stems};
+use super::session::TmuxSession;
 use super::subagents::{
     SubagentRegistry, spawn_subagent_watcher, subagent_dir, sum_transcript_usage,
 };
@@ -31,6 +31,7 @@ use super::translator::{
     Translated, TurnAccumulator, extract_subagent_completion, translate_record,
     translate_stop_payload_fallback,
 };
+use crate::transcripts::list_jsonl_stems;
 
 /// Retry budget for the Stop fallback: wait up to 40 × 50ms = 2s for the
 /// `tail_loop` to emit a `Result` from the JSONL `turn_duration` record before
@@ -230,8 +231,8 @@ pub(crate) fn spawn_lazy_supervisor(
         // Resume (`--resume <id>`) and `--continue` both append to an EXISTING
         // transcript, so snapshot-diff never sees a new file — target it
         // directly instead of waiting on the turn-end Stop hook. See
-        // [`super::session::resolve_resume_target`].
-        let resume_target = super::session::resolve_resume_target(&options, &project_dir).await;
+        // [`crate::transcripts::resolve_resume_target`].
+        let resume_target = crate::transcripts::resolve_resume_target(&options, &project_dir).await;
 
         let discover_rx = state_rx.clone();
         let before_for_discover = before.clone();

@@ -5,16 +5,15 @@ use std::fmt::Write as _;
 
 use tracing::warn;
 
+use moatless_adapter_model::binding::BindingContext;
 use moatless_adapter_model::capabilities::{
     AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
 };
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::outbound::{DestinationPostResult, OutboundReply, TaskProvenance};
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::TaskBinding;
-use moatless_types::adapter::{
-    BindingContext, DestinationPostResult, OutboundPresentation, OutboundReply, SlackBlock,
-    SlackText, TaskProvenance,
-};
+use moatless_types::adapter::{OutboundPresentation, SlackBlock, SlackText};
 use moatless_types::loops::LoopContext;
 use moatless_types::loops::SubscriptionMatch;
 
@@ -292,15 +291,16 @@ impl AdapterDirectMessage for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
+    use moatless_adapter_model::binding::BindingContext;
     use moatless_adapter_model::capabilities::{
         AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage,
     };
+    use moatless_adapter_model::outbound::{
+        OutboundFile, OutboundReply, TaskOrigin, TaskProvenance,
+    };
     use moatless_adapter_model::test_support::ProviderStub;
     use moatless_types::access_control::Scope;
-    use moatless_types::adapter::{
-        BindingContext, OutboundFile, OutboundPresentation, OutboundReply, SlackBlock,
-        SlackPlainText, TaskOrigin, TaskProvenance,
-    };
+    use moatless_types::adapter::{OutboundPresentation, SlackBlock, SlackPlainText};
     use moatless_types::loops::{LoopContext, RoutingMode};
 
     use crate::adapter::SlackAdapter;

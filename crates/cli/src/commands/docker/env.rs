@@ -9,8 +9,8 @@ use std::fs;
 
 use serde::{Deserialize, Serialize};
 
+use super::docker_compose::{ComposeDirSource, ENV_EXAMPLE_FILE, ENV_FILE, resolve_compose_dir};
 use super::env_file::{is_placeholder, is_secret, read_env_map, set_env, write_env_file};
-use super::compose::{resolve_compose_dir, ComposeDirSource, ENV_EXAMPLE_FILE, ENV_FILE};
 use super::{EnvAction, EnvListArgs, EnvSetArgs, EnvUnsetArgs};
 use crate::client::ClientError;
 use crate::output;

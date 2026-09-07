@@ -117,7 +117,7 @@ pub async fn list(
 
 /// A Script as `moat tasks scripts list` reports it — everything needed to
 /// resolve and describe a Script, minus `env_vars`. That field is carried
-/// across a client rewrite so a rename does not clear it ([`carry_over_env`]),
+/// across a client rewrite by the Workspace-owned write operation,
 /// is never sent to the T3 client either, and stays that way here: a
 /// task-scoped bearer key reads this route without the workspace-level access
 /// a pinned secret would assume.
@@ -308,72 +308,25 @@ impl From<sqlx::Error> for ScriptsWriteError {
     }
 }
 
-/// Replace a Workspace's declared Scripts with the list the client submitted.
-///
-/// Wholesale, because that is how the client edits: adding, editing and
-/// deleting one Script are all the same `project.meta.update` carrying the list
-/// as it should now be. Reading the current list first is therefore not a
-/// read-modify-write of the *list* — the client already resolved that — but of
-/// each Script's fields the client never sees ([`carry_over_env`]).
+/// Decode the client list and dispatch its replacement to the Workspace owner.
 pub async fn replace(
-    workspaces: &dyn T3WorkspaceDao,
+    commands: &dyn crate::ports::WorkspaceScriptCommands,
     viewer: &ScopeContext,
     workspace_id: &str,
     submitted: &Value,
 ) -> Result<(), ScriptsWriteError> {
-    let target = workspaces
-        .scripts_write_target(viewer, workspace_id)
-        .await?
-        .ok_or(ScriptsWriteError::NotFound)?;
-    if target.is_git_synced() {
-        return Err(ScriptsWriteError::GitSynced);
-    }
-
-    let next = script_configs(submitted, &target.scripts)?;
-    if !workspaces
-        .replace_scripts(viewer, workspace_id, &next)
-        .await?
-    {
-        // The row was there for the read and is not there for the write:
-        // deleted, unshared or git-synced in between. Same answer as the read
-        // finding nothing, because from here it is the same situation.
-        return Err(ScriptsWriteError::NotFound);
-    }
-    Ok(())
-}
-
-/// The submitted wire Scripts as stored [`ScriptConfig`]s, folded onto what the
-/// Workspace declares today.
-fn script_configs(
-    submitted: &Value,
-    existing: &[ScriptConfig],
-) -> Result<Vec<ScriptConfig>, ScriptsWriteError> {
     let submitted = submitted
         .as_array()
         .ok_or_else(|| ScriptsWriteError::Invalid("`scripts` must be a list.".to_string()))?;
-
-    let mut next: Vec<ScriptConfig> = Vec::with_capacity(submitted.len());
-    for script in submitted {
-        let config = script_config(script, existing)?;
-        // The name is the identity — it is what `scripts.run` resolves and what
-        // has to survive a git round trip — so a list that names one twice has
-        // no single answer for either.
-        if next.iter().any(|kept| kept.name == config.name) {
-            return Err(ScriptsWriteError::Invalid(format!(
-                "Two scripts share the name `{}`.",
-                config.name
-            )));
-        }
-        next.push(config);
-    }
-    Ok(next)
+    let next = submitted
+        .iter()
+        .map(script_config)
+        .collect::<Result<Vec<_>, _>>()?;
+    commands.replace_scripts(viewer, workspace_id, &next).await
 }
 
 /// One wire Script as a stored one.
-fn script_config(
-    script: &Value,
-    existing: &[ScriptConfig],
-) -> Result<ScriptConfig, ScriptsWriteError> {
+fn script_config(script: &Value) -> Result<ScriptConfig, ScriptsWriteError> {
     // `id` is the stored name: the projection reports the name as the id
     // precisely because a Script has no backend-allocated id to report.
     let name = required_field(script, "id")?;
@@ -397,7 +350,7 @@ fn script_config(
         .map(str::to_string);
 
     Ok(ScriptConfig {
-        env_vars: carry_over_env(&name, existing),
+        env_vars: None,
         port: port(script)?,
         name,
         label,
@@ -438,22 +391,6 @@ fn port(script: &Value) -> Result<Option<u16>, ScriptsWriteError> {
                 "`{port}` is not a port. Use a number from 1 to 65535, or leave it empty."
             ))
         })
-}
-
-/// The environment a Script of this name already carried.
-///
-/// `envVars` is stored on a Script and is not on T3's wire — there is no field
-/// for it in the contract and no control for it in the client. A write that
-/// took the submitted Script at face value would therefore clear it every time
-/// somebody renamed a Script's command, so it is carried across by name.
-fn carry_over_env(
-    name: &str,
-    existing: &[ScriptConfig],
-) -> Option<std::collections::HashMap<String, String>> {
-    existing
-        .iter()
-        .find(|script| script.name == name)
-        .and_then(|script| script.env_vars.clone())
 }
 
 #[cfg(test)]

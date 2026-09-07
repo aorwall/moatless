@@ -157,6 +157,19 @@ pub async fn run(
     }
 }
 
+/// A subprocess status returned to the executable entry point.
+#[derive(Debug, thiserror::Error)]
+#[error("gh exited with status {0}")]
+pub struct CommandExit(pub i32);
+
+fn command_status(code: i32) -> Result<(), Box<dyn std::error::Error>> {
+    if code == 0 {
+        Ok(())
+    } else {
+        Err(Box::new(CommandExit(code)))
+    }
+}
+
 /// Classify the invocation: a successfully parsed `pr create` / `pr comment`
 /// / `issue comment` is handled by the typed path; anything else (including
 /// those three with unrecognized flags) returns `None` → passthrough.
@@ -339,7 +352,7 @@ async fn run_stack(
         .status()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
     if !status.success() {
-        std::process::exit(status.code().unwrap_or(1));
+        return command_status(status.code().unwrap_or(1));
     }
 
     let Some(subcommand) = invocation.args.get(1).map(String::as_str) else {
@@ -398,7 +411,7 @@ fn passthrough(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let status = gh_command(args, token.as_deref())
         .status()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
-    std::process::exit(status.code().unwrap_or(1));
+    command_status(status.code().unwrap_or(1))
 }
 
 /// Resolve `--body` / `--body-file` into the optional body the API takes.
@@ -871,7 +884,7 @@ async fn run_api(
         }
     }
 
-    std::process::exit(output.status.code().unwrap_or(1));
+    command_status(output.status.code().unwrap_or(1))
 }
 
 /// Detect a `gh api` argument list that creates a review comment, a review or
@@ -998,6 +1011,17 @@ fn last_id_after(text: &str, anchor: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn github_child_status_remains_available_to_the_executable() {
+        assert!(super::command_status(0).is_ok());
+        for code in [1, 2, 42, 127] {
+            let error = super::command_status(code).expect_err("nonzero child status");
+            let status = error
+                .downcast_ref::<super::CommandExit>()
+                .expect("typed child status");
+            assert_eq!(status.0, code);
+        }
+    }
     use super::*;
 
     fn argv(args: &[&str]) -> Vec<String> {
@@ -1480,11 +1504,13 @@ mod tests {
         assert!(parse_created_id("gh: Not Found (HTTP 404)", ApiCreated::ReviewComment).is_none());
         // The anchor must match the shape — a review submission's response does
         // not name a review comment.
-        assert!(parse_created_id(
-            "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
-            ApiCreated::ReviewComment
-        )
-        .is_none());
+        assert!(
+            parse_created_id(
+                "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
+                ApiCreated::ReviewComment
+            )
+            .is_none()
+        );
     }
 
     #[test]

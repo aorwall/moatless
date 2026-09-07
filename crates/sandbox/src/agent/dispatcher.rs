@@ -174,13 +174,11 @@ async fn dispatch_pending_messages_for_context(
     let effort = delivery.effort;
     let resume_session_id = delivery.resume_session_id;
     let start_fresh = delivery.start_fresh;
-    let fork = delivery
-        .fork
-        .map(|fork| crate::agent::types::ForkSource {
-            source_session_id: fork.source_session_id,
-            source_message_uuid: fork.source_message_uuid,
-            source_agent_turn_id: fork.source_agent_turn_id,
-        });
+    let fork = delivery.fork.map(|fork| crate::agent::types::ForkSource {
+        source_session_id: fork.source_session_id,
+        source_message_uuid: fork.source_message_uuid,
+        source_agent_turn_id: fork.source_agent_turn_id,
+    });
     let skills = delivery.skills;
 
     // A delivery with neither text nor skills has nothing to open a turn with.

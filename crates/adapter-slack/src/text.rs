@@ -6,7 +6,7 @@
 
 use std::fmt::Write as _;
 
-use moatless_types::adapter::TaskProvenance;
+use moatless_adapter_model::outbound::TaskProvenance;
 
 /// Build Slack-specific reply instructions, with the bot's own Slack identity
 /// stated up-front so the agent always knows who it is in the thread.
@@ -106,7 +106,7 @@ pub(super) fn with_task_link(text: &str, provenance: Option<&TaskProvenance>) ->
 #[cfg(test)]
 mod tests {
     use super::{reply_instructions, with_task_link};
-    use moatless_types::adapter::{TaskOrigin, TaskProvenance};
+    use moatless_adapter_model::outbound::{TaskOrigin, TaskProvenance};
 
     /// The instructions offer a raw Slack id as the way to mention someone
     /// Moatless does not know. That only works if the id the agent is shown

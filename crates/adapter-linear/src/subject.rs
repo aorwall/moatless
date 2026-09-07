@@ -14,13 +14,12 @@
 //! differently would write a Binding nothing could find.
 
 use moatless_adapter_model::error::AdapterError;
-use moatless_types::adapter::AdapterConnection;
-use moatless_types::loops::SubscriptionMatch;
-use moatless_types::adapter::TaskBinding;
 use moatless_adapter_model::loops::LoopReader;
 use moatless_loops::bindings::dao::TaskBindingDao;
+use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::TaskBinding;
+use moatless_types::loops::SubscriptionMatch;
 
-use super::SUBJECT_KIND_ISSUE;
 use super::webhook_payloads::{AgentSession, IssuePayload};
 
 pub(super) const ADAPTER: &str = "linear";
@@ -200,6 +199,12 @@ pub(super) fn issue_destination_config(issue: &IssuePayload, team_id: &str) -> s
         "issue_url": issue.url,
     })
 }
+
+/// `task_bindings.subject_kind` for bindings that point to a Linear issue
+/// (CLI-created or operator-initiated). Distinct from the existing
+/// `linear_agent_session` kind, which routes replies through
+/// `agentActivityCreate`; `linear_issue` routes through `commentCreate`.
+pub const SUBJECT_KIND_ISSUE: &str = "linear_issue";
 
 #[cfg(test)]
 mod tests {

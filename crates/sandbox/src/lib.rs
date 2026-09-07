@@ -23,6 +23,7 @@ pub mod error;
 pub mod events;
 pub mod files;
 pub mod grpc_server;
+mod git_push_watcher;
 pub mod init;
 pub mod outbox;
 pub mod preview_proxy;
@@ -31,3 +32,13 @@ pub mod shutdown;
 pub mod state;
 pub mod supervisor;
 pub mod terminal;
+
+pub(crate) mod transcript_sync;
+pub mod workspace_sync;
+
+pub mod app;
+mod compose;
+mod health;
+mod task_context;
+
+mod terminal_grpc;

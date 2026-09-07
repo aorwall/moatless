@@ -268,55 +268,26 @@ pub fn stamp_operation_generation(config: &mut ContainerConfig, ctx: RuntimeOper
     );
 }
 
-/// Build `REPO_CONFIG` JSON string for the sandbox container.
-///
-/// This is a pass-through of the repo config fields that the sandbox
-/// needs (system prompt, code execution, plugins, etc.).
 fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
-    let rc = &plan.repo_config;
-    if rc.system_prompt.is_none()
-        && rc.code_execution.is_none()
-        && rc.preview_config.is_none()
-        && rc.servers.is_none()
-        && rc.plugins.is_none()
-    {
-        return None;
-    }
-
-    let mut map = serde_json::Map::new();
-    if let Some(ref sp) = rc.system_prompt {
-        map.insert("systemPrompt".into(), serde_json::json!(sp));
-    }
-    if let Some(ref ce) = rc.code_execution {
-        map.insert("codeExecution".into(), ce.clone());
-    }
-    if let Some(ref pc) = rc.preview_config {
-        map.insert("previewConfig".into(), pc.clone());
-    }
-    if let Some(ref servers) = rc.servers {
-        let server_entries: Vec<serde_json::Value> = servers
-            .iter()
-            .map(|s| {
-                let mut entry = serde_json::json!({"name": s.name, "port": s.port.map(Port::get)});
-                if !s.start_commands.is_empty() {
-                    entry["startCommands"] = serde_json::json!(s.start_commands);
-                }
-                if !s.env_vars.is_empty() {
-                    entry["envVars"] = serde_json::json!(s.env_vars);
-                }
-                if let Some(ref img) = s.docker_image {
-                    entry["dockerImage"] = serde_json::json!(img);
-                }
-                entry
-            })
-            .collect();
-        map.insert("servers".into(), serde_json::json!(server_entries));
-    }
-    if let Some(ref plugins) = rc.plugins {
-        map.insert("plugins".into(), serde_json::json!(plugins));
-    }
-
-    Some(serde_json::Value::Object(map).to_string())
+    moatless_sandbox_runtime::repo_config_encoding::encode_repo_config(
+        &plan.repo_config,
+        |server| {
+            let mut fields = serde_json::Map::new();
+            if !server.start_commands.is_empty() {
+                fields.insert(
+                    "startCommands".into(),
+                    serde_json::json!(server.start_commands),
+                );
+            }
+            if !server.env_vars.is_empty() {
+                fields.insert("envVars".into(), serde_json::json!(server.env_vars));
+            }
+            if let Some(image) = &server.docker_image {
+                fields.insert("dockerImage".into(), serde_json::json!(image));
+            }
+            fields
+        },
+    )
 }
 
 /// Validate a server's configuration before we try to launch it.
@@ -663,6 +634,31 @@ mod tests {
                 service_name: "test".into(),
             },
         }
+    }
+
+    #[test]
+    fn repo_config_preserves_docker_server_projection() {
+        let mut plan = test_plan();
+        plan.repo_config.servers = Some(vec![ServerConfig {
+            name: "web".into(),
+            port: Port::new(3000),
+            start_commands: vec!["run".into()],
+            env_vars: serde_json::from_value(serde_json::json!({"KEY": "value"}))
+                .expect("env vars"),
+            auto_reload: true,
+            docker_image: Some("image".into()),
+            label: Some("Web".into()),
+            ..Default::default()
+        }]);
+        let encoded = build_repo_config_json(&plan).expect("config");
+        let value: serde_json::Value = serde_json::from_str(&encoded).expect("json");
+        assert_eq!(
+            value["servers"],
+            serde_json::json!([{
+                "name": "web", "port": 3000, "startCommands": ["run"],
+                "envVars": {"KEY": "value"}, "dockerImage": "image"
+            }])
+        );
     }
 
     fn test_plan() -> ProvisionPlan {

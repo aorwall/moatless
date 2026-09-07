@@ -51,21 +51,21 @@ dependency on the crate behind it.
 
 ## Measuring the RPC surface
 
-`record_request` (`lib.rs`) counts, times and marks every request. The one
+`record_request` (`rpc/metrics.rs`) counts, times and marks every request. The one
 `ClientFrame::Request` arm calls it. It reads the outcome off the frames the
 handler returned. The fifty dispatch arms each build their own frames, and none
 of them reports an outcome of its own.
 
 **Do not add a counter to a dispatch arm.** Add whatever the outcome needs to
-`rpc_metrics::Outcome` and let the seam emit it. Two counters drift, and a
+`rpc::metrics::Outcome` and let the seam emit it. Two counters drift, and a
 reader then cannot tell which one is the surface's.
 
-`rpc_metrics::CONNECTION_BLOCKED` is the one metric emitted outside that seam,
-from `serve_websocket`. It measures the connection and not the request: a frame
-is already read by the time `incoming.next()` yields it, so the wait a queued
-request suffers is not observable from the seam that answers it. A metric whose
-subject is the connection goes in the connection loop; everything a request
-answers with still goes through `record_request`.
+`rpc::metrics::CONNECTION_BLOCKED` is the one metric emitted outside that seam,
+from `rpc/socket.rs::serve_websocket`. It measures the connection and not the
+request: a frame is already read by the time `incoming.next()` yields it, so the
+wait a queued request suffers is not observable from the seam that answers it. A
+metric whose subject is the connection goes in the connection loop; everything
+a request answers with still goes through `record_request`.
 
 **The `tag` label is bounded by outcome, and never by trust.** A tag is a
 string the client chose, so labelling with it directly gives an unbounded label

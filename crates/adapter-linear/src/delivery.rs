@@ -28,7 +28,7 @@ use moatless_adapter_model::delivery::{
 };
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
-use moatless_loops::adapters::delivery::{ConnectionDeliveryPayload, register_connection_delivery};
+use moatless_loops::adapters::delivery::{register_connection_delivery, ConnectionDeliveryPayload};
 use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_ports::identity::AppCredentials;
@@ -443,10 +443,13 @@ impl LinearInboundRouter {
                     .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
             })
             .unwrap_or_default();
-        let rules =
-            super::ingress::resolve_rules_for_team(self.loops.as_ref(), &connection, &team_id)
-                .await
-                .map_err(AdapterDeliveryFailure::from)?;
+        let rules = super::subscription_rules::resolve_rules_for_team(
+            self.loops.as_ref(),
+            &connection,
+            &team_id,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
 
         if rules.is_empty() {
             info!(
@@ -546,10 +549,13 @@ impl LinearInboundRouter {
         // handler re-resolves: a rule disabled between admission and execution
         // should stop the work, which is what disabling it means.
         let team_id = payload.issue.resolved_team_id().unwrap_or_default();
-        let rules =
-            super::ingress::resolve_rules_for_team(self.loops.as_ref(), &connection, team_id)
-                .await
-                .map_err(AdapterDeliveryFailure::from)?;
+        let rules = super::subscription_rules::resolve_rules_for_team(
+            self.loops.as_ref(),
+            &connection,
+            team_id,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
         if rules.is_empty() {
             debug!(
                 issue = %payload.issue.identifier,

@@ -47,6 +47,8 @@ impl From<crate::agent_harness_access::AgentHarnessAccessError> for AccessSettin
     fn from(error: crate::agent_harness_access::AgentHarnessAccessError) -> Self {
         use crate::agent_harness_access::AgentHarnessAccessError;
         match error {
+            AgentHarnessAccessError::Forbidden(message) => Self::Forbidden(message),
+            AgentHarnessAccessError::AuthForbidden => Self::AuthForbidden,
             AgentHarnessAccessError::BadRequest(message) => Self::BadRequest(message),
             AgentHarnessAccessError::Db(source) => Self::Db(source),
             AgentHarnessAccessError::OAuth(source) => Self::CodexOAuth(source),

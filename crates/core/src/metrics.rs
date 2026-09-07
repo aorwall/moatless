@@ -1,6 +1,6 @@
 //! Prometheus metrics for the runtime service.
 
-use axum::{extract::State, response::IntoResponse, routing::get, Router};
+use axum::{Router, extract::State, response::IntoResponse, routing::get};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::sync::Arc;
 
@@ -15,8 +15,8 @@ const DURATION_SECONDS_BUCKETS: &[f64] = &[
 
 /// Metrics state containing the Prometheus handle
 #[derive(Clone)]
-pub struct MetricsState {
-    pub handle: Arc<PrometheusHandle>,
+struct MetricsState {
+    handle: Arc<PrometheusHandle>,
 }
 
 /// The exporter as this process configures it, before a recorder is built

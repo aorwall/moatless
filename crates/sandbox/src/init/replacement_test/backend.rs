@@ -4,8 +4,8 @@
 //! probe sees it gone — modelling the real ack the startup race hinges on.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 use sandbox_proto::{

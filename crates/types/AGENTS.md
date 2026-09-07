@@ -5,6 +5,8 @@ Admission and dependency constraints live in
 
 ## Rules for adding or moving a type
 
+- `string_enum` is private macro support shared by domain modules. It defines
+  no domain of its own; keep its invocation name stable for architecture analysis.
 - **The module is the domain, named from `CONTEXT.md`.** A reader who knows
   which domain a type belongs to then knows which file to open. Do not add a
   module named for the kind of thing it holds. `config`, `error`, `kind` and

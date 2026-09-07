@@ -16,6 +16,7 @@ utoipa = { workspace = true, features = ["axum_extras"] }
 uuid = { workspace = true, features = ["v4"] }
 
 moatless-adapter-model = { workspace = true, features = ["http"] }
+moatless-api-schemas = { workspace = true, features = ["openapi"] }
 moatless-types = { workspace = true }
 
 [lints]

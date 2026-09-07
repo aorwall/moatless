@@ -7,8 +7,8 @@
 //! In plan mode, write tools (Write, Edit, Bash, etc.) are blocked until
 //! `ExitPlanMode` has been approved.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::json;
 
@@ -280,8 +280,8 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use claude_agent_sdk::api::permissions::PermissionContext;
     use claude_agent_sdk::PermissionHandler;
+    use claude_agent_sdk::api::permissions::PermissionContext;
 
     fn test_context() -> PermissionContext {
         PermissionContext {

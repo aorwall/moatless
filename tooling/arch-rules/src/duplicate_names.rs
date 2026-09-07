@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 
 use crate::Violation;
-use crate::public_api::{Export, exports, root_of};
+use crate::public_api::{Export, exports};
 use crate::workspace::Workspace;
 
 pub const RULE: &str = "duplicate-type-name";
@@ -38,9 +38,15 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
             continue;
         };
         let sources: BTreeMap<String, String> = ws.sources(member)?.into_iter().collect();
-        let Some(root) = root_of(&sources, &ws.relative(&member.dir)) else {
+        let Some(target) = member
+            .targets
+            .iter()
+            .find(|t| t.library())
+            .or_else(|| member.targets.iter().find(|t| t.executable()))
+        else {
             continue;
         };
+        let root = ws.relative(&target.path);
         per_crate.insert((*crate_name).to_string(), exports(&sources, &root)?);
     }
 

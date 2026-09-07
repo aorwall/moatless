@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use codex_app_server::in_process::InProcessServerEvent;
 use codex_app_server_client::InProcessAppServerClient;
 use codex_app_server_client::InProcessAppServerRequestHandle;
-use tokio::task::JoinHandle;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::CommandExecutionRequestApprovalResponse;
 use codex_app_server_protocol::FileChangeRequestApprovalResponse;
@@ -15,7 +14,8 @@ use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::UserInput;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -38,7 +38,8 @@ pub struct QueryHandle {
     thread_id: String,
     request_handle: InProcessAppServerRequestHandle,
     cancellation_token: CancellationToken,
-    turn_counter: AtomicI64,
+    request_counter: AtomicI64,
+    turns: TurnAdmission,
     orchestrator_handle: Option<JoinHandle<()>>,
 }
 
@@ -79,6 +80,8 @@ impl QueryHandle {
                         text_elements: Vec::new(),
                     }],
                     responsesapi_client_metadata: None,
+                    additional_context: None,
+                    client_user_message_id: None,
                     expected_turn_id: String::new(),
                 },
             })
@@ -90,23 +93,27 @@ impl QueryHandle {
     /// Start a new turn with the given prompt text.
     /// Used in multi-turn mode (`query_streaming`).
     pub async fn send(&self, prompt: &str) -> Result<()> {
-        let id = self.next_request_id();
-        let _response: TurnStartResponse = self
-            .request_handle
-            .request_typed(ClientRequest::TurnStart {
-                request_id: id,
-                params: TurnStartParams {
-                    thread_id: self.thread_id.clone(),
-                    input: vec![UserInput::Text {
-                        text: prompt.to_string(),
-                        text_elements: Vec::new(),
-                    }],
-                    ..Default::default()
-                },
+        self.turns
+            .submit(async {
+                let id = self.next_request_id();
+                let _response: TurnStartResponse = self
+                    .request_handle
+                    .request_typed(ClientRequest::TurnStart {
+                        request_id: id,
+                        params: TurnStartParams {
+                            thread_id: self.thread_id.clone(),
+                            input: vec![UserInput::Text {
+                                text: prompt.to_string(),
+                                text_elements: Vec::new(),
+                            }],
+                            ..Default::default()
+                        },
+                    })
+                    .await
+                    .map_err(|e| SdkError::Request(format!("turn/start failed: {e}")))?;
+                Ok(())
             })
             .await
-            .map_err(|e| SdkError::Request(format!("turn/start failed: {e}")))?;
-        Ok(())
     }
 
     /// Signal cancellation and stop the orchestrator.
@@ -128,8 +135,28 @@ impl QueryHandle {
     }
 
     fn next_request_id(&self) -> RequestId {
-        let id = self.turn_counter.fetch_add(1, Ordering::Relaxed);
+        let id = self.request_counter.fetch_add(1, Ordering::Relaxed);
         RequestId::Integer(id)
+    }
+}
+
+struct TurnAdmission {
+    maximum: Option<u32>,
+    successful: Mutex<u64>,
+}
+
+impl TurnAdmission {
+    async fn submit<T>(&self, request: impl Future<Output = Result<T>>) -> Result<T> {
+        let mut successful = self.successful.lock().await;
+        if self
+            .maximum
+            .is_some_and(|maximum| *successful >= u64::from(maximum))
+        {
+            return Err(SdkError::Request("maximum turn count reached".into()));
+        }
+        let response = request.await?;
+        *successful = successful.saturating_add(1);
+        Ok(response)
     }
 }
 
@@ -138,51 +165,12 @@ impl QueryHandle {
 ///
 /// This is the Codex equivalent of the Claude SDK's `query()`.
 pub async fn query(prompt: &str, options: CodexOptions) -> Result<QueryHandle> {
-    let state = runtime::start_runtime(&options).await?;
-    let cancel_token = options.cancellation_token.clone().unwrap_or_default();
-    let approval_handler: Arc<dyn ApprovalHandler> = options
-        .approval_handler
-        .clone()
-        .unwrap_or_else(|| Arc::new(AutoApproveHandler));
-    let hook_observer = options.hook_observer.clone();
-
-    let request_handle = state.client.request_handle();
-
-    // Start the initial turn.
-    let _turn_response: TurnStartResponse = state
-        .client
-        .request_typed(ClientRequest::TurnStart {
-            request_id: RequestId::Integer(100),
-            params: TurnStartParams {
-                thread_id: state.thread_id.clone(),
-                input: vec![UserInput::Text {
-                    text: prompt.to_string(),
-                    text_elements: Vec::new(),
-                }],
-                ..Default::default()
-            },
-        })
-        .await
-        .map_err(|e| SdkError::Request(format!("turn/start failed: {e}")))?;
-
-    let (msg_tx, msg_rx) = mpsc::channel(256);
-
-    let orchestrator_handle = spawn_orchestrator(
-        state.client,
-        approval_handler,
-        hook_observer,
-        cancel_token.clone(),
-        msg_tx,
-    );
-
-    Ok(QueryHandle {
-        messages: msg_rx,
-        thread_id: state.thread_id,
-        request_handle,
-        cancellation_token: cancel_token,
-        turn_counter: AtomicI64::new(200),
-        orchestrator_handle: Some(orchestrator_handle),
-    })
+    let mut handle = query_streaming(options).await?;
+    if let Err(error) = handle.send(prompt).await {
+        handle.shutdown().await;
+        return Err(error);
+    }
+    Ok(handle)
 }
 
 /// Create a multi-turn streaming session. No initial prompt is sent;
@@ -204,6 +192,7 @@ pub async fn query_streaming(options: CodexOptions) -> Result<QueryHandle> {
 
     let orchestrator_handle = spawn_orchestrator(
         state.client,
+        state.worker,
         approval_handler,
         hook_observer,
         cancel_token.clone(),
@@ -215,18 +204,19 @@ pub async fn query_streaming(options: CodexOptions) -> Result<QueryHandle> {
         thread_id: state.thread_id,
         request_handle,
         cancellation_token: cancel_token,
-        turn_counter: AtomicI64::new(200),
+        request_counter: AtomicI64::new(200),
+        turns: TurnAdmission {
+            maximum: options.max_turns,
+            successful: Mutex::new(0),
+        },
         orchestrator_handle: Some(orchestrator_handle),
     })
 }
 
-/// Spawns the background orchestrator task that:
-/// 1. Consumes `InProcessServerEvent` from the app-server client
-/// 2. Maps `ServerNotification` -> `CodexMessage` and forwards to the user channel
-/// 3. Routes `ServerRequest` (approvals) to the `ApprovalHandler` and resolves them
-/// 4. Dispatches hook notifications to the `HookObserver`
+/// Owns event delivery, approvals and runtime shutdown.
 fn spawn_orchestrator(
     mut client: InProcessAppServerClient,
+    worker: runtime::RuntimeWorker,
     approval_handler: Arc<dyn ApprovalHandler>,
     hook_observer: Option<Arc<dyn HookObserver>>,
     cancel_token: CancellationToken,
@@ -235,10 +225,9 @@ fn spawn_orchestrator(
     tokio::spawn(async move {
         loop {
             tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    let _ = client.shutdown().await;
-                    break;
-                }
+                biased;
+                _ = cancel_token.cancelled() => break,
+                _ = msg_tx.closed() => break,
                 event = client.next_event() => {
                     let Some(event) = event else {
                         break;
@@ -257,13 +246,15 @@ fn spawn_orchestrator(
                                 }
                             }
                             let msg = CodexMessage::from(notification);
-                            if msg_tx.send(Ok(msg)).await.is_err() {
-                                let _ = client.shutdown().await;
+                            if !handoff(&cancel_token, &msg_tx, async { msg_tx.send(Ok(msg)).await.is_ok() }).await {
                                 break;
                             }
                         }
                         InProcessServerEvent::ServerRequest(request) => {
-                            handle_server_request(&client, request, &approval_handler).await;
+                            if !handoff(&cancel_token, &msg_tx, async {
+                                handle_server_request(&client, request, &approval_handler, &cancel_token).await;
+                                true
+                            }).await { break; }
                         }
                         InProcessServerEvent::Lagged { skipped } => {
                             warn!("codex-sdk: dropped {skipped} events due to backpressure");
@@ -272,17 +263,36 @@ fn spawn_orchestrator(
                 }
             }
         }
+        let _ = client.shutdown().await;
+        worker.shutdown().await;
     })
+}
+
+async fn handoff<T>(
+    cancel: &CancellationToken,
+    messages: &mpsc::Sender<T>,
+    operation: impl Future<Output = bool>,
+) -> bool {
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => false,
+        _ = messages.closed() => false,
+        completed = operation => completed,
+    }
 }
 
 async fn handle_server_request(
     client: &InProcessAppServerClient,
     request: ServerRequest,
     handler: &Arc<dyn ApprovalHandler>,
+    cancel: &CancellationToken,
 ) {
     match request {
         ServerRequest::CommandExecutionRequestApproval { request_id, params } => {
             let decision = handler.on_command_approval(&params).await;
+            if cancel.is_cancelled() {
+                return;
+            }
             let response = CommandExecutionRequestApprovalResponse { decision };
             if let Ok(result) = serde_json::to_value(response)
                 && let Err(e) = client.resolve_server_request(request_id, result).await
@@ -292,6 +302,9 @@ async fn handle_server_request(
         }
         ServerRequest::FileChangeRequestApproval { request_id, params } => {
             let decision = handler.on_file_change_approval(&params).await;
+            if cancel.is_cancelled() {
+                return;
+            }
             let response = FileChangeRequestApprovalResponse { decision };
             if let Ok(result) = serde_json::to_value(response)
                 && let Err(e) = client.resolve_server_request(request_id, result).await
@@ -302,6 +315,9 @@ async fn handle_server_request(
         ServerRequest::PermissionsRequestApproval { request_id, params } => {
             match handler.on_permissions_approval(&params).await {
                 Some(response) => {
+                    if cancel.is_cancelled() {
+                        return;
+                    }
                     if let Ok(result) = serde_json::to_value(response)
                         && let Err(e) = client.resolve_server_request(request_id, result).await
                     {
@@ -335,5 +351,122 @@ async fn handle_server_request(
                 )
                 .await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::future::{pending, poll_fn};
+    use std::task::Poll;
+
+    #[tokio::test]
+    async fn turn_limit_counts_successes_and_serializes_concurrent_admission() {
+        let turns = TurnAdmission {
+            maximum: Some(1),
+            successful: Mutex::new(0),
+        };
+        assert!(
+            turns
+                .submit(async { Err::<(), _>(SdkError::Request("rejected".into())) })
+                .await
+                .is_err()
+        );
+        let (first, second) = tokio::join!(
+            turns.submit(async { Ok(()) }),
+            turns.submit(async { Ok(()) })
+        );
+        assert!(first.is_ok());
+        assert!(matches!(second, Err(SdkError::Request(_))));
+        assert_eq!(*turns.successful.lock().await, 1);
+    }
+
+    #[tokio::test]
+    async fn concurrent_request_waits_for_failed_reservation() {
+        let turns = TurnAdmission {
+            maximum: Some(1),
+            successful: Mutex::new(0),
+        };
+        let (release, released) = tokio::sync::oneshot::channel();
+        let first = turns.submit(async {
+            released.await.unwrap();
+            Err::<(), _>(SdkError::Request("rejected".into()))
+        });
+        let submitted = std::sync::atomic::AtomicBool::new(false);
+        let second = turns.submit(async {
+            submitted.store(true, Ordering::SeqCst);
+            Ok(())
+        });
+        tokio::pin!(first, second);
+        poll_fn(|cx| {
+            assert!(first.as_mut().poll(cx).is_pending());
+            assert!(second.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert!(!submitted.load(Ordering::SeqCst));
+        release.send(()).unwrap();
+        assert!(first.await.is_err());
+        assert!(second.await.is_ok());
+        assert_eq!(*turns.successful.lock().await, 1);
+    }
+
+    #[tokio::test]
+    async fn zero_never_submits_and_none_is_unlimited() {
+        let zero = TurnAdmission {
+            maximum: Some(0),
+            successful: Mutex::new(0),
+        };
+        assert!(
+            zero.submit(poll_fn(|_| -> Poll<Result<()>> {
+                panic!("zero must not submit")
+            }))
+            .await
+            .is_err()
+        );
+        let unlimited = TurnAdmission {
+            maximum: None,
+            successful: Mutex::new(u64::from(u32::MAX)),
+        };
+        assert!(unlimited.submit(async { Ok(()) }).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn full_queue_cancellation_unblocks_without_draining() {
+        let cancel = CancellationToken::new();
+        let (sender, mut receiver) = mpsc::channel(1);
+        sender.send(1).await.unwrap();
+        let delivery = handoff(&cancel, &sender, async { sender.send(2).await.is_ok() });
+        tokio::pin!(delivery);
+        poll_fn(|cx| {
+            assert!(delivery.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        cancel.cancel();
+        assert!(!delivery.await);
+        assert_eq!(receiver.try_recv().unwrap(), 1);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn pending_approval_is_dropped_without_acceptance() {
+        let cancel = CancellationToken::new();
+        let (sender, _receiver) = mpsc::channel::<()>(1);
+        let accepted = std::sync::atomic::AtomicBool::new(false);
+        let approval = handoff(&cancel, &sender, async {
+            pending::<()>().await;
+            accepted.store(true, Ordering::SeqCst);
+            true
+        });
+        tokio::pin!(approval);
+        poll_fn(|cx| {
+            assert!(approval.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        cancel.cancel();
+        assert!(!approval.await);
+        assert!(!accepted.load(Ordering::SeqCst));
     }
 }

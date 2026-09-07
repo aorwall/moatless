@@ -7,6 +7,6 @@
  */
 
 /**
- * Env entries exported after `server.env`, so they win over it.
+ * Applied after the configured server environment, so these values win.
  */
 export type ServerOverrideEnv = {[key: string]: string};

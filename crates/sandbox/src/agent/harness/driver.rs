@@ -331,8 +331,13 @@ async fn drive_persistent_event(
             flush_early(signal_tx, state.active, state.accepted, &mut state.early).await?;
             if state.active {
                 // EOF mid-execution: an unexpected exit.
-                emit_terminal(signal_tx, state.cancel_requested, None, state.run_totals.take())
-                    .await?;
+                emit_terminal(
+                    signal_tx,
+                    state.cancel_requested,
+                    None,
+                    state.run_totals.take(),
+                )
+                .await?;
             }
             // EOF while idle is a clean shutdown of a persistent process.
             Ok(false)

@@ -10,8 +10,8 @@
 //! Adding a new credential is a one-entry change to [`KNOWN_CREDENTIALS`].
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The Codex credential blob, written to `$CODEX_HOME/auth.json` by
 /// `CodexAuthJsonSink`. The only credential with a failure signal today.

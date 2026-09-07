@@ -7,7 +7,7 @@ use anyhow::Result;
 pub const RULE: &str = "store-privacy";
 fn allowed(consumer: &str, dao: &str) -> bool {
     match dao {
-        "moatless_adapter_model::dao::AdapterConnectionDao"
+        "moatless_adapter_model::dao::connection::AdapterConnectionDao"
         | "moatless_core::file_storage::dao::FileDao" => true,
         "moatless_loops::bindings::dao::TaskBindingDao" => matches!(
             consumer,

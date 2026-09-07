@@ -11,8 +11,8 @@ use sqlx::AssertSqlSafe;
 
 use moatless_core::db::DbPool;
 
+use super::persistence::TaskBindingRow;
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
-use moatless_adapter_model::persistence::TaskBindingRow;
 use moatless_types::adapter::TaskBinding;
 
 #[async_trait::async_trait]

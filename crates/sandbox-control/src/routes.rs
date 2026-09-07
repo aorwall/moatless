@@ -1,49 +1,18 @@
-//! API routes for sandbox operations.
+//! Sandbox HTTP route registration.
 //!
 //! Single unified router served on port 8080.
 //!
 //! These endpoints run behind the app-level `auth_middleware` (session cookie
 //! or API key), which injects an `AuthIdentity` extension. Each handler then
 //! authorizes the caller against the target Sandbox via the `OptionalScope`
-//! extractor and the `authorize_task_read`/`authorize_task_write` helpers, so
+//! extractor and the `access` operations, so
 //! a caller can only read or operate a sandbox they may access.
 
-use axum::Json;
-use axum::response::IntoResponse;
-use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::file_handlers;
 use super::handlers;
-use super::lifecycle::Lifecycle;
-use moatless_ports::sandbox::WorkspaceSnapshotSource;
-use moatless_ports::task::TurnStateReader;
-use moatless_sandbox_runtime::client::SandboxConnector;
-use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
-
-/// State shared across sandbox API handlers.
-#[derive(Clone)]
-pub struct SandboxApiState {
-    pub observer: Arc<dyn SandboxStatusReader>,
-    pub connector: Arc<dyn SandboxConnector>,
-    /// Shared durable lifecycle handle — the sole writer of Sandbox intent. The
-    /// lifecycle HTTP handlers (`provision`/`stop`/`restart`/`redeploy`/`cleanup`)
-    /// drive transitions through it. `None` only in the no-database mode, where
-    /// those handlers return a clean "unavailable" error.
-    pub lifecycle: Option<Arc<Lifecycle>>,
-    /// The Task band's half of the running rule. `live_status` folds it into
-    /// the runtime's answer so this surface and the T3 conversation list decide
-    /// "is the agent working" from the same rule. `None` in the no-database
-    /// mode, where there are no turn rows to read and the raw heartbeat is all
-    /// there is.
-    pub turns: Option<Arc<dyn TurnStateReader>>,
-    /// The workspace as S3 last stored it, for reading a Task's files while no
-    /// sandbox is running. `None` when the deployment stores no snapshots (no S3
-    /// bucket configured), in which case a stopped Task answers as before —
-    /// sandbox not ready.
-    pub snapshots: Option<Arc<dyn WorkspaceSnapshotSource>>,
-}
 
 #[derive(OpenApi)]
 #[openapi(
@@ -98,13 +67,10 @@ pub fn api_router(state: SandboxApiState) -> (axum::Router, utoipa::openapi::Ope
         .split_for_parts();
 
     let router: axum::Router = Into::<axum::Router>::into(router)
-        .route("/health", axum::routing::get(health_handler))
-        .route("/healthz", axum::routing::get(health_handler));
+        .route("/health", axum::routing::get(handlers::health_handler))
+        .route("/healthz", axum::routing::get(handlers::health_handler));
 
     (router, api)
 }
 
-/// Health check handler (not documented in OpenAPI — infrastructure only).
-async fn health_handler() -> impl IntoResponse {
-    Json(serde_json::json!({"status": "ok"}))
-}
+pub use super::state::SandboxApiState;

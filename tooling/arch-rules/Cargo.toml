@@ -6,7 +6,7 @@ authors.workspace = true
 description = "Architecture rules for the workspace, reported by a binary and enforced as tests against a shrinking baseline"
 
 [dependencies]
-proc-macro2 = "1"
+proc-macro2 = { version = "1", features = ["span-locations"] }
 regex.workspace = true
 anyhow = "1"
 serde_json = { workspace = true }

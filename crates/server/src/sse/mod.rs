@@ -6,3 +6,4 @@
 pub mod consumer;
 pub mod handlers;
 pub mod routes;
+mod state;

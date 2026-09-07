@@ -4,7 +4,7 @@ use base64::Engine;
 use tokio::fs;
 
 use super::git;
-use super::{validate_path, FileError};
+use super::{FileError, validate_path};
 
 /// Result of reading a file (may be text or base64-encoded binary).
 #[derive(Debug)]

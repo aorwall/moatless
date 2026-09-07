@@ -23,3 +23,5 @@ pub mod grpc_server;
 
 pub use moatless_sandbox_docker as docker;
 pub use moatless_sandbox_k8s as k8s;
+
+pub(crate) mod join;

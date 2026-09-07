@@ -1,0 +1,458 @@
+//! Agent session-state sync — backend-proxied S3 persistence of CLI resume data.
+//!
+//! Claude writes conversation transcripts (the only stateful, growing part of
+//! `$CLAUDE_CONFIG_DIR`) under `projects/<dashed-cwd>/*.jsonl`. Everything else in
+//! the config dir is regenerated on every boot, so this is all we persist for
+//! Claude. Codex writes resumable thread rollouts under `$CODEX_HOME/sessions/`;
+//! those files must survive pod recreation too, otherwise the app-server's
+//! `thread/resume` fails with a missing rollout even when the backend remembers
+//! the thread id.
+//!
+//! The sandbox is AWS-credential-less by design, so session-state I/O is proxied
+//! through the backend over JWT-authed gRPC (mirroring `DownloadUpload`). This
+//! module owns:
+//! - resolving the on-disk Claude and Codex session dirs,
+//! - tarring them for upload and untarring a downloaded archive,
+//! - the download-on-start, periodic-upload, and sync-on-shutdown entry points.
+//!
+//! Archive format:
+//! - prefix-routed archives store Claude entries under `claude/` and Codex
+//!   entries under `codex/sessions/`;
+//! - flat Claude-only archives restore into the Claude transcript dir.
+//!
+//! Every operation is best-effort and tier-agnostic: a task runs fine without
+//! resume history, so failures are logged, never fatal. For the ephemeral (no-EBS)
+//! tier this sync is the *only* CLI-session durability.
+
+use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
+
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, info, warn};
+
+use crate::config::Config;
+use crate::state::SandboxState;
+
+/// Default periodic-upload interval when `TRANSCRIPT_SYNC_INTERVAL_SECS` is unset.
+const DEFAULT_INTERVAL_SECS: u64 = 60;
+
+/// Bound on the sync-on-shutdown flush so it stays within the pod's 30s grace
+/// period — a stuck upload must never block the drain.
+const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(12);
+const CLAUDE_ARCHIVE_PREFIX: &str = "claude";
+const CODEX_SESSIONS_ARCHIVE_PREFIX: &str = "codex/sessions";
+
+/// Read the periodic upload interval from `TRANSCRIPT_SYNC_INTERVAL_SECS`
+/// (default 60s). Returns `None` when set to `0`, which disables the periodic
+/// loop (download-on-start and sync-on-shutdown still run).
+pub fn read_interval_from_env() -> Option<Duration> {
+    match std::env::var("TRANSCRIPT_SYNC_INTERVAL_SECS") {
+        Ok(v) => match v.parse::<u64>() {
+            Ok(0) => None,
+            Ok(secs) => Some(Duration::from_secs(secs)),
+            Err(_) => Some(Duration::from_secs(DEFAULT_INTERVAL_SECS)),
+        },
+        Err(_) => Some(Duration::from_secs(DEFAULT_INTERVAL_SECS)),
+    }
+}
+
+/// Resolve the transcript dir: `<claude_config_dir>/projects/<dashed-cwd>`.
+///
+/// The Claude CLI writes transcripts under `projects/<cwd with '/' → '-'>`, where
+/// `cwd` is the canonicalized workspace dir (the agent's `cwd` is
+/// `config.workspace_dir`). We mirror that exactly so the sync targets the same
+/// files the CLI writes and `--resume` reads. Canonicalize with a lexical fallback,
+/// matching the SDK's `resolve_project_dir`; for a non-symlink path the two yield
+/// the identical dashed name.
+pub fn transcript_dir(config: &Config) -> PathBuf {
+    let cwd = PathBuf::from(&config.workspace_dir);
+    let resolved = cwd.canonicalize().map_or_else(
+        |_| config.workspace_dir.clone(),
+        |p| p.to_string_lossy().into_owned(),
+    );
+    let dashed = resolved.replace('/', "-");
+    Path::new(&config.claude_config_dir)
+        .join("projects")
+        .join(dashed)
+}
+
+/// Resolve the Codex resumable session dir: `<codex_home_dir>/sessions`.
+pub fn codex_sessions_dir(config: &Config) -> PathBuf {
+    Path::new(&config.codex_home_dir).join("sessions")
+}
+
+/// Download the stored session-state archive and restore it.
+///
+/// Runs on startup, after the repo clone and before the sandbox is marked Ready,
+/// so `recover_interrupted_run` / pending-message dispatch see restored
+/// `--resume` history. Creates target dirs first (the CLIs expect them to
+/// exist). Non-fatal: a missing archive or a disabled feature is logged and
+/// skipped.
+pub async fn download_on_start(state: &SandboxState) {
+    let task_id = &state.config.task_id;
+    let claude_dir = transcript_dir(&state.config);
+    let codex_dir = codex_sessions_dir(&state.config);
+
+    for dir in [&claude_dir, &codex_dir] {
+        if let Err(e) = tokio::fs::create_dir_all(dir).await {
+            warn!(task_id = %task_id, dir = %dir.display(), error = %e, "Failed to create session-state dir");
+            return;
+        }
+    }
+
+    let tar = match state.backend_client.download_transcript(task_id).await {
+        Ok(bytes) => bytes,
+        Err(e) if is_feature_disabled(&e) => {
+            debug!(task_id = %task_id, "Transcript sync unavailable (backend S3 not configured); skipping restore");
+            return;
+        }
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Transcript download failed (non-fatal)");
+            return;
+        }
+    };
+
+    if tar.is_empty() {
+        debug!(task_id = %task_id, "No stored transcript to restore");
+        return;
+    }
+
+    match extract_tar(tar, claude_dir.clone(), codex_dir.clone()).await {
+        Ok(()) => {
+            info!(
+                task_id = %task_id,
+                claude_dir = %claude_dir.display(),
+                codex_dir = %codex_dir.display(),
+                "Restored session state from backend"
+            );
+        }
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to extract session state (non-fatal)");
+        }
+    }
+}
+
+/// Tar the CLI session-state dirs and upload them to the backend. No-op when
+/// both dirs are absent or empty. Best-effort: failures (including a disabled feature) are
+/// logged, never propagated.
+pub async fn upload(state: &SandboxState) {
+    let task_id = &state.config.task_id;
+    let claude_dir = transcript_dir(&state.config);
+    let codex_dir = codex_sessions_dir(&state.config);
+
+    let Some(tar) = build_tar(claude_dir.clone(), codex_dir.clone()).await else {
+        debug!(
+            task_id = %task_id,
+            claude_dir = %claude_dir.display(),
+            codex_dir = %codex_dir.display(),
+            "No session state to upload"
+        );
+        return;
+    };
+
+    match state.backend_client.upload_transcript(task_id, tar).await {
+        Ok(()) => debug!(task_id = %task_id, "Uploaded session state to backend"),
+        Err(e) if is_feature_disabled(&e) => {
+            debug!(task_id = %task_id, "Session-state sync unavailable (backend S3 not configured); skipping upload");
+        }
+        Err(e) => warn!(task_id = %task_id, error = %e, "Session-state upload failed (non-fatal)"),
+    }
+}
+
+/// Flush the transcript on shutdown, bounded by [`SHUTDOWN_FLUSH_TIMEOUT`].
+///
+/// Called from the shutdown driver after the agent has stopped (so the active
+/// `.jsonl` is flushed) and before the lifecycle token is cancelled. A timeout is
+/// logged and swallowed so the drain proceeds.
+pub async fn flush_on_shutdown(state: &SandboxState) {
+    if tokio::time::timeout(SHUTDOWN_FLUSH_TIMEOUT, upload(state))
+        .await
+        .is_ok()
+    {
+        info!("Shutdown: flushed transcript to backend");
+    } else {
+        warn!("Shutdown: transcript flush timed out, continuing");
+    }
+}
+
+/// Periodically upload the session state until cancelled. Mirrors the credential
+/// refresher: `tokio::select!` on the lifecycle token and a fixed interval.
+pub async fn run_transcript_sync(
+    state: SandboxState,
+    cancel: CancellationToken,
+    interval: Duration,
+) {
+    info!(
+        task_id = %state.config.task_id,
+        interval_secs = interval.as_secs(),
+        "Session-state sync started"
+    );
+
+    loop {
+        tokio::select! {
+            () = cancel.cancelled() => {
+                info!(task_id = %state.config.task_id, "Session-state sync shutting down");
+                return;
+            }
+            () = tokio::time::sleep(interval) => {
+                upload(&state).await;
+            }
+        }
+    }
+}
+
+/// True when a gRPC error means the transcript feature is simply unavailable
+/// (backend S3 not configured) rather than a real transient failure — so callers
+/// can log at debug instead of warn.
+fn is_feature_disabled(status: &tonic::Status) -> bool {
+    matches!(
+        status.code(),
+        tonic::Code::FailedPrecondition | tonic::Code::Unimplemented
+    )
+}
+
+/// Build an in-memory tar of the CLI session-state dirs, or `None` when neither
+/// has entries.
+///
+/// The tar build uses the blocking `tar` + `std::fs` APIs, so it runs on a
+/// blocking thread. Entries are stored under stable top-level prefixes so the
+/// archive can restore both CLIs location-independently on the next pod.
+async fn build_tar(claude_dir: PathBuf, codex_dir: PathBuf) -> Option<Vec<u8>> {
+    let has_claude_entries = has_entries(&claude_dir).await;
+    let has_codex_entries = has_entries(&codex_dir).await;
+    if !has_claude_entries && !has_codex_entries {
+        return None;
+    }
+
+    tokio::task::spawn_blocking(move || {
+        let mut builder = tar::Builder::new(Vec::new());
+        if has_claude_entries {
+            builder
+                .append_dir_all(CLAUDE_ARCHIVE_PREFIX, &claude_dir)
+                .ok()?;
+        }
+        if has_codex_entries {
+            builder
+                .append_dir_all(CODEX_SESSIONS_ARCHIVE_PREFIX, &codex_dir)
+                .ok()?;
+        }
+        builder.into_inner().ok()
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+async fn has_entries(dir: &Path) -> bool {
+    match tokio::fs::read_dir(&dir).await {
+        Ok(mut rd) => matches!(rd.next_entry().await, Ok(Some(_))),
+        Err(_) => false,
+    }
+}
+
+/// Untar `bytes` into the appropriate CLI dirs on a blocking thread.
+/// Prefix-routed archives route by top-level dir; flat archives restore into
+/// the Claude dir.
+async fn extract_tar(
+    bytes: Vec<u8>,
+    claude_dir: PathBuf,
+    codex_dir: PathBuf,
+) -> std::io::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        if !has_combined_archive_prefixes(&bytes)? {
+            let mut archive = tar::Archive::new(std::io::Cursor::new(bytes));
+            return archive.unpack(&claude_dir);
+        }
+
+        let mut archive = tar::Archive::new(std::io::Cursor::new(bytes));
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let path = entry.path()?.into_owned();
+            let target = if let Ok(rel) = path.strip_prefix(CLAUDE_ARCHIVE_PREFIX) {
+                safe_join(&claude_dir, rel)
+            } else if let Ok(rel) = path.strip_prefix(CODEX_SESSIONS_ARCHIVE_PREFIX) {
+                safe_join(&codex_dir, rel)
+            } else {
+                None
+            };
+            if let Some(target) = target {
+                entry.unpack(target)?;
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(std::io::Error::other)?
+}
+
+fn has_combined_archive_prefixes(bytes: &[u8]) -> std::io::Result<bool> {
+    let mut archive = tar::Archive::new(std::io::Cursor::new(bytes));
+    for entry in archive.entries()? {
+        let entry = entry?;
+        let path = entry.path()?;
+        if path.starts_with(CLAUDE_ARCHIVE_PREFIX)
+            || path.starts_with(CODEX_SESSIONS_ARCHIVE_PREFIX)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn safe_join(base: &Path, rel: &Path) -> Option<PathBuf> {
+    if rel.as_os_str().is_empty() {
+        return None;
+    }
+    if rel.components().any(|c| {
+        matches!(
+            c,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return None;
+    }
+    Some(base.join(rel))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_interval_defaults_and_disables() {
+        // Serialize via a single test since env is process-global.
+        std::env::remove_var("TRANSCRIPT_SYNC_INTERVAL_SECS");
+        assert_eq!(
+            read_interval_from_env(),
+            Some(Duration::from_secs(DEFAULT_INTERVAL_SECS))
+        );
+
+        std::env::set_var("TRANSCRIPT_SYNC_INTERVAL_SECS", "0");
+        assert_eq!(read_interval_from_env(), None);
+
+        std::env::set_var("TRANSCRIPT_SYNC_INTERVAL_SECS", "30");
+        assert_eq!(read_interval_from_env(), Some(Duration::from_secs(30)));
+
+        std::env::set_var("TRANSCRIPT_SYNC_INTERVAL_SECS", "garbage");
+        assert_eq!(
+            read_interval_from_env(),
+            Some(Duration::from_secs(DEFAULT_INTERVAL_SECS))
+        );
+
+        std::env::remove_var("TRANSCRIPT_SYNC_INTERVAL_SECS");
+    }
+
+    #[tokio::test]
+    async fn tar_round_trip_preserves_claude_transcripts_and_codex_sessions() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let claude_src = tmp.path().join("projects").join("-workspace");
+        let codex_src = tmp.path().join("codex").join("sessions");
+        let codex_nested = codex_src.join("2026").join("07").join("15");
+        tokio::fs::create_dir_all(&claude_src).await.unwrap();
+        tokio::fs::create_dir_all(&codex_nested).await.unwrap();
+        tokio::fs::write(claude_src.join("a.jsonl"), b"{\"turn\":1}\n")
+            .await
+            .unwrap();
+        tokio::fs::write(
+            codex_nested.join("rollout-abc.jsonl"),
+            b"{\"thread\":\"abc\"}\n",
+        )
+        .await
+        .unwrap();
+
+        let tar = build_tar(claude_src.clone(), codex_src.clone())
+            .await
+            .expect("tar built");
+        assert!(!tar.is_empty());
+
+        let claude_dst = tmp.path().join("restored-claude");
+        let codex_dst = tmp.path().join("restored-codex-sessions");
+        tokio::fs::create_dir_all(&claude_dst).await.unwrap();
+        tokio::fs::create_dir_all(&codex_dst).await.unwrap();
+        extract_tar(tar, claude_dst.clone(), codex_dst.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            tokio::fs::read_to_string(claude_dst.join("a.jsonl"))
+                .await
+                .unwrap(),
+            "{\"turn\":1}\n"
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(
+                codex_dst
+                    .join("2026")
+                    .join("07")
+                    .join("15")
+                    .join("rollout-abc.jsonl")
+            )
+            .await
+            .unwrap(),
+            "{\"thread\":\"abc\"}\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_flat_archive_restores_into_claude_transcript_dir() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let src = tmp.path().join("legacy");
+        tokio::fs::create_dir_all(&src).await.unwrap();
+        tokio::fs::write(src.join("legacy.jsonl"), b"{\"turn\":1}\n")
+            .await
+            .unwrap();
+
+        let tar = tokio::task::spawn_blocking({
+            let src = src.clone();
+            move || {
+                let mut builder = tar::Builder::new(Vec::new());
+                builder.append_dir_all(".", &src).unwrap();
+                builder.into_inner().unwrap()
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!tar.is_empty());
+
+        let claude_dst = tmp.path().join("restored-claude");
+        let codex_dst = tmp.path().join("restored-codex");
+        tokio::fs::create_dir_all(&claude_dst).await.unwrap();
+        tokio::fs::create_dir_all(&codex_dst).await.unwrap();
+        extract_tar(tar, claude_dst.clone(), codex_dst.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            tokio::fs::read_to_string(claude_dst.join("legacy.jsonl"))
+                .await
+                .unwrap(),
+            "{\"turn\":1}\n"
+        );
+        assert!(
+            tokio::fs::read_dir(&codex_dst)
+                .await
+                .unwrap()
+                .next_entry()
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn build_tar_returns_none_for_missing_or_empty_dir() {
+        let tmp = tempfile::TempDir::new().unwrap();
+
+        // Missing dir.
+        let missing = tmp.path().join("nope");
+        let also_missing = tmp.path().join("also-nope");
+        assert!(build_tar(missing, also_missing).await.is_none());
+
+        // Present but empty dir.
+        let empty = tmp.path().join("empty");
+        let also_empty = tmp.path().join("also-empty");
+        tokio::fs::create_dir_all(&empty).await.unwrap();
+        tokio::fs::create_dir_all(&also_empty).await.unwrap();
+        assert!(build_tar(empty, also_empty).await.is_none());
+    }
+}

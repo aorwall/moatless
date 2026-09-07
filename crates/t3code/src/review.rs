@@ -1304,7 +1304,10 @@ mod tests {
         }
 
         async fn tasks_bound_to(&self, _repository: &str, _number: u64) -> Vec<String> {
-            self.bound.iter().map(|(task_id, _)| task_id.clone()).collect()
+            self.bound
+                .iter()
+                .map(|(task_id, _)| task_id.clone())
+                .collect()
         }
 
         async fn resolve_pull_request(
@@ -1400,7 +1403,11 @@ mod tests {
         assert_eq!(summary["state"], "open");
         assert_eq!(summary["headBranch"], "feature");
         assert_eq!(summary["baseBranch"], "main");
-        assert!(summary["updatedAt"].as_str().is_some_and(|at| at.ends_with('Z')));
+        assert!(
+            summary["updatedAt"]
+                .as_str()
+                .is_some_and(|at| at.ends_with('Z'))
+        );
     }
 
     /// The bound Task is the access rule: a viewer who cannot read it is told

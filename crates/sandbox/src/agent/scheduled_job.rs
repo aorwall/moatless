@@ -429,7 +429,10 @@ mod tests {
             injector.snapshot()[0].contains("background command has finished"),
             "wake message should name the finished command"
         );
-        assert!(jobs.is_empty().await, "watch should self-clean after firing");
+        assert!(
+            jobs.is_empty().await,
+            "watch should self-clean after firing"
+        );
 
         run_cancel.cancel();
     }

@@ -1,0 +1,483 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use tokio::sync::Mutex;
+use tracing::{debug, info};
+
+use moatless_core::secret_keys::GITHUB_TOKEN;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::provider_tokens::{
+    AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER,
+};
+use moatless_identity::secret::schemas::PutSecretRequest;
+use moatless_identity::secret::service::SecretService;
+use moatless_types::access_control::ScopeContext;
+use moatless_types::secret::SecretKind;
+
+use super::models::credential_key_to_provider;
+#[cfg(test)]
+use super::should_broadcast;
+use super::{CredentialError, StoreOutcome, WriteSource};
+
+/// Generic credential gating point.
+pub struct CredentialService {
+    pub(in crate::credentials) provider_tokens: Arc<dyn ProviderTokenDao>,
+    /// Encrypted secret store. Required to read or rotate a `secret_ref`
+    /// GitHub token; `None` in tests / minimal wiring.
+    secrets: Option<Arc<SecretService>>,
+    /// Per-`(user_id, key)` mutex. The `()` payload is irrelevant — we lock
+    /// purely for serialization. Auto-evicted after the TTL so inactive
+    /// users' locks don't accumulate forever.
+    locks: moka::future::Cache<(String, String), Arc<Mutex<()>>>,
+    /// Shared HTTP client for the Codex refresh path. Reused so connection
+    /// pools are warm across refreshes.
+    pub(in crate::credentials) http: Option<Arc<reqwest::Client>>,
+}
+
+impl CredentialService {
+    /// Build a service. This is the pure credential half — it persists and
+    /// refreshes; the tasks-band `CredentialSync` wraps it to add the
+    /// in-flight guard and the sandbox fan-out (9c).
+    pub fn new(provider_tokens: Arc<dyn ProviderTokenDao>) -> Self {
+        let locks = moka::future::Cache::builder()
+            .max_capacity(10_000)
+            .time_to_idle(Duration::from_mins(5))
+            .build();
+
+        Self {
+            provider_tokens,
+            secrets: None,
+            locks,
+            http: None,
+        }
+    }
+
+    /// Wire the encrypted secret store used for `secret_ref` GitHub tokens.
+    #[must_use]
+    pub fn with_secrets(mut self, secrets: Arc<SecretService>) -> Self {
+        self.secrets = Some(secrets);
+        self
+    }
+
+    /// Wire in the HTTP client the Codex refresh path calls OpenAI with.
+    ///
+    /// Call sites that don't need Codex refresh (e.g. unit tests) can leave it
+    /// unset; `refresh_codex_locked` then falls back to a raw read.
+    #[must_use]
+    pub fn with_codex_refresh(mut self, http: Arc<reqwest::Client>) -> Self {
+        self.http = Some(http);
+        self
+    }
+
+    /// Acquire the per-`(user, key)` mutex.
+    pub(in crate::credentials) async fn acquire_lock(
+        &self,
+        user_id: &str,
+        key: &str,
+    ) -> Arc<Mutex<()>> {
+        let key = (user_id.to_string(), key.to_string());
+        self.locks
+            .get_with(key, async { Arc::new(Mutex::new(())) })
+            .await
+    }
+
+    /// Persist a credential value. Returns which of the three persist paths
+    /// ran, so the tasks-band `CredentialSync` can decide whether to fan the
+    /// value out to running sandboxes (9c moved the broadcast up; the persist
+    /// stays here).
+    ///
+    /// Per-`(user, key)` serialization prevents lost writes when two callers
+    /// race (e.g. UI save + sandbox push at the same moment). Hash-based dedup
+    /// short-circuits when the stored value is already up to date, which the
+    /// caller uses to suppress an echo broadcast.
+    pub async fn store(
+        &self,
+        user_id: &str,
+        key: &str,
+        value: &str,
+        source: WriteSource,
+    ) -> Result<StoreOutcome, CredentialError> {
+        let provider = credential_key_to_provider(key)
+            .ok_or_else(|| CredentialError::Internal(format!("Unknown credential key: {key}")))?;
+
+        let lock = self.acquire_lock(user_id, key).await;
+        let _guard = lock.lock().await;
+
+        // Path 1 (SecretRef): a GitHub token must never land in
+        // `provider_tokens.access_token` in the clear — route it to the
+        // encrypted store and keep the row as a reference. Never broadcast:
+        // `should_broadcast("GITHUB_TOKEN")` is false and the sentinel row
+        // carries no fan-out-able value.
+        if key == GITHUB_TOKEN && self.secrets.is_some() {
+            self.store_github_secret_ref(user_id, value).await?;
+            info!(
+                user_id,
+                provider,
+                ?source,
+                "Persisted GitHub token as secret"
+            );
+            return Ok(StoreOutcome::SecretRef);
+        }
+
+        // Path 2 (Unchanged): dedup — skip persistence when the value is
+        // unchanged. The caller must not broadcast, or a no-op write echoes
+        // through the originating sandbox's watcher.
+        let existing = self
+            .provider_tokens
+            .find_provider_token(user_id, provider)
+            .await?;
+        if existing
+            .as_ref()
+            .is_some_and(|row| row.access_token == value)
+        {
+            debug!(
+                user_id,
+                provider, "CredentialService::store skipped — value unchanged"
+            );
+            return Ok(StoreOutcome::Unchanged);
+        }
+
+        // Path 3 (Persisted): a new value was upserted. The caller broadcasts
+        // iff `should_broadcast(key)`.
+        self.provider_tokens
+            .upsert_token(user_id, provider, value, None, None, None)
+            .await?;
+
+        info!(user_id, provider, ?source, "Persisted credential");
+
+        Ok(StoreOutcome::Persisted)
+    }
+
+    /// Write a GitHub token to the encrypted store and point the
+    /// `provider_tokens` row at it.
+    ///
+    /// Existing `metadata` and `token_type` are carried over so the row keeps
+    /// serving the config endpoint's `login` and PAT-override detection.
+    async fn store_github_secret_ref(
+        &self,
+        user_id: &str,
+        value: &str,
+    ) -> Result<(), CredentialError> {
+        let secrets = self
+            .secrets
+            .as_ref()
+            .ok_or_else(|| CredentialError::Internal("secret service not wired".to_string()))?;
+
+        let existing = self
+            .provider_tokens
+            .find_provider_token_full(user_id, "github")
+            .await?;
+
+        secrets
+            .put_secret(
+                &ScopeContext {
+                    user_id: user_id.to_string(),
+                    is_admin: false,
+                },
+                user_id,
+                PutSecretRequest {
+                    scope: Some(moatless_api_schemas::enums::Scope::User),
+                    key: GITHUB_TOKEN.to_string(),
+                    kind: SecretKind::ProviderToken,
+                    provider: Some("github".to_string()),
+                    value: Some(value.to_string()),
+                    external_ref: None,
+                },
+            )
+            .await?;
+
+        let token_type = existing.as_ref().and_then(|row| row.token_type.clone());
+        let metadata = existing.as_ref().and_then(|row| row.metadata.clone());
+        self.provider_tokens
+            .upsert_token_with_auth_method(
+                user_id,
+                "github",
+                AUTH_METHOD_SECRET_REF,
+                SECRET_REF_TOKEN_PLACEHOLDER,
+                None,
+                token_type.as_deref(),
+                metadata.as_ref(),
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use moatless_identity::auth::models::{
+        GithubTokenPresence, ProviderAccessToken, ProviderToken,
+    };
+    use moatless_identity::auth::provider_token_dao::{CodexBlobOutcome, CodexBlobRefresher};
+    use moatless_types::agent::CodexScope;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// In-memory `ProviderTokenDao` for tests.
+    struct InMemoryTokens {
+        tokens: tokio::sync::Mutex<HashMap<(String, String), String>>,
+        upsert_count: AtomicUsize,
+    }
+
+    impl InMemoryTokens {
+        fn new() -> Self {
+            Self {
+                tokens: tokio::sync::Mutex::new(HashMap::new()),
+                upsert_count: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ProviderTokenDao for InMemoryTokens {
+        async fn find_user_by_provider_login(
+            &self,
+            _provider: &str,
+            _provider_login: &str,
+        ) -> Result<Option<String>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error> {
+            Ok(Vec::new())
+        }
+
+        async fn find_user_by_provider_account(
+            &self,
+            _provider: &str,
+            _provider_user_id: &str,
+        ) -> Result<Option<String>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn find_app_token(
+            &self,
+            _provider: &str,
+        ) -> Result<Option<ProviderToken>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn upsert_app_token(
+            &self,
+            _provider: &str,
+            _access_token: &str,
+            _refresh_token: Option<&str>,
+            _token_type: Option<&str>,
+            _metadata: Option<&serde_json::Value>,
+            _expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        ) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn refresh_codex_blob(
+            &self,
+            _scope: &CodexScope,
+            _refresher: &(dyn CodexBlobRefresher + '_),
+        ) -> Result<Option<CodexBlobOutcome>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn find_provider_token(
+            &self,
+            user_id: &str,
+            provider: &str,
+        ) -> Result<Option<ProviderAccessToken>, sqlx::Error> {
+            let tokens = self.tokens.lock().await;
+            Ok(tokens
+                .get(&(user_id.to_string(), provider.to_string()))
+                .map(|v| ProviderAccessToken {
+                    access_token: v.clone(),
+                }))
+        }
+
+        async fn find_provider_token_full(
+            &self,
+            _user_id: &str,
+            _provider: &str,
+        ) -> Result<Option<ProviderToken>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn upsert_token(
+            &self,
+            user_id: &str,
+            provider: &str,
+            access_token: &str,
+            _refresh_token: Option<&str>,
+            _token_type: Option<&str>,
+            _metadata: Option<&serde_json::Value>,
+        ) -> Result<(), sqlx::Error> {
+            self.upsert_count.fetch_add(1, Ordering::SeqCst);
+            self.tokens.lock().await.insert(
+                (user_id.to_string(), provider.to_string()),
+                access_token.to_string(),
+            );
+            Ok(())
+        }
+
+        async fn upsert_token_with_auth_method(
+            &self,
+            user_id: &str,
+            provider: &str,
+            _auth_method: &str,
+            access_token: &str,
+            refresh_token: Option<&str>,
+            token_type: Option<&str>,
+            metadata: Option<&serde_json::Value>,
+        ) -> Result<(), sqlx::Error> {
+            self.upsert_token(
+                user_id,
+                provider,
+                access_token,
+                refresh_token,
+                token_type,
+                metadata,
+            )
+            .await
+        }
+
+        async fn delete_token(&self, _user_id: &str, _provider: &str) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn find_codex_blob(
+            &self,
+            _scope: &CodexScope,
+        ) -> Result<Option<ProviderToken>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn upsert_codex_blob(
+            &self,
+            _scope: &CodexScope,
+            _access_token: &str,
+            _refresh_token: Option<&str>,
+            _token_type: Option<&str>,
+            _metadata: Option<&serde_json::Value>,
+        ) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn delete_codex_blob(&self, _scope: &CodexScope) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn find_github_row(
+            &self,
+            _user_id: &str,
+        ) -> Result<Option<ProviderToken>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn upsert_github_row(
+            &self,
+            _user_id: &str,
+            _auth_method: &str,
+            _access_token: &str,
+            _token_type: Option<&str>,
+            _metadata: Option<&serde_json::Value>,
+            _provider_user_id: Option<&str>,
+            _provider_login: Option<&str>,
+        ) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn delete_github_row(&self, _user_id: &str) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn find_github_scope_presence(
+            &self,
+            _user_id: &str,
+        ) -> Result<Option<GithubTokenPresence>, sqlx::Error> {
+            Ok(None)
+        }
+    }
+
+    fn make_service(repo: Arc<dyn ProviderTokenDao>) -> CredentialService {
+        CredentialService::new(repo)
+    }
+
+    #[tokio::test]
+    async fn store_persists_value() {
+        let repo = Arc::new(InMemoryTokens::new());
+        let svc = make_service(repo.clone());
+        let outcome = svc
+            .store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
+            .await
+            .unwrap();
+        assert_eq!(outcome, StoreOutcome::Persisted);
+        let got = repo
+            .find_provider_token("u1", "codex")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.access_token, "v1");
+    }
+
+    #[tokio::test]
+    async fn store_dedups_when_unchanged() {
+        let repo = Arc::new(InMemoryTokens::new());
+        let svc = make_service(repo.clone());
+        svc.store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
+            .await
+            .unwrap();
+        let outcome = svc
+            .store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
+            .await
+            .unwrap();
+        // First store does an upsert, second short-circuits before upsert.
+        assert_eq!(outcome, StoreOutcome::Unchanged);
+        assert_eq!(repo.upsert_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn should_broadcast_only_for_file_resident_keys() {
+        // File-resident creds: backend must push, agents can't pull.
+        assert!(should_broadcast("CODEX_AUTH_JSON"));
+        assert!(should_broadcast("CLAUDE_CODE_OAUTH_TOKEN"));
+        // Helper-pull creds: no push needed, broker pulls fresh on each call.
+        assert!(!should_broadcast("GITHUB_TOKEN"));
+        assert!(!should_broadcast("OPENAI_API_KEY"));
+    }
+
+    #[test]
+    fn credential_key_to_provider_maps_known_keys() {
+        assert_eq!(credential_key_to_provider("CODEX_AUTH_JSON"), Some("codex"));
+        assert_eq!(credential_key_to_provider("GITHUB_TOKEN"), Some("github"));
+        assert_eq!(
+            credential_key_to_provider("CLAUDE_CODE_OAUTH_TOKEN"),
+            Some("claude")
+        );
+        assert_eq!(credential_key_to_provider("OPENAI_API_KEY"), Some("openai"));
+        assert_eq!(credential_key_to_provider("NOT_A_REAL_KEY"), None);
+    }
+
+    #[tokio::test]
+    async fn parallel_stores_serialize_per_user_key() {
+        // Two parallel stores for the same (user, key) should both complete
+        // (the mutex serializes them) and end with one of the values stored.
+        let repo = Arc::new(InMemoryTokens::new());
+        let svc = Arc::new(make_service(repo.clone()));
+
+        let svc1 = svc.clone();
+        let svc2 = svc.clone();
+
+        let h1 = tokio::spawn(async move {
+            svc1.store("u1", "CODEX_AUTH_JSON", "value-A", WriteSource::UserUiSave)
+                .await
+        });
+        let h2 = tokio::spawn(async move {
+            svc2.store("u1", "CODEX_AUTH_JSON", "value-B", WriteSource::UserUiSave)
+                .await
+        });
+
+        h1.await.unwrap().unwrap();
+        h2.await.unwrap().unwrap();
+        // Both writes should land — ordering is non-deterministic but at least
+        // one upsert per distinct value succeeded.
+        assert!(repo.upsert_count.load(Ordering::SeqCst) >= 1);
+    }
+}

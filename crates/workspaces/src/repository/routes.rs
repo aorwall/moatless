@@ -12,8 +12,8 @@ use super::handlers;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::GitSyncService;
 use moatless_core::http_auth::UserTokenVerifier;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_ports::identity::GitHostTokenIssuer;
+
+
 
 #[derive(OpenApi)]
 #[openapi(
@@ -47,8 +47,7 @@ where
     Arc<dyn RepositoryDao>: FromRef<S>,
     Arc<dyn WorkspaceDao>: FromRef<S>,
     Arc<GitSyncService>: FromRef<S>,
-    Arc<dyn GitHostTokenIssuer>: FromRef<S>,
-    Arc<dyn ProviderTokenDao>: FromRef<S>,
+    Arc<super::branches::RepositoryBranchService>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
     DbPool: FromRef<S>,
 {

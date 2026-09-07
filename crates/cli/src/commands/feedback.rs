@@ -126,7 +126,10 @@ pub async fn set_status(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments, reason = "one parameter per CLI filter flag")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per CLI filter flag"
+)]
 pub async fn list(
     client: &MoatClient,
     workspace: Option<String>,
@@ -180,7 +183,9 @@ pub async fn list(
                 f.surface,
                 f.category.map_or("-", |c| c.as_str()),
                 f.status,
-                item.repository_name.as_deref().unwrap_or(&item.repository_id),
+                item.repository_name
+                    .as_deref()
+                    .unwrap_or(&item.repository_id),
                 item.task_title
             );
             println!("task {}  feedback {}", f.task_id, f.feedback_id);
@@ -242,8 +247,7 @@ fn parse_surface(raw: &str) -> Result<FeedbackSurface, ClientError> {
 fn parse_category(raw: &str) -> Result<FeedbackCategory, ClientError> {
     FeedbackCategory::try_from(raw).map_err(|_| {
         ClientError::Other(
-            "category must be `environment`, `codebase`, `instruction`, or `other`"
-                .to_string(),
+            "category must be `environment`, `codebase`, `instruction`, or `other`".to_string(),
         )
     })
 }
@@ -260,4 +264,99 @@ fn truncate(value: &str, width: usize) -> String {
     }
     let head: String = value.chars().take(width.saturating_sub(1)).collect();
     format!("{head}…")
+}
+
+#[derive(clap::Args)]
+pub struct FeedbackInvocation {
+    #[command(subcommand)]
+    pub action: Option<FeedbackAction>,
+    /// The feedback message (what went wrong / what could be better).
+    #[arg(long, short = 'c')]
+    pub comment: Option<String>,
+    /// Task the feedback is about. Defaults to `$TASK_ID`.
+    #[arg(long)]
+    pub task: Option<String>,
+    /// What the feedback is about: `environment` (the sandbox),
+    /// `codebase` (this repository's code or tooling), `instruction`
+    /// (`AGENTS.md`, `CLAUDE.md`, or a skill), or `other`.
+    #[arg(long)]
+    pub category: Option<String>,
+    /// Optional: scope feedback to a specific assistant message
+    /// (`task_messages.uuid`). Left unset, it best-effort attaches to the
+    /// task's most recent activity instead of the whole task.
+    #[arg(long)]
+    pub message: Option<String>,
+    /// Optional: scope feedback to a specific tool call within the
+    /// referenced message. Requires `--message`.
+    #[arg(long = "tool-use-id")]
+    pub tool_use_id: Option<String>,
+}
+
+pub async fn dispatch(
+    moat: &MoatClient,
+    cfg: &crate::config::Config,
+    args: FeedbackInvocation,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let FeedbackInvocation {
+        action,
+        comment,
+        task,
+        category,
+        message,
+        tool_use_id,
+    } = args;
+    match action {
+        Some(FeedbackAction::List {
+            workspace,
+            repo,
+            task,
+            source,
+            surface,
+            category,
+            status,
+            created_by,
+            since,
+            limit,
+            offset,
+            full,
+        }) => {
+            list(
+                moat, workspace, repo, task, source, surface, category, status, created_by, since,
+                limit, offset, full, json,
+            )
+            .await?;
+        }
+        Some(FeedbackAction::Status {
+            feedback_id,
+            status,
+            note,
+        }) => {
+            set_status(moat, feedback_id, status, note, json).await?;
+        }
+        None => {
+            let comment = comment
+                .ok_or("--comment is required to record feedback (or use `feedback list`)")?;
+            if tool_use_id.is_some() && message.is_none() {
+                return Err("--tool-use-id requires --message".into());
+            }
+            let task_id = match task {
+                Some(id) => id,
+                None => cfg.require_task_id()?,
+            };
+            run(
+                moat,
+                FeedbackArgs {
+                    task_id,
+                    comment,
+                    category,
+                    message_uuid: message,
+                    tool_use_id,
+                },
+                json,
+            )
+            .await?;
+        }
+    }
+    Ok(())
 }

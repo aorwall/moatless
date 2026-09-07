@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use super::compose::{
-    detect_compose_cmd, resolve_compose_dir, run_compose, run_docker, ComposeDirSource, ENV_FILE,
-};
 use super::StatusArgs;
+use super::docker_compose::{
+    ComposeDirSource, ENV_FILE, detect_compose_cmd, resolve_compose_dir, run_compose, run_docker,
+};
 use crate::client::ClientError;
 use crate::output;
 

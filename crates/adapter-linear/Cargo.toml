@@ -9,9 +9,13 @@ authors.workspace = true
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 chrono = { workspace = true, features = ["serde"] }
+hex = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+serde_urlencoded = "0.7"
+urlencoding = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true }
@@ -22,6 +26,7 @@ moatless-adapter-model = { workspace = true }
 moatless-api-schemas = { workspace = true, features = ["openapi"] }
 moatless-ports = { workspace = true, features = [] }
 moatless-core = { workspace = true }
+moatless-identity = { workspace = true }
 moatless-loops = { workspace = true }
 moatless-tasks = { workspace = true }
 moatless-types = { workspace = true }
@@ -30,7 +35,6 @@ moatless-types = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-hex = { workspace = true }
 hmac = { workspace = true }
 moatless-loops = { workspace = true, features = ["test-support"] }
 # Test-only: the loopback provider stub (`ProviderStub`) these tests drive lives

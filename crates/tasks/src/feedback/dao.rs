@@ -276,7 +276,7 @@ impl FeedbackDao for PgFeedbackDao {
         // total, so the two cannot drift apart under a filter change, and
         // `total LEFT JOIN page ON TRUE` keeps the total available when the
         // page is empty.
-        let access = filter.scope.access_filter(ScopedEntity::Task, "t.", 1);
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
         let sql = format!(
             r#"WITH filtered AS (
                 SELECT

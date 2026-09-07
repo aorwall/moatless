@@ -1,9 +1,9 @@
 //! Canonical GitHub pull-request subject coordinates.
 
+use moatless_adapter_model::binding::{BindingContext, BindingDestination};
+use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::TaskBinding;
-use moatless_types::adapter::{BindingContext, BindingDestination};
-use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 
 use super::adapter::GithubPrAdapter;
 

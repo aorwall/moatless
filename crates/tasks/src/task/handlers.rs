@@ -1,25 +1,27 @@
 //! Task HTTP handlers — coordinate repository calls + enrichment.
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
-
-use axum::Json;
-use axum::extract::{Path, Query, State};
-
-use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
-use moatless_types::task::TaskSubType;
-
-use super::creation::{ForkedFrom, TaskCreationService};
+#[cfg(test)]
+use super::bindings::deactivate_task_bindings;
+use super::closer::TaskCloser;
+use super::creation::TaskCreationService;
 use super::dao::{TaskDao, TaskFilter, TaskPatch};
+use super::error::TaskError;
 use super::fork::TaskForkService;
-use super::models::Task;
-use super::relations::TaskRelationDao;
+use super::presenter::{ResolvedNames, TaskPresenter, build_task_response};
+use super::schemas::*;
+use super::service;
 use crate::credential_sync::CredentialSync;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use crate::tag::dao::TagDao;
-use crate::task::models::{SandboxIntentView, TaskStatus};
+use crate::task::bindings::TaskBindings;
+use crate::task::models::SandboxIntentView;
+#[cfg(test)]
+use crate::task::models::TaskStatus;
 use crate::task_turn::dao::TaskTurnDao;
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use moatless_api_schemas::bindings::TaskBindingSummary;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::http_auth::AuthUser;
@@ -27,19 +29,11 @@ use moatless_ports::identity::UserResolver;
 use moatless_ports::sandbox::PreflightPort;
 use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
-use moatless_types::access_control::{ScopeContext, ScopedResource};
+#[cfg(test)]
 use moatless_types::sandbox::ArchiveRetention;
-use moatless_types::task::TaskRelationType;
+use moatless_types::task::TaskSubType;
 use moatless_workspaces::workspace::git_sync::GitSyncService;
-
-use crate::task::bindings::TaskBindings;
-use moatless_api_schemas::bindings::TaskBindingSummary;
-
-use super::closer::{CloseEvent, TaskCloser};
-use super::error::TaskError;
-use super::presenter::{ResolvedNames, TaskPresenter, build_task_response};
-use super::schemas::*;
-use super::service;
+use std::sync::{Arc, Mutex};
 
 /// Create a new task.
 #[utoipa::path(
@@ -181,86 +175,19 @@ pub async fn fork_task(
     Path(task_id): Path<String>,
     Json(req): Json<ForkTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
-    let same_sandbox = req.same_sandbox.unwrap_or(false);
     let user_id = auth.user_id.to_string();
-    let scope_ctx = auth.scope_context();
-    let (source, plan) = task_fork.plan(&scope_ctx, &task_id, req.at_turn).await?;
-
-    // The fork's id is minted here rather than by the creation service: the
-    // conversation is copied onto it before the Task row exists, which is what
-    // puts the copied Messages behind the fork's own first message.
-    let fork_task_id = uuid::Uuid::new_v4().to_string();
-    let copied = task_fork.copy_conversation(&plan, &fork_task_id).await?;
-
-    // Everything the fork runs against comes from the Task it branched off. A
-    // fork is deliberately created unnamed and undescribed: "Fork of X" says
-    // where it came from, not what it is doing, and the agent sets both with
-    // `moat set-name` once it knows.
-    let create = CreateTaskRequest {
-        repository_id: Some(source.repository_id.clone()),
-        workspace_id: source.workspace_id.clone(),
-        sandbox_id: same_sandbox.then(|| source.sandbox_id.clone()).flatten(),
-        checkout_mode: same_sandbox.then_some(moatless_types::task::CheckoutMode::Shared),
-        agent_type: Some(source.agent_type.clone()),
-        name: None,
-        description: None,
-        branch: source.branch.clone(),
-        message: req.message.clone(),
-        model: req.model.clone().or_else(|| source.model.clone()),
-        agent_mode: req.agent_mode.clone(),
-        effort: req.effort.clone(),
-        contexts: Vec::new(),
-        file_ids: Vec::new(),
-        parent_task_id: None,
-        // A fork inherits the source Task's run-as through its Sandbox row, so
-        // naming one here would be a second answer to the same question.
-        run_as_user_id: None,
-        headless: None,
-        skills: req.skills.clone(),
-    };
-
-    // The conversation now sits under `fork_task_id` with no Task row to own it,
-    // and nothing cascades it away: `task_messages` and `task_activities` carry
-    // no foreign key to `tasks`, which is what let the copy land ahead of the
-    // create. So every failure from here — a rejected credential in `normalize`,
-    // a preflight refusal, a Sandbox join that never lands — has to take the copy
-    // back down, or it outlives the create that never completed. The create runs
-    // inside a block whose error triggers exactly that before it propagates.
-    // `enriched` is filled inside and read after for the response, so it lives
-    // outside the block.
     let enriched: Arc<Mutex<Option<TaskResponse>>> = Arc::new(Mutex::new(None));
-    let create_result = async {
-        let mut new_task = service::normalize(
-            service::CreateTaskPorts {
-                workspaces: workspaces.as_ref(),
-                repositories: repositories.as_ref(),
-                users: users.as_ref(),
-                credential_sync: &credential_sync,
-                config: &config,
-            },
-            &scope_ctx,
-            &user_id,
-            service::CreateTaskIntent {
-                request: create,
-                task_id: Some(fork_task_id.clone()),
-                provision: true,
-                first_message_uuid: None,
-            },
-        )
-        .await?;
-        new_task.tag_ids = task_fork.source_tag_ids(&task_id).await;
-        new_task.forked_from = Some(ForkedFrom {
-            source_task_id: task_id.clone(),
-            at_turn: plan.at_turn,
-            session: plan.session.clone(),
-        });
-
-        // Enrich once, as `create_task` does: the event payload and the HTTP
-        // response are the same object, and `enrich_task` is ~6 queries.
-        let presenter_ev = task_presenter.clone();
-        let uid_ev = user_id.clone();
-        let enriched_ev = enriched.clone();
-        service::create_task(&task_creation, message_send, new_task, move |task| async move {
+    let presenter_ev = task_presenter.clone();
+    let uid_ev = user_id.clone();
+    let enriched_ev = enriched.clone();
+    let outcome = task_fork.fork(super::fork::ForkCreationPorts {
+        normalize: service::CreateTaskPorts {
+            workspaces: workspaces.as_ref(), repositories: repositories.as_ref(), users: users.as_ref(),
+            credential_sync: &credential_sync, config: &config,
+        },
+        task_creation: &task_creation,
+        message_send,
+    }, &auth.scope_context(), &task_id, req, move |task| async move {
             match presenter_ev.enrich_task(&task, &uid_ev).await {
                 Ok(resp) => {
                     let payload = serde_json::json!({ "task": resp });
@@ -274,32 +201,7 @@ pub async fn fork_task(
                     serde_json::json!({ "task": { "taskId": task.task_id } })
                 }
             }
-        })
-        .await
-    }
-    .await;
-
-    let outcome = match create_result {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            // The Task never came to exist; take its copied conversation with it
-            // rather than leave rows behind a Task that is not there.
-            task_fork.discard_conversation(&fork_task_id).await;
-            return Err(error);
-        }
-    };
-
-    tracing::info!(
-        task_id = %fork_task_id,
-        source_task_id = %task_id,
-        at_turn = ?plan.at_turn,
-        messages = copied.messages,
-        activities = copied.activities,
-        contexts = copied.contexts,
-        same_sandbox,
-        "Task forked"
-    );
-
+        }).await?;
     let stashed = enriched.lock().ok().and_then(|mut cell| cell.take());
     let task_response = match stashed {
         Some(resp) => resp,
@@ -627,24 +529,6 @@ pub async fn update_task_metadata(
     Ok(Json(resp))
 }
 
-/// Deactivate all of a task's external bindings (best-effort).
-///
-/// Called when a task is closed or deleted. A closed task is terminal, so its
-/// adapter "listeners" (Linear issue / GitHub PR / Slack thread bindings) must
-/// stop routing inbound events — otherwise a new comment would re-provision the
-/// sandbox and resurrect the task. Logs on failure but never blocks the
-/// close/delete; the runtime guards in `SandboxWaker::wake` and
-/// `send_message_flow` are the backstop if this doesn't run.
-pub(crate) async fn deactivate_task_bindings(bindings: &dyn TaskBindings, task_id: &str) {
-    match bindings.deactivate_for_task(task_id).await {
-        Ok(0) => {}
-        Ok(n) => tracing::info!(task_id, deactivated = n, "Deactivated task bindings"),
-        Err(e) => {
-            tracing::warn!(task_id, error = %e, "Failed to deactivate task bindings");
-        }
-    }
-}
-
 /// Delete a task and cleanup its workspace.
 #[utoipa::path(
     delete,
@@ -665,43 +549,14 @@ pub async fn delete_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let scope_ctx = auth.scope_context();
-
-    // Leave the active member set before lifecycle decides whether this is a
-    // member detach or the final sandbox-scoped remove. Concurrent deletes of
-    // all members then serialize with at least one caller seeing no open/error
-    // peers, so runtime resources are removed before the last row disappears.
-    let closed = tasks
-        .update_task(
-            &task_id,
-            &TaskPatch {
-                status: Some(TaskStatus::Closed),
-                ..Default::default()
-            },
-            &scope_ctx,
-        )
-        .await?;
-    if !closed {
-        return Err(TaskError::NotFound(task_id.clone()));
-    }
-
-    // Stop external listeners. `task_bindings.task_id` is not an FK, so rows
-    // don't cascade on delete — deactivate them so inbound routing stops.
-    deactivate_task_bindings(task_bindings.as_ref(), &task_id).await;
-
-    // Permanent deletion is strict remove with archive deletion. The row is
-    // deleted only on success; on failure it survives Closed with lifecycle
-    // intent for the reconciler to finish.
-    sandbox
-        .remove(&task_id, ArchiveRetention::DeleteArchives)
-        .await?;
-
-    let deleted = tasks.delete_task(&task_id, &scope_ctx).await?;
-    if !deleted {
-        return Err(TaskError::NotFound(task_id.clone()));
-    }
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task deleted");
-
+    super::removal::delete_task(
+        sandbox.as_ref(),
+        task_bindings.as_ref(),
+        tasks.as_ref(),
+        &auth.scope_context(),
+        task_id,
+    )
+    .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -822,46 +677,18 @@ pub async fn unfollow_task(
 pub async fn close_task(
     State(task_closer): State<Arc<TaskCloser>>,
     State(tasks): State<Arc<dyn TaskDao>>,
-    State(task_relations): State<Arc<dyn TaskRelationDao>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     req: Option<Json<CloseTaskRequest>>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let req = req.map(|Json(req)| req).unwrap_or_default();
-    let scope_ctx = auth.scope_context();
-    // Read-check + control-check: find_by_id uses access_filter (visibility);
-    // the inline can_write check enforces owner/admin policy without the
-    // deleted ensure_can_write_task helper.
-    let row = tasks
-        .find_by_id(&task_id, &scope_ctx)
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    if !scope_ctx.can_write(&task_resource(&row)) {
-        return Err(TaskError::NotFound(task_id.clone())); // existence hiding
-    }
-
-    let children = task_relations
-        .list_incoming(&task_id, Some(TaskRelationType::CreatedBy))
-        .await
-        .map_err(TaskError::Db)?;
-    if !children.is_empty() && req.close_children.is_none() {
-        return Err(TaskError::BadRequest(
-            "closeChildren must be explicitly set to true or false when closing a task with children"
-                .to_string(),
-        ));
-    }
-
-    if req.close_children == Some(true) {
-        let mut visited = HashSet::new();
-        task_closer.close_tree(&task_id, &mut visited).await?;
-    } else {
-        task_closer
-            .close_single(&task_id, &CloseEvent::neutral())
-            .await?;
-    }
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
-
+    task_closer
+        .close_requested(
+            &auth.scope_context(),
+            task_id.clone(),
+            req.map(|Json(req)| req).unwrap_or_default(),
+        )
+        .await?;
     let updated = tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
@@ -925,56 +752,7 @@ pub async fn reopen_task(
 ///
 /// The status check is what makes this safe to offer as an undo: a task that
 /// was never closed is refused rather than quietly rewritten.
-pub async fn reopen_task_for(
-    tasks: &dyn TaskDao,
-    events: Option<&dyn EventPublisher>,
-    scope_ctx: &ScopeContext,
-    task_id: &str,
-) -> Result<(), TaskError> {
-    let row = tasks
-        .find_by_id(task_id, scope_ctx)
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-    if !scope_ctx.can_write(&task_resource(&row)) {
-        return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
-    }
-
-    if row.status != TaskStatus::Closed {
-        return Err(TaskError::BadRequest(format!(
-            "Cannot reopen task in '{}' status (only closed tasks can be reopened)",
-            row.status
-        )));
-    }
-
-    let updated = tasks
-        .update_task(
-            task_id,
-            &TaskPatch {
-                status: Some(TaskStatus::Open),
-                ..Default::default()
-            },
-            scope_ctx,
-        )
-        .await?;
-    if !updated {
-        return Err(TaskError::NotFound(task_id.to_string()));
-    }
-
-    tracing::info!(task_id, user_id = %scope_ctx.user_id, "Task reopened");
-
-    if let Some(events) = events {
-        events
-            .publish_task_event(
-                task_id,
-                TaskSubType::Open,
-                Some(row.agent_type.as_str()),
-                serde_json::json!({"reason": "reopened"}),
-            )
-            .await;
-    }
-
-    Ok(())
-}
+pub use super::service::reopen_task_for;
 
 /// Start a task (provision sandbox and begin agent).
 #[utoipa::path(
@@ -1004,76 +782,19 @@ pub async fn start_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let scope_ctx = auth.scope_context();
-    let row = tasks
-        .find_by_id(&task_id, &scope_ctx)
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    if !scope_ctx.can_control(&task_resource(&row), row.visibility) {
-        return Err(TaskError::NotFound(task_id.clone())); // existence hiding
-    }
-
-    if row.status != TaskStatus::Open && row.status != TaskStatus::Error {
-        return Err(TaskError::BadRequest(format!(
-            "Cannot start task in '{}' status",
-            row.status
-        )));
-    }
-
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Starting task");
-
-    // Pre-flight: validate the GitHub token + repo access before any
-    // sandbox resources are created. On failure: mark Error, publish a
-    // sandbox.error event, and return 400.
-    let repo = repositories
-        .describe(&auth.scope_context(), &row.repository_id)
-        .await?
-        .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
-
-    if let Err(e) = preflight.validate(&row, &repo).await {
-        tracing::warn!(task_id = %task_id, error = %e, "Start preflight failed");
-        if let Err(db_err) = tasks
-            .update_task(
-                &task_id,
-                &TaskPatch {
-                    status: Some(TaskStatus::Error),
-                    ..Default::default()
-                },
-                &scope_ctx,
-            )
-            .await
-        {
-            tracing::error!(
-                task_id = %task_id,
-                error = %db_err,
-                "Failed to mark task Error after preflight failure"
-            );
-        }
-        if let Some(ref events) = events {
-            events
-                .publish_sandbox_event_with_payload(
-                    &task_id,
-                    SandboxStatus::Error,
-                    &SandboxEventPayload {
-                        message: e.user_message.clone(),
-                        error: Some(e.detail.clone()),
-                        lifecycle_event: Some("preflight_failed".to_string()),
-                        ..Default::default()
-                    },
-                )
-                .await;
-        }
-        return Err(TaskError::BadRequest(e.user_message));
-    }
-
-    // Best-effort: if the repo ships a `.moatless/` directory, reconcile its
-    // workspace config before provisioning. Loops are never synchronized as a
-    // side effect of task start.
-    git_sync.sync_repo_config_on_start(&auth, &repo).await;
-
-    sandbox.start(&task_id).await?;
-
-    tracing::info!(task_id = %task_id, "Sandbox start initiated (initializing)");
+    super::start::start_task(
+        super::start::StartTaskPorts {
+            tasks: tasks.as_ref(),
+            repositories: repositories.as_ref(),
+            preflight: preflight.as_ref(),
+            events: events.as_deref(),
+            sandbox: sandbox.as_ref(),
+            git_sync: git_sync.as_ref(),
+        },
+        &auth.scope_context(),
+        task_id,
+    )
+    .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -1135,7 +856,7 @@ pub async fn set_task_tags(
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    if !scope_ctx.can_write(&task_resource(&existing)) {
+    if !scope_ctx.can_write(&existing.scoped_resource()) {
         return Err(TaskError::NotFound(task_id.clone())); // existence hiding
     }
 
@@ -1229,50 +950,7 @@ pub async fn update_ttl(
     Path(task_id): Path<String>,
     Json(req): Json<UpdateTaskTtlRequest>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    if req.ttl_minutes.is_none() && req.inactive_ttl_days.is_none() {
-        return Err(TaskError::BadRequest(
-            "provide ttl_minutes and/or inactive_ttl_days".to_string(),
-        ));
-    }
-    if req.ttl_minutes.is_some_and(|v| v < 0) {
-        return Err(TaskError::BadRequest(
-            "ttl_minutes must be >= 0".to_string(),
-        ));
-    }
-    if req.inactive_ttl_days.is_some_and(|v| v < 0) {
-        return Err(TaskError::BadRequest(
-            "inactive_ttl_days must be >= 0".to_string(),
-        ));
-    }
-
-    let scope_ctx = auth.scope_context();
-    let updated = tasks
-        .update_task(
-            &task_id,
-            &TaskPatch {
-                ttl_minutes: req.ttl_minutes,
-                inactive_ttl_days: req.inactive_ttl_days,
-                ..Default::default()
-            },
-            &scope_ctx,
-        )
-        .await?;
-    if !updated {
-        return Err(TaskError::NotFound(task_id.clone()));
-    }
-    tracing::info!(
-        task_id = %task_id,
-        user_id = %auth.user_id,
-        ttl_minutes = ?req.ttl_minutes,
-        inactive_ttl_days = ?req.inactive_ttl_days,
-        "Task TTL updated"
-    );
-
-    let row = tasks
-        .find_by_id(&task_id, &scope_ctx)
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-
+    let row = service::update_ttl(tasks.as_ref(), &auth.scope_context(), task_id, req).await?;
     let resp = task_presenter
         .enrich_task(&row, &auth.user_id.to_string())
         .await?;
@@ -1282,10 +960,6 @@ pub async fn update_ttl(
 // =========================================================================
 // Helpers
 // =========================================================================
-
-pub(crate) fn task_resource(row: &Task) -> ScopedResource {
-    row.scoped_resource()
-}
 
 #[cfg(test)]
 mod tests {
@@ -1298,6 +972,7 @@ mod tests {
 
     struct RecordingSandbox {
         log: Arc<Mutex<Vec<&'static str>>>,
+        fail_removal: bool,
     }
 
     #[async_trait::async_trait]
@@ -1327,6 +1002,11 @@ mod tests {
             _retention: ArchiveRetention,
         ) -> Result<(), moatless_ports::sandbox::SandboxOpError> {
             self.log.lock().expect("log").push("remove");
+            if self.fail_removal {
+                return Err(moatless_ports::sandbox::SandboxOpError::Internal(
+                    "remove failed".to_string(),
+                ));
+            }
             Ok(())
         }
 
@@ -1456,6 +1136,7 @@ mod tests {
         let status = delete_task(
             State(Arc::new(RecordingSandbox {
                 log: Arc::clone(&log),
+                fail_removal: false,
             }) as Arc<dyn SandboxLifecycle>),
             State(Arc::new(FakeBindings::returning(Ok(0))) as Arc<dyn TaskBindings>),
             State(Arc::new(tasks) as Arc<dyn TaskDao>),
@@ -1476,5 +1157,40 @@ mod tests {
 
         assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
         assert_eq!(*log.lock().expect("log"), vec!["close", "remove", "delete"]);
+    }
+
+    #[tokio::test]
+    async fn failed_removal_retains_the_closed_task_row() {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut tasks = MockTaskDao::new();
+        let updated = log.clone();
+        tasks
+            .expect_update_task()
+            .once()
+            .withf(|_, patch, _| patch.status == Some(TaskStatus::Closed))
+            .returning(move |_, _, _| {
+                updated.lock().unwrap().push("close");
+                Ok(true)
+            });
+        let sandbox = RecordingSandbox {
+            log: log.clone(),
+            fail_removal: true,
+        };
+        let bindings = FakeBindings::returning(Ok(1));
+        let ctx = moatless_types::access_control::ScopeContext {
+            user_id: "owner".to_string(),
+            is_admin: false,
+        };
+        let result = super::super::removal::delete_task(
+            &sandbox,
+            &bindings,
+            &tasks,
+            &ctx,
+            "task-1".to_string(),
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(*log.lock().unwrap(), vec!["close", "remove"]);
+        assert_eq!(*bindings.deactivated.lock().unwrap(), vec!["task-1"]);
     }
 }

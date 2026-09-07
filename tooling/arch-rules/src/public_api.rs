@@ -17,15 +17,6 @@ pub struct Export {
     pub file: String,
 }
 
-/// The file a walk starts from: a crate's `lib.rs`, or its `main.rs` when it
-/// has no library target.
-pub fn root_of(sources: &BTreeMap<String, String>, crate_dir: &str) -> Option<String> {
-    ["lib.rs", "main.rs"]
-        .iter()
-        .map(|file| format!("{crate_dir}/src/{file}"))
-        .find(|path| sources.contains_key(path))
-}
-
 /// Every type reachable from `root` through public modules and re-exports.
 pub fn exports(sources: &BTreeMap<String, String>, root: &str) -> Result<Vec<Export>> {
     let mut queue = VecDeque::from([(root.to_string(), Vec::new(), true)]);
@@ -46,6 +37,9 @@ pub fn exports(sources: &BTreeMap<String, String>, root: &str) -> Result<Vec<Exp
             continue;
         };
         let parsed = syn::parse_file(text).with_context(|| format!("parsing {file}"))?;
+        if crate::source_index::test_only(&parsed.attrs) {
+            continue;
+        }
         let mut found = Scanned::default();
         scan(&parsed.items, &module, reachable, &mut found);
 
@@ -69,7 +63,7 @@ pub fn exports(sources: &BTreeMap<String, String>, root: &str) -> Result<Vec<Exp
             // Recorded whether or not the file exists, so a `use` naming it
             // still resolves as local.
             modules.insert(at.clone());
-            if let Some(child) = resolve(sources, &file, &name) {
+            if let Some(child) = resolve(sources, &file, &name, file == root) {
                 queue.push_back((child, at, reachable && public));
             }
         }
@@ -168,13 +162,15 @@ struct Scanned {
 fn scan(items: &[syn::Item], module: &[String], public: bool, out: &mut Scanned) {
     for item in items {
         match item {
-            syn::Item::Struct(s) if is_pub(&s.vis) && !cfg_test(&s.attrs) => {
-                out.types.push((s.ident.to_string(), module.to_vec(), public));
+            syn::Item::Struct(s) if is_pub(&s.vis) && !crate::source_index::test_only(&s.attrs) => {
+                out.types
+                    .push((s.ident.to_string(), module.to_vec(), public));
             }
-            syn::Item::Enum(e) if is_pub(&e.vis) && !cfg_test(&e.attrs) => {
-                out.types.push((e.ident.to_string(), module.to_vec(), public));
+            syn::Item::Enum(e) if is_pub(&e.vis) && !crate::source_index::test_only(&e.attrs) => {
+                out.types
+                    .push((e.ident.to_string(), module.to_vec(), public));
             }
-            syn::Item::Mod(m) if !cfg_test(&m.attrs) => match &m.content {
+            syn::Item::Mod(m) if !crate::source_index::test_only(&m.attrs) => match &m.content {
                 Some((_, nested)) => {
                     let mut inner = module.to_vec();
                     inner.push(m.ident.to_string());
@@ -183,7 +179,7 @@ fn scan(items: &[syn::Item], module: &[String], public: bool, out: &mut Scanned)
                 }
                 None => out.mods.push((m.ident.to_string(), is_pub(&m.vis))),
             },
-            syn::Item::Use(u) if is_pub(&u.vis) && !cfg_test(&u.attrs) => {
+            syn::Item::Use(u) if is_pub(&u.vis) && !crate::source_index::test_only(&u.attrs) => {
                 out.uses.push((module.to_vec(), u.tree.clone()));
             }
             _ => {}
@@ -262,8 +258,17 @@ fn local_path(
 }
 
 /// The file a `mod name;` in `file` refers to, if the crate has one.
-fn resolve(sources: &BTreeMap<String, String>, file: &str, name: &str) -> Option<String> {
-    let dir = module_dir(file)?;
+fn resolve(
+    sources: &BTreeMap<String, String>,
+    file: &str,
+    name: &str,
+    root: bool,
+) -> Option<String> {
+    let dir = if root {
+        Path::new(file).parent()?.to_string_lossy().into_owned()
+    } else {
+        module_dir(file)?
+    };
     [format!("{dir}/{name}.rs"), format!("{dir}/{name}/mod.rs")]
         .into_iter()
         .find(|candidate| sources.contains_key(candidate))
@@ -284,28 +289,11 @@ fn is_pub(vis: &syn::Visibility) -> bool {
     matches!(vis, syn::Visibility::Public(_))
 }
 
-/// Whether an attribute list gates the item to a test build.
-///
-/// `#[cfg(test)]` and `#[cfg(any(test, feature = "test-support"))]` both do.
-/// The check is per word so `feature = "latest"` is not mistaken for one.
-fn cfg_test(attrs: &[syn::Attribute]) -> bool {
-    attrs.iter().any(|attr| {
-        attr.path().is_ident("cfg")
-            && match &attr.meta {
-                syn::Meta::List(list) => mentions_test(&list.tokens.to_string()),
-                _ => false,
-            }
-    })
-}
-
-fn mentions_test(tokens: &str) -> bool {
-    tokens
-        .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
-        .any(|word| word == "test" || word.starts_with("test-") || word.starts_with("test_"))
-}
-
 #[cfg(test)]
-#[allow(clippy::unwrap_used, reason = "a fixture that fails to parse is a failing test")]
+#[allow(
+    clippy::unwrap_used,
+    reason = "a fixture that fails to parse is a failing test"
+)]
 mod tests {
     use super::*;
 
@@ -346,7 +334,10 @@ mod tests {
     #[test]
     fn a_re_export_lifts_a_type_out_of_a_private_module() {
         let sources = crate_of(&[
-            ("src/lib.rs", "mod internal;\npub use self::internal::Lifted;"),
+            (
+                "src/lib.rs",
+                "mod internal;\npub use self::internal::Lifted;",
+            ),
             ("src/internal.rs", "pub struct Lifted;\npub struct Left;"),
         ]);
         assert_eq!(names(&sources), vec!["Lifted"]);

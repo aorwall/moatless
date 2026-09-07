@@ -2,14 +2,14 @@
 
 use std::fs;
 
-use dialoguer::{theme::ColorfulTheme, Password};
+use dialoguer::{Password, theme::ColorfulTheme};
 use serde::{Deserialize, Serialize};
 
-use super::env_file::{is_placeholder, read_env_map, set_env, write_env_file};
-use super::compose::{
-    resolve_compose_dir, seed_assets, ComposeDirSource, ENV_EXAMPLE_FILE, ENV_FILE, INSTALL_ASSETS,
-};
 use super::InitArgs;
+use super::docker_compose::{
+    ComposeDirSource, ENV_EXAMPLE_FILE, ENV_FILE, INSTALL_ASSETS, resolve_compose_dir, seed_assets,
+};
+use super::env_file::{is_placeholder, read_env_map, set_env, write_env_file};
 use crate::client::ClientError;
 use crate::output;
 
@@ -216,8 +216,8 @@ fn print_human(r: &InitReport, source: ComposeDirSource) {
 mod tests {
     use std::fs;
 
-    use super::super::compose::{COMPOSE_FILE, NGINX_CONF_FILE};
     use super::super::InitArgs;
+    use super::super::docker_compose::{COMPOSE_FILE, NGINX_CONF_FILE};
     use super::run;
 
     /// Repairing one wrong-type asset must NOT clobber the user's hand-edited

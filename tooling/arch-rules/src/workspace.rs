@@ -20,7 +20,34 @@ pub struct Member {
     pub dependencies: Vec<Dependency>,
     pub manifest: toml::Table,
     pub metadata: serde_json::Value,
-    pub targets: Vec<(PathBuf, bool)>,
+    pub targets: Vec<Target>,
+}
+
+/// A Cargo target and its source role.
+pub struct Target {
+    pub path: PathBuf,
+    pub kinds: Vec<String>,
+}
+
+impl Target {
+    pub(crate) fn test_only(&self) -> bool {
+        self.kinds
+            .iter()
+            .any(|k| matches!(k.as_str(), "test" | "bench" | "example" | "custom-build"))
+    }
+
+    pub(crate) fn library(&self) -> bool {
+        self.kinds.iter().any(|k| {
+            matches!(
+                k.as_str(),
+                "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro"
+            )
+        })
+    }
+
+    pub(crate) fn executable(&self) -> bool {
+        self.kinds.iter().any(|k| k == "bin")
+    }
 }
 
 /// One declared dependency, before Cargo unifies features.
@@ -37,6 +64,8 @@ pub struct Workspace {
     pub root: PathBuf,
     members: BTreeMap<String, Member>,
     index: OnceCell<Result<crate::source_index::Index, String>>,
+    source_only: Vec<Member>,
+    role_index: OnceCell<Result<crate::source_index::Index, String>>,
 }
 
 impl Workspace {
@@ -121,13 +150,13 @@ impl Workspace {
                 .filter_map(|t| {
                     let path = PathBuf::from(t["src_path"].as_str()?);
                     let kinds = t["kind"].as_array()?;
-                    if kinds.iter().any(|k| k == "custom-build") {
-                        return None;
-                    }
-                    let test = kinds
-                        .iter()
-                        .any(|k| k == "test" || k == "bench" || k == "example");
-                    Some((path, test))
+                    Some(Target {
+                        path,
+                        kinds: kinds
+                            .iter()
+                            .filter_map(|k| k.as_str().map(str::to_owned))
+                            .collect(),
+                    })
                 })
                 .collect();
 
@@ -145,19 +174,36 @@ impl Workspace {
             );
         }
 
+        let source_only = source_only_members(&root)?;
         Ok(Self {
             root,
             members,
             index: OnceCell::new(),
+            source_only,
+            role_index: OnceCell::new(),
         })
     }
 
     /// The parsed, resolved source inventory shared by the rules in this run.
-    pub fn index(&self) -> Result<&crate::source_index::Index> {
+    pub(crate) fn index(&self) -> Result<&crate::source_index::Index> {
         self.index
             .get_or_init(|| crate::source_index::Index::read(self).map_err(|e| format!("{e:#}")))
             .as_ref()
             .map_err(|e| anyhow!("{e}"))
+    }
+
+    pub(crate) fn role_index(&self) -> Result<&crate::source_index::Index> {
+        self.role_index
+            .get_or_init(|| {
+                crate::source_index::Index::read_members(self, self.source_members(), false)
+                    .map_err(|e| format!("{e:#}"))
+            })
+            .as_ref()
+            .map_err(|e| anyhow!("{e}"))
+    }
+
+    pub(crate) fn source_members(&self) -> impl Iterator<Item = &Member> {
+        self.members().chain(self.source_only.iter())
     }
 
     pub fn member(&self, name: &str) -> Option<&Member> {
@@ -197,14 +243,23 @@ impl Workspace {
     /// Paths are relative to the workspace root so a violation reads the same
     /// wherever the checkout lives.
     pub fn sources(&self, member: &Member) -> Result<Vec<(String, String)>> {
-        let src = member.dir.join("src");
-        if !src.is_dir() {
-            return Ok(Vec::new());
-        }
+        let mut roots = BTreeSet::from([member.dir.join("src")]);
+        roots.extend(
+            member
+                .targets
+                .iter()
+                .filter_map(|t| t.path.parent().map(Path::to_path_buf)),
+        );
         let mut files = Vec::new();
-        for entry in WalkDir::new(&src).into_iter().filter_map(Result::ok) {
+        let mut seen = BTreeSet::new();
+        for entry in roots
+            .iter()
+            .filter(|p| p.is_dir())
+            .flat_map(|root| WalkDir::new(root).into_iter())
+            .filter_map(Result::ok)
+        {
             let path = entry.path();
-            if path.extension().is_some_and(|e| e == "rs") {
+            if path.extension().is_some_and(|e| e == "rs") && seen.insert(path.to_path_buf()) {
                 let text = std::fs::read_to_string(path)
                     .with_context(|| format!("reading {}", path.display()))?;
                 files.push((self.relative(path), text));
@@ -228,4 +283,61 @@ pub fn workspace_root() -> PathBuf {
         .ancestors()
         .nth(2)
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+}
+
+fn source_only_members(root: &Path) -> Result<Vec<Member>> {
+    // The excluded SDK depends on an external Codex checkout. Read its source
+    // without resolving that checkout so CI still enforces file responsibilities.
+    let dir = root.join("crates/codex-sdk");
+    let path = dir.join("Cargo.toml");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let manifest: toml::Table = std::fs::read_to_string(path)?.parse()?;
+    let name = manifest
+        .get("package")
+        .and_then(|p| p.get("name"))
+        .and_then(toml::Value::as_str)
+        .context("source-only SDK package name")?
+        .to_owned();
+    let mut targets = Vec::new();
+    let library = manifest
+        .get("lib")
+        .and_then(|v| v.get("path"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or("src/lib.rs");
+    if dir.join(library).exists() {
+        targets.push(Target {
+            path: dir.join(library),
+            kinds: vec!["lib".into()],
+        });
+    }
+    if dir.join("src/main.rs").exists() {
+        targets.push(Target {
+            path: dir.join("src/main.rs"),
+            kinds: vec!["bin".into()],
+        });
+    }
+    for bin in manifest
+        .get("bin")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(path) = bin.get("path").and_then(toml::Value::as_str) {
+            targets.push(Target {
+                path: dir.join(path),
+                kinds: vec!["bin".into()],
+            });
+        }
+    }
+    Ok(vec![Member {
+        name,
+        dir,
+        normal_deps: BTreeSet::new(),
+        dependencies: Vec::new(),
+        metadata: serde_json::Value::Null,
+        manifest,
+        targets,
+    }])
 }

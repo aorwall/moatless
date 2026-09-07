@@ -40,7 +40,7 @@ use moatless_types::loops::SubscriptionMatch;
 
 use super::active_turns::ActiveLinearTurns;
 use super::agent_api::{ActivityKind, LinearAgentApi};
-use super::config::{LinearRuleConfig, rules_need_issue_fetch, select_spawn_rule};
+use super::config::{rules_need_issue_fetch, select_spawn_rule, LinearRuleConfig};
 use super::issues::{insert_event_task, transition_issue_state};
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
 use super::webhook_payloads::AgentSession;
@@ -438,9 +438,12 @@ async fn provision_session_task(
 
     // Update the session with an externalUrl pointing at the moatless task.
     let task_url = super::text::task_url(config, &task_id);
-    let attachment_title =
-        super::text::task_attachment_title(tasks, &task_id, super::text::ATTACHMENT_TITLE_CHILD)
-            .await;
+    let attachment_title = super::task_links::task_attachment_title(
+        tasks,
+        &task_id,
+        super::text::ATTACHMENT_TITLE_CHILD,
+    )
+    .await;
     if let Err(e) = api
         .agent_session_update_external_urls(&session.id, &attachment_title, &task_url)
         .await
@@ -465,7 +468,7 @@ async fn provision_session_task(
     // ticket and its comments via the `moat` CLI.
     let inbound_text = super::text::build_inbound_text(session);
     let external_event_id = super::external_id::session_created(&session.id);
-    let creator_handle = super::actor_handle(session.creator.as_ref());
+    let creator_handle = super::webhook_payloads::actor_handle(session.creator.as_ref());
     if let Err(e) = message_send
         .accept(InboundTurn {
             task_id: task_id.clone(),

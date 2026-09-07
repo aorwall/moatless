@@ -289,7 +289,6 @@ pub async fn stream_container_logs_k8s(
 /// Per-container resource usage from the K8s Metrics API.
 #[derive(Debug, Clone)]
 pub struct ContainerResourceUsage {
-    pub name: String,
     /// CPU usage in millicores (e.g. 250 = 0.25 cores)
     pub cpu_millicores: u64,
     /// Memory usage in bytes
@@ -381,9 +380,8 @@ pub async fn fetch_container_resource_usage(
             let cpu = c.usage.cpu.parse::<Cpu>().map_or(0, |q| q.millicores());
             let mem = c.usage.memory.parse::<Memory>().map_or(0, |q| q.bytes());
             (
-                c.name.clone(),
+                c.name,
                 ContainerResourceUsage {
-                    name: c.name,
                     cpu_millicores: cpu,
                     memory_bytes: mem,
                 },
@@ -467,9 +465,8 @@ async fn fetch_namespace_resource_usage(
                     let cpu = c.usage.cpu.parse::<Cpu>().map_or(0, |q| q.millicores());
                     let mem = c.usage.memory.parse::<Memory>().map_or(0, |q| q.bytes());
                     (
-                        c.name.clone(),
+                        c.name,
                         ContainerResourceUsage {
-                            name: c.name,
                             cpu_millicores: cpu,
                             memory_bytes: mem,
                         },
@@ -635,7 +632,6 @@ mod tests {
                     (
                         name.to_string(),
                         ContainerResourceUsage {
-                            name: name.to_string(),
                             cpu_millicores: *cpu_millicores,
                             memory_bytes: *memory_bytes,
                         },

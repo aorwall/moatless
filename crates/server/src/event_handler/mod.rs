@@ -10,33 +10,4 @@ pub mod models;
 pub mod pricing;
 pub mod skeleton;
 
-use std::sync::Arc;
-
-use redis::aio::ConnectionManager;
-use tokio_util::sync::CancellationToken;
-use tracing::info;
-
-use moatless_loops::adapters::events::TaskEventSubscribers;
-
-use crate::state::AppState;
-
-/// Spawn the event handler consumer as a background task.
-///
-/// Returns a future that runs the consumer loop until cancellation.
-pub async fn spawn_event_handler(
-    conn: ConnectionManager,
-    state: AppState,
-    subscribers: Arc<TaskEventSubscribers>,
-    cancel: CancellationToken,
-) {
-    let consumer_id = format!(
-        "event-handler-{}",
-        std::env::var("HOSTNAME").unwrap_or_else(|_| "local".to_string())
-    );
-
-    info!(consumer_id = %consumer_id, "Spawning event handler consumer");
-
-    let consumer =
-        consumer::EventHandlerConsumer::new(conn, consumer_id, state, subscribers, cancel);
-    consumer.run().await;
-}
+pub use consumer::spawn_event_handler;

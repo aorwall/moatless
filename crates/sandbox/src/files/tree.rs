@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use tokio::fs;
 
 use super::git::{self, GitFileInfo};
-use super::{validate_path, FileError};
+use super::{FileError, validate_path};
 
 /// Resolve a caller-supplied root into a path inside the workspace.
 ///

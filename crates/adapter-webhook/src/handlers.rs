@@ -1,19 +1,15 @@
 use std::sync::Arc;
 
-use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
-use tracing::{debug, info};
+use axum::Json;
 
-use moatless_adapter_model::delivery::{DeliveryAdmission, inbound_delivery_request};
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::ingress::admit_delivery;
+use moatless_adapter_model::delivery::DeliveryAdmission;
+use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::loops::LoopReader;
-use moatless_types::adapter::InboundDeliveryPayload;
 
-use super::adapter::{WebhookAccepted, WebhookAdapter};
-use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};
+use moatless_api_schemas::webhook::WebhookAccepted;
 
 /// Take durable ownership of one inbound webhook delivery.
 ///
@@ -45,91 +41,37 @@ pub async fn webhook_inbound(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<WebhookAccepted>, AdapterError> {
-    info!(loop_id = %loop_id, "Webhook inbound received");
-
-    let subscription = loops
-        .runnable_subscription(&loop_id)
-        .await?
-        .ok_or_else(|| SharedAdapterError::ConfigNotFound(loop_id.clone()))?;
-
-    if subscription.adapter_kind.as_str() != ADAPTER {
-        return Err(SharedAdapterError::BadRequest(format!(
-            "Loop {loop_id} is not a webhook Subscription"
-        ))
-        .into());
-    }
-
     let signature = headers
         .get("x-webhook-signature")
-        .and_then(|v| v.to_str().ok());
-    let config = moatless_adapter_model::loops::subscription_context(&subscription);
-    let delivery = WebhookAdapter::parse_inbound(&config, &body, signature)?;
-    let message = delivery.message;
-    let thread_id = message
-        .thread_id
-        .as_deref()
-        .unwrap_or(&message.message_thread_id);
-    let subject_key = format!("{}:{thread_id}", message.source_id);
-
-    // The Adapter connection is named, not read. Admission runs on the caller's
-    // response deadline and must not fail because a connection is missing or
-    // concurrently deleted; the handler reads it when it executes and reports a
-    // permanent failure if it is gone.
-    //
-    // Everything below the 200 depends on this write: a failure here must reach
-    // the caller as a failure so it re-delivers, and must never be swallowed
-    // into an acknowledgment. The routing itself runs in the Adapter
-    // delivery worker, which is also where the webhook outcome metric is
-    // recorded.
-    let request = inbound_delivery_request(
-        ADAPTER,
-        INBOUND_MESSAGE,
-        delivery.delivery_id.clone(),
-        InboundDeliveryPayload {
-            connection_id: subscription.connection_id.clone(),
-            loop_id: subscription.id.clone(),
-            subject_kind: SUBJECT_KIND.to_string(),
-            subject_key,
-            destination_config: serde_json::json!({}),
-            event_type: String::new(),
-            message,
-        },
-    )?;
-    // This handler has no `receive` to hold the shared `Outcome`/`IngressError`
-    // — it answers with `AdapterError` directly and its own body type — so the
-    // `AdmitError` is flattened here, by the `From<AdmitError> for AdapterError`
-    // impl the kernel owns, rather than through an `IngressError` this handler
-    // has no place to hold.
-    let admission = admit_delivery(adapter_delivery.as_ref(), request).await?;
-
-    debug!(
-        loop_id = %loop_id,
-        delivery_id = %delivery.delivery_id,
-        admission = admission.as_str(),
-        "Webhook delivery admitted for routing"
-    );
-    Ok(Json(WebhookAccepted {
-        delivery_id: delivery.delivery_id,
-        status: admission.into(),
-    }))
+        .and_then(|value| value.to_str().ok());
+    crate::ingress::receive(
+        loops.as_ref(),
+        adapter_delivery.as_ref(),
+        loop_id,
+        signature,
+        &body,
+    )
+    .await
+    .map(Json)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::delivery::INBOUND_MESSAGE;
     use crate::adapter::WebhookAdmission;
 
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
 
-    use moatless_types::loops::SubscriptionMatch;
     use moatless_adapter_model::test_support::{
-        FakeAdmission, FakeAdmissionAnswer, response_snapshot,
+        response_snapshot, FakeAdmission, FakeAdmissionAnswer,
     };
     use moatless_types::access_control::Scope;
     use moatless_types::adapter::AdapterKind;
     use moatless_types::loops::RoutingMode;
+    use moatless_types::loops::SubscriptionMatch;
     use moatless_types::store::StoreError;
 
     /// A runnable webhook Subscription, the one shape every test here drives the
@@ -222,7 +164,9 @@ mod tests {
     /// stops re-delivering work nothing durable was written for.
     #[tokio::test]
     async fn a_full_backlog_is_not_acknowledged() {
-        let fake = Arc::new(FakeAdmission::new(FakeAdmissionAnswer::AtCapacity { limit: 10 }));
+        let fake = Arc::new(FakeAdmission::new(FakeAdmissionAnswer::AtCapacity {
+            limit: 10,
+        }));
         let admission: Arc<dyn DeliveryAdmission> = fake.clone();
         let refused = webhook_inbound(
             State(runnable_loop()),

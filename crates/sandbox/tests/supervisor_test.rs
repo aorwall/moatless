@@ -647,7 +647,7 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         Arc::clone(&credential_dispatcher),
         Arc::clone(&system_prompt_cache),
         heartbeat.clone(),
-        moatless_sandbox::init::workspace_sync::WorkspaceSyncTracker::new(),
+        moatless_sandbox::workspace_sync::WorkspaceSyncTracker::new(),
     );
     let task_context = Arc::new(TaskContext::new(
         config.task_id.clone(),

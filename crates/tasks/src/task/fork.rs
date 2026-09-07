@@ -13,9 +13,6 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
-
-use moatless_core::db::DbPool;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 
 use super::dao::TaskDao;
@@ -25,64 +22,9 @@ use crate::message::fork::{ForkAnchors, ForkCopyCounts};
 use crate::tag::dao::TagDao;
 use crate::task_turn::dao::{ForkPoint, TaskTurnDao};
 
-/// A `task_forks` row: the fork, the Task it branched from, and the three
-/// anchors the delivery path hands the pod until the fork has a session of its
-/// own.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct TaskFork {
-    pub task_id: String,
-    pub source_task_id: String,
-    pub at_turn: Option<i32>,
-    pub source_session_id: String,
-    pub source_message_uuid: Option<String>,
-    pub source_agent_turn_id: Option<String>,
-}
-
-#[cfg_attr(test, mockall::automock)]
-#[async_trait]
-pub trait TaskForkDao: Send + Sync {
-    async fn insert(&self, row: &TaskFork) -> Result<(), sqlx::Error>;
-
-    /// The fork row for a Task, or `None` when the Task is not a fork — which
-    /// is every Task but one in a hundred, so this is on the delivery path's
-    /// hot side and reads by primary key.
-    async fn find(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error>;
-}
-
-pub struct PgTaskForkDao(pub DbPool);
-
-#[async_trait]
-impl TaskForkDao for PgTaskForkDao {
-    async fn insert(&self, row: &TaskFork) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"INSERT INTO task_forks
-                   (task_id, source_task_id, at_turn, source_session_id,
-                    source_message_uuid, source_agent_turn_id)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               ON CONFLICT (task_id) DO NOTHING"#,
-        )
-        .bind(&row.task_id)
-        .bind(&row.source_task_id)
-        .bind(row.at_turn)
-        .bind(&row.source_session_id)
-        .bind(&row.source_message_uuid)
-        .bind(&row.source_agent_turn_id)
-        .execute(&self.0)
-        .await?;
-        Ok(())
-    }
-
-    async fn find(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error> {
-        sqlx::query_as::<_, TaskFork>(
-            r#"SELECT task_id, source_task_id, at_turn, source_session_id,
-                      source_message_uuid, source_agent_turn_id
-               FROM task_forks WHERE task_id = $1"#,
-        )
-        .bind(task_id)
-        .fetch_optional(&self.0)
-        .await
-    }
-}
+#[cfg(test)]
+pub(crate) use super::fork_dao::MockTaskForkDao;
+pub use super::fork_dao::{PgTaskForkDao, TaskFork, TaskForkDao};
 
 /// The parent's agent session at the cut, and the two anchors that name the cut
 /// inside it. One or the other is set, never both: Claude's transcript is keyed
@@ -295,6 +237,121 @@ impl TaskForkService {
                  the copied rows are orphaned until reaped"
             );
         }
+    }
+}
+
+/// Dependencies shared by normalization and creation of a fork.
+pub struct ForkCreationPorts<'a> {
+    pub normalize: super::service::CreateTaskPorts<'a>,
+    pub task_creation: &'a super::creation::TaskCreationService,
+    pub message_send: std::sync::Arc<crate::message::send::MessageSendService>,
+}
+
+impl TaskForkService {
+    /// Copy the selected conversation and compensate every failed task creation.
+    pub async fn fork<EvFut>(
+        &self,
+        ports: ForkCreationPorts<'_>,
+        scope_ctx: &ScopeContext,
+        task_id: &str,
+        req: super::schemas::ForkTaskRequest,
+        build_event_payload: impl FnOnce(super::models::Task) -> EvFut + Send,
+    ) -> Result<super::creation::TaskCreationOutcome, TaskError>
+    where
+        EvFut: std::future::Future<Output = serde_json::Value> + Send,
+    {
+        use super::creation::ForkedFrom;
+        use super::schemas::CreateTaskRequest;
+        use super::service;
+        let same_sandbox = req.same_sandbox.unwrap_or(false);
+        let user_id = scope_ctx.user_id.clone();
+        let (source, plan) = self.plan(scope_ctx, task_id, req.at_turn).await?;
+
+        // The fork's id is minted here rather than by the creation service: the
+        // conversation is copied onto it before the Task row exists, which is what
+        // puts the copied Messages behind the fork's own first message.
+        let fork_task_id = uuid::Uuid::new_v4().to_string();
+        let copied = self.copy_conversation(&plan, &fork_task_id).await?;
+
+        // Everything the fork runs against comes from the Task it branched off. A
+        // fork is deliberately created unnamed and undescribed: "Fork of X" says
+        // where it came from, not what it is doing, and the agent sets both with
+        // `moat set-name` once it knows.
+        let create = CreateTaskRequest {
+            repository_id: Some(source.repository_id.clone()),
+            workspace_id: source.workspace_id.clone(),
+            sandbox_id: same_sandbox.then(|| source.sandbox_id.clone()).flatten(),
+            checkout_mode: same_sandbox.then_some(moatless_types::task::CheckoutMode::Shared),
+            agent_type: Some(source.agent_type.clone()),
+            name: None,
+            description: None,
+            branch: source.branch.clone(),
+            message: req.message.clone(),
+            model: req.model.clone().or_else(|| source.model.clone()),
+            agent_mode: req.agent_mode.clone(),
+            effort: req.effort.clone(),
+            contexts: Vec::new(),
+            file_ids: Vec::new(),
+            parent_task_id: None,
+            // A fork inherits the source Task's run-as through its Sandbox row, so
+            // naming one here would be a second answer to the same question.
+            run_as_user_id: None,
+            headless: None,
+            skills: req.skills.clone(),
+        };
+
+        let create_result = async {
+            let mut new_task = service::normalize(
+                ports.normalize,
+                scope_ctx,
+                &user_id,
+                service::CreateTaskIntent {
+                    request: create,
+                    task_id: Some(fork_task_id.clone()),
+                    provision: true,
+                    first_message_uuid: None,
+                },
+            )
+            .await?;
+            new_task.tag_ids = self.source_tag_ids(task_id).await;
+            new_task.forked_from = Some(ForkedFrom {
+                source_task_id: task_id.to_string(),
+                at_turn: plan.at_turn,
+                session: plan.session.clone(),
+            });
+
+            service::create_task(
+                ports.task_creation,
+                ports.message_send,
+                new_task,
+                build_event_payload,
+            )
+            .await
+        }
+        .await;
+
+        let outcome = match create_result {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                // The Task never came to exist; take its copied conversation with it
+                // rather than leave rows behind a Task that is not there.
+                self.discard_conversation(&fork_task_id).await;
+                return Err(error);
+            }
+        };
+
+        tracing::info!(
+            task_id = %fork_task_id,
+            source_task_id = %task_id,
+            at_turn = ?plan.at_turn,
+            messages = copied.messages,
+            activities = copied.activities,
+            contexts = copied.contexts,
+            same_sandbox,
+            "Task forked"
+        );
+
+        Ok(outcome)
     }
 }
 

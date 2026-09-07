@@ -10,13 +10,13 @@ use moatless_api_schemas::sandbox::{
     SandboxStatusFullResponse, ServerConfigResponse, ServerOverride, ServerOverridesResponse,
     ServerStatusResponse, UpdateServerConfigRequest,
 };
-use moatless_types::agent::{AgentMode, AgentType};
 use moatless_api_schemas::task::{
     CloseTaskRequest, CreateTaskRequest, FileContextData, ForkTaskRequest, ListTasksQuery,
     ListTasksResponse, MessageContextInput, TaskResponse, UpdateTaskMetadataRequest,
     UpdateTaskTtlRequest,
 };
 use moatless_api_schemas::workspace::ScriptConfig;
+use moatless_types::agent::{AgentMode, AgentType};
 
 use crate::client::{ClientError, MoatClient};
 use crate::commands::workspaces::format_scripts_list;
@@ -1668,6 +1668,45 @@ fn format_file_tree(resp: &serde_json::Value) {
             }
         }
     }
+}
+
+
+
+pub async fn set_name(
+    moat: &MoatClient,
+    cfg: &Config,
+    name: String,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let task_id = cfg.require_task_id()?;
+    let req = UpdateTaskMetadataRequest {
+        name: Some(name.clone()),
+        description: None,
+    };
+    let task = moat.api().update_task_metadata(&task_id, &req).await?;
+    if json {
+        output::print_json_typed(&task);
+    } else {
+        println!("Task name set to: {name}");
+    }
+    Ok(())
+}
+
+pub async fn set_tags(
+    moat: &MoatClient,
+    cfg: &Config,
+    tags: Vec<String>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let task_id = cfg.require_task_id()?;
+    let req = moatless_api_schemas::task::SetTagsRequest { tags: tags.clone() };
+    moat.api().set_task_tags(&task_id, &req).await?;
+    if json {
+        output::print_json_typed(&tags);
+    } else {
+        println!("Tags set: {}", tags.join(", "));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

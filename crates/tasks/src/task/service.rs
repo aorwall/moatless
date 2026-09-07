@@ -23,7 +23,7 @@ use moatless_types::task::TaskSubType;
 use super::creation::{FirstMessage, NewTaskRequest, TaskCreationOutcome, TaskCreationService};
 use super::dao::TaskDao;
 use super::error::TaskError;
-use super::models::Task;
+use super::models::{Task, TaskStatus};
 use super::relations::CreatedByParent;
 use super::schemas::CreateTaskRequest;
 use crate::agent::catalog;
@@ -445,6 +445,110 @@ fn agent_type_error(reason: &str) -> TaskError {
         .collect::<Vec<_>>()
         .join(", ");
     TaskError::BadRequest(format!("{reason}. Available options: {options}"))
+}
+
+/// Reopen a visible closed task after checking write access.
+pub async fn reopen_task_for(
+    tasks: &dyn TaskDao,
+    events: Option<&dyn EventPublisher>,
+    scope_ctx: &ScopeContext,
+    task_id: &str,
+) -> Result<(), TaskError> {
+    let row = tasks
+        .find_by_id(task_id, scope_ctx)
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
+    if !scope_ctx.can_write(&row.scoped_resource()) {
+        return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
+    }
+
+    if row.status != TaskStatus::Closed {
+        return Err(TaskError::BadRequest(format!(
+            "Cannot reopen task in '{}' status (only closed tasks can be reopened)",
+            row.status
+        )));
+    }
+
+    let updated = tasks
+        .update_task(
+            task_id,
+            &super::dao::TaskPatch {
+                status: Some(TaskStatus::Open),
+                ..Default::default()
+            },
+            scope_ctx,
+        )
+        .await?;
+    if !updated {
+        return Err(TaskError::NotFound(task_id.to_string()));
+    }
+
+    tracing::info!(task_id, user_id = %scope_ctx.user_id, "Task reopened");
+
+    if let Some(events) = events {
+        events
+            .publish_task_event(
+                task_id,
+                TaskSubType::Open,
+                Some(row.agent_type.as_str()),
+                serde_json::json!({"reason": "reopened"}),
+            )
+            .await;
+    }
+
+    Ok(())
+}
+/// Update supplied task expiration limits after validating their values.
+pub async fn update_ttl(
+    tasks: &dyn TaskDao,
+    scope_ctx: &ScopeContext,
+    task_id: String,
+    req: super::schemas::UpdateTaskTtlRequest,
+) -> Result<Task, TaskError> {
+    if req.ttl_minutes.is_none() && req.inactive_ttl_days.is_none() {
+        return Err(TaskError::BadRequest(
+            "provide ttl_minutes and/or inactive_ttl_days".to_string(),
+        ));
+    }
+    if req.ttl_minutes.is_some_and(|v| v < 0) {
+        return Err(TaskError::BadRequest(
+            "ttl_minutes must be >= 0".to_string(),
+        ));
+    }
+    if req.inactive_ttl_days.is_some_and(|v| v < 0) {
+        return Err(TaskError::BadRequest(
+            "inactive_ttl_days must be >= 0".to_string(),
+        ));
+    }
+
+    let updated = tasks
+        .update_task(
+            &task_id,
+            &super::dao::TaskPatch {
+                ttl_minutes: req.ttl_minutes,
+                inactive_ttl_days: req.inactive_ttl_days,
+                ..Default::default()
+            },
+            scope_ctx,
+        )
+        .await?;
+    if !updated {
+        return Err(TaskError::NotFound(task_id.clone()));
+    }
+    tracing::info!(
+        task_id = %task_id,
+        user_id = %scope_ctx.user_id,
+        ttl_minutes = ?req.ttl_minutes,
+        inactive_ttl_days = ?req.inactive_ttl_days,
+        "Task TTL updated"
+    );
+
+    let row = tasks
+        .find_by_id(&task_id, scope_ctx)
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    Ok(row)
 }
 
 #[cfg(test)]

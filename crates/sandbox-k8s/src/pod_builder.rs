@@ -3,6 +3,7 @@
 //! Generates the full Pod spec in Rust code — no YAML template needed.
 //! Server containers are created dynamically from the repo config.
 
+use super::naming::generate_pod_name;
 use k8s_openapi::api::core::v1::{
     Affinity, Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
     HostPathVolumeSource, NodeAffinity, NodeSelectorRequirement, NodeSelectorTerm,
@@ -12,10 +13,6 @@ use k8s_openapi::api::core::v1::{
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
-use std::collections::{BTreeMap, HashMap};
-use tracing::{debug, info, warn};
-
-use super::naming::generate_pod_name;
 use moatless_core::config::Config;
 use moatless_core::sandbox_jwt::{self as jwt, MintedSandboxTokens};
 use moatless_sandbox_runtime::error::SandboxError;
@@ -23,10 +20,13 @@ use moatless_sandbox_runtime::provisioning::{ProvisionPlan, allocated_port};
 use moatless_sandbox_runtime::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
 use moatless_sandbox_runtime::server_runner::build_server_start_script;
 use moatless_types::sandbox::SANDBOX_PREVIEW_PROXY_PORT;
-use moatless_types::workspace::{
-    Cpu, Memory, Port, ResourceConfig, ResourceQuantities, StorageMedium,
-};
+use moatless_types::sandbox::is_reserved_sandbox_port;
+#[cfg(test)]
+use moatless_types::workspace::Port;
+use moatless_types::workspace::{Cpu, Memory, ResourceConfig, ResourceQuantities, StorageMedium};
 use moatless_types::workspace::{RepoCheckout, WORKSPACE_REPOS_ENV};
+use std::collections::{BTreeMap, HashMap};
+use tracing::{debug, info, warn};
 
 /// Auth tokens delivered to a sandbox pod.
 ///
@@ -1268,57 +1268,24 @@ fn build_workspace_repos_json(plan: &ProvisionPlan) -> Option<String> {
     }
 }
 
-/// Build `REPO_CONFIG` JSON string for the sandbox container.
-///
-/// This is a pass-through of the repo config fields that the sandbox
-/// needs (system prompt, code execution, plugin IDs, etc.).
-/// Server start commands are NOT included — they're handled by K8s command/args.
 fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
-    let rc = &plan.repo_config;
-    if rc.system_prompt.is_none()
-        && rc.code_execution.is_none()
-        && rc.preview_config.is_none()
-        && rc.servers.is_none()
-        && rc.plugins.is_none()
-    {
-        return None;
-    }
-
-    let mut map = serde_json::Map::new();
-    if let Some(ref sp) = rc.system_prompt {
-        map.insert("systemPrompt".into(), serde_json::json!(sp));
-    }
-    if let Some(ref ce) = rc.code_execution {
-        map.insert("codeExecution".into(), ce.clone());
-    }
-    if let Some(ref pc) = rc.preview_config {
-        map.insert("previewConfig".into(), pc.clone());
-    }
-    if let Some(ref servers) = rc.servers {
-        let server_entries: Vec<serde_json::Value> = servers
-            .iter()
-            .map(|s| {
-                let mut entry = serde_json::json!({
-                    "name": s.name,
-                    "port": s.port.map(Port::get),
-                    "autoReload": s.auto_reload,
-                });
-                if let Some(ref label) = s.label {
-                    entry["label"] = serde_json::json!(label);
-                }
-                if !s.start_commands.is_empty() {
-                    entry["startCommands"] = serde_json::json!(s.start_commands);
-                }
-                entry
-            })
-            .collect();
-        map.insert("servers".into(), serde_json::json!(server_entries));
-    }
-    if let Some(ref plugins) = rc.plugins {
-        map.insert("plugins".into(), serde_json::json!(plugins));
-    }
-
-    Some(serde_json::Value::Object(map).to_string())
+    moatless_sandbox_runtime::repo_config_encoding::encode_repo_config(
+        &plan.repo_config,
+        |server| {
+            let mut fields = serde_json::Map::new();
+            if !server.start_commands.is_empty() {
+                fields.insert(
+                    "startCommands".into(),
+                    serde_json::json!(server.start_commands),
+                );
+            }
+            fields.insert("autoReload".into(), serde_json::json!(server.auto_reload));
+            if let Some(label) = &server.label {
+                fields.insert("label".into(), serde_json::json!(label));
+            }
+            fields
+        },
+    )
 }
 
 /// Container-level security context for the agent + server containers.
@@ -1460,8 +1427,6 @@ pub fn build_servers_map(plan: &ProvisionPlan, task_id: &str) -> HashMap<String,
     }
     servers
 }
-
-use moatless_types::sandbox::is_reserved_sandbox_port;
 
 /// Drop any server whose port collides with a reserved sandbox port, logging
 /// each rejection. The retained map is the single source of truth for what gets
@@ -1756,6 +1721,31 @@ mod tests {
                 service_name: "test".into(),
             },
         }
+    }
+
+    #[test]
+    fn repo_config_preserves_k8s_server_projection() {
+        let mut plan = test_plan();
+        plan.repo_config.servers = Some(vec![ServerConfig {
+            name: "web".into(),
+            port: Port::new(3000),
+            start_commands: vec!["run".into()],
+            env_vars: serde_json::from_value(serde_json::json!({"KEY": "value"}))
+                .expect("env vars"),
+            auto_reload: true,
+            docker_image: Some("image".into()),
+            label: Some("Web".into()),
+            ..Default::default()
+        }]);
+        let encoded = build_repo_config_json(&plan).expect("config");
+        let value: serde_json::Value = serde_json::from_str(&encoded).expect("json");
+        assert_eq!(
+            value["servers"],
+            serde_json::json!([{
+                "name": "web", "port": 3000, "startCommands": ["run"],
+                "autoReload": true, "label": "Web"
+            }])
+        );
     }
 
     fn test_plan() -> ProvisionPlan {

@@ -1,17 +1,16 @@
 //! File storage HTTP handlers.
 
+use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::header;
 use axum::response::Response;
-use axum::Json;
 use axum_extra::extract::Multipart;
 
 use std::sync::Arc;
 
-use moatless_core::http_auth::AuthUser;
-use moatless_types::access_control::ScopedResource;
 use moatless_core::config::S3Config;
+use moatless_core::http_auth::AuthUser;
 
 use super::dao::FileDao;
 use super::error::FileStorageError;
@@ -113,43 +112,24 @@ pub async fn download_file(
     auth: AuthUser,
     Path(file_id): Path<String>,
 ) -> Result<Response, FileStorageError> {
-    let s3_client = s3_storage
-        .as_ref()
-        .ok_or(FileStorageError::S3NotConfigured)?;
-
-    let bucket = s3_config
-        .bucket_name
-        .as_ref()
-        .ok_or(FileStorageError::S3NotConfigured)?;
-
-    let meta = files
-        .find_by_id(&file_id)
-        .await?
-        .ok_or_else(|| FileStorageError::NotFound(file_id.clone()))?;
-    let resource = ScopedResource::borrowed(
-        meta.scope,
-        meta.owner_user_id.as_deref().or(meta.created_by.as_deref()),
-    );
-    if !auth.scope_context().can_read(&resource) {
-        return Err(FileStorageError::Forbidden(format!(
-            "No access to file {file_id}"
-        )));
-    }
-
-    let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
-    let (data, content_type) = s3::get_object(&s3_client.client, bucket, &s3_key)
-        .await
-        .map_err(FileStorageError::UploadFailed)?;
+    let download = store::read_upload(
+        s3_storage.as_ref(),
+        &s3_config,
+        files.as_ref(),
+        &auth.scope_context(),
+        &file_id,
+    )
+    .await?;
 
     #[allow(clippy::expect_used)]
     // Response::builder() only fails with invalid header names (ours are static)
     let response = Response::builder()
-        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_TYPE, download.content_type)
         .header(
             header::CONTENT_DISPOSITION,
-            content_disposition(&meta.filename),
+            content_disposition(&download.filename),
         )
-        .body(Body::from(data))
+        .body(Body::from(download.data))
         .expect("valid response with static header names");
 
     Ok(response)
@@ -174,8 +154,21 @@ fn content_disposition(filename: &str) -> String {
             // `attr-char` from RFC 5987, which is what `filename*` may carry
             // unescaped. Everything else — including the space and every
             // non-ASCII byte — is percent-encoded.
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'!' | b'#' | b'$' | b'&' | b'+' | b'-'
-            | b'.' | b'^' | b'_' | b'`' | b'|' | b'~' => {
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'!'
+            | b'#'
+            | b'$'
+            | b'&'
+            | b'+'
+            | b'-'
+            | b'.'
+            | b'^'
+            | b'_'
+            | b'`'
+            | b'|'
+            | b'~' => {
                 encoded.push(byte as char);
                 fallback.push(byte as char);
             }
@@ -218,7 +211,10 @@ mod tests {
     fn a_name_cannot_carry_a_delimiter_into_the_header() {
         let header = content_disposition("a\"; filename=\"evil.exe\r\nX-Evil: 1");
 
-        assert!(!header.contains('"') || header.matches('"').count() == 2, "{header}");
+        assert!(
+            !header.contains('"') || header.matches('"').count() == 2,
+            "{header}"
+        );
         assert!(!header.contains('\r') && !header.contains('\n'), "{header}");
         assert!(!header.contains("evil.exe\r"), "{header}");
     }
@@ -229,7 +225,10 @@ mod tests {
     fn a_non_ascii_name_survives_percent_encoded() {
         let header = content_disposition("rapport-å.txt");
 
-        assert!(header.contains("filename*=UTF-8''rapport-%C3%A5.txt"), "{header}");
+        assert!(
+            header.contains("filename*=UTF-8''rapport-%C3%A5.txt"),
+            "{header}"
+        );
         assert!(header.contains("filename=\"rapport-__.txt\""), "{header}");
     }
 

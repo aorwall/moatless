@@ -21,3 +21,5 @@ pub use models::AdapterDeliveryPolicy;
 pub use store::AdapterDeliveryStore;
 pub use typed::{ConnectionDeliveryPayload, register_connection_delivery, register_typed_delivery};
 pub use worker::spawn_adapter_delivery_worker;
+
+mod dao;

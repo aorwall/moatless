@@ -43,7 +43,7 @@ impl CredentialService {
         scope: &CodexScope,
     ) -> Result<CodexRefreshOutcome, CredentialError> {
         let lock = self
-            .acquire_lock(&scope.lock_key(), "CODEX_AUTH_JSON")
+            .acquire_lock(&moatless_identity::auth::provider_token_dao::codex_lock_key(scope), "CODEX_AUTH_JSON")
             .await;
         let _guard = lock.lock().await;
 

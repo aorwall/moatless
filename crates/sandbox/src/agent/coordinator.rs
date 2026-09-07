@@ -43,27 +43,24 @@ use crate::agent::types::{ForkSource, ResumeSession, StopSource};
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::credentials::Dispatcher;
+use crate::credentials::fetch::filter_agent_credentials;
 use crate::credentials::recovery::CredentialFailureDetector;
 use crate::events::GrpcEventPublisher;
-use crate::init::credentials::filter_agent_credentials;
-use crate::init::workspace_sync::{self, WorkspaceSyncTracker};
+use crate::workspace_sync::{self, WorkspaceSyncTracker};
 
 use super::agent_state::AgentState;
 use super::background_watch_job::BackgroundWatchJob;
-use super::handle::{
-    AGENT_TYPE_CLAUDE_CODE, AgentCommand, RunAck,
-    credential_recovery::{MAX_CREDENTIAL_RECOVERY_RETRIES, try_recover_credentials},
-    resolve_agent_harness,
-    retry::{MAX_RETRIES, compute_backoff, is_retryable_harness_error},
-};
+use super::handle::{AGENT_TYPE_CLAUDE_CODE, AgentCommand, RunAck, resolve_agent_harness};
 use super::harness::{
     Activity, Cause, ContextWindow, ErrorClass, Harness, HarnessClosed, HarnessError, Input,
     InputId, Outcome, Rejection, Role, SessionImpact, Signal, SourceEvent,
 };
 use super::prompt::PromptToolName;
+use super::retry::{MAX_RETRIES, compute_backoff, is_retryable_harness_error};
 use super::scheduled_job::{JobKind, ScheduledJobRegistry};
 use super::wakeup_job::WakeupJob;
 use crate::commands::CommandRegistry;
+use crate::credentials::retry::{MAX_CREDENTIAL_RECOVERY_RETRIES, try_recover_credentials};
 
 /// How often a rate-limited liveness [`Signal::Activity`] is republished. The
 /// reaper's idle floor only needs minute-level granularity against a TTL of tens
@@ -1654,10 +1651,10 @@ impl CoordinatorService {
             .await
         {
             Ok(resp) => {
-                crate::init::credentials::persist_agent_credentials(
+                crate::credentials::fetch::persist_agent_credentials(
                     &self.config,
                     &resp.credentials,
-                    crate::init::credentials::PersistMode::Refresh,
+                    crate::credentials::fetch::PersistMode::Refresh,
                 )
                 .await;
                 *self.credentials.write().await = filter_agent_credentials(&resp.credentials);

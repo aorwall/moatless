@@ -126,6 +126,11 @@ macro_rules! enforce {
 }
 
 enforce!(
+    declaration_only_roots,
+    route_registration,
+    transport_direction,
+    persistence_sql_location,
+    process_exit,
     annotations,
     row_stays_with_query,
     agents_symlink,

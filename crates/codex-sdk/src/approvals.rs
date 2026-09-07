@@ -84,6 +84,7 @@ mod tests {
             "threadId": "t1",
             "turnId": "turn1",
             "itemId": "item1",
+            "startedAtMs": 0,
         }))
         .unwrap()
     }
@@ -93,6 +94,7 @@ mod tests {
             "threadId": "t1",
             "turnId": "turn1",
             "itemId": "item1",
+            "startedAtMs": 0,
         }))
         .unwrap()
     }

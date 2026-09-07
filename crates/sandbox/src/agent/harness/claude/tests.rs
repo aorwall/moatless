@@ -13,12 +13,12 @@ use claude_agent_sdk::{SdkError, SdkMessage};
 
 use crate::agent::agent_state::AgentState;
 
-use super::super::error::{ErrorClass, FailureStage, SessionImpact};
-use super::super::process::{ProcessEvent, ProcessTermination};
-use super::super::signal::{Input, InputId};
-use super::super::source::SourceEvent;
-use super::classify::{classify_result, classify_startup_error, classify_stream_error};
+use super::super::classify::{classify_result, classify_startup_error, classify_stream_error};
 use super::{ClaudeConfig, ClaudeProcess};
+use crate::agent::harness::error::{ErrorClass, FailureStage, SessionImpact};
+use crate::agent::harness::process::{ProcessEvent, ProcessTermination};
+use crate::agent::harness::signal::{Input, InputId};
+use crate::agent::harness::source::SourceEvent;
 
 fn process() -> ClaudeProcess {
     ClaudeProcess::new(ClaudeConfig {
@@ -476,7 +476,7 @@ fn malformed_protocol_is_native_protocol() {
 }
 
 /// Focused real-CLI E2E: launch the actual `claude` subprocess through the
-/// production [`super::super::Harness::claude`] seam and assert the external
+/// production [`crate::agent::harness::Harness::claude`] seam and assert the external
 /// signal ordering for a trivial Turn. Gated behind `CLAUDE_SDK_E2E=1` and
 /// `#[ignore]` — the full E2E matrix runs at ticket 10, per the guide.
 #[tokio::test]
@@ -486,8 +486,8 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
         eprintln!("skipping: set CLAUDE_SDK_E2E=1 to run");
         return;
     }
-    use super::super::Harness;
-    use super::super::signal::{Outcome, Signal};
+    use crate::agent::harness::Harness;
+    use crate::agent::harness::signal::{Outcome, Signal};
 
     let mut config = crate::config::test_support::minimal_config();
     let workspace = std::env::temp_dir().join("harness-claude-e2e");
@@ -544,7 +544,7 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
 }
 
 /// Focused real-CLI E2E for the persistent tmux transport: launch the actual
-/// TUI through the production [`super::super::Harness::claude_persistent`] seam,
+/// TUI through the production [`crate::agent::harness::Harness::claude_persistent`] seam,
 /// run one Turn, then submit a second Turn to prove the same live Session hosts
 /// it (no replacement). Gated behind `CLAUDE_TMUX_E2E=1` (and needs `tmux` on
 /// PATH); the full E2E matrix runs at ticket 10.
@@ -555,8 +555,8 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
         eprintln!("skipping: set CLAUDE_TMUX_E2E=1 to run");
         return;
     }
-    use super::super::Harness;
-    use super::super::signal::{Cause, Outcome, SessionId, Signal};
+    use crate::agent::harness::Harness;
+    use crate::agent::harness::signal::{Cause, Outcome, SessionId, Signal};
 
     let mut config = crate::config::test_support::minimal_config();
     let workspace = std::env::temp_dir().join("harness-claude-persistent-e2e");

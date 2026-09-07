@@ -12,3 +12,12 @@ pub mod handlers;
 pub mod models;
 pub mod routes;
 pub mod schemas;
+pub mod scripts;
+
+#[cfg(test)]
+mod git_placements_test;
+
+pub mod mutations;
+pub mod reset;
+
+pub(crate) mod config_validation;

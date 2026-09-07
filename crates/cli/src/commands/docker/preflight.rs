@@ -2,11 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::compose::{
-    cache_compose_dir, detect_compose_cmd, port_in_use, require_binary, resolve_compose_dir,
-    ComposeDirSource, COMPOSE_FILE, ENV_FILE,
-};
 use super::PreflightArgs;
+use super::docker_compose::{
+    COMPOSE_FILE, ComposeDirSource, ENV_FILE, cache_compose_dir, detect_compose_cmd, port_in_use,
+    require_binary, resolve_compose_dir,
+};
 use crate::client::ClientError;
 use crate::output;
 

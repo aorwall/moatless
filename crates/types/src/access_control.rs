@@ -107,15 +107,6 @@ pub enum ScopedEntity {
     Resource,
 }
 
-impl ScopedEntity {
-    fn has_visibility(self) -> bool {
-        match self {
-            Self::Task => true,
-            Self::Repository | Self::Resource => false,
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // ScopedResource — canonical persisted shape
 // ---------------------------------------------------------------------------
@@ -146,32 +137,6 @@ impl ScopedResource {
             scope,
             owner_user_id: owner_user_id.map(str::to_string),
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// AccessFilter — encapsulates a SQL fragment + parameter tracking
-// ---------------------------------------------------------------------------
-
-/// Access-control WHERE clause fragment with parameter tracking.
-///
-/// Created via [`ScopeContext::access_filter()`] or
-/// [`ScopeContext::write_filter()`]. Contains the SQL fragment and tracks
-/// the next available positional parameter index.
-pub struct AccessFilter {
-    sql: String,
-    next_param: usize,
-}
-
-impl AccessFilter {
-    /// The SQL WHERE clause fragment (e.g. `($1 OR visibility = 'public' OR ...)`).
-    pub fn sql(&self) -> &str {
-        &self.sql
-    }
-
-    /// Next available positional parameter index after this filter's params.
-    pub fn next_param(&self) -> usize {
-        self.next_param
     }
 }
 
@@ -220,96 +185,10 @@ impl ScopeContext {
         }
     }
 
-    /// Build a read SQL filter for the given entity.
-    ///
-    /// Uses 2 positional parameters starting at `start`:
-    ///   - `$start`: `is_admin` (bool)
-    ///   - `$start+1`: `user_id` (text)
-    ///
-    /// Caller must `.bind()` these from `self.is_admin`, `self.user_id`.
-    ///
-    /// `prefix` is the table alias (e.g. `""` or `"t."`).
-    /// The entity determines whether `visibility = 'public'` is included.
-    pub fn access_filter(&self, entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
-        let (p1, p2) = (start, start + 1);
-        let vis = if entity.has_visibility() {
-            format!(" OR {prefix}visibility = 'public'")
-        } else {
-            String::new()
-        };
-        let sql = format!(
-            "(${p1}{vis} OR {prefix}scope = 'global' \
-             OR ({prefix}scope = 'user' AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
-        );
-        AccessFilter {
-            sql,
-            next_param: start + 2,
-        }
-    }
-
-    /// Build a write (mutation) SQL filter.
-    ///
-    /// Write is the strictest grant: global rows are admin-managed and task
-    /// visibility never grants it, so the fragment is identical for every
-    /// entity and this takes no [`ScopedEntity`].
-    ///
-    /// Uses 2 positional parameters starting at `start`:
-    ///   - `$start`: `is_admin` (bool)
-    ///   - `$start+1`: `user_id` (text)
-    ///
-    /// Caller must `.bind()` these from `self.is_admin`, `self.user_id`.
-    /// `prefix` is the table alias (e.g. `""` or `"t."`).
-    ///
-    /// Embedding this in a mutation's `WHERE` makes the check and the write a
-    /// single atomic statement; `rows_affected == 0` maps to the module's
-    /// `NotFound` error, matching the existence-hiding reads.
-    pub fn write_filter(&self, prefix: &str, start: usize) -> AccessFilter {
-        let (p1, p2) = (start, start + 1);
-        let sql = format!(
-            "(${p1} OR ({prefix}scope = 'user' \
-             AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
-        );
-        AccessFilter {
-            sql,
-            next_param: start + 2,
-        }
-    }
-
-    /// Build a control (operate) SQL filter.
-    ///
-    /// Control is write plus the public-task arm. The entity decides whether
-    /// that arm appears, exactly as it does for [`Self::access_filter`], so a
-    /// caller cannot ask for it on a table with no `visibility` column. For
-    /// every entity but [`ScopedEntity::Task`] this is [`Self::write_filter`],
-    /// because only a Task has anything to operate.
-    ///
-    /// Uses 2 positional parameters starting at `start`:
-    ///   - `$start`: `is_admin` (bool)
-    ///   - `$start+1`: `user_id` (text)
-    ///
-    /// Caller must `.bind()` these from `self.is_admin`, `self.user_id`.
-    /// `prefix` is the table alias (e.g. `""` or `"t."`).
-    pub fn control_filter(&self, entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
-        let (p1, p2) = (start, start + 1);
-        let vis = if entity.has_visibility() {
-            format!(" OR {prefix}visibility = 'public'")
-        } else {
-            String::new()
-        };
-        let sql = format!(
-            "(${p1}{vis} OR ({prefix}scope = 'user' \
-             AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
-        );
-        AccessFilter {
-            sql,
-            next_param: start + 2,
-        }
-    }
-
     /// Check if this context can read a resource with the given scope.
     ///
     /// Task visibility is not an input here: the public-task read arm lives
-    /// in [`Self::access_filter`] and in handlers that already hold the row.
+    /// in the persistence filter and in callers that already hold the row.
     pub fn can_read(&self, resource: &ScopedResource) -> bool {
         if self.is_admin {
             return true;
@@ -530,17 +409,6 @@ mod tests {
     }
 
     #[test]
-    fn system_access_filter_admin_param_is_true() {
-        // The filter's first positional param is `is_admin`; for the system
-        // principal it binds `true`, which makes the whole disjunct match all
-        // rows — identical semantics to an unscoped `SELECT ... WHERE id = $1`.
-        let ctx = ScopeContext::system();
-        assert!(ctx.is_admin);
-        let f = ctx.access_filter(ScopedEntity::Task, "", 1);
-        assert!(f.sql().starts_with("($1 OR"));
-    }
-
-    #[test]
     fn create_policy_requires_admin_for_global_and_self_for_user() {
         let ctx = ScopeContext {
             user_id: "u1".into(),
@@ -606,103 +474,6 @@ mod tests {
 
         assert!(!ctx.can_read(&ownerless));
         assert!(!ctx.can_write(&ownerless));
-    }
-
-    // -- filter tests --
-
-    fn test_ctx() -> ScopeContext {
-        ScopeContext {
-            user_id: "u1".into(),
-            is_admin: false,
-        }
-    }
-
-    #[test]
-    fn access_filter_task_includes_visibility() {
-        let f = test_ctx().access_filter(ScopedEntity::Task, "", 1);
-        assert_eq!(
-            f.sql(),
-            "($1 OR visibility = 'public' OR scope = 'global' \
-             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
-        );
-        assert_eq!(f.next_param(), 3);
-    }
-
-    #[test]
-    fn access_filter_repository_excludes_visibility() {
-        let f = test_ctx().access_filter(ScopedEntity::Repository, "", 2);
-        assert_eq!(
-            f.sql(),
-            "($2 OR scope = 'global' \
-             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $3))"
-        );
-        assert_eq!(f.next_param(), 4);
-    }
-
-    #[test]
-    fn access_filter_resource_no_visibility() {
-        let f = test_ctx().access_filter(ScopedEntity::Resource, "", 1);
-        assert_eq!(
-            f.sql(),
-            "($1 OR scope = 'global' \
-             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
-        );
-        assert_eq!(f.next_param(), 3);
-    }
-
-    #[test]
-    fn access_filter_with_table_prefix() {
-        let f = test_ctx().access_filter(ScopedEntity::Task, "t.", 1);
-        assert_eq!(
-            f.sql(),
-            "($1 OR t.visibility = 'public' OR t.scope = 'global' \
-             OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $2))"
-        );
-    }
-
-    #[test]
-    fn write_filter_admin_or_owner_only() {
-        let f = test_ctx().write_filter("", 1);
-        assert_eq!(
-            f.sql(),
-            "($1 OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
-        );
-        assert_eq!(f.next_param(), 3);
-    }
-
-    #[test]
-    fn write_filter_with_table_prefix() {
-        let f = test_ctx().write_filter("t.", 3);
-        assert_eq!(
-            f.sql(),
-            "($3 OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $4))"
-        );
-        assert_eq!(f.next_param(), 5);
-    }
-
-    #[test]
-    fn control_filter_task_adds_the_public_arm_to_the_write_fragment() {
-        let f = test_ctx().control_filter(ScopedEntity::Task, "", 1);
-        assert_eq!(
-            f.sql(),
-            "($1 OR visibility = 'public' \
-             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
-        );
-        assert_eq!(f.next_param(), 3);
-    }
-
-    #[test]
-    fn control_filter_without_visibility_is_the_write_fragment() {
-        // Only a Task has a Sandbox to operate. On every other entity the two
-        // grants coincide, and the fragment must not name a column the table
-        // does not have.
-        let ctx = test_ctx();
-        for entity in [ScopedEntity::Repository, ScopedEntity::Resource] {
-            assert_eq!(
-                ctx.control_filter(entity, "t.", 3).sql(),
-                ctx.write_filter("t.", 3).sql()
-            );
-        }
     }
 
     #[test]

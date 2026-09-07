@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use syn::visit::Visit;
 
-use crate::workspace::Workspace;
+use crate::workspace::{Member, Workspace};
 
 /// One item in its defining module, independent of its exported aliases.
 pub struct Record {
@@ -19,6 +19,13 @@ pub struct Record {
     pub item: syn::Item,
     pub references: Vec<Vec<String>>,
     pub imports: Vec<Import>,
+}
+
+impl Record {
+    pub(crate) fn location(&self) -> String {
+        use syn::spanned::Spanned;
+        format!("{}:{}", self.file, self.item.span().start().line)
+    }
 }
 
 /// A local binding introduced by a Rust use declaration.
@@ -40,8 +47,16 @@ pub struct Index {
 
 impl Index {
     pub fn read(ws: &Workspace) -> Result<Self> {
+        Self::read_members(ws, ws.members(), true)
+    }
+
+    pub(crate) fn read_members<'a>(
+        ws: &Workspace,
+        members: impl Iterator<Item = &'a Member>,
+        exports: bool,
+    ) -> Result<Self> {
         let mut index = Self::default();
-        for member in ws.members() {
+        for member in members {
             index.dependencies.insert(
                 member.name.clone(),
                 member
@@ -51,9 +66,11 @@ impl Index {
                     .collect(),
             );
             let mut visited = BTreeSet::new();
-            for (path, test) in &member.targets {
+            for target in &member.targets {
+                let path = &target.path;
+                let test = target.test_only();
                 let root = member.name.replace('-', "_");
-                let module = if *test {
+                let module = if test {
                     format!(
                         "{root}::__test_{}",
                         path.file_stem().unwrap_or_default().to_string_lossy()
@@ -61,8 +78,11 @@ impl Index {
                 } else {
                     root
                 };
-                index.file(ws, &member.name, path, &module, *test, true, &mut visited)?;
+                index.file(ws, &member.name, path, &module, test, true, &mut visited)?;
             }
+        }
+        if !exports {
+            return Ok(index);
         }
         index.mark_reexports();
         index.resolved = index
@@ -109,7 +129,11 @@ impl Index {
         visible: bool,
         visited: &mut BTreeSet<(PathBuf, String)>,
     ) -> Result<()> {
-        if !visited.insert((path.to_path_buf(), module.to_string())) {
+        let canonical = path
+            .canonicalize()
+            .with_context(|| format!("resolving {}", path.display()))?;
+        let path = canonical.as_path();
+        if !visited.insert((canonical.clone(), module.to_string())) {
             return Ok(());
         }
         let text =
@@ -125,14 +149,11 @@ impl Index {
             path.with_extension("")
         };
         // Integration target roots resolve sibling modules beside the target, not under its stem.
-        let dir = if test
-            && module.contains("::__test_")
-            && !module
-                .split("::__test_")
-                .nth(1)
-                .unwrap_or_default()
-                .contains("::")
-        {
+        let is_target = ws
+            .source_members()
+            .flat_map(|m| &m.targets)
+            .any(|t| t.path == path);
+        let dir = if is_target {
             path.parent().unwrap_or(path).to_path_buf()
         } else {
             dir
@@ -238,9 +259,9 @@ impl Index {
                         .insert(format!("{module}::Mock{}", t.ident));
                 }
             }
-            let mut paths = Paths {
+            let mut paths = ReferenceCollector {
                 include_tests: item_test,
-                ..Paths::default()
+                ..ReferenceCollector::default()
             };
             paths.visit_item(item);
             if let syn::Item::Use(u) = item {
@@ -347,6 +368,11 @@ impl Index {
                     let candidate = format!("{root}::{}", path.join("::"));
                     if self.has_prefix(&candidate) {
                         candidate
+                    } else if matches!(
+                        first.as_str(),
+                        "std" | "core" | "alloc" | "sqlx" | "axum" | "libc"
+                    ) {
+                        path.join("::")
                     } else {
                         return None;
                     }
@@ -491,7 +517,7 @@ fn name(item: &syn::Item) -> Option<String> {
         syn::Item::Const(i) => Some(i.ident.to_string()),
         syn::Item::Static(i) => Some(i.ident.to_string()),
         syn::Item::Impl(i) => {
-            let mut paths = Paths::default();
+            let mut paths = ReferenceCollector::default();
             paths.visit_type(&i.self_ty);
             let ty = paths
                 .paths
@@ -595,14 +621,14 @@ fn cfg_test(meta: &syn::Meta) -> bool {
 
 /// Paths written by a Rust item, excluding documentation and nested modules.
 #[derive(Default)]
-pub struct Paths {
+pub struct ReferenceCollector {
     pub paths: Vec<Vec<String>>,
     pub imports: Vec<Import>,
     pub include_tests: bool,
     pub omit_import_paths: bool,
 }
 
-impl<'ast> Visit<'ast> for Paths {
+impl<'ast> Visit<'ast> for ReferenceCollector {
     fn visit_impl_item_fn(&mut self, f: &'ast syn::ImplItemFn) {
         if self.include_tests || !test_only(&f.attrs) {
             syn::visit::visit_impl_item_fn(self, f);
@@ -625,6 +651,7 @@ impl<'ast> Visit<'ast> for Paths {
     }
     fn visit_macro(&mut self, m: &'ast syn::Macro) {
         use syn::parse::Parser;
+        self.visit_path(&m.path);
         let parser = syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated;
         if let Ok(expressions) = parser.parse2(m.tokens.clone()) {
             for e in &expressions {
@@ -709,6 +736,22 @@ pub fn use_tree(tree: &syn::UseTree, prefix: &[String], out: &mut Vec<Import>) {
             });
         }
     }
+}
+
+/// The canonical trait implemented by an impl declaration.
+pub fn implemented_trait(index: &Index, r: &Record) -> Option<String> {
+    let syn::Item::Impl(i) = &r.item else {
+        return None;
+    };
+    let (_, path, _) = i.trait_.as_ref()?;
+    index.resolve(
+        r,
+        &path
+            .segments
+            .iter()
+            .map(|s| s.ident.to_string())
+            .collect::<Vec<_>>(),
+    )
 }
 
 #[cfg(test)]

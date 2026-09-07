@@ -8,10 +8,11 @@
 //! Explicit named re-exports (never a glob) so the crate census can resolve
 //! edges through the facade.
 
+pub mod error;
 pub mod handlers;
 pub mod routes;
 pub mod schemas;
 pub mod store;
 
-pub use moatless_core::file_storage::{dao, error, models};
+pub use moatless_core::file_storage::{dao, models};
 pub use moatless_s3 as s3;

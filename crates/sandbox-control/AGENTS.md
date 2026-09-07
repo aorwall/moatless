@@ -111,7 +111,7 @@ credential, so a new caller that holds a Task must name the Task's Workspace.
 
 HTTP authorization reads the Sandbox. It does not read the Task.
 `authorize_task_read`, `authorize_task_control` and `authorize_task_write` in
-`handlers.rs` all work from one `TaskIntent`.
+`access.rs` all work from one `TaskIntent`.
 
 There are three grants, and the split between them is permanence:
 

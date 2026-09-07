@@ -20,15 +20,6 @@ use moatless_identity::git_host_access::{
 };
 use moatless_types::agent::CodexScope;
 
-fn require_admin(auth: &AuthUser, action: &str) -> Result<(), AccessSettingsError> {
-    if auth.role.as_deref() == Some("admin") {
-        return Ok(());
-    }
-    Err(AccessSettingsError::Forbidden(format!(
-        "Admin role required to {action} provider settings"
-    )))
-}
-
 fn principal(auth: &AuthUser) -> GitHostPrincipal {
     GitHostPrincipal {
         user_id: auth.user_id.to_string(),
@@ -186,7 +177,10 @@ pub async fn get_codex_config(
 ) -> Result<Json<CodexAgentHarnessCredentialStatusResponse>, AccessSettingsError> {
     Ok(Json(agent_harness_status(
         access
-            .status(&CodexScope::user(auth.user_id.to_string()))
+            .status(
+                &auth.scope_context(),
+                &CodexScope::user(auth.user_id.to_string()),
+            )
             .await?,
     )))
 }
@@ -210,6 +204,7 @@ pub async fn save_codex_auth(
     Ok(Json(agent_harness_status(
         access
             .save(
+                &auth.scope_context(),
                 CodexScope::user(auth.user_id.to_string()),
                 request.auth_json,
             )
@@ -232,7 +227,10 @@ pub async fn delete_codex_config(
 ) -> Result<Json<CodexAgentHarnessCredentialStatusResponse>, AccessSettingsError> {
     Ok(Json(agent_harness_status(
         access
-            .delete(&CodexScope::user(auth.user_id.to_string()))
+            .delete(
+                &auth.scope_context(),
+                &CodexScope::user(auth.user_id.to_string()),
+            )
             .await?,
     )))
 }
@@ -254,13 +252,10 @@ pub async fn admin_save_global_codex_auth(
     auth: AuthUser,
     Json(request): Json<SaveCodexAgentHarnessCredentialRequest>,
 ) -> Result<Json<CodexAgentHarnessCredentialStatusResponse>, AccessSettingsError> {
-    if auth.role.as_deref() != Some("admin") {
-        return Err(AccessSettingsError::Forbidden(
-            "Admin role required to set the global Codex blob".to_string(),
-        ));
-    }
     Ok(Json(agent_harness_status(
-        access.save(CodexScope::Global, request.auth_json).await?,
+        access
+            .save(&auth.scope_context(), CodexScope::Global, request.auth_json)
+            .await?,
     )))
 }
 
@@ -278,13 +273,10 @@ pub async fn admin_delete_global_codex_config(
     State(access): State<Arc<AgentHarnessAccess>>,
     auth: AuthUser,
 ) -> Result<Json<CodexAgentHarnessCredentialStatusResponse>, AccessSettingsError> {
-    if auth.role.as_deref() != Some("admin") {
-        return Err(AccessSettingsError::Forbidden(
-            "Admin role required to delete the global Codex blob".to_string(),
-        ));
-    }
     Ok(Json(agent_harness_status(
-        access.delete(&CodexScope::Global).await?,
+        access
+            .delete(&auth.scope_context(), &CodexScope::Global)
+            .await?,
     )))
 }
 
@@ -308,12 +300,9 @@ pub async fn admin_set_codex_provider_token_handler(
     Path(target_user_id): Path<String>,
     Json(request): Json<SaveCodexAgentHarnessCredentialRequest>,
 ) -> Result<Json<CodexAgentHarnessCredentialStatusResponse>, AccessSettingsError> {
-    if auth.role.as_deref() != Some("admin") {
-        return Err(AccessSettingsError::AuthForbidden);
-    }
     Ok(Json(agent_harness_status(
         access
-            .save_for_user(&target_user_id, request.auth_json)
+            .save_for_user(&auth.scope_context(), &target_user_id, request.auth_json)
             .await?,
     )))
 }
@@ -360,7 +349,7 @@ pub async fn poll_codex_device_login(
 ) -> Result<Json<CodexDeviceCodePollResponse>, AccessSettingsError> {
     let response = match access
         .poll_device_login(
-            &auth.user_id.to_string(),
+            &auth.scope_context(),
             &request.device_auth_id,
             &request.user_code,
         )
@@ -395,10 +384,9 @@ pub async fn admin_list_adapter_apps(
     State(administration): State<Arc<AppAdministration>>,
     auth: AuthUser,
 ) -> Result<Json<AdapterAppsResponse>, AccessSettingsError> {
-    require_admin(&auth, "read")?;
     Ok(Json(AdapterAppsResponse {
         apps: administration
-            .list_adapter_apps()
+            .list_adapter_apps(&auth.scope_context())
             .await?
             .into_iter()
             .map(adapter_app_summary)
@@ -428,14 +416,13 @@ pub async fn admin_save_adapter_app(
     Path((adapter_kind, app_key)): Path<(String, String)>,
     Json(request): Json<SaveAdapterAppRequest>,
 ) -> Result<Json<AdapterAppSummary>, AccessSettingsError> {
-    require_admin(&auth, "save")?;
     Ok(Json(adapter_app_summary(
         administration
             .save_adapter_app(
                 &adapter_kind,
                 &app_key,
                 adapter_app_save(request),
-                &auth.user_id.to_string(),
+                &auth.scope_context(),
             )
             .await?,
     )))
@@ -461,9 +448,8 @@ pub async fn admin_delete_adapter_app(
     auth: AuthUser,
     Path((adapter_kind, app_key)): Path<(String, String)>,
 ) -> Result<axum::http::StatusCode, AccessSettingsError> {
-    require_admin(&auth, "delete")?;
     administration
-        .delete_adapter_app(&adapter_kind, &app_key)
+        .delete_adapter_app(&auth.scope_context(), &adapter_kind, &app_key)
         .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -482,10 +468,9 @@ pub async fn admin_list_github_apps(
     State(administration): State<Arc<AppAdministration>>,
     auth: AuthUser,
 ) -> Result<Json<GitHubAppsResponse>, AccessSettingsError> {
-    require_admin(&auth, "read")?;
     Ok(Json(GitHubAppsResponse {
         apps: administration
-            .list_github_apps()
+            .list_github_apps(&auth.scope_context())
             .await?
             .into_iter()
             .map(github_app_option)
@@ -511,7 +496,6 @@ pub async fn admin_register_github_app(
     auth: AuthUser,
     Json(request): Json<RegisterGitHubAppRequest>,
 ) -> Result<(axum::http::StatusCode, Json<GitHubAppRegistrationResponse>), AccessSettingsError> {
-    require_admin(&auth, "register")?;
     let registered = administration
         .register_github_app(
             GitHubAppRegistrationInput {
@@ -520,7 +504,7 @@ pub async fn admin_register_github_app(
                 private_key_pem: request.private_key_pem,
                 default_installation_id: request.default_installation_id,
             },
-            &auth.user_id.to_string(),
+            &auth.scope_context(),
         )
         .await?;
     Ok((
@@ -549,13 +533,12 @@ pub async fn admin_rotate_github_app_key(
     Path(github_app_key): Path<String>,
     Json(request): Json<RotateGitHubAppKeyRequest>,
 ) -> Result<Json<GitHubAppRegistrationResponse>, AccessSettingsError> {
-    require_admin(&auth, "rotate a key for")?;
     Ok(Json(github_registration(
         administration
             .rotate_github_app_key(
                 &github_app_key,
                 request.private_key_pem,
-                &auth.user_id.to_string(),
+                &auth.scope_context(),
             )
             .await?,
     )))
@@ -578,9 +561,8 @@ pub async fn admin_remove_github_app(
     auth: AuthUser,
     Path(github_app_key): Path<String>,
 ) -> Result<Json<RemoveGitHubAppResponse>, AccessSettingsError> {
-    require_admin(&auth, "remove")?;
     let removed = administration
-        .remove_github_app(&github_app_key, &auth.user_id.to_string())
+        .remove_github_app(&github_app_key, &auth.scope_context())
         .await?;
     Ok(Json(RemoveGitHubAppResponse {
         github_app_key: removed.github_app_key,
@@ -703,7 +685,8 @@ mod tests {
             is_agent_context: false,
         };
         assert!(matches!(
-            require_admin(&auth, "read"),
+            crate::app_administration::require_admin(&auth.scope_context(), "read")
+                .map_err(AccessSettingsError::from),
             Err(AccessSettingsError::Forbidden(_))
         ));
     }

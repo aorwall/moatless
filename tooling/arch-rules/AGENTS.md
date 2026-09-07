@@ -2,6 +2,7 @@
 
 ```bash
 cargo run -p moatless-arch-rules --bin arch-report                      # the to-do list
+cargo run -p moatless-arch-rules --bin arch-report -- --json            # stable IDs and locations
 cargo run -p moatless-arch-rules --bin arch-report -- --update-baseline # accept what is there now
 cargo test -p moatless-arch-rules                                       # fails on new violations
 ARCH_STRICT=1 cargo test -p moatless-arch-rules                         # fails on any violation
@@ -32,7 +33,7 @@ reached zero.
 ## Adding a rule
 
 - Write one module per rule, named for what it asserts, exporting `RULE` and
-  `check(&Workspace)`. Register it in `run_all` and in `RULES`, and add one test
+  `check(&Workspace)`. Register it in `runner::run_all` and in `runner::RULES`, and add one test
   to `tests/architecture.rs` so a failure names the rule.
 - **Split the judgement from the workspace read.** `check` gathers, a private
   function decides, and the fixture tests beside it drive that function with

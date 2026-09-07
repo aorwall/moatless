@@ -9,17 +9,18 @@ use syn::visit::Visit;
 
 pub const RULE: &str = "composition-root";
 fn root(file: &str) -> bool {
-    [
-        "main.rs",
-        "state.rs",
-        "compose.rs",
-        "adapter_installations.rs",
-    ]
-    .iter()
-    .any(|name| file == format!("crates/server/src/{name}"))
+    file == "crates/server/src/compose.rs"
+        || (file.starts_with("crates/server/src/compose/") && !file.ends_with("/mod.rs"))
+}
+fn state_owner(file: &str) -> bool {
+    root(file)
+        || matches!(
+            file,
+            "crates/server/src/state.rs" | "crates/server/src/app.rs"
+        )
 }
 fn router(file: &str) -> bool {
-    file.ends_with("/routes.rs") || file.ends_with("/loops/http/mod.rs")
+    file.ends_with("/routes.rs")
 }
 #[derive(Default)]
 struct Constructors {
@@ -71,7 +72,7 @@ fn constructs(index: &Index, r: &Record) -> bool {
     })
 }
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
-    let index = ws.index()?;
+    let index = ws.role_index()?;
     let mut files: BTreeMap<&str, Vec<&Record>> = BTreeMap::new();
     for r in index.records.iter().filter(|r| !r.test) {
         files.entry(&r.file).or_default().push(r);
@@ -92,16 +93,20 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
                 .references
                 .iter()
                 .any(|p| p.last().is_some_and(|s| s == "AppState"))
-                || index.paths(r).any(|p| p.ends_with("::AppState"));
-            if names_state && !root(file) && (!router(file) || handler) {
-                out.push(Violation::at(RULE, format!("{} names AppState", r.id), "AppState belongs to state assembly; a routing exemption cannot include a handler", file));
+                || r.references.iter().any(|p| {
+                    index
+                        .resolve(r, p)
+                        .is_some_and(|p| p.ends_with("::AppState"))
+                });
+            if names_state && !state_owner(file) && (!router(file) || handler) {
+                out.push(Violation::at(RULE, format!("{} names AppState", r.id), "AppState belongs to state assembly; a routing exemption cannot include a handler", r.location()));
             }
             if !file.ends_with("/dao.rs")
+                && !file.contains("/dao/")
                 && !root(file)
-                && !file.ends_with("/secret/cli.rs")
                 && constructs(index, r)
             {
-                out.push(Violation::at(RULE, format!("{} constructs a PgDao", r.id), "construct concrete DAOs at the composition root or in their owning DAO implementation", file));
+                out.push(Violation::at(RULE, format!("{} constructs a PgDao", r.id), "construct concrete DAOs at the composition root or in their owning DAO implementation", r.location()));
             }
         }
     }
@@ -113,6 +118,10 @@ mod tests {
     #[test]
     fn nested_modules_are_not_composition_roots() {
         assert!(root("crates/server/src/compose.rs"));
+        assert!(root("crates/server/src/compose/stores.rs"));
+        assert!(!root("crates/server/src/compose/mod.rs"));
+        assert!(!root("crates/server/src/state.rs"));
+        assert!(state_owner("crates/server/src/state.rs"));
         assert!(!root("crates/server/src/task/compose.rs"));
         assert!(router("crates/loops/src/bindings/routes.rs"));
     }

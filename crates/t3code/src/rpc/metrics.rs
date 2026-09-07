@@ -1,0 +1,504 @@
+//! UI-RPC request spans, bounded metric labels and outcome classification.
+//!
+//! Emitted at the one seam every request crosses — the `ClientFrame::Request`
+//! arm of `ProtocolSession::handle_json` — by reading the frames the handler
+//! produced. [`CONNECTION_BLOCKED`] is the exception and is emitted from
+//! `serve_websocket`, because what it measures is the connection rather than
+//! the request. Nothing else in this crate increments them.
+//!
+//! The `tag` label is a method name the client chose, so it is bounded by
+//! [`Outcome::tag_label`] rather than by trust: only an outcome that proves the
+//! dispatch matched an arm carries the raw tag. See `crates/t3code/AGENTS.md`.
+
+use moatless_types::ui_rpc::UiRpcAuthIdentity;
+use serde_json::Value;
+use std::time::Duration;
+use tracing::warn;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+/// Completed UI-RPC requests by `tag` and `outcome`.
+pub(crate) const REQUESTS: &str = "moatless_ui_rpc_requests_total";
+
+/// Handler wall-clock in seconds by `tag` and `outcome`. Measures the frames a
+/// request answered with, so a subscription's is its open, not its lifetime.
+pub(crate) const REQUEST_DURATION: &str = "moatless_ui_rpc_request_duration_seconds";
+
+/// Frames the socket refused before any dispatch, by `reason`.
+pub(crate) const CONNECTION_DEFECTS: &str = "moatless_ui_rpc_connection_defects_total";
+
+/// Seconds one connection spent answering a frame and so unable to read its
+/// socket.
+///
+/// [`REQUEST_DURATION`] starts at dispatch, so a request that waited behind
+/// another on the same connection is measured from the moment its turn came and
+/// its wait is attributed to nothing. This is the other side of that wait: the
+/// time the frame loop was occupied, which is what a queued request was waiting
+/// for. The wait itself is not observable here — a frame is already read by the
+/// time `incoming.next()` yields it. Unlabeled deliberately: which method is
+/// slow is [`REQUEST_DURATION`]'s question, and this one is how long a single
+/// frame holds a loop. Saturation is a further step: it needs a count of open
+/// connections to divide by, which this crate does not export.
+pub(crate) const CONNECTION_BLOCKED: &str = "moatless_ui_rpc_connection_blocked_seconds";
+
+/// Register the descriptions during compatibility router assembly.
+pub(crate) fn describe() {
+    metrics::describe_counter!(REQUESTS, "T3 UI-RPC requests by method tag and outcome");
+    metrics::describe_histogram!(
+        REQUEST_DURATION,
+        "T3 UI-RPC handler duration in seconds by method tag and outcome"
+    );
+    metrics::describe_counter!(
+        CONNECTION_DEFECTS,
+        "T3 UI-RPC frames refused before dispatch, by reason"
+    );
+    metrics::describe_histogram!(
+        CONNECTION_BLOCKED,
+        "T3 UI-RPC seconds a connection could not read its socket"
+    );
+}
+
+/// What one request told the client, read off the frames it answered with.
+///
+/// The names are the client's vocabulary, not this crate's: `Fail` and `Die`
+/// are the two `Cause` tags T3 decodes differently — a `Fail` is an outcome the
+/// method's contract declares and the UI renders in its own words, a `Die` is a
+/// defect the UI can only render as this server being broken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Outcome {
+    /// `Exit` carrying `Success`.
+    Success,
+    /// A stream that opened and has not exited. The producer answers later on
+    /// the socket, so this counts the subscribe and never its end.
+    Open,
+    /// The frame never reached the dispatch — a malformed or duplicate request
+    /// id. Its `tag` is unverified and is not used as a label.
+    Rejected,
+    /// `Fail` carrying `UnsupportedMethodError`. Reachable for any tag at all,
+    /// so its `tag` is not used as a label either.
+    Unsupported,
+    /// `Fail` carrying `EnvironmentAuthorizationError`: this deployment does not
+    /// grant the scope the method needs.
+    Unauthorized,
+    /// Any other `Fail`.
+    Fail,
+    /// `Die`.
+    Die,
+    /// `Interrupt` — the client withdrew the request.
+    Interrupted,
+}
+
+impl Outcome {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Open => "open",
+            Self::Rejected => "rejected",
+            Self::Unsupported => "unsupported",
+            Self::Unauthorized => "unauthorized",
+            Self::Fail => "fail",
+            Self::Die => "die",
+            Self::Interrupted => "interrupted",
+        }
+    }
+
+    /// The `tag` label for a request that ended this way.
+    ///
+    /// [`Self::Rejected`] and [`Self::Unsupported`] are the two outcomes a tag
+    /// no arm matched can reach, so they collapse to a constant. Every other
+    /// outcome is produced by a matched arm, which makes the raw tag one of the
+    /// enumerated method names and safe to label with.
+    pub(crate) fn tag_label(self, tag: &str) -> &str {
+        match self {
+            Self::Rejected => "rejected",
+            Self::Unsupported => "unsupported",
+            _ => tag,
+        }
+    }
+
+    /// Whether the client was told the request failed, for the span status and
+    /// the log line. An [`Self::Interrupted`] request is not a failure: the
+    /// client asked for it to stop.
+    pub(crate) fn is_failure(self) -> bool {
+        matches!(
+            self,
+            Self::Rejected | Self::Unsupported | Self::Unauthorized | Self::Fail | Self::Die
+        )
+    }
+}
+
+/// Read the outcome off the frames one request answered with.
+///
+/// A `Defect` frame outranks an `Exit` because it is what the pre-dispatch
+/// checks emit, and those run before the tag is looked at.
+pub(crate) fn classify(frames: &[Value]) -> Outcome {
+    if frames.iter().any(|frame| frame["_tag"] == "Defect") {
+        return Outcome::Rejected;
+    }
+    let Some(exit) = frames.iter().find(|frame| frame["_tag"] == "Exit") else {
+        return Outcome::Open;
+    };
+    let exit = &exit["exit"];
+    if exit["_tag"] == "Success" {
+        return Outcome::Success;
+    }
+    let cause = &exit["cause"][0];
+    match cause["_tag"].as_str() {
+        Some("Interrupt") => Outcome::Interrupted,
+        Some("Fail") => match cause["error"]["_tag"].as_str() {
+            Some("UnsupportedMethodError") => Outcome::Unsupported,
+            Some("EnvironmentAuthorizationError") => Outcome::Unauthorized,
+            _ => Outcome::Fail,
+        },
+        // A `Die` and a cause shape this crate does not produce read the same
+        // to the client: an unexpected server defect.
+        _ => Outcome::Die,
+    }
+}
+
+/// The contract error tag a typed failure carried, for the span.
+///
+/// Bounded without having to be trusted: every `_tag` this crate puts inside a
+/// `Fail` is a literal or a `&'static str` from one of its own error enums, so
+/// nothing the client sent reaches this. It is recorded on the span and not
+/// used as a metric label all the same — one method can fail several ways, and
+/// the counter is already split by `tag` and `outcome`.
+pub(crate) fn fail_tag(frames: &[Value]) -> Option<&str> {
+    frames
+        .iter()
+        .find_map(|frame| frame["exit"]["cause"][0]["error"]["_tag"].as_str())
+}
+
+/// The defect string a [`Outcome::Die`] carried, for the log line.
+pub(crate) fn defect(frames: &[Value]) -> Option<&str> {
+    frames.iter().find_map(|frame| {
+        frame["exit"]["cause"][0]["defect"]
+            .as_str()
+            .or_else(|| frame["defect"].as_str())
+    })
+}
+
+/// Root span for a single UI-RPC request. Honors a well-formed client trace
+/// context (W3C-style 32-hex trace id / 16-hex span id) as the parent, so the
+/// request's server-side spans land in the same trace as the client's. A
+/// missing or malformed context mints a fresh root instead of failing the
+/// request, and records the raw client-supplied value for debugging.
+pub(crate) fn request_root_span(
+    tag: &str,
+    trace_id: Option<&str>,
+    span_id: Option<&str>,
+    sampled: Option<bool>,
+) -> tracing::Span {
+    // `otel.*` are `tracing-opentelemetry`'s own field names, and a field it can
+    // record has to be declared here: a span records only what it was built
+    // with. `outcome`, `duration_ms` and the status are filled in once the
+    // handler answers, in [`record_request`].
+    let span = tracing::info_span!(
+        "ui_rpc.request",
+        tag = %tag,
+        otel.kind = "server",
+        otel.status_code = tracing::field::Empty,
+        outcome = tracing::field::Empty,
+        error.type = tracing::field::Empty,
+        client_trace_id = tracing::field::Empty,
+        duration_ms = tracing::field::Empty,
+    );
+    match remote_span_context(trace_id, span_id, sampled) {
+        Some(cx) => {
+            let _ = span.set_parent(cx);
+        }
+        None => {
+            if let Some(raw) = trace_id {
+                span.record("client_trace_id", raw);
+            }
+        }
+    }
+    span
+}
+
+/// Count one answered request, mark its span with what the client was told, and
+/// log the failures nothing else logs.
+///
+/// The one place this surface is measured. The fifty dispatch arms of
+/// [`ProtocolSession::handle_request`] each build their own frames and return
+/// them, so the frames are the only thing that states an outcome — and a `Die`
+/// built by [`failure_exit`] or [`unsupported_exit`] passes no other log or
+/// counter on its way out.
+///
+/// The per-domain failure builders (`file_failure_exit` and its siblings) log
+/// the sqlx or gRPC cause behind their failure, which this cannot see. A `Die`
+/// therefore logs twice on those paths: once here with the tag and the viewer,
+/// once there with the cause.
+pub(crate) fn record_request(
+    span: &tracing::Span,
+    tag: &str,
+    frames: &[Value],
+    elapsed: Duration,
+    identity: &UiRpcAuthIdentity,
+) {
+    let outcome = classify(frames);
+    let label = outcome.tag_label(tag).to_owned();
+
+    metrics::counter!(
+        REQUESTS,
+        "tag" => label.clone(),
+        "outcome" => outcome.as_str(),
+    )
+    .increment(1);
+    metrics::histogram!(
+        REQUEST_DURATION,
+        "tag" => label,
+        "outcome" => outcome.as_str(),
+    )
+    .record(elapsed.as_secs_f64());
+
+    span.record("outcome", outcome.as_str());
+    // Read `duration_ms`, not the span's own duration. A span's exported end
+    // time is restamped on every exit, and something below this surface enters
+    // a handle again after the handler answered: measured on staging,
+    // `ui_rpc.request` spans of 30s and 144s against requests this histogram
+    // put under 5s.
+    span.record("duration_ms", elapsed.as_secs_f64() * 1000.0);
+    if outcome.is_failure() {
+        span.record("otel.status_code", "ERROR");
+        if let Some(error) = fail_tag(frames) {
+            span.record("error.type", error);
+        }
+    }
+
+    // A `Die` is the only outcome the client can render nothing but "this
+    // server is broken" for, so it is the only one worth a line on its own. The
+    // rest are counted, and the refusals that are worth reading have their own
+    // `warn!` at the site that decided them.
+    if outcome == Outcome::Die {
+        warn!(
+            %tag,
+            user_id = %identity.user_id,
+            defect = defect(frames).unwrap_or("(none)"),
+            "A T3 UI request failed as an unexpected server defect"
+        );
+    }
+}
+
+/// Parses a client-supplied trace/span id pair into a remote OTel span
+/// context, or `None` if either is missing or malformed. Never fails the
+/// request — callers fall back to minting a fresh root span.
+pub(crate) fn remote_span_context(
+    trace_id: Option<&str>,
+    span_id: Option<&str>,
+    sampled: Option<bool>,
+) -> Option<opentelemetry::Context> {
+    use opentelemetry::trace::{
+        SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState,
+    };
+
+    // `from_hex` parses any valid hex string regardless of length (it does not
+    // zero-pad), so a short client value like "deadbeef" would otherwise parse
+    // into a spuriously "valid" trace id. The W3C format is fixed-width: reject
+    // anything but exactly 32/16 hex characters before parsing.
+    let trace_id = trace_id.filter(|s| s.len() == 32)?;
+    let span_id = span_id.filter(|s| s.len() == 16)?;
+    let trace_id = TraceId::from_hex(trace_id)
+        .ok()
+        .filter(|id| *id != TraceId::INVALID)?;
+    let span_id = SpanId::from_hex(span_id)
+        .ok()
+        .filter(|id| *id != SpanId::INVALID)?;
+    let flags = if sampled.unwrap_or(false) {
+        TraceFlags::SAMPLED
+    } else {
+        TraceFlags::default()
+    };
+    let span_context = SpanContext::new(trace_id, span_id, flags, true, TraceState::default());
+    Some(opentelemetry::Context::new().with_remote_span_context(span_context))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moatless_types::ui_rpc::UserRole;
+    use opentelemetry::trace::TracerProvider;
+    use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
+    use serde_json::json;
+    use tracing_subscriber::layer::SubscriberExt;
+    use uuid::Uuid;
+
+    fn viewer() -> UiRpcAuthIdentity {
+        UiRpcAuthIdentity {
+            user_id: Uuid::nil(),
+            login: "viewer".into(),
+            role: UserRole::User,
+            provider: "test".into(),
+            group_id: None,
+        }
+    }
+
+    fn exit(cause: Value) -> Vec<Value> {
+        vec![json!({
+            "_tag": "Exit",
+            "requestId": "1",
+            "exit": { "_tag": "Failure", "cause": [cause] }
+        })]
+    }
+
+    #[test]
+    fn a_success_exit_is_a_success() {
+        let frames = vec![json!({
+            "_tag": "Exit",
+            "requestId": "1",
+            "exit": { "_tag": "Success", "value": {} }
+        })];
+        assert_eq!(classify(&frames), Outcome::Success);
+        assert!(!classify(&frames).is_failure());
+    }
+
+    #[test]
+    fn a_stream_that_only_opened_has_not_exited() {
+        let frames = vec![json!({ "_tag": "Chunk", "requestId": "1", "values": [] })];
+        assert_eq!(classify(&frames), Outcome::Open);
+    }
+
+    #[test]
+    fn a_chunk_before_an_exit_does_not_hide_the_exit() {
+        let mut frames = vec![json!({ "_tag": "Chunk", "requestId": "1", "values": [] })];
+        frames.extend(exit(json!({ "_tag": "Die", "defect": "boom" })));
+        assert_eq!(classify(&frames), Outcome::Die);
+    }
+
+    /// The two tagged errors that get their own outcome, because an operator
+    /// reads them differently: one is a client asking for a method this server
+    /// does not have, the other is this deployment refusing a scope.
+    #[test]
+    fn the_two_named_tagged_errors_split_out_of_fail() {
+        assert_eq!(
+            classify(&exit(
+                json!({ "_tag": "Fail", "error": { "_tag": "UnsupportedMethodError" } })
+            )),
+            Outcome::Unsupported
+        );
+        assert_eq!(
+            classify(&exit(
+                json!({ "_tag": "Fail", "error": { "_tag": "EnvironmentAuthorizationError" } })
+            )),
+            Outcome::Unauthorized
+        );
+        assert_eq!(
+            classify(&exit(
+                json!({ "_tag": "Fail", "error": { "_tag": "ProjectReadFileError" } })
+            )),
+            Outcome::Fail
+        );
+    }
+
+    /// `outcome="fail"` is one bucket for every declared refusal a method has,
+    /// so the tag beside it is what makes the bucket readable.
+    #[test]
+    fn a_typed_failure_carries_the_tag_the_client_was_given() {
+        assert_eq!(
+            fail_tag(&exit(json!({
+                "_tag": "Fail",
+                "error": { "_tag": "AssetProjectFaviconNotFoundError" }
+            }))),
+            Some("AssetProjectFaviconNotFoundError")
+        );
+        assert_eq!(
+            fail_tag(&exit(json!({ "_tag": "Die", "defect": "boom" }))),
+            None
+        );
+    }
+
+    #[test]
+    fn an_interrupt_is_not_a_failure() {
+        let outcome = classify(&exit(json!({ "_tag": "Interrupt" })));
+        assert_eq!(outcome, Outcome::Interrupted);
+        assert!(!outcome.is_failure());
+    }
+
+    /// A `Defect` frame answers the socket, not the request, so it is what the
+    /// pre-dispatch id checks emit — and the tag beside it was never matched.
+    #[test]
+    fn a_defect_frame_is_rejected_and_does_not_label_with_its_tag() {
+        let frames = vec![json!({ "_tag": "Defect", "defect": "Duplicate id" })];
+        let outcome = classify(&frames);
+        assert_eq!(outcome, Outcome::Rejected);
+        assert_eq!(
+            outcome.tag_label("anything.the.client.invented"),
+            "rejected"
+        );
+        assert_eq!(defect(&frames), Some("Duplicate id"));
+    }
+
+    #[test]
+    fn an_unsupported_method_does_not_label_with_its_tag() {
+        assert_eq!(
+            Outcome::Unsupported.tag_label("nonsense.method"),
+            "unsupported"
+        );
+        assert_eq!(
+            Outcome::Fail.tag_label("projects.readFile"),
+            "projects.readFile"
+        );
+    }
+
+    /// `duration_ms` remains the handler duration when a later span entry
+    /// stretches the exported span duration.
+    #[test]
+    fn a_span_reentered_past_the_handler_stretches_but_duration_ms_does_not() {
+        let exporter = InMemorySpanExporter::default();
+        let provider = SdkTracerProvider::builder()
+            .with_simple_exporter(exporter.clone())
+            .build();
+        let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("test"));
+        let subscriber = tracing_subscriber::registry().with(otel_layer);
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let holder = {
+            let span = request_root_span("shell.list", None, None, None);
+            let entered = span.enter();
+            record_request(
+                &span,
+                "shell.list",
+                &[json!({
+                    "_tag": "Exit",
+                    "requestId": "1",
+                    "exit": { "_tag": "Success", "value": {} }
+                })],
+                Duration::from_millis(7),
+                &viewer(),
+            );
+            drop(entered);
+            span.clone()
+        };
+        std::thread::sleep(Duration::from_millis(60));
+        assert!(
+            exporter
+                .get_finished_spans()
+                .expect("exporter is readable")
+                .is_empty(),
+            "a live handle keeps the span open"
+        );
+        // What a task polled after the handler answered does, once.
+        drop(holder.enter());
+        drop(holder);
+        provider.force_flush().expect("flush the simple exporter");
+
+        let spans = exporter.get_finished_spans().expect("exporter is readable");
+        assert_eq!(spans.len(), 1);
+        let exported = spans[0]
+            .end_time
+            .duration_since(spans[0].start_time)
+            .expect("a span ends after it starts");
+        assert!(
+            exported >= Duration::from_millis(25),
+            "the exported span carries the re-entry, not the handler: {exported:?}"
+        );
+        let recorded = spans[0]
+            .attributes
+            .iter()
+            .find(|kv| kv.key.as_str() == "duration_ms")
+            .map(|kv| kv.value.clone());
+        assert!(
+            matches!(recorded, Some(opentelemetry::Value::F64(ms)) if (ms - 7.0).abs() < 0.001),
+            "duration_ms is what the handler took: {recorded:?}"
+        );
+    }
+}

@@ -1,0 +1,152 @@
+use super::Ports;
+use crate::{
+    access_settings, adapters, feature_flags, file_storage, repository_sync, sandbox,
+    state::AppState, t3code, task_connections,
+};
+use axum::{Json, Router};
+use moatless_core::{config::Config, feature_flags::FeatureFlags};
+use moatless_identity::{auth, secret, team};
+use moatless_loops::loops;
+use moatless_tasks::{agent, feedback, message, tag, task, task_event};
+use moatless_workspaces::{plugin, repository, skill, workspace};
+use std::sync::Arc;
+use tracing::info;
+
+pub(crate) fn domain_routes(app_state: &AppState) -> (Router, utoipa::openapi::OpenApi) {
+    let modules = vec![
+        agent::routes::agent_router(app_state.clone()),
+        task::routes::task_router(app_state.clone()),
+        task_connections::routes::task_connections_router(app_state.clone()),
+        feedback::routes::feedback_router(app_state.clone()),
+        message::routes::message_router(app_state.clone()),
+        file_storage::routes::file_storage_router(app_state.clone()),
+        repository::routes::repository_router(app_state.clone()),
+        repository_sync::routes::repository_sync_router(app_state.clone()),
+        secret::routes::secret_router(app_state.clone()),
+        tag::routes::tag_router(app_state.clone()),
+        access_settings::routes::access_settings_router(app_state.clone()),
+        adapters::routes::adapter_router(app_state.clone()),
+        loops::http::loops_router(app_state.clone()),
+        team::routes::team_router(app_state.clone()),
+        task_event::routes::task_event_router(app_state.clone()),
+        plugin::routes::plugin_router(app_state.clone()),
+        skill::routes::skill_router(app_state.clone()),
+        workspace::routes::workspace_router(app_state.clone()),
+    ];
+    let mut router = Router::new();
+    let mut api = utoipa::openapi::OpenApi::default();
+    for (mod_router, mod_api) in modules {
+        router = router.merge(mod_router);
+        api.merge(mod_api);
+    }
+    // Historical task-events replay. Authorizes the caller against the task
+    // (AuthUser), so it lives on the AppState router rather than the SSE
+    // firehose router.
+    router = router.merge(crate::sse::routes::task_events_router(app_state.clone()));
+    (router, api)
+}
+
+pub(crate) struct UiRpcInputs {
+    pub connector: Arc<dyn sandbox_proto::client::SandboxConnector>,
+    pub snapshots: Option<Arc<dyn moatless_ports::sandbox::WorkspaceSnapshotSource>>,
+    pub observer: Arc<dyn sandbox::status_reader::SandboxStatusReader>,
+    pub diagnostics: Arc<dyn moatless_ports::sandbox::ClusterDiagnostics>,
+    pub ports: Arc<dyn moatless_ports::sandbox::SandboxPortPublisher>,
+    pub preview_tabs: Arc<dyn moatless_t3code::preview_tabs::PreviewTabDao>,
+}
+
+pub(crate) async fn ui_rpc(
+    config: &Config,
+    ports: &Ports,
+    app_state: &AppState,
+    inputs: UiRpcInputs,
+) -> Result<Option<Router>, Box<dyn std::error::Error>> {
+    let ui_rpc_conversations = ports.ui_rpc_conversations.clone();
+    moatless_t3code::router_from_env(moatless_t3code::UiRpcDependencies {
+        session_cookie_name: config.auth.session_cookie_name.clone(),
+        session_jwt_secret: auth::jwt::get_jwt_secret(config).map(String::from),
+        pairing: ports.pairing.clone(),
+        workspaces: ui_rpc_conversations.clone(),
+        workspace_script_commands: Arc::new(t3code::backend::WorkspaceScripts(
+            app_state.workspaces.clone(),
+        )),
+        conversations: ui_rpc_conversations.clone(),
+        sandboxes: inputs.connector,
+        snapshots: inputs.snapshots,
+        observer: t3code::projection::contract_observer(
+            inputs.observer,
+            Some(ports.turn_counter.clone()),
+        ),
+        diagnostics: inputs.diagnostics,
+        ports: inputs.ports,
+        tasks: ui_rpc_conversations,
+        intent: app_state.sandbox.clone(),
+        starter: app_state.sandbox.clone(),
+        stopper: app_state.sandbox.clone(),
+        preview_tabs: inputs.preview_tabs,
+        agents: Arc::new(t3code::backend::AppStateAgents(app_state.clone())),
+        branches: Arc::new(t3code::backend::AppStateBranches(app_state.clone())),
+        skills: Arc::new(t3code::backend::AppStateSkills(app_state.clone())),
+        relations: Arc::new(t3code::backend::AppStateTaskRelations(app_state.clone())),
+        pull_requests: Arc::new(t3code::backend::AppStateBoundPullRequests(
+            app_state.clone(),
+        )),
+        source_control_auth: Arc::new(t3code::backend::AppStateSourceControlAuth(
+            app_state.clone(),
+        )),
+        commands: Arc::new(t3code::backend::AppStateCommands(app_state.clone())),
+        attachments: Arc::new(t3code::backend::AppStateAttachments(app_state.clone())),
+        usage: Arc::new(moatless_t3code::PgUsageDao::new(app_state.db.clone())),
+        model_defaults: moatless_t3code::AgentModelDefaults {
+            claude_code: config.sandbox.default_model.clone(),
+            codex: config.sandbox.default_codex_model.clone(),
+        },
+        otlp_traces_enabled: config.otel.otlp_endpoint.is_some(),
+        frontend_url: config.auth.frontend_url.clone(),
+    })
+    .await
+    .map_err(Into::into)
+}
+
+pub(crate) fn finish(
+    mut router: Router,
+    mut api: utoipa::openapi::OpenApi,
+    feature_flags: FeatureFlags,
+    slack_team_id: Option<String>,
+    device_pairing: bool,
+    sse_state: crate::sse::routes::SseState,
+    auth_middleware_state: Option<auth::middleware::AuthMiddlewareState>,
+) -> Router {
+    // Routes that don't require a database
+    let (feature_flags_router, feature_flags_api) =
+        feature_flags::feature_flags_router(feature_flags, slack_team_id, device_pairing);
+    router = router.merge(feature_flags_router);
+    api.merge(feature_flags_api);
+    router = router.merge(crate::sse::routes::sse_router(sse_state));
+    info!("SSE routes registered");
+
+    let openapi_json = api.clone();
+    let router = router.route(
+        "/openapi.json",
+        axum::routing::get(move || async move { Json(openapi_json) }),
+    );
+
+    // Apply auth middleware. Runs inside the request-trace span (added below)
+    // so it can record `user_id` onto the current span.
+    let router = if let Some(mw_state) = auth_middleware_state {
+        info!("Auth middleware enabled");
+        router
+            .layer(axum::middleware::from_fn(auth::middleware::auth_middleware))
+            .layer(axum::Extension(mw_state))
+    } else {
+        info!("Auth middleware disabled (no database)");
+        router
+    };
+
+    // Outermost layer — opens one `http_request` span (request_id, method,
+    // path, …) per request so every downstream log line inherits the context,
+    // emits a single access-log line, and echoes `x-request-id` to clients.
+    router.layer(axum::middleware::from_fn(
+        crate::http_trace::request_trace_middleware,
+    ))
+}

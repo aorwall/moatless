@@ -11,24 +11,24 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod client;
-pub mod deployment;
+mod deployment;
 pub mod edge;
 pub mod fleet_observer;
-pub mod ingress;
+mod ingress;
 pub mod leader_election;
-pub mod naming;
-pub mod networkpolicy;
+mod naming;
+mod networkpolicy;
 pub mod node_archive;
-pub mod owner_ref;
-pub mod pod_builder;
+mod owner_ref;
+mod pod_builder;
 mod pod_observation_policy;
-pub mod pod_reader;
-pub mod pod_status;
+mod pod_reader;
+mod pod_status;
 pub mod pod_watcher;
 pub mod provider;
-pub mod pvc;
+mod pvc;
 mod rescue_pod;
 pub mod sandbox_resources;
-pub mod service;
+mod service;
 pub mod status_resolver;
-pub mod wait;
+mod wait;

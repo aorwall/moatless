@@ -79,7 +79,7 @@ pub(super) async fn write_codex_config(codex_home_dir: &str, base_url: Option<&s
 mod tests {
     use tempfile::TempDir;
 
-    use super::{config_toml, write_codex_config, CONFIG_TOML, HUB_PROVIDER_ID};
+    use super::{CONFIG_TOML, HUB_PROVIDER_ID, config_toml, write_codex_config};
 
     #[tokio::test]
     async fn writes_expected_config() {

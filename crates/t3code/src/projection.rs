@@ -1874,11 +1874,11 @@ mod tests {
 
     use super::*;
     use crate::activity_dao::SubagentUsage;
+    use crate::dao::ConversationPullRequest;
     use moatless_types::access_control::Scope;
     use moatless_types::activity::{ActivityKind, ActivityStatus};
     use moatless_types::agent::AgentType;
     use moatless_types::message::MessageRole;
-    use crate::dao::ConversationPullRequest;
     use moatless_types::sandbox::SandboxStopReason;
     use sqlx::types::Json;
 
@@ -2534,7 +2534,10 @@ mod tests {
         ]));
 
         let thread = one_thread(&row);
-        assert_eq!(thread["linkedPullRequests"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            thread["linkedPullRequests"].as_array().map(Vec::len),
+            Some(1)
+        );
         assert_eq!(thread["linkedPullRequest"]["number"], 7);
     }
 

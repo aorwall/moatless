@@ -51,6 +51,7 @@ pub(crate) mod agent_stop;
 pub(crate) mod dao;
 pub(crate) mod event_sink;
 pub(crate) mod lock;
+mod db;
 pub mod observe;
 pub(crate) mod workspace_archive;
 pub(crate) mod workspace_sync;

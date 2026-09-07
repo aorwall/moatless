@@ -9,8 +9,8 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use super::CredentialSink;
-use crate::init::codex_watcher::WatcherHandle;
-use crate::init::gh_hosts;
+use crate::credentials::codex_watcher::WatcherHandle;
+use crate::credentials::gh_hosts;
 
 /// Atomic-write `~/.codex/auth.json`. After write, seeds the watcher cache so
 /// the resulting filesystem event is recognised as a backend-originating
@@ -102,7 +102,7 @@ impl CredentialSink for ClaudeOauthSink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::init::codex_watcher::WatcherHandle;
+    use crate::credentials::codex_watcher::WatcherHandle;
     use tempfile::TempDir;
 
     #[tokio::test]

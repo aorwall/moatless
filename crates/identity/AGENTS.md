@@ -23,9 +23,10 @@ The request extractors are axum plumbing over two ports, and they are not
 identity. They live in `moatless_core::http_auth`. This crate implements the
 caller side of `UserTokenVerifier` and nothing more.
 
-This crate names no provider. An Adapter resolves its stored credentials
+Adapter installation belongs to the provider crate. An Adapter resolves its stored credentials
 through `AdapterAppReader`, declared in `moatless-adapter-model` beside the
-Adapter vocabulary. Adding a provider must not edit this crate.
+Adapter vocabulary. Adding an Adapter must not edit this crate. User login and
+git-host credentials remain identity responsibilities.
 
 ## GitHub: signing in and having access are separate
 

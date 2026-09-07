@@ -349,7 +349,7 @@ impl TaskDao for PgTaskDao {
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<Task>, sqlx::Error> {
-        let access = ctx.access_filter(ScopedEntity::Task, "", 2);
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
             "SELECT * FROM tasks WHERE task_id = $1 AND {}",
             access.sql(),
@@ -544,7 +544,7 @@ impl TaskDao for PgTaskDao {
         // `status`, the empty conversation and the control rule are all in this
         // one `WHERE`, so a Task that became usable between the caller's read
         // and this call is not deleted by a decision that has gone stale.
-        let ctrl = ctx.write_filter("", 2);
+        let ctrl = moatless_core::db::access_control::write_filter("", 2);
         let sql = format!(
             "DELETE FROM tasks \
              WHERE task_id = $1 AND status = $4 AND {} \
@@ -736,7 +736,7 @@ impl TaskDao for PgTaskDao {
             }
         }
 
-        let access = filter.scope.access_filter(ScopedEntity::Task, "t.", 1);
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
         // `filtered` is the single source of truth for both the page and the
         // total: `total` counts it and `page` slices it, so the two can never
         // drift apart under a filter or access-control change.
@@ -852,7 +852,7 @@ impl TaskDao for PgTaskDao {
         // statement here shares one `WHERE`, so they all match the same row and
         // `first_affected` speaks for all of them.
         let mut tx = self.pool.begin().await?;
-        let ctrl = ctx.write_filter("", 3);
+        let ctrl = moatless_core::db::access_control::write_filter("", 3);
         let ctrl_sql = ctrl.sql();
         let mut first_affected: Option<u64> = None;
 
@@ -959,7 +959,7 @@ impl TaskDao for PgTaskDao {
         new_status: TaskStatus,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        let ctrl = ctx.write_filter("", 3);
+        let ctrl = moatless_core::db::access_control::write_filter("", 3);
         // `closed_at` is a fact of `status` — the same rule `update_task`
         // applies. Without it this path leaves the two disagreeing: a task
         // closed here would be archived with no time to show for it, and a
@@ -990,7 +990,7 @@ impl TaskDao for PgTaskDao {
     }
 
     async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        let ctrl = ctx.write_filter("", 2);
+        let ctrl = moatless_core::db::access_control::write_filter("", 2);
         let sql = format!(
             "DELETE FROM tasks WHERE task_id = $1 AND {} RETURNING task_id, sandbox_id",
             ctrl.sql()

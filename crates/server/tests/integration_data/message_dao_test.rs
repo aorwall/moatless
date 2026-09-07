@@ -771,7 +771,9 @@ async fn an_outbound_claim_names_its_task_only_at_the_source_that_made_it(pool: 
 #[sqlx::test]
 async fn an_event_that_records_no_subject_names_no_task(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
-    seed_task(&pool, "task-2", "user-2").await;
+    moatless_tasks::task::dao::insert_task(&pool, &make_task_row("task-2", "user-2"))
+        .await
+        .expect("seed second task in the same repository");
     let repo = PgMessageDao(pool.clone());
 
     let mut msg = make_message_row("task-1", "no-subject");

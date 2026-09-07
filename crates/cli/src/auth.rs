@@ -376,3 +376,13 @@ pub async fn ensure_auth(client: &mut MoatClient, config: &Config) -> Result<(),
         }
     }
 }
+
+/// Remove the current host's saved credentials.
+pub fn logout(cfg: &Config) {
+    let host = cfg.host();
+    match crate::credentials::delete_credential(&host) {
+        Ok(true) => println!("Logged out from {host}."),
+        Ok(false) => println!("No credentials found for {host}."),
+        Err(e) => eprintln!("Error: {e}"),
+    }
+}

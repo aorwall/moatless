@@ -10,8 +10,8 @@
 use super::*;
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 
 use async_trait::async_trait;
 use sandbox_proto::{
@@ -239,18 +239,21 @@ fn overflow_drops_oldest_non_lifecycle_keeps_lifecycle() {
     let mut buf = EventBuffer::new(3, usize::MAX);
 
     // Fill: two non-lifecycle, one lifecycle.
-    assert!(buf
-        .push(QueuedEvent::new(agent_event("message")))
-        .evicted
-        .is_empty());
-    assert!(buf
-        .push(QueuedEvent::new(task_turn_event("active")))
-        .evicted
-        .is_empty());
-    assert!(buf
-        .push(QueuedEvent::new(agent_event("message")))
-        .evicted
-        .is_empty());
+    assert!(
+        buf.push(QueuedEvent::new(agent_event("message")))
+            .evicted
+            .is_empty()
+    );
+    assert!(
+        buf.push(QueuedEvent::new(task_turn_event("active")))
+            .evicted
+            .is_empty()
+    );
+    assert!(
+        buf.push(QueuedEvent::new(agent_event("message")))
+            .evicted
+            .is_empty()
+    );
     assert_eq!(buf.len(), 3);
 
     // Over cap: oldest non-lifecycle (index 0) is evicted, not the taskTurn.
@@ -271,14 +274,16 @@ fn overflow_drops_oldest_non_lifecycle_keeps_lifecycle() {
 fn lifecycle_saturation_refuses_the_newest_and_holds_the_cap() {
     let mut buf = EventBuffer::new(2, usize::MAX);
 
-    assert!(buf
-        .push(QueuedEvent::new(task_turn_event("active")))
-        .rejected
-        .is_none());
-    assert!(buf
-        .push(QueuedEvent::new(agent_event("completed")))
-        .rejected
-        .is_none());
+    assert!(
+        buf.push(QueuedEvent::new(task_turn_event("active")))
+            .rejected
+            .is_none()
+    );
+    assert!(
+        buf.push(QueuedEvent::new(agent_event("completed")))
+            .rejected
+            .is_none()
+    );
     assert_eq!(buf.len(), 2);
 
     // Nothing evictable is left, so the class is capped by refusing the newest
@@ -586,11 +591,13 @@ async fn a_terminal_rejection_is_dropped_and_the_stream_continues() {
     let metrics = outbox.metrics();
     assert_eq!(metrics.dropped_terminal, 1);
     assert_eq!(metrics.retried, 0, "a terminal rejection is never retried");
-    assert!(!received
-        .lock()
-        .expect("lock")
-        .iter()
-        .any(|r| r.sub_type == "poison"));
+    assert!(
+        !received
+            .lock()
+            .expect("lock")
+            .iter()
+            .any(|r| r.sub_type == "poison")
+    );
 
     // The gap is announced, not silently swallowed.
     wait_until(|| {
@@ -634,11 +641,13 @@ async fn an_over_limit_payload_is_dropped_rather_than_retried_forever() {
     let metrics = outbox.metrics();
     assert_eq!(metrics.dropped_terminal, 1);
     assert_eq!(metrics.retried, 0, "an over-limit payload is never retried");
-    assert!(!received
-        .lock()
-        .expect("lock")
-        .iter()
-        .any(|r| r.sub_type == "oversized"));
+    assert!(
+        !received
+            .lock()
+            .expect("lock")
+            .iter()
+            .any(|r| r.sub_type == "oversized")
+    );
 
     cancel.cancel();
 }
@@ -706,11 +715,13 @@ async fn repeated_durable_admission_failures_are_dropped_rather_than_wedging_the
         u64::from(MAX_DURABLE_ADMISSION_RETRIES - 1),
         "the poison event gets a bounded retry budget before being dropped"
     );
-    assert!(!received
-        .lock()
-        .expect("lock")
-        .iter()
-        .any(|r| r.sub_type == "poison"));
+    assert!(
+        !received
+            .lock()
+            .expect("lock")
+            .iter()
+            .any(|r| r.sub_type == "poison")
+    );
 
     wait_until(|| {
         backend

@@ -15,7 +15,8 @@
 
 use async_trait::async_trait;
 
-use moatless_types::adapter::{BindingContext, TaskBinding};
+use chrono::{DateTime, Utc};
+use moatless_types::adapter::TaskBinding;
 use moatless_types::store::StoreError;
 
 /// Whether a subject already has a Binding. Answers a yes/no; the rows behind
@@ -70,5 +71,56 @@ pub fn binding_context(binding: &TaskBinding) -> BindingContext {
         last_external_event_id: binding.last_external_event_id.clone(),
         last_message_at: binding.last_event_at,
         created_at: binding.created_at,
+    }
+}
+
+/// Adapter-facing subject context.
+///
+/// This is synthesized from a task binding before invoking Adapter-specific
+/// outbound and context-fetching code.
+#[derive(Debug, Clone)]
+pub struct BindingContext {
+    pub binding_id: String,
+    pub loop_id: Option<String>,
+    pub task_id: String,
+    pub subject_kind: String,
+    pub subject_key: String,
+    pub destination_config: serde_json::Value,
+    pub metadata: serde_json::Value,
+    pub last_external_event_id: Option<String>,
+    pub last_message_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Provider-owned destination data for a task binding.
+#[derive(Debug, Clone)]
+pub struct BindingDestination {
+    /// Binding `subject_kind` (for example, a provider-defined thread kind).
+    pub subject_kind: &'static str,
+    /// Stable provider-defined lookup key for the bound subject.
+    pub subject_key: String,
+    /// Provider-defined JSON needed to send future replies.
+    pub destination_config: serde_json::Value,
+    /// Optional cursor seeded when the binding is created from an outbound send.
+    pub last_external_event_id: Option<String>,
+}
+
+impl BindingDestination {
+    pub fn new(
+        subject_kind: &'static str,
+        subject_key: String,
+        destination_config: serde_json::Value,
+    ) -> Self {
+        Self {
+            subject_kind,
+            subject_key,
+            destination_config,
+            last_external_event_id: None,
+        }
+    }
+
+    pub fn with_last_external_event_id(mut self, external_id: impl Into<String>) -> Self {
+        self.last_external_event_id = Some(external_id.into());
+        self
     }
 }

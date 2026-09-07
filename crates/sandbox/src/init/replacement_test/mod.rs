@@ -3,7 +3,7 @@
 //! When a pod is replaced, `run_init` restores Claude/Codex Session state to
 //! disk (before Ready), decides interrupted-Run vs pending-Message precedence
 //! while external dispatch is still gated, then opens the gate and performs the
-//! one authoritative dispatch (`init::open_for_work`).
+//! one authoritative dispatch (`agent::restart::open_for_work`).
 //!
 //! The tests observe the **harness** end of the path, not the command channel:
 //! each lifecycle action drives a real [`CoordinatorService`] over a recording

@@ -30,6 +30,7 @@ pub mod metrics;
 pub mod operation;
 pub mod outcome;
 pub mod provisioning;
+pub mod repo_config_encoding;
 pub mod runtime;
 pub mod schemas;
 pub mod server_runner;
@@ -37,3 +38,5 @@ pub mod status_reader;
 pub mod storage;
 
 pub mod observation_events;
+
+pub mod file_conversion;

@@ -581,3 +581,21 @@ fn extract_field(fields: &[Value], name: &str) -> Option<String> {
     }
     None
 }
+
+/// Run the event consumer until cancellation.
+pub async fn spawn_event_handler(
+    conn: ConnectionManager,
+    state: AppState,
+    subscribers: Arc<TaskEventSubscribers>,
+    cancel: CancellationToken,
+) {
+    let consumer_id = format!(
+        "event-handler-{}",
+        std::env::var("HOSTNAME").unwrap_or_else(|_| "local".to_string())
+    );
+
+    info!(consumer_id = %consumer_id, "Spawning event handler consumer");
+
+    let consumer = EventHandlerConsumer::new(conn, consumer_id, state, subscribers, cancel);
+    consumer.run().await;
+}

@@ -87,23 +87,12 @@ pub struct AuthTestInfo {
 }
 
 #[derive(Deserialize)]
-struct SlackMessage {
-    text: Option<String>,
-    user: Option<String>,
-    ts: Option<String>,
-    blocks: Option<Vec<serde_json::Value>>,
-    attachments: Option<Vec<serde_json::Value>>,
-}
-
-/// A formatted thread reply with its Slack timestamp for dedup filtering.
-pub struct ThreadReply {
-    /// The formatted message text.
-    pub text: String,
-    /// The Slack message timestamp (unique ID).
-    pub ts: Option<String>,
-    /// The Slack id of whoever wrote it, so history reads as a conversation
-    /// between named people rather than one anonymous block.
-    pub user: Option<String>,
+pub(crate) struct SlackMessage {
+    pub(crate) text: Option<String>,
+    pub(crate) user: Option<String>,
+    pub(crate) ts: Option<String>,
+    pub(crate) blocks: Option<Vec<serde_json::Value>>,
+    pub(crate) attachments: Option<Vec<serde_json::Value>>,
 }
 
 /// One `chat.postMessage` request.
@@ -221,7 +210,9 @@ impl SlackApi {
             .map_err(|e| SharedAdapterError::provider_unreachable("chat.postMessage", e))?
             .json()
             .await
-            .map_err(|e| SharedAdapterError::provider_response_invalid("chat.postMessage", e).into())
+            .map_err(|e| {
+                SharedAdapterError::provider_response_invalid("chat.postMessage", e).into()
+            })
     }
 
     /// Resolve the identity of the Slack token via `auth.test`.
@@ -296,9 +287,8 @@ impl SlackApi {
         channel: &str,
         thread_ts: &str,
         limit: usize,
-        bot_user_id: Option<&str>,
         oldest: Option<&str>,
-    ) -> Result<Vec<ThreadReply>, AdapterError> {
+    ) -> Result<Vec<SlackMessage>, AdapterError> {
         let limit_str = limit.to_string();
         let mut query: Vec<(&str, &str)> = vec![
             ("channel", channel),
@@ -329,43 +319,7 @@ impl SlackApi {
             return Ok(vec![]);
         }
 
-        let messages = resp.messages.unwrap_or_default();
-        let filtered: Vec<ThreadReply> = messages
-            .into_iter()
-            .filter(|m| {
-                // Exclude bot's own messages
-                if let Some(ref uid) = m.user {
-                    if let Some(bot_id) = bot_user_id {
-                        return uid != bot_id;
-                    }
-                }
-                true
-            })
-            .filter_map(|m| {
-                let ts = m.ts.clone();
-                let user = m.user.clone();
-                // Try blocks first (Block Kit), then attachments (legacy), then text (fallback)
-                let text = m
-                    .blocks
-                    .as_ref()
-                    .map(|b| super::format::extract_text_from_blocks(b))
-                    .filter(|t| !t.is_empty())
-                    .or_else(|| {
-                        m.attachments
-                            .as_ref()
-                            .map(|a| super::format::extract_text_from_attachments(a))
-                            .filter(|t| !t.is_empty())
-                    })
-                    .or_else(|| {
-                        m.text
-                            .filter(|t| !t.is_empty())
-                            .map(|t| super::format::format_slack_text(&t))
-                    })?;
-                Some(ThreadReply { text, ts, user })
-            })
-            .collect();
-
-        Ok(filtered)
+        Ok(resp.messages.unwrap_or_default())
     }
 
     /// Upload a file to a Slack channel/thread using the V2 upload flow.
@@ -696,7 +650,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use moatless_adapter_model::test_support::{UNREACHABLE_BASE, stub_provider};
+    use moatless_adapter_model::test_support::{stub_provider, UNREACHABLE_BASE};
 
     #[tokio::test]
     async fn unreachable_slack_keeps_transport_source() {

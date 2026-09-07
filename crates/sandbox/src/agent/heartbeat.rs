@@ -11,8 +11,8 @@
 //! on backend reachability, credentials, or disk — so a transient backend
 //! outage can never trigger a restart that kills an in-flight turn.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// How stale the heartbeat may get while a turn is `Running` before the service

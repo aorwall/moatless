@@ -40,6 +40,7 @@ use moatless_types::ui_rpc::UiRpcAuthIdentity;
 
 /// Where [`create_url`]'s answers point, and what [`serve`] is mounted at.
 pub(crate) const ASSET_ROUTE_PREFIX: &str = "/api/assets";
+pub(crate) const ASSET_ROUTE_PATTERN: &str = "/api/assets/{thread_id}/{*relative_path}";
 
 /// Where an attachment's bytes already live: the Moatless upload route, mounted
 /// by the root backend rather than by this module. An attachment reaches this

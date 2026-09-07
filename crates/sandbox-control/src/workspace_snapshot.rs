@@ -89,7 +89,7 @@ impl S3WorkspaceSnapshots {
             match moatless_s3::head_object_modified_at(&self.s3.client, &self.bucket, &key).await {
                 Ok(Some(at)) => at,
                 Ok(None) => return Err(SnapshotError::NoSnapshot),
-                Err(e) => return Err(SnapshotError::Unavailable(e)),
+                Err(e) => return Err(SnapshotError::Unavailable(e.to_string())),
             };
 
         let bytes = match moatless_s3::get_object_opt(&self.s3.client, &self.bucket, &key).await {
@@ -97,7 +97,7 @@ impl S3WorkspaceSnapshots {
             // The HEAD above saw it, so a miss here is a delete racing this read
             // rather than a task without a mirror.
             Ok(None) => return Err(SnapshotError::NoSnapshot),
-            Err(e) => return Err(SnapshotError::Unavailable(e)),
+            Err(e) => return Err(SnapshotError::Unavailable(e.to_string())),
         };
 
         let manifest = Manifest::from_gz_json(&bytes)
@@ -291,7 +291,7 @@ impl WorkspaceSnapshotSource for S3WorkspaceSnapshots {
         match moatless_s3::get_object_opt(&self.s3.client, &self.bucket, &key).await {
             Ok(Some(content)) => Ok(SnapshotFile { content, synced_at }),
             Ok(None) => Err(SnapshotError::NotFound),
-            Err(e) => Err(SnapshotError::Unavailable(e)),
+            Err(e) => Err(SnapshotError::Unavailable(e.to_string())),
         }
     }
 

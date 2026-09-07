@@ -149,11 +149,7 @@ fn read_persisted_token(runtime_dir: Option<&str>) -> Option<String> {
     };
     let token = std::fs::read_to_string(path).ok()?;
     let token = token.trim().to_string();
-    if token.is_empty() {
-        None
-    } else {
-        Some(token)
-    }
+    if token.is_empty() { None } else { Some(token) }
 }
 
 /// Extract host (with port if non-standard) from a URL.
@@ -167,6 +163,17 @@ pub fn host_from_url(url: &str) -> String {
         .next()
         .unwrap_or(without_scheme)
         .to_string()
+}
+
+
+
+impl Config {
+    /// The task named by this invocation's environment.
+    pub fn require_task_id(&self) -> Result<String, Box<dyn std::error::Error>> {
+        self.task_id()
+            .map(String::from)
+            .ok_or_else(|| "TASK_ID environment variable is required for this command".into())
+    }
 }
 
 #[cfg(test)]
@@ -187,12 +194,18 @@ mod tests {
     fn blank_persisted_token_is_ignored() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(".user_auth_token"), "   \n").unwrap();
-        assert_eq!(read_persisted_token(Some(dir.path().to_str().unwrap())), None);
+        assert_eq!(
+            read_persisted_token(Some(dir.path().to_str().unwrap())),
+            None
+        );
     }
 
     #[test]
     fn missing_persisted_token_is_none() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(read_persisted_token(Some(dir.path().to_str().unwrap())), None);
+        assert_eq!(
+            read_persisted_token(Some(dir.path().to_str().unwrap())),
+            None
+        );
     }
 }

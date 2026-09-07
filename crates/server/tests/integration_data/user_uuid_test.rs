@@ -21,7 +21,7 @@ fn make_user(id: Uuid, login: &str, provider: &str, provider_user_id: &str) -> U
     User {
         id,
         login: login.to_string(),
-        email: None,
+        email: Some(format!("{login}@example.test")),
         name: None,
         avatar_url: None,
         provider: provider.to_string(),

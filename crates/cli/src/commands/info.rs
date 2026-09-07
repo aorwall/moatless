@@ -49,3 +49,33 @@ pub fn print_status(config: &Config) {
         }
     }
 }
+
+pub async fn whoami(
+    moat: &crate::client::MoatClient,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let session = moat.api().me().await?;
+    if json {
+        crate::output::print_json_typed(&session);
+    } else {
+        format_whoami(&session);
+    }
+    Ok(())
+}
+
+pub async fn tags(
+    moat: &crate::client::MoatClient,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let tags = moat.api().list_tags().await?;
+    if json {
+        crate::output::print_json_typed(&tags);
+    } else {
+        let rows: Vec<Vec<String>> = tags
+            .iter()
+            .map(|t| vec![t.tag_id.clone(), t.name.clone()])
+            .collect();
+        crate::output::print_table(&["TAG_ID", "NAME"], &rows);
+    }
+    Ok(())
+}

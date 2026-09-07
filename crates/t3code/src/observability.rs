@@ -5,7 +5,7 @@
 //! (`apps/web/src/observability/clientTracing.ts`). Forwarding that body to the
 //! same collector this process exports to is what makes a request one trace
 //! rather than two: the client's span is the parent
-//! [`crate::request_root_span`] adopts, and an unexported parent leaves the
+//! [`crate::rpc::metrics::request_root_span`] adopts, and an unexported parent leaves the
 //! backend's spans dangling in Tempo.
 
 use axum::{

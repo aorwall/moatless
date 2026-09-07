@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
-use moatless_types::agent::CodexScope;
 use moatless_core::db::DbPool;
+use moatless_types::agent::CodexScope;
 
 /// What the policy half decided to do with a Codex blob it was handed.
 pub enum CodexBlobRefresh {
@@ -319,7 +319,7 @@ impl ProviderTokenDao for PgProviderTokenDao {
         &self,
         scope: &CodexScope,
     ) -> Result<Option<ProviderToken>, sqlx::Error> {
-        let where_clause = scope.where_clause("$1");
+        let where_clause = codex_where_clause(scope, "$1");
         // `ProviderToken::user_id` is `NOT NULL` in the Rust struct so
         // coalesce NULL to '' for global rows.
         let sql = format!(
@@ -330,7 +330,7 @@ impl ProviderTokenDao for PgProviderTokenDao {
                WHERE {where_clause}"#,
         );
         sqlx::query_as::<_, ProviderToken>(AssertSqlSafe(sql))
-            .bind(scope.bind_value())
+            .bind(codex_bind_value(scope))
             .fetch_optional(&self.0)
             .await
     }
@@ -388,10 +388,10 @@ impl ProviderTokenDao for PgProviderTokenDao {
     }
 
     async fn delete_codex_blob(&self, scope: &CodexScope) -> Result<(), sqlx::Error> {
-        let where_clause = scope.where_clause("$1");
+        let where_clause = codex_where_clause(scope, "$1");
         let sql = format!("DELETE FROM provider_tokens WHERE {where_clause}");
         sqlx::query(AssertSqlSafe(sql))
-            .bind(scope.bind_value())
+            .bind(codex_bind_value(scope))
             .execute(&self.0)
             .await?;
         Ok(())
@@ -508,12 +508,12 @@ impl ProviderTokenDao for PgProviderTokenDao {
         // team named "foo" do not collide.
         let acquired: bool =
             sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))")
-                .bind(scope.advisory_id_input())
+                .bind(codex_lock_key(scope))
                 .fetch_one(&mut *tx)
                 .await?;
 
-        let scope_where = scope.where_clause("$1");
-        let scope_bind = scope.bind_value();
+        let scope_where = codex_where_clause(scope, "$1");
+        let scope_bind = codex_bind_value(scope);
 
         if !acquired {
             tx.rollback().await?;
@@ -557,7 +557,7 @@ impl ProviderTokenDao for PgProviderTokenDao {
                 // Compare-and-swap: succeed only while the row still holds what
                 // we read. `$1..$3` are the SET params and the CAS check; the
                 // scope predicate binds `$4`.
-                let cas_where = scope.where_clause("$4");
+                let cas_where = codex_where_clause(scope, "$4");
                 let cas_sql = format!(
                     "UPDATE provider_tokens \
                      SET access_token = $1, \
@@ -596,7 +596,7 @@ impl ProviderTokenDao for PgProviderTokenDao {
                     "at": chrono::Utc::now().to_rfc3339(),
                 });
                 // SET binds `$1`; the scope predicate shifts to `$2`.
-                let fail_where = scope.where_clause("$2");
+                let fail_where = codex_where_clause(scope, "$2");
                 let fail_sql = format!(
                     "UPDATE provider_tokens \
                      SET metadata = jsonb_set(COALESCE(metadata, '{{}}'::jsonb), '{{refresh_failure}}', $1, true), \
@@ -691,5 +691,77 @@ impl ProviderTokenDao for PgProviderTokenDao {
         .bind(user_id)
         .fetch_optional(&self.0)
         .await
+    }
+}
+
+/// Stable key shared by the advisory lock and in-process credential mutex.
+pub fn codex_lock_key(scope: &CodexScope) -> String {
+    match scope {
+        CodexScope::User(id) => format!("codex-refresh:user:{id}"),
+        CodexScope::Global => "codex-refresh:global".to_string(),
+    }
+}
+
+/// Bind value for the `WHERE` fragment's single `$N` placeholder.
+/// User scope carries the `user_id`; Global uses an empty string sentinel
+/// (the clause itself uses IS NULL checks, not a bound value).
+fn codex_bind_value(scope: &CodexScope) -> &str {
+    match scope {
+        CodexScope::User(id) => id.as_str(),
+        CodexScope::Global => "",
+    }
+}
+
+/// Build the `WHERE` clause fragment that addresses this scope's row in
+/// `provider_tokens`, using `placeholder` for the dynamic identifier.
+/// Callers paste the result into the larger SQL string and bind
+/// [`codex_bind_value`] at the same positional parameter index.
+///
+/// Note: Global scope uses `IS NULL` checks so the bind value is unused
+/// for that variant; callers should still bind it (empty string) to keep
+/// positional parameter counts consistent.
+fn codex_where_clause(scope: &CodexScope, placeholder: &str) -> String {
+    match scope {
+        CodexScope::User(_) => {
+            format!("user_id = {placeholder} AND provider = 'codex' AND scope = 'user'")
+        }
+        CodexScope::Global => {
+            "user_id IS NULL AND team_id IS NULL AND provider = 'codex' AND scope = 'global'"
+                .to_string()
+        }
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    #[test]
+    fn lock_key_is_distinct_across_scopes_with_same_id() {
+        let user = codex_lock_key(&CodexScope::user("foo"));
+        let global = codex_lock_key(&CodexScope::Global);
+        assert_eq!(user, "codex-refresh:user:foo");
+        assert_eq!(global, "codex-refresh:global");
+        assert_ne!(user, global);
+        assert!(user.contains("user"));
+        assert!(global.contains("global"));
+    }
+
+    #[test]
+    fn where_clause_per_scope_is_well_formed() {
+        let u = codex_where_clause(&CodexScope::user("u1"), "$1");
+        assert!(u.contains("user_id = $1"));
+        assert!(u.contains("scope = 'user'"));
+
+        let g = codex_where_clause(&CodexScope::Global, "$1");
+        assert!(g.contains("user_id IS NULL"));
+        assert!(g.contains("team_id IS NULL"));
+        assert!(g.contains("scope = 'global'"));
+    }
+
+    #[test]
+    fn bind_value_is_the_scope_identifier() {
+        assert_eq!(codex_bind_value(&CodexScope::user("alice")), "alice");
+        assert_eq!(codex_bind_value(&CodexScope::Global), "");
     }
 }

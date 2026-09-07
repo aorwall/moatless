@@ -4,7 +4,7 @@
 //! compile-time constants supplied at the admission call site — a bounded
 //! vocabulary, matching the note in [`moatless_adapter_model::metrics`].
 
-use super::store::Backlog;
+use super::dao::Backlog;
 
 pub(crate) const ADAPTER_DELIVERY_ADMITTED_TOTAL: &str = "moatless_adapter_delivery_admitted_total";
 pub(crate) const ADAPTER_DELIVERY_EXECUTED_TOTAL: &str = "moatless_adapter_delivery_executed_total";

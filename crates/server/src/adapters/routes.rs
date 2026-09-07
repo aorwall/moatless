@@ -3,7 +3,7 @@
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use axum::{Router, routing::post};
+use axum::{routing::post, Router};
 
 use super::handlers;
 use super::providers::{github_pr, linear, slack, telegram, webhook};
@@ -98,10 +98,12 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .with_state(state.clone())
         .split_for_parts();
 
-    (router.merge(legacy_webhook_aliases(state)), api)
+    let installation = axum::extract::FromRef::from_ref(&state);
+    let router = router.merge(moatless_adapter_linear::installation::router(installation));
+    (router.merge(legacy_webhook_router(state)), api)
 }
 
-fn legacy_webhook_aliases(state: AppState) -> Router {
+fn legacy_webhook_router(state: AppState) -> Router {
     Router::new()
         .route(
             "/api/v1/channels/slack/webhook",

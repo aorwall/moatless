@@ -15,9 +15,6 @@
 use std::fmt::Write as _;
 
 use moatless_core::config::Config;
-use moatless_types::access_control::ScopeContext;
-
-use moatless_ports::task::TaskReader;
 
 use super::webhook_payloads::{AgentSession, IssuePayload};
 
@@ -75,34 +72,10 @@ pub(super) const ATTACHMENT_TITLE_CHILD: &str = "Moatless task";
 /// parent (Linear issue created by the CLI or `adapter_send` on behalf of a task).
 pub(super) const ATTACHMENT_TITLE_PARENT: &str = "Moatless parent task";
 
-fn format_attachment_title(prefix: &str, name: Option<&str>) -> String {
+pub(super) fn format_attachment_title(prefix: &str, name: Option<&str>) -> String {
     match name.map(str::trim).filter(|s| !s.is_empty()) {
         Some(n) => format!("{prefix}: {n}"),
         None => prefix.to_string(),
-    }
-}
-
-pub(super) async fn task_attachment_title(
-    tasks: &dyn TaskReader,
-    task_id: &str,
-    prefix: &str,
-) -> String {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "attachment title fetch is a background formatting step, no caller identity"
-    )]
-    let sys = ScopeContext::system();
-    match tasks.describe(task_id, &sys).await {
-        Ok(Some(task)) => format_attachment_title(prefix, task.name.as_deref()),
-        Ok(None) => prefix.to_string(),
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                task_id,
-                "Failed to load task name for Linear attachment title"
-            );
-            prefix.to_string()
-        }
     }
 }
 
@@ -231,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn format_attachment_title_with_name() {
+    pub(super) fn format_attachment_title_with_name() {
         assert_eq!(
             format_attachment_title(ATTACHMENT_TITLE_CHILD, Some("Fix login bug")),
             "Moatless task: Fix login bug"
@@ -243,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn format_attachment_title_falls_back_when_name_missing() {
+    pub(super) fn format_attachment_title_falls_back_when_name_missing() {
         assert_eq!(
             format_attachment_title(ATTACHMENT_TITLE_CHILD, None),
             "Moatless task"
@@ -255,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn format_attachment_title_treats_whitespace_only_as_empty() {
+    pub(super) fn format_attachment_title_treats_whitespace_only_as_empty() {
         assert_eq!(
             format_attachment_title(ATTACHMENT_TITLE_CHILD, Some("   ")),
             "Moatless task"
@@ -263,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn format_attachment_title_trims_surrounding_whitespace() {
+    pub(super) fn format_attachment_title_trims_surrounding_whitespace() {
         assert_eq!(
             format_attachment_title(ATTACHMENT_TITLE_CHILD, Some("  Hi  ")),
             "Moatless task: Hi"

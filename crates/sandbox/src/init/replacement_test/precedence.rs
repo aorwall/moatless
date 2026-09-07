@@ -8,7 +8,7 @@ use super::support::{
 use crate::agent::dispatcher::dispatch_pending_messages;
 use crate::agent::harness::Input;
 use crate::agent::types::ResumeSession;
-use crate::init::{recover_interrupted_run_unless_pending, InitPhase, WorkspaceOrigin};
+use crate::init::{InitPhase, WorkspaceOrigin, recover_interrupted_run_unless_pending};
 
 fn resumes_restored_session(input: &Input) -> bool {
     matches!(&input.resume, Some(ResumeSession::WithId(id)) if id == "restored-sess")

@@ -27,7 +27,7 @@ use moatless_types::adapter::AdapterConnection;
 use super::agent_api::LinearAgentApi;
 use super::close::close_active_bindings_for_issue;
 use super::config::LinearRuleConfig;
-use super::ingress::resolve_rules_for_team;
+use super::subscription_rules::resolve_rules_for_team;
 use super::webhook_payloads::AppUserNotificationData;
 
 /// Close active bindings when an `AppUserNotification.issueStatusChanged`

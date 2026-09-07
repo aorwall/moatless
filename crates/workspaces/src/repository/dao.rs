@@ -71,7 +71,7 @@ impl RepositoryDao for PgRepositoryDao {
         id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<Repository>, sqlx::Error> {
-        let access = ctx.access_filter(ScopedEntity::Repository, "", 2);
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Repository, "", 2);
         let sql = format!(
             "SELECT * FROM repositories \
              WHERE id = $1 \
@@ -89,7 +89,7 @@ impl RepositoryDao for PgRepositoryDao {
     }
 
     async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
-        let access = ctx.access_filter(ScopedEntity::Repository, "", 1);
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Repository, "", 1);
         let sql = format!(
             "SELECT * FROM repositories \
              WHERE (deleted IS NULL OR deleted = false) \
@@ -169,7 +169,7 @@ impl RepositoryDao for PgRepositoryDao {
         sets.push(format!("updated_at = ${idx}"));
         idx += 1;
 
-        let control = ctx.write_filter("", idx);
+        let control = moatless_core::db::access_control::write_filter("", idx);
         let sql = format!(
             "UPDATE repositories SET {} \
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
@@ -213,7 +213,7 @@ impl RepositoryDao for PgRepositoryDao {
     }
 
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        let control = ctx.write_filter("", 3);
+        let control = moatless_core::db::access_control::write_filter("", 3);
         let sql = format!(
             "UPDATE repositories SET deleted = true, updated_at = $2 \
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",

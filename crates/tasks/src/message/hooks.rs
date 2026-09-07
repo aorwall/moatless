@@ -125,7 +125,7 @@ pub async fn emit_message_upsert_from_daos(
     };
 
     // Slim shape matches the frontend read path (`summary: true`).
-    let slim = crate::message::handlers::strip_heavy_fields(message);
+    let slim = crate::message::summary::strip_heavy_fields(message);
     let payload = match serde_json::to_value(&slim) {
         Ok(v) => v,
         Err(e) => {

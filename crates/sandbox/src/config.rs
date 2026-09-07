@@ -218,7 +218,7 @@ pub struct Config {
     /// Global default Claude model (env: `DEFAULT_CLAUDE_CODE_MODEL`), used when neither request nor repo config set one
     pub default_model: Option<String>,
     /// Global default Codex model (env: `DEFAULT_CODEX_MODEL`), used when neither request nor repo config set one.
-    /// Falls through to [`crate::agent::codex_app_server::DEFAULT_CODEX_MODEL`] at call time if unset.
+    /// Falls through to [`crate::agent::codex_app_server::resolve_codex_model`] at call time if unset.
     pub default_codex_model: Option<String>,
     /// Base URL of an OpenAI-compatible proxy to route Codex through (env:
     /// `OPENAI_BASE_URL`), including the `/v1` suffix.
@@ -256,7 +256,7 @@ pub struct Config {
     /// **Default on, unset means on.** A backend that predates the mirror sets
     /// nothing, and a sandbox has no way to ask it; the fallback that covers
     /// that is structural, not this flag —
-    /// [`crate::init::workspace_sync`] writes a tar whenever the mirror stored
+    /// [`crate::workspace_sync`] writes a tar whenever the mirror stored
     /// nothing. The flag is the operator's off switch for a fleet whose backend
     /// *does* support the mirror.
     ///

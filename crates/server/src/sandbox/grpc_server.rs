@@ -2293,26 +2293,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         Ok(Response::new(RecordGitPushResponse {}))
     }
 
-    /// Detect an interrupted agent run and return the data needed to replay it.
-    ///
-    /// Called by the sandbox once on startup, **before** pending-message
-    /// dispatch. An interrupted run is a user-turn whose `agent_session_id`
-    /// is set (the sandbox acknowledged it) but whose turn never reached a
-    /// terminal `agent.completed/error/stopped` event row — i.e. the prior
-    /// pod was killed mid-run.
-    ///
-    /// Note: turns whose terminal event was `agent.error` are excluded by
-    /// `find_interrupted_turn` (the SQL filters on `sub_type IN
-    /// ('completed', 'error', 'stopped')`), so a turn that already errored
-    /// will never be replayed by the recovery path. Pair this with the
-    /// auto-suppression of `resume_session_id` when the last result was an
-    /// `Error` row in `get_pending_messages` to ensure the next user message
-    /// also starts a fresh session instead of looping the same resume failure.
-    ///
-    /// Bumps `recovery_attempts` on each successful return. When the
-    /// `MAX_RECOVERY_ATTEMPTS` cap is hit, inserts a synthetic Aborted Result
-    /// row and publishes `agent.recovery_exhausted` so the UI can surface the
-    /// failure clearly. This stops OOM-loop pods from hammering recovery.
+    /// Authorize sandbox recovery and project the recorded task-turn decision.
     async fn recover_interrupted_run(
         &self,
         request: Request<RecoverInterruptedRunRequest>,
@@ -2324,194 +2305,27 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let req = request.into_inner();
 
-        let Some(messages) = self.handlers.as_ref().map(|h| &h.messages) else {
-            return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
-        };
-
-        // Load the task once: gate Closed tasks and tasks that no longer desire
-        // a running sandbox (terminal/intentional stop — no replay, and don't
-        // burn a recovery attempt) and reuse the row for `agent_type` below.
-        // Placed before `find_interrupted_turn` / `increment_recovery_attempts`.
-        // Fail open on unknown (None / DB-error): only confirmed terminal or
-        // stopped intent is gated.
-        let task = if let Some(tasks) = self.handlers.as_ref().map(|h| &h.tasks) {
-            // reason: recovery gate reads task status across all owners (no user ctx)
-            #[allow(clippy::disallowed_methods)]
-            let sys = ScopeContext::system();
-            tasks.find_by_id(&req.task_id, &sys).await.ok().flatten()
-        } else {
-            None
-        };
-        if matches!(
-            task.as_ref().map(|t| t.status),
-            Some(moatless_types::task::TaskStatus::Closed)
-        ) {
-            debug!(task_id = %req.task_id, "recover_interrupted_run: task is Closed, skipping recovery");
-            return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
-        }
-        // No Sandbox row means the Task never requested runtime resources;
-        // only explicit Stopped or Removed intent gates recovery.
-        let sandbox_desired_state = if let Some(tasks) = self.handlers.as_ref().map(|h| &h.tasks) {
-            match tasks
-                .get_sandbox_intents(std::slice::from_ref(&req.task_id))
-                .await
-            {
-                Ok(mut intents) => intents
-                    .remove(&req.task_id)
-                    .filter(moatless_tasks::task::models::SandboxIntentView::has_explicit_intent)
-                    .map(|intent| intent.desired_state),
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        task_id = %req.task_id,
-                        "Failed to load Sandbox lifecycle intent for recovery gate"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        if matches!(
-            sandbox_desired_state,
-            Some(moatless_types::sandbox::SandboxDesiredState::Stopped)
-                | Some(moatless_types::sandbox::SandboxDesiredState::Removed)
-        ) {
-            debug!(
-                task_id = %req.task_id,
-                "recover_interrupted_run: task does not desire a running sandbox, skipping recovery"
-            );
-            return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
-        }
-
-        let interrupted = match messages.find_interrupted_turn(&req.task_id).await {
-            Ok(Some(turn)) => turn,
-            Ok(None) => {
-                debug!(task_id = %req.task_id, "RecoverInterruptedRun: no interrupted turn");
-                return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
-            }
-            Err(e) => {
-                warn!(task_id = %req.task_id, error = %e, "find_interrupted_turn failed");
-                return Err(Status::internal("Failed to query interrupted turn"));
-            }
-        };
-
-        const MAX_RECOVERY_ATTEMPTS: i32 = 3;
-
-        // The cap exists to stop a crash-looping pod (e.g. OOM on resume) from
-        // hammering recovery forever. A re-drive that produced agent output
-        // before the pod died again is not that loop — it is live work the node
-        // reclaimed or an idle-stop restarted. Zero the counter in that case so
-        // only *consecutive no-progress* recoveries count toward the cap;
-        // otherwise a long turn reclaimed a few times exhausts the budget and is
-        // abandoned mid-work.
-        let mut recovery_attempts = interrupted.recovery_attempts;
-        if recovery_attempts > 0
-            && messages
-                .turn_progressed_since_last_recovery(&req.task_id, interrupted.turn_number)
-                .await
-                .unwrap_or(false)
-        {
-            if let Some(task_turns) = self.ingress.as_ref().map(|i| &i.task_turns) {
-                match task_turns
-                    .reset_recovery_attempts(&req.task_id, interrupted.turn_number)
-                    .await
-                {
-                    Ok(()) => {
-                        info!(
-                            task_id = %req.task_id,
-                            turn_number = interrupted.turn_number,
-                            prior_attempts = recovery_attempts,
-                            "RecoverInterruptedRun: last re-drive made progress; resetting recovery counter"
-                        );
-                        recovery_attempts = 0;
-                    }
-                    Err(e) => {
-                        warn!(error = %e, task_id = %req.task_id, "reset_recovery_attempts failed");
-                    }
-                }
-            }
-        }
-
-        if recovery_attempts >= MAX_RECOVERY_ATTEMPTS {
-            warn!(
-                task_id = %req.task_id,
-                turn_number = interrupted.turn_number,
-                attempts = recovery_attempts,
-                "RecoverInterruptedRun: cap reached, marking aborted"
-            );
-            // No transcript row: a run outcome is not something somebody said.
-            // The turn's own status says the run ended, and the
-            // `agent.recoveryExhausted` event below says why — with the attempt
-            // count and the session it gave up on, which the sentence it
-            // replaced did not carry.
-            if let Some(ref publisher) = self.events {
-                publisher
-                    .publish_agent_event(
-                        &req.task_id,
-                        AgentSubType::RecoveryExhausted,
-                        None,
-                        serde_json::json!({
-                            "turn_number": interrupted.turn_number,
-                            "session_id": interrupted.session_id,
-                            "attempts": recovery_attempts,
-                        }),
-                    )
-                    .await;
-            }
-            return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
-        }
-
-        let Some(task_turns) = self.ingress.as_ref().map(|i| &i.task_turns) else {
-            warn!(task_id = %req.task_id, "Cannot record a recovery attempt without task_turns");
-            return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
-        };
-        let new_attempts = match task_turns
-            .increment_recovery_attempts(&req.task_id, interrupted.turn_number)
-            .await
-        {
-            Ok(n) => n,
-            Err(e) => {
-                warn!(error = %e, task_id = %req.task_id, "increment_recovery_attempts failed");
-                return Err(Status::internal("Failed to increment recovery attempts"));
-            }
-        };
-
-        let task_agent_type = task.as_ref().map(|t| t.agent_type.0.clone());
-
-        if let Some(ref publisher) = self.events {
-            publisher
-                .publish_agent_event(
-                    &req.task_id,
-                    AgentSubType::RecoveryStarted,
-                    task_agent_type.as_deref(),
-                    serde_json::json!({
-                        "turn_number": interrupted.turn_number,
-                        "session_id": interrupted.session_id,
-                        "attempt": new_attempts,
-                        "max_attempts": MAX_RECOVERY_ATTEMPTS,
-                    }),
-                )
-                .await;
-        }
-
-        info!(
-            task_id = %req.task_id,
-            session_id = %interrupted.session_id,
-            turn_number = interrupted.turn_number,
-            attempt = new_attempts,
-            "RecoverInterruptedRun: replaying interrupted turn"
-        );
-
+        let turn = moatless_tasks::task_turn::recovery::recover_interrupted_turn(
+            self.handlers.as_ref().map(|h| h.tasks.as_ref()),
+            self.handlers.as_ref().map(|h| h.messages.as_ref()),
+            self.ingress.as_ref().map(|i| i.task_turns.as_ref()),
+            self.events.as_deref(),
+            &req.task_id,
+        )
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?;
         Ok(Response::new(RecoverInterruptedRunResponse {
-            turn: Some(ProtoInterruptedTurn {
-                session_id: interrupted.session_id,
-                turn_number: i64::from(interrupted.turn_number),
-                prompt_text: interrupted.prompt_text,
-                agent_type: task_agent_type,
-                agent_mode: interrupted.agent_mode,
-                effort: interrupted.effort,
-                run_id: interrupted.run_id,
+            turn: turn.map(|recovered| {
+                let interrupted = recovered.interrupted;
+                ProtoInterruptedTurn {
+                    session_id: interrupted.session_id,
+                    turn_number: i64::from(interrupted.turn_number),
+                    prompt_text: interrupted.prompt_text,
+                    agent_type: recovered.agent_type,
+                    agent_mode: interrupted.agent_mode,
+                    effort: interrupted.effort,
+                    run_id: interrupted.run_id,
+                }
             }),
         }))
     }

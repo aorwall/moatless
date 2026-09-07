@@ -7,6 +7,8 @@ use super::models::{Team, TeamMember};
 use moatless_core::db::DbPool;
 
 /// DAO trait for team persistence.
+#[cfg_attr(test, allow(clippy::ref_option_ref, reason = "mockall predicates borrow lifetime-parameterized optional arguments"))]
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait TeamDao: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<Team>, sqlx::Error>;
@@ -19,11 +21,11 @@ pub trait TeamDao: Send + Sync {
     async fn list_all(&self) -> Result<Vec<Team>, sqlx::Error>;
     async fn insert(&self, team: &Team) -> Result<(), sqlx::Error>;
     async fn insert_if_absent(&self, team: &Team) -> Result<(), sqlx::Error>;
-    async fn update(
+    async fn update<'a>(
         &self,
         id: &str,
         name: &str,
-        description: Option<&str>,
+        description: Option<&'a str>,
     ) -> Result<(), sqlx::Error>;
     async fn delete(&self, id: &str) -> Result<(), sqlx::Error>;
 
@@ -129,11 +131,11 @@ impl TeamDao for PgTeamDao {
         Ok(())
     }
 
-    async fn update(
+    async fn update<'a>(
         &self,
         id: &str,
         name: &str,
-        description: Option<&str>,
+        description: Option<&'a str>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE teams SET name = $2, description = $3, updated_at = now() WHERE id = $1",

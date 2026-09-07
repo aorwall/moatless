@@ -28,12 +28,7 @@ pub struct GithubPrAdapter {
     frontend_url: String,
     /// GitHub identity selection and credential materialization.
     auth: GithubPrAuth,
-    /// Binding ports the adapter's own routes read through this adapter rather
-    /// than an `AppState` — the webhook ingress path
-    /// ([`super::ingress::receive`]) and the typed-API bind path
-    /// ([`super::api_routes`], via [`Self::require_binding_ports`]). They are
-    /// present on the composition-root instance (see [`Self::with_ingress_ports`])
-    /// and absent on the `#[cfg(test)]` constructors, which reach neither.
+    /// Persistence capabilities supplied by [`Self::with_ingress_ports`].
     adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
     loops: Option<Arc<dyn LoopReader>>,
     task_bindings: Option<Arc<dyn TaskBindingDao>>,
@@ -46,16 +41,6 @@ pub struct GithubPrAdapter {
 fn missing_port(name: &str) -> AdapterError {
     SharedAdapterError::Internal(format!("GitHub PR adapter missing {name} port")).into()
 }
-
-/// The three owned handles [`GithubPrAdapter::require_binding_ports`] hands the
-/// typed-API bind path for a [`moatless_loops::loops::firing::listen::Connector`] —
-/// the connection store, the Subscription reads, and the binding store. A
-/// transient return shape destructured at the call site, not a stored bundle.
-type BindingPorts = (
-    Arc<dyn AdapterConnectionDao>,
-    Arc<dyn LoopReader>,
-    Arc<dyn TaskBindingDao>,
-);
 
 impl GithubPrAdapter {
     /// Register `GithubPrAdapter`'s capabilities into `adapters`. See
@@ -148,24 +133,6 @@ impl GithubPrAdapter {
         self.adapter_delivery
             .as_deref()
             .ok_or_else(|| missing_port("adapter_delivery"))
-    }
-
-    /// The three ports the typed-API bind path hands to a
-    /// [`moatless_loops::loops::firing::listen::Connector`], as owned `Arc`s — the
-    /// connection store, the Subscription reads, and the binding store. `Connector::new`
-    /// takes them by value, so this clones rather than borrowing (unlike the
-    /// ingress accessors above, which lend `receive` its borrows). `Err` only if
-    /// this adapter was built without ingress ports (a test constructor).
-    pub(super) fn require_binding_ports(&self) -> Result<BindingPorts, AdapterError> {
-        Ok((
-            self.adapter_connections
-                .clone()
-                .ok_or_else(|| missing_port("adapter_connections"))?,
-            self.loops.clone().ok_or_else(|| missing_port("loops"))?,
-            self.task_bindings
-                .clone()
-                .ok_or_else(|| missing_port("task_bindings"))?,
-        ))
     }
 
     /// Point every REST client this Adapter builds at a caller-supplied root.

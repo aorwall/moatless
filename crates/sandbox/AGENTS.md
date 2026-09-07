@@ -7,7 +7,9 @@ Each module's `//!` doc states what it owns. Two process rules bind all of them:
 - `SandboxState` is shared through axum `State`. Keep its fields cheap to clone,
   with `Arc` or internal sharing.
 - A long-lived task registers with the root supervisor and uses lifecycle
-  cancellation.
+  cancellation. The agent command loop instead reports liveness through channel
+  closure and exits when its handles drop; registering it would make every
+  shutdown report it as a straggler.
 
 ## How the sandbox and the backend talk
 
@@ -137,7 +139,7 @@ cannot read it. `RUNTIME_DIR` is not configurable, because
 
 Use neither `WORKSPACE_DIR` nor `DATA_DIR` for credential material.
 `workspace_sync` archives and restores `WORKSPACE_DIR`, and every sidecar
-mounts `DATA_DIR`. `init::credentials::purge_exposed_user_tokens` sweeps both
+mounts `DATA_DIR`. `credentials::fetch::purge_exposed_user_tokens` sweeps both
 on every successful fetch. The sandbox and the agent subprocess share a
 container and a uid. This bounds exposure. It does not make a file unreadable
 to the agent.
@@ -254,7 +256,7 @@ snapshot is the only sandbox state that survives one. The journal holds metadata
 only. Logs stay in `/tmp` (`default_log_dir`), where an unbounded build log
 cannot fill the volume whose size limit causes these evictions.
 
-`init::open_for_work` reads the journal through `take_journal` **before**
+`agent::restart::open_for_work` reads the journal through `take_journal` **before**
 anything else, because a recovered run or a new command would otherwise overwrite
 it. `report_lost_commands` then turns the journal into the wake the watch could
 not deliver. `take_journal` clears the file whether or not it parsed, so the loss

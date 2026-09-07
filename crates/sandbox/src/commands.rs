@@ -260,10 +260,7 @@ impl CommandRegistry {
     /// Report the running-command count to the backend on every change, so a
     /// Task whose turn ended with a build still running does not read as idle.
     pub fn with_liveness(mut self, publisher: GrpcEventPublisher, task_id: String) -> Self {
-        self.liveness = Some(LivenessReporter {
-            publisher,
-            task_id,
-        });
+        self.liveness = Some(LivenessReporter { publisher, task_id });
         self
     }
 

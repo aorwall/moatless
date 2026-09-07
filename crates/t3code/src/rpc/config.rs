@@ -1,0 +1,200 @@
+use crate::attachments;
+use crate::authentication::viewer_scope;
+use crate::config::T3_CLIENT_CONTRACT_VERSION;
+use crate::config::T3_ENVIRONMENT_LABEL;
+use crate::config::UiRpcConfig;
+use crate::oauth;
+use crate::providers;
+use crate::state::UiRpcState;
+use moatless_types::ui_rpc::UiRpcAuthIdentity;
+use moatless_types::ui_rpc::UiRpcAuthMethod;
+use serde_json::Value;
+use serde_json::json;
+
+pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
+    let mut descriptor = json!({
+        "environmentId": config.environment_id,
+        "label": T3_ENVIRONMENT_LABEL,
+        "platform": {
+            "os": platform_os(),
+            "arch": platform_arch()
+        },
+        "serverVersion": T3_CLIENT_CONTRACT_VERSION,
+        "capabilities": {
+            "repositoryIdentity": false,
+            "connectionProbe": true,
+            "threadSettlement": true,
+            "threadSnooze": true,
+            // Whether `thread.user-input.respond` is understood. A client
+            // cannot otherwise tell this server from one that refuses it, and
+            // the descriptor is read before any thread is opened.
+            "userInputResponse": true,
+            // Whether `sandbox.listDiagnostics` is understood. A client
+            // cannot otherwise tell this server from one that answers
+            // `UnsupportedMethodError`.
+            "sandboxDiagnostics": true,
+            // Whether `sandbox.subscribeStatus` is understood. Absent, a client
+            // has to poll `sandbox.status` to notice a sandbox that started
+            // after its panel opened, so this is what lets it stop.
+            "sandboxStatusPush": true,
+            // Whether `sandbox.status` reports `agentStatus` alongside the
+            // lifecycle state. Absent, a client cannot tell "this server does
+            // not say" from "this agent is idle", so the panel has nothing to
+            // show; present, the key is there whenever the sandbox is up.
+            "sandboxAgentStatus": true,
+            // Whether `sandbox.status` reports the commands registered through
+            // `moat cmd`. The agent reports `idle` while one runs, so absent
+            // this a client cannot tell a Task that is mid-build from one with
+            // nothing left to do, and shows no command rows at all.
+            "sandboxCommands": true,
+            // Whether `scripts.run` is understood. A workspace's scripts are
+            // still listed on the project without this — they are read out of
+            // the workspace either way — but a client only shows the control
+            // that runs one where the server can actually run it. T3's own
+            // server omits this key and answers `scripts.run` with
+            // `UnsupportedMethodError`.
+            "workspaceScripts": true
+        }
+    });
+
+    // Both keys are `optionalKey` in the contract, and both are absent rather
+    // than false where uploads cannot be served: a `null` fails the client's
+    // decode of the whole descriptor, which is the one thing it reads before it
+    // can connect at all.
+    //
+    // `attachmentUploads` is what moves the composer off the inline data-URL
+    // path — for images as well as files — so it is reported only where a URL
+    // can actually be signed (see [`attachments`]). The inline path stays
+    // served either way, for the clients that have not read it.
+    if config.attachment_uploads {
+        if let Some(capabilities) = descriptor["capabilities"].as_object_mut() {
+            capabilities.insert("attachmentUploads".into(), json!(true));
+            // What a turn may carry beyond images, and how large. Absent, a
+            // client offers no file picker at all.
+            capabilities.insert(
+                "fileAttachments".into(),
+                json!({ "maxUploadBytes": attachments::MAX_FILE_BYTES }),
+            );
+        }
+    }
+
+    // Absent rather than false for the same decode reason, and reported only
+    // where a hub is configured: the client keeps a source event it has already
+    // received until a snapshot without this key clears it, so a deployment
+    // that lost its hub has to stop declaring the capability to clear the rows.
+    if config.usage_limit_sources {
+        if let Some(capabilities) = descriptor["capabilities"].as_object_mut() {
+            capabilities.insert("usageLimitSources".into(), json!(true));
+        }
+    }
+
+    descriptor
+}
+
+pub(crate) fn auth_descriptor(state: &UiRpcState) -> Value {
+    json!({
+        "policy": "remote-reachable",
+        // A pairing code is T3's `one-time-token`, and this is where a client
+        // reads that pairing is on offer at all: the mobile app shows the flow
+        // for what the environment says it accepts.
+        "bootstrapMethods": ["one-time-token"],
+        "sessionMethods": ["browser-session-cookie", "bearer-access-token"],
+        "sessionCookieName": state.session_cookie_name.as_ref()
+    })
+}
+
+/// What a client is told about the session it is already holding.
+///
+/// `sessionMethod` reports the credential this request actually arrived with,
+/// rather than the one the browser would have used, because a paired device
+/// asking what it is holding should not be told it is holding a cookie.
+pub(crate) fn session_state(state: &UiRpcState, method: Option<UiRpcAuthMethod>) -> Value {
+    json!({
+        "authenticated": true,
+        "auth": auth_descriptor(state),
+        "scopes": oauth::GRANTED_SCOPES,
+        "sessionMethod": match method {
+            Some(UiRpcAuthMethod::SessionCookie) | None => "browser-session-cookie",
+            Some(UiRpcAuthMethod::ApiKey) | Some(UiRpcAuthMethod::WebSocketTicket) => "bearer-access-token",
+        }
+    })
+}
+
+/// Now, in the format the contract's `IsoDateTime` decodes.
+pub(crate) fn now_rfc3339() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+pub(crate) async fn server_config(
+    state: &UiRpcState,
+    identity: &UiRpcAuthIdentity,
+    workspace_snapshots: &[Value],
+) -> Value {
+    let agents = state.agents.list(&viewer_scope(identity)).await;
+    // `otlpTracesEnabled` is this backend's own span export; `otlpTracesUrl` is
+    // where the client's spans are forwarded ([`observability`]). Two knobs, and
+    // the Settings panel's one sentence reads true only when both name the same
+    // collector.
+    let mut observability = json!({
+        "logsDirectoryPath": "/moatless/logs",
+        "localTracingEnabled": false,
+        "otlpTracesEnabled": state.rpc.otlp_traces_enabled,
+        "otlpMetricsEnabled": false
+    });
+    // The contract declares this key optional, not nullable, so an unset
+    // collector omits it — a `null` would fail the client's config decode and
+    // take the whole connection down with it.
+    if let Some(endpoint) = state.client_traces.endpoint() {
+        observability["otlpTracesUrl"] = json!(endpoint);
+    }
+    json!({
+        "environment": descriptor(&state.rpc),
+        "auth": auth_descriptor(state),
+        "cwd": "/moatless",
+        "keybindingsConfigPath": "/moatless/keybindings.json",
+        "keybindings": [],
+        "issues": [],
+        "providers": providers::providers(
+            &agents,
+            &state.model_defaults,
+            &now_rfc3339(),
+            workspace_snapshots,
+        ),
+        "availableEditors": [],
+        "observability": observability,
+        "settings": {},
+        "shellResumeCompletionMarker": true,
+        "threadResumeCompletionMarker": true
+    })
+}
+
+/// The config stream's carrier for hub quota.
+pub(crate) fn sources_event(sources: Value) -> Value {
+    json!({
+        "version": 1,
+        "type": "usageLimitSourcesUpdated",
+        "payload": { "sources": sources }
+    })
+}
+
+pub(crate) fn platform_os() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "unknown"
+    }
+}
+
+pub(crate) fn platform_arch() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else {
+        "other"
+    }
+}

@@ -4,8 +4,21 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::error;
 
-use moatless_types::access_control::AccessControlError;
 use moatless_core::error::error_response;
+use moatless_types::access_control::AccessControlError;
+
+/// A guarded replacement of workspace scripts could not complete.
+#[derive(Debug, thiserror::Error)]
+pub enum WorkspaceScriptsError {
+    #[error("workspace not found")]
+    NotFound,
+    #[error("workspace is synced from Git")]
+    GitSynced,
+    #[error("{0}")]
+    Invalid(String),
+    #[error("the workspace could not be written")]
+    Database(#[from] sqlx::Error),
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorkspaceError {

@@ -18,6 +18,7 @@
 //! the caller.
 
 pub mod handlers;
+pub mod operations;
 pub mod providers;
 pub mod routes;
 

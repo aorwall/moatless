@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use super::backend::ReplayBackend;
 use super::support::{recorded_inputs, recording_state_with_config, settled_inputs, tmp_config};
-use crate::commands::{default_journal_path, CommandState, JournaledCommand};
-use crate::init::{open_for_work, InitPhase, WorkspaceOrigin};
+use crate::commands::{CommandState, JournaledCommand, default_journal_path};
+use crate::init::{InitPhase, WorkspaceOrigin, open_for_work};
 
 fn journalled(id: &str, label: &str, state: CommandState) -> JournaledCommand {
     JournaledCommand {
@@ -57,7 +57,11 @@ async fn a_command_lost_to_the_restart_wakes_the_agent() {
     open_for_work(&state, WorkspaceOrigin::RestoredFromSnapshot).await;
 
     let inputs = recorded_inputs(&recorder, 1).await;
-    assert_eq!(inputs.len(), 1, "the lost command must open exactly one turn");
+    assert_eq!(
+        inputs.len(),
+        1,
+        "the lost command must open exactly one turn"
+    );
     assert!(
         inputs[0].text.contains("c33e9d6e"),
         "the wake must name the command: {:?}",

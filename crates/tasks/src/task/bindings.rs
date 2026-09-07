@@ -29,3 +29,16 @@ pub trait TaskBindings: Send + Sync {
     /// changed. Idempotent: a second call reports 0.
     async fn deactivate_for_task(&self, task_id: &str) -> Result<u64, StoreError>;
 }
+
+/// Stop inbound adapter events after a task reaches a terminal state.
+/// Failures do not block cleanup because runtime admission also rejects events
+/// for closed tasks.
+pub(crate) async fn deactivate_task_bindings(bindings: &dyn TaskBindings, task_id: &str) {
+    match bindings.deactivate_for_task(task_id).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(task_id, deactivated = n, "Deactivated task bindings"),
+        Err(e) => {
+            tracing::warn!(task_id, error = %e, "Failed to deactivate task bindings");
+        }
+    }
+}

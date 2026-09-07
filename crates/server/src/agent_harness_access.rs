@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use moatless_types::access_control::ScopeContext;
 
 use moatless_identity::auth::codex_auth_json::build_codex_metadata;
 use moatless_identity::auth::codex_auth_json::parse_codex_auth_json;
@@ -40,6 +41,10 @@ pub enum DeviceLoginPoll {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AgentHarnessAccessError {
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+    #[error("Forbidden")]
+    AuthForbidden,
     #[error("Bad request: {0}")]
     BadRequest(String),
     #[error("Database error: {0}")]
@@ -98,6 +103,24 @@ impl CodexDeviceLoginProvider for ProviderCodexDeviceLogin {
     }
 }
 
+/// Restrict credential access to the caller's own user scope or an administrator.
+fn authorize_scope(
+    ctx: &ScopeContext,
+    scope: &CodexScope,
+    action: &str,
+) -> Result<(), AgentHarnessAccessError> {
+    if ctx.is_admin || matches!(scope, CodexScope::User(id) if id == &ctx.user_id) {
+        return Ok(());
+    }
+    let message = match scope {
+        CodexScope::Global => format!("Admin role required to {action} the global Codex blob"),
+        CodexScope::User(_) => {
+            "Admin role required to access another user's Codex blob".to_string()
+        }
+    };
+    Err(AgentHarnessAccessError::Forbidden(message))
+}
+
 pub struct AgentHarnessAccess {
     provider_tokens: Arc<dyn ProviderTokenDao>,
     credential_sync: Arc<CredentialSync>,
@@ -125,8 +148,10 @@ impl AgentHarnessAccess {
 
     pub async fn status(
         &self,
+        ctx: &ScopeContext,
         scope: &CodexScope,
     ) -> Result<AgentHarnessCredentialStatus, AgentHarnessAccessError> {
+        authorize_scope(ctx, scope, "read")?;
         let token = self.provider_tokens.find_codex_blob(scope).await?;
         let Some(row) = token else {
             return Ok(disconnected());
@@ -146,9 +171,11 @@ impl AgentHarnessAccess {
 
     pub async fn save(
         &self,
+        ctx: &ScopeContext,
         scope: CodexScope,
         auth_json: String,
     ) -> Result<AgentHarnessCredentialStatus, AgentHarnessAccessError> {
+        authorize_scope(ctx, &scope, "set")?;
         let parsed = parse_codex_auth_json(&auth_json).map_err(|error| match error {
             AuthError::BadRequest(message) => AgentHarnessAccessError::BadRequest(message),
             other => AgentHarnessAccessError::BadRequest(other.to_string()),
@@ -179,9 +206,13 @@ impl AgentHarnessAccess {
 
     pub async fn save_for_user(
         &self,
+        ctx: &ScopeContext,
         user_id: &str,
         auth_json: String,
     ) -> Result<AgentHarnessCredentialStatus, AgentHarnessAccessError> {
+        if !ctx.is_admin {
+            return Err(AgentHarnessAccessError::AuthForbidden);
+        }
         let target = match user_id.parse::<uuid::Uuid>() {
             Ok(user_id) => self.users.get_user(&user_id).await?,
             Err(_) => None,
@@ -191,14 +222,16 @@ impl AgentHarnessAccess {
                 "Unknown target user '{user_id}'"
             )));
         }
-        self.save(CodexScope::user(user_id.to_string()), auth_json)
+        self.save(ctx, CodexScope::user(user_id.to_string()), auth_json)
             .await
     }
 
     pub async fn delete(
         &self,
+        ctx: &ScopeContext,
         scope: &CodexScope,
     ) -> Result<AgentHarnessCredentialStatus, AgentHarnessAccessError> {
+        authorize_scope(ctx, scope, "delete")?;
         self.provider_tokens.delete_codex_blob(scope).await?;
         Ok(disconnected())
     }
@@ -212,7 +245,7 @@ impl AgentHarnessAccess {
 
     pub async fn poll_device_login(
         &self,
-        user_id: &str,
+        ctx: &ScopeContext,
         device_auth_id: &str,
         user_code: &str,
     ) -> Result<DeviceLoginPoll, AgentHarnessAccessError> {
@@ -241,7 +274,7 @@ impl AgentHarnessAccess {
                     "account_id": id_token_claims.chatgpt_account_id,
                 });
                 let serialized = auth_json.to_string();
-                let scope = CodexScope::user(user_id.to_string());
+                let scope = CodexScope::user(ctx.user_id.clone());
                 self.provider_tokens
                     .upsert_codex_blob(
                         &scope,
@@ -384,6 +417,10 @@ mod tests {
 
         access
             .save(
+                &ScopeContext {
+                    user_id: "u1".into(),
+                    is_admin: false,
+                },
                 CodexScope::user("u1"),
                 r#"{"tokens":{"access_token":"a","refresh_token":"r"}}"#.to_string(),
             )
@@ -395,6 +432,47 @@ mod tests {
             .expect("sandbox fan-out should run")
             .expect("broadcast should report the observation");
         assert!(persisted, "persistence must precede sandbox fan-out");
+    }
+
+    #[tokio::test]
+    async fn direct_non_admin_calls_cannot_read_or_mutate_other_scopes() {
+        let tokens = Arc::new(StubProviderTokens::default());
+        let access = access(
+            Arc::clone(&tokens),
+            PollStatus::Pending,
+            MockTaskDao::new(),
+            Arc::new(PersistObservingBroadcast {
+                tokens: Arc::clone(&tokens),
+                observed: mpsc::unbounded_channel().0,
+            }),
+        );
+        let ctx = ScopeContext {
+            user_id: "caller".into(),
+            is_admin: false,
+        };
+        for scope in [CodexScope::Global, CodexScope::user("other")] {
+            assert!(matches!(
+                access.status(&ctx, &scope).await,
+                Err(AgentHarnessAccessError::Forbidden(_))
+            ));
+            assert!(matches!(
+                access
+                    .save(&ctx, scope.clone(), "invalid JSON".into())
+                    .await,
+                Err(AgentHarnessAccessError::Forbidden(_))
+            ));
+            assert!(matches!(
+                access.delete(&ctx, &scope).await,
+                Err(AgentHarnessAccessError::Forbidden(_))
+            ));
+        }
+        assert!(matches!(
+            access
+                .save_for_user(&ctx, "other", "invalid JSON".into())
+                .await,
+            Err(AgentHarnessAccessError::AuthForbidden)
+        ));
+        assert_eq!(tokens.writes.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]
@@ -412,7 +490,14 @@ mod tests {
             );
 
             access
-                .poll_device_login("u1", "device", "code")
+                .poll_device_login(
+                    &ScopeContext {
+                        user_id: "u1".into(),
+                        is_admin: false,
+                    },
+                    "device",
+                    "code",
+                )
                 .await
                 .expect("poll should succeed");
             assert_eq!(tokens.writes.load(Ordering::Relaxed), 0);
@@ -436,7 +521,14 @@ mod tests {
             }),
         );
         access
-            .poll_device_login("u1", "device", "code")
+            .poll_device_login(
+                &ScopeContext {
+                    user_id: "u1".into(),
+                    is_admin: false,
+                },
+                "device",
+                "code",
+            )
             .await
             .expect("successful poll should persist");
         assert_eq!(tokens.writes.load(Ordering::Relaxed), 1);

@@ -30,7 +30,6 @@ use super::providers;
 use crate::agent::catalog;
 use crate::scripts::{self, ScriptsWriteError};
 use crate::skills;
-use crate::workspace_dao::T3WorkspaceDao;
 use moatless_types::activity as mapping;
 use moatless_types::agent::AgentMode;
 use uuid::Uuid;
@@ -40,9 +39,7 @@ pub struct CommandContext<'a> {
     pub conversations: &'a dyn ConversationDao,
     pub agents: &'a dyn AgentCatalogSource,
     pub sink: &'a dyn ThreadCommandSink,
-    /// Reads and writes a Workspace's run config. Only `project.meta.update`
-    /// reaches it, and only for its `scripts`.
-    pub workspaces: &'a dyn T3WorkspaceDao,
+    pub workspace_script_commands: &'a dyn crate::ports::WorkspaceScriptCommands,
     /// The skills of the Workspace a turn runs in, for resolving the `$name`
     /// mentions the composer leaves in the prompt.
     pub skills: &'a dyn SkillCatalog,
@@ -605,7 +602,7 @@ async fn project_meta_update(
         return Ok(());
     };
 
-    scripts::replace(ctx.workspaces, viewer, workspace_id, scripts)
+    scripts::replace(ctx.workspace_script_commands, viewer, workspace_id, scripts)
         .await
         .map_err(|error| match error {
             ScriptsWriteError::NotFound => CommandRefusal::Rejected {
@@ -914,9 +911,8 @@ mod tests {
     use super::*;
     use crate::dao::{InteractiveCall, MockConversationDao};
     use crate::listing::{UiRpcEnvironmentIdentity, UiRpcListingHead};
-    use crate::workspace_dao::{MockT3WorkspaceDao, ScriptsWriteTarget};
+    use crate::ports::MockWorkspaceScriptCommands;
     use async_trait::async_trait;
-    use moatless_api_schemas::repository::ScriptConfig;
     use moatless_types::agent::AgentType;
     use std::sync::Mutex;
 
@@ -1334,12 +1330,12 @@ mod tests {
         dao: MockConversationDao,
         command: Value,
     ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
-        dispatch_with_workspaces(dao, MockT3WorkspaceDao::new(), command).await
+        dispatch_with_workspaces(dao, MockWorkspaceScriptCommands::new(), command).await
     }
 
     async fn dispatch_with_workspaces(
         dao: MockConversationDao,
-        workspaces: MockT3WorkspaceDao,
+        workspaces: MockWorkspaceScriptCommands,
         command: Value,
     ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
         let sink = RecordingSink::default();
@@ -1349,7 +1345,7 @@ mod tests {
             conversations: &dao,
             agents: &agents,
             sink: &sink,
-            workspaces: &workspaces,
+            workspace_script_commands: &workspaces,
             skills: &skills,
             caller: Uuid::nil(),
         };
@@ -2446,35 +2442,14 @@ mod tests {
         })
     }
 
-    /// A workspaces DAO that answers the write path: `source` decides whether
-    /// git owns the run config, `stored` is what the Workspace declares today.
-    fn workspaces_dao(source: &str, stored: Vec<ScriptConfig>) -> MockT3WorkspaceDao {
-        let mut dao = MockT3WorkspaceDao::new();
-        let source = source.to_string();
-        dao.expect_scripts_write_target().returning(move |_, _| {
-            Ok(Some(ScriptsWriteTarget {
-                source: source.clone(),
-                scripts: stored.clone(),
-            }))
-        });
-        dao
-    }
-
-    /// A script as the client sends one back.
     fn wire_script(id: &str, command: &str) -> Value {
-        json!({
-            "id": id,
-            "name": id,
-            "command": command,
-            "icon": "play",
-            "runOnWorktreeCreate": false
-        })
+        json!({"id": id, "name": id, "command": command, "icon": "play", "runOnWorktreeCreate": false})
     }
 
     #[tokio::test]
-    async fn editing_a_manual_workspaces_scripts_writes_the_submitted_list() {
-        let mut workspaces = workspaces_dao("manual", Vec::new());
-        workspaces
+    async fn script_edits_decode_wire_fields_and_delegate_to_workspace_owner() {
+        let mut commands = MockWorkspaceScriptCommands::new();
+        commands
             .expect_replace_scripts()
             .withf(|_, workspace_id, scripts| {
                 workspace_id == "ws-1"
@@ -2482,156 +2457,94 @@ mod tests {
                     && scripts[0].name == "dev"
                     && scripts[0].command == "pnpm dev"
                     && scripts[0].port == Some(3000)
+                    && scripts[0].env_vars.is_none()
             })
-            .returning(|_, _, _| Ok(true));
-
+            .once()
+            .returning(|_, _, _| Ok(()));
         let mut script = wire_script("dev", "pnpm dev");
         script["port"] = json!(3000);
         let (result, calls) = dispatch_with_workspaces(
             conversations(None),
-            workspaces,
+            commands,
             scripts_update(json!([script])),
         )
         .await;
-
         assert!(result.is_ok(), "{result:?}");
-        // Editing a project is not a write to any thread.
         assert!(calls.is_empty());
     }
 
     #[tokio::test]
-    async fn deleting_a_script_is_the_list_arriving_without_it() {
-        // The client resolves add/edit/delete into one list, so a delete has no
-        // distinct shape here: `build` is simply absent from what it sends.
-        let stored = vec![stored_script("dev", None), stored_script("build", None)];
-        let mut workspaces = workspaces_dao("manual", stored);
-        workspaces
-            .expect_replace_scripts()
-            .withf(|_, _, scripts| scripts.len() == 1 && scripts[0].name == "dev")
-            .returning(|_, _, _| Ok(true));
-
-        let (result, _) = dispatch_with_workspaces(
-            conversations(None),
-            workspaces,
-            scripts_update(json!([wire_script("dev", "pnpm dev")])),
-        )
-        .await;
-        assert!(result.is_ok(), "{result:?}");
+    async fn workspace_write_refusals_keep_the_protocol_mapping() {
+        for (error, message_part) in [
+            (ScriptsWriteError::GitSynced, "workspaces.json"),
+            (ScriptsWriteError::NotFound, "not one you can change"),
+            (
+                ScriptsWriteError::Invalid("duplicate name".into()),
+                "duplicate name",
+            ),
+        ] {
+            let mut commands = MockWorkspaceScriptCommands::new();
+            commands
+                .expect_replace_scripts()
+                .once()
+                .return_once(|_, _, _| Err(error));
+            let (result, _) = dispatch_with_workspaces(
+                conversations(None),
+                commands,
+                scripts_update(json!([wire_script("dev", "pnpm dev")])),
+            )
+            .await;
+            let Err(CommandRefusal::Rejected { message }) = result else {
+                panic!("expected rejection: {result:?}")
+            };
+            assert!(message.contains(message_part), "{message}");
+        }
     }
 
     #[tokio::test]
-    async fn an_edit_keeps_the_environment_the_client_never_saw() {
-        // `envVars` is stored on a script and absent from T3's contract. Taking
-        // the submitted script at face value would clear it on every edit.
-        let mut env = std::collections::HashMap::new();
-        env.insert("PORT".to_string(), "3000".to_string());
-        let stored = vec![stored_script("dev", Some(env.clone()))];
-
-        let mut workspaces = workspaces_dao("manual", stored);
-        workspaces
-            .expect_replace_scripts()
-            .withf(move |_, _, scripts| {
-                scripts[0].env_vars.as_ref() == Some(&env)
-                    && scripts[0].command == "pnpm dev --host"
-            })
-            .returning(|_, _, _| Ok(true));
-
+    async fn invalid_wire_script_never_reaches_workspace_owner() {
+        let mut commands = MockWorkspaceScriptCommands::new();
+        commands.expect_replace_scripts().never();
+        let mut script = wire_script("dev", "pnpm dev");
+        script["port"] = json!(70000);
         let (result, _) = dispatch_with_workspaces(
             conversations(None),
-            workspaces,
-            scripts_update(json!([wire_script("dev", "pnpm dev --host")])),
+            commands,
+            scripts_update(json!([script])),
         )
         .await;
-        assert!(result.is_ok(), "{result:?}");
+        assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
     }
 
     #[tokio::test]
-    async fn a_git_synced_workspace_refuses_the_edit_rather_than_losing_it() {
-        // The next reconcile would overwrite it, so a save that "worked" would
-        // be a lie with a delay on it.
-        let mut workspaces = workspaces_dao("git", Vec::new());
-        workspaces.expect_replace_scripts().never();
-
-        let (result, _) = dispatch_with_workspaces(
-            conversations(None),
-            workspaces,
-            scripts_update(json!([wire_script("dev", "pnpm dev")])),
-        )
-        .await;
-
-        let Err(CommandRefusal::Rejected { message }) = result else {
-            panic!("expected a rejection, got {result:?}");
-        };
-        assert!(message.contains("workspaces.json"), "{message}");
-    }
-
-    #[tokio::test]
-    async fn a_project_field_moatless_owns_is_refused_by_name() {
-        // Silently dropping the title would report a save that did not happen.
+    async fn project_fields_owned_by_moatless_are_refused() {
         for field in ["title", "workspaceRoot", "faviconPath"] {
             let mut command = scripts_update(json!([]));
             command[field] = json!("something");
-            let (result, _) =
-                dispatch_with_workspaces(conversations(None), MockT3WorkspaceDao::new(), command)
-                    .await;
+            let (result, _) = dispatch_with_workspaces(
+                conversations(None),
+                MockWorkspaceScriptCommands::new(),
+                command,
+            )
+            .await;
             assert!(
                 matches!(result, Err(CommandRefusal::Unsupported { .. })),
-                "{field} was not refused: {result:?}"
+                "{result:?}"
             );
         }
     }
 
     #[tokio::test]
-    async fn a_project_update_carrying_no_scripts_writes_nothing() {
-        // The client folds unrelated project state into this command; an update
-        // that asks for nothing is not an error.
-        let mut workspaces = MockT3WorkspaceDao::new();
-        workspaces.expect_scripts_write_target().never();
-        workspaces.expect_replace_scripts().never();
-
-        let command = json!({
-            "type": "project.meta.update",
-            "commandId": "cmd-1",
-            "projectId": "ws-1"
-        });
-        let (result, _) = dispatch_with_workspaces(conversations(None), workspaces, command).await;
-        assert!(result.is_ok(), "{result:?}");
-    }
-
-    #[tokio::test]
-    async fn a_list_naming_one_script_twice_is_refused() {
-        // The name is what `scripts.run` resolves, so a duplicate has no answer.
-        let mut workspaces = workspaces_dao("manual", Vec::new());
-        workspaces.expect_replace_scripts().never();
-
+    async fn project_update_without_scripts_does_not_write() {
+        let mut commands = MockWorkspaceScriptCommands::new();
+        commands.expect_replace_scripts().never();
         let (result, _) = dispatch_with_workspaces(
             conversations(None),
-            workspaces,
-            scripts_update(json!([
-                wire_script("dev", "pnpm dev"),
-                wire_script("dev", "pnpm start")
-            ])),
+            commands,
+            json!({"type": "project.meta.update", "commandId": "cmd-1", "projectId": "ws-1"}),
         )
         .await;
-        assert!(
-            matches!(result, Err(CommandRefusal::Rejected { .. })),
-            "{result:?}"
-        );
-    }
-
-    /// A script as the Workspace stores one.
-    fn stored_script(
-        name: &str,
-        env_vars: Option<std::collections::HashMap<String, String>>,
-    ) -> ScriptConfig {
-        ScriptConfig {
-            name: name.to_string(),
-            label: None,
-            command: "pnpm dev".to_string(),
-            icon: None,
-            port: None,
-            env_vars,
-        }
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[tokio::test]

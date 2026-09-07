@@ -19,15 +19,12 @@ use openidconnect::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::FromRow;
 use tokio::sync::RwLock;
-use uuid::Uuid;
 
-use moatless_types::auth::OidcConfig;
 use moatless_core::db::DbPool;
+use moatless_types::auth::OidcConfig;
 
 use super::error::AuthError;
-use moatless_types::user::UserRole;
 use super::users::User;
 
 const TRANSACTION_TTL_MINUTES: i64 = 5;
@@ -83,14 +80,6 @@ struct OidcIdentity {
     email: Option<String>,
     email_verified: bool,
     hosted_domain: Option<String>,
-}
-
-#[derive(FromRow)]
-struct AuthTransaction {
-    nonce: String,
-    pkce_verifier: String,
-    redirect_after_login: Option<String>,
-    cli_callback_port: Option<i32>,
 }
 
 /// Result of a verified OIDC callback.
@@ -180,21 +169,18 @@ impl OidcService {
         }
         let (url, state, nonce) = authorization.url();
 
-        sqlx::query(
-            r#"INSERT INTO auth_transactions
-               (id, provider_id, state_hash, nonce, pkce_verifier,
-                redirect_after_login, cli_callback_port, expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+        super::oidc_dao::insert_transaction(
+            &self.db,
+            super::oidc_dao::NewTransaction {
+                provider_id: &self.config.provider_id,
+                state_hash: hash_secret(state.secret()),
+                nonce: nonce.secret(),
+                pkce_verifier: pkce_verifier.secret(),
+                redirect_after_login,
+                cli_callback_port,
+                expires_at: Utc::now() + Duration::minutes(TRANSACTION_TTL_MINUTES),
+            },
         )
-        .bind(Uuid::new_v4())
-        .bind(&self.config.provider_id)
-        .bind(hash_secret(state.secret()))
-        .bind(nonce.secret())
-        .bind(pkce_verifier.secret())
-        .bind(redirect_after_login)
-        .bind(cli_callback_port)
-        .bind(Utc::now() + Duration::minutes(TRANSACTION_TTL_MINUTES))
-        .execute(&self.db)
         .await?;
 
         Ok(url.to_string())
@@ -202,19 +188,12 @@ impl OidcService {
 
     /// Consume and verify a callback, then resolve it to the internal user.
     pub async fn finish(&self, state: &str, code: String) -> Result<OidcAuthentication, AuthError> {
-        let transaction = sqlx::query_as::<_, AuthTransaction>(
-            r#"DELETE FROM auth_transactions
-               WHERE provider_id = $1
-                 AND state_hash = $2
-                 AND consumed_at IS NULL
-                 AND expires_at > now()
-               RETURNING nonce, pkce_verifier, redirect_after_login, cli_callback_port"#,
+        let transaction = super::oidc_dao::consume_transaction(
+            &self.db,
+            &self.config.provider_id,
+            hash_secret(state),
         )
-        .bind(&self.config.provider_id)
-        .bind(hash_secret(state))
-        .fetch_optional(&self.db)
-        .await?
-        .ok_or(AuthError::InvalidState)?;
+        .await?;
 
         let client = OidcClient::from_provider_metadata(
             self.metadata().await?,
@@ -281,33 +260,13 @@ impl OidcService {
         email_verified: bool,
         hosted_domain: Option<&str>,
     ) -> Result<User, AuthError> {
-        if let Some((user_id, status, is_bot)) = sqlx::query_as::<_, (Uuid, String, bool)>(
-            r#"SELECT users.id, users.status, users.is_bot
-               FROM oidc_identities
-               JOIN users ON users.id = oidc_identities.user_id
-               WHERE oidc_identities.issuer = $1
-                 AND oidc_identities.subject = $2"#,
-        )
-        .bind(issuer)
-        .bind(subject)
-        .fetch_optional(&self.db)
-        .await?
+        if let Some((user_id, status, is_bot)) =
+            super::oidc_dao::find_identity(&self.db, issuer, subject).await?
         {
             if status != "active" || is_bot {
                 return Err(AuthError::Forbidden);
             }
-            sqlx::query(
-                "UPDATE oidc_identities SET last_login_at = now() WHERE issuer = $1 AND subject = $2",
-            )
-            .bind(issuer)
-            .bind(subject)
-            .execute(&self.db)
-            .await?;
-            return sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-                .bind(user_id)
-                .fetch_one(&self.db)
-                .await
-                .map_err(AuthError::Database);
+            return super::oidc_dao::record_login(&self.db, issuer, subject, user_id).await;
         }
 
         let email = email
@@ -315,68 +274,16 @@ impl OidcService {
             .ok_or_else(|| AuthError::Forbidden)?;
         self.require_first_login_domain(issuer, email, hosted_domain)?;
 
-        let mut tx = self.db.begin().await?;
-        let existing_status = sqlx::query_scalar::<_, String>(
-            "SELECT status FROM users WHERE email_normalized = $1 AND NOT is_bot FOR UPDATE",
+        super::oidc_dao::link_first_login(
+            &self.db,
+            &self.config.provider_id,
+            issuer,
+            subject,
+            email,
+            self.config.auto_link_verified_email,
+            self.config.auto_provision,
         )
-        .bind(email)
-        .fetch_optional(&mut *tx)
-        .await?;
-        if existing_status
-            .as_deref()
-            .is_some_and(|status| status != "active")
-        {
-            return Err(AuthError::Forbidden);
-        }
-        let existing = sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE email_normalized = $1 AND status = 'active' AND NOT is_bot",
-        )
-        .bind(email)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let user = match existing {
-            Some(user) if self.config.auto_link_verified_email => user,
-            Some(_) => {
-                return Err(AuthError::Conflict("account_link_required".to_string()));
-            }
-            None if self.config.auto_provision => {
-                let id = Uuid::new_v4();
-                let login = email
-                    .split_once('@')
-                    .map_or(email, |(local, _)| local)
-                    .to_string();
-                sqlx::query_as::<_, User>(
-                    r#"INSERT INTO users
-                       (id, login, email, name, avatar_url, provider,
-                        provider_user_id, role, created_at, last_login_at, is_bot)
-                       VALUES ($1, $2, $3, NULL, NULL, 'oidc', NULL, $4, now(), now(), false)
-                       RETURNING *"#,
-                )
-                .bind(id)
-                .bind(login)
-                .bind(email)
-                .bind(UserRole::User.as_str())
-                .fetch_one(&mut *tx)
-                .await?
-            }
-            None => return Err(AuthError::Forbidden),
-        };
-
-        sqlx::query(
-            r#"INSERT INTO oidc_identities
-               (id, user_id, provider_id, issuer, subject, last_login_at)
-               VALUES ($1, $2, $3, $4, $5, now())"#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(user.id)
-        .bind(&self.config.provider_id)
-        .bind(issuer)
-        .bind(subject)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(user)
+        .await
     }
 
     fn require_google_hosted_domain(&self, identity: &OidcIdentity) -> Result<(), AuthError> {

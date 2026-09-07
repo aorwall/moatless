@@ -17,15 +17,14 @@ use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::live_status::apply_running_rule;
 use moatless_types::sandbox::ArchiveRetention;
 
-use super::lifecycle::{Lifecycle, TaskIntent};
+use super::access::{
+    authorize_task_control, authorize_task_read, authorize_task_write, require_lifecycle,
+};
+use super::state::SandboxApiState;
+use moatless_core::http_auth::OptionalScope;
 use moatless_sandbox_runtime::container_status::ServerSnapshot;
-use moatless_sandbox_runtime::provisioning::ServerOverride;
-use super::routes::SandboxApiState;
 use moatless_sandbox_runtime::schemas::*;
 use moatless_types::sandbox::SandboxStopReason;
-use moatless_types::access_control::ScopeContext;
-use moatless_types::task::Visibility;
-use moatless_core::http_auth::OptionalScope;
 
 /// Provision a new sandbox for a task.
 ///
@@ -118,9 +117,7 @@ pub async fn live_status_handler(
     };
 
     let status = match turns {
-        Some(turns) => {
-            apply_running_rule(status, intent.desired_state, intent.stop_reason, turns)
-        }
+        Some(turns) => apply_running_rule(status, intent.desired_state, intent.stop_reason, turns),
         None => status,
     };
 
@@ -163,8 +160,7 @@ pub async fn sandbox_status_handler(
             // UI can tell whether a redeploy would move the sandbox to a newer
             // image. The "latest" image is what a fresh (re)deploy would use:
             // the per-repo `docker_image` override, else the configured default.
-            resp.sandbox_desired_state =
-                Some(desired_state);
+            resp.sandbox_desired_state = Some(desired_state);
 
             if let Some(lifecycle) = state.lifecycle.as_deref() {
                 match lifecycle.expected_sandbox_image(&task_id).await {
@@ -489,25 +485,9 @@ pub async fn list_server_config_handler(
     OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> Result<Json<ServerOverridesResponse>, SandboxError> {
-    authorize_task_read(&state, &scope, &task_id).await?;
-    let client = state.connector.sandbox_client(&task_id).await?;
-    let overrides = client
-        .get_server_config(&task_id)
-        .await
-        .map_err(|e| moatless_sandbox_runtime::client::classify_grpc_error(e, "GetServerConfig"))?;
-
-    Ok(Json(ServerOverridesResponse {
-        overrides: overrides
-            .into_iter()
-            .map(
-                |(server_name, (config_override, generation))| ServerOverrideEntry {
-                    server_name,
-                    config_override: server_override_from_client(config_override),
-                    generation,
-                },
-            )
-            .collect(),
-    }))
+    Ok(Json(
+        super::server_config::list_server_config(&state, &scope, task_id).await?,
+    ))
 }
 
 /// Update one preview server's start command / env and (by default) restart it.
@@ -534,55 +514,10 @@ pub async fn update_server_config_handler(
     Path((task_id, server_name)): Path<(String, String)>,
     Json(req): Json<UpdateServerConfigRequest>,
 ) -> Result<Json<ServerConfigResponse>, SandboxError> {
-    info!(task_id = %task_id, server = %server_name, "PATCH /servers/{server_name}");
-    let intent = authorize_task_write(&state, &scope, &task_id).await?;
-
-    if req.port.is_some() {
-        return Err(SandboxError::Conflict(
-            "changing a server's port requires a redeploy — it is wired into the Service and \
-             IngressRoute at provision time (POST /redeploy)"
-                .into(),
-        ));
-    }
-    if req.docker_image.is_some() {
-        return Err(SandboxError::Conflict(
-            "changing a server's image requires a redeploy (POST /redeploy)".into(),
-        ));
-    }
-
-    require_known_server(&state, &intent, &task_id, &server_name).await?;
-
-    let client = state.connector.sandbox_client(&task_id).await?;
-    let mut entry = read_override(&client, &task_id, &server_name).await?;
-
-    if let Some(cmds) = req.start_commands {
-        entry.start_command = if cmds.is_empty() {
-            None
-        } else {
-            Some(cmds.join(" && "))
-        };
-    }
-    if let Some(env) = req.env {
-        for (key, value) in env {
-            validate_env_key(&key)?;
-            // A key can't be both exported and unset — the later `set` wins.
-            entry.unset_env.retain(|k| k != &key);
-            entry.env.insert(key, value);
-        }
-    }
-    if let Some(unset) = req.unset_env {
-        for key in unset {
-            validate_env_key(&key)?;
-            entry.env.remove(&key);
-            if !entry.unset_env.contains(&key) {
-                entry.unset_env.push(key);
-            }
-        }
-    }
-
-    // An emptied entry writes as "no override" — `apply` removes the control
-    // files rather than leaving empty ones, so it has one representation.
-    apply_override(&client, &task_id, &server_name, entry, req.restart).await
+    Ok(Json(
+        super::server_config::update_server_config(&state, &scope, task_id, server_name, req)
+            .await?,
+    ))
 }
 
 /// Restart one preview server in place, leaving its override as-is.
@@ -605,15 +540,9 @@ pub async fn restart_server_handler(
     OptionalScope(scope): OptionalScope,
     Path((task_id, server_name)): Path<(String, String)>,
 ) -> Result<Json<ServerConfigResponse>, SandboxError> {
-    info!(task_id = %task_id, server = %server_name, "POST /servers/{server_name}/restart");
-    let intent = authorize_task_control(&state, &scope, &task_id).await?;
-    require_known_server(&state, &intent, &task_id, &server_name).await?;
-
-    // Re-send the override the sandbox already holds: `apply` is idempotent, and
-    // the generation bump is the only part the sidecar reacts to.
-    let client = state.connector.sandbox_client(&task_id).await?;
-    let current = read_override(&client, &task_id, &server_name).await?;
-    apply_override(&client, &task_id, &server_name, current, true).await
+    Ok(Json(
+        super::server_config::restart_server(&state, &scope, task_id, server_name).await?,
+    ))
 }
 
 /// Drop a server's override and restart it on the workspace's configuration.
@@ -636,469 +565,12 @@ pub async fn reset_server_config_handler(
     OptionalScope(scope): OptionalScope,
     Path((task_id, server_name)): Path<(String, String)>,
 ) -> Result<Json<ServerConfigResponse>, SandboxError> {
-    info!(task_id = %task_id, server = %server_name, "DELETE /servers/{server_name}/override");
-    let intent = authorize_task_write(&state, &scope, &task_id).await?;
-    require_known_server(&state, &intent, &task_id, &server_name).await?;
-
-    // An empty override is exactly "reset": `apply` removes the control files.
-    let client = state.connector.sandbox_client(&task_id).await?;
-    apply_override(
-        &client,
-        &task_id,
-        &server_name,
-        ServerOverride::default(),
-        true,
-    )
-    .await
+    Ok(Json(
+        super::server_config::reset_server_config(&state, &scope, task_id, server_name).await?,
+    ))
 }
 
-/// Read one server's current override off the sandbox's workspace volume.
-///
-/// Absent means no override, which is the same value as an empty one — callers
-/// merge into it either way.
-async fn read_override(
-    client: &moatless_sandbox_runtime::client::SandboxClient,
-    task_id: &str,
-    server_name: &str,
-) -> Result<ServerOverride, SandboxError> {
-    let mut overrides = client
-        .get_server_config(task_id)
-        .await
-        .map_err(|e| moatless_sandbox_runtime::client::classify_grpc_error(e, "GetServerConfig"))?;
-    Ok(overrides
-        .remove(server_name)
-        .map(|(config, _generation)| server_override_from_client(config))
-        .unwrap_or_default())
-}
-
-/// Push one server's complete override to the sandbox, optionally restarting it.
-async fn apply_override(
-    client: &moatless_sandbox_runtime::client::SandboxClient,
-    task_id: &str,
-    server_name: &str,
-    effective: ServerOverride,
-    restart: bool,
-) -> Result<Json<ServerConfigResponse>, SandboxError> {
-    let client_override = client_server_override(&effective);
-    let generation = client
-        .apply_server_config(task_id, server_name, &client_override, restart)
-        .await
-        .map_err(|e| moatless_sandbox_runtime::client::classify_grpc_error(e, "ApplyServerConfig"))?;
-
-    info!(
-        task_id = %task_id,
-        server = %server_name,
-        generation,
-        restart,
-        "Applied live server config"
-    );
-    Ok(Json(ServerConfigResponse {
-        server_name: server_name.to_string(),
-        config_override: effective,
-        generation,
-        restarted: restart,
-    }))
-}
-
-fn server_override_from_client(value: moatless_sandbox_runtime::client::ServerOverride) -> ServerOverride {
-    ServerOverride {
-        start_command: value.start_command,
-        env: value.env,
-        unset_env: value.unset_env,
-    }
-}
-
-fn client_server_override(value: &ServerOverride) -> moatless_sandbox_runtime::client::ServerOverride {
-    moatless_sandbox_runtime::client::ServerOverride {
-        start_command: value.start_command.clone(),
-        env: value.env.clone(),
-        unset_env: value.unset_env.clone(),
-    }
-}
-
-/// 404 unless the task actually has a server by this name.
-///
-/// Resolved from live status, which is config-first, so a server that has not
-/// started yet still counts.
-async fn require_known_server(
-    state: &SandboxApiState,
-    intent: &TaskIntent,
-    task_id: &str,
-    server_name: &str,
-) -> Result<(), SandboxError> {
-    let status = state
-        .observer
-        .sandbox_status(task_id, intent.status, intent.desired_state)
-        .await?;
-    if status.servers.iter().any(|s| s.name == server_name) {
-        return Ok(());
-    }
-    Err(SandboxError::NotFound(format!(
-        "no server '{server_name}' on task {task_id}; available: {}",
-        status
-            .servers
-            .iter()
-            .map(|s| s.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
-    )))
-}
-
-/// Env keys must be shell-legal and must not collide with names the platform
-/// controls — the runtime trio the container spec injects, plus the reserved
-/// secret keys.
-fn validate_env_key(key: &str) -> Result<(), SandboxError> {
-    if !moatless_core::secret_keys::is_valid_secret_key(key) {
-        return Err(SandboxError::BadRequest(format!(
-            "invalid env key '{key}': expected ^[A-Z_][A-Z0-9_]*$"
-        )));
-    }
-    if moatless_core::secret_keys::is_reserved_key(key)
-        || matches!(
-            key,
-            "PORT" | "WORKSPACE_DIR" | "WORKSPACE_PATH" | "DATA_DIR"
-        )
-    {
-        return Err(SandboxError::BadRequest(format!(
-            "env key '{key}' is reserved by the platform"
-        )));
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::validate_env_key;
-    use moatless_sandbox_runtime::error::SandboxError;
-
-    #[test]
-    fn server_env_overrides_reject_runtime_paths() {
-        for key in ["PORT", "WORKSPACE_DIR", "WORKSPACE_PATH", "DATA_DIR"] {
-            assert!(
-                matches!(validate_env_key(key), Err(SandboxError::BadRequest(_))),
-                "{key} should be reserved"
-            );
-        }
-        assert!(validate_env_key("EXTRA_FLAG").is_ok());
-    }
-}
-
-// =============================================================================
-// Authorization helpers
-// =============================================================================
-
-/// Load the Task's Sandbox membership and require *read* access to it.
-///
-/// Returns `NotFound` when the caller may not read it, so the existence of
-/// another tenant's Sandbox never leaks. The returned [`TaskIntent`] is the one
-/// read every handler works from: it carries the Task's status and the
-/// Sandbox's desired state alongside the access-control pair.
-pub(super) async fn authorize_task_read(
-    state: &SandboxApiState,
-    scope: &Option<ScopeContext>,
-    task_id: &str,
-) -> Result<TaskIntent, SandboxError> {
-    let intent = require_lifecycle(state)?.intent(task_id).await?;
-    ensure_can_read(scope, &intent, task_id)?;
-    Ok(intent)
-}
-
-/// Like [`authorize_task_read`], but additionally requires *write* access: the
-/// owner of the Sandbox or a platform admin, and never a public reader. Guards
-/// the two actions that outlive the pod they were made on — removing the
-/// Sandbox, and changing a server's configuration.
-pub(super) async fn authorize_task_write(
-    state: &SandboxApiState,
-    scope: &Option<ScopeContext>,
-    task_id: &str,
-) -> Result<TaskIntent, SandboxError> {
-    let intent = authorize_task_read(state, scope, task_id).await?;
-    ensure_can_write(scope, &intent, task_id)?;
-    Ok(intent)
-}
-
-/// Like [`authorize_task_read`], but additionally requires *control* access:
-/// write, or the public visibility the Task grants. Guards every action that
-/// operates the Sandbox — provision, stop, restart, redeploy, restarting a
-/// server, and writing a file.
-pub(super) async fn authorize_task_control(
-    state: &SandboxApiState,
-    scope: &Option<ScopeContext>,
-    task_id: &str,
-) -> Result<TaskIntent, SandboxError> {
-    let intent = authorize_task_read(state, scope, task_id).await?;
-    ensure_can_control(scope, &intent, task_id)?;
-    Ok(intent)
-}
-
-/// Read access to a Sandbox: its own scope/owner pair, or the public visibility
-/// its Task grants — a public Task is collaborative, and its Sandbox view is
-/// part of what it shares.
-///
-/// Refuses as `NotFound` so a caller cannot distinguish "not yours" from "does
-/// not exist". A missing identity means the request never passed
-/// `auth_middleware`, which fails closed as `Forbidden`.
-fn ensure_can_read(
-    scope: &Option<ScopeContext>,
-    intent: &TaskIntent,
-    task_id: &str,
-) -> Result<(), SandboxError> {
-    let ctx = scope
-        .as_ref()
-        .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
-    if intent.visibility == Visibility::Public || ctx.can_read(&intent.scoped_resource()) {
-        return Ok(());
-    }
-    Err(SandboxError::NotFound(format!("task {task_id}")))
-}
-
-/// Control access to a Sandbox: write, or the public visibility its Task
-/// grants.
-///
-/// A public Task is collaborative, and a Sandbox only its owner can operate is
-/// what makes that collaboration unusable — a reader can see the Task, but
-/// every file read fails against a Sandbox that is not running and nobody but
-/// the owner can wake it. Control includes an interactive shell, so it also
-/// covers everything a shell reaches: writing a file, restarting a server,
-/// pushing a commit. Refusing those while granting `terminal.open` is a rule
-/// one command undoes.
-fn ensure_can_control(
-    scope: &Option<ScopeContext>,
-    intent: &TaskIntent,
-    task_id: &str,
-) -> Result<(), SandboxError> {
-    let ctx = scope
-        .as_ref()
-        .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
-    if ctx.can_control(&intent.scoped_resource(), intent.visibility) {
-        return Ok(());
-    }
-    Err(SandboxError::Forbidden(format!(
-        "no control access to task {task_id}"
-    )))
-}
-
-/// Write access to a Sandbox. Visibility never grants it.
-fn ensure_can_write(
-    scope: &Option<ScopeContext>,
-    intent: &TaskIntent,
-    task_id: &str,
-) -> Result<(), SandboxError> {
-    let ctx = scope
-        .as_ref()
-        .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
-    if ctx.can_write(&intent.scoped_resource()) {
-        return Ok(());
-    }
-    Err(SandboxError::Forbidden(format!(
-        "no write access to task {task_id}"
-    )))
-}
-
-// =============================================================================
-// Private helpers
-// =============================================================================
-
-/// The shared lifecycle handle, or a clean "unavailable" error in the no-database
-/// mode where the lifecycle handlers cannot operate.
-fn require_lifecycle(state: &SandboxApiState) -> Result<&Lifecycle, SandboxError> {
-    state
-        .lifecycle
-        .as_deref()
-        .ok_or_else(|| SandboxError::Internal("Sandbox lifecycle unavailable (no database)".into()))
-}
-
-#[cfg(test)]
-mod authz_tests {
-    //! Unit tests for the per-sandbox authorization gate. The policy itself
-    //! lives in `ScopeContext`; these exercise how the handlers compose read +
-    //! control over one `TaskIntent`, and which refusal each case earns.
-    use super::*;
-
-    use moatless_types::sandbox::ArchiveRetention;
-    use moatless_types::access_control::Scope;
-    use moatless_types::sandbox::SandboxDesiredState;
-    use moatless_types::task::TaskStatus;
-
-    /// Deterministic uuid for a readable test name: distinct names map to
-    /// distinct ids, equal names to equal ids.
-    fn uid(name: &str) -> uuid::Uuid {
-        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes())
-    }
-
-    /// A `TaskIntent` carrying the given access-control pair; every other field
-    /// is an inert default the access check never reads.
-    fn intent(scope: Scope, owner_user_id: Option<&str>, visibility: Visibility) -> TaskIntent {
-        TaskIntent {
-            status: TaskStatus::Open,
-            visibility,
-            scope,
-            owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
-            sandbox_id: "task-1".to_string(),
-            workspace_id: "ws-1".to_string(),
-            desired_state: SandboxDesiredState::Stopped,
-            stop_reason: None,
-            retention: None::<ArchiveRetention>,
-            marker: None,
-            desired_state_updated_at: chrono::Utc::now(),
-        }
-    }
-
-    fn private(owner_user_id: Option<&str>) -> TaskIntent {
-        intent(Scope::User, owner_user_id, Visibility::Private)
-    }
-
-    fn ctx(user_id: &str, is_admin: bool) -> ScopeContext {
-        ScopeContext {
-            user_id: uid(user_id).to_string(),
-            is_admin,
-        }
-    }
-
-    #[test]
-    fn read_by_another_tenant_is_not_found() {
-        // NotFound, not Forbidden: the refusal never leaks that the sandbox exists.
-        let err = ensure_can_read(&Some(ctx("intruder", false)), &private(Some("owner")), "task-1")
-            .unwrap_err();
-        assert!(matches!(err, SandboxError::NotFound(_)));
-    }
-
-    #[test]
-    fn read_by_the_owner_is_allowed() {
-        assert!(ensure_can_read(&Some(ctx("owner", false)), &private(Some("owner")), "task-1").is_ok());
-    }
-
-    #[test]
-    fn read_of_a_public_task_is_allowed() {
-        // A public Task is collaborative, and its Sandbox view is part of what
-        // it shares — read and control, never write.
-        let public = intent(Scope::User, Some("owner"), Visibility::Public);
-        assert!(ensure_can_read(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
-        assert!(matches!(
-            ensure_can_write(&Some(ctx("stranger", false)), &public, "task-1"),
-            Err(SandboxError::Forbidden(_))
-        ));
-    }
-
-    #[test]
-    fn control_of_a_public_task_is_allowed_for_any_signed_in_caller() {
-        // Operating a public Task's Sandbox is what makes it collaborative:
-        // reading its files needs a running Sandbox, and a shell is how a
-        // reader takes part at all.
-        let public = intent(Scope::User, Some("owner"), Visibility::Public);
-        assert!(ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
-    }
-
-    #[test]
-    fn control_of_a_private_task_by_a_stranger_is_forbidden() {
-        // Control widens by visibility only. A private Task is unchanged.
-        assert!(matches!(
-            ensure_can_control(&Some(ctx("stranger", false)), &private(Some("owner")), "task-1"),
-            Err(SandboxError::Forbidden(_))
-        ));
-    }
-
-    #[test]
-    fn control_by_the_owner_and_admin_is_allowed() {
-        assert!(
-            ensure_can_control(&Some(ctx("owner", false)), &private(Some("owner")), "task-1")
-                .is_ok()
-        );
-        assert!(
-            ensure_can_control(&Some(ctx("root", true)), &private(Some("other-user")), "task-1")
-                .is_ok()
-        );
-    }
-
-    #[test]
-    fn control_without_identity_is_forbidden() {
-        // "Every signed-in user" is the grant — an unauthenticated caller is
-        // still refused, even on a public Task.
-        let public = intent(Scope::User, Some("owner"), Visibility::Public);
-        assert!(matches!(
-            ensure_can_control(&None, &public, "task-1"),
-            Err(SandboxError::Forbidden(_))
-        ));
-    }
-
-    #[test]
-    fn control_never_widens_the_two_write_actions() {
-        // Removing the Sandbox deletes its archives, and a server override
-        // survives the pod it was set on. Both outlive the operation a
-        // controller is making, so both stay with the owner.
-        let public = intent(Scope::User, Some("owner"), Visibility::Public);
-        assert!(ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
-        assert!(matches!(
-            ensure_can_write(&Some(ctx("stranger", false)), &public, "task-1"),
-            Err(SandboxError::Forbidden(_))
-        ));
-    }
-
-    #[test]
-    fn read_of_a_global_sandbox_is_allowed() {
-        let global = intent(Scope::Global, None, Visibility::Private);
-        assert!(ensure_can_read(&Some(ctx("anyone", false)), &global, "task-1").is_ok());
-    }
-
-    #[test]
-    fn read_without_identity_is_forbidden() {
-        // No identity means the request never passed auth_middleware — fail
-        // closed rather than resolving the sandbox under a system context.
-        assert!(matches!(
-            ensure_can_read(&None, &private(Some("someone")), "task-1"),
-            Err(SandboxError::Forbidden(_))
-        ));
-    }
-
-    #[test]
-    fn read_of_an_ownerless_sandbox_is_admin_only() {
-        // No Sandbox row leaves the pair ownerless. An admin still reaches it;
-        // nobody else does.
-        let ownerless = private(None);
-        assert!(matches!(
-            ensure_can_read(&Some(ctx("anyone", false)), &ownerless, "task-1"),
-            Err(SandboxError::NotFound(_))
-        ));
-        assert!(ensure_can_read(&Some(ctx("root", true)), &ownerless, "task-1").is_ok());
-    }
-
-    #[test]
-    fn write_by_the_owner_is_allowed() {
-        assert!(
-            ensure_can_write(&Some(ctx("owner", false)), &private(Some("owner")), "task-1").is_ok()
-        );
-    }
-
-    #[test]
-    fn write_by_a_read_only_viewer_is_forbidden() {
-        // Read access never implies write: a global sandbox is admin-owned.
-        let global = intent(Scope::Global, None, Visibility::Private);
-        assert!(ensure_can_read(&Some(ctx("viewer", false)), &global, "task-1").is_ok());
-        assert!(matches!(
-            ensure_can_write(&Some(ctx("viewer", false)), &global, "task-1"),
-            Err(SandboxError::Forbidden(_))
-        ));
-    }
-
-    #[test]
-    fn write_by_a_stranger_is_forbidden() {
-        let err = ensure_can_write(&Some(ctx("stranger", false)), &private(Some("owner")), "task-1")
-            .unwrap_err();
-        assert!(matches!(err, SandboxError::Forbidden(_)));
-    }
-
-    #[test]
-    fn write_by_an_admin_bypasses_scope() {
-        assert!(
-            ensure_can_write(&Some(ctx("root", true)), &private(Some("other-user")), "task-1").is_ok()
-        );
-    }
-
-    #[test]
-    fn write_without_identity_is_forbidden() {
-        assert!(matches!(
-            ensure_can_write(&None, &private(Some("someone")), "task-1"),
-            Err(SandboxError::Forbidden(_))
-        ));
-    }
+/// Health check handler (not documented in OpenAPI — infrastructure only).
+pub(super) async fn health_handler() -> impl IntoResponse {
+    Json(serde_json::json!({"status": "ok"}))
 }

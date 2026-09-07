@@ -2,14 +2,14 @@
 
 use std::fs;
 
-use dialoguer::{theme::ColorfulTheme, Confirm};
+use dialoguer::{Confirm, theme::ColorfulTheme};
 use serde::{Deserialize, Serialize};
 
-use super::compose::{
-    cache_compose_dir, detect_compose_cmd, resolve_compose_dir, run_compose_streaming,
-    ComposeDirSource,
-};
 use super::UninstallArgs;
+use super::docker_compose::{
+    ComposeDirSource, cache_compose_dir, detect_compose_cmd, resolve_compose_dir,
+    run_compose_streaming,
+};
 use crate::client::ClientError;
 use crate::output;
 

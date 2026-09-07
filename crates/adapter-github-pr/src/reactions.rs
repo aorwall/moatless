@@ -1,9 +1,9 @@
 //! Reaction capability for GitHub pull request comments.
 
-use moatless_types::repository::GitHostRepo;
+use moatless_adapter_model::binding::BindingContext;
 use moatless_adapter_model::capabilities::AdapterReactions;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::BindingContext;
+use moatless_types::repository::GitHostRepo;
 
 use super::adapter::GithubPrAdapter;
 use super::external_id::{self, CommentTarget};
@@ -157,8 +157,8 @@ mod tests {
 
     use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
+    use moatless_adapter_model::binding::BindingContext;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
-    use moatless_types::adapter::BindingContext;
 
     #[test]
     fn github_content_accepts_canonical_and_aliases() {

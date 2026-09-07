@@ -7,9 +7,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use crate::adapters::projection::next_fire_at;
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::metrics::record_schedule_firing;
+use crate::loops::schedule::next_fire_at;
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::registry::Adapters;
 use moatless_core::leader::LeaderGuard;
@@ -21,8 +21,8 @@ use moatless_ports::task::{
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::{AdapterKind, Audience, InboundMessage, SCHEDULED_ORIGIN};
 use moatless_types::loops::LoopContext;
-use moatless_types::loops::LoopSpawnConfig;
-use moatless_types::loops::Schedule;
+use crate::loops::models::LoopSpawnConfig;
+use crate::loops::models::Schedule;
 use moatless_types::task::TaskStatus;
 
 /// Always prepended to the `append_system_prompt` of a task a schedule fires,
@@ -145,7 +145,7 @@ impl ScheduleRunner {
                 Ok(next) => next,
                 Err(e) => {
                     record_schedule_firing("error", "next_fire_failed", &locked.id);
-                    warn!(schedule_id = %locked.id, error = %e, "Failed to compute next fire time");
+                    warn!(schedule_id = %locked.id, error = %format!("Invalid request: {e}"), "Failed to compute next fire time");
                     continue;
                 }
             };

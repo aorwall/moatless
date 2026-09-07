@@ -24,8 +24,8 @@ use super::support::{
     restore_state, tmp_config,
 };
 use crate::agent::types::ResumeSession;
-use crate::init::transcript_sync::{codex_sessions_dir, download_on_start, transcript_dir};
-use crate::init::{open_for_work, InitPhase, WorkspaceOrigin};
+use crate::init::{InitPhase, WorkspaceOrigin, open_for_work};
+use crate::transcript_sync::{codex_sessions_dir, download_on_start, transcript_dir};
 
 #[tokio::test]
 async fn download_on_start_restores_claude_and_codex_session_state() {

@@ -19,6 +19,8 @@ Adapter kernel publishes `LoopReader` (`moatless_adapter_model::loops`), the
 Subscription read that an Adapter matches an inbound event against, and
 `loops/ports.rs` implements it for `LoopDao` directly. `LoopDao` is the only
 store over those tables, so a wrapper beside it would be a second surface.
+SQL row decoding belongs to `loops/persistence.rs` and `bindings/persistence.rs`
+beside those stores; the Adapter kernel owns only connection persistence.
 
 An Adapter names `LoopReader` and never `LoopDao`. The store has twenty-six
 inherent functions and the Adapters read five of them. One exception stands:
@@ -42,8 +44,9 @@ and nothing above it.
 Name the kernel directly as `moatless_adapter_model::…`, from this crate and
 from every provider crate. Do not re-export it through `crate::adapters`: a
 type gets one path. The shared Adapter vocabulary one crate lower follows the
-same rule. Name `AdapterKind`, `BindingDestination` and `DestinationPostResult`
-from `moatless_types::adapter`, not through this facade.
+same rule. Name `AdapterKind` from `moatless_types::adapter`. Provider binding
+contexts and destinations belong to `moatless_adapter_model::binding`; outbound
+messages and post results belong to `moatless_adapter_model::outbound`.
 
 `src/adapters/` holds what the loops band adds *around* the contract:
 
@@ -51,7 +54,7 @@ from `moatless_types::adapter`, not through this facade.
 - the inbound-message handler;
 - self-echo;
 - subject events;
-- the shared connection and loop handler support.
+- Adapter connection response projection.
 
 A trait every provider implements, the registry, an ingress vocabulary, or a
 read seam a provider names all belong in the kernel instead.

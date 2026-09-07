@@ -21,7 +21,7 @@ utoipa = { workspace = true, optional = true }
 
 [features]
 default = []
-openapi = ["utoipa"]
+openapi = ["utoipa", "moatless-types/openapi"]
 
 [lints]
 workspace = true

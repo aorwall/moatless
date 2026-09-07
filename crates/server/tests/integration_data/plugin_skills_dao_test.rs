@@ -179,8 +179,8 @@ async fn skills_are_scoped_to_their_own_plugin(pool: PgPool) {
 async fn user(pool: &PgPool, login: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO users (id, login, provider, provider_user_id, created_at, last_login_at) \
-         VALUES ($1, $2, 'test', $2, now(), now())",
+        "INSERT INTO users (id, login, email, provider, provider_user_id, created_at, last_login_at) \
+         VALUES ($1, $2, $2 || '@example.test', 'test', $2, now(), now())",
     )
     .bind(id)
     .bind(login)
@@ -316,7 +316,7 @@ async fn a_skill_record_and_a_plugin_record_coexist(pool: PgPool) {
 /// A real workspace row: an activation record's `workspace_id` is a foreign
 /// key, so a Workspace record cannot be written for one that does not exist.
 async fn workspace(pool: &PgPool, id: &str) -> String {
-    sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO workspaces (id, name, scope) VALUES ($1, $2, 'global')")
         .bind(id)
         .bind(format!("workspace-{id}"))
         .execute(pool)

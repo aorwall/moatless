@@ -515,7 +515,11 @@ mod tests {
         let upstream = start_loopback_server(OK).await;
         let proxy = start_proxy().await;
 
-        let (response, _stream) = request(proxy, &preview_host(upstream), "").await;
+        let (mut response, mut stream) = request(proxy, &preview_host(upstream), "").await;
+        stream
+            .read_to_string(&mut response)
+            .await
+            .expect("response body read");
 
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         assert!(

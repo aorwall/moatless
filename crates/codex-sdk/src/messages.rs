@@ -166,6 +166,7 @@ mod tests {
         let n: ThreadStartedNotification = serde_json::from_value(serde_json::json!({
             "thread": {
                 "id": "t1",
+                "sessionId": "s1",
                 "preview": "hello",
                 "ephemeral": true,
                 "modelProvider": "openai",

@@ -17,9 +17,9 @@ use std::sync::Arc;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::task::TaskSubType;
 
+use super::bindings::deactivate_task_bindings;
 use super::dao::{TaskDao, TaskPatch};
 use super::error::TaskError;
-use super::handlers::{deactivate_task_bindings, task_resource};
 use super::models::TaskStatus;
 use super::relations::TaskRelationDao;
 use crate::task::bindings::TaskBindings;
@@ -247,10 +247,54 @@ impl TaskCloser {
             .find_by_id(task_id, scope_ctx)
             .await?
             .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-        if !scope_ctx.can_write(&task_resource(&row)) {
+        if !scope_ctx.can_write(&row.scoped_resource()) {
             return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
         }
 
         self.close_single(task_id, event).await
+    }
+}
+
+impl TaskCloser {
+    /// Close a task after validating access and the caller's child-close choice.
+    pub async fn close_requested(
+        &self,
+        scope_ctx: &ScopeContext,
+        task_id: String,
+        req: super::schemas::CloseTaskRequest,
+    ) -> Result<(), TaskError> {
+        // Read-check + control-check: find_by_id uses access_filter (visibility);
+        // the inline can_write check enforces owner/admin policy without the
+        // deleted ensure_can_write_task helper.
+        let row = self
+            .tasks
+            .find_by_id(&task_id, scope_ctx)
+            .await?
+            .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+        if !scope_ctx.can_write(&row.scoped_resource()) {
+            return Err(TaskError::NotFound(task_id.clone())); // existence hiding
+        }
+
+        let children = self
+            .task_relations
+            .list_incoming(&task_id, Some(TaskRelationType::CreatedBy))
+            .await
+            .map_err(TaskError::Db)?;
+        if !children.is_empty() && req.close_children.is_none() {
+            return Err(TaskError::BadRequest(
+            "closeChildren must be explicitly set to true or false when closing a task with children"
+                .to_string(),
+        ));
+        }
+
+        if req.close_children == Some(true) {
+            let mut visited = HashSet::new();
+            self.close_tree(&task_id, &mut visited).await?;
+        } else {
+            self.close_single(&task_id, &CloseEvent::neutral()).await?;
+        }
+        tracing::info!(task_id = %task_id, user_id = %scope_ctx.user_id, "Task closed");
+
+        Ok(())
     }
 }

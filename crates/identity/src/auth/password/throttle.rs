@@ -20,47 +20,28 @@ impl LoginThrottle {
     }
 
     pub async fn is_locked(&self, bucket: &str, subject: &str) -> Result<bool, sqlx::Error> {
-        let attempts = sqlx::query_scalar::<_, i32>(
-            r#"SELECT attempts
-               FROM auth_rate_limits
-               WHERE bucket = $1 AND subject_hash = $2 AND window_started_at = $3"#,
+        Ok(super::throttle_dao::attempts(
+            &self.db,
+            bucket,
+            subject_hash(subject),
+            window_start(Utc::now()),
         )
-        .bind(bucket)
-        .bind(subject_hash(subject))
-        .bind(window_start(Utc::now()))
-        .fetch_optional(&self.db)
         .await?
-        .unwrap_or(0);
-        Ok(attempts >= MAX_FAILURES)
+            >= MAX_FAILURES)
     }
 
     pub async fn record_failure(&self, bucket: &str, subject: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"WITH cleaned AS (
-                   DELETE FROM auth_rate_limits
-                   WHERE window_started_at < now() - interval '1 day'
-               )
-               INSERT INTO auth_rate_limits
-               (bucket, subject_hash, window_started_at, attempts)
-               VALUES ($1, $2, $3, 1)
-               ON CONFLICT (bucket, subject_hash, window_started_at)
-               DO UPDATE SET attempts = auth_rate_limits.attempts + 1"#,
+        super::throttle_dao::record_failure(
+            &self.db,
+            bucket,
+            subject_hash(subject),
+            window_start(Utc::now()),
         )
-        .bind(bucket)
-        .bind(subject_hash(subject))
-        .bind(window_start(Utc::now()))
-        .execute(&self.db)
-        .await?;
-        Ok(())
+        .await
     }
 
     pub async fn clear(&self, bucket: &str, subject: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM auth_rate_limits WHERE bucket = $1 AND subject_hash = $2")
-            .bind(bucket)
-            .bind(subject_hash(subject))
-            .execute(&self.db)
-            .await?;
-        Ok(())
+        super::throttle_dao::clear(&self.db, bucket, subject_hash(subject)).await
     }
 }
 

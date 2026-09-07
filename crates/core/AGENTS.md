@@ -12,3 +12,10 @@
   would narrow nothing, and a peer crate names `FileDao` directly.
 - `db` opens the pool and runs the migrations for the whole workspace
   (`run_migrations`). No other crate declares a migration directory.
+  `db::access_control` translates the shared access policy into SQL predicates;
+  keep SQL construction out of `moatless-types`.
+
+Bind the `db::access_control` predicate parameters from one `ScopeContext`:
+`is_admin` first, then `user_id`, starting at the index passed to the helper.
+The free functions build SQL only; mixing callers or reversing bindings can
+change which rows the query admits.

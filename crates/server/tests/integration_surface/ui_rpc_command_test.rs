@@ -295,14 +295,13 @@ async fn upload_exists(pool: &PgPool, file_id: &str) -> bool {
         .unwrap()
 }
 
-/// Whether the lifecycle was asked for a Sandbox. The record is the request,
-/// not the outcome — the test runtime refuses to start anything.
+/// Whether the lifecycle was asked to run the Sandbox.
 async fn sandbox_requested(pool: &PgPool, task_id: &str) -> bool {
     sqlx::query_scalar::<_, i64>(
         r#"SELECT COUNT(*)
            FROM tasks t
            JOIN sandboxes s ON s.sandbox_id = COALESCE(t.sandbox_id, t.task_id)
-           WHERE t.task_id = $1"#,
+           WHERE t.task_id = $1 AND s.desired_state = 'running'"#,
     )
     .bind(task_id)
     .fetch_one(pool)
@@ -794,7 +793,7 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
 /// nobody has spoken to. Provisioning it burns a Sandbox on a draft that may
 /// never be used.
 #[sqlx::test]
-async fn a_thread_created_with_no_message_gets_no_sandbox(pool: PgPool) {
+async fn a_thread_created_with_no_message_keeps_its_sandbox_stopped(pool: PgPool) {
     seed_project(&pool, USER_1).await;
 
     let task_id = "12121212-3434-4565-8787-909090909090";
@@ -908,11 +907,19 @@ async fn a_fork_is_created_under_the_clients_id_referencing_its_source(pool: PgP
         .expect("the fork exists under the id T3 minted");
     assert_eq!(task.agent_type, AgentType(catalog::CLAUDE_CODE.id.into()));
 
-    let (source_task_id, at_turn) = fork_row(&pool, fork_id)
-        .await
-        .expect("the fork's task_forks row names its source");
+    let source_task_id: String = sqlx::query_scalar(
+        "SELECT to_task_id FROM task_relations WHERE from_task_id = $1 AND relation_type = 'forked_from'",
+    )
+    .bind(fork_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(source_task_id, "t-source");
-    assert_eq!(at_turn, None);
+    assert_eq!(
+        fork_row(&pool, fork_id).await,
+        None,
+        "an unrun parent has no agent session to fork"
+    );
 }
 
 /// A viewer who cannot read the source Task gets the same answer as one that
@@ -1054,6 +1061,12 @@ async fn interrupting_a_turn_moves_no_sandbox_intent(pool: PgPool) {
     seed_project(&pool, USER_1).await;
     seed_task(&pool, "t-interrupt", USER_1).await;
     seed_task(&pool, "t-session-stop", USER_1).await;
+    sqlx::query("UPDATE sandboxes SET desired_state = 'running' WHERE sandbox_id IN ($1, $2)")
+        .bind("t-interrupt")
+        .bind("t-session-stop")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     sink(&pool)
         .interrupt(&viewer(USER_1), "t-interrupt")
@@ -1064,7 +1077,10 @@ async fn interrupting_a_turn_moves_no_sandbox_intent(pool: PgPool) {
         .await
         .expect("a session stop is accepted");
 
-    assert_eq!(sandbox_intent(&pool, "t-interrupt").await, None);
+    assert_eq!(
+        sandbox_intent(&pool, "t-interrupt").await,
+        Some(("running".into(), None))
+    );
     assert_eq!(
         sandbox_intent(&pool, "t-session-stop").await,
         Some(("stopped".to_string(), Some("user".to_string())))
@@ -1076,7 +1092,7 @@ async fn interrupting_a_turn_moves_no_sandbox_intent(pool: PgPool) {
 #[sqlx::test]
 async fn interrupting_a_thread_the_viewer_cannot_control_is_refused(pool: PgPool) {
     seed_project(&pool, USER_1).await;
-    seed_public_task(&pool, "t-interrupt-unowned", USER_1).await;
+    seed_task(&pool, "t-interrupt-unowned", USER_1).await;
 
     let refusal = sink(&pool)
         .interrupt(&viewer(USER_2), "t-interrupt-unowned")
@@ -1084,7 +1100,26 @@ async fn interrupting_a_thread_the_viewer_cannot_control_is_refused(pool: PgPool
         .expect_err("an interrupt from a viewer who cannot control is refused");
 
     assert!(matches!(refusal, CommandRefusal::NotWritable { .. }));
-    assert_eq!(sandbox_intent(&pool, "t-interrupt-unowned").await, None);
+    assert_eq!(
+        sandbox_intent(&pool, "t-interrupt-unowned").await,
+        Some(("stopped".into(), None))
+    );
+}
+
+#[sqlx::test]
+async fn a_public_thread_allows_a_collaborator_to_interrupt(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_public_task(&pool, "t-public-interrupt", USER_1).await;
+
+    sink(&pool)
+        .interrupt(&viewer(USER_2), "t-public-interrupt")
+        .await
+        .expect("public tasks permit collaborative control");
+
+    assert_eq!(
+        sandbox_intent(&pool, "t-public-interrupt").await,
+        Some(("stopped".into(), None))
+    );
 }
 
 #[sqlx::test]
@@ -1104,11 +1139,9 @@ async fn settling_stops_the_sandbox(pool: PgPool) {
     );
 }
 
-/// The settlement is the durable part. A follower who may not control the Task
-/// has no Sandbox to stop, and that is not a reason to report the settle — which
-/// already landed — as refused.
+/// A public Task permits its followers to stop the Sandbox when settling.
 #[sqlx::test]
-async fn settling_a_thread_the_follower_cannot_control_still_settles(pool: PgPool) {
+async fn settling_a_public_thread_stops_the_sandbox_for_its_follower(pool: PgPool) {
     seed_project(&pool, USER_1).await;
     seed_public_task(&pool, "t-settle-unowned", USER_1).await;
     follow(&pool, USER_2, "t-settle-unowned").await;
@@ -1125,7 +1158,10 @@ async fn settling_a_thread_the_follower_cannot_control_still_settles(pool: PgPoo
             .as_deref(),
         Some("settled")
     );
-    assert_eq!(sandbox_intent(&pool, "t-settle-unowned").await, None);
+    assert_eq!(
+        sandbox_intent(&pool, "t-settle-unowned").await,
+        Some(("stopped".into(), Some("user".into())))
+    );
 }
 
 #[sqlx::test]

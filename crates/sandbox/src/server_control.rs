@@ -28,35 +28,12 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tracing::{info, warn};
 
-use crate::init::server_env::shell_single_quote;
+use crate::credentials::server_env::shell_single_quote;
 
-/// A server's complete override state.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerOverride {
-    /// Replaces the sidecar's baked start command. `None` = use the baked one.
-    #[serde(default)]
-    pub start_command: Option<String>,
-    /// Env entries exported after `server.env`, so they win over it.
-    #[serde(default)]
-    pub env: BTreeMap<String, String>,
-    /// Keys emitted as `unset K` — the only way to drop a variable the
-    /// container spec injected, since sourcing can add but never remove.
-    #[serde(default)]
-    pub unset_env: Vec<String>,
-}
-
-impl ServerOverride {
-    /// No override at all — the sidecar runs entirely off its container spec.
-    /// Applying an empty override is how `reset` works.
-    pub fn is_empty(&self) -> bool {
-        self.start_command.is_none() && self.env.is_empty() && self.unset_env.is_empty()
-    }
-}
+pub use moatless_types::workspace::ServerOverride;
 
 /// What a server's control directory currently holds.
 #[derive(Debug, Clone, PartialEq, Eq)]

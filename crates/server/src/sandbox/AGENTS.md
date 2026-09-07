@@ -18,7 +18,7 @@ Start in `moatless-sandbox-control` for any change to sandbox intent, events,
 or the reconciler. It holds the provider-agnostic half:
 
 - durable lifecycle intent and orchestration;
-- the gRPC ingress service and event dedup;
+- event dedup behind the server-owned gRPC transport;
 - routes and handlers;
 - JWT, secrets and preflight;
 - status reads and the resource-quantity parsers.
@@ -33,7 +33,7 @@ is written out. `k8s` and `docker` are crate aliases, declared as
 
 ## What the backend still owns
 
-- **The composition root.** `startup.rs`, `compose.rs` and `state.rs` build the
+- **The composition root.** Named modules under `compose/` build the
   concrete provider adapters (`K8sSandboxAdapter`, `DockerSandboxAdapter`) and
   the `Lifecycle` and `Reconciler` handles, then wire them into `AppState`. The
   four crates are generic over the ports. Only the backend names the concrete

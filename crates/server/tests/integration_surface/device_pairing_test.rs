@@ -66,7 +66,7 @@ async fn seed_user(pool: &PgPool) -> Uuid {
         .upsert_user(&User {
             id,
             login: "pairing-user".into(),
-            email: None,
+            email: Some("pairing-user@example.test".into()),
             name: None,
             avatar_url: None,
             provider: "local".into(),

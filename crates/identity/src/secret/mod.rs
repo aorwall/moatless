@@ -1,8 +1,6 @@
 //! Scoped secret storage and resolution feature.
 
 pub mod audit;
-pub mod cli;
-pub mod cli_migrate;
 pub mod dao;
 pub mod error;
 pub mod handlers;
@@ -14,3 +12,5 @@ pub mod service;
 // feature exposes it to other crates' tests (see Cargo.toml `test-support`).
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+
+mod audit_dao;

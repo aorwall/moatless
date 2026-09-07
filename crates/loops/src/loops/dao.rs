@@ -15,14 +15,14 @@ use sqlx::AssertSqlSafe;
 
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 
-use moatless_adapter_model::persistence::LoopSpawnConfigRow;
-use moatless_adapter_model::persistence::SubscriptionMatchRow;
+use super::persistence::LoopSpawnConfigRow;
+use super::persistence::SubscriptionMatchRow;
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_required;
 use moatless_types::adapter::AdapterKind;
 use moatless_types::agent::AgentType;
-use moatless_types::loops::LoopSpawnConfig;
-use moatless_types::loops::Schedule;
+use crate::loops::models::LoopSpawnConfig;
+use crate::loops::models::Schedule;
 use moatless_types::loops::SubscriptionMatch;
 use moatless_types::loops::{LoopConfigSource, LoopKind, RoutingMode};
 
@@ -418,7 +418,8 @@ impl LoopDao {
         id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<LoopRecord>, sqlx::Error> {
-        let access = ctx.access_filter(ScopedEntity::Resource, "t.", 2);
+        let access =
+            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "t.", 2);
         let sql = format!(
             "{LOOP_RECORD_SELECT} WHERE t.id = $1 AND {} AND (t.deleted = false OR $2)",
             access.sql()
@@ -438,7 +439,8 @@ impl LoopDao {
         ctx: &ScopeContext,
         filter: LoopListFilter<'_>,
     ) -> Result<Vec<LoopRecord>, sqlx::Error> {
-        let access = ctx.access_filter(ScopedEntity::Resource, "t.", 1);
+        let access =
+            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "t.", 1);
         let mut sql = format!(
             "{LOOP_RECORD_SELECT} WHERE {} AND (t.deleted = false OR $1)",
             access.sql()
@@ -518,7 +520,7 @@ impl LoopDao {
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = ctx.write_filter("t.", 5);
+        let ctrl = moatless_core::db::access_control::write_filter("t.", 5);
         let sql = format!(
             r#"UPDATE loops t
                SET name = $2,
@@ -632,7 +634,7 @@ impl LoopDao {
     pub async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = ctx.write_filter("t.", 2);
+        let ctrl = moatless_core::db::access_control::write_filter("t.", 2);
         let sql = format!(
             "SELECT t.source_repository_id FROM loops t WHERE t.id = $1 AND {} FOR UPDATE",
             ctrl.sql()
@@ -678,7 +680,7 @@ impl LoopDao {
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = ctx.write_filter("t.", 2);
+        let ctrl = moatless_core::db::access_control::write_filter("t.", 2);
         let sql = format!(
             "SELECT t.id
              FROM loops t
@@ -714,7 +716,7 @@ impl LoopDao {
     pub async fn pause(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = ctx.write_filter("t.", 2);
+        let ctrl = moatless_core::db::access_control::write_filter("t.", 2);
         let sql = format!(
             "SELECT t.id FROM loops t
              WHERE t.id = $1 AND t.deleted = false AND {}
@@ -741,7 +743,7 @@ impl LoopDao {
     pub async fn resume(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = ctx.write_filter("t.", 2);
+        let ctrl = moatless_core::db::access_control::write_filter("t.", 2);
         let sql = format!(
             "SELECT t.id
              FROM loops t
@@ -773,7 +775,7 @@ impl LoopDao {
     pub async fn override_git(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = ctx.write_filter("t.", 2);
+        let ctrl = moatless_core::db::access_control::write_filter("t.", 2);
         let sql = format!(
             "SELECT t.id FROM loops t
              WHERE t.id = $1
@@ -1237,7 +1239,7 @@ impl LoopDao {
         worker_id: &str,
         limit: i64,
     ) -> Result<Vec<Schedule>, sqlx::Error> {
-        let due_jobs = sqlx::query_as::<_, moatless_adapter_model::persistence::ScheduleRow>(
+        let due_jobs = sqlx::query_as::<_, super::persistence::ScheduleRow>(
             r#"SELECT t.id,
                       t.id AS loop_id,
                       sts.cron_expression,
@@ -1272,7 +1274,7 @@ impl LoopDao {
 
         let mut locked = Vec::new();
         for job in due_jobs {
-            let job_lock = sqlx::query_as::<_, moatless_adapter_model::persistence::ScheduleRow>(
+            let job_lock = sqlx::query_as::<_, super::persistence::ScheduleRow>(
                 r#"WITH locked_source AS (
                        UPDATE schedules
                        SET locked_by = $2,

@@ -201,7 +201,11 @@ impl AgentState {
     /// suppressed on both routes and the conversation never learns a question
     /// was asked, which reads downstream as an agent that stopped for no reason.
     pub async fn release_prompt_publication(&self, tool_use_id: &str) {
-        self.inner.write().await.published_prompts.remove(tool_use_id);
+        self.inner
+            .write()
+            .await
+            .published_prompts
+            .remove(tool_use_id);
     }
 
     /// Park a prompt, unless one is already parked. Returns whether it was.

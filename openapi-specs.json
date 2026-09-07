@@ -13963,7 +13963,7 @@
             }
           }
         ],
-        "description": "Adapter-native rich rendering of an outbound message body.\n\n[`OutboundReply::text`] stays mandatory and portable: every adapter sends it,\nSlack uses it for the notification, and the binding layer records it as the\ntask-timeline entry. A presentation is the optional richer form, for the\nadapters that have one. An adapter ignores a presentation addressed to\nanother kind, the way Slack already ignores `footer`."
+        "description": "Adapter-native rich rendering of an outbound message body.\n\nThe portable reply text stays mandatory and portable: every adapter sends it,\nSlack uses it for the notification, and the binding layer records it as the\ntask-timeline entry. A presentation is the optional richer form, for the\nadapters that have one. An adapter ignores a presentation addressed to\nanother kind, the way Slack already ignores `footer`."
       },
       "PaginationResponse": {
         "type": "object",
@@ -15997,11 +15997,11 @@
       },
       "ServerOverride": {
         "type": "object",
-        "description": "A live override of one preview server's start command and env.\n\nWhole-state, not a delta: callers always send the complete set to the\nsandbox, which never merges.",
+        "description": "A live override of one preview server's start command and env.\nCallers send the complete state; the sandbox replaces it without merging.",
         "properties": {
           "env": {
             "type": "object",
-            "description": "Env entries exported after `server.env`, so they win over it.",
+            "description": "Applied after the configured server environment, so these values win.",
             "additionalProperties": {
               "type": "string"
             },
@@ -16014,14 +16014,14 @@
               "string",
               "null"
             ],
-            "description": "Replaces the server's configured start command. `None` = use the\nworkspace's."
+            "description": "Replaces the configured start command; `None` uses the workspace command."
           },
           "unsetEnv": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Keys to remove — the only way to drop a variable the container spec\ninjected, since sourcing an env file can add but never remove."
+            "description": "Removes variables injected through the container spec; sourcing an env file cannot unset them."
           }
         }
       },
@@ -19099,7 +19099,7 @@
               "string",
               "null"
             ],
-            "description": "Thread ID for routing (maps to `thread_id` in [`InboundMessage`])."
+            "description": "Thread ID for routing."
           },
           "userId": {
             "type": [

@@ -54,7 +54,10 @@ impl AdapterKind {
     /// uses [`parse`](Self::parse) and handles `None`.
     pub fn parse_or_webhook(value: &str) -> Self {
         Self::parse(value).unwrap_or_else(|| {
-            tracing::warn!(adapter_kind = value, "unrecognized adapter_kind, defaulting to webhook");
+            tracing::warn!(
+                adapter_kind = value,
+                "unrecognized adapter_kind, defaulting to webhook"
+            );
             Self::Webhook
         })
     }
@@ -78,24 +81,6 @@ pub const SCHEDULED_ORIGIN: &str = "scheduled";
 // =============================================================================
 // Adapter contexts
 // =============================================================================
-
-/// Adapter-facing subject context.
-///
-/// This is synthesized from a task binding before invoking Adapter-specific
-/// outbound and context-fetching code.
-#[derive(Debug, Clone)]
-pub struct BindingContext {
-    pub binding_id: String,
-    pub loop_id: Option<String>,
-    pub task_id: String,
-    pub subject_kind: String,
-    pub subject_key: String,
-    pub destination_config: serde_json::Value,
-    pub metadata: serde_json::Value,
-    pub last_external_event_id: Option<String>,
-    pub last_message_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
-}
 
 /// Normalized external status for the subject a `TaskBinding` points at.
 ///
@@ -226,21 +211,13 @@ pub enum Audience {
     },
 }
 
-/// Resolved file attachment for outbound adapter messages.
-#[derive(Clone, Debug)]
-pub struct OutboundFile {
-    pub filename: String,
-    pub mime_type: String,
-    pub data: Vec<u8>,
-}
-
 // =============================================================================
 // Adapter-native presentation
 // =============================================================================
 
 /// Adapter-native rich rendering of an outbound message body.
 ///
-/// [`OutboundReply::text`] stays mandatory and portable: every adapter sends it,
+/// The portable reply text stays mandatory and portable: every adapter sends it,
 /// Slack uses it for the notification, and the binding layer records it as the
 /// task-timeline entry. A presentation is the optional richer form, for the
 /// adapters that have one. An adapter ignores a presentation addressed to
@@ -273,7 +250,9 @@ impl OutboundPresentation {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SlackBlock {
     /// Large bold title. Slack accepts only `plain_text` here.
-    Header { text: SlackPlainText },
+    Header {
+        text: SlackPlainText,
+    },
     /// Body text, optionally with a two-column `fields` array.
     Section {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -282,13 +261,22 @@ pub enum SlackBlock {
         fields: Option<Vec<SlackText>>,
     },
     /// Standard Markdown that Slack translates, headings and tables included.
-    Markdown { text: String },
+    Markdown {
+        text: String,
+    },
     /// Tabular data. Cells are rich text, so they can carry live links.
-    Table { rows: Vec<Vec<SlackTableCell>> },
+    Table {
+        rows: Vec<Vec<SlackTableCell>>,
+    },
     /// Small muted line, typically a footer.
-    Context { elements: Vec<SlackText> },
+    Context {
+        elements: Vec<SlackText>,
+    },
     Divider,
-    Image { image_url: String, alt_text: String },
+    Image {
+        image_url: String,
+        alt_text: String,
+    },
 }
 
 /// A Slack composition text object.
@@ -367,157 +355,12 @@ pub struct SlackTextStyle {
     pub code: Option<bool>,
 }
 
-/// Where a reply came from, rendered as a footer by adapters that link back to
-/// the task themselves.
-///
-/// Linear and GitHub PR do not use this — their comment bodies are Markdown, so
-/// they carry the link in [`OutboundReply::footer`] via `render_footer`. Slack
-/// mrkdwn has no `[text](url)`, which is why the pieces travel structured and
-/// the adapter renders them.
-///
-/// Every field but `url` is droppable: a missing workspace or task name omits
-/// its segment rather than failing the send.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct TaskProvenance {
-    /// `{frontend_url}/tasks/{task_id}`.
-    pub url: String,
-    pub task_name: Option<String>,
-    pub workspace_name: Option<String>,
-    pub origin: TaskOrigin,
-}
-
-impl TaskProvenance {
-    /// Text for the link itself: the task's name, or a generic fallback — the
-    /// same rule `render_footer` uses for Linear and GitHub.
-    pub fn label(&self) -> &str {
-        self.task_name
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("View task")
-    }
-
-    /// The segments that follow the link, in order, skipping what is unknown.
-    /// Adapters join these with their own separator so one adapter's markup
-    /// never leaks into another's.
-    pub fn details(&self) -> Vec<String> {
-        let mut out = Vec::new();
-        if let Some(ws) = self
-            .workspace_name
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            out.push(ws.to_string());
-        }
-        match &self.origin {
-            TaskOrigin::Loop { name } => out.push(format!("loop: {name}")),
-            TaskOrigin::StartedBy { login } => out.push(format!("started by {login}")),
-            TaskOrigin::Unknown => {}
-        }
-        out
-    }
-}
-
-/// What set a task going.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum TaskOrigin {
-    /// Fired by a Loop, named by `loops.name`.
-    Loop { name: String },
-    /// Started by a person, named by their moatless login.
-    StartedBy { login: String },
-    /// Neither is known — the task predates provenance, or both lookups failed.
-    Unknown,
-}
-
-/// Outbound reply to send back to an external target.
-#[derive(Debug)]
-pub struct OutboundReply {
-    pub text: String,
-    /// Provenance footer for adapters that render the task link themselves
-    /// (Slack). `None` leaves the reply without one.
-    pub provenance: Option<TaskProvenance>,
-    /// Footer suffix appended to comment bodies by the Linear/GitHub adapters
-    /// (e.g. `"\n\n---\nMoatless task: [Task name](https://app/tasks/<id>)"`).
-    /// Built by the binding layer's `task_comment_footer`. The footer URL
-    /// doubles as the inbound echo-filter source. `None` for providers that
-    /// don't carry a footer.
-    pub footer: Option<String>,
-    /// Preferred system user whose Adapter credentials should author this
-    /// reply — the owning task's `owner_user_id`. Providers that resolve a
-    /// per-user credential (currently GitHub) prefer this over binding/trigger
-    /// identities so a human-owned task replies under the human, and a
-    /// trigger-created automation task replies under its run-as bot. `None`
-    /// when no task owner is in scope (non-reply sends) or for providers that
-    /// don't use it.
-    pub author_user_id: Option<String>,
-    pub is_error: bool,
-    pub files: Vec<OutboundFile>,
-    /// Adapter-native rich rendering of this reply, when the caller supplied
-    /// one. `None` reproduces the pre-presentation behaviour exactly.
-    pub presentation: Option<OutboundPresentation>,
-}
-
 // =============================================================================
 // Adapter delivery
 // =============================================================================
 //
 // A destination names where a reply lands; a payload carries everything a
 // worker needs to redo inbound routing after the admitting process is gone.
-
-/// Result of posting to a provider-specific destination by raw ID.
-///
-/// Returned by `AdapterDirectDestination::post_to_destination` and used by
-/// callers to build a matching `TaskBinding` row when the post is associated
-/// with a task.
-#[derive(Debug, Clone)]
-pub struct DestinationPostResult {
-    /// Provider-specific external message ID (e.g. Slack message `ts`).
-    pub message_external_id: String,
-    /// Provider-specific binding `subject_kind`.
-    pub subject_kind: &'static str,
-    /// Binding `subject_key` matching the format produced during inbound
-    /// routing for this provider.
-    pub subject_key: String,
-    /// Binding `destination_config` JSON used by `send_reply_for_binding`.
-    pub destination_config: serde_json::Value,
-}
-
-/// Provider-owned destination data for a task binding.
-#[derive(Debug, Clone)]
-pub struct BindingDestination {
-    /// Binding `subject_kind` (for example, a provider-defined thread kind).
-    pub subject_kind: &'static str,
-    /// Stable provider-defined lookup key for the bound subject.
-    pub subject_key: String,
-    /// Provider-defined JSON needed to send future replies.
-    pub destination_config: serde_json::Value,
-    /// Optional cursor seeded when the binding is created from an outbound send.
-    pub last_external_event_id: Option<String>,
-}
-
-impl BindingDestination {
-    pub fn new(
-        subject_kind: &'static str,
-        subject_key: String,
-        destination_config: serde_json::Value,
-    ) -> Self {
-        Self {
-            subject_kind,
-            subject_key,
-            destination_config,
-            last_external_event_id: None,
-        }
-    }
-
-    pub fn with_last_external_event_id(mut self, external_id: impl Into<String>) -> Self {
-        self.last_external_event_id = Some(external_id.into());
-        self
-    }
-}
 
 /// Everything `route_inbound_message` needs, in a form that outlives the
 /// process that admitted it.
@@ -650,7 +493,9 @@ mod tests {
             ),
             (
                 SlackBlock::Section {
-                    text: Some(SlackText::Mrkdwn { text: "*7 apps*".into() }),
+                    text: Some(SlackText::Mrkdwn {
+                        text: "*7 apps*".into(),
+                    }),
                     fields: None,
                 },
                 serde_json::json!({
@@ -659,7 +504,9 @@ mod tests {
                 }),
             ),
             (
-                SlackBlock::Markdown { text: "### Heading".into() },
+                SlackBlock::Markdown {
+                    text: "### Heading".into(),
+                },
                 serde_json::json!({ "type": "markdown", "text": "### Heading" }),
             ),
             (
@@ -668,7 +515,9 @@ mod tests {
             ),
             (
                 SlackBlock::Context {
-                    elements: vec![SlackText::Mrkdwn { text: "93 to promote".into() }],
+                    elements: vec![SlackText::Mrkdwn {
+                        text: "93 to promote".into(),
+                    }],
                 },
                 serde_json::json!({
                     "type": "context",
@@ -678,7 +527,10 @@ mod tests {
         ];
 
         for (block, expected) in cases {
-            assert_eq!(serde_json::to_value(&block).expect("a block serialises"), expected);
+            assert_eq!(
+                serde_json::to_value(&block).expect("a block serialises"),
+                expected
+            );
             // and the payload an agent hands us round-trips back to the same block
             let parsed: SlackBlock = serde_json::from_value(expected).expect("it parses back");
             assert_eq!(parsed, block);
@@ -695,7 +547,10 @@ mod tests {
                     elements: vec![SlackRichTextElement::Link {
                         url: "https://github.com/soap/soap-backend/compare/a...b".into(),
                         text: Some("1.0.1204 (d0eec4f3)".into()),
-                        style: Some(SlackTextStyle { bold: Some(true), ..Default::default() }),
+                        style: Some(SlackTextStyle {
+                            bold: Some(true),
+                            ..Default::default()
+                        }),
                     }],
                 }],
             }]],
@@ -738,11 +593,17 @@ mod tests {
     #[test]
     fn unset_optional_keys_are_omitted_not_null() {
         let block = SlackBlock::Section {
-            text: Some(SlackText::PlainText { text: "hi".into(), emoji: None }),
+            text: Some(SlackText::PlainText {
+                text: "hi".into(),
+                emoji: None,
+            }),
             fields: None,
         };
         let json = serde_json::to_string(&block).expect("a section serialises");
-        assert_eq!(json, r#"{"type":"section","text":{"type":"plain_text","text":"hi"}}"#);
+        assert_eq!(
+            json,
+            r#"{"type":"section","text":{"type":"plain_text","text":"hi"}}"#
+        );
         assert!(!json.contains("null"));
     }
 }

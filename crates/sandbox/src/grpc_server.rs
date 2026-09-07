@@ -169,7 +169,7 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         _request: Request<SyncWorkspaceRequest>,
     ) -> Result<Response<SyncWorkspaceResponse>, Status> {
-        let outcome = crate::init::workspace_sync::sync_on_request(&self.state).await;
+        let outcome = crate::workspace_sync::sync_on_request(&self.state).await;
         if outcome.synced {
             info!(bytes = outcome.bytes, "Workspace synced to S3 on request");
         }
@@ -435,8 +435,12 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalOpenRequest>,
     ) -> Result<Response<TerminalSessionSnapshot>, Status> {
-        let snapshot = self.state.terminals.open(request.into_inner()).await?;
-        Ok(Response::new(snapshot))
+        let snapshot = self
+            .state
+            .terminals
+            .open(request.into_inner().into())
+            .await?;
+        Ok(Response::new(snapshot.into()))
     }
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
@@ -444,7 +448,11 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalAttachRequest>,
     ) -> Result<Response<Self::TerminalAttachStream>, Status> {
-        let attached = self.state.terminals.attach(request.into_inner()).await?;
+        let attached = self
+            .state
+            .terminals
+            .attach(request.into_inner().into())
+            .await?;
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         let mut events = attached.events;
         let snapshot_event = TerminalAttachStreamEvent {
@@ -452,7 +460,9 @@ impl SandboxService for SandboxServiceImpl {
             terminal_id: attached.snapshot.terminal_id.clone(),
             sequence: attached.snapshot.sequence,
             event: Some(
-                sandbox_proto::terminal_attach_stream_event::Event::Snapshot(attached.snapshot),
+                sandbox_proto::terminal_attach_stream_event::Event::Snapshot(
+                    attached.snapshot.into(),
+                ),
             ),
         };
         let _handle = tokio::spawn(async move {
@@ -462,7 +472,7 @@ impl SandboxService for SandboxServiceImpl {
             loop {
                 match events.recv().await {
                     Ok(event) => {
-                        if tx.send(Ok(event)).await.is_err() {
+                        if tx.send(Ok(event.into())).await.is_err() {
                             return;
                         }
                     }
@@ -483,7 +493,10 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalWriteRequest>,
     ) -> Result<Response<TerminalWriteResponse>, Status> {
-        self.state.terminals.write(request.into_inner()).await?;
+        self.state
+            .terminals
+            .write(request.into_inner().into())
+            .await?;
         Ok(Response::new(TerminalWriteResponse {}))
     }
 
@@ -492,7 +505,10 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalResizeRequest>,
     ) -> Result<Response<TerminalResizeResponse>, Status> {
-        self.state.terminals.resize(request.into_inner()).await?;
+        self.state
+            .terminals
+            .resize(request.into_inner().into())
+            .await?;
         Ok(Response::new(TerminalResizeResponse {}))
     }
 
@@ -501,7 +517,10 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalClearRequest>,
     ) -> Result<Response<TerminalClearResponse>, Status> {
-        self.state.terminals.clear(request.into_inner()).await?;
+        self.state
+            .terminals
+            .clear(request.into_inner().into())
+            .await?;
         Ok(Response::new(TerminalClearResponse {}))
     }
 
@@ -510,8 +529,12 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalRestartRequest>,
     ) -> Result<Response<TerminalSessionSnapshot>, Status> {
-        let snapshot = self.state.terminals.restart(request.into_inner()).await?;
-        Ok(Response::new(snapshot))
+        let snapshot = self
+            .state
+            .terminals
+            .restart(request.into_inner().into())
+            .await?;
+        Ok(Response::new(snapshot.into()))
     }
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
@@ -519,7 +542,10 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<TerminalCloseRequest>,
     ) -> Result<Response<TerminalCloseResponse>, Status> {
-        self.state.terminals.close(request.into_inner()).await?;
+        self.state
+            .terminals
+            .close(request.into_inner().into())
+            .await?;
         Ok(Response::new(TerminalCloseResponse {}))
     }
 

@@ -34,3 +34,5 @@ pub mod task_connections;
 pub mod team;
 pub mod user;
 pub mod workspace;
+
+pub mod webhook;

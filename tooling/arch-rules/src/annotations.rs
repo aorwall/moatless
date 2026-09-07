@@ -9,7 +9,7 @@ use crate::{RULES, Violation};
 pub const RULE: &str = "arch-allow-names-a-rule";
 
 /// A parsed item exception.
-pub struct Allow<'a> {
+struct Allow<'a> {
     pub rule: &'a str,
     pub reason: &'a str,
 }
@@ -52,7 +52,12 @@ pub fn permits(record: &Record, rule: &str) -> bool {
         .iter()
         .filter(|a| a.path().is_ident("doc"))
         .filter_map(doc_value)
-        .any(|line| parse(&line).ok().flatten().is_some_and(|a| a.rule == rule))
+        .any(|line| {
+            parse(&line)
+                .ok()
+                .flatten()
+                .is_some_and(|a| a.rule == rule && !a.reason.is_empty())
+        })
 }
 
 /// Whether a manifest excuses exactly this rule and target package.
@@ -71,7 +76,7 @@ pub fn permits_dependency(member: &Member, rule: &str, dependency: &str) -> bool
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let mut out = Vec::new();
-    for r in &ws.index()?.records {
+    for r in &ws.role_index()?.records {
         for line in attrs(&r.item)
             .iter()
             .filter(|a| a.path().is_ident("doc"))
@@ -90,6 +95,11 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
                         "floor-type-admission" => r.package == "moatless-types",
                         "single-implementation-trait" => matches!(r.item, syn::Item::Trait(_)),
                         "composition-root"
+                        | "declaration-only-roots"
+                        | "route-registration"
+                        | "transport-direction"
+                        | "persistence-sql-location"
+                        | "process-exit"
                         | "store-privacy"
                         | "table-ownership"
                         | "adapter-boundaries"

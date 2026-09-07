@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::models::{AdapterDelivery, AdapterDeliveryFailure};
+use super::{AdapterDelivery, AdapterDeliveryFailure};
 
 /// Executes one kind of admitted Adapter delivery.
 ///

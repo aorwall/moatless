@@ -4,7 +4,7 @@
 //! `attachments.createUploadUrl` hands back an id and a URL; the client `POST`s
 //! the raw file there and names the id on the turn. It is the only way a
 //! non-image reaches a thread, and once
-//! [`capabilities.attachmentUploads`](crate::descriptor) is reported, how images
+//! [`capabilities.attachmentUploads`](crate::rpc::config::descriptor) is reported, how images
 //! arrive too.
 //!
 //! The credential is in the URL — a short-lived JWT naming the viewer and the
@@ -39,6 +39,7 @@ use crate::ports::{AttachmentStore, AttachmentStoreError, DeclaredAttachment};
 /// Exempt from the auth middleware's cookie handling in
 /// `moatless_identity::auth::middleware`, which knows this prefix by name.
 pub(crate) const UPLOAD_ROUTE_PREFIX: &str = "/api/attachments";
+pub(crate) const UPLOAD_ROUTE_PATTERN: &str = "/api/attachments/{token}";
 
 /// `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES` (`contracts/src/orchestration.ts:158`).
 pub(crate) const MAX_IMAGE_BYTES: i64 = 10 * 1024 * 1024;

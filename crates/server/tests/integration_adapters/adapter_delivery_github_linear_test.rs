@@ -24,10 +24,10 @@ use crate::common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use moatless_backend::adapters::delivery::spawn_adapter_delivery_worker;
 use moatless_adapter_model::delivery::{
     AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission, DeliveryAdmission,
 };
+use moatless_backend::adapters::delivery::spawn_adapter_delivery_worker;
 use moatless_backend::adapters::providers::linear;
 use moatless_backend::state::AppState;
 use sqlx::PgPool;
@@ -387,6 +387,7 @@ async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_cra
     let (base_url, _stub) = default_branch_stub("trunk").await;
     let _github_api = common::github_api_base(&base_url).await;
     let credentialed = test_config;
+    common::seed_github_token(&pool, "user-1").await;
 
     seed_connection(&pool, CONNECTION_ID, "github", "acme").await;
     seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;

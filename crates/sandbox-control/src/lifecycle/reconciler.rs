@@ -787,6 +787,39 @@ struct SpentBudget {
     last_error: String,
 }
 
+/// Run reconciliation on elected ticks until the host cancels it.
+pub fn spawn(
+    reconciler: Reconciler,
+    leader: Option<Arc<dyn moatless_core::leader::LeaderGuard>>,
+    cancel: tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    let handle = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                () = cancel.cancelled() => break,
+                _ = ticker.tick() => {
+                    if let Some(l) = &leader {
+                        match l.try_acquire_or_renew().await {
+                            Ok(true) => {}
+                            Ok(false) => continue,
+                            Err(e) => {
+                                tracing::warn!(error = %e, "reconciler: leader check failed; skipping tick");
+                                continue;
+                            }
+                        }
+                    }
+                    reconciler.reconcile_once().await;
+                }
+            }
+        }
+        info!("Sandbox reconciler stopped");
+    });
+    info!("Sandbox reconciler spawned");
+    handle
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

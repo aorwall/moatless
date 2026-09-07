@@ -1,28 +1,12 @@
 //! Ports expose traits and the value types their signatures require.
 
-use crate::source_index::{Index, Record};
+use crate::source_index::{Record, implemented_trait};
 use crate::workspace::Workspace;
 use crate::{Violation, annotations};
 use anyhow::Result;
 use std::collections::BTreeSet;
 
 pub const RULE: &str = "port-admission";
-
-/// The canonical trait implemented by an impl declaration.
-pub fn implemented_trait(index: &Index, r: &Record) -> Option<String> {
-    let syn::Item::Impl(i) = &r.item else {
-        return None;
-    };
-    let (_, path, _) = i.trait_.as_ref()?;
-    index.resolve(
-        r,
-        &path
-            .segments
-            .iter()
-            .map(|s| s.ident.to_string())
-            .collect::<Vec<_>>(),
-    )
-}
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let index = ws.index()?;

@@ -11,11 +11,11 @@ use std::sync::Arc;
 use crate::common;
 use axum::extract::FromRef;
 
-use moatless_types::adapter::AdapterKind;
 use moatless_backend::adapters::providers::github_pr::adapter::GithubPrAdapter;
 use moatless_backend::adapters::providers::linear::adapter::LinearAdapter;
 use moatless_backend::adapters::providers::slack::adapter::SlackAdapter;
 use moatless_backend::adapters::providers::telegram::adapter::TelegramAdapter;
+use moatless_types::adapter::AdapterKind;
 use sqlx::PgPool;
 
 use common::{test_app_state_with_adapters, test_config};
@@ -53,6 +53,7 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
             "github.close",
             "github.merge_conflict",
             "github.post_merge",
+            "github.pr_merged",
             "github.pr_message",
             "linear.comment",
             "linear.issue_update",

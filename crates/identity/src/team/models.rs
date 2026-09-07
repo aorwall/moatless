@@ -26,3 +26,9 @@ pub struct TeamMember {
     pub role: String,
     pub created_at: DateTime<Utc>,
 }
+
+/// Authenticated principal supplied to team operations.
+pub struct TeamCaller {
+    pub user_id: Uuid,
+    pub is_admin: bool,
+}

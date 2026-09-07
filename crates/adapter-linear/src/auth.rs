@@ -19,10 +19,11 @@
 use moatless_adapter_model::apps::{AdapterAppReader, AdapterAppSecrets};
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::access::resolve_connection;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::LinearConfig;
 use moatless_types::adapter::TaskBinding;
+use moatless_types::adapter::{AdapterConnection, AdapterKind};
 use std::sync::Arc;
 
 use moatless_ports::identity::AppCredentials;
@@ -181,4 +182,36 @@ pub(super) async fn api_for_single_workspace(
         )
         .into()),
     }
+}
+
+/// Unwrap the composition-root-injected Linear adapter, or fail the request
+/// with the not-configured error.
+pub(super) fn require_linear(
+    linear: Option<Arc<LinearAdapter>>,
+) -> Result<Arc<LinearAdapter>, AdapterError> {
+    linear.ok_or_else(|| SharedAdapterError::AdapterNotConfigured("linear".into()).into())
+}
+
+/// Resolve the caller's Linear connection (defaulting to the single
+/// accessible one) and build a [`LinearAgentApi`] for that workspace.
+///
+/// The adapter is handed in by the handler rather than looked up through
+/// `state.provider_handles.linear`: this file *is* the Linear provider, so
+/// reaching itself through the registry was self-resolution, and it dissolves
+/// once the route extracts `State<Option<Arc<LinearAdapter>>>`. The connection
+/// store rides on the adapter (its ingress ports), so no `AppState` is needed.
+pub(super) async fn resolve_linear_api(
+    adapter: &LinearAdapter,
+    ctx: &ScopeContext,
+    connection_id: Option<&str>,
+) -> Result<(AdapterConnection, LinearAgentApi), AdapterError> {
+    let connection = resolve_connection(
+        adapter.require_adapter_connections()?,
+        ctx,
+        AdapterKind::Linear,
+        connection_id,
+    )
+    .await?;
+    let api = adapter.agent_api_for_connection(&connection).await?;
+    Ok((connection, api))
 }

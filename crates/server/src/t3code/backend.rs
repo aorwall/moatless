@@ -19,22 +19,18 @@ use moatless_t3code::ports::{
     BoundPullRequestSource, BranchListError, ChildTask, CommandRefusal, DeclaredAttachment,
     ForkThread, GithubIdentity, NewThread, PullRequestError, QuestionAnswer,
     RepositoryBranchSource, ResolvedPullRequest, SkillCatalog, SourceControlAuthSource,
-    TaskRelationSource, ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment, UsageBucketRow,
-    UsageReporter, UsageWindow, WorkspaceSkill,
+    TaskRelationSource, ThreadCommandSink, ThreadMeta, ThreadTurn, TurnAttachment, WorkspaceSkill,
 };
 use moatless_tasks::message::error::MessageError;
 use moatless_tasks::message::service as message_service;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::dao::TaskPatch;
 use moatless_tasks::task::error::TaskError;
-use moatless_tasks::task::handlers as task_handlers;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::service as task_service;
-use moatless_types::access_control::ScopedEntity;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::store::StoreError;
 use moatless_workspaces::repository::error::RepositoryError;
-use moatless_workspaces::repository::handlers::list_branches;
 
 pub struct AppStateAgents(pub AppState);
 
@@ -52,6 +48,35 @@ impl AgentCatalogSource for AppStateAgents {
 
 pub struct AppStateBranches(pub AppState);
 
+/// Adapt T3 script commands to the Workspace operation owner.
+pub struct WorkspaceScripts(pub Arc<dyn moatless_workspaces::workspace::dao::WorkspaceDao>);
+
+#[async_trait]
+impl moatless_t3code::ports::WorkspaceScriptCommands for WorkspaceScripts {
+    async fn replace_scripts(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+        scripts: &[moatless_types::workspace::ScriptConfig],
+    ) -> Result<(), moatless_t3code::scripts::ScriptsWriteError> {
+        use moatless_t3code::scripts::ScriptsWriteError as Target;
+        use moatless_workspaces::workspace::error::WorkspaceScriptsError as Source;
+        moatless_workspaces::workspace::scripts::replace_scripts_preserving_env(
+            self.0.as_ref(),
+            viewer,
+            workspace_id,
+            scripts,
+        )
+        .await
+        .map_err(|error| match error {
+            Source::NotFound => Target::NotFound,
+            Source::GitSynced => Target::GitSynced,
+            Source::Invalid(message) => Target::Invalid(message),
+            Source::Database(source) => Target::Database(source),
+        })
+    }
+}
+
 #[async_trait]
 impl RepositoryBranchSource for AppStateBranches {
     async fn list_branches(
@@ -60,17 +85,11 @@ impl RepositoryBranchSource for AppStateBranches {
         repository_id: &str,
         workspace_id: Option<&str>,
     ) -> Result<moatless_api_schemas::repository::BranchListResponse, BranchListError> {
-        list_branches(
-            &self.0.repositories,
-            &self.0.workspaces,
-            &self.0.git_host_tokens,
-            &self.0.provider_tokens,
-            viewer,
-            repository_id,
-            workspace_id,
-        )
-        .await
-        .map_err(branch_list_error)
+        self.0
+            .repository_branches
+            .list_branches(viewer, repository_id, workspace_id)
+            .await
+            .map_err(branch_list_error)
     }
 }
 
@@ -214,7 +233,7 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
         // The dialog resolves a reference against a Repository the viewer
         // names, with no Task and so no Workspace whose credential could stand
         // in for the viewer's own.
-        crate::adapters::providers::github_pr::api_routes::resolve_reference_for_dialog(
+        moatless_adapter_github_pr::pull_request_lookup::resolve_reference_for_dialog(
             &adapter,
             &viewer.user_id,
             None,
@@ -240,7 +259,7 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
             .adapter_installations
             .as_ref()
             .map(|installations| installations.github_pr())?;
-        crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
+        moatless_adapter_github_pr::pull_request_lookup::find_open_pull_request_for_head(
             &adapter,
             &viewer.user_id,
             None,
@@ -282,12 +301,9 @@ impl AppStateBoundPullRequests {
     /// resolves. Read directly rather than through a scoped find because the
     /// port has already had the viewer's access to the Task checked.
     async fn task_creator(&self, task_id: &str) -> Option<String> {
-        sqlx::query_scalar::<_, Option<String>>("SELECT created_by FROM tasks WHERE task_id = $1")
-            .bind(task_id)
-            .fetch_optional(&self.0.db)
+        moatless_t3code::dao::task_creator(&self.0.db, task_id)
             .await
             .ok()
-            .flatten()
             .flatten()
     }
 
@@ -336,7 +352,7 @@ fn pull_request_error(error: moatless_adapter_model::error::AdapterError) -> Pul
 }
 
 fn resolved_pull_request(
-    pr: crate::adapters::providers::github_pr::api_routes::DialogPullRequest,
+    pr: moatless_adapter_github_pr::pull_request_lookup::DialogPullRequest,
 ) -> ResolvedPullRequest {
     ResolvedPullRequest {
         number: pr.number,
@@ -396,24 +412,23 @@ async fn bind_thread_to_open_pr(
     else {
         return;
     };
-    let pr =
-        match crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
-            &adapter,
-            &viewer.user_id,
-            Some(workspace_id),
-            owner,
-            repo,
-            branch,
-        )
-        .await
-        {
-            Ok(Some(pr)) => pr,
-            Ok(None) => return,
-            Err(error) => {
-                tracing::debug!(%error, task_id, branch, "T3 thread: no open PR for branch to bind");
-                return;
-            }
-        };
+    let pr = match moatless_adapter_github_pr::pull_request_lookup::find_open_pull_request_for_head(
+        &adapter,
+        &viewer.user_id,
+        Some(workspace_id),
+        owner,
+        repo,
+        branch,
+    )
+    .await
+    {
+        Ok(Some(pr)) => pr,
+        Ok(None) => return,
+        Err(error) => {
+            tracing::debug!(%error, task_id, branch, "T3 thread: no open PR for branch to bind");
+            return;
+        }
+    };
     let source_id = format!("{owner}/{repo}");
     let thread_properties = serde_json::json!({
         "owner": owner,
@@ -825,14 +840,7 @@ impl AppStateAttachments {
     /// the rule — an attachment stops being the composer's draft the moment a
     /// turn names it — is this surface's.
     async fn is_on_a_message(&self, attachment_id: &str) -> Result<bool, AttachmentStoreError> {
-        sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (
-                SELECT 1 FROM task_message_contexts
-                WHERE reference_id = $1 AND type = 'file'
-             )",
-        )
-        .bind(attachment_id)
-        .fetch_one(&self.0.db)
+        moatless_t3code::dao::attachment_is_on_message(&self.0.db, attachment_id)
         .await
         .map_err(|error| {
             // Not knowing is not permission to delete: a read that failed is
@@ -1273,7 +1281,7 @@ impl ThreadCommandSink for AppStateCommands {
     }
 
     async fn unarchive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
-        task_handlers::reopen_task_for(
+        task_service::reopen_task_for(
             self.0.tasks.as_ref(),
             self.0.events.as_deref(),
             viewer,
@@ -1493,144 +1501,6 @@ fn create_refusal(task_id: &str, error: TaskError) -> CommandRefusal {
             CommandRefusal::Failed {
                 message: "The action could not be completed.".to_string(),
             }
-        }
-    }
-}
-
-pub struct AppStateUsage(pub AppState);
-
-#[async_trait]
-impl UsageReporter for AppStateUsage {
-    async fn buckets(
-        &self,
-        viewer: &ScopeContext,
-        window: &UsageWindow,
-    ) -> Result<Vec<UsageBucketRow>, StoreError> {
-        // `modelUsage` is Claude's per-model breakdown and is the only place a
-        // model name survives on a Claude turn. Codex reports one model per
-        // run and no breakdown, so its row is built from `metrics -> usage`
-        // with `metrics ->> 'model'` as the name. The two arms are unioned
-        // rather than coalesced: a Claude turn using two models has to fan out
-        // into two rows, and a Codex turn must not.
-        let access = viewer.access_filter(ScopedEntity::Task, "k.", 4);
-        // Interpolated into `cells`, which selects `FROM turns`: name the CTE's
-        // columns unqualified. A `t.` prefix resolves in `turns` but not here,
-        // and Postgres rejects the whole statement with "missing FROM-clause
-        // entry for table t".
-        let bucket_expr = if window.hourly {
-            "to_char(date_trunc('hour', started_at AT TIME ZONE $3), 'YYYY-MM-DD\"T\"HH24:00:00\"Z\"')"
-        } else {
-            "NULL"
-        };
-        let sql = format!(
-            r#"
-            WITH turns AS (
-                SELECT t.task_id, t.started_at, t.metrics,
-                       CASE WHEN k.agent_type LIKE 'claude%' THEN 'claude'
-                            WHEN k.agent_type LIKE 'codex%'  THEN 'codex'
-                            ELSE NULL END AS provider
-                FROM task_turns t
-                JOIN tasks k ON k.task_id = t.task_id
-                WHERE (t.started_at AT TIME ZONE $3)::date BETWEEN $1::date AND $2::date
-                  AND {access}
-            ),
-            cells AS (
-                SELECT provider,
-                       to_char(started_at AT TIME ZONE $3, 'YYYY-MM-DD') AS day,
-                       {bucket_expr} AS hour_start,
-                       m.key AS model,
-                       task_id,
-                       (m.value->>'inputTokens')::bigint             AS uncached_input,
-                       (m.value->>'cacheReadInputTokens')::bigint     AS cached_input,
-                       (m.value->>'cacheCreationInputTokens')::bigint AS cache_creation,
-                       (m.value->>'outputTokens')::bigint             AS output,
-                       0::bigint                                      AS reasoning,
-                       COALESCE((m.value->>'costUSD')::float8, 0)     AS cost,
-                       ((m.value->>'costUSD') IS NULL)::int           AS unpriced
-                FROM turns, jsonb_each(metrics->'modelUsage') m
-                WHERE provider IS NOT NULL AND jsonb_typeof(metrics->'modelUsage') = 'object'
-                UNION ALL
-                SELECT provider,
-                       to_char(started_at AT TIME ZONE $3, 'YYYY-MM-DD') AS day,
-                       {bucket_expr} AS hour_start,
-                       COALESCE(metrics->>'model', 'unknown') AS model,
-                       task_id,
-                       (metrics->'usage'->>'input_tokens')::bigint             AS uncached_input,
-                       (metrics->'usage'->>'cache_read_input_tokens')::bigint   AS cached_input,
-                       (metrics->'usage'->>'cache_creation_input_tokens')::bigint AS cache_creation,
-                       (metrics->'usage'->>'output_tokens')::bigint             AS output,
-                       COALESCE((metrics->'usage'->>'reasoning_output_tokens')::bigint, 0) AS reasoning,
-                       COALESCE((metrics->>'totalCostUsd')::float8, 0)          AS cost,
-                       ((metrics->>'totalCostUsd') IS NULL)::int                AS unpriced
-                FROM turns
-                WHERE provider IS NOT NULL
-                  AND jsonb_typeof(metrics->'modelUsage') IS DISTINCT FROM 'object'
-                  AND jsonb_typeof(metrics->'usage') = 'object'
-            )
-            SELECT day, hour_start, provider, model,
-                   COALESCE(SUM(uncached_input), 0)::bigint AS uncached_input,
-                   COALESCE(SUM(cached_input), 0)::bigint   AS cached_input,
-                   COALESCE(SUM(cache_creation), 0)::bigint AS cache_creation,
-                   COALESCE(SUM(output), 0)::bigint         AS output,
-                   COALESCE(SUM(reasoning), 0)::bigint      AS reasoning,
-                   COALESCE(SUM(cost), 0)::float8           AS cost,
-                   COUNT(*)::bigint                         AS records,
-                   COALESCE(SUM(unpriced), 0)::bigint       AS unpriced_records,
-                   COUNT(DISTINCT task_id)::bigint          AS sessions
-            FROM cells
-            GROUP BY day, hour_start, provider, model
-            ORDER BY day, provider, model
-            "#,
-            access = access.sql(),
-        );
-
-        let rows = sqlx::query_as::<_, UsageRow>(sqlx::AssertSqlSafe(sql))
-            .bind(&window.since_day)
-            .bind(&window.until_day)
-            .bind(&window.time_zone)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .fetch_all(&self.0.db)
-            .await
-            .map_err(|cause| StoreError::with_source("read t3 usage buckets", cause))?;
-
-        Ok(rows.into_iter().map(UsageRow::into_bucket).collect())
-    }
-}
-
-#[derive(sqlx::FromRow)]
-struct UsageRow {
-    day: String,
-    hour_start: Option<String>,
-    provider: String,
-    model: String,
-    uncached_input: i64,
-    cached_input: i64,
-    cache_creation: i64,
-    output: i64,
-    reasoning: i64,
-    cost: f64,
-    records: i64,
-    unpriced_records: i64,
-    sessions: i64,
-}
-
-impl UsageRow {
-    fn into_bucket(self) -> UsageBucketRow {
-        UsageBucketRow {
-            day: self.day,
-            hour_start: self.hour_start,
-            provider: self.provider,
-            model: self.model,
-            uncached_input_tokens: self.uncached_input,
-            cached_input_tokens: self.cached_input,
-            cache_creation_tokens: self.cache_creation,
-            output_tokens: self.output,
-            reasoning_tokens: self.reasoning,
-            cost_usd: self.cost,
-            records: self.records,
-            unpriced_records: self.unpriced_records,
-            sessions: self.sessions,
         }
     }
 }

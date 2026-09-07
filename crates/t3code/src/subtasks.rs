@@ -214,7 +214,10 @@ mod tests {
         conversations.expect_readable_by_ids().never();
 
         let error = list(
-            &state(vec![child("child", TaskRelationType::CreatedBy)], conversations),
+            &state(
+                vec![child("child", TaskRelationType::CreatedBy)],
+                conversations,
+            ),
             &viewer(),
             "parent",
         )
@@ -227,9 +230,13 @@ mod tests {
     #[tokio::test]
     async fn lists_both_parent_edges_in_spawn_order_and_drops_peers() {
         let mut conversations = MockConversationDao::new();
-        conversations
-            .expect_readable_by_id()
-            .returning(|_, _| Ok(Some(conversation("parent", "2024-01-01T00:00:00Z", "Parent"))));
+        conversations.expect_readable_by_id().returning(|_, _| {
+            Ok(Some(conversation(
+                "parent",
+                "2024-01-01T00:00:00Z",
+                "Parent",
+            )))
+        });
         conversations.expect_readable_by_ids().returning(|_, ids| {
             // `related_to` must never reach the conversation read.
             assert_eq!(ids.len(), 2);
@@ -266,9 +273,13 @@ mod tests {
     #[tokio::test]
     async fn a_child_the_viewer_cannot_read_is_absent() {
         let mut conversations = MockConversationDao::new();
-        conversations
-            .expect_readable_by_id()
-            .returning(|_, _| Ok(Some(conversation("parent", "2024-01-01T00:00:00Z", "Parent"))));
+        conversations.expect_readable_by_id().returning(|_, _| {
+            Ok(Some(conversation(
+                "parent",
+                "2024-01-01T00:00:00Z",
+                "Parent",
+            )))
+        });
         conversations
             .expect_readable_by_ids()
             .returning(|_, _| Ok(vec![]));

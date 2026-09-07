@@ -1020,6 +1020,8 @@ async fn build_result_routes_to_producer_then_shared_fallback(pool: PgPool) {
 
 #[sqlx::test]
 async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(pool: PgPool) {
+    common::seed_github_token(&pool, CONNECTION_USER).await;
+    common::seed_github_token(&pool, TASK_USER).await;
     let (base_url, requests) = request_counting_github_stub().await;
     let _github_api = github_api_base(&base_url).await;
 
@@ -1257,8 +1259,8 @@ async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(po
     assert!(
         recorded
             .iter()
-            .all(|request| request.authorization.as_deref() == Some("Bearer global-token")),
-        "durable GitHub work keeps the current global-token fallback: {recorded:?}"
+            .all(|request| request.authorization.as_deref() == Some("Bearer fixture-token")),
+        "durable GitHub work uses the named identity's credential: {recorded:?}"
     );
 }
 
@@ -1270,6 +1272,8 @@ async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(po
 /// the durable record is the recognition.
 #[sqlx::test]
 async fn a_redelivery_on_a_different_replica_does_no_second_effect(pool: PgPool) {
+    common::seed_github_token(&pool, CONNECTION_USER).await;
+    common::seed_github_token(&pool, TASK_USER).await;
     // The delivery plans a merge-conflict check as well as the comment, and
     // that check authenticates before it reads the PR. Without a credential it
     // is a *retryable* failure, so the record never settles and the "executes

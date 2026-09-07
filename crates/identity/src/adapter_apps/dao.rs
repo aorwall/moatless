@@ -17,7 +17,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::AssertSqlSafe;
 
-use crate::adapter_apps::{AdapterAppInput, StoredAdapterApp};
+use crate::adapter_apps::{SealedAdapterApp, StoredAdapterApp};
 use crate::auth::error::AuthError;
 use crate::secret::models::EncryptedSecretValue;
 use crate::secret::service::SecretCipher;
@@ -146,8 +146,7 @@ pub trait AdapterAppDao: Send + Sync {
 
     async fn upsert_adapter_app(
         &self,
-        input: AdapterAppInput,
-        cipher: &dyn SecretCipher,
+        input: SealedAdapterApp,
         actor_id: &str,
     ) -> Result<StoredAdapterApp, AuthError>;
 
@@ -333,16 +332,15 @@ pub struct PgAdapterAppDao(pub DbPool);
 #[async_trait]
 impl AdapterAppDao for PgAdapterAppDao {
     async fn list_adapter_apps(&self) -> Result<Vec<StoredAdapterApp>, AuthError> {
-        super::list_adapter_apps(&self.0).await
+        super::app_dao::list_adapter_apps(&self.0).await
     }
 
     async fn upsert_adapter_app(
         &self,
-        input: AdapterAppInput,
-        cipher: &dyn SecretCipher,
+        input: SealedAdapterApp,
         actor_id: &str,
     ) -> Result<StoredAdapterApp, AuthError> {
-        super::upsert_adapter_app_with_cipher(&self.0, cipher, input, actor_id).await
+        super::app_dao::upsert(&self.0, input, actor_id).await
     }
 
     async fn delete_adapter_app(
@@ -350,7 +348,7 @@ impl AdapterAppDao for PgAdapterAppDao {
         adapter_kind: &str,
         app_key: &str,
     ) -> Result<bool, AuthError> {
-        super::delete_adapter_app(&self.0, adapter_kind, app_key).await
+        super::app_dao::delete_adapter_app(&self.0, adapter_kind, app_key).await
     }
 
     async fn list_github_apps(&self) -> Result<Vec<GitHubAppRecord>, AuthError> {
@@ -606,8 +604,7 @@ pub mod test_support {
 
         async fn upsert_adapter_app(
             &self,
-            input: crate::adapter_apps::AdapterAppInput,
-            _cipher: &dyn crate::secret::service::SecretCipher,
+            input: crate::adapter_apps::SealedAdapterApp,
             _actor_id: &str,
         ) -> Result<crate::adapter_apps::StoredAdapterApp, AuthError> {
             let key = (input.adapter_kind.to_string(), input.app_key.clone());
@@ -619,16 +616,7 @@ pub mod test_support {
                 app_key: input.app_key,
                 display_name: input.display_name,
                 config_json: input.config_json,
-                secret_fingerprints: input
-                    .secrets
-                    .into_iter()
-                    .map(|secret| {
-                        (
-                            secret.name.to_string(),
-                            crate::adapter_apps::secret_fingerprint(&secret.plaintext),
-                        )
-                    })
-                    .collect(),
+                secret_fingerprints: input.fingerprints.as_object().into_iter().flatten().filter_map(|(name,value)| value.as_str().map(|value| (name.clone(), value.to_string()))).collect(),
                 revision,
                 updated_at: chrono::Utc::now(),
             };

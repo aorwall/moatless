@@ -14,20 +14,20 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
-use crate::agent::codex_app_server::{AppServerSession, ServerEvent};
 use crate::agent::codex_app_server::protocol::TurnError;
+use crate::agent::codex_app_server::{AppServerSession, ServerEvent};
 use crate::agent::types::ResumeSession;
 use crate::credentials::recovery::{CODEX_AUTH_JSON, CredentialFailureDetector};
 
-use super::super::Harness;
-use super::super::error::{ErrorClass, FailureStage, SessionImpact};
-use super::super::process::{AgentProcess, ProcessEvent, ProcessTermination};
-use super::super::signal::{Cause, Input, InputId, Outcome, Signal};
-use super::super::source::{Role, SourceEvent};
-use super::classify::{
+use super::super::classify::{
     classify_startup_error, classify_stream_error, classify_turn_error, is_expired_credential,
 };
 use super::{CodexConfig, CodexProcess, MID_TURN_DELIVERY_TIMEOUT};
+use crate::agent::harness::Harness;
+use crate::agent::harness::error::{ErrorClass, FailureStage, SessionImpact};
+use crate::agent::harness::process::{AgentProcess, ProcessEvent, ProcessTermination};
+use crate::agent::harness::signal::{Cause, Input, InputId, Outcome, Signal};
+use crate::agent::harness::source::{Role, SourceEvent};
 
 fn config() -> CodexConfig {
     CodexConfig {
@@ -1315,7 +1315,7 @@ fn scripted_driver(
         let session = queue.pop_front().expect("a session per Turn");
         CodexProcess::with_session(cfg.clone(), session, "gpt-5")
     };
-    tokio::spawn(super::super::driver::run(
+    tokio::spawn(crate::agent::harness::driver::run(
         factory, submit_rx, cancel_rx, signal_tx,
     ));
 

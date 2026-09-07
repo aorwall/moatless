@@ -263,7 +263,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         Arc::clone(&credential_dispatcher),
         Arc::clone(&system_prompt_cache),
         heartbeat.clone(),
-        moatless_sandbox::init::workspace_sync::WorkspaceSyncTracker::new(),
+        moatless_sandbox::workspace_sync::WorkspaceSyncTracker::new(),
     );
     late_injector.set(Box::new(agent_handle.clone()));
     let task_context = Arc::new(TaskContext::new(

@@ -13,7 +13,7 @@ use crate::hooks::HookObserver;
 /// Configuration options for a Codex SDK session.
 ///
 /// This is the Codex equivalent of the Claude SDK's `ClaudeOptions`.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct CodexOptions {
     // -- Model --
     /// Model slug (e.g. "o3", "gpt-4o"). Uses config default if `None`.
@@ -34,8 +34,9 @@ pub struct CodexOptions {
     pub sandbox_mode: Option<SandboxMode>,
 
     // -- Limits --
-    /// Maximum number of turns before the SDK stops sending new turns.
-    /// Enforced in the SDK layer (Codex core does not have this concept).
+    /// Maximum successful turn submissions, including the initial prompt.
+    /// `None` is unlimited; zero admits none. Concurrent sends are serialized;
+    /// failed submissions do not consume the limit.
     pub max_turns: Option<u32>,
 
     // -- Directories --
@@ -64,6 +65,7 @@ pub struct CodexOptions {
 
     // -- Timeouts --
     /// Timeout for runtime initialization (default: 60s).
+    /// Timeout errors wait for runtime cleanup, bounded to five additional seconds.
     pub init_timeout: Option<Duration>,
 }
 

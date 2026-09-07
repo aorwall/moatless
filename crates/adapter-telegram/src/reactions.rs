@@ -1,8 +1,8 @@
 //! Reaction capability for Telegram messages.
 
+use moatless_adapter_model::binding::BindingContext;
 use moatless_adapter_model::capabilities::AdapterReactions;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::BindingContext;
 
 use super::adapter::TelegramAdapter;
 use super::subject::{TelegramDestination, parse_message_target};
@@ -33,7 +33,9 @@ impl AdapterReactions for TelegramAdapter {
         if trimmed.is_empty() {
             return Err(SharedAdapterError::BadRequest("Empty emoji".into()).into());
         }
-        let api = self.app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+        let api = self
+            .app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+            .await?;
         api.set_message_reaction(&chat_id, message_id, Some(trimmed))
             .await?;
         Ok(None)
@@ -49,7 +51,9 @@ impl AdapterReactions for TelegramAdapter {
         // The `_emoji` argument is accepted for parity with other providers but
         // ignored — Telegram replaces the bot's full reaction list either way.
         let (chat_id, message_id) = reaction_target(binding, target_external_id)?;
-        let api = self.app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+        let api = self
+            .app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+            .await?;
         api.set_message_reaction(&chat_id, message_id, None).await
     }
 }

@@ -8,3 +8,4 @@ pub mod dao;
 pub mod hash;
 pub mod models;
 pub mod throttle;
+mod throttle_dao;

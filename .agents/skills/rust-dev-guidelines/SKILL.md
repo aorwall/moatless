@@ -1,6 +1,6 @@
 ---
 name: rust-dev-guidelines
-description: Rust development conventions for Moatless backend, sandbox, and shared crates. Use when planning, writing, reviewing, or changing Rust under crates/ or tooling/.
+description: Rust development and responsibility-review conventions for Moatless backend, sandbox, and shared crates. Use when planning, writing, reviewing, restructuring, or changing Rust under crates/ or tooling/.
 ---
 
 # Rust Development Guidelines
@@ -13,6 +13,7 @@ new conventions without checking that they remain sound.
 
 1. Identify the owning crate and the runtime boundary affected by the change.
 2. Load every applicable reference:
+   - all Rust work → [file responsibilities](references/file-roles.md)
    - `crates/server/` → [backend.md](references/backend.md)
    - `crates/sandbox/` → [sandbox.md](references/sandbox.md)
    - `crates/` → [shared-crates.md](references/shared-crates.md)
@@ -143,6 +144,8 @@ above, not your change. Leave them.
 Before declaring the Rust change complete:
 
 - confirm every changed Rust path was checked against its applicable reference;
+- confirm file contents match their assigned responsibility, including callers
+  outside the owning directory;
 - confirm critical task, queue, error, and conversion behavior is explicit where
   the change touches those boundaries;
 - run the crate-specific Clippy and test commands required by `AGENTS.md`;

@@ -38,7 +38,8 @@ tracing = { workspace = true }
 # The Postgres store and the row shapes it decodes. A crate that only reads the
 # Adapter vocabulary — every provider crate — takes this crate without it, and
 # so without a database driver.
-postgres = ["dep:sqlx"]
+postgres = ["dep:sqlx", "core-services"]
+core-services = ["dep:moatless-core"]
 # The HTTP rendering of `AdapterError`: the `IntoResponse` impl and the two
 # crates it reads to build a body (`error_response`, `MultipleTargetsErrorBody`).
 # The kernel's job is to define the Adapter contract; turning one of its errors
@@ -46,7 +47,7 @@ postgres = ["dep:sqlx"]
 # `postgres` follows applies here — a consumer that never answers an HTTP
 # request takes the contract without compiling axum. Kept off by default so the
 # kernel's base surface stays the vocabulary and nothing else.
-http = ["dep:axum", "dep:moatless-api-schemas", "dep:moatless-core"]
+http = ["dep:axum", "dep:moatless-api-schemas", "core-services"]
 # Test-only helpers that travel with the Adapter contract: reading a rendered
 # response back into `(status, body)`, walking a source chain, producing a
 # genuine transport failure, and the loopback stubs a provider client talks to.

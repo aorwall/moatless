@@ -9,7 +9,7 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use utoipa::IntoParams;
 
-use super::handlers::{authorize_task_control, authorize_task_read};
+use super::access::{authorize_task_control, authorize_task_read};
 use super::routes::SandboxApiState;
 use base64::Engine;
 use moatless_core::http_auth::OptionalScope;
@@ -85,7 +85,7 @@ pub async fn file_tree_handler(
         .get_file_tree_for_task(Some(&task_id), root_path, recursive)
         .await
         .map_err(|e| classify_grpc_error(e, "get_file_tree"))?;
-    Ok(Json(FileTreeResponse::try_from(resp)?))
+    Ok(Json(moatless_sandbox_runtime::file_conversion::file_tree(resp)?))
 }
 
 /// Read a file from the sandbox workspace.
@@ -124,7 +124,7 @@ pub async fn read_file_handler(
         .read_file_for_task(Some(&task_id), &query.path, include_changes)
         .await
         .map_err(|e| classify_grpc_error(e, "read_file"))?;
-    Ok(Json(FileContentResponse::from(resp)))
+    Ok(Json(moatless_sandbox_runtime::file_conversion::file_content(resp)))
 }
 
 /// Write a file in the sandbox workspace.
@@ -238,7 +238,7 @@ pub async fn search_by_name_handler(
         )
         .await
         .map_err(|e| classify_grpc_error(e, "search_files_by_name"))?;
-    Ok(Json(SearchByNameResponse::from(resp)))
+    Ok(Json(moatless_sandbox_runtime::file_conversion::search_by_name(resp)))
 }
 
 // ── Snapshot fallback ────────────────────────────────────────────

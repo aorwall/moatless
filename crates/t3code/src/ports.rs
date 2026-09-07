@@ -19,6 +19,18 @@ use uuid::Uuid;
 
 use moatless_types::agent::AgentMode;
 
+/// Workspace-owned replacement of declared scripts, retaining hidden configuration.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait WorkspaceScriptCommands: Send + Sync {
+    async fn replace_scripts(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+        scripts: &[moatless_types::workspace::ScriptConfig],
+    ) -> Result<(), crate::scripts::ScriptsWriteError>;
+}
+
 /// Why a command was not carried out.
 ///
 /// Every variant is an *anticipated* outcome and reaches the client as a typed
@@ -59,7 +71,7 @@ impl CommandRefusal {
 /// the contract lets it take.
 ///
 /// Which form arrives is decided by the `attachmentUploads` capability
-/// [`descriptor`](crate::descriptor) reports. A composer that has read it
+/// [`descriptor`](crate::rpc::config::descriptor) reports. A composer that has read it
 /// uploads the bytes first and names the id on the turn; one that has not — an
 /// older client, or one whose environment config has not loaded yet — puts the
 /// bytes in the command as a base64 data URL. Both keep working, so this is a

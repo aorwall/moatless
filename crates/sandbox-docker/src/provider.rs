@@ -42,16 +42,11 @@ use moatless_types::workspace::ServerConfig;
 
 /// Docker adapter for lifecycle mutation, observation, and connection.
 pub struct DockerSandboxAdapter {
-    pub config: Arc<Config>,
-    pub client: DockerClient,
-    pub status_resolver: DockerStatusResolver,
-    // `pub` (not `pub(crate)`) is the carve's declared debt: the backend
-    // composition root (`startup.rs::build_docker_sandbox_adapter`) builds this
-    // adapter with a struct literal across the crate boundary, and a cross-crate
-    // struct literal requires every field it sets to be `pub`. Mirrors
-    // `K8sSandboxAdapter.plan`.
-    pub plan: Option<ProvisionDeps>,
-    pub s3: Option<Arc<aws_sdk_s3::Client>>,
+    config: Arc<Config>,
+    client: DockerClient,
+    status_resolver: DockerStatusResolver,
+    plan: Option<ProvisionDeps>,
+    s3: Option<Arc<aws_sdk_s3::Client>>,
 }
 
 async fn apply_disk_archive_retention(
@@ -81,6 +76,23 @@ async fn apply_disk_archive_retention(
 }
 
 impl DockerSandboxAdapter {
+    /// Construct the Docker adapter over the deployment's clients and plan resolver.
+    pub fn new(
+        config: Arc<Config>,
+        client: DockerClient,
+        plan: Option<ProvisionDeps>,
+        s3: Option<Arc<aws_sdk_s3::Client>>,
+    ) -> Self {
+        let status_resolver = DockerStatusResolver::new(client.clone(), config.clone());
+        Self {
+            config,
+            client,
+            status_resolver,
+            plan,
+            s3,
+        }
+    }
+
     fn require_plan(
         &self,
     ) -> Result<&ProvisionDeps, moatless_sandbox_runtime::runtime::RuntimeError> {

@@ -1032,3 +1032,26 @@ mod tests {
         );
     }
 }
+
+/// A live override of one preview server's start command and env.
+/// Callers send the complete state; the sandbox replaces it without merging.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverride {
+    /// Replaces the configured start command; `None` uses the workspace command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_command: Option<String>,
+    /// Applied after the configured server environment, so these values win.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    /// Removes variables injected through the container spec; sourcing an env file cannot unset them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset_env: Vec<String>,
+}
+
+impl ServerOverride {
+    pub fn is_empty(&self) -> bool {
+        self.start_command.is_none() && self.env.is_empty() && self.unset_env.is_empty()
+    }
+}

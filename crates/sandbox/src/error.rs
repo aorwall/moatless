@@ -1,8 +1,8 @@
 //! Sandbox error types.
 
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 
 /// Unified error type for the sandbox service.
 #[derive(Debug, thiserror::Error)]

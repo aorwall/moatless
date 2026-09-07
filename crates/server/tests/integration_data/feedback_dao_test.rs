@@ -31,6 +31,9 @@ async fn seed_task(pool: &PgPool, task_id: &str, repo_id: &str, workspace_id: Op
     let mut task = make_task_row(task_id, USER);
     task.repository_id = repo_id.to_string();
     task.workspace_id = workspace_id.map(str::to_string);
+    if let Some(workspace_id) = workspace_id {
+        common::seed_workspace(pool, workspace_id, USER).await;
+    }
     moatless_tasks::task::dao::insert_task(pool, &task)
         .await
         .expect("seed task");

@@ -51,6 +51,7 @@ check.
 | `transport/` | The `Transport` and `StdinWriter` traits, `SubprocessTransport`, and the mocks |
 | `protocol/` | The orchestrator: background reader, message and MCP routing, permission and hook dispatch, and `request_tracker` for control-request ID correlation |
 | `tmux/` | The TUI backend |
+| `transcripts.rs` | Transcript paths, inventory and resume selection shared by both backends |
 
 ## How the tmux backend starts and ends a turn
 
@@ -67,7 +68,7 @@ readiness signal and the turn-completion signal.
    line over an unbounded mpsc.
 4. `spawn_hook_listener` drains that channel and republishes a higher-level
    `HookState` on a `watch`: Pending, SessionStarted or TurnEnded.
-5. `mod.rs` awaits `SessionStarted` before it pastes the prompt, under
+5. `tmux/startup.rs` awaits `SessionStarted` before `tmux/query.rs` pastes the prompt, under
    `init_timeout` (60s by default). No step sleeps for a fixed time. A
    `trust_dialog_watcher` runs in parallel: it polls `tmux capture-pane`, strips
    CSI, and presses Enter when both "trust" and "folder" appear.

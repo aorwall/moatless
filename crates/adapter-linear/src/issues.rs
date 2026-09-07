@@ -359,9 +359,12 @@ async fn provision_issue_task(
 
     // Link the Moatless task back onto the Linear issue.
     let task_url = super::text::task_url(config, &task_id);
-    let attachment_title =
-        super::text::task_attachment_title(tasks, &task_id, super::text::ATTACHMENT_TITLE_CHILD)
-            .await;
+    let attachment_title = super::task_links::task_attachment_title(
+        tasks,
+        &task_id,
+        super::text::ATTACHMENT_TITLE_CHILD,
+    )
+    .await;
     if let Err(e) = api
         .attachment_link_url(&issue.id, &task_url, &attachment_title)
         .await
@@ -676,29 +679,4 @@ pub(super) async fn insert_event_task(
     })?;
 
     Ok(outcome.task_id)
-}
-
-/// Attach the moatless task URL to a Linear issue as a "source" pill, titled
-/// for the case where the Moatless side is the parent. Idempotent on
-/// `(issue_id, url)`. Failures are logged and swallowed — the caller has already
-/// created the issue / posted the comment this links back from.
-pub(super) async fn attach_parent_task_link(
-    config: &Config,
-    tasks: &dyn TaskReader,
-    api: &LinearAgentApi,
-    issue_uuid: &str,
-    task_id: &str,
-) {
-    let url = super::text::task_url(config, task_id);
-    let title =
-        super::text::task_attachment_title(tasks, task_id, super::text::ATTACHMENT_TITLE_PARENT)
-            .await;
-    if let Err(e) = api.attachment_link_url(issue_uuid, &url, &title).await {
-        warn!(
-            error = %e,
-            task_id = %task_id,
-            issue = %issue_uuid,
-            "Failed to attach Moatless task URL to Linear issue"
-        );
-    }
 }

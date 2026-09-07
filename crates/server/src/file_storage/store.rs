@@ -73,7 +73,7 @@ pub async fn store_upload(
         &upload.mime_type,
     )
     .await
-    .map_err(FileStorageError::UploadFailed)?;
+    .map_err(FileStorageError::from)?;
 
     let meta = FileMetadata {
         file_id,
@@ -133,24 +133,86 @@ pub async fn delete_upload(
     let Some(meta) = files.find_by_id(file_id).await? else {
         return Ok(false);
     };
-    // The same check the download route makes, so nobody can delete what they
-    // could not have fetched.
+    authorize_read(viewer, &meta)?;
+
+    let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
+    s3::delete_object(&s3_client.client, bucket, &s3_key)
+        .await
+        .map_err(FileStorageError::from)?;
+
+    files.delete_metadata(file_id).await?;
+
+    Ok(true)
+}
+
+/// File bytes and the metadata needed by the HTTP download adapter.
+pub struct Download {
+    pub data: Vec<u8>,
+    pub content_type: String,
+    pub filename: String,
+}
+
+/// Read an upload after enforcing its metadata access policy.
+pub async fn read_upload(
+    s3_storage: Option<&s3::S3Storage>,
+    s3_config: &S3Config,
+    files: &dyn FileDao,
+    viewer: &ScopeContext,
+    file_id: &str,
+) -> Result<Download, FileStorageError> {
+    let s3_client = s3_storage.ok_or(FileStorageError::S3NotConfigured)?;
+    let bucket = s3_config
+        .bucket_name
+        .as_ref()
+        .ok_or(FileStorageError::S3NotConfigured)?;
+    let meta = files
+        .find_by_id(file_id)
+        .await?
+        .ok_or_else(|| FileStorageError::NotFound(file_id.to_owned()))?;
+    authorize_read(viewer, &meta)?;
+    let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
+    let (data, content_type) = s3::get_object(&s3_client.client, bucket, &s3_key).await?;
+    Ok(Download {
+        data,
+        content_type,
+        filename: meta.filename,
+    })
+}
+
+fn authorize_read(viewer: &ScopeContext, meta: &FileMetadata) -> Result<(), FileStorageError> {
     let resource = ScopedResource::borrowed(
         meta.scope,
         meta.owner_user_id.as_deref().or(meta.created_by.as_deref()),
     );
     if !viewer.can_read(&resource) {
         return Err(FileStorageError::Forbidden(format!(
-            "No access to file {file_id}"
+            "No access to file {}",
+            meta.file_id
         )));
     }
 
-    let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
-    s3::delete_object(&s3_client.client, bucket, &s3_key)
-        .await
-        .map_err(FileStorageError::UploadFailed)?;
+    Ok(())
+}
 
-    files.delete_metadata(file_id).await?;
+#[cfg(test)]
+mod access_tests {
+    use super::*;
 
-    Ok(true)
+    #[test]
+    fn download_and_delete_share_owner_fallback_and_global_access() {
+        let mut file = FileMetadata {
+            file_id: "upload".into(), filename: "attachment.png".into(),
+            mime_type: "image/png".into(), size: 3, scope: Scope::User,
+            owner_user_id: None, created_by: Some("creator".into()),
+            uploaded_at: chrono::Utc::now(),
+        };
+        let creator = ScopeContext { user_id: "creator".into(), is_admin: false };
+        let stranger = ScopeContext { user_id: "stranger".into(), is_admin: false };
+        assert!(authorize_read(&creator, &file).is_ok());
+        assert!(matches!(authorize_read(&stranger, &file), Err(FileStorageError::Forbidden(_))));
+        file.owner_user_id = Some("owner".into());
+        assert!(authorize_read(&creator, &file).is_err());
+        file.scope = Scope::Global;
+        assert!(authorize_read(&stranger, &file).is_ok());
+    }
 }

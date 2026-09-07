@@ -5,9 +5,9 @@
 //! bag over as a `&serde_json::Value` (spec Open question 3); this module is
 //! where it stops being one.
 
-use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::BindingDestination;
+use moatless_adapter_model::binding::BindingDestination;
 use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
 use super::adapter::TelegramAdapter;
 

@@ -251,6 +251,9 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
             Arc::new(PgPairingApiKeyIssuer(Arc::new(PgApiKeyDao(pool.clone())))),
         )),
         workspaces: Arc::new(moatless_backend::t3code::conversations_over(pool)),
+        workspace_script_commands: Arc::new(t3code_backend::WorkspaceScripts(Arc::new(
+            moatless_workspaces::workspace::dao::PgWorkspaceDao(pool.clone()),
+        ))),
         conversations: Arc::new(moatless_backend::t3code::conversations_over(pool)),
         sandboxes: Arc::new(NoSandboxes),
         // This suite drives no snapshot reads; a stopped Task answers as before.
@@ -291,7 +294,7 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         attachments: Arc::new(t3code_backend::AppStateAttachments(test_app_state(
             pool.clone(),
         ))),
-        usage: Arc::new(t3code_backend::AppStateUsage(test_app_state(pool.clone()))),
+        usage: Arc::new(moatless_t3code::PgUsageDao::new(pool.clone())),
         model_defaults: defaults(),
         frontend_url: "http://localhost:3000".into(),
         otlp_traces_enabled: false,
@@ -525,7 +528,11 @@ async fn seed_sandbox(pool: &PgPool, task_id: &str, desired_state: &str, started
 
     sqlx::query(
         r#"INSERT INTO sandboxes (sandbox_id, workspace_id, desired_state, started_at)
-           VALUES ($1, $2, $3, CASE WHEN $4 THEN NOW() ELSE NULL END)"#,
+           VALUES ($1, $2, $3, CASE WHEN $4 THEN NOW() ELSE NULL END)
+           ON CONFLICT (sandbox_id) DO UPDATE SET
+             workspace_id = EXCLUDED.workspace_id,
+             desired_state = EXCLUDED.desired_state,
+             started_at = EXCLUDED.started_at"#,
     )
     .bind(task_id)
     .bind(&workspace_id)
@@ -613,6 +620,9 @@ const THREAD_REQUIRED: &[&str] = &[
     "hasActionableProposedPlan",
 ];
 const THREAD_OPTIONAL: &[&str] = &[
+    "backgroundLiveness",
+    "linkedPullRequest",
+    "linkedPullRequests",
     "interactionMode",
     "archivedAt",
     "settledOverride",
@@ -885,7 +895,7 @@ async fn the_mounted_route_returns_the_viewers_projects(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn a_projects_scripts_come_from_its_servers(pool: PgPool) {
+async fn a_projects_scripts_are_separate_from_servers_and_setup(pool: PgPool) {
     let repo = PgWorkspaceDao(pool.clone());
     let mut ws = make_workspace_row("ws-a", "user-1");
     ws.setup_commands = Some(run_config(serde_json::json!(["bun install"])));
@@ -895,6 +905,9 @@ async fn a_projects_scripts_come_from_its_servers(pool: PgPool) {
         "startCommands": ["bun run dev"],
         "default": true
     }])));
+    ws.scripts = Some(run_config(
+        json!([{ "name": "dev", "command": "bun run dev" }]),
+    ));
     repo.insert_workspace(&ws).await.unwrap();
 
     let scripts = project(&pool, &viewer("user-1"), "ws-a").await["scripts"]
@@ -907,7 +920,7 @@ async fn a_projects_scripts_come_from_its_servers(pool: PgPool) {
     assert_eq!(scripts[0]["name"], "dev");
     assert_eq!(scripts[0]["command"], "bun run dev");
     assert_eq!(scripts[0]["icon"], "play");
-    // The Sandbox starts the server itself, so the client must not.
+    // Scripts run only on request unless their declaration opts in.
     assert_eq!(scripts[0]["runOnWorktreeCreate"], false);
     assert!(
         scripts[0].get("previewUrl").is_none(),
@@ -915,11 +928,9 @@ async fn a_projects_scripts_come_from_its_servers(pool: PgPool) {
     );
 }
 
-/// A listing built from the servers this repository actually configures for
-/// itself. One undecodable script fails the whole snapshot, so the deployment's
-/// own workspaces are the case that has to survive.
+/// Server and setup declarations do not become client-run Scripts.
 #[sqlx::test]
-async fn the_repositorys_own_server_config_projects_to_decodable_scripts(pool: PgPool) {
+async fn the_repositorys_server_config_does_not_create_scripts(pool: PgPool) {
     let mut ws = make_workspace_row("ws-vibe", "user-1");
     ws.name = "Moatless".into();
     ws.setup_commands = Some(run_config(serde_json::json!([
@@ -953,17 +964,10 @@ async fn the_repositorys_own_server_config_projects_to_decodable_scripts(pool: P
         .unwrap()
         .clone();
 
-    assert_eq!(scripts.len(), 2, "setup commands are not scripts");
-    for script in &scripts {
-        for key in ["id", "name", "command", "icon", "runOnWorktreeCreate"] {
-            assert!(
-                script.get(key).is_some(),
-                "every script needs `{key}` to decode"
-            );
-        }
-    }
-    assert_eq!(scripts[1]["id"], "backend");
-    assert_eq!(scripts[1]["name"], "Shadow Backend");
+    assert!(
+        scripts.is_empty(),
+        "servers and setup commands are not scripts"
+    );
 }
 
 // =========================================================================
@@ -1295,15 +1299,9 @@ async fn a_followed_conversation_in_an_unreadable_project_still_lists_under_it(p
 /// that shape — it carries paths, flags and whatever else was put in a server
 /// config — so it stops at the read rule.
 ///
-/// Both halves of the union are seeded with servers and asserted in the same
-/// snapshot, which is what makes this fail if they are ever projected the same
-/// way again: an implementation that emits `scripts` for everyone fails the
-/// second assertion, and one that emits them for nobody fails the first.
-///
-/// Verified by dropping the readability check in `projection::project` and
-/// watching the referenced half come back carrying `bun run secret-thing`.
+/// Referenced projects disclose Scripts only when the viewer can read the Workspace.
 #[sqlx::test]
-async fn a_project_the_viewer_may_not_read_discloses_no_server_commands(pool: PgPool) {
+async fn a_project_the_viewer_may_not_read_discloses_no_script_commands(pool: PgPool) {
     let repo = PgWorkspaceDao(pool.clone());
     let servers = |command: &str| {
         json!([{
@@ -1317,12 +1315,19 @@ async fn a_project_the_viewer_may_not_read_discloses_no_server_commands(pool: Pg
 
     let mut mine = make_workspace_row("ws-own", "user-1");
     mine.servers = Some(run_config(servers("bun run dev")));
+    mine.scripts = Some(run_config(
+        json!([{ "name": "dev", "command": "bun run dev" }]),
+    ));
     repo.insert_workspace(&mine).await.unwrap();
 
     let mut theirs = make_workspace_row("ws-theirs", "user-2");
     theirs.servers = Some(run_config(servers(
         "bun run secret-thing --token /etc/theirs",
     )));
+    theirs.scripts = Some(run_config(json!([{
+        "name": "dev",
+        "command": "bun run secret-thing --token /etc/theirs"
+    }])));
     repo.insert_workspace(&theirs).await.unwrap();
 
     // The one thing that pulls their private workspace into this viewer's
@@ -1357,7 +1362,7 @@ async fn a_project_the_viewer_may_not_read_discloses_no_server_commands(pool: Pg
     assert_eq!(
         theirs["scripts"],
         json!([]),
-        "a workspace this viewer may not read disclosed its server commands"
+        "a workspace this viewer may not read disclosed its script commands"
     );
     // What the widening does justify, still there — the group renders, and the
     // conversation hanging under it is not silently dropped.
@@ -1466,9 +1471,19 @@ async fn a_listing_row_by_id_reaches_what_neither_listing_carries(pool: PgPool) 
     ] {
         let mut task = make_task_row(task_id, "user-1");
         task.workspace_id = Some("ws-live".to_string());
-        task.status = status;
         moatless_tasks::task::dao::store_over(&pool)
             .insert_task(&task)
+            .await
+            .unwrap();
+        moatless_tasks::task::dao::store_over(&pool)
+            .update_task(
+                task_id,
+                &TaskPatch {
+                    status: Some(status),
+                    ..TaskPatch::default()
+                },
+                &viewer("user-1"),
+            )
             .await
             .unwrap();
     }
@@ -1685,7 +1700,10 @@ async fn a_closed_conversation_moves_to_the_archived_listing(pool: PgPool) {
         vec!["t-closed".to_string()]
     );
 
-    let before = Utc::now();
+    let before: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     moatless_tasks::task::dao::store_over(&pool)
         .update_task(
             "t-open",
@@ -2092,12 +2110,10 @@ async fn a_conversation_that_never_ran_still_decodes(pool: PgPool) {
     assert_decodable_thread(&thread);
 
     assert!(thread["latestTurn"].is_null());
-    assert!(thread["session"].is_null());
+    assert_eq!(thread["session"]["status"], "stopped");
+    assert!(thread["session"]["activeTurnId"].is_null());
     assert!(thread["latestUserMessageAt"].is_null());
-    assert!(
-        thread["worktreePath"].is_null(),
-        "no sandbox was ever asked for"
-    );
+    assert_eq!(thread["worktreePath"], "/moatless/tasks/t-fresh");
     // The deployment's configured default is the answer until something runs.
     assert_eq!(thread["modelSelection"]["model"], "claude-opus-4-5");
 }
@@ -2381,6 +2397,16 @@ async fn a_project_root_is_answered_as_a_conversation_with_no_sandbox(pool: PgPo
         .await
         .unwrap();
     seed_task(&pool, "t-bare", "user-1", Some("ws-bare")).await;
+    sqlx::query("UPDATE tasks SET sandbox_id = NULL WHERE task_id = $1")
+        .bind("t-bare")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM sandboxes WHERE sandbox_id = $1")
+        .bind("t-bare")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let owner = viewer("user-1");
     let listing = snapshot(&pool, &owner).await;
@@ -4017,7 +4043,7 @@ const PROJECT_REQUIRED: &[&str] = &[
     "createdAt",
     "updatedAt",
 ];
-const PROJECT_OPTIONAL: &[&str] = &["repositoryIdentity"];
+const PROJECT_OPTIONAL: &[&str] = &["repositoryIdentity", "scriptsEditable"];
 const PROJECT_NON_EMPTY: &[&str] = &["id", "title", "workspaceRoot"];
 
 /// One item off the feed, checked against the whole union rather than the one
@@ -4971,16 +4997,15 @@ async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
         .unwrap();
     follow(&pool, "user-1", "t-theirs").await;
     // Something for the narrowing to withhold: a `scripts` assertion against a
-    // workspace with no servers passes whatever the projection does.
+    // workspace with no scripts passes whatever the projection does.
     assert!(
         PgWorkspaceDao(pool.clone())
             .update(
                 "ws-other",
                 &WorkspacePatch {
-                    servers: Some(Some(run_config(json!([{
+                    scripts: Some(Some(run_config(json!([{
                         "name": "dev",
-                        "port": 3000,
-                        "startCommands": ["bun run secret-thing"]
+                        "command": "bun run secret-thing"
                     }])))),
                     ..WorkspacePatch::default()
                 },

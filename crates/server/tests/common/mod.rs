@@ -47,6 +47,39 @@ use sandbox_proto::client::SandboxConnector;
 // Mock sandbox capabilities
 // =========================================================================
 
+/// Give a named identity a GitHub credential for calls to a local HTTP fixture.
+#[allow(
+    dead_code,
+    reason = "shared fixtures are compiled into all integration targets"
+)]
+pub async fn seed_github_token(pool: &PgPool, user_id: &str) {
+    sqlx::query(
+        "INSERT INTO provider_tokens (user_id, provider, access_token, auth_method, scope, owner_user_id) \
+         VALUES ($1, 'github', 'fixture-token', 'manual', 'user', $1)",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .expect("seed GitHub credential");
+}
+
+/// Seed the workspace required by task and sandbox persistence.
+#[allow(
+    dead_code,
+    reason = "shared fixtures are compiled into all integration targets"
+)]
+pub async fn seed_workspace(pool: &PgPool, id: &str, user_id: &str) {
+    sqlx::query(
+        "INSERT INTO workspaces (id, name, scope, owner_user_id) \
+         VALUES ($1, $1, 'user', $2) ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .expect("seed workspace");
+}
+
 /// Minimal runtime used by DB-only handler tests.
 pub struct MockSandboxRuntime;
 

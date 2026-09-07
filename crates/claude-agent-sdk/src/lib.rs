@@ -55,6 +55,7 @@ pub mod api;
 
 mod protocol;
 mod transport;
+mod transcripts;
 
 // Top-level re-exports for convenience
 pub use client::ClaudeClient;

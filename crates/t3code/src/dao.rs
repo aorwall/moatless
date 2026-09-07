@@ -31,7 +31,7 @@ use crate::activity_dao::SubagentUsage;
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::task_dao::{T3TaskDao, TaskView};
 use crate::workspace::UiRpcListedWorkspace;
-use crate::workspace_dao::{ScriptsWriteTarget, T3WorkspaceDao};
+use crate::workspace_dao::T3WorkspaceDao;
 use moatless_api_schemas::workspace::ScriptConfig;
 use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
 use moatless_ports::activity::ActivitySource;
@@ -730,7 +730,7 @@ impl PgConversationDao {
             .map(|status| format!("'{}'", status.as_str()))
             .collect::<Vec<_>>()
             .join(", ");
-        let access = viewer.access_filter(ScopedEntity::Task, "t.", 1);
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
         let follower = access.next_param();
         let question_tool = follower + 1;
         let plan_tool = follower + 2;
@@ -983,7 +983,8 @@ impl T3WorkspaceDao for PgConversationDao {
         viewer: &ScopeContext,
         also_include: &[String],
     ) -> Result<Vec<UiRpcListedWorkspace>, sqlx::Error> {
-        let access = viewer.access_filter(ScopedEntity::Resource, "", 1);
+        let access =
+            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "", 1);
         let ids_param = access.next_param();
         let sql = format!(
             "SELECT *, {} AS readable FROM workspaces \
@@ -1009,7 +1010,8 @@ impl T3WorkspaceDao for PgConversationDao {
         // Joined rather than read in two steps so the scoped read and the pick
         // are one statement: a Workspace the viewer cannot be shown returns no
         // row, which is the same answer as one that declares no repository.
-        let access = viewer.access_filter(ScopedEntity::Resource, "w.", 2);
+        let access =
+            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "w.", 2);
         let sql = format!(
             "SELECT r.repository_id FROM workspace_repos r              JOIN workspaces w ON w.id = r.workspace_id              WHERE r.workspace_id = $1              AND (w.deleted IS NULL OR w.deleted = false)              AND {}              ORDER BY r.is_primary DESC, r.position ASC, r.id ASC              LIMIT 1",
             access.sql()
@@ -1031,7 +1033,7 @@ impl T3WorkspaceDao for PgConversationDao {
         // returns no row — the same "not found" the caller gets for a missing
         // one. `COALESCE` so a workspace predating the scripts column reads as an
         // empty list rather than a NULL that fails to decode.
-        let access = viewer.access_filter(ScopedEntity::Task, "t.", 2);
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 2);
         let sql = format!(
             "SELECT COALESCE(w.scripts, '[]'::jsonb) \
              FROM tasks t JOIN workspaces w ON w.id = t.workspace_id \
@@ -1053,66 +1055,6 @@ impl T3WorkspaceDao for PgConversationDao {
         // than failing the run — the same tolerance the projection applies.
         Ok(Some(serde_json::from_value(raw).unwrap_or_default()))
     }
-
-    async fn scripts_write_target(
-        &self,
-        viewer: &ScopeContext,
-        workspace_id: &str,
-    ) -> Result<Option<ScriptsWriteTarget>, sqlx::Error> {
-        let access = viewer.access_filter(ScopedEntity::Resource, "", 2);
-        let sql = format!(
-            "SELECT source, COALESCE(scripts, '[]'::jsonb) FROM workspaces \
-             WHERE id = $1 \
-             AND (deleted IS NULL OR deleted = false) \
-             AND {}",
-            access.sql()
-        );
-        let row = sqlx::query_as::<_, (String, serde_json::Value)>(AssertSqlSafe(sql))
-            .bind(workspace_id)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        Ok(row.map(|(source, scripts)| ScriptsWriteTarget {
-            source,
-            // Same tolerance as every other read of this column: a stored value
-            // that will not decode reads as no scripts. It costs the carry-over
-            // of fields the client does not send, which is the right price for
-            // still being able to write a readable list over an unreadable one.
-            scripts: serde_json::from_value(scripts).unwrap_or_default(),
-        }))
-    }
-
-    async fn replace_scripts(
-        &self,
-        viewer: &ScopeContext,
-        workspace_id: &str,
-        scripts: &[ScriptConfig],
-    ) -> Result<bool, sqlx::Error> {
-        // Scoped in the statement rather than trusted from the read before it:
-        // the two are not one transaction, and an UPDATE that finds its row by
-        // id alone would write outside the viewer's scope if access changed in
-        // between. `source` is re-checked for the same reason.
-        let access = viewer.access_filter(ScopedEntity::Resource, "", 3);
-        let sql = format!(
-            "UPDATE workspaces SET scripts = $2, updated_at = NOW() \
-             WHERE id = $1 \
-             AND (deleted IS NULL OR deleted = false) \
-             AND source <> 'git' \
-             AND {}",
-            access.sql()
-        );
-        let scripts = serde_json::to_value(scripts).unwrap_or_else(|_| serde_json::json!([]));
-        let result = sqlx::query(AssertSqlSafe(sql))
-            .bind(workspace_id)
-            .bind(scripts)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(result.rows_affected() > 0)
-    }
 }
 
 #[async_trait]
@@ -1122,7 +1064,7 @@ impl T3TaskDao for PgConversationDao {
         task_id: &str,
         viewer: &ScopeContext,
     ) -> Result<Option<TaskView>, sqlx::Error> {
-        let access = viewer.access_filter(ScopedEntity::Task, "", 2);
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
             "SELECT status FROM tasks WHERE task_id = $1 AND {}",
             access.sql()
@@ -1140,7 +1082,7 @@ impl T3TaskDao for PgConversationDao {
         task_id: &str,
         viewer: &ScopeContext,
     ) -> Result<Option<TaskView>, sqlx::Error> {
-        let control = viewer.control_filter(ScopedEntity::Task, "", 2);
+        let control = moatless_core::db::access_control::control_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
             "SELECT status FROM tasks WHERE task_id = $1 AND {}",
             control.sql()
@@ -1215,7 +1157,7 @@ impl ConversationDao for PgConversationDao {
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        let write = viewer.write_filter("", 2);
+        let write = moatless_core::db::access_control::write_filter("", 2);
         let sql = format!("SELECT 1 FROM tasks WHERE task_id = $1 AND {}", write.sql());
         let found = sqlx::query_scalar::<_, i32>(AssertSqlSafe(sql))
             .bind(task_id)
@@ -1231,7 +1173,7 @@ impl ConversationDao for PgConversationDao {
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        let control = viewer.control_filter(ScopedEntity::Task, "", 2);
+        let control = moatless_core::db::access_control::control_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
             "SELECT 1 FROM tasks WHERE task_id = $1 AND {}",
             control.sql()
@@ -1257,7 +1199,7 @@ impl ConversationDao for PgConversationDao {
         // exists to avoid, and here a drift is a disclosure rather than a
         // missing row.
         let open = TaskStatus::Open.as_str();
-        let access = viewer.access_filter(ScopedEntity::Task, "t.", 1);
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
         let follower = access.next_param();
         let pattern = follower + 1;
         let row_limit = pattern + 1;
@@ -1440,7 +1382,7 @@ impl ConversationDao for PgConversationDao {
         // Scoped, so a Task outside the viewer's reach yields no row and the
         // origin built from it carries neither a name nor a link. `$1` is the
         // id set; the access filter binds `is_admin` then `user_id` from `$2`.
-        let access = viewer.access_filter(ScopedEntity::Task, "", 2);
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
             "SELECT task_id, name FROM tasks WHERE task_id = ANY($1) AND {}",
             access.sql()
@@ -1551,4 +1493,26 @@ impl ConversationDao for PgConversationDao {
     ) -> Result<Vec<UiRpcListingChange>, sqlx::Error> {
         crate::listing::changes_after(&self.pool, after, limit).await
     }
+}
+/// Creator identity for a Task whose readability the caller has already checked.
+pub async fn task_creator(
+    pool: &sqlx::PgPool,
+    task_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    Ok(
+        sqlx::query_scalar::<_, Option<String>>("SELECT created_by FROM tasks WHERE task_id = $1")
+            .bind(task_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten(),
+    )
+}
+
+/// Whether a message has claimed an attachment that is no longer a draft.
+pub async fn attachment_is_on_message(
+    pool: &sqlx::PgPool,
+    attachment_id: &str,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM task_message_contexts WHERE reference_id = $1 AND type = 'file')")
+        .bind(attachment_id).fetch_one(pool).await
 }

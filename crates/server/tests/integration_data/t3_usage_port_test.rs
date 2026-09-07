@@ -5,7 +5,7 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! Integration tests for the `UsageReporter` port on [`AppState`].
+//! Integration tests for the `UsageReporter` port implemented by [`PgUsageDao`].
 //!
 //! The bucket query is built by string interpolation and bound positionally,
 //! so a parameter index that drifts from the bind order compiles and only
@@ -13,14 +13,14 @@
 
 use crate::common;
 
-use moatless_backend::t3code::backend::AppStateUsage;
+use moatless_t3code::PgUsageDao;
 use moatless_t3code::ports::{UsageReporter, UsageWindow};
 use moatless_tasks::task::dao as task_dao;
 use moatless_workspaces::repository::dao as repository_dao;
 use serde_json::json;
 use sqlx::PgPool;
 
-use common::{USER_1, make_repository_row, make_task_row, seed_team, test_app_state, user_scope};
+use common::{USER_1, make_repository_row, make_task_row, seed_team, user_scope};
 
 /// Seed the team + repository a task's FKs require, then the task itself.
 async fn seed_task(pool: &PgPool, task_id: &str, user_id: &str) {
@@ -41,6 +41,12 @@ async fn seed_turn(
     agent_type: &str,
     metrics: serde_json::Value,
 ) {
+    sqlx::query("UPDATE tasks SET agent_type = $2 WHERE task_id = $1")
+        .bind(task_id)
+        .bind(agent_type)
+        .execute(pool)
+        .await
+        .expect("set task harness");
     sqlx::query(
         r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at, metrics)
            VALUES ($1, $2, 'completed', $3, '2026-09-02T10:00:00Z'::timestamptz, $4)"#,
@@ -52,6 +58,60 @@ async fn seed_turn(
     .execute(pool)
     .await
     .expect("seed turn row");
+}
+
+#[sqlx::test]
+async fn global_usage_respects_local_day_and_missing_metric_fields(pool: PgPool) {
+    seed_task(&pool, "global-task", USER_1).await;
+    seed_turn(
+        &pool,
+        "global-task",
+        1,
+        "codex",
+        json!({"usage": {"input_tokens": 7}}),
+    )
+    .await;
+    seed_turn(&pool, "global-task", 2, "codex", json!({})).await;
+    sqlx::query(
+        "UPDATE tasks SET scope = 'global', owner_user_id = NULL WHERE task_id = 'global-task'",
+    )
+    .execute(&pool)
+    .await
+    .expect("global task");
+    sqlx::query("UPDATE task_turns SET started_at = '2026-09-02T00:30:00Z'::timestamptz WHERE task_id = 'global-task'")
+        .execute(&pool).await.expect("turn near day boundary");
+    let reporter = PgUsageDao::new(pool);
+    let viewer = user_scope("22222222-2222-2222-2222-222222222222");
+    let local_window = UsageWindow {
+        since_day: "2026-09-01".into(),
+        until_day: "2026-09-01".into(),
+        time_zone: "America/Los_Angeles".into(),
+        hourly: true,
+    };
+    let rows = reporter
+        .buckets(&viewer, &local_window)
+        .await
+        .expect("local buckets");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].day, "2026-09-01");
+    assert_eq!(rows[0].hour_start.as_deref(), Some("2026-09-01T17:00:00Z"));
+    assert_eq!(rows[0].model, "unknown");
+    assert_eq!(rows[0].records, 1);
+    assert_eq!(rows[0].unpriced_records, 1);
+    assert_eq!(rows[0].uncached_input_tokens, 7);
+    assert_eq!(rows[0].output_tokens, 0);
+    assert_eq!(rows[0].sessions, 1);
+    let utc_window = UsageWindow {
+        time_zone: "UTC".into(),
+        ..local_window
+    };
+    assert!(
+        reporter
+            .buckets(&viewer, &utc_window)
+            .await
+            .expect("UTC excludes prior local day")
+            .is_empty()
+    );
 }
 
 fn window() -> UsageWindow {
@@ -92,7 +152,7 @@ async fn claude_turn_fans_out_one_bucket_per_model(pool: PgPool) {
     )
     .await;
 
-    let reporter = AppStateUsage(test_app_state(pool));
+    let reporter = PgUsageDao::new(pool);
     let rows = reporter
         .buckets(&user_scope(USER_1), &window())
         .await
@@ -138,7 +198,7 @@ async fn codex_turn_groups_by_its_single_model(pool: PgPool) {
     )
     .await;
 
-    let reporter = AppStateUsage(test_app_state(pool));
+    let reporter = PgUsageDao::new(pool);
     let rows = reporter
         .buckets(&user_scope(USER_1), &window())
         .await
@@ -163,7 +223,7 @@ async fn hourly_window_carries_the_hour_and_a_foreign_viewer_reads_nothing(pool:
     )
     .await;
 
-    let reporter = AppStateUsage(test_app_state(pool));
+    let reporter = PgUsageDao::new(pool);
     let hourly = UsageWindow {
         hourly: true,
         ..window()

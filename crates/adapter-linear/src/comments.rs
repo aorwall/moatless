@@ -117,7 +117,7 @@ pub(super) async fn handle_comment_created(
     }
 
     let rule = super::subject::rule_for_binding(loops, recipients[0]).await?;
-    let author = super::actor_handle(comment.user.as_ref());
+    let author = super::webhook_payloads::actor_handle(comment.user.as_ref());
 
     for binding in recipients {
         // Best-effort heartbeat into the bound agent session so Linear's

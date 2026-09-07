@@ -6,6 +6,7 @@ pub mod enricher;
 pub mod error;
 pub mod fork;
 pub mod handlers;
+pub(crate) mod summary;
 pub mod hooks;
 pub mod models;
 pub mod routes;
@@ -14,3 +15,5 @@ pub mod send;
 pub mod service;
 pub mod transform;
 pub mod wake;
+
+mod fork_dao;

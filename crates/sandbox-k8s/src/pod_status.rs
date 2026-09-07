@@ -8,14 +8,10 @@
 //! * container waiting-reason extraction
 //! * multi-pod ranking ("pick best pod")
 //! * container observed-status extraction (for server monitoring)
-//! * `SandboxStatus` ↔ `PodPhase` conversion
 
 use k8s_openapi::api::core::v1::Pod;
 
-use moatless_sandbox_runtime::container_status::{
-    ContainerObservedStatus, ContainerState, PodPhase,
-};
-use moatless_types::sandbox::SandboxStatus;
+use moatless_sandbox_runtime::container_status::{ContainerObservedStatus, ContainerState};
 
 // =============================================================================
 // Shared failure-reason constants
@@ -83,17 +79,6 @@ pub fn check_sandbox_permanent_failure(pod: &Pod) -> Option<String> {
         }
     }
     None
-}
-
-/// Extract the first container's waiting reason, if any.
-pub fn extract_first_waiting_reason(pod: &Pod) -> Option<String> {
-    pod.status
-        .as_ref()
-        .and_then(|s| s.container_statuses.as_ref())
-        .and_then(|cs| cs.first())
-        .and_then(|cs| cs.state.as_ref())
-        .and_then(|s| s.waiting.as_ref())
-        .and_then(|w| w.reason.clone())
 }
 
 /// Pick the best pod from a list when multiple pods exist for a task.
@@ -239,19 +224,6 @@ fn extract_container_statuses_filtered(
         .collect()
 }
 
-/// Convert `SandboxStatus` back to an approximate `PodPhase` for L1 cache compatibility.
-pub fn sandbox_status_to_pod_phase(status: &SandboxStatus) -> PodPhase {
-    match status {
-        SandboxStatus::NotCreated => PodPhase::NotFound,
-        SandboxStatus::Initializing => PodPhase::Pending,
-        SandboxStatus::Ready => PodPhase::Running,
-        SandboxStatus::Stopped => PodPhase::Stopped,
-        SandboxStatus::Removing => PodPhase::Terminating,
-        SandboxStatus::Removed => PodPhase::NotFound,
-        SandboxStatus::Error => PodPhase::Failed,
-    }
-}
-
 // =============================================================================
 // Test helpers — shared across sibling modules
 // =============================================================================
@@ -344,12 +316,12 @@ pub mod test_helpers {
 mod tests {
     use super::test_helpers::*;
     use super::*;
-    use moatless_types::sandbox::ServerStatus;
     use k8s_openapi::api::core::v1::{
         ContainerState as K8sState, ContainerStateRunning, ContainerStateWaiting, ContainerStatus,
         Pod, PodStatus,
     };
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+    use moatless_types::sandbox::ServerStatus;
 
     // =========================================================================
     // is_sandbox_container_ready()
@@ -532,21 +504,6 @@ mod tests {
     // extract_first_waiting_reason()
     // =========================================================================
 
-    #[test]
-    fn extract_waiting_reason_returns_reason() {
-        let pod = pod_with_containers(vec![waiting_container("sandbox", "ContainerCreating")]);
-        assert_eq!(
-            extract_first_waiting_reason(&pod),
-            Some("ContainerCreating".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_waiting_reason_none_when_running() {
-        let pod = pod_with_containers(vec![running_container("sandbox", true, true)]);
-        assert!(extract_first_waiting_reason(&pod).is_none());
-    }
-
     // =========================================================================
     // pick_best_pod()
     // =========================================================================
@@ -693,21 +650,4 @@ mod tests {
     // =========================================================================
     // sandbox_status_to_pod_phase()
     // =========================================================================
-
-    #[test]
-    fn env_status_roundtrip() {
-        let cases = [
-            (SandboxStatus::NotCreated, PodPhase::NotFound),
-            (SandboxStatus::Initializing, PodPhase::Pending),
-            (SandboxStatus::Ready, PodPhase::Running),
-            (SandboxStatus::Stopped, PodPhase::Stopped),
-            (SandboxStatus::Removing, PodPhase::Terminating),
-            (SandboxStatus::Removed, PodPhase::NotFound),
-            (SandboxStatus::Error, PodPhase::Failed),
-        ];
-
-        for (status, expected) in cases {
-            assert_eq!(sandbox_status_to_pod_phase(&status), expected, "{status:?}");
-        }
-    }
 }

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tracing::warn;
 
 use moatless_adapter_model::apps::AdapterAppReader;
+use moatless_adapter_model::binding::BindingContext;
 use moatless_adapter_model::capabilities::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
     AdapterInboundPresentation, AdapterMessageReply, AdapterOutboundContent,
@@ -17,22 +18,21 @@ use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
+use moatless_adapter_model::outbound::OutboundReply;
 use moatless_adapter_model::registry::Adapters;
 use moatless_ports::identity::AppCredentials;
 use moatless_ports::task::TaskReader;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::TaskBinding;
-use moatless_types::adapter::{
-    AdapterKind, BindingContext, ExternalStatus, InboundMessage, OutboundReply,
-};
+use moatless_types::adapter::{AdapterKind, ExternalStatus, InboundMessage};
 use moatless_types::loops::LoopContext;
 use moatless_types::loops::SubscriptionMatch;
 
-use super::SUBJECT_KIND_ISSUE;
 use super::agent_api::LinearAgentApi;
 use super::auth::LinearCredentials;
 use super::status;
+use super::SUBJECT_KIND_ISSUE;
 
 /// Linear adapter.
 pub struct LinearAdapter {
@@ -380,7 +380,7 @@ impl AdapterDirectDestination for LinearAdapter {
         &self,
         destination: &str,
         message: &OutboundReply,
-    ) -> Result<moatless_types::adapter::DestinationPostResult, AdapterError> {
+    ) -> Result<moatless_adapter_model::outbound::DestinationPostResult, AdapterError> {
         let id_or_key = destination.strip_prefix("issue:").unwrap_or(destination);
         if id_or_key.is_empty() {
             return Err(SharedAdapterError::BadRequest(
@@ -425,7 +425,7 @@ impl AdapterDirectDestination for LinearAdapter {
             destination_config["url"] = serde_json::Value::String(u);
         }
 
-        Ok(moatless_types::adapter::DestinationPostResult {
+        Ok(moatless_adapter_model::outbound::DestinationPostResult {
             message_external_id: super::external_id::comment(&comment_id),
             subject_kind: SUBJECT_KIND_ISSUE,
             subject_key: issue_uuid,
@@ -468,8 +468,14 @@ impl AdapterPostBindingFollowup for LinearAdapter {
                 return;
             }
         };
-        super::issues::attach_parent_task_link(config, tasks, &api, &binding.subject_key, task_id)
-            .await;
+        super::task_links::attach_parent_task_link(
+            config,
+            tasks,
+            &api,
+            &binding.subject_key,
+            task_id,
+        )
+        .await;
     }
 }
 

@@ -1,7 +1,7 @@
 //! `moat docker logs` — stream logs from one or all services.
 
-use super::compose::{detect_compose_cmd, resolve_compose_dir, run_compose_streaming};
 use super::LogsArgs;
+use super::docker_compose::{detect_compose_cmd, resolve_compose_dir, run_compose_streaming};
 use crate::client::ClientError;
 
 pub(super) async fn run(args: LogsArgs, _json: bool) -> Result<(), ClientError> {

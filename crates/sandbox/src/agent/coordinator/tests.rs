@@ -18,12 +18,12 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
 
+use crate::agent::harness::error::FailureStage;
+use crate::agent::harness::source::{NativeMessageId, SourceId};
 use crate::agent::harness::{
     Activity, Cause, ErrorClass, Harness, HarnessError, Input, InputId, Outcome, Role, Script,
     SessionId, SessionImpact, Signal, SourceEvent, Step,
 };
-use crate::agent::harness::error::FailureStage;
-use crate::agent::harness::source::{NativeMessageId, SourceId};
 use crate::agent::types::{ResumeSession, StopSource};
 use crate::backend_client::BackendClient;
 use crate::events::GrpcEventPublisher;
@@ -1178,8 +1178,8 @@ use crate::agent::handle::AgentCommand;
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{JobInjector, LateInjector, ScheduledJobRegistry};
 use crate::config::{Config, test_support::minimal_config};
-use crate::credentials::{CredentialSink, Dispatcher};
 use crate::credentials::recovery::{CODEX_AUTH_JSON, CredentialFailureDetector};
+use crate::credentials::{CredentialSink, Dispatcher};
 
 use super::CoordinatorService;
 
@@ -1225,7 +1225,7 @@ fn service_with_harness(
         Arc::new(crate::commands::CommandRegistry::for_test()),
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
-        crate::init::workspace_sync::WorkspaceSyncTracker::new(),
+        crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
     let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
     let heartbeat = Heartbeat::new();
@@ -1705,7 +1705,7 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
         Arc::new(crate::commands::CommandRegistry::for_test()),
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
-        crate::init::workspace_sync::WorkspaceSyncTracker::new(),
+        crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
     let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
     tokio::spawn(service.run(rx, Heartbeat::new()));
@@ -2256,7 +2256,7 @@ fn service_with_credentials(
         Arc::new(crate::commands::CommandRegistry::for_test()),
         detector,
         dispatcher,
-        crate::init::workspace_sync::WorkspaceSyncTracker::new(),
+        crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
     let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
     tokio::spawn(service.run(rx, Heartbeat::new()));

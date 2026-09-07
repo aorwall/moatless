@@ -11,9 +11,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use moatless_types::sandbox::SandboxError;
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
 
 use crate::sandbox_service_client::SandboxServiceClient;
 use crate::{
@@ -31,24 +28,7 @@ use tonic::Streaming;
 use tonic::transport::Channel;
 use tracing::debug;
 
-/// A live override of one preview server's start command and env.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerOverride {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_command: Option<String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unset_env: Vec<String>,
-}
-
-impl ServerOverride {
-    pub fn is_empty(&self) -> bool {
-        self.start_command.is_none() && self.env.is_empty() && self.unset_env.is_empty()
-    }
-}
+pub use moatless_types::workspace::ServerOverride;
 
 /// Raise from tonic's 4 MB default so binary files (audio, images) can round-trip.
 const MAX_GRPC_MESSAGE_SIZE: usize = 32 * 1024 * 1024;

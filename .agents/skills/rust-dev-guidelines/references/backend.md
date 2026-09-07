@@ -4,8 +4,8 @@ Apply this reference to backend Rust across `crates/`. Read [crate ownership](..
 
 ## Module and State Boundaries
 
-- Organize modules around cohesive responsibilities and keep dependencies
-  pointing toward domain behavior. Do not impose a fixed file template.
+- Follow the [file responsibilities](file-roles.md) loaded from `SKILL.md`.
+  Keep dependencies pointing toward domain behavior.
 - HTTP and webhook handlers obtain persistence and domain behavior through DAOs
   or services injected into `AppState`.
 - Construct concrete `Pg*` DAO implementations in composition roots or inside
@@ -15,16 +15,17 @@ Apply this reference to backend Rust across `crates/`. Read [crate ownership](..
   stay a stateless wrapper over the pool — two instances never diverge. A DAO
   that acquires in-memory state (a dedup cache, a counter, a notify channel) has
   to be built once and shared instead, not rebuilt per consumer.
-- Direct pool access in handlers is limited to documented authentication,
-  infrastructure, or transaction boundaries.
 - Add a trait only when the boundary has more than one production implementation or a test
   uses a mock/fake implementation.
 
 ## Persistence Naming
 
 - A persistence trait is `*Dao`; its Postgres implementation is `Pg*Dao`, and
-  both live in the owning module's `dao.rs` — `TaskDao`/`PgTaskDao` in
-  `task/dao.rs`. The acronym is camel-cased like `ApiError` and `DbPool`, so it
+  both belong to the owning module's `dao` module — `TaskDao`/`PgTaskDao` in
+  `task/dao.rs` or its private implementation children. A directory root
+  declares and re-exports; it contains no implementation bodies.
+  Check architecture-rule path assumptions before changing the file layout.
+  The acronym is camel-cased like `ApiError` and `DbPool`, so it
   is `Dao`, never `DAO`.
 - `Repository` names the git-remote domain entity only. `Store` is not a
   type-name suffix.
@@ -61,8 +62,6 @@ from Cargo metadata; it also compiles the gated tier. Read
 
 - Axum's body-consuming extractor is last. Non-body extractors have no
   repository-mandated order.
-- Handlers coordinate transport concerns; move reusable domain behavior into an
-  owned service or DAO operation.
 - Keep request/response DTOs and OpenAPI annotations aligned with the public
   response contract.
 - Internal failures retain their source. `IntoResponse` owns stable status

@@ -1,3 +1,5 @@
+use super::Transport;
+use async_trait::async_trait;
 use serde_json::{Map, Value};
 use std::fmt::Write;
 use std::sync::Arc;
@@ -8,11 +10,11 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
 
-use crate::error::{Result, SdkError};
 use crate::api::content::ContentBlock;
 use crate::api::control::{ControlResponseInner, IncomingControlRequestInner, RawStdoutMessage};
 use crate::api::messages::{ResultMessage, SdkMessage};
 use crate::api::options::{ClaudeOptions, OutputFormat, SystemPrompt};
+use crate::error::{Result, SdkError};
 
 /// Manages the Claude CLI subprocess: spawning, reading NDJSON, writing, and cleanup.
 pub(crate) struct SubprocessTransport {
@@ -870,6 +872,17 @@ fn truncate(s: &str, max_len: usize) -> String {
         end -= 1;
     }
     format!("{}...[+{} bytes]", &s[..end], s.len() - end)
+}
+
+#[async_trait]
+impl Transport for SubprocessTransport {
+    async fn read_message(&mut self) -> Result<Option<RawStdoutMessage>> {
+        self.read_message().await
+    }
+
+    async fn close(&mut self) {
+        self.close().await;
+    }
 }
 
 #[cfg(test)]

@@ -1,8 +1,8 @@
 //! Emoji reactions on a Slack message.
 
+use moatless_adapter_model::binding::BindingContext;
 use moatless_adapter_model::capabilities::AdapterReactions;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::adapter::BindingContext;
 
 use super::adapter::SlackAdapter;
 use super::subject;
@@ -31,7 +31,9 @@ impl AdapterReactions for SlackAdapter {
     ) -> Result<Option<String>, AdapterError> {
         let (channel, ts) = subject::reaction_target(binding, target_external_id)?;
         let name = normalize_emoji(emoji)?;
-        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+        let app = self
+            .app(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+            .await?;
         app.api.add_reaction(&channel, name, ts).await?;
         Ok(None)
     }
@@ -44,20 +46,22 @@ impl AdapterReactions for SlackAdapter {
     ) -> Result<(), AdapterError> {
         let (channel, ts) = subject::reaction_target(binding, target_external_id)?;
         let name = normalize_emoji(emoji)?;
-        let app = self.app(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+        let app = self
+            .app(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+            .await?;
         app.api.remove_reaction(&channel, name, ts).await
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use moatless_adapter_model::binding::BindingContext;
     use moatless_adapter_model::capabilities::AdapterReactions;
-    use moatless_types::adapter::BindingContext;
     use moatless_adapter_model::test_support::ProviderStub;
 
+    use super::normalize_emoji;
     use crate::adapter::SlackAdapter;
     use crate::api::SlackApi;
-    use super::normalize_emoji;
 
     async fn slack_stub() -> ProviderStub {
         ProviderStub::start(|_| serde_json::json!({"ok": true})).await

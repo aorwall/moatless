@@ -12,9 +12,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod client;
-pub mod container_builder;
+mod container_builder;
 pub mod container_watcher;
 pub mod fleet_observer;
-pub mod naming;
+mod naming;
 pub mod provider;
-pub mod status_resolver;
+mod status_resolver;

@@ -326,6 +326,14 @@ impl AppUserNotificationData {
     }
 }
 
+/// The name Linear knows an actor by, for the messages they write.
+///
+/// Linear's webhook payloads default every actor field, so an event that names
+/// nobody arrives with an empty name rather than no actor at all.
+pub(crate) fn actor_handle(actor: Option<&LinearActor>) -> Option<String> {
+    actor.and_then(|actor| moatless_types::adapter::author_handle(&actor.name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -588,5 +596,28 @@ mod tests {
         assert_eq!(issue.id, "issue-13");
         assert_eq!(issue.identifier, "ENG-13");
         assert_eq!(comment.parent_id.as_deref(), Some("comment-100"));
+    }
+}
+
+
+#[cfg(test)]
+mod actor_tests {
+    use super::{actor_handle, LinearActor};
+
+    fn actor(name: &str) -> LinearActor {
+        LinearActor {
+            id: "user-uuid".to_string(),
+            name: name.to_string(),
+            email: None,
+        }
+    }
+
+    /// An event with no actor at all, and one whose actor was defaulted into
+    /// existence by an empty payload, both name nobody.
+    #[test]
+    fn an_event_that_names_nobody_yields_no_handle() {
+        assert_eq!(actor_handle(Some(&actor("Ada"))).as_deref(), Some("Ada"));
+        assert_eq!(actor_handle(Some(&actor(""))), None);
+        assert_eq!(actor_handle(None), None);
     }
 }

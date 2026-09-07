@@ -1,140 +1,26 @@
 //! Shared application state for the sandbox service.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
-use moatless_types::workspace::sanitize_mount_name;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
-use crate::agent::agent_state::AgentState;
-use crate::agent::handle::{AgentHandle, spawn_agent};
 use crate::agent::heartbeat::Heartbeat;
-use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use crate::backend_client::BackendClient;
-use crate::commands::CommandRegistry;
 use crate::config::Config;
 use crate::credentials::Dispatcher;
-use crate::credentials::recovery::CredentialFailureDetector;
+use crate::credentials::codex_watcher::WatcherHandle;
 use crate::events::GrpcEventPublisher;
 use crate::init::InitPhase;
-use crate::init::codex_watcher::WatcherHandle;
-use crate::init::workspace_sync::WorkspaceSyncTracker;
 use crate::supervisor::SupervisorHealth;
 use crate::terminal::TerminalManager;
+use crate::workspace_sync::WorkspaceSyncTracker;
 
-/// Per-task runtime state inside a sandbox process.
-///
-/// A warm sandbox starts with one context keyed by the boot task. Joined tasks
-/// get their own context so agent status, turns, prompts, scheduled jobs, and
-/// dispatch single-flight state stay isolated by task.
-#[derive(Clone)]
-pub struct TaskContext {
-    /// Task this context serves.
-    pub task_id: String,
-    /// Workspace root used by this task.
-    pub workspace_dir: String,
-    /// Primary checkout used by this task.
-    pub checkout_dir: String,
-    /// Checkout relationship requested by the backend for this member.
-    pub checkout_mode: CheckoutMode,
-    /// Agent execution state (status, session, cancel token, pending prompts).
-    pub agent: Arc<AgentState>,
-    /// Agent command handle — send messages via `agent_handle.send()`.
-    pub agent_handle: AgentHandle,
-    /// Registry of deferred-work jobs (Monitor crons + `ScheduleWakeup` timers)
-    /// spawned by the permission handler / agent lifecycle service.
-    pub scheduled_jobs: Arc<ScheduledJobRegistry>,
-    /// Commands this task started through `moat cmd`. The only source of
-    /// `busy_processes`, so a process started any other way cannot defer an
-    /// idle stop.
-    pub commands: Arc<CommandRegistry>,
-    /// Single-flight guard for this task's pending-message dispatch.
-    pub dispatch_lock: Arc<Mutex<()>>,
-    /// Tracks credential failures observed on this task's agent stderr.
-    pub credential_failures: CredentialFailureDetector,
-    /// Last system prompt fetched for this task. Used as a fallback when
-    /// `BackendClient::get_system_prompt` fails on a subsequent run.
-    pub system_prompt_cache: Arc<RwLock<Option<String>>>,
-}
-
-impl TaskContext {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        task_id: String,
-        workspace_dir: String,
-        checkout_dir: String,
-        checkout_mode: CheckoutMode,
-        agent: Arc<AgentState>,
-        agent_handle: AgentHandle,
-        scheduled_jobs: Arc<ScheduledJobRegistry>,
-        commands: Arc<CommandRegistry>,
-        credential_failures: CredentialFailureDetector,
-        system_prompt_cache: Arc<RwLock<Option<String>>>,
-    ) -> Self {
-        Self {
-            task_id,
-            workspace_dir,
-            checkout_dir,
-            checkout_mode,
-            agent,
-            agent_handle,
-            scheduled_jobs,
-            commands,
-            dispatch_lock: Default::default(),
-            credential_failures,
-            system_prompt_cache,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CheckoutMode {
-    Shared,
-    Isolated,
-}
-
-impl CheckoutMode {
-    fn parse(raw: Option<&str>) -> Result<Self, RegisterTaskContextError> {
-        match raw.unwrap_or("shared") {
-            "shared" | "" => Ok(Self::Shared),
-            "isolated" => Ok(Self::Isolated),
-            other => Err(RegisterTaskContextError::InvalidCheckoutMode(
-                other.to_string(),
-            )),
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Shared => "shared",
-            Self::Isolated => "isolated",
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum TaskContextLookupError {
-    #[error("task is not registered in this sandbox process: {0}")]
-    NotFound(String),
-    #[error("task id is required when multiple tasks are registered")]
-    Ambiguous,
-    #[error("sandbox has no registered task contexts")]
-    Empty,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum RegisterTaskContextError {
-    #[error("task_id is required")]
-    EmptyTaskId,
-    #[error("unsupported checkout_mode: {0}")]
-    InvalidCheckoutMode(String),
-    #[error("failed to materialize isolated checkout: {0}")]
-    CheckoutMaterialization(String),
-}
+pub use crate::task_context::{
+    CheckoutMode, RegisterTaskContextError, TaskContext, TaskContextLookupError,
+};
 
 /// Shared state passed to all axum handlers via `State` extractor.
 ///
@@ -228,138 +114,13 @@ impl SandboxState {
         self.task_contexts.read().await.values().cloned().collect()
     }
 
-    /// Register a task as a member of this sandbox process.
-    ///
-    /// Idempotent per task: replaying `JoinTask` after a mid-join failure
-    /// returns the existing context and does not spawn another agent loop.
+    /// Register a task once, materializing its checkout before publishing membership.
     pub async fn register_task_context(
         &self,
         task_id: String,
         checkout_mode: Option<&str>,
     ) -> Result<Arc<TaskContext>, RegisterTaskContextError> {
-        if task_id.is_empty() {
-            return Err(RegisterTaskContextError::EmptyTaskId);
-        }
-
-        {
-            let contexts = self.task_contexts.read().await;
-            if let Some(context) = contexts.get(&task_id) {
-                return Ok(Arc::clone(context));
-            }
-        }
-
-        let checkout_mode = CheckoutMode::parse(checkout_mode)?;
-        let _registration = self.task_context_registration.lock().await;
-        {
-            let contexts = self.task_contexts.read().await;
-            if let Some(context) = contexts.get(&task_id) {
-                return Ok(Arc::clone(context));
-            }
-        }
-
-        let (workspace_dir, checkout_dir) = self
-            .materialize_checkout(&task_id, checkout_mode)
-            .await
-            .map_err(RegisterTaskContextError::CheckoutMaterialization)?;
-        let mut task_config = (*self.config).clone();
-        task_config.task_id = task_id.clone();
-        task_config.workspace_dir = workspace_dir;
-        task_config.repo_dir = checkout_dir.clone();
-        let task_config = Arc::new(task_config);
-
-        let agent_state = Arc::new(AgentState::new());
-        let late_injector = Arc::new(LateInjector::new());
-        let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::clone(&late_injector) as _));
-        let commands = Arc::new(
-            CommandRegistry::new(
-                Duration::from_secs(task_config.command_default_timeout_secs),
-                crate::commands::default_log_dir(&task_id),
-            )
-            .with_journal(crate::commands::default_journal_path(
-                &task_config.workspace_dir,
-            ))
-            .with_liveness(self.events.clone(), task_id.clone()),
-        );
-        commands.report_initial_liveness().await;
-        let credential_failures = CredentialFailureDetector::default();
-        let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
-
-        let agent_handle = spawn_agent(
-            Arc::clone(&task_config),
-            Arc::clone(&agent_state),
-            self.events.clone(),
-            Arc::clone(&self.credentials),
-            Arc::clone(&self.backend_client),
-            Arc::clone(&scheduled_jobs),
-            Arc::clone(&commands),
-            credential_failures.clone(),
-            Arc::clone(&self.credential_dispatcher),
-            Arc::clone(&system_prompt_cache),
-            self.heartbeat.clone(),
-            self.workspace_sync.clone(),
-        );
-        late_injector.set(Box::new(agent_handle.clone()));
-
-        let context = Arc::new(TaskContext::new(
-            task_id.clone(),
-            task_config.workspace_dir.clone(),
-            checkout_dir,
-            checkout_mode,
-            agent_state,
-            agent_handle,
-            scheduled_jobs,
-            commands,
-            credential_failures,
-            system_prompt_cache,
-        ));
-        let mut contexts = self.task_contexts.write().await;
-        contexts.insert(task_id, Arc::clone(&context));
-        Ok(context)
-    }
-
-    async fn materialize_checkout(
-        &self,
-        task_id: &str,
-        checkout_mode: CheckoutMode,
-    ) -> Result<(String, String), String> {
-        match checkout_mode {
-            CheckoutMode::Shared => Ok((
-                self.config.workspace_dir.clone(),
-                self.config.repo_dir.clone(),
-            )),
-            CheckoutMode::Isolated => self.materialize_isolated_checkout(task_id).await,
-        }
-    }
-
-    async fn materialize_isolated_checkout(
-        &self,
-        task_id: &str,
-    ) -> Result<(String, String), String> {
-        let workspace_dir = isolated_workspace_dir(&self.config.workspace_dir, task_id)?;
-        tokio::fs::create_dir_all(&workspace_dir)
-            .await
-            .map_err(|e| format!("create isolated workspace {workspace_dir}: {e}"))?;
-
-        let mut task_config = (*self.config).clone();
-        task_config.task_id = task_id.to_string();
-        task_config.workspace_dir = workspace_dir.clone();
-        task_config.repo_dir = primary_repo_dir_for_workspace(&task_config);
-
-        if !task_config.repos.is_empty() {
-            if let Err(e) = crate::init::git::clone_repositories(&task_config).await {
-                if let Err(cleanup) = tokio::fs::remove_dir_all(&workspace_dir).await {
-                    warn!(
-                        task_id = %task_id,
-                        dir = %workspace_dir,
-                        error = %cleanup,
-                        "Failed to clean isolated checkout after clone failure"
-                    );
-                }
-                return Err(e.to_string());
-            }
-        }
-
-        Ok((workspace_dir, task_config.repo_dir))
+        crate::task_context::register(self, task_id, checkout_mode).await
     }
 
     /// The `/livez` decision: is this pod still able to make progress?
@@ -421,39 +182,20 @@ impl SandboxState {
     }
 }
 
-fn isolated_workspace_dir(root_workspace_dir: &str, task_id: &str) -> Result<String, String> {
-    let segment = sanitize_mount_name(task_id)
-        .ok_or_else(|| format!("task_id cannot form a safe checkout directory: {task_id}"))?;
-    Ok(Path::new(root_workspace_dir)
-        .join(".moatless")
-        .join("members")
-        .join(segment)
-        .to_string_lossy()
-        .into_owned())
-}
-
-fn primary_repo_dir_for_workspace(config: &Config) -> String {
-    config
-        .repos
-        .iter()
-        .find(|repo| repo.is_primary)
-        .or_else(|| config.repos.first())
-        .map_or_else(
-            || config.workspace_dir.clone(),
-            |repo| repo.dir(&config.workspace_dir),
-        )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::agent_state::AgentState;
+    use crate::agent::handle::AgentHandle;
+    use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
+    use crate::commands::CommandRegistry;
+    use crate::credentials::recovery::CredentialFailureDetector;
 
     use sandbox_proto::{
         DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
         PublishEventRequest,
     };
 
-    use crate::agent::handle::AgentHandle;
     use crate::config::test_support::minimal_config;
     use crate::outbox::EventOutbox;
 

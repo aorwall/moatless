@@ -9,6 +9,7 @@
 mod common;
 
 mod agent_handlers_per_block_test;
+mod auth_operations_test;
 mod closed_terminal_test;
 mod device_pairing_test;
 mod event_subscriptions_test;

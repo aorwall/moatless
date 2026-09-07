@@ -8,3 +8,6 @@ pub mod models;
 pub mod routes;
 pub mod schemas;
 pub mod sync;
+
+pub mod registry;
+pub mod activation_access;

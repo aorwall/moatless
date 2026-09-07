@@ -16,11 +16,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use axum::Router;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 

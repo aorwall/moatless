@@ -7,6 +7,7 @@ description = "S3 object operations and presigning — a leaf over aws-sdk-s3, n
 
 [dependencies]
 aws-sdk-s3 = { workspace = true }
+thiserror = { workspace = true }
 # `head_object_modified_at` returns the object's mtime as a `DateTime<Utc>`.
 chrono = { workspace = true }
 
@@ -14,4 +15,4 @@ chrono = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "net", "io-util", "time"] }

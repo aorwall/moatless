@@ -1,6 +1,6 @@
 //! A public trait needs another implementation, or an exercised test double.
 
-use crate::port_admission::implemented_trait;
+use crate::source_index::implemented_trait;
 use crate::source_index::{Index, Record};
 use crate::workspace::Workspace;
 use crate::{Violation, annotations};
@@ -28,7 +28,7 @@ fn reachable_tests(index: &Index) -> BTreeSet<String> {
         .iter()
         .filter(|r| matches!(r.item, syn::Item::Fn(_)))
         .map(|r| {
-            let mut used = crate::source_index::Paths {
+            let mut used = crate::source_index::ReferenceCollector {
                 include_tests: true,
                 omit_import_paths: true,
                 ..Default::default()

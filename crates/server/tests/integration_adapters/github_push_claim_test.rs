@@ -44,7 +44,11 @@ async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
     repository_dao::insert(pool, &repo)
         .await
         .expect("seed repo");
-    let task = make_task_row(task_id, user);
+    let mut task = make_task_row(task_id, user);
+    task.repository_id = repo.id.clone();
+    let workspace_id = format!("ws_{}", repo.id);
+    common::seed_workspace(pool, &workspace_id, user).await;
+    task.workspace_id = Some(workspace_id);
     task_dao::insert_task(pool, &task).await.expect("seed task");
 }
 

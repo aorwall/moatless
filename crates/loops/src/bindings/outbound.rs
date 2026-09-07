@@ -4,12 +4,11 @@ use std::sync::Arc;
 
 use tracing::warn;
 
+use moatless_adapter_model::outbound::{OutboundFile, OutboundReply, TaskOrigin, TaskProvenance};
 use moatless_core::config::S3Config;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::TaskBinding;
-use moatless_types::adapter::{
-    AdapterKind, OutboundFile, OutboundPresentation, OutboundReply, TaskOrigin, TaskProvenance,
-};
+use moatless_types::adapter::{AdapterKind, OutboundPresentation};
 use moatless_types::auth::AuthConfig;
 use moatless_types::loops::SubscriptionMatch;
 

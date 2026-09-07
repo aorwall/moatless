@@ -17,6 +17,7 @@ use moatless_identity::auth::github::service::GitHubAppService;
 use moatless_identity::auth::github::service::ProvedApp;
 use moatless_identity::auth::users::UserDao;
 use moatless_identity::secret::service::SecretCipher;
+use moatless_types::access_control::ScopeContext;
 
 #[derive(Clone, Debug)]
 pub enum AdapterAppSave {
@@ -156,6 +157,19 @@ pub struct AppAdministration {
     prover: Arc<dyn GitHubAppProver>,
 }
 
+/// Enforce installation-wide provider administration before any side effect.
+pub(crate) fn require_admin(
+    ctx: &ScopeContext,
+    action: &str,
+) -> Result<(), AppAdministrationError> {
+    if ctx.is_admin {
+        return Ok(());
+    }
+    Err(AppAdministrationError::Forbidden(format!(
+        "Admin role required to {action} provider settings"
+    )))
+}
+
 type AdministrationStore = (Arc<dyn AdapterAppDao>, Arc<dyn SecretCipher>);
 
 impl AppAdministration {
@@ -171,7 +185,11 @@ impl AppAdministration {
         }
     }
 
-    pub async fn list_adapter_apps(&self) -> Result<Vec<StoredAdapterApp>, AppAdministrationError> {
+    pub async fn list_adapter_apps(
+        &self,
+        ctx: &ScopeContext,
+    ) -> Result<Vec<StoredAdapterApp>, AppAdministrationError> {
+        require_admin(ctx, "read")?;
         Ok(self.store()?.list_adapter_apps().await?)
     }
 
@@ -180,8 +198,10 @@ impl AppAdministration {
         adapter_kind: &str,
         app_key: &str,
         input: AdapterAppSave,
-        actor_id: &str,
+        ctx: &ScopeContext,
     ) -> Result<StoredAdapterApp, AppAdministrationError> {
+        require_admin(ctx, "save")?;
+        let actor_id = ctx.user_id.as_str();
         if app_key != DEFAULT_APP_KEY {
             return Err(AppAdministrationError::BadRequest(format!(
                 "Only the '{DEFAULT_APP_KEY}' Adapter app key is supported for this Adapter"
@@ -194,16 +214,22 @@ impl AppAdministration {
         }
         let app = adapter_app_input(adapter_kind, app_key, input)?;
         let (store, cipher) = self.administration()?;
-        Ok(store
-            .upsert_adapter_app(app, cipher.as_ref(), actor_id)
-            .await?)
+        Ok(moatless_identity::adapter_apps::save_adapter_app(
+            store.as_ref(),
+            cipher.as_ref(),
+            app,
+            actor_id,
+        )
+        .await?)
     }
 
     pub async fn delete_adapter_app(
         &self,
+        ctx: &ScopeContext,
         adapter_kind: &str,
         app_key: &str,
     ) -> Result<(), AppAdministrationError> {
+        require_admin(ctx, "delete")?;
         if adapter_kind == "github" {
             return Err(AppAdministrationError::BadRequest(
                 "Use the GitHub App admin endpoints to remove GitHub Apps".to_string(),
@@ -215,7 +241,11 @@ impl AppAdministration {
         Ok(())
     }
 
-    pub async fn list_github_apps(&self) -> Result<Vec<GitHubAppView>, AppAdministrationError> {
+    pub async fn list_github_apps(
+        &self,
+        ctx: &ScopeContext,
+    ) -> Result<Vec<GitHubAppView>, AppAdministrationError> {
+        require_admin(ctx, "read")?;
         let entries = self.github_apps.entries().await?;
         let stored = match self.github_apps.store() {
             Some(store) => store.list_github_apps().await?,
@@ -257,8 +287,10 @@ impl AppAdministration {
     pub async fn register_github_app(
         &self,
         input: GitHubAppRegistrationInput,
-        actor_id: &str,
+        ctx: &ScopeContext,
     ) -> Result<GitHubAppRegistration, AppAdministrationError> {
+        require_admin(ctx, "register")?;
+        let actor_id = ctx.user_id.as_str();
         let (store, cipher) = self.administration()?;
         if let Err(error) = validate_app_key(&input.github_app_key) {
             self.record_refusal(
@@ -340,8 +372,10 @@ impl AppAdministration {
         &self,
         github_app_key: &str,
         private_key_pem: String,
-        actor_id: &str,
+        ctx: &ScopeContext,
     ) -> Result<GitHubAppRegistration, AppAdministrationError> {
+        require_admin(ctx, "rotate a key for")?;
+        let actor_id = ctx.user_id.as_str();
         let (store, cipher) = self.administration()?;
         let existing = store
             .find_github_app_by_key(github_app_key)
@@ -401,8 +435,10 @@ impl AppAdministration {
     pub async fn remove_github_app(
         &self,
         github_app_key: &str,
-        actor_id: &str,
+        ctx: &ScopeContext,
     ) -> Result<RemovedGitHubApp, AppAdministrationError> {
+        require_admin(ctx, "remove")?;
+        let actor_id = ctx.user_id.as_str();
         let store = self.store()?;
         let existing = store
             .find_github_app_by_key(github_app_key)
@@ -648,6 +684,71 @@ mod tests {
 
     struct RefusingProver;
 
+    #[tokio::test]
+    async fn direct_non_admin_calls_refuse_before_store_or_provider_access() {
+        let administration = AppAdministration::new(
+            Arc::new(GitHubAppRegistry::new(None, None, None)),
+            Arc::new(MockUserDao::new()),
+            Arc::new(RefusingProver),
+        );
+        let ctx = ScopeContext {
+            user_id: "reader".into(),
+            is_admin: false,
+        };
+        assert!(matches!(
+            administration.list_adapter_apps(&ctx).await,
+            Err(AppAdministrationError::Forbidden(_))
+        ));
+        assert!(matches!(
+            administration.list_github_apps(&ctx).await,
+            Err(AppAdministrationError::Forbidden(_))
+        ));
+        assert!(matches!(
+            administration
+                .save_adapter_app(
+                    "telegram",
+                    "default",
+                    AdapterAppSave::Telegram {
+                        bot_token: "token".into(),
+                        mode: None
+                    },
+                    &ctx
+                )
+                .await,
+            Err(AppAdministrationError::Forbidden(_))
+        ));
+        assert!(matches!(
+            administration
+                .delete_adapter_app(&ctx, "telegram", "default")
+                .await,
+            Err(AppAdministrationError::Forbidden(_))
+        ));
+        assert!(matches!(
+            administration
+                .register_github_app(
+                    GitHubAppRegistrationInput {
+                        github_app_key: "reviewer".into(),
+                        app_id: 42,
+                        private_key_pem: "key".into(),
+                        default_installation_id: None
+                    },
+                    &ctx
+                )
+                .await,
+            Err(AppAdministrationError::Forbidden(_))
+        ));
+        assert!(matches!(
+            administration
+                .rotate_github_app_key("reviewer", "key".into(), &ctx)
+                .await,
+            Err(AppAdministrationError::Forbidden(_))
+        ));
+        assert!(matches!(
+            administration.remove_github_app("reviewer", &ctx).await,
+            Err(AppAdministrationError::Forbidden(_))
+        ));
+    }
+
     #[async_trait]
     impl GitHubAppProver for RefusingProver {
         async fn prove(
@@ -688,7 +789,10 @@ mod tests {
                     private_key_pem: "invalid".to_string(),
                     default_installation_id: None,
                 },
-                "admin",
+                &ScopeContext {
+                    user_id: "admin".into(),
+                    is_admin: true,
+                },
             )
             .await;
 
@@ -741,7 +845,13 @@ mod tests {
             AppAdministration::new(registry, Arc::new(users), Arc::new(RefusingProver));
 
         let removed = administration
-            .remove_github_app("reviewer", "admin")
+            .remove_github_app(
+                "reviewer",
+                &ScopeContext {
+                    user_id: "admin".into(),
+                    is_admin: true,
+                },
+            )
             .await
             .expect("registered app should be removed");
 

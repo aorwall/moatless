@@ -2,13 +2,16 @@
 
 use std::fmt::Write;
 
+use moatless_adapter_model::binding::BindingContext;
+use moatless_adapter_model::capabilities::{
+    AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
+};
 use moatless_adapter_model::error::AdapterError;
+use moatless_adapter_model::outbound::{DestinationPostResult, OutboundReply};
 use moatless_types::adapter::AdapterConnection;
-use moatless_types::loops::SubscriptionMatch;
 use moatless_types::adapter::TaskBinding;
-use moatless_types::adapter::{BindingContext, DestinationPostResult, OutboundReply};
+use moatless_types::loops::SubscriptionMatch;
 use moatless_types::loops::{LoopContext, RoutingMode};
-use moatless_adapter_model::capabilities::{AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply};
 
 use super::adapter::TelegramAdapter;
 use super::subject::{
@@ -40,7 +43,9 @@ impl AdapterBindingReply for TelegramAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let destination = TelegramDestination::from_thread_context(&thread.destination_config)?;
-        let api = self.app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+        let api = self
+            .app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+            .await?;
 
         api.send_message(
             destination.chat_id(),
@@ -60,8 +65,9 @@ impl AdapterBindingReply for TelegramAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let thread = moatless_adapter_model::binding::binding_context(binding);
-        let app_key =
-            moatless_adapter_model::apps::app_key_from_transport_config(&connection.transport_config);
+        let app_key = moatless_adapter_model::apps::app_key_from_transport_config(
+            &connection.transport_config,
+        );
         let api = self.app_api(app_key).await?;
         let _config = rule.map_or_else(
             || LoopContext {
@@ -120,8 +126,9 @@ impl AdapterMessageReply for TelegramAdapter {
         let target = parse_message_target(target_external_id, "reply")?;
         let destination =
             TelegramDestination::from_destination_config(&binding.destination_config)?;
-        let app_key =
-            moatless_adapter_model::apps::app_key_from_transport_config(&connection.transport_config);
+        let app_key = moatless_adapter_model::apps::app_key_from_transport_config(
+            &connection.transport_config,
+        );
         let api = self.app_api(app_key).await?;
 
         let new_id = api
@@ -144,7 +151,9 @@ impl AdapterDirectDestination for TelegramAdapter {
         message: &OutboundReply,
     ) -> Result<DestinationPostResult, AdapterError> {
         let chat_id = parse_direct_destination(destination)?;
-        let api = self.app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY).await?;
+        let api = self
+            .app_api(moatless_adapter_model::apps::DEFAULT_APP_KEY)
+            .await?;
 
         let message_id = api
             .send_message_returning_id(chat_id, &with_task_link(message), None, None)
@@ -174,9 +183,9 @@ impl AdapterDirectMessage for TelegramAdapter {
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::adapter::AdapterKind;
-    use moatless_types::adapter::{TaskOrigin, TaskProvenance};
     use axum::http::StatusCode;
+    use moatless_adapter_model::outbound::{TaskOrigin, TaskProvenance};
+    use moatless_types::adapter::AdapterKind;
 
     use moatless_adapter_model::test_support::stub_provider;
 
@@ -311,11 +320,12 @@ mod tests {
     #[tokio::test]
     async fn a_binding_reply_is_one_send_message_onto_the_thread() {
         let (provider, stub) = provider_with_stub().await;
-        let thread = moatless_adapter_model::binding::binding_context(&binding(serde_json::json!({
-            "chat_id": "999",
-            "message_id": 42,
-            "forum_topic_id": 7,
-        })));
+        let thread =
+            moatless_adapter_model::binding::binding_context(&binding(serde_json::json!({
+                "chat_id": "999",
+                "message_id": 42,
+                "forum_topic_id": 7,
+            })));
 
         provider
             .send_reply(

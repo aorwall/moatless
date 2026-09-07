@@ -7,7 +7,6 @@
 //! projection, unit-tested without a runtime.
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use moatless_types::sandbox::{SandboxStatus, ServerCapabilities, ServerStatus};
 
@@ -80,24 +79,7 @@ impl From<&str> for PodPhase {
     }
 }
 
-/// Server snapshot from sandbox GET /status
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ServerSnapshot {
-    pub name: String,
-    #[serde(default)]
-    pub label: String,
-    #[serde(default)]
-    pub port: u16,
-    #[serde(default)]
-    pub builtin: bool,
-    #[serde(default)]
-    pub default: bool,
-    #[serde(default)]
-    pub enable_inspector: bool,
-    pub status: ServerStatus,
-    pub error: Option<String>,
-    pub pid: Option<u32>,
-}
+pub use moatless_api_schemas::sandbox::ServerSnapshot;
 
 /// Observed state of a K8s container.
 #[derive(Debug, Clone, Serialize, Deserialize)]

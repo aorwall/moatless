@@ -1,19 +1,22 @@
 use std::sync::Arc;
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_adapter_model::outbound::{OutboundReply, TaskProvenance};
 use moatless_api_schemas::bindings::SendTaskReplyResponse;
 use moatless_api_schemas::message::ReplyToMessageResponse;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::adapter::OutboundPresentation;
 use moatless_types::adapter::TaskBinding;
-use moatless_types::adapter::{OutboundPresentation, OutboundReply, TaskProvenance};
 
-use crate::adapters::access::{ensure_task_access_with, load_adapter_connection_for_auth_with};
-use crate::adapters::projection::{binding_descriptor, binding_reply_target};
+use crate::bindings::access::ensure_task_access_with;
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::outbound;
 use crate::bindings::outbound::OutboundSender;
+use crate::bindings::projection::binding_descriptor;
+use crate::bindings::projection::binding_reply_target;
 use crate::bindings::recently_sent::RecentlySent;
 use crate::loops::dao::LoopDao;
+use moatless_adapter_model::access::load_adapter_connection_for_auth_with;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::registry::Adapters;
@@ -28,7 +31,7 @@ use moatless_types::adapter::AdapterKind;
 /// services; the outbound send path is delegated to the [`OutboundSender`] it
 /// owns, so the ports that path needs never reach this struct's surface.
 pub struct ExternalReplyService {
-    adapters: Option<Arc<Adapters>>,
+    pub(super) adapters: Option<Arc<Adapters>>,
     task_bindings: Arc<dyn TaskBindingDao>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     messages: Arc<dyn TranscriptAppend>,

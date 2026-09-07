@@ -6,6 +6,7 @@
 
 use tracing::{debug, warn};
 
+use moatless_adapter_model::binding::BindingDestination;
 use moatless_adapter_model::binding::BindingProbe;
 use moatless_adapter_model::capabilities::Adapter;
 use moatless_adapter_model::dao::AdapterConnectionDao;
@@ -16,7 +17,7 @@ use moatless_adapter_model::ingress::{IngressError, Outcome};
 use moatless_adapter_model::loops::LoopReader;
 use moatless_ports::identity::ProviderIdentityLink;
 use moatless_types::adapter::InboundDeliveryPayload;
-use moatless_types::adapter::{BindingDestination, InboundMessage};
+use moatless_types::adapter::InboundMessage;
 use moatless_types::loops::LoopContext;
 
 use super::adapter::{ResolvedSlackApp, SlackAdapter};

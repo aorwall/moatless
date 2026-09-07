@@ -31,8 +31,9 @@ use tracing::{debug, info, warn};
 use crate::repository::config_reader::fetch_provider_file;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::error::{RepositoryError, is_remote_url_conflict};
-use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
 use crate::repository::models::Repository;
+use crate::repository::remote_url::normalize_remote_url;
+use crate::workspace::config_validation::validate_non_secret_env_vars;
 use crate::workspace::dao::{WorkspaceDao, WorkspacePatch, ensure_shadow_workspace};
 use crate::workspace::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
@@ -244,10 +245,10 @@ impl GitSyncService {
     /// `config.json` git workspace is pruned by reconcile-delete). Otherwise a
     /// present `config.json` flags the repo's shadow workspace `ws_<repo_id>` in
     /// place. Best-effort/non-fatal: callers log the outcome.
-    pub async fn sync_repo_workspaces(
+    pub async fn sync_repo_workspaces_for(
         &self,
         repo: &Repository,
-        auth: &AuthUser,
+        scope: &ScopeContext,
         force: &SyncForce,
     ) -> Result<WorkspaceSyncSummary, RepositoryError> {
         let mut summary = WorkspaceSyncSummary::default();
@@ -256,7 +257,7 @@ impl GitSyncService {
             return Ok(summary);
         };
         let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-        let token = self.resolve_sync_token(auth, provider, remote_url).await;
+        let token = self.resolve_sync_token(scope, provider, remote_url).await;
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
 
@@ -347,14 +348,7 @@ impl GitSyncService {
         // Reconcile-delete: soft-delete any git workspace for this repo whose
         // source_key is no longer declared. Soft so in-flight tasks pointing at it
         // keep working — provision lookups don't filter `deleted`.
-        let existing: Vec<(String, Option<String>)> = sqlx::query_as(
-            "SELECT id, source_key FROM workspaces \
-         WHERE source_repository_id = $1 AND source = 'git' \
-           AND (deleted IS NULL OR deleted = false)",
-        )
-        .bind(&repo.id)
-        .fetch_all(&self.db)
-        .await?;
+        let existing = super::dao::git_source_keys(&self.db, &repo.id).await?;
         // reason: git reconcile mirrors repository content across the repo's own
         // workspaces; the caller's access to trigger the sync was already checked.
         #[allow(clippy::disallowed_methods)]
@@ -375,7 +369,7 @@ impl GitSyncService {
     /// hit the provider API for repos that don't use it. Every failure is logged
     /// and swallowed — this must never block or fail a task start. Loops are
     /// never synchronized as a side effect of task start.
-    pub async fn sync_repo_config_on_start(&self, auth: &AuthUser, repo: &Repository) {
+    pub async fn sync_repo_config_on_start_for(&self, scope: &ScopeContext, repo: &Repository) {
         let Some(remote_url) = repo.remote_url.as_deref() else {
             return;
         };
@@ -383,7 +377,7 @@ impl GitSyncService {
 
         // Resolve a token for the existence probe; fall back to an unauthenticated
         // probe (works for public repos) if we can't load one.
-        let token = self.resolve_sync_token(auth, provider, remote_url).await;
+        let token = self.resolve_sync_token(scope, provider, remote_url).await;
 
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
@@ -400,7 +394,7 @@ impl GitSyncService {
         // Automatic sync: workspaces the user overrode from the UI/CLI stay
         // overridden — only an explicit sync-config or reset-git reclaims them.
         let force = SyncForce::RespectOverrides;
-        match self.sync_repo_workspaces(repo, auth, &force).await {
+        match self.sync_repo_workspaces_for(repo, scope, &force).await {
             Ok(workspaces) => {
                 info!(
                     repository_id = %repo.id,
@@ -587,11 +581,7 @@ impl GitSyncService {
         let sys_ctx = ScopeContext::system();
         let (workspace_id, outcome) = if let Some(id) = &desired.fixed_id {
             // Shadow workspace — look up by id to check if it has been overridden.
-            let existing: Option<(String, Option<bool>)> =
-                sqlx::query_as("SELECT source, deleted FROM workspaces WHERE id = $1")
-                    .bind(id)
-                    .fetch_optional(&self.db)
-                    .await?;
+            let existing = super::dao::git_workspace_state(&self.db, id).await?;
             match existing {
                 Some((source, deleted)) if source == "manual" => {
                     let Some(outcome) = reclaim_override(id, deleted, force) else {
@@ -612,16 +602,9 @@ impl GitSyncService {
             // is found and skipped (or reclaimed) rather than re-created under the
             // same key. Soft-deleted rows are reused too, so a delete never orphans
             // the key behind a row that no lookup would find again.
-            let existing: Option<(String, String, Option<bool>)> = sqlx::query_as(
-                "SELECT id, source, deleted FROM workspaces \
-             WHERE source_repository_id = $1 AND source_key = $2 \
-               AND source IN ('git', 'manual') \
-             LIMIT 1",
-            )
-            .bind(&repo.id)
-            .bind(&desired.source_key)
-            .fetch_optional(&self.db)
-            .await?;
+            let existing =
+                super::dao::workspace_for_git_source(&self.db, &repo.id, &desired.source_key)
+                    .await?;
 
             match existing {
                 Some((id, source, deleted)) if source == "manual" => {
@@ -671,10 +654,7 @@ impl GitSyncService {
         };
 
         // Un-delete if a prior reconcile soft-deleted this workspace (key re-added).
-        sqlx::query("UPDATE workspaces SET deleted = false WHERE id = $1 AND deleted = true")
-            .bind(&workspace_id)
-            .execute(&self.db)
-            .await?;
+        super::dao::restore_git_workspace(&self.db, &workspace_id).await?;
 
         // Apply run-config + provenance + name/description + scope, idempotently.
         let patch = WorkspacePatch {
@@ -704,45 +684,32 @@ impl GitSyncService {
             .update(&workspace_id, &patch, &sys_ctx)
             .await?;
 
-        // Replace placements (delete-all + re-insert non-primary, then elect one
-        // primary) so the partial unique index never sees two primaries mid-write.
-        sqlx::query("DELETE FROM workspace_repos WHERE workspace_id = $1")
-            .bind(&workspace_id)
-            .execute(&self.db)
-            .await?;
-
-        let mut placement_ids: Vec<String> = Vec::with_capacity(desired.placements.len());
-        let mut primary_choice: Option<String> = None;
+        let mut placements = Vec::with_capacity(desired.placements.len());
+        let mut primary_choice = None;
         for (i, p) in desired.placements.iter().enumerate() {
-            let placement_id = format!("wsr_{}", uuid::Uuid::new_v4());
-            self.workspaces
-                .add_repo(
-                    &WorkspaceRepo {
-                        id: placement_id.clone(),
-                        workspace_id: workspace_id.clone(),
-                        repository_id: p.repository_id.clone(),
-                        branch: p.branch.clone(),
-                        mount_name: p.mount_name.clone(),
-                        is_primary: false,
-                        position: i as i32,
-                        created_at: None,
-                    },
-                    &sys_ctx,
-                )
-                .await?;
+            let id = format!("wsr_{}", uuid::Uuid::new_v4());
             if primary_choice.is_none() && p.primary {
-                primary_choice = Some(placement_id.clone());
+                primary_choice = Some(id.clone());
             }
-            placement_ids.push(placement_id);
+            placements.push(WorkspaceRepo {
+                id,
+                workspace_id: workspace_id.clone(),
+                repository_id: p.repository_id.clone(),
+                branch: p.branch.clone(),
+                mount_name: p.mount_name.clone(),
+                is_primary: false,
+                position: i as i32,
+                created_at: None,
+            });
         }
-        if let Some(target) = primary_choice.or_else(|| placement_ids.first().cloned()) {
-            self.workspaces
-                .set_primary(&workspace_id, &target, &sys_ctx)
-                .await?;
-        }
-        self.workspaces
-            .refresh_kind(&workspace_id, &sys_ctx)
-            .await?;
+        let primary = primary_choice.or_else(|| placements.first().map(|p| p.id.clone()));
+        super::dao::replace_git_placements(
+            &self.db,
+            &workspace_id,
+            &placements,
+            primary.as_deref(),
+        )
+        .await?;
 
         if matches!(outcome, UpsertOutcome::Reclaimed) {
             info!(
@@ -836,14 +803,14 @@ impl GitSyncService {
     /// it runs as.
     async fn resolve_sync_token(
         &self,
-        auth: &AuthUser,
+        scope: &ScopeContext,
         provider: RepositoryProvider,
         remote_url: &str,
     ) -> Option<String> {
         let repo = GitHostRepo::parse(provider, remote_url)?;
         match self
             .git_host_tokens
-            .token(&Actor::caller(&auth.scope_context()), &repo)
+            .token(&Actor::caller(scope), &repo)
             .await
         {
             Ok(token) => Some(token),
@@ -888,6 +855,67 @@ fn repo_name_from_url(url: &str) -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or("repository")
         .to_string()
+}
+
+impl GitSyncService {
+    /// Synchronize using an HTTP caller's scope.
+    pub async fn sync_repo_workspaces(
+        &self,
+        repo: &Repository,
+        auth: &AuthUser,
+        force: &SyncForce,
+    ) -> Result<WorkspaceSyncSummary, RepositoryError> {
+        self.sync_repo_workspaces_for(repo, &auth.scope_context(), force)
+            .await
+    }
+
+    /// Synchronize before starting a task using an HTTP caller's scope.
+    pub async fn sync_repo_config_on_start(&self, auth: &AuthUser, repo: &Repository) {
+        self.sync_repo_config_on_start_for(&auth.scope_context(), repo)
+            .await;
+    }
+}
+
+pub async fn log_workspace_sync_for(
+    git_sync: &GitSyncService,
+    repo: &Repository,
+    scope: &ScopeContext,
+    phase: &str,
+    force: &SyncForce,
+) -> WorkspaceSyncSummary {
+    match git_sync.sync_repo_workspaces_for(repo, scope, force).await {
+        Ok(summary) => {
+            if summary.created + summary.updated + summary.reclaimed + summary.removed > 0
+                || !summary.skipped.is_empty()
+            {
+                info!(
+                    repository_id = %repo.id,
+                    created = summary.created,
+                    updated = summary.updated,
+                    reclaimed = summary.reclaimed,
+                    removed = summary.removed,
+                    skipped = summary.skipped.len(),
+                    phase,
+                    "Synced git workspaces"
+                );
+            }
+            summary
+        }
+        Err(e) => {
+            warn!(repository_id = %repo.id, error = %e, phase, "Failed to sync git workspaces");
+            WorkspaceSyncSummary::default()
+        }
+    }
+}
+/// Synchronize with an HTTP caller's scope and log the outcome.
+pub async fn log_workspace_sync(
+    git_sync: &Arc<GitSyncService>,
+    repo: &Repository,
+    auth: &AuthUser,
+    phase: &str,
+    force: &SyncForce,
+) -> WorkspaceSyncSummary {
+    log_workspace_sync_for(git_sync, repo, &auth.scope_context(), phase, force).await
 }
 
 #[cfg(test)]

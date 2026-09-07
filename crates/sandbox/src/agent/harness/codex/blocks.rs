@@ -23,7 +23,7 @@ use moatless_types::codex::{
 };
 
 use crate::agent::codex_app_server::protocol::{ReasoningItem, ThreadItem, TurnPlanStep};
-use crate::agent::handle::codex_payloads::{
+use crate::agent::harness::codex::payloads::{
     build_codex_todo_list_input, build_collab_tool_result, build_collab_tool_use,
     build_dynamic_tool_result, build_dynamic_tool_use, build_edit_tool_result, build_edit_tool_use,
     build_mcp_tool_result, build_mcp_tool_use, build_shell_tool_result, build_shell_tool_use,

@@ -223,63 +223,62 @@ pub struct SandboxStatusFullResponse {
 }
 
 /// Server status response proxied from sandbox pod.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerStatusResponse {
     pub servers: Vec<ServerSnapshot>,
 }
 
-/// A live override of one preview server's start command and env.
-///
-/// Stored only as control files on the sandbox's workspace volume — there is no
-/// database copy — so every read of one needs a running sandbox.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ServerOverride {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_command: Option<String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unset_env: Vec<String>,
-}
+pub use moatless_types::workspace::ServerOverride;
 
 /// Update one preview server's live config.
 ///
-/// `port` and `dockerImage` exist only so a caller that sends them gets an
-/// explicit "redeploy required" rather than a silent no-op.
-#[derive(Debug, Default, Serialize, Deserialize)]
+/// Only fields that a sidecar can pick up on an in-place restart are accepted.
+/// `port` and `dockerImage` are declared so a caller that sends them gets an
+/// explicit "redeploy required" instead of a silent no-op.
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateServerConfigRequest {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Replaces the workspace's start command. Joined with `&&`, as at
+    /// provision time.
+    #[serde(default)]
     pub start_commands: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Env entries to set, merged into any existing override.
+    #[serde(default)]
     pub env: Option<BTreeMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Keys to remove from the server's environment. Also drops them from the
+    /// override's `env`, so setting and unsetting the same key is coherent.
+    #[serde(default)]
     pub unset_env: Option<Vec<String>>,
+    /// Restart the server so the change takes effect (default `true`).
+    #[serde(default = "default_restart")]
     pub restart: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Not applicable live — the port is wired into the Service and
+    /// `IngressRoute` at provision time.
+    #[serde(default)]
     pub port: Option<u16>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Not applicable live — the image is the container's identity.
+    #[serde(default)]
     pub docker_image: Option<String>,
 }
 
 /// Result of a live server config change or restart.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerConfigResponse {
     pub server_name: String,
+    /// The override after the call — empty when it was reset.
     pub config_override: ServerOverride,
+    /// Sidecar restart generation after the call.
     pub generation: u64,
     pub restarted: bool,
 }
 
 /// One server's override as it currently exists on the workspace volume.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerOverrideEntry {
@@ -290,7 +289,10 @@ pub struct ServerOverrideEntry {
 }
 
 /// Every override in effect on a task. Servers with no override are omitted.
-#[derive(Debug, Serialize, Deserialize)]
+///
+/// Read from the sandbox's workspace volume, which is the only place an
+/// override exists — a stopped sandbox cannot answer this.
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerOverridesResponse {
@@ -300,16 +302,17 @@ pub struct ServerOverridesResponse {
 // ── File operation DTOs ──────────────────────────────────────────
 
 /// File tree response with git change summary.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct FileTreeResponse {
     pub tree: Vec<FileTreeNodeDto>,
     pub git_summary: GitSummaryDto,
+    pub origin: ContentOrigin,
 }
 
 /// A node in the file tree (file or directory).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct FileTreeNodeDto {
@@ -332,7 +335,7 @@ pub struct FileTreeNodeDto {
 }
 
 /// Git change summary across the workspace.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct GitSummaryDto {
@@ -346,7 +349,7 @@ pub struct GitSummaryDto {
 }
 
 /// File content response with optional git change info.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct FileContentResponse {
@@ -359,10 +362,15 @@ pub struct FileContentResponse {
     pub deletions: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_modified: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_binary: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+    pub origin: ContentOrigin,
 }
 
 /// Request body for writing a file.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WriteFileRequestBody {
     pub path: String,
@@ -370,14 +378,16 @@ pub struct WriteFileRequestBody {
 }
 
 /// Response for listing files.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
 pub struct ListFilesResponse {
     pub files: Vec<String>,
+    pub origin: ContentOrigin,
 }
 
 /// Request body for searching files by name.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SearchByNameRequest {
@@ -389,16 +399,17 @@ pub struct SearchByNameRequest {
 }
 
 /// Response for searching files by name.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SearchByNameResponse {
     pub files: Vec<FileNameMatchDto>,
     pub total_matches: i32,
+    pub origin: ContentOrigin,
 }
 
 /// A file name match in the search results.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct FileNameMatchDto {
     pub path: String,
@@ -407,16 +418,16 @@ pub struct FileNameMatchDto {
 
 // ── Moatless tool names ──────────────────────────────────────────
 
-/// Response from provisioning a sandbox.
-#[derive(Debug, Serialize, Deserialize)]
+/// Provision response
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionResponse {
-    pub status: String,
+    pub status: SandboxStatus,
 }
 
 /// All available Moatless tool names injected into the agent sandbox.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum MoatlessToolName {
     #[serde(rename = "updateTaskMetadata")]
@@ -441,4 +452,81 @@ pub enum MoatlessToolName {
     FillPreviewForm,
     #[serde(rename = "takePreviewSnapshot")]
     TakePreviewSnapshot,
+}
+
+/// Which copy of the workspace answered a file read.
+///
+/// A stopped sandbox is still readable, out of the S3 mirror
+/// (`sandbox-control::workspace_snapshot`), so a caller has to be able to tell
+/// live content from content that stopped changing when the pod did.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ContentSource {
+    /// A running sandbox read the file from its own disk.
+    Sandbox,
+    /// The S3 workspace mirror answered, because no sandbox is running.
+    Snapshot,
+}
+
+/// Where a file answer came from, carried by every file response.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ContentOrigin {
+    pub source: ContentSource,
+    /// When the mirror this came from was stored, RFC 3339. Absent for
+    /// [`ContentSource::Sandbox`], whose answer is current by construction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synced_at: Option<String>,
+}
+
+impl ContentOrigin {
+    pub fn sandbox() -> Self {
+        Self {
+            source: ContentSource::Sandbox,
+            synced_at: None,
+        }
+    }
+
+    pub fn snapshot(synced_at: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            source: ContentSource::Snapshot,
+            synced_at: Some(synced_at.to_rfc3339()),
+        }
+    }
+}
+
+fn default_restart() -> bool {
+    true
+}
+
+#[cfg(test)]
+mod wire_contract_tests {
+    use super::*;
+
+    #[test]
+    fn omitted_restart_matches_the_live_endpoint_default() {
+        let request: UpdateServerConfigRequest = serde_json::from_str("{}").expect("request");
+        assert!(request.restart);
+        let request: UpdateServerConfigRequest =
+            serde_json::from_str(r#"{"restart":false}"#).expect("request");
+        assert!(!request.restart);
+    }
+
+    #[test]
+    fn binary_snapshot_content_round_trips_without_losing_provenance() {
+        let wire = serde_json::json!({
+            "content": "AAEC", "isBinary": true, "mediaType": "image/png",
+            "origin": { "source": "snapshot", "syncedAt": "2026-09-06T10:00:00+00:00" }
+        });
+        let response: FileContentResponse = serde_json::from_value(wire.clone()).expect("response");
+        assert_eq!(serde_json::to_value(response).expect("serialized"), wire);
+    }
+
+    #[test]
+    fn live_origin_does_not_claim_a_snapshot_timestamp() {
+        assert_eq!(serde_json::to_value(ContentOrigin::sandbox()).expect("origin"),
+            serde_json::json!({"source": "sandbox"}));
+    }
 }

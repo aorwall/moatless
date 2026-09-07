@@ -10,7 +10,7 @@ use std::collections::HashSet;
 
 use tokio_util::sync::CancellationToken;
 
-use super::protocol::*;
+use super::super::protocol::*;
 use super::*;
 
 // ── Fixtures ─────────────────────────────────────────────────────────

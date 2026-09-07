@@ -8,9 +8,8 @@ Apply this reference to Rust changes under `crates/sandbox/`.
   loops use the lifecycle cancellation token and surface abnormal termination
   to process health or a supervisor.
 - Agent completion and failure paths both leave state consistent.
-- Keep the library/binary split usable: runtime wiring belongs in the binary
-  boundary, while behavior needed by integration tests remains callable through
-  the library.
+- Follow the [file responsibilities](file-roles.md) loaded from `SKILL.md`.
+  Keep behavior needed by integration tests callable through the library.
 - Choose synchronization from the access pattern; do not require `RwLock` or an
   async mutex by default.
 

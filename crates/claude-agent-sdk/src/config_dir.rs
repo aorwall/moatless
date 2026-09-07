@@ -13,7 +13,7 @@ pub fn resolve_claude_config_dir(home_dir: &str) -> PathBuf {
 }
 
 /// Serializes tests across the crate that mutate the process-global
-/// `CLAUDE_CONFIG_DIR` / `CLAUDE_HOME` env vars (here and in `tmux::session`),
+/// `CLAUDE_CONFIG_DIR` / `CLAUDE_HOME` env vars (here and in `transcripts`),
 /// since cargo runs them concurrently in one binary.
 #[cfg(test)]
 pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

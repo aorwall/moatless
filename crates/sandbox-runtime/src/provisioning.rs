@@ -5,7 +5,7 @@
 //! read one server's config out of it.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use tracing::warn;
 use utoipa::ToSchema;
 
@@ -71,7 +71,7 @@ pub struct RepoConfig {
     // --- Plugins (resolved from the task owner's activation records) ---
     /// The plugins this task's owner has turned on, each with the skills they
     /// picked. The sandbox clones each one and removes the skills not named.
-    pub plugins: Option<Vec<moatless_api_schemas::plugin::PluginDelivery>>,
+    pub plugins: Option<Vec<moatless_types::plugin::PluginDelivery>>,
     // --- Docker access (opt-in) ---
     /// Mount Docker socket inside sandbox container (default: false).
     /// Overrides global `DOCKER_ENABLE_SOCKET_MOUNT` when set.
@@ -97,33 +97,7 @@ pub struct RepoConfig {
     pub network_profile: Option<String>,
 }
 
-/// A live override of one preview server's start command and env.
-///
-/// Whole-state, not a delta: callers always send the complete set to the
-/// sandbox, which never merges.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerOverride {
-    /// Replaces the server's configured start command. `None` = use the
-    /// workspace's.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_command: Option<String>,
-    /// Env entries exported after `server.env`, so they win over it.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    /// Keys to remove — the only way to drop a variable the container spec
-    /// injected, since sourcing an env file can add but never remove.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unset_env: Vec<String>,
-}
-
-impl ServerOverride {
-    /// True when nothing is overridden, so the entry can be dropped from the
-    /// persisted map rather than stored empty.
-    pub fn is_empty(&self) -> bool {
-        self.start_command.is_none() && self.env.is_empty() && self.unset_env.is_empty()
-    }
-}
+pub use moatless_types::workspace::ServerOverride;
 
 /// Derive capabilities from a `ServerConfig`.
 pub fn server_capabilities_from_config(config: &ServerConfig) -> ServerCapabilities {

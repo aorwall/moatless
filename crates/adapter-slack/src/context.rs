@@ -1,9 +1,10 @@
 //! How a Slack thread is presented to the agent: the instructions and labels
 //! that frame an inbound message, and the thread history fetched alongside it.
 
+use moatless_adapter_model::binding::BindingContext;
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::error::AdapterError;
-use moatless_types::adapter::{BindingContext, InboundMessage};
+use moatless_types::adapter::InboundMessage;
 use moatless_types::loops::LoopContext;
 
 use super::adapter::SlackAdapter;
@@ -74,14 +75,10 @@ impl AdapterInboundPresentation for SlackAdapter {
             .await?;
         let replies = app
             .api
-            .get_thread_replies(
-                channel,
-                thread_ts,
-                config_limit,
-                app.bot_user_id.as_deref(),
-                oldest,
-            )
+            .get_thread_replies(channel, thread_ts, config_limit, oldest)
             .await?;
+
+        let replies = select_replies(replies, app.bot_user_id.as_deref());
 
         if replies.is_empty() {
             return Ok(None);
@@ -92,7 +89,7 @@ impl AdapterInboundPresentation for SlackAdapter {
         // Also exclude messages already delivered to the task (e.g. the current
         // message being processed) to avoid duplicates in the context. Match
         // both new prefixed and legacy bare-ts forms.
-        let kept: Vec<&super::api::ThreadReply> = replies
+        let kept: Vec<&ThreadReply> = replies
             .iter()
             .filter(|r| match (&r.ts, oldest) {
                 (Some(ts), Some(cursor)) => ts.as_str() > cursor,
@@ -143,16 +140,98 @@ impl AdapterInboundPresentation for SlackAdapter {
     }
 }
 
+/// A formatted thread reply with its Slack timestamp for dedup filtering.
+pub struct ThreadReply {
+    /// The formatted message text.
+    pub text: String,
+    /// The Slack message timestamp (unique ID).
+    pub ts: Option<String>,
+    /// The Slack id of whoever wrote it, so history reads as a conversation
+    /// between named people rather than one anonymous block.
+    pub user: Option<String>,
+}
+
+fn select_replies(
+    messages: Vec<super::api::SlackMessage>,
+    bot_user_id: Option<&str>,
+) -> Vec<ThreadReply> {
+    messages
+        .into_iter()
+        .filter(|m| {
+            // Exclude bot's own messages
+            if let Some(ref uid) = m.user {
+                if let Some(bot_id) = bot_user_id {
+                    return uid != bot_id;
+                }
+            }
+            true
+        })
+        .filter_map(|m| {
+            let ts = m.ts.clone();
+            let user = m.user.clone();
+            // Try blocks first (Block Kit), then attachments (legacy), then text (fallback)
+            let text = m
+                .blocks
+                .as_ref()
+                .map(|b| crate::format::extract_text_from_blocks(b))
+                .filter(|t| !t.is_empty())
+                .or_else(|| {
+                    m.attachments
+                        .as_ref()
+                        .map(|a| crate::format::extract_text_from_attachments(a))
+                        .filter(|t| !t.is_empty())
+                })
+                .or_else(|| {
+                    m.text
+                        .filter(|t| !t.is_empty())
+                        .map(|t| crate::format::format_slack_text(&t))
+                })?;
+            Some(ThreadReply { text, ts, user })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    use moatless_adapter_model::binding::BindingContext;
     use moatless_adapter_model::capabilities::AdapterInboundPresentation;
     use moatless_adapter_model::test_support::ProviderStub;
     use moatless_types::access_control::Scope;
-    use moatless_types::adapter::{AdapterKind, Audience, BindingContext, InboundMessage};
+    use moatless_types::adapter::{AdapterKind, Audience, InboundMessage};
     use moatless_types::loops::{LoopContext, RoutingMode};
 
     use crate::adapter::SlackAdapter;
     use crate::api::SlackApi;
+
+    #[tokio::test]
+    async fn history_selects_provider_content_and_excludes_own_bot() {
+        let stub = ProviderStub::start(|_| serde_json::json!({
+            "ok": true,
+            "messages": [
+                {"user":"BOT", "text":"own output"},
+                {"user":"U1", "text":""},
+                {"user":"U1", "text":"fallback", "blocks":[{"type":"section", "text":{"type":"mrkdwn", "text":"block text"}}]},
+                {"user":"U2", "text":"fallback", "attachments":[{"text":"attachment text"}]},
+                {"text":"   "}
+            ]
+        })).await;
+        let text = adapter(&stub, Some("BOT"))
+            .fetch_context(
+                &binding(serde_json::json!({"channel":"C1", "thread_ts":"1"})),
+                &loop_context(None),
+                50,
+                &[],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(text.contains("U1: block text"));
+        assert!(text.contains("U2: attachment text"));
+        assert!(!text.contains("fallback"));
+        assert!(!text.contains("own output"));
+        assert!(text.ends_with("   "));
+        assert_eq!(stub.paths(), vec!["/conversations.replies"]);
+    }
 
     /// A thread of four messages: the parent, one before the cursor, and two
     /// after it.
@@ -271,12 +350,10 @@ mod tests {
 
     #[test]
     fn the_reply_instructions_name_the_bot() {
-        assert!(
-            SlackAdapter::new("token", "secret", Some("U0BOT".into()))
-                .reply_instructions()
-                .expect("Slack always has instructions")
-                .contains("Slack user ID `U0BOT`")
-        );
+        assert!(SlackAdapter::new("token", "secret", Some("U0BOT".into()))
+            .reply_instructions()
+            .expect("Slack always has instructions")
+            .contains("Slack user ID `U0BOT`"));
     }
 
     /// The budget: one `conversations.replies`. The cursor is sent bare, the

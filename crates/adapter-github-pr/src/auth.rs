@@ -4,16 +4,17 @@ use std::sync::Arc;
 
 use tracing::debug;
 
+use moatless_adapter_model::binding::BindingContext;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_ports::identity::ProviderIdentityLink;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_types::access_control::Actor;
-use moatless_types::adapter::BindingContext;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::loops::SubscriptionMatch;
 use moatless_types::repository::GitHostRepo;
 
 use super::api::GithubPrApi;
+use super::adapter::GithubPrAdapter;
 
 pub(super) struct GithubPrAuth {
     /// The one way to a git-host token. This Adapter holds no credential of its
@@ -233,11 +234,38 @@ fn binding_filter_user_id<'a>(
         .filter(|value| !value.is_empty())
 }
 
+/// Resolve a GitHub API client for `user_id` acting on `workspace_id`, minted
+/// against `owner/repo_name`.
+///
+/// `user_id` is the task's run-as identity — the sandbox's `X-User-Token` JWT
+/// and its `GITHUB_TOKEN` are cut from the same `grant.ctx.user_id`. Naming the
+/// task's Workspace is what makes this route present the same account the
+/// sandbox does: a Workspace that pins a GitHub credential pins it for both.
+/// The credential rule (the Workspace's pin or the identity's own row, no scope
+/// walk, no repository or global fallback, fails closed) lives on
+/// `GithubPrAuth::client_for`; this wrapper just names the provider handle the
+/// route reaches it through.
+pub(super) async fn resolve_github_api(
+    adapter: &GithubPrAdapter,
+    user_id: &str,
+    workspace_id: Option<&str>,
+    owner: &str,
+    repo_name: &str,
+) -> Result<GithubPrApi, AdapterError> {
+    adapter
+        .auth()
+        .client_for(
+            &Actor::of(user_id).on_workspace(workspace_id),
+            &GitHostRepo::github(owner, repo_name),
+        )
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-    use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
+    use moatless_identity::auth::test_support::{github_row, StubProviderTokens};
     use moatless_types::adapter::AdapterKind;
 
     fn auth_with_tokens(provider_tokens: Arc<dyn ProviderTokenDao>) -> GithubPrAuth {
@@ -371,14 +399,13 @@ mod tests {
             "filter-user",
             github_row("manual", "filter-token"),
         )));
-        assert!(
-            auth.client_for_reaction(
+        assert!(auth
+            .client_for_reaction(
                 &binding_context(Some("filter-user")),
                 &GitHostRepo::github("soaplabs", "repo"),
             )
             .await
-            .is_ok()
-        );
+            .is_ok());
     }
 
     #[tokio::test]
