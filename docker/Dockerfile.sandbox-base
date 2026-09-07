@@ -59,8 +59,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 # "needs evaluation" upstream — clears on a later refresh once noble ships it.
 # 2026-09-07: pull patched libssh-4 >= 0.10.6-2ubuntu0.5 (CVE-2026-59843,
 # -59845, -59846, -59847, -59848, -59850), bind9 >= 1:9.18.39-0ubuntu0.24.04.6,
-# diffutils >= 1:3.10-1ubuntu0.1 (CVE-2026-53910), openjdk-21-jre-headless >=
-# 21.0.12+8-1~24.04 and nodesource nodejs >= 22.23.2 (CVE-2026-58040), OP-760.
+# diffutils >= 1:3.10-1ubuntu0.1 (CVE-2026-53910) and openjdk-21-jre-headless
+# >= 21.0.12+8-1~24.04, OP-760. The nodejs >= 22.23.2 target is the one the
+# 2026-08-24 entry already set and the scanned image still carries 22.23.1, so
+# nodesource had not published it by that rebuild; this re-attempts it.
 # libexpat1 (CVE-2026-76641), libunbound8, libglib2.0 and libplexus-utils2-java
 # have no noble fix yet and clear on a later refresh.
 ARG APT_SECURITY_REFRESH=2026-09-07
@@ -122,8 +124,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
     /tmp/aws/install && \
     rm -rf /tmp/aws /tmp/awscliv2.zip
 
-# kubectl — pinned. v1.36 is compiled with Go 1.24+ which clears the critical
-# go/stdlib CVEs flagged by AWS Inspector for older kubectl builds.
+# kubectl — pinned. Built with Go 1.24+, which clears the critical go/stdlib
+# CVEs flagged by AWS Inspector for older kubectl builds.
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
 ARG KUBECTL_VERSION=v1.37.0
 RUN ARCH=$(dpkg --print-architecture) && \
@@ -290,7 +292,12 @@ RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MAN
 #   the suite then downloads its own copy anyway: measured in a live sandbox,
 #   the image carried chromium-1234 (playwright 1.62.1) while the suite wanted
 #   chromium-1194 (playwright 1.56.1). Keep this ARG in step with each
-#   consuming repo's own `playwright` pin.
+#   consuming repo's own `playwright` pin, except when a chromium security fix
+#   lands above every consumer's pin: the browser this bakes is a security
+#   floor first, so it moves ahead and the consuming repos catch up. This
+#   repo's own runner image pins Playwright separately in
+#   `docker/Dockerfile.e2e`, against `@playwright/test` in package.json — it
+#   moves with that pin, not with this floor.
 # - PLAYWRIGHT_CLI_VERSION is what the `playwright-cli` wrapper below runs, for
 #   interactive/agentic browsing (goto/snapshot/click-by-ref) — unrelated to
 #   any repo's test suite. It needs Playwright 1.62.0 or later: that release
