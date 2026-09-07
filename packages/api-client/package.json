@@ -38,7 +38,7 @@
   },
   "devDependencies": {
     "ajv": "^8.17.1",
-    "orval": "^8.2.0"
+    "orval": "^8.29.0"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.0.0"

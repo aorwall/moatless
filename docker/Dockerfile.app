@@ -13,7 +13,9 @@ FROM nginx:1.31-alpine
 # 2026-07-13: clear curl/libcurl CVEs in moatless-frontend (SP-2236) —
 # CVE-2026-9079 (CVSS 9.8), CVE-2026-8926 (9.1), CVE-2026-9545 (7.5),
 # affecting curl 8.12.1-r1 shipped in the previous nginx:1.27-alpine base.
-ARG APK_SECURITY_REFRESH=2026-07-13
+# 2026-09-07: pull patched libssl3/libcrypto3 > 3.5.7-r0 (CVE-2026-63073 CVSS
+# 9.8, CVE-2026-75803 9.1) and libexpat >= 2.8.4-r0 (CVE-2026-76641 8.7), OP-760.
+ARG APK_SECURITY_REFRESH=2026-09-07
 RUN echo "OS security refresh: ${APK_SECURITY_REFRESH}" \
     && apk upgrade --no-cache
 
