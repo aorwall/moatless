@@ -5,6 +5,7 @@
 //! tests use this hand-written stub.
 
 use async_trait::async_trait;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
@@ -26,6 +27,20 @@ pub struct StubProviderTokens {
     pub global_row: Option<ProviderToken>,
     /// Number of persistence mutations attempted through this stub.
     pub writes: AtomicUsize,
+    /// The last row [`ProviderTokenDao::upsert_token_with_auth_method`] was
+    /// asked to write, so a test can assert on the credential a caller
+    /// installed rather than only that it wrote something.
+    pub last_auth_method_upsert: Mutex<Option<UpsertedToken>>,
+}
+
+/// What one [`ProviderTokenDao::upsert_token_with_auth_method`] call carried.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpsertedToken {
+    pub auth_method: String,
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub token_type: Option<String>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl StubProviderTokens {
@@ -184,13 +199,23 @@ impl ProviderTokenDao for StubProviderTokens {
         &self,
         _user_id: &str,
         _provider: &str,
-        _auth_method: &str,
-        _access_token: &str,
-        _refresh_token: Option<&str>,
-        _token_type: Option<&str>,
+        auth_method: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        token_type: Option<&str>,
         _metadata: Option<&serde_json::Value>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<(), sqlx::Error> {
         self.writes.fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut recorded) = self.last_auth_method_upsert.lock() {
+            *recorded = Some(UpsertedToken {
+                auth_method: auth_method.to_string(),
+                access_token: access_token.to_string(),
+                refresh_token: refresh_token.map(str::to_string),
+                token_type: token_type.map(str::to_string),
+                expires_at,
+            });
+        }
         Ok(())
     }
 

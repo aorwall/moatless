@@ -94,6 +94,10 @@ pub trait ProviderTokenDao: Send + Sync {
     /// Upsert a provider token, setting `auth_method` on both insert and
     /// update. Used for reference rows (`secret_ref`) whose resolution branch
     /// must switch even when a row already exists.
+    ///
+    /// `refresh_token` and `expires_at` are written as given, `None` included:
+    /// they describe the credential this call installs, and a leftover expiry
+    /// from the one it replaces dates the wrong token.
     async fn upsert_token_with_auth_method(
         &self,
         user_id: &str,
@@ -103,6 +107,7 @@ pub trait ProviderTokenDao: Send + Sync {
         refresh_token: Option<&str>,
         token_type: Option<&str>,
         metadata: Option<&serde_json::Value>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<(), sqlx::Error>;
 
     /// Delete a provider token for a user.
@@ -283,16 +288,18 @@ impl ProviderTokenDao for PgProviderTokenDao {
         refresh_token: Option<&str>,
         token_type: Option<&str>,
         metadata: Option<&serde_json::Value>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO provider_tokens (
                    user_id, provider, access_token, refresh_token, token_type, metadata,
-                   auth_method, connected_at, updated_at, scope, owner_user_id
+                   auth_method, connected_at, updated_at, scope, owner_user_id, expires_at
                )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), 'user', $1)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), 'user', $1, $8)
                ON CONFLICT ON CONSTRAINT provider_tokens_scope_uq
                DO UPDATE SET access_token = $3, refresh_token = $4, token_type = $5, metadata = $6,
-                             auth_method = $7, scope = 'user', owner_user_id = $1, updated_at = NOW()"#,
+                             auth_method = $7, scope = 'user', owner_user_id = $1, updated_at = NOW(),
+                             expires_at = $8"#,
         )
         .bind(user_id)
         .bind(provider)
@@ -301,6 +308,7 @@ impl ProviderTokenDao for PgProviderTokenDao {
         .bind(token_type)
         .bind(metadata)
         .bind(auth_method)
+        .bind(expires_at)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -649,6 +657,7 @@ impl ProviderTokenDao for PgProviderTokenDao {
             None,
             token_type,
             metadata,
+            None,
         )
         .await?;
         if provider_user_id.is_some() || provider_login.is_some() {

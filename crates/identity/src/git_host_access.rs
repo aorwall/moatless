@@ -8,7 +8,8 @@ use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_types::access_control::ScopeContext;
 
 use crate::auth::credentials::{
-    GITHUB_OAUTH_STASH_KEY, read_github_oauth_stash, stash_github_oauth_token,
+    GITHUB_OAUTH_STASH_KEY, StashedGithubCredential, read_github_oauth_stash,
+    stash_github_oauth_token,
 };
 use crate::auth::models::ProviderToken;
 use crate::auth::provider_token_dao::ProviderTokenDao;
@@ -246,8 +247,16 @@ impl GitHostAccess {
                 // migration 0027 and still hold a live OAuth token, and losing
                 // one means the person cannot get back to App access by
                 // removing the PAT.
-                stash_github_oauth_token(&self.secrets, &principal.user_id, &existing.access_token)
-                    .await?;
+                stash_github_oauth_token(
+                    &self.secrets,
+                    &principal.user_id,
+                    &StashedGithubCredential {
+                        access_token: existing.access_token.clone(),
+                        refresh_token: existing.refresh_token.clone(),
+                        expires_at: existing.expires_at,
+                    },
+                )
+                .await?;
                 if let Some(value) = metadata_string(existing.metadata.as_ref(), "login") {
                     metadata["oauth_login"] = serde_json::Value::String(value);
                 }
@@ -279,6 +288,7 @@ impl GitHostAccess {
                 None,
                 Some("pat"),
                 Some(&metadata),
+                None,
             )
             .await?;
 
@@ -327,7 +337,7 @@ impl GitHostAccess {
                 "No PAT override to remove".to_string(),
             ));
         }
-        let oauth_token = read_github_oauth_stash(&self.secrets, &principal.user_id)
+        let stashed = read_github_oauth_stash(&self.secrets, &principal.user_id)
             .await?
             .ok_or_else(|| {
                 GitHostAccessError::BadRequest(
@@ -345,15 +355,20 @@ impl GitHostAccess {
             |login| serde_json::json!({ "login": login }),
         );
 
+        // The refresh token and the expiry travel with the access token: a row
+        // restored without them cannot be dated or renewed, so it dies at the
+        // stashed token's expiry and `ensure_fresh_token` reads the missing
+        // expiry as "still valid" rather than renewing it.
         self.provider_tokens
             .upsert_token_with_auth_method(
                 &principal.user_id,
                 "github",
                 &restored_auth_method,
-                &oauth_token,
-                None,
+                &stashed.access_token,
+                stashed.refresh_token.as_deref(),
                 Some("bearer"),
                 Some(&metadata),
+                stashed.expires_at,
             )
             .await?;
         self.cleanup_github_secrets(&principal.user_id, "PAT removal")
@@ -486,7 +501,7 @@ mod tests {
 
     use super::*;
     use crate::auth::models::ProviderToken;
-    use crate::auth::test_support::StubProviderTokens;
+    use crate::auth::test_support::{StubProviderTokens, UpsertedToken};
     use crate::secret::test_support::service_with;
 
     struct RejectingValidator;
@@ -549,7 +564,9 @@ mod tests {
     ///
     /// The displaced row is the one a PAT is being set *over*, so it carries
     /// the OAuth `token_type` rather than the `pat` a previous override left.
-    async fn stash_after_saving_a_pat_over(mut row: ProviderToken) -> Option<String> {
+    async fn stash_after_saving_a_pat_over(
+        mut row: ProviderToken,
+    ) -> Option<StashedGithubCredential> {
         row.token_type = Some("bearer".to_string());
         let (access, secrets) = accepting_access(row);
         access
@@ -559,6 +576,13 @@ mod tests {
         read_github_oauth_stash(&secrets, "u1")
             .await
             .expect("read the stash")
+    }
+
+    /// The access token alone, for a case that only cares which token was kept.
+    async fn stashed_token_after_saving_a_pat_over(row: ProviderToken) -> Option<String> {
+        stash_after_saving_a_pat_over(row)
+            .await
+            .map(|credential| credential.access_token)
     }
 
     /// `stash` is the App user token held behind a PAT, which is what makes a
@@ -708,7 +732,7 @@ mod tests {
         // removing the PAT later cannot get the person back to App access.
         let row = crate::auth::test_support::github_row("manual", "ghu_displaced");
         assert_eq!(
-            stash_after_saving_a_pat_over(row).await.as_deref(),
+            stashed_token_after_saving_a_pat_over(row).await.as_deref(),
             Some("ghu_displaced")
         );
     }
@@ -717,7 +741,7 @@ mod tests {
     async fn a_pat_set_over_an_app_credential_keeps_the_token_it_displaced() {
         let row = crate::auth::test_support::github_row(AUTH_METHOD_APP_USER, "ghu_displaced");
         assert_eq!(
-            stash_after_saving_a_pat_over(row).await.as_deref(),
+            stashed_token_after_saving_a_pat_over(row).await.as_deref(),
             Some("ghu_displaced")
         );
     }
@@ -742,6 +766,84 @@ mod tests {
                 "{auth_method:?} must not be offered for restore"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn a_pat_set_over_an_app_credential_keeps_what_renews_it() {
+        // The access token is the short-lived half. Stashing it alone means a
+        // restore hands back a credential that expires within hours and that
+        // nothing can renew, so the person silently loses GitHub access.
+        let mut row = crate::auth::test_support::github_row(AUTH_METHOD_APP_USER, "ghu_displaced");
+        row.refresh_token = Some("ghr_displaced".to_string());
+        row.expires_at = Some(expiry());
+
+        let stashed = stash_after_saving_a_pat_over(row)
+            .await
+            .expect("a stashed credential");
+
+        assert_eq!(stashed.refresh_token.as_deref(), Some("ghr_displaced"));
+        assert_eq!(stashed.expires_at, Some(expiry()));
+    }
+
+    #[tokio::test]
+    async fn removing_a_pat_override_restores_what_renews_the_credential() {
+        // The row this writes is the one `ensure_fresh_token` reads. Without
+        // the expiry it reads as undated and without the refresh token there is
+        // nothing to renew it with, so the restored credential dies at the
+        // stashed token's expiry and never refreshes.
+        let restored = restore(&StashedGithubCredential {
+            access_token: "ghu_stashed".to_string(),
+            refresh_token: Some("ghr_stashed".to_string()),
+            expires_at: Some(expiry()),
+        })
+        .await;
+
+        assert_eq!(restored.access_token, "ghu_stashed");
+        assert_eq!(restored.refresh_token.as_deref(), Some("ghr_stashed"));
+        assert_eq!(restored.expires_at, Some(expiry()));
+        assert_eq!(restored.auth_method, AUTH_METHOD_APP_USER);
+        assert_eq!(restored.token_type.as_deref(), Some("bearer"));
+    }
+
+    #[tokio::test]
+    async fn a_legacy_stash_restores_the_only_thing_it_holds() {
+        // Stashes written before the credential was stored whole are a bare
+        // token. Restoring one is still better than refusing: the person gets
+        // back whatever life it has left and can reconnect.
+        let restored = restore(&StashedGithubCredential::from_access_token("ghu_legacy")).await;
+
+        assert_eq!(restored.access_token, "ghu_legacy");
+        assert_eq!(restored.refresh_token, None);
+        assert_eq!(restored.expires_at, None);
+    }
+
+    /// Remove a PAT override standing in front of `stashed`, and report the row
+    /// the restore wrote.
+    async fn restore(stashed: &StashedGithubCredential) -> UpsertedToken {
+        let row = row_with(
+            AUTH_METHOD_SECRET_REF,
+            "pat",
+            serde_json::json!({ "login": "ada", "oauth_login": "ada" }),
+        );
+        let tokens = Arc::new(StubProviderTokens::with_user_row(Some(row)));
+        let stored = serde_json::to_string(stashed).expect("serialize the stash");
+        let access = access_with_stash(Arc::clone(&tokens), Some(&stored));
+
+        access
+            .restore_github_app_token(&principal())
+            .await
+            .expect("restore the App token");
+
+        let recorded = tokens
+            .last_auth_method_upsert
+            .lock()
+            .expect("the recorded write")
+            .clone();
+        recorded.expect("the restore wrote a row")
+    }
+
+    fn expiry() -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp(1_800_000_000, 0).expect("a valid time")
     }
 
     #[tokio::test]

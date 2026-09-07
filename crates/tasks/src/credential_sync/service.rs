@@ -418,6 +418,7 @@ mod tests {
             _refresh_token: Option<&str>,
             _token_type: Option<&str>,
             _metadata: Option<&serde_json::Value>,
+            _expires_at: Option<chrono::DateTime<chrono::Utc>>,
         ) -> Result<(), sqlx::Error> {
             Ok(())
         }

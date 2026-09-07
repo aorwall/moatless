@@ -15,10 +15,14 @@ use crate::auth::provider_tokens::ProviderTokenAuthDao;
 /// Ensure the GitHub token for a user is fresh.
 ///
 /// If the token was obtained via GitHub App (`auth_method = "github_app"`) and
-/// is expired or about to expire, refreshes it using the stored refresh token
-/// and persists the new credentials.
+/// is expired, about to expire, or carries no expiry at all, refreshes it using
+/// the stored refresh token and persists the new credentials. A row with no
+/// expiry is undated rather than perpetual — every App user token expires — so
+/// one refresh both renews it and gives it a date.
 ///
-/// For OAuth or PAT tokens, returns the token as-is.
+/// For OAuth or PAT tokens, returns the token as-is. So does a `github_app` row
+/// holding no refresh token: there is nothing to renew it with, and the caller's
+/// 401 is what reports that.
 ///
 /// # Concurrency
 ///
@@ -57,21 +61,27 @@ pub async fn ensure_fresh_token_with_dao(
         return Ok(token.access_token);
     }
 
-    // Check if token is still valid (5-minute safety margin)
+    // Check if token is still valid (5-minute safety margin). A missing expiry
+    // is unknown, never "never": every App user token expires, so a row that
+    // cannot be dated is refreshed once and dated by the result.
     if let Some(expires_at) = token.expires_at {
         let margin = Utc::now() + chrono::Duration::minutes(5);
         if expires_at > margin {
             return Ok(token.access_token);
         }
-    } else {
-        // No expiry set — treat as still valid
-        return Ok(token.access_token);
     }
 
-    // Token is expired or about to expire — refresh it
-    let refresh_token = token.refresh_token.as_deref().ok_or_else(|| {
-        AuthError::OAuth("GitHub App token expired but no refresh token available".to_string())
-    })?;
+    // Token is expired, about to expire, or undatable — refresh it
+    let Some(refresh_token) = token.refresh_token.as_deref() else {
+        // Nothing to renew with, so the stored token is the only answer there
+        // is. It is already dead when the expiry was real, and the caller's
+        // 401 is what says so.
+        warn!(
+            user_id = %user_id,
+            "GitHub App token needs a refresh but the row carries no refresh token"
+        );
+        return Ok(token.access_token);
+    };
 
     info!(user_id = %user_id, "Refreshing expired GitHub App user token");
 

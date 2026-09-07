@@ -6,10 +6,10 @@
 //! some other provider. A second copy of this would drift on the next change to
 //! one of them.
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use tracing::info;
 
-use crate::auth::credentials::stash_github_oauth_token;
+use crate::auth::credentials::{StashedGithubCredential, stash_github_oauth_token};
 use crate::auth::error::AuthError;
 use crate::auth::models::{OAuthTokens, ProviderUserInfo};
 use crate::auth::provider_tokens::{AUTH_METHOD_APP_USER, ProviderToken, ProviderTokenAuthDao};
@@ -47,6 +47,7 @@ pub async fn persist(
     if tokens.access_token.is_empty() {
         return Ok(Persisted::NoToken);
     }
+    let now = Utc::now();
 
     // Propagated, not defaulted: reading this wrong means taking the branch
     // below, and that branch overwrites the row a PAT override lives in.
@@ -57,7 +58,7 @@ pub async fn persist(
         == Some("pat");
 
     if overridden {
-        stash_github_oauth_token(secrets, user_id, &tokens.access_token)
+        stash_github_oauth_token(secrets, user_id, &stashed(tokens, now))
             .await
             .map_err(|e| AuthError::Internal(format!("stash the GitHub App token: {e}")))?;
         info!(
@@ -68,7 +69,6 @@ pub async fn persist(
         return Ok(Persisted::StashedBehindPatOverride);
     }
 
-    let now = Utc::now();
     provider_tokens
         .upsert_provider_token(&ProviderToken {
             user_id: user_id.to_string(),
@@ -81,9 +81,7 @@ pub async fn persist(
             provider_user_id: Some(user_info.id.clone()),
             provider_login: Some(user_info.login.clone()),
             connected_at: now,
-            expires_at: tokens
-                .expires_in
-                .map(|secs| now + chrono::Duration::seconds(secs as i64)),
+            expires_at: expires_at(tokens, now),
         })
         .await?;
     info!(
@@ -93,6 +91,23 @@ pub async fn persist(
         "Persisted GitHub token to provider_tokens"
     );
     Ok(Persisted::Credential)
+}
+
+/// The whole credential, so removing a PAT override later restores something
+/// that can still be refreshed — see [`StashedGithubCredential`].
+fn stashed(tokens: &OAuthTokens, now: DateTime<Utc>) -> StashedGithubCredential {
+    StashedGithubCredential {
+        access_token: tokens.access_token.clone(),
+        refresh_token: tokens.refresh_token.clone(),
+        expires_at: expires_at(tokens, now),
+    }
+}
+
+/// When `tokens` stops working, from the TTL GitHub returned with them.
+fn expires_at(tokens: &OAuthTokens, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    tokens
+        .expires_in
+        .map(|secs| now + chrono::Duration::seconds(secs as i64))
 }
 
 #[cfg(test)]
@@ -165,15 +180,17 @@ mod tests {
             .expect("persist");
 
         assert_eq!(persisted, Persisted::StashedBehindPatOverride);
-        // The variant is only honest if the token is really retrievable: it is
-        // what removing the override hands back.
-        assert_eq!(
-            crate::auth::credentials::read_github_oauth_stash(&secrets, "u1")
-                .await
-                .expect("read the stash")
-                .as_deref(),
-            Some("ghu_fresh")
-        );
+        // The variant is only honest if the credential is really retrievable:
+        // it is what removing the override hands back. The refresh token and
+        // the expiry are part of that — an access token restored alone dies at
+        // its own expiry with nothing able to renew it.
+        let stashed = crate::auth::credentials::read_github_oauth_stash(&secrets, "u1")
+            .await
+            .expect("read the stash")
+            .expect("a stashed credential");
+        assert_eq!(stashed.access_token, "ghu_fresh");
+        assert_eq!(stashed.refresh_token.as_deref(), Some("ghr_refresh"));
+        assert!(stashed.expires_at.is_some());
     }
 
     #[tokio::test]

@@ -197,6 +197,7 @@ impl CredentialService {
                 None,
                 token_type.as_deref(),
                 metadata.as_ref(),
+                None,
             )
             .await?;
         Ok(())
@@ -326,6 +327,7 @@ mod tests {
             refresh_token: Option<&str>,
             token_type: Option<&str>,
             metadata: Option<&serde_json::Value>,
+            _expires_at: Option<chrono::DateTime<chrono::Utc>>,
         ) -> Result<(), sqlx::Error> {
             self.upsert_token(
                 user_id,

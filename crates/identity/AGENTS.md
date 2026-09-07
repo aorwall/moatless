@@ -40,7 +40,9 @@ either of two writers into the same row:
   its one `persist`, because the row they leave behind has to match.
 - `git_host_access.rs` holds a Personal Access Token, stored as a secret with
   the row carrying `secret_ref` and a placeholder. Setting one stashes whatever
-  App token it displaced, so removing it later restores a live credential.
+  App credential it displaced, so removing it later restores a live one. Stash
+  and restore the whole `StashedGithubCredential`: an App user token restored
+  without its refresh token and expiry leaves a row nothing can renew.
 
 A GitHub App has one registered callback URL and every client shares it, so a
 flow started from the T3 client comes back on the frontend's host. That is why
