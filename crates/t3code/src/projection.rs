@@ -1517,7 +1517,7 @@ fn linked_pull_requests(conversation: &Conversation, project_id: &str) -> Vec<Va
                 ("number".to_string(), json!(pr.number)),
                 ("url".to_string(), json!(url)),
             ]);
-            if let Some(status) = pull_request_status(pr) {
+            if let Some(status) = pull_request_status(pr, &repository) {
                 reference.extend(status);
             }
             Some(Value::Object(reference))
@@ -1525,26 +1525,36 @@ fn linked_pull_requests(conversation: &Conversation, project_id: &str) -> Vec<Va
         .collect()
 }
 
-/// What a fetched binding's status blob adds to a reference, or `None` while
-/// that blob is still NULL.
+/// What a fetched binding's status adds to a reference, or `None` while its
+/// blob is still NULL: a client reads a title and a state off a row that
+/// carries the group, and asks `pullRequests.summary` about one that does not.
 ///
-/// The fields travel together, because one refresh writes all of them: their
-/// presence is how the client tells a binding whose status is known — and
-/// answers a row's title and state without a call of its own — from one it has
-/// to ask `pullRequests.summary` about, which is also what refreshes it.
-fn pull_request_status(pr: &ConversationPullRequest) -> Option<Map<String, Value>> {
-    let state_kind = pr.state_kind.as_deref()?;
-    let title = non_empty(pr.title.as_deref()?)?;
+/// Gate and stand-ins are `bound_pull_request_from_binding`'s
+/// (`crates/server/src/t3code/backend.rs`), which answers that call off the same
+/// blob. A row carrying the group is a row nothing asks again, so the two
+/// readers must not disagree about what the blob holds.
+fn pull_request_status(
+    pr: &ConversationPullRequest,
+    repository: &str,
+) -> Option<Map<String, Value>> {
+    // Only a refresh writes the branches, which is what makes them the gate.
     let head_branch = non_empty(pr.head_ref.as_deref()?)?;
     let base_branch = non_empty(pr.base_ref.as_deref()?)?;
-    let read_at = pr.status_read_at?;
+    // Trimmed, not merely non-empty as the sibling has it: the contract types
+    // `title` as a trimmed non-empty string, and a blank one fails validation.
+    let title = pr
+        .title
+        .as_deref()
+        .and_then(non_empty)
+        .unwrap_or_else(|| format!("{repository}#{}", pr.number));
+    let state_kind = pr.state_kind.as_deref().unwrap_or("open");
     Some(Map::from_iter([
         ("title".to_string(), json!(title)),
         ("state".to_string(), json!(t3_pr_state(state_kind))),
         ("isDraft".to_string(), json!(is_draft(state_kind))),
         ("headBranch".to_string(), json!(head_branch)),
         ("baseBranch".to_string(), json!(base_branch)),
-        ("updatedAt".to_string(), json!(instant(read_at))),
+        ("updatedAt".to_string(), json!(instant(pr.status_read_at))),
     ]))
 }
 
@@ -2502,7 +2512,7 @@ mod tests {
     }
 
     /// A binding whose status blob has never been fetched, which is how one is
-    /// written.
+    /// written. `status_read_at` still resolves, off `last_event_at`.
     fn bound(repository: &str, number: i64) -> ConversationPullRequest {
         ConversationPullRequest {
             repository: repository.to_string(),
@@ -2512,7 +2522,7 @@ mod tests {
             base_ref: None,
             head_ref: None,
             state_kind: None,
-            status_read_at: None,
+            status_read_at: instant_at("2026-02-03T04:05:06Z"),
         }
     }
 
@@ -2523,7 +2533,6 @@ mod tests {
             base_ref: Some("main".to_string()),
             head_ref: Some(format!("feature/{}", pr.number)),
             state_kind: Some(state_kind.to_string()),
-            status_read_at: Some(instant_at("2026-02-03T04:05:06Z")),
             ..pr
         }
     }
@@ -2589,6 +2598,25 @@ mod tests {
         let linked = &one_thread(&row)["linkedPullRequest"];
         assert_eq!(linked["state"], "open");
         assert_eq!(linked["isDraft"], true);
+    }
+
+    /// A blob holding the branches but neither a title nor a state is one
+    /// `persisted_status_is_complete` treats as fetched, so no refresh ever
+    /// repairs it and the fallback would answer with these two stand-ins
+    /// forever. The row carries them instead of buying them with a round trip.
+    #[test]
+    fn a_thread_row_stands_in_for_a_title_and_a_state_the_blob_never_recorded() {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![ConversationPullRequest {
+            title: None,
+            state_kind: None,
+            ..fetched(bound("acme/web", 42), "open")
+        }]));
+
+        let linked = &one_thread(&row)["linkedPullRequest"];
+        assert_eq!(linked["title"], "acme/web#42");
+        assert_eq!(linked["state"], "open");
+        assert_eq!(linked["isDraft"], false);
     }
 
     /// A binding is written with its blob NULL and filled in by a refresh no

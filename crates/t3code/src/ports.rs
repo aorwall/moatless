@@ -364,7 +364,7 @@ fn is_live_pull_request(state_kind: &str) -> bool {
 /// A binding's state kind, mapped onto T3's three-value set. A draft reports as
 /// `open`, because neither `VcsStatusChangeRequestState` nor `PullRequestState`
 /// has a `draft`; [`is_draft`] carries the distinction beside the state.
-pub fn t3_pr_state(state_kind: &str) -> &'static str {
+pub(crate) fn t3_pr_state(state_kind: &str) -> &'static str {
     match state_kind {
         "merged" => "merged",
         "closed" => "closed",
@@ -375,7 +375,7 @@ pub fn t3_pr_state(state_kind: &str) -> &'static str {
 /// Whether a binding's state kind is `draft`, for T3's `isDraft`. Reported
 /// beside every state, so a client that keeps a summary does not have to tell a
 /// server that omits the field from one saying the pull request left draft.
-pub fn is_draft(state_kind: &str) -> bool {
+pub(crate) fn is_draft(state_kind: &str) -> bool {
     state_kind == "draft"
 }
 

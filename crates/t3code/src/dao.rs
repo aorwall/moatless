@@ -123,9 +123,9 @@ pub struct Conversation {
 /// One GitHub pull request bound to a Task, as the listing query aggregates it.
 ///
 /// `subject_key` alone makes a row reportable, so a binding links from the
-/// moment it is written. The four fields the status blob holds are `None` until
-/// a refresh has filled it in, and one refresh writes all four, so they are
-/// present or absent together.
+/// moment it is written. `title`, `base_ref` and `head_ref` come out of the
+/// status blob a refresh fills in, and one refresh writes all three, so they
+/// are `None` together until then.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationPullRequest {
     pub repository: String,
@@ -134,13 +134,15 @@ pub struct ConversationPullRequest {
     pub title: Option<String>,
     pub base_ref: Option<String>,
     pub head_ref: Option<String>,
-    /// The binding's normalized state kind: `open`, `draft`, `merged` or
-    /// `closed`, read by [`crate::ports::t3_pr_state`].
+    /// The binding's normalized state kind, in its own column rather than the
+    /// blob: `open`, `draft`, `merged` or `closed`, and `None` until the
+    /// adapter has classified one. Read by `t3_pr_state` in [`crate::ports`].
     pub state_kind: Option<String>,
-    /// When this deployment last read the pull request's state from GitHub —
-    /// see [`crate::ports::BoundPullRequest::status_read_at`], which the status
-    /// surface reports from the same columns.
-    pub status_read_at: Option<DateTime<Utc>>,
+    /// When this deployment last read the pull request's state from GitHub,
+    /// falling back to the binding's `NOT NULL` `last_event_at`, so it resolves
+    /// for an unrefreshed binding too. The columns
+    /// [`crate::ports::BoundPullRequest::status_read_at`] reports.
+    pub status_read_at: DateTime<Utc>,
 }
 
 impl Conversation {

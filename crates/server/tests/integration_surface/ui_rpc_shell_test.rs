@@ -1683,7 +1683,14 @@ async fn a_thread_carries_the_status_of_each_pull_request_that_was_refreshed(poo
     assert_eq!(refreshed["updatedAt"], "2026-02-03T04:05:06.000Z");
 
     let unrefreshed = linked.iter().find(|pr| pr["number"] == 8).unwrap();
-    for absent in ["title", "state", "isDraft", "baseBranch", "headBranch"] {
+    for absent in [
+        "title",
+        "state",
+        "isDraft",
+        "baseBranch",
+        "headBranch",
+        "updatedAt",
+    ] {
         assert_eq!(unrefreshed.get(absent), None, "{absent} was never fetched");
     }
 }
