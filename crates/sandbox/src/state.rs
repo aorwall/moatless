@@ -182,6 +182,67 @@ impl SandboxState {
     }
 }
 
+/// Builds a [`SandboxState`] over fakes, for tests of flows that take the whole
+/// state rather than a config. The caller owns `config` and `backend_client`;
+/// everything else is a default or a test channel.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+    use crate::agent::agent_state::AgentState;
+    use crate::agent::handle::AgentHandle;
+    use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
+    use crate::commands::CommandRegistry;
+    use crate::credentials::recovery::CredentialFailureDetector;
+    use crate::outbox::EventOutbox;
+
+    pub(crate) fn state_with(
+        config: Config,
+        backend_client: Arc<dyn BackendClient>,
+    ) -> SandboxState {
+        let config = Arc::new(config);
+        let lifecycle_cancel = CancellationToken::new();
+        let (outbox, _drainer) = EventOutbox::spawn(
+            Arc::clone(&backend_client),
+            config.task_id.clone(),
+            lifecycle_cancel.clone(),
+        );
+        let events = GrpcEventPublisher::new(outbox);
+        let (agent_handle, _rx) = AgentHandle::test_channel();
+        let initial_context = Arc::new(TaskContext::new(
+            config.task_id.clone(),
+            config.workspace_dir.clone(),
+            config.repo_dir.clone(),
+            CheckoutMode::Shared,
+            Arc::new(AgentState::new()),
+            agent_handle,
+            Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
+            Arc::new(CommandRegistry::for_test()),
+            CredentialFailureDetector::default(),
+            Arc::new(RwLock::new(None)),
+        ));
+
+        SandboxState {
+            config,
+            events,
+            task_contexts: Arc::new(RwLock::new(HashMap::from([(
+                initial_context.task_id.clone(),
+                initial_context,
+            )]))),
+            task_context_registration: Arc::new(Mutex::new(())),
+            heartbeat: Heartbeat::new(),
+            backend_client,
+            init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
+            credentials: Arc::new(RwLock::new(HashMap::new())),
+            lifecycle_cancel,
+            credential_dispatcher: Arc::new(Dispatcher::new()),
+            codex_watcher_handle: Arc::new(RwLock::new(None)),
+            supervisor_health: Default::default(),
+            terminals: TerminalManager::new("/tmp/workspace".to_string()),
+            workspace_sync: Default::default(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -407,8 +407,13 @@ fn is_safe_mount_name(name: &str) -> bool {
 /// How a sandbox stores its workspace so it outlives the pod.
 ///
 /// The formats are not alternatives a reader has to choose between: a restore
-/// tries the restic repository, then the rescue `workspace.tar`, then a clone,
-/// whatever this sandbox writes. This decides only what a *sync* writes.
+/// tries the restic repository, then the mirror, then the rescue
+/// `workspace.tar`, then a clone, whatever this sandbox writes.
+///
+/// One case does read this value. A format that holds a snapshot it could not
+/// read stops the walk rather than descending to an older copy, except where the
+/// format below is one this sandbox also writes and so is equally current —
+/// `workspace_sync::restore_on_start`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkspaceSnapshotFormat {
     /// One gzipped `workspace.tar` per sync.

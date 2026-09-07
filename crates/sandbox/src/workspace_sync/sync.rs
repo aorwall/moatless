@@ -32,7 +32,7 @@ use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::mirror as workspace_mirror;
 use super::restic;
@@ -96,6 +96,8 @@ pub struct WorkspaceSyncTracker {
     mirror_baseline: Arc<tokio::sync::Mutex<Option<sandbox_proto::workspace_manifest::Manifest>>>,
     /// Written by [`Self::mark_mirror_unusable`], read by [`Self::adopt_current`].
     mirror_unusable: Arc<AtomicBool>,
+    /// Written by [`Self::hold_uploads`], read by [`Self::upload_if_changed`].
+    uploads_held: Arc<AtomicBool>,
     turn_upload: Arc<TurnUpload>,
 }
 
@@ -158,11 +160,29 @@ impl WorkspaceSyncTracker {
         self.mirror_unusable.store(true, Ordering::Relaxed);
     }
 
+    /// Refuse every upload for this pod's life.
+    ///
+    /// Do not call this for a task that merely has no snapshot. It is for a
+    /// snapshot that exists and could not be read: that snapshot is then the
+    /// only copy of the work, and this pod holds a clone or an older archive
+    /// instead, so an upload replaces the copy with a tree that never held it.
+    /// Holding costs this pod's own new work, which is the lesser loss — a
+    /// restart re-reads the snapshot, and a transient failure clears itself.
+    pub fn hold_uploads(&self) {
+        self.uploads_held.store(true, Ordering::Relaxed);
+    }
+
     /// The baseline the upload gate compares against. `None` means nothing has
     /// been shipped or adopted, so the next attempt uploads.
     #[cfg(test)]
     pub(crate) async fn baseline(&self) -> Option<u64> {
         *self.last_uploaded.lock().await
+    }
+
+    /// Whether every upload is held. See [`Self::hold_uploads`].
+    #[cfg(test)]
+    pub(crate) fn uploads_are_held(&self) -> bool {
+        self.uploads_held.load(Ordering::Relaxed)
     }
 
     /// Whether a mirror delta base is set. Unset means the next upload ships the
@@ -185,6 +205,11 @@ impl WorkspaceSyncTracker {
         config: &Config,
         backend_client: &dyn BackendClient,
     ) -> SyncOutcome {
+        if self.uploads_held.load(Ordering::Relaxed) {
+            warn!(task_id = %config.task_id, "Upload held: the stored snapshot could not be read on start, and this tree would overwrite it");
+            return SyncOutcome::default();
+        }
+
         // The repository is incremental and atomic, so it runs first and its
         // outcome is what a caller sees. During a dual-write soak the mirror
         // still runs after it, so a rollback loses nothing.
@@ -281,6 +306,11 @@ pub enum RestoreDecision {
     /// Nothing was restored. Clone as usual, then overlay any working-tree
     /// archive.
     Nothing,
+    /// Nothing was restored, and no archive may be overlaid either: a format
+    /// holds a snapshot this pod could not read, so the tar is an older copy of
+    /// the same workspace rather than a working-tree addition to it. Clone, and
+    /// run on the clone alone.
+    CloneOnly,
 }
 
 impl RestoreDecision {
@@ -294,8 +324,50 @@ impl RestoreDecision {
     /// [`download_on_start`]'s overlay must not run. True for both the snapshot
     /// we just extracted and the durable volume we chose to keep.
     pub fn skips_overlay(self) -> bool {
-        matches!(self, Self::RestoredSnapshot | Self::UseExistingVolume)
+        matches!(
+            self,
+            Self::RestoredSnapshot | Self::UseExistingVolume | Self::CloneOnly
+        )
     }
+}
+
+/// What one format's restore concluded, and whether an older format may run.
+///
+/// Three states, not two. [`Self::Absent`] and [`Self::Failed`] both leave the
+/// workspace empty, but only `Absent` may fall through. Every older format is a
+/// strictly older copy of the same workspace, so descending after a read
+/// failure reverts the task to whatever that copy last held — and the tar has
+/// not been written on the normal sync path since the mirror shipped, so its
+/// age is unbounded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RestoreAttempt {
+    /// The format restored the workspace.
+    Restored(RestoreDecision),
+    /// The format holds nothing for this task. An older format may run.
+    Absent,
+    /// The format holds a snapshot this sandbox could not read.
+    Failed,
+}
+
+/// Clone, and hold every upload, because `format` holds a snapshot this pod
+/// could not read.
+///
+/// The clone is the only tree with a known provenance left: the remote's. It is
+/// missing whatever the snapshot held and the remote does not, which is why the
+/// hold matters more than the clone — it keeps the snapshot readable by the next
+/// pod instead of overwriting it with this one.
+///
+/// Returns [`RestoreDecision::CloneOnly`], not `Nothing`: `Nothing` still owes
+/// [`download_on_start`]'s overlay, which extracts the same rescue tar this walk
+/// just refused to descend to.
+fn hold_for_unread_snapshot(state: &SandboxState, format: &str) -> RestoreDecision {
+    error!(
+        task_id = %state.config.task_id,
+        format,
+        "Stored workspace snapshot could not be read; cloning and holding every upload so it is not overwritten"
+    );
+    state.workspace_sync.hold_uploads();
+    RestoreDecision::CloneOnly
 }
 
 /// Restore a full snapshot from S3 *before* the clone, returning what the caller
@@ -320,6 +392,10 @@ impl RestoreDecision {
 /// - a transfer/extract fails, or
 /// - the snapshot is working-tree-only and carries no `.git`.
 ///
+/// A format that failed to read a snapshot it holds instead returns
+/// [`RestoreDecision::CloneOnly`], and holds every upload for this pod — see
+/// [`hold_for_unread_snapshot`].
+///
 /// In every `Nothing` case the caller clones as usual, and working-tree-only
 /// archives are then overlaid by [`download_on_start`]. Best-effort and
 /// non-fatal throughout.
@@ -340,11 +416,31 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
     // task last synced by an older sandbox still has. The order does not depend
     // on what this sandbox writes — a task can hold a repository from before an
     // operator rolled the format back.
-    if let Some(decision) = restic::restore_on_start(state).await {
+    //
+    // A format that fails to read a snapshot it holds stops the walk, unless the
+    // next format down is one this sandbox also writes; see [`RestoreAttempt`].
+    let repository = restic::restore_on_start(state).await;
+    if let RestoreAttempt::Restored(decision) = repository {
         return decision;
     }
-    if let Some(decision) = workspace_mirror::restore_on_start(state).await {
+    // During a dual-write soak the same syncs write the mirror, so it is a
+    // current copy rather than an older one and reading it costs nothing.
+    let mirror_is_current = state.config.workspace_snapshot_format.writes_mirror();
+    if repository == RestoreAttempt::Failed && !mirror_is_current {
+        return hold_for_unread_snapshot(state, restic::FORMAT);
+    }
+
+    let mirror = workspace_mirror::restore_on_start(state).await;
+    if let RestoreAttempt::Restored(decision) = mirror {
         return decision;
+    }
+    // The tar below is written only by the rescue path, so it is never a current
+    // copy of a task either format stored.
+    if mirror == RestoreAttempt::Failed {
+        return hold_for_unread_snapshot(state, workspace_mirror::FORMAT);
+    }
+    if repository == RestoreAttempt::Failed {
+        return hold_for_unread_snapshot(state, restic::FORMAT);
     }
 
     let urls = match state.backend_client.get_workspace_sync_urls(task_id).await {
@@ -765,7 +861,7 @@ pub async fn flush_on_shutdown(state: &SandboxState) {
 
 /// True when a gRPC error means the workspace-sync feature is simply unavailable
 /// (backend S3 not configured) rather than a real transient failure.
-fn is_feature_disabled(status: &tonic::Status) -> bool {
+pub(super) fn is_feature_disabled(status: &tonic::Status) -> bool {
     matches!(
         status.code(),
         tonic::Code::FailedPrecondition | tonic::Code::Unimplemented
@@ -1302,6 +1398,17 @@ mod tests {
         /// Mint URLs pointing at a closed port instead of declining, so a
         /// transfer is reached and then fails.
         mint_urls: bool,
+        /// What `get_workspace_sync_urls` fails with, when it should fail with
+        /// something other than the default "no S3 here".
+        sync_url_code: Option<tonic::Code>,
+        /// What `get_workspace_repository_access` fails with. `None` reports the
+        /// feature unsupported, like the trait default.
+        repository_access_code: Option<tonic::Code>,
+        /// How `get_workspace_object_urls` answers. `None` reports the feature
+        /// unsupported, like a backend predating the mirror. `Some(n)` fails
+        /// transiently `n` times and then mints.
+        object_url_failures: Option<AtomicUsize>,
+        object_url_calls: AtomicUsize,
     }
 
     /// Turns the URL mint into a valve: it announces each entry on `started` and
@@ -1342,6 +1449,36 @@ mod tests {
                 mint_urls: true,
                 ..Self::default()
             }
+        }
+
+        /// A backend whose object-URL mint fails transiently `n` times before it
+        /// works. `usize::MAX` never works.
+        fn flaky_object_urls(n: usize) -> Self {
+            Self {
+                object_url_failures: Some(AtomicUsize::new(n)),
+                ..Self::default()
+            }
+        }
+
+        /// A backend whose repository-access mint fails with `code`, so the
+        /// repository arm reports `Failed` rather than an absence.
+        fn repository_access_failing(code: tonic::Code) -> Self {
+            Self {
+                repository_access_code: Some(code),
+                ..Self::default()
+            }
+        }
+
+        /// A backend whose sync-URL mint fails with `code`.
+        fn sync_urls_failing(code: tonic::Code) -> Self {
+            Self {
+                sync_url_code: Some(code),
+                ..Self::default()
+            }
+        }
+
+        fn object_url_calls(&self) -> usize {
+            self.object_url_calls.load(Ordering::SeqCst)
         }
     }
 
@@ -1411,6 +1548,9 @@ mod tests {
             _task_id: &str,
         ) -> Result<GetWorkspaceSyncUrlsResponse, tonic::Status> {
             self.url_requests.fetch_add(1, Ordering::SeqCst);
+            if let Some(code) = self.sync_url_code {
+                return Err(tonic::Status::new(code, "configured failure"));
+            }
             if let Some(gate) = &self.gate {
                 let _ = gate.started.send(());
                 let _permit = gate.release.acquire().await.unwrap();
@@ -1427,6 +1567,43 @@ mod tests {
                 });
             }
             Err(tonic::Status::failed_precondition("no S3 in tests"))
+        }
+        async fn get_workspace_repository_access(
+            &self,
+            _task_id: &str,
+        ) -> Result<sandbox_proto::GetWorkspaceRepositoryAccessResponse, tonic::Status> {
+            match self.repository_access_code {
+                Some(code) => Err(tonic::Status::new(code, "configured failure")),
+                None => Err(tonic::Status::unimplemented(
+                    "workspace repositories not supported",
+                )),
+            }
+        }
+        async fn get_workspace_object_urls(
+            &self,
+            _task_id: &str,
+            paths: &[String],
+            _operation: &str,
+            _restore_source: bool,
+        ) -> Result<Vec<String>, tonic::Status> {
+            self.object_url_calls.fetch_add(1, Ordering::SeqCst);
+            let Some(remaining) = &self.object_url_failures else {
+                return Err(tonic::Status::unimplemented("mirror not supported"));
+            };
+            if remaining
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                    (n > 0).then(|| n.saturating_sub(1))
+                })
+                .is_ok()
+            {
+                // The shape production failed with: a transport timeout, which
+                // carries no verdict about whether a mirror exists.
+                return Err(tonic::Status::cancelled("Timeout expired"));
+            }
+            Ok(paths
+                .iter()
+                .map(|_| "http://127.0.0.1:1/object".to_string())
+                .collect())
         }
     }
 
@@ -1493,12 +1670,212 @@ mod tests {
         assert!(RestoreDecision::RestoredSnapshot.skips_overlay());
         assert!(RestoreDecision::UseExistingVolume.skips_overlay());
         assert!(!RestoreDecision::Nothing.skips_overlay());
+        // The overlay extracts the rescue tar. A walk that refused to descend to
+        // it must not have it laid over the clone one step later.
+        assert!(RestoreDecision::CloneOnly.skips_overlay());
 
         // Only a real extraction counts as a snapshot origin; keeping the volume
         // lost nothing, so it is not reported as a restore.
         assert!(RestoreDecision::RestoredSnapshot.restored_snapshot());
         assert!(!RestoreDecision::UseExistingVolume.restored_snapshot());
         assert!(!RestoreDecision::Nothing.restored_snapshot());
+        assert!(!RestoreDecision::CloneOnly.restored_snapshot());
+    }
+
+    /// The walk itself: a format that cannot read what it stores neither
+    /// descends nor lets the overlay descend for it.
+    ///
+    /// This is the assertion the staging loss needed. Before the fix the same
+    /// backend produced `Nothing`, which sends `init` on to
+    /// [`download_on_start`] — and that extracts the rescue tar over the clone,
+    /// which is how the task came up three days stale.
+    #[tokio::test]
+    async fn a_mirror_that_cannot_be_read_neither_descends_nor_overlays() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut config = sync_config(tmp.path(), true, false);
+        // Mirror-only, so the repository arm is absent and the mirror decides.
+        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Mirror;
+        config.task_id = "task-1".to_string();
+
+        // The incident's shape: the mint is cancelled, so whether a mirror
+        // exists is unknown rather than answered.
+        let backend: Arc<dyn BackendClient> =
+            Arc::new(CountingBackend::sync_urls_failing(tonic::Code::Cancelled));
+        let state = crate::state::test_support::state_with(config, backend);
+
+        let decision = restore_on_start(&state).await;
+
+        assert_eq!(
+            decision,
+            RestoreDecision::CloneOnly,
+            "an unread mirror must not leave the tar overlay owed"
+        );
+        assert!(
+            decision.skips_overlay(),
+            "the overlay extracts the very tar the walk refused"
+        );
+        assert!(
+            !decision.restored_snapshot(),
+            "nothing was restored, so no RepositoryRestored event is owed"
+        );
+        assert!(
+            state.workspace_sync.uploads_are_held(),
+            "this pod must not overwrite the snapshot it could not read"
+        );
+    }
+
+    /// The carve-out, pinned on the observable that separates the two formats:
+    /// whether the mirror is consulted at all.
+    ///
+    /// Both fleets end in a hold, so a decision assertion cannot tell them
+    /// apart. The mint count can: restic-only stops before the mirror because
+    /// it is an older copy, and dual-write walks on to it because the same
+    /// syncs wrote it.
+    #[tokio::test]
+    async fn only_a_dual_write_fleet_reads_the_mirror_after_a_repository_failure() {
+        async fn walk(format: WorkspaceSnapshotFormat) -> (RestoreDecision, usize, bool) {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut config = sync_config(tmp.path(), true, false);
+            config.workspace_snapshot_format = format;
+            config.task_id = "task-1".to_string();
+
+            // The repository arm must report `Failed`, which is the only branch
+            // that reads the carve-out. The trait default is `unimplemented`,
+            // and that reads as an absence.
+            let backend = Arc::new(CountingBackend::repository_access_failing(
+                tonic::Code::Cancelled,
+            ));
+            let state = crate::state::test_support::state_with(
+                config,
+                Arc::clone(&backend) as Arc<dyn BackendClient>,
+            );
+
+            let decision = restore_on_start(&state).await;
+            let held = state.workspace_sync.uploads_are_held();
+            (decision, backend.attempts(), held)
+        }
+
+        let (decision, mints, held) = walk(WorkspaceSnapshotFormat::Restic).await;
+        assert_eq!(decision, RestoreDecision::CloneOnly);
+        assert!(held, "an unread repository holds this pod's uploads");
+        assert_eq!(
+            mints, 0,
+            "restic-only: the mirror is an older copy, so the walk stops before it"
+        );
+
+        let (decision, mints, held) = walk(WorkspaceSnapshotFormat::ResticMirror).await;
+        assert_eq!(decision, RestoreDecision::CloneOnly);
+        assert!(
+            held,
+            "the mirror had nothing either, so the hold still stands"
+        );
+        assert!(
+            mints > 0,
+            "dual-write: the mirror is equally current, so the walk reads it"
+        );
+    }
+
+    /// A transport blip minting object URLs is retried rather than taken as the
+    /// mirror's verdict.
+    ///
+    /// On staging one 20-second gRPC timeout ended the mirror restore, the chain
+    /// descended to a rescue tar three days old, and the next sync mirrored that
+    /// tree back over the snapshot. Only bucket versioning got the work back.
+    #[tokio::test]
+    async fn a_transient_url_mint_is_retried() {
+        // Two blips, spelled out rather than derived from the budget: a test
+        // that reads the constant passes at any value of it, including one.
+        let backend = CountingBackend::flaky_object_urls(2);
+        let paths = vec!["a.txt".to_string()];
+
+        let urls = workspace_mirror::mint_urls(&backend, "task", &paths, "get", false).await;
+
+        assert!(
+            urls.is_ok(),
+            "a blip that clears inside the budget must not fail the restore"
+        );
+        assert_eq!(backend.object_url_calls(), 3);
+    }
+
+    /// The retry is bounded: a backend that is genuinely down must not hold a
+    /// pod's start open indefinitely.
+    #[tokio::test]
+    async fn a_persistent_url_mint_failure_stops_at_the_budget() {
+        let backend = CountingBackend::flaky_object_urls(usize::MAX);
+        let paths = vec!["a.txt".to_string()];
+
+        let urls = workspace_mirror::mint_urls(&backend, "task", &paths, "get", false).await;
+
+        assert!(urls.is_err());
+        assert_eq!(
+            backend.object_url_calls(),
+            workspace_mirror::URL_MINT_ATTEMPTS as usize
+        );
+    }
+
+    /// The feature being off is an answer, not a blip. Retrying it would add the
+    /// whole backoff to every start on a deployment that stores no workspace.
+    #[tokio::test]
+    async fn an_unsupported_mirror_is_not_retried() {
+        let backend = CountingBackend::default();
+        let paths = vec!["a.txt".to_string()];
+
+        let urls = workspace_mirror::mint_urls(&backend, "task", &paths, "get", false).await;
+
+        assert!(urls.is_err());
+        assert_eq!(backend.object_url_calls(), 1);
+    }
+
+    /// `Ok(None)` is what lets the caller descend to an older format, so only a
+    /// real absence may produce it. A cancelled RPC leaves the answer unknown.
+    #[tokio::test]
+    async fn a_cancelled_mint_is_not_an_absent_mirror() {
+        let client = http_client(Duration::from_secs(1)).unwrap();
+
+        let backend = CountingBackend::sync_urls_failing(tonic::Code::Cancelled);
+        let got = workspace_mirror::fetch_stored_manifest("task", &backend, &client).await;
+        assert!(
+            got.is_err(),
+            "a transport failure must not read as `this task has no mirror`"
+        );
+
+        // The backend saying it stores no workspace at all is an absence: there
+        // is then nothing for any format to read, so descending is correct.
+        let disabled = CountingBackend::default();
+        let got = workspace_mirror::fetch_stored_manifest("task", &disabled, &client).await;
+        assert!(matches!(got, Ok(None)));
+    }
+
+    /// A restore that failed against a snapshot that exists leaves this pod
+    /// holding a tree that never held the work. Uploading it replaces the only
+    /// copy, which is what made the staging loss unrecoverable without S3
+    /// versioning.
+    #[tokio::test]
+    async fn a_held_upload_never_overwrites_the_snapshot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        init_repo(&repo);
+        std::fs::write(repo.join("a.txt"), "hello").unwrap();
+        git_add(&repo, &["a.txt"]);
+        git_commit(&repo, "init");
+
+        let mut config = sync_config(tmp.path(), true, true);
+        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Tar;
+        let backend = CountingBackend::default();
+        let tracker = WorkspaceSyncTracker::new();
+
+        // Unheld, this tree is new to the backend and ships.
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(backend.attempts(), 1, "an unheld tracker uploads");
+
+        tracker.hold_uploads();
+        std::fs::write(repo.join("a.txt"), "edited after the failed restore").unwrap();
+        upload_after_turn(&config, &backend, &tracker).await;
+        assert_eq!(
+            backend.attempts(),
+            1,
+            "a held tracker ships nothing, whatever changed on disk"
+        );
     }
 
     /// The gate every upload path shares: nothing travels twice.

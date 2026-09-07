@@ -24,7 +24,10 @@ use sandbox_proto::SNAPSHOT_ROOT;
 use tracing::{debug, info, warn};
 
 use super::file_set;
-use super::sync::{RestoreDecision, SyncOutcome, clear_dir_contents, primary_repo_is_usable};
+use super::sync::{
+    RestoreAttempt, RestoreDecision, SyncOutcome, clear_dir_contents, is_feature_disabled,
+    primary_repo_is_usable,
+};
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::state::SandboxState;
@@ -287,19 +290,28 @@ fn open(access: &Access) -> Result<Repository<rustic_core::OpenStatus>, String> 
 
 /// Restore the whole workspace from the latest snapshot.
 ///
-/// `Some(RestoredSnapshot)` means the caller can skip the clone: a snapshot
+/// [`RestoreAttempt::Restored`] means the caller can skip the clone: a snapshot
 /// carries every repo's `.git`, so it reproduces HEAD, the index, the branch and
-/// the dirty tree exactly. `None` sends the caller on to the next format.
-pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDecision> {
+/// the dirty tree exactly. `Absent` sends the caller on to the next format;
+/// `Failed` does not.
+pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     let task_id = state.config.task_id.clone();
     let workspace_dir = PathBuf::from(&state.config.workspace_dir);
     let repo_dir = PathBuf::from(&state.config.repo_dir);
 
     let access = match access(&task_id, state.backend_client.as_ref()).await {
         Ok(access) => access,
+        // Only the backend saying it mints no repository access at all is an
+        // absence. A blip here carries no verdict about whether this task has a
+        // repository, and reading one as "none" is what sends a restic-only
+        // task to the rescue tar.
+        Err(status) if is_feature_disabled(&status) => {
+            debug!(task_id = %task_id, %status, "No workspace repository access; will try the mirror");
+            return RestoreAttempt::Absent;
+        }
         Err(status) => {
-            debug!(task_id = %task_id, %status, "No workspace repository access; will try the tar");
-            return None;
+            warn!(task_id = %task_id, %status, "Workspace repository access could not be minted");
+            return RestoreAttempt::Failed;
         }
     };
 
@@ -321,15 +333,15 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
             // A snapshot that turned out not to carry the primary repo is not
             // one a clone can be skipped after.
             if primary_repo_is_usable(&repo_dir).await {
-                Some(RestoreDecision::RestoredSnapshot)
+                RestoreAttempt::Restored(RestoreDecision::RestoredSnapshot)
             } else {
                 debug!(task_id = %task_id, "Restored tree has no usable primary repo; will clone");
-                None
+                RestoreAttempt::Absent
             }
         }
         Ok(Ok(None)) => {
-            debug!(task_id = %task_id, "No stored workspace snapshot; will try the tar");
-            None
+            debug!(task_id = %task_id, "No stored workspace snapshot; will try the mirror");
+            RestoreAttempt::Absent
         }
         Ok(Err(error)) => {
             warn!(task_id = %task_id, %error, "Restoring the workspace repository failed (non-fatal); clearing partial state");
@@ -341,7 +353,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
                 .backend_client
                 .report_workspace_sync(&task_id, "download", FORMAT, 0, elapsed, Some(&error))
                 .await;
-            None
+            RestoreAttempt::Failed
         }
         Err(error) => {
             let error = format!("restore panicked: {error}");
@@ -351,7 +363,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
                 .backend_client
                 .report_workspace_sync(&task_id, "download", FORMAT, 0, elapsed, Some(&error))
                 .await;
-            None
+            RestoreAttempt::Failed
         }
     }
 }

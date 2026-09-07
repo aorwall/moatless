@@ -37,8 +37,8 @@ use tracing::{debug, info, warn};
 
 use super::file_set;
 use super::sync::{
-    RestoreDecision, SyncOutcome, clear_dir_contents, http_client, http_get, http_put,
-    primary_prefix,
+    RestoreAttempt, RestoreDecision, SyncOutcome, clear_dir_contents, http_client, http_get,
+    http_put, is_feature_disabled, primary_prefix,
 };
 use crate::backend_client::BackendClient;
 use crate::config::Config;
@@ -50,6 +50,12 @@ pub(super) const FORMAT: &str = "mirror";
 /// Paths per `GetWorkspaceObjectUrls` call. Must not exceed the backend's own
 /// cap (`WORKSPACE_OBJECT_URL_BATCH`), which rejects a larger request.
 const URL_BATCH: usize = 500;
+
+/// Attempts to mint one batch of object URLs before minting gives up.
+///
+/// On a restore, giving up holds every upload and clones, so a transport blip
+/// must not be what decides that. The upload path mints through here too.
+pub(super) const URL_MINT_ATTEMPTS: u32 = 3;
 
 /// Transfers in flight. Each object is a separate request, so the wall clock is
 /// round trips divided by this; 16 puts a few thousand objects inside a couple
@@ -344,39 +350,43 @@ async fn mirror_delta(
     Ok(uploaded + manifest_bytes)
 }
 
-/// The manifest S3 currently holds, or `None` when there is none this build can
-/// read — no object, an unparseable one, a version this build does not know, or
-/// a backend that mints no URL for it.
-async fn fetch_stored_manifest(
+/// The stored manifest: `Ok(None)` when this task has no mirror, `Err` when one
+/// may exist and this sandbox could not read it.
+///
+/// The caller descends to an older format on `Ok(None)` only, so a failure that
+/// leaves the answer unknown — a timeout minting the URL, a download error, a
+/// manifest written by a newer build — must be an `Err` rather than a `None`.
+pub(super) async fn fetch_stored_manifest(
     task_id: &str,
     backend_client: &dyn BackendClient,
     client: &reqwest::Client,
-) -> Option<Manifest> {
+) -> Result<Option<Manifest>, String> {
     let urls = match backend_client.get_workspace_sync_urls(task_id).await {
-        Ok(urls) if !urls.manifest_get_url.is_empty() => urls,
-        _ => return None,
+        Ok(urls) => urls,
+        // Not an outage: the backend is telling us this deployment stores no
+        // workspace at all, so there is nothing for any format to read.
+        Err(status) if is_feature_disabled(&status) => return Ok(None),
+        Err(status) => return Err(format!("minting sync URLs failed: {status}")),
     };
+    if urls.manifest_get_url.is_empty() {
+        debug!(task_id = %task_id, "Backend minted no manifest URL");
+        return Ok(None);
+    }
 
     match http_get(client, &urls.manifest_get_url).await {
         Ok(Some(bytes)) => match Manifest::from_gz_json(&bytes) {
-            Ok(manifest) if manifest.version == MANIFEST_VERSION => Some(manifest),
-            Ok(manifest) => {
-                warn!(task_id = %task_id, version = manifest.version, "Stored manifest is a version this build cannot read");
-                None
-            }
-            Err(e) => {
-                warn!(task_id = %task_id, error = %e, "Stored manifest could not be parsed");
-                None
-            }
+            Ok(manifest) if manifest.version == MANIFEST_VERSION => Ok(Some(manifest)),
+            Ok(manifest) => Err(format!(
+                "stored manifest is version {}, which this build cannot read",
+                manifest.version
+            )),
+            Err(e) => Err(format!("stored manifest could not be parsed: {e}")),
         },
         Ok(None) => {
             debug!(task_id = %task_id, "No stored workspace mirror");
-            None
+            Ok(None)
         }
-        Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Manifest download failed");
-            None
-        }
+        Err(e) => Err(format!("manifest download failed: {e}")),
     }
 }
 
@@ -395,28 +405,47 @@ pub(super) async fn stored_baseline(
     backend_client: &dyn BackendClient,
 ) -> Option<Manifest> {
     let client = http_client(OBJECT_TIMEOUT).ok()?;
-    fetch_stored_manifest(task_id, backend_client, &client).await
+    // A manifest this sandbox could not read is no delta base either, so both
+    // failure shapes collapse to `None` here.
+    fetch_stored_manifest(task_id, backend_client, &client)
+        .await
+        .ok()
+        .flatten()
 }
 
-/// Restore the workspace from the mirror, or report that there is none.
+/// Restore the workspace from the mirror.
 ///
-/// `None` means no mirror is stored for this task (or the backend predates it),
-/// and the caller falls back to `workspace_sync::restore_on_start`'s tar. The
-/// shape rules match that function's: the mirror is a complete set of repos when
-/// it carries the primary repo's `.git`, and paths are workspace-relative unless
-/// the manifest came from the single-repo shape.
+/// [`RestoreAttempt::Absent`] means no mirror is stored for this task (or the
+/// backend predates it) and the caller may fall back to the tar;
+/// [`RestoreAttempt::Failed`] means one may exist unread, and the caller must
+/// not. The shape rules match `workspace_sync::restore_on_start`'s: the mirror
+/// is a complete set of repos when it carries the primary repo's `.git`, and
+/// paths are workspace-relative unless the manifest came from the single-repo
+/// shape.
 ///
 /// **Failure policy:** a failed transfer clears the workspace and returns
-/// `None`, so the caller clones instead of running on half a tree.
-pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDecision> {
+/// [`RestoreAttempt::Failed`], so the caller clones instead of running on half a
+/// tree — and does not descend to the tar.
+pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     let task_id = &state.config.task_id;
     let workspace_dir = PathBuf::from(&state.config.workspace_dir);
     let repo_dir = PathBuf::from(&state.config.repo_dir);
     let prefix = primary_prefix(&state.config.workspace_dir, &state.config.repo_dir);
 
     let started = Instant::now();
-    let client = http_client(OBJECT_TIMEOUT).ok()?;
-    let manifest = fetch_stored_manifest(task_id, state.backend_client.as_ref(), &client).await?;
+    let Ok(client) = http_client(OBJECT_TIMEOUT) else {
+        warn!(task_id = %task_id, "Mirror restore client build failed; cannot tell whether a mirror exists");
+        return RestoreAttempt::Failed;
+    };
+    let manifest =
+        match fetch_stored_manifest(task_id, state.backend_client.as_ref(), &client).await {
+            Ok(Some(manifest)) => manifest,
+            Ok(None) => return RestoreAttempt::Absent,
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Stored manifest could not be read");
+                return RestoreAttempt::Failed;
+            }
+        };
 
     // Same three shapes the tar restore classifies, decided off the manifest
     // rather than by scanning an archive.
@@ -428,13 +457,13 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
     } else {
         warn!(task_id = %task_id, "Stored manifest carries no primary .git; falling back to the tar");
         state.workspace_sync.mark_mirror_unusable();
-        return None;
+        return RestoreAttempt::Absent;
     };
 
     let bytes = match download_manifest_files(state, &client, &manifest, &target).await {
         Ok(bytes) => bytes,
         Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Workspace mirror restore failed; clearing partial state and cloning");
+            warn!(task_id = %task_id, error = %e, "Workspace mirror restore failed; clearing partial state");
             state.workspace_sync.mark_mirror_unusable();
             clear_dir_contents(&workspace_dir).await;
             state
@@ -448,7 +477,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
                     Some(&e),
                 )
                 .await;
-            return None;
+            return RestoreAttempt::Failed;
         }
     };
 
@@ -470,7 +499,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> Option<RestoreDeci
             None,
         )
         .await;
-    Some(RestoreDecision::RestoredSnapshot)
+    RestoreAttempt::Restored(RestoreDecision::RestoredSnapshot)
 }
 
 /// Fetch every file the manifest names into `target`, recreating symlinks from
@@ -541,13 +570,45 @@ async fn batched_urls(
 ) -> Result<Vec<(Vec<String>, Vec<String>)>, String> {
     let mut batches = Vec::new();
     for chunk in paths.chunks(URL_BATCH) {
-        let urls = backend_client
-            .get_workspace_object_urls(task_id, chunk, operation, restore_source)
-            .await
-            .map_err(|e| format!("minting {operation} URLs failed: {e}"))?;
+        let urls = mint_urls(backend_client, task_id, chunk, operation, restore_source).await?;
         batches.push((chunk.to_vec(), urls));
     }
     Ok(batches)
+}
+
+/// Mint one batch of object URLs, retrying a transient backend failure.
+///
+/// `FailedPrecondition` and `Unimplemented` are answers rather than blips, so
+/// they return on the first attempt.
+pub(super) async fn mint_urls(
+    backend_client: &dyn BackendClient,
+    task_id: &str,
+    chunk: &[String],
+    operation: &str,
+    restore_source: bool,
+) -> Result<Vec<String>, String> {
+    let mut delay = Duration::from_millis(250);
+    let mut last = format!("minting {operation} URLs failed");
+    for attempt in 1..=URL_MINT_ATTEMPTS {
+        match backend_client
+            .get_workspace_object_urls(task_id, chunk, operation, restore_source)
+            .await
+        {
+            Ok(urls) => return Ok(urls),
+            Err(status) => {
+                last = format!("minting {operation} URLs failed: {status}");
+                if is_feature_disabled(&status) {
+                    break;
+                }
+                if attempt < URL_MINT_ATTEMPTS {
+                    warn!(task_id = %task_id, %status, attempt, "Minting workspace object URLs failed; retrying");
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
+                }
+            }
+        }
+    }
+    Err(last)
 }
 
 /// In-flight permits one file claims, one per megabyte and never more than the
@@ -657,15 +718,6 @@ async fn delete_object(client: &reqwest::Client, url: &str) -> Result<(), String
     } else {
         Err(format!("DELETE returned HTTP {}", resp.status()))
     }
-}
-
-/// True when a gRPC error means workspace sync is unavailable rather than
-/// failing. Mirrors `workspace_sync`'s own test.
-fn is_feature_disabled(status: &tonic::Status) -> bool {
-    matches!(
-        status.code(),
-        tonic::Code::FailedPrecondition | tonic::Code::Unimplemented
-    )
 }
 
 #[cfg(test)]
