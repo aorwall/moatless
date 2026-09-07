@@ -210,27 +210,31 @@ pub async fn create_loop(
 
 /// Merge a config patch onto the Loop's current config.
 ///
-/// An omitted field keeps its current value. `model` is the exception: a model
-/// carried forward onto an `agent_type` the patch changed is dropped when it
-/// belongs to the agent the Loop is leaving, rather than rejecting the patch.
 /// The Loop form does not send `model` (`buildUpdateConfig` in
-/// `loop-form.tsx`), so rejecting would leave the UI's agent-type switch with
-/// no way through. A model the patch names explicitly is validated instead.
+/// `loop-form.tsx`), so a carried-forward value is dropped on an `agent_type`
+/// change rather than rejected. Only a `model` the patch names is validated.
 fn next_config(
     current: &LoopRecord,
     rule: UpdateLoopConfig,
 ) -> Result<NewLoopConfig, AdapterError> {
+    // Both read `rule` before `unwrap_or_else` below moves it.
+    let agent_changed = rule
+        .agent_type
+        .as_deref()
+        .is_some_and(|next| next != current.config.agent_type.as_str());
+    let named_model = rule.model.as_ref().and_then(|m| m.as_deref());
+
     let agent_type = rule
         .agent_type
         .unwrap_or_else(|| current.config.agent_type.as_str().to_string());
+    require_agent_and_model(&agent_type, named_model)?;
     let model = rule.model.unwrap_or_else(|| {
         current
             .config
             .model
             .clone()
-            .filter(|m| !catalog::model_conflicts(&agent_type, m))
+            .filter(|m| !(agent_changed && catalog::model_conflicts(&agent_type, m)))
     });
-    require_agent_and_model(&agent_type, model.as_deref())?;
     Ok(NewLoopConfig {
         repository_id: rule
             .repository_id
@@ -641,6 +645,22 @@ mod tests {
         .expect("changing agent drops the model it belonged to");
         assert_eq!(next.model, None);
         assert_eq!(next.agent_type, "codex");
+    }
+
+    /// Sync wrote `model` without validating it before this change, so a row
+    /// can already hold a conflicting pair. An edit that names neither field
+    /// leaves it alone.
+    #[test]
+    fn an_edit_that_changes_no_agent_keeps_a_conflicting_model() {
+        let next = next_config(
+            &record_on("claude-code", Some("gpt-5.5")),
+            UpdateLoopConfig {
+                prompt: Some(Some("review this".into())),
+                ..UpdateLoopConfig::default()
+            },
+        )
+        .expect("an unrelated edit validates nothing");
+        assert_eq!(next.model.as_deref(), Some("gpt-5.5"));
     }
 
     #[test]
