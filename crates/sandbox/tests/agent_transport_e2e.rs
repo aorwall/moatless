@@ -48,7 +48,7 @@ use moatless_sandbox::agent::harness::{
 };
 use moatless_sandbox::agent::types::{AgentStatus, ResumeSession, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
-use moatless_sandbox::config::{AgentConfig, Config, ProxyConfig};
+use moatless_sandbox::config::{AgentConfig, Config, ProxyConfig, WorkspaceSnapshotFormat};
 use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
@@ -65,8 +65,7 @@ use tokio::sync::RwLock;
 const DEFAULT_CLAUDE_TEST_MODEL: &str = "claude-haiku-4-5-20251001";
 
 fn claude_test_model() -> String {
-    std::env::var("CLAUDE_TEST_MODEL")
-        .unwrap_or_else(|_| DEFAULT_CLAUDE_TEST_MODEL.to_string())
+    std::env::var("CLAUDE_TEST_MODEL").unwrap_or_else(|_| DEFAULT_CLAUDE_TEST_MODEL.to_string())
 }
 
 /// A no-tool prompt. `build_options` installs an interactive permission handler
@@ -260,7 +259,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_type: &str) -> Config {
         plugins: vec![],
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
-        workspace_mirror_enabled: true,
+        workspace_snapshot_format: WorkspaceSnapshotFormat::Mirror,
         workspace_restore_if_empty: false,
         headless: false,
     }

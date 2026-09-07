@@ -388,6 +388,19 @@ impl ApiClient {
             .await
     }
 
+    /// POST `/api/sandbox/v1/tasks/{task_id}/workspace-repository/access`
+    ///
+    /// Platform admins only. Every field of the answer is a credential.
+    pub async fn workspace_repository_access(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_api_schemas::sandbox::WorkspaceRepositoryAccessResponse, ApiError> {
+        self.post_no_body(&format!(
+            "/api/sandbox/v1/tasks/{task_id}/workspace-repository/access"
+        ))
+        .await
+    }
+
     /// POST `/api/sandbox/v1/tasks/{task_id}/cleanup`
     pub async fn cleanup_sandbox(&self, task_id: &str) -> Result<(), ApiError> {
         self.post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/cleanup"))

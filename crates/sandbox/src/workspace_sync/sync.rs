@@ -35,6 +35,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use super::mirror as workspace_mirror;
+use super::restic;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::state::SandboxState;
@@ -68,9 +69,13 @@ const HTTP_TIMEOUT: Duration = Duration::from_mins(5);
 /// What one upload attempt did, for the caller that has to report it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SyncOutcome {
-    /// Whether bytes actually reached S3.
+    /// Whether this transfer moved workspace data. It is what
+    /// `SyncWorkspaceResponse.synced` carries, so it answers the wire's
+    /// question — not "did any request reach S3". A `restic` snapshot of an
+    /// unchanged tree writes a snapshot object and still reports `false`,
+    /// because no workspace bytes moved.
     pub synced: bool,
-    /// Size of the uploaded tar; `0` when nothing was uploaded.
+    /// Bytes of workspace data this transfer moved; `0` when nothing did.
     pub bytes: u64,
 }
 
@@ -133,12 +138,13 @@ impl WorkspaceSyncTracker {
     pub async fn adopt_current(&self, config: &Config, backend_client: &dyn BackendClient) {
         let dir = PathBuf::from(&config.workspace_dir);
         *self.last_uploaded.lock().await = workspace_fingerprint(dir).await;
-        *self.mirror_baseline.lock().await =
-            if config.workspace_mirror_enabled && !self.mirror_unusable.load(Ordering::Relaxed) {
-                workspace_mirror::stored_baseline(&config.task_id, backend_client).await
-            } else {
-                None
-            };
+        *self.mirror_baseline.lock().await = if config.workspace_snapshot_format.writes_mirror()
+            && !self.mirror_unusable.load(Ordering::Relaxed)
+        {
+            workspace_mirror::stored_baseline(&config.task_id, backend_client).await
+        } else {
+            None
+        };
     }
 
     /// Record that S3 holds a mirror this sandbox could not restore from.
@@ -179,14 +185,31 @@ impl WorkspaceSyncTracker {
         config: &Config,
         backend_client: &dyn BackendClient,
     ) -> SyncOutcome {
-        if config.workspace_mirror_enabled {
+        // The repository is incremental and atomic, so it runs first and its
+        // outcome is what a caller sees. During a dual-write soak the mirror
+        // still runs after it, so a rollback loses nothing.
+        let mut snapshotted = None;
+        if config.workspace_snapshot_format.writes_restic() {
+            match restic::upload(config, backend_client).await {
+                Ok(outcome) => snapshotted = Some(outcome),
+                Err(()) => {
+                    debug!(task_id = %config.task_id, "Repository stored nothing; falling back");
+                }
+            }
+        }
+
+        if config.workspace_snapshot_format.writes_mirror() {
             let mut baseline = self.mirror_baseline.lock().await;
             match workspace_mirror::upload(config, backend_client, &mut baseline).await {
-                Ok(outcome) => return outcome,
+                Ok(outcome) => return snapshotted.unwrap_or(outcome),
                 Err(()) => {
                     debug!(task_id = %config.task_id, "Mirror stored nothing; writing a tar");
                 }
             }
+        }
+        // The repository holds the tree, so a tar would only duplicate it.
+        if let Some(outcome) = snapshotted {
+            return outcome;
         }
 
         let mut last = self.last_uploaded.lock().await;
@@ -224,7 +247,7 @@ pub fn is_periodic_enabled(config: &Config) -> bool {
 /// exists *and* answers `git rev-parse HEAD`. An empty volume, a half-extracted
 /// tree, or a `.git` corrupted by a kill mid-write all read as "not usable" and
 /// let the snapshot win.
-async fn primary_repo_is_usable(repo_dir: &Path) -> bool {
+pub(super) async fn primary_repo_is_usable(repo_dir: &Path) -> bool {
     if !repo_dir.join(".git").exists() {
         return false;
     }
@@ -313,13 +336,15 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
         return RestoreDecision::UseExistingVolume;
     }
 
-    // The file mirror is the newer format and the one this sandbox writes, so it
-    // is tried first; the tar below is what a task last synced by an older
-    // sandbox — or by this one with the mirror off — still has.
-    if state.config.workspace_mirror_enabled {
-        if let Some(decision) = workspace_mirror::restore_on_start(state).await {
-            return decision;
-        }
+    // Newest format first, and the tar last: it is the rescue path and what a
+    // task last synced by an older sandbox still has. The order does not depend
+    // on what this sandbox writes — a task can hold a repository from before an
+    // operator rolled the format back.
+    if let Some(decision) = restic::restore_on_start(state).await {
+        return decision;
+    }
+    if let Some(decision) = workspace_mirror::restore_on_start(state).await {
+        return decision;
     }
 
     let urls = match state.backend_client.get_workspace_sync_urls(task_id).await {
@@ -573,12 +598,20 @@ async fn upload_after_turn(
 /// Reports `synced: false` both when this sandbox has no S3 switch and when the
 /// workspace has not moved since the last upload — in either case S3 already
 /// holds what it should and nothing had to travel.
+///
+/// This is also the only place the repository is pruned. A prune rewrites the
+/// index, which is not work a turn boundary should pay for, and a task being
+/// stopped is the one moment there is no next turn to slow down.
 pub async fn sync_on_request(state: &SandboxState) -> SyncOutcome {
     if !state.config.workspace_sync_enabled {
         debug!(task_id = %state.config.task_id, "SyncWorkspace requested but workspace sync is off");
         return SyncOutcome::default();
     }
-    upload(state).await
+    let outcome = upload(state).await;
+    if state.config.workspace_snapshot_format.writes_restic() {
+        restic::forget_and_prune(&state.config, state.backend_client.as_ref()).await;
+    }
+    outcome
 }
 
 /// One-shot rescue upload: tar `workspace_dir` and PUT it to `put_url`.
@@ -1251,6 +1284,8 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use crate::config::WorkspaceSnapshotFormat;
+
     use async_trait::async_trait;
     use sandbox_proto::{
         DownloadUploadResponse, GetCredentialsResponse, GetWorkspaceSyncUrlsResponse,
@@ -1479,7 +1514,7 @@ mod tests {
         // The tar gate specifically: the mirror's baseline is not a fingerprint
         // and is seeded from S3, so it is covered by its own test below.
         let mut config = sync_config(tmp.path(), true, true);
-        config.workspace_mirror_enabled = false;
+        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Tar;
         let backend = CountingBackend::default();
         let tracker = WorkspaceSyncTracker::new();
 
@@ -1519,7 +1554,7 @@ mod tests {
         git_commit(&repo, "init");
 
         let config = sync_config(tmp.path(), true, true);
-        assert!(config.workspace_mirror_enabled);
+        assert!(config.workspace_snapshot_format.writes_mirror());
         let backend = CountingBackend::default();
         let tracker = WorkspaceSyncTracker::new();
 
@@ -1551,7 +1586,7 @@ mod tests {
         git_commit(&repo, "init");
 
         let config = sync_config(tmp.path(), true, true);
-        assert!(config.workspace_mirror_enabled);
+        assert!(config.workspace_snapshot_format.writes_mirror());
         let backend = CountingBackend::default();
         let tracker = WorkspaceSyncTracker::new();
 
@@ -1587,7 +1622,7 @@ mod tests {
         git_commit(&repo, "init");
 
         let config = sync_config(tmp.path(), true, true);
-        assert!(config.workspace_mirror_enabled);
+        assert!(config.workspace_snapshot_format.writes_mirror());
         let backend = CountingBackend::minting();
         let tracker = WorkspaceSyncTracker::new();
 
@@ -1644,7 +1679,7 @@ mod tests {
         // The tar path: the mirror has its own transport and this is about
         // scheduling, not about what travels.
         let mut config = sync_config(tmp.path(), true, true);
-        config.workspace_mirror_enabled = false;
+        config.workspace_snapshot_format = WorkspaceSnapshotFormat::Tar;
         let config = Arc::new(config);
         let (backend, mut started) = CountingBackend::gated();
         let tracker = WorkspaceSyncTracker::new();

@@ -29,7 +29,9 @@ use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::harness::{
     Cause, ClaudeConfig, CodexConfig, Harness, Input, Outcome, Rejection, Role, Signal,
 };
-use moatless_sandbox::config::{AgentConfig, Config, DEFAULT_COMMAND_TIMEOUT_SECS, ProxyConfig};
+use moatless_sandbox::config::{
+    AgentConfig, Config, DEFAULT_COMMAND_TIMEOUT_SECS, ProxyConfig, WorkspaceSnapshotFormat,
+};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -974,7 +976,7 @@ fn build_config(tmp: &TempDir, agent: EvalAgent) -> Config {
         openai_base_url: None,
         use_tmux: false,
         command_default_timeout_secs: DEFAULT_COMMAND_TIMEOUT_SECS,
-        workspace_mirror_enabled: true,
+        workspace_snapshot_format: WorkspaceSnapshotFormat::Mirror,
         workspace_restore_if_empty: false,
         home_dir: home.display().to_string(),
         codex_home_dir: home.join(".codex").display().to_string(),

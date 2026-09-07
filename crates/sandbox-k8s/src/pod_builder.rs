@@ -823,6 +823,11 @@ fn build_sandbox_container(
         if !config.sandbox.default_workspace_mirror_enabled {
             env.push(env_var("WORKSPACE_MIRROR_ENABLED", "false"));
         }
+        // Overrides the mirror flag when set, which is how a fleet moves onto
+        // the repository format and how a rollback moves it back.
+        if let Some(format) = &config.sandbox.workspace_snapshot_format {
+            env.push(env_var("WORKSPACE_SNAPSHOT_FORMAT", format));
+        }
     }
     if storage_backend.restore_if_empty() && pvc_name.is_some() {
         env.push(env_var("WORKSPACE_RESTORE_IF_EMPTY", "true"));
@@ -1553,6 +1558,8 @@ mod tests {
             },
             sandbox_provider: SandboxProviderType::Kubernetes,
             sandbox: SandboxConfig {
+                workspace_repository_secret: None,
+                workspace_repository_role_arn: None,
                 compute_mode: moatless_core::config::KubernetesComputeMode::Standard,
                 namespace: "test".into(),
                 image: "sandbox:latest".into(),
@@ -1576,6 +1583,7 @@ mod tests {
                 default_pvc_enabled: true,
                 default_s3_enabled: true,
                 default_workspace_mirror_enabled: true,
+                workspace_snapshot_format: None,
                 node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,

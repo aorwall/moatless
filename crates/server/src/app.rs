@@ -118,6 +118,21 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let s3_client = startup::init_s3(&config).await;
+    // Assumes the workspace-repository role so a sandbox can reach its own
+    // repository prefix directly. `None` when no role is configured.
+    let sts_client = crate::compose::infrastructure::init_sts(&config).await;
+    // Mints per-task access to a workspace repository, for the sandbox over
+    // gRPC and for an administrator over HTTP.
+    let workspace_repository =
+        crate::sandbox::workspace_repository::WorkspaceRepositoryAccess::new(
+            sts_client.clone(),
+            config.sandbox.workspace_repository_role_arn.clone(),
+            config.sandbox.workspace_repository_secret.clone(),
+            config.s3.bucket_name.clone(),
+            config.s3.region.clone(),
+            config.s3.workspace_prefix.clone(),
+        )
+        .map(std::sync::Arc::new);
     // The archive reader behind the cold transition. Present only when S3 is
     // configured — with no durable copy there is nothing to reclaim toward, and
     // an absent port disables the transition rather than risking a volume.
@@ -135,6 +150,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ports.as_ref(),
                 event_publisher.clone(),
                 s3_client.clone().map(std::sync::Arc::new),
+                workspace_repository.clone(),
                 sandbox_dependencies.sandbox_connector.clone(),
             ),
             cancel.clone(),
@@ -228,6 +244,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_ref()
             .map(|p| p.turn_counter.clone() as Arc<dyn moatless_ports::task::TurnStateReader>),
         snapshots: workspace_snapshots.clone(),
+        workspace_repository: workspace_repository.clone(),
     };
     let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);
 

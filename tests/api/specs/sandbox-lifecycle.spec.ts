@@ -6,10 +6,12 @@
  *
  * Chain:
  *   TASK-02 → SANDBOX-01 → SANDBOX-01.1 → SANDBOX-02 → SANDBOX-03 →
- *   SANDBOX-03.1 → SANDBOX-03.2 → SANDBOX-04 → SANDBOX-05 → SANDBOX-05.1
+ *   SANDBOX-03.1 → SANDBOX-03.5 → SANDBOX-03.2 → SANDBOX-04 → SANDBOX-05 →
+ *   SANDBOX-05.1
  */
 
-import { budget } from '../../shared/profile'
+import { filePaths } from '../../shared/content-helpers'
+import { budget, missingCapability, profile } from '../../shared/profile'
 import { ChainContext } from '../context/chain-context'
 import { chainEvents } from '../context/chain-events'
 import { expect, test } from '../fixtures/api-fixtures'
@@ -28,6 +30,8 @@ import {
 /** Written before the sandbox is stopped, read back after it comes up again. */
 const MARKER_PATH = 'lifecycle-marker.txt'
 const MARKER_CONTENT = 'sandbox lifecycle test'
+
+const storedWorkspaceReason = missingCapability('storedWorkspace')
 
 test.describe('Chain: Sandbox Lifecycle', () => {
   test.describe.configure({ mode: 'serial' })
@@ -132,6 +136,47 @@ test.describe('Chain: Sandbox Lifecycle', () => {
       timeout: 5000,
     })
     expect(event).not.toBeNull()
+  })
+
+  // ─── SANDBOX-03.5: Read a stopped task's files from the store ──────
+
+  test("SANDBOX-03.5: Read a stopped task's files without starting it", async ({
+    api,
+  }, testInfo) => {
+    test.skip(storedWorkspaceReason !== null, storedWorkspaceReason ?? '')
+    testInfo.setTimeout(budget('sandboxTeardown'))
+
+    // The only read in the suite that never touches a live pod.
+    //
+    // `stopped` is reported once the Deployment's desired replicas reach 0, not
+    // once the pod is gone, so poll: a connector that still reaches the
+    // terminating pod answers `sandbox` and fails this on timing.
+    let tree = await api.getFileTree(ctx.taskId!, '.', true)
+    await expect
+      .poll(
+        async () => {
+          tree = await api.getFileTree(ctx.taskId!, '.', true)
+          return tree.origin.source
+        },
+        {
+          message: 'a stopped task must answer from the store',
+          timeout: profile().timeouts.sandboxTeardown,
+        },
+      )
+      .toBe('snapshot')
+
+    // Every assertion below is about the read the poll settled on.
+    expect(tree.origin.syncedAt, 'a stored answer says when it was stored').toBeTruthy()
+
+    const paths = filePaths(tree.tree)
+    expect(paths, 'the marker file is missing from the stored tree').toContain(MARKER_PATH)
+
+    expect(
+      await api.readWorkspaceFile(ctx.taskId!, MARKER_PATH),
+      'the stored copy did not answer for a file the tree lists',
+    ).toBe(MARKER_CONTENT)
+
+    progress(`Read ${paths.length} stored paths with no sandbox running`)
   })
 
   // ─── SANDBOX-03.2: Start stopped sandbox (files persist) ───────────

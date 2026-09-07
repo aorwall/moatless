@@ -30,6 +30,11 @@ hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = { workspace = true }
 bytes = "1"
+# The workspace restic repository: the backend adapter, the library that drives
+# it, and the S3 client it speaks through.
+moatless-s3 = { workspace = true, features = ["restic-backend"] }
+rustic_core = { workspace = true }
+aws-sdk-s3 = { workspace = true }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }

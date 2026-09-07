@@ -12,10 +12,13 @@ use futures::stream::{Stream, StreamExt};
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
+use moatless_api_schemas::sandbox::WorkspaceRepositoryAccessResponse;
 use moatless_sandbox_runtime::access::LogOptions;
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::live_status::apply_running_rule;
 use moatless_types::sandbox::ArchiveRetention;
+
+use crate::workspace_repository::GrantError;
 
 use super::access::{
     authorize_task_control, authorize_task_read, authorize_task_write, require_lifecycle,
@@ -281,6 +284,68 @@ pub async fn redeploy_handler(
     info!(task_id = %task_id, "Redeploy succeeded");
     Ok(Json(ProvisionResponse {
         status: outcome.observed.sandbox_status(),
+    }))
+}
+
+/// Mint direct access to a task's workspace `restic` repository.
+///
+/// Platform admins only, on top of write access. The response is a live S3
+/// session plus the repository password — everything the `restic` CLI needs and
+/// everything an attacker would. Write access alone is not enough: a task owner
+/// can already read their own files through this API, and this hands out the
+/// keys to the store they sit in.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/workspace-repository/access",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Repository access granted", body = moatless_api_schemas::sandbox::WorkspaceRepositoryAccessResponse),
+        (status = 403, description = "Not a platform admin", body = moatless_api_schemas::error::ErrorBody),
+        (status = 503, description = "Workspace repositories are not configured", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+#[tracing::instrument(skip_all, fields(task_id = %task_id))]
+pub async fn workspace_repository_access_handler(
+    State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
+    Path(task_id): Path<String>,
+) -> Result<Json<WorkspaceRepositoryAccessResponse>, SandboxError> {
+    authorize_task_write(&state, &scope, &task_id).await?;
+    if !scope.as_ref().is_some_and(|ctx| ctx.is_admin) {
+        return Err(SandboxError::Forbidden(
+            "workspace repository access is limited to platform admins".into(),
+        ));
+    }
+
+    // `NotReady`, not `ConfigMissing`: the latter renders a bare 500, so an
+    // admin on a deployment that simply has no role ARN would see nothing that
+    // says so.
+    let access = state.workspace_repository.as_deref().ok_or_else(|| {
+        SandboxError::NotReady("workspace repositories are not configured".into())
+    })?;
+    // `grant` logs the cause.
+    let grant = access.grant(&task_id).await.map_err(|error| match error {
+        GrantError::Sts(_) => {
+            SandboxError::Internal("Failed to grant workspace repository access".into())
+        }
+    })?;
+
+    info!(task_id = %task_id, expires_at = %grant.expires_at, "Granted workspace repository access");
+    Ok(Json(WorkspaceRepositoryAccessResponse {
+        repository: grant.restic_url(),
+        bucket: grant.bucket,
+        prefix: grant.prefix,
+        region: grant.region,
+        access_key_id: grant.access_key_id,
+        secret_access_key: grant.secret_access_key,
+        session_token: grant.session_token,
+        expires_at: grant
+            .expires_at
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        password: grant.password,
     }))
 }
 

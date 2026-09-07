@@ -323,7 +323,150 @@ pub(crate) fn nested_match<'l>(listing: &'l [String], needle: &str) -> Option<&'
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+    use moatless_ports::sandbox::{
+        MockWorkspaceSnapshotSource, SnapshotEntry, SnapshotFile as StoredFile, SnapshotListing,
+    };
+
     use super::*;
+
+    /// A connector that never has a Sandbox, which is what sends every read in
+    /// these tests to the stored backing.
+    struct NoSandbox;
+
+    #[async_trait::async_trait]
+    impl SandboxConnector for NoSandbox {
+        async fn sandbox_client(&self, _task_id: &str) -> Result<SandboxClient, SandboxError> {
+            Err(SandboxError::NotReady("sandbox is stopped".into()))
+        }
+    }
+
+    fn listing(paths: &[(&str, bool)]) -> SnapshotListing {
+        SnapshotListing {
+            entries: paths
+                .iter()
+                .map(|(path, is_dir)| SnapshotEntry {
+                    path: (*path).to_string(),
+                    is_dir: *is_dir,
+                    size: 4,
+                })
+                .collect(),
+            synced_at: Utc::now(),
+        }
+    }
+
+    async fn stored(source: MockWorkspaceSnapshotSource) -> Checkout<'static> {
+        // Leaked so the checkout can borrow it for the length of the test; a
+        // test process is the whole lifetime either way.
+        let sources = Sources {
+            sandboxes: Box::leak(Box::new(NoSandbox)),
+            snapshots: Some(Box::leak(Box::new(source))),
+        };
+        Checkout::open(sources, "task-1")
+            .await
+            .expect("a stopped Task falls back to the store")
+    }
+
+    /// The client renders a tree, so a directory has to arrive with the
+    /// trailing slash that tells it from a file.
+    #[tokio::test]
+    async fn a_stored_listing_marks_its_directories_with_a_trailing_slash() {
+        let mut source = MockWorkspaceSnapshotSource::new();
+        source
+            .expect_list()
+            .withf(|task_id, path, recursive| task_id == "task-1" && path == "." && *recursive)
+            .returning(|_, _, _| Ok(listing(&[("repo", true), ("repo/main.rs", false)])));
+
+        assert_eq!(
+            stored(source).await.listing().await.unwrap(),
+            vec!["repo/".to_string(), "repo/main.rs".to_string()]
+        );
+    }
+
+    /// A stopped Task with nothing stored is still just a Task that is not
+    /// running — naming the store would tell the person about a mechanism.
+    #[tokio::test]
+    async fn a_task_with_nothing_stored_reads_as_not_running() {
+        let mut source = MockWorkspaceSnapshotSource::new();
+        source
+            .expect_list()
+            .returning(|_, _, _| Err(SnapshotError::NoSnapshot));
+
+        let Err(WorkspaceAccessError::NotRunning(SandboxError::NotReady(reason))) =
+            stored(source).await.listing().await
+        else {
+            panic!("a Task with nothing stored is a Task that is not running");
+        };
+        assert!(
+            reason.contains("sandbox is stopped"),
+            "the reason stays the Sandbox's, not the store's: {reason}"
+        );
+    }
+
+    /// The store hands back raw bytes and says nothing about their type, so
+    /// this is where text and binary are told apart.
+    #[tokio::test]
+    async fn stored_bytes_that_are_not_utf8_read_back_as_binary() {
+        let mut source = MockWorkspaceSnapshotSource::new();
+        source.expect_read().returning(|_, path| {
+            let content = if path == "logo.png" {
+                vec![0xff, 0xd8, 0xff]
+            } else {
+                b"hello".to_vec()
+            };
+            Ok(StoredFile {
+                content,
+                synced_at: Utc::now(),
+            })
+        });
+        let checkout = stored(source).await;
+
+        let text = checkout.read("notes.md").await.unwrap();
+        assert!(matches!(text.body, Body::Text(ref body) if body == "hello"));
+        assert_eq!(text.media_type, None, "a snapshot stores no media type");
+
+        let binary = checkout.read("logo.png").await.unwrap();
+        assert!(matches!(binary.body, Body::Binary(ref bytes) if bytes == &[0xff, 0xd8, 0xff]));
+    }
+
+    /// The mention an agent writes is relative to its checkout, and the stored
+    /// backing has to resolve it the same way the live one does: on a miss,
+    /// against the listing.
+    #[tokio::test]
+    async fn a_stored_read_resolves_a_path_relative_to_a_checkout() {
+        let mut source = MockWorkspaceSnapshotSource::new();
+        source.expect_read().returning(|_, path| {
+            if path == "repo/src/main.rs" {
+                Ok(StoredFile {
+                    content: b"fn main() {}".to_vec(),
+                    synced_at: Utc::now(),
+                })
+            } else {
+                Err(SnapshotError::NotFound)
+            }
+        });
+        source
+            .expect_list()
+            .returning(|_, _, _| Ok(listing(&[("repo", true), ("repo/src/main.rs", false)])));
+
+        let found = stored(source).await.read("src/main.rs").await.unwrap();
+        assert_eq!(found.path, "repo/src/main.rs");
+    }
+
+    /// An outage is not "no files": it has to reach the caller as a failure,
+    /// not as a Task that is merely stopped.
+    #[tokio::test]
+    async fn an_unreadable_store_is_a_failure_rather_than_an_empty_task() {
+        let mut source = MockWorkspaceSnapshotSource::new();
+        source
+            .expect_search()
+            .returning(|_, _, _, _| Err(SnapshotError::Unavailable("s3 timed out".into())));
+
+        assert!(matches!(
+            stored(source).await.search("main", 10).await,
+            Err(WorkspaceAccessError::Sandbox(SandboxError::Other(_)))
+        ));
+    }
 
     /// The mention an agent writes is relative to the checkout it works in, so
     /// the path that arrives is one directory short of the file.

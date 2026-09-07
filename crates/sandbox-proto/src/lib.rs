@@ -24,5 +24,5 @@ mod event_conversion;
 mod workspace_path;
 
 pub use event_conversion::UnrepresentableEventType;
-pub use workspace_path::is_safe_workspace_path;
 pub use moatless_types::event;
+pub use workspace_path::{SNAPSHOT_ROOT, is_safe_workspace_path};

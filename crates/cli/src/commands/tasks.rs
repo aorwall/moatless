@@ -204,6 +204,11 @@ pub enum TaskAction {
         #[arg(long, default_value = "10")]
         limit: i64,
     },
+    /// Print what the `restic` CLI needs to open a task's workspace repository.
+    ///
+    /// Platform admins only. The output carries live S3 credentials and the
+    /// repository password.
+    WorkspaceRepo { task_id: String },
     /// Fetch preview server page content
     Preview {
         task_id: String,
@@ -640,6 +645,23 @@ pub async fn run(
         TaskAction::Diagnose { task_id, limit } => {
             let task_id = resolve_task_id(client, &task_id).await?;
             run_diagnose(client, &task_id, limit, json).await?;
+        }
+        TaskAction::WorkspaceRepo { task_id } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
+            let access = client.api().workspace_repository_access(&task_id).await?;
+            if json {
+                output::print_json_typed(&access);
+            } else {
+                println!("export AWS_ACCESS_KEY_ID={}", access.access_key_id);
+                println!("export AWS_SECRET_ACCESS_KEY={}", access.secret_access_key);
+                println!("export AWS_SESSION_TOKEN={}", access.session_token);
+                println!("export AWS_DEFAULT_REGION={}", access.region);
+                println!("export RESTIC_REPOSITORY={}", access.repository);
+                println!("export RESTIC_PASSWORD={}", access.password);
+                println!();
+                println!("# credentials expire {}", access.expires_at);
+                println!("# then: restic snapshots");
+            }
         }
         TaskAction::Preview {
             task_id,
@@ -1669,8 +1691,6 @@ fn format_file_tree(resp: &serde_json::Value) {
         }
     }
 }
-
-
 
 pub async fn set_name(
     moat: &MoatClient,

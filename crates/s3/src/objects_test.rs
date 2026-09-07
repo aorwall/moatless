@@ -9,7 +9,7 @@ use crate::{
     S3Error, delete_objects_by_prefix, get_object, get_object_opt, head_object_modified_at,
 };
 
-async fn endpoint(
+pub(crate) async fn endpoint(
     exchanges: Vec<(&'static str, String)>,
 ) -> (aws_sdk_s3::Client, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -52,7 +52,7 @@ async fn endpoint(
     (aws_sdk_s3::Client::from_conf(config), server)
 }
 
-fn response(status: &str, body: &str) -> String {
+pub(crate) fn response(status: &str, body: &str) -> String {
     format!(
         "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()

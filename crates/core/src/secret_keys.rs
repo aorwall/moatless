@@ -38,6 +38,12 @@ pub const RESERVED_SECRET_KEYS: &[&str] = &[
     "SESSION_JWT_SECRET",
     "DATABASE_URL",
     "KUBERNETES_SERVICE_HOST",
+    // The AWS SDK reads these from the environment before anything else. A
+    // Workspace that set them would redirect the workspace repository's writes
+    // to an account of its choosing.
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
 ];
 
 /// Env-style key validation: `^[A-Z_][A-Z0-9_]*$`.

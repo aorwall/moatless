@@ -10811,13 +10811,13 @@
               "string",
               "null"
             ],
-            "description": "When the mirror this came from was stored, RFC 3339. Absent for\n[`ContentSource::Sandbox`], whose answer is current by construction."
+            "description": "When the snapshot this came from was written, RFC 3339. Absent for\n[`ContentSource::Sandbox`], whose answer is current by construction."
           }
         }
       },
       "ContentSource": {
         "type": "string",
-        "description": "Which copy of the workspace answered a file read.\n\nA stopped sandbox is still readable, out of the S3 mirror\n(`sandbox-control::workspace_snapshot`), so a caller has to be able to tell\nlive content from content that stopped changing when the pod did.",
+        "description": "Which copy of the workspace answered a file read.\n\nA stopped sandbox is still readable, out of the stored workspace\n(`sandbox-control::workspace_snapshot`), so a caller has to be able to tell\nlive content from content that stopped changing when the pod did.",
         "enum": [
           "sandbox",
           "snapshot"

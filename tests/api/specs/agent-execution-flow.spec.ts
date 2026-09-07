@@ -15,9 +15,8 @@
  *   AGENT-02 → AGENT-02.1 → AGENT-02.2 → AGENT-02.3
  */
 
-import { findNamedFileWithContent } from '../../shared/content-helpers'
+import { findNamedFileWithContent, flattenTree } from '../../shared/content-helpers'
 import { budget, missingCapability } from '../../shared/profile'
-import type { FileTreeNodeDto } from '../../shared/types'
 import { waitForCondition } from '../../shared/wait-helpers'
 import { ChainContext } from '../context/chain-context'
 import { chainEvents } from '../context/chain-events'
@@ -27,11 +26,6 @@ import { discardTask } from '../helpers/teardown'
 import { createTaskWithMessage, waitForAgentTurnComplete, waitForSandboxReady } from '../steps'
 
 const agentReason = missingCapability('agentCredentials')
-
-/** Every node in a file tree, directories and their contents alike. */
-function flatten(nodes: FileTreeNodeDto[]): FileTreeNodeDto[] {
-  return nodes.flatMap((node) => [node, ...flatten(node.children ?? [])])
-}
 
 test.describe('Chain: Agent Execution & Multi-Turn', () => {
   test.describe.configure({ mode: 'serial' })
@@ -188,7 +182,7 @@ test.describe('Chain: Agent Execution & Multi-Turn', () => {
     // how the UI marks the agent's work. A file on disk that the tree does not
     // call a change would never show up there.
     const tree = await api.getFileTree(ctx.taskId!, '.', true)
-    const node = flatten(tree.tree).find((entry) => entry.path === match!.path)
+    const node = flattenTree(tree.tree).find((entry) => entry.path === match!.path)
     expect(node, `${match!.path} is missing from the file tree`).toBeDefined()
     expect(node?.isChanged, "the agent's new file is not marked as changed").toBe(true)
   })

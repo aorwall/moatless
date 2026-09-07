@@ -155,6 +155,13 @@ const CORE_KEYS: &[KeySpec] = &[
         hint: "GitHub PAT used for repo clones (read:user, repo)",
         secret: true,
     },
+    KeySpec {
+        key: "SANDBOX_WORKSPACE_REPOSITORY_SECRET",
+        required: false,
+        hint: "Derives each task's workspace-repository password — openssl rand -hex 32. \
+               Rotating it makes every existing repository unreadable",
+        secret: true,
+    },
 ];
 
 const EXTERNAL_REDIS_KEY: KeySpec = KeySpec {

@@ -19,6 +19,7 @@ use sandbox_proto::{
     DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
     GetSystemPromptResponse, GetWorkspaceObjectUrlsRequest, GetWorkspaceObjectUrlsResponse,
+    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
     GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, PublishEventRequest,
     PublishEventResponse, RecordGitPushRequest, RecordGitPushResponse,
     RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
@@ -181,6 +182,13 @@ impl BackendSandboxService for UploadOnlyBackend {
         &self,
         _request: Request<GetWorkspaceObjectUrlsRequest>,
     ) -> Result<Response<GetWorkspaceObjectUrlsResponse>, Status> {
+        Err(Status::unimplemented("not used"))
+    }
+
+    async fn get_workspace_repository_access(
+        &self,
+        _request: Request<GetWorkspaceRepositoryAccessRequest>,
+    ) -> Result<Response<GetWorkspaceRepositoryAccessResponse>, Status> {
         Err(Status::unimplemented("not used"))
     }
 

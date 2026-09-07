@@ -300,6 +300,8 @@ pub fn test_config() -> Config {
         },
         sandbox_provider: SandboxProviderType::Kubernetes,
         sandbox: SandboxConfig {
+            workspace_repository_secret: None,
+            workspace_repository_role_arn: None,
             compute_mode: moatless_core::config::KubernetesComputeMode::Standard,
             namespace: "test".into(),
             image: "test-sandbox:latest".into(),
@@ -318,6 +320,7 @@ pub fn test_config() -> Config {
             default_pvc_enabled: true,
             default_s3_enabled: true,
             default_workspace_mirror_enabled: true,
+            workspace_snapshot_format: None,
             node_archive_enabled: false,
             retain_storage_on_close: false,
             pod_startup_timeout_secs: 10,

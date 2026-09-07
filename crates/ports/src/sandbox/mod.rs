@@ -27,6 +27,8 @@ pub use dispatch::MockSandboxJoiner;
 pub use dispatch::{SandboxJoiner, SandboxWaker};
 
 mod snapshot;
+#[cfg(feature = "test-support")]
+pub use snapshot::MockWorkspaceSnapshotSource;
 pub use snapshot::{
     SnapshotEntry, SnapshotError, SnapshotFile, SnapshotListing, WorkspaceSnapshotSource,
 };

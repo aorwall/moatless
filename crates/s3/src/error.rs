@@ -28,6 +28,20 @@ pub enum S3Error {
     InvalidDeleteIdentifier(#[source] BuildError),
     #[error("S3 delete request invalid: {0}")]
     InvalidDeleteRequest(#[source] BuildError),
+    #[cfg(feature = "sts")]
+    #[error("STS assume_role failed: {0}")]
+    AssumeRole(
+        #[source]
+        Box<aws_sdk_sts::error::SdkError<aws_sdk_sts::operation::assume_role::AssumeRoleError>>,
+    ),
+    #[cfg(feature = "sts")]
+    #[error("STS assume_role returned no credentials")]
+    SessionWithoutKeys,
+    #[cfg(feature = "sts")]
+    #[error("STS session expiry out of range")]
+    SessionExpiryOutOfRange,
+    #[error("S3 range read of {key} asked for zero bytes")]
+    EmptyRange { key: String },
     #[error("S3 head_object returned no LastModified for {key}")]
     MissingLastModified { key: String },
     #[error("S3 LastModified out of range for {key}")]

@@ -36,6 +36,8 @@ reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
 
 # Crypto
 rand = { workspace = true }
+# Derives a task's workspace-repository password from the deployment secret.
+hkdf = { workspace = true }
 
 # Mock generation, enabled off `test-support` so the bands above can name
 # `MockFileDao` across the crate boundary.

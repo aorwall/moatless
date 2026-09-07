@@ -120,13 +120,23 @@ pub async fn delete_object(
     Ok(())
 }
 
-/// Delete every object under `prefix` in `bucket`. Returns the count deleted.
-pub async fn delete_objects_by_prefix(
+/// Walk every page of a prefix listing, handing each page's objects to `page`.
+///
+/// The loop keys on `NextContinuationToken` alone. S3 sets it only on a
+/// truncated response, and a listing that stops one page early is silent: the
+/// caller reads it as "those objects do not exist".
+/// `page` returns a per-page count, and the total is returned to the caller.
+async fn for_each_page<F, Fut>(
     client: &aws_sdk_s3::Client,
     bucket: &str,
     prefix: &str,
-) -> Result<usize, S3Error> {
-    let mut deleted = 0usize;
+    mut page: F,
+) -> Result<usize, S3Error>
+where
+    F: FnMut(Vec<(String, u64)>) -> Fut,
+    Fut: std::future::Future<Output = Result<usize, S3Error>>,
+{
+    let mut total = 0usize;
     let mut continuation: Option<String> = None;
 
     loop {
@@ -139,22 +149,42 @@ pub async fn delete_objects_by_prefix(
             .await
             .map_err(|e| S3Error::ListObjects(Box::new(e)))?;
 
-        let keys: Vec<String> = resp
+        let objects: Vec<(String, u64)> = resp
             .contents()
             .iter()
-            .filter_map(|obj| obj.key().map(str::to_string))
+            .filter_map(|obj| {
+                let key = obj.key()?;
+                Some((key.to_string(), obj.size().unwrap_or(0).max(0) as u64))
+            })
             .collect();
-        deleted += delete_keys(client, bucket, &keys).await?;
+        total += page(objects).await?;
 
         match resp.next_continuation_token() {
-            Some(token) if resp.is_truncated().unwrap_or(false) => {
+            // Not `is_truncated`: S3 sets the token only on a truncated
+            // response, and a store that omits the flag would stop the walk a
+            // page early. The token is therefore the only bound this loop has,
+            // so one that does not advance ends it rather than spinning.
+            Some(token) if continuation.as_deref() != Some(token) => {
                 continuation = Some(token.to_string());
             }
             _ => break,
         }
     }
 
-    Ok(deleted)
+    Ok(total)
+}
+
+/// Delete every object under `prefix` in `bucket`. Returns the count deleted.
+pub async fn delete_objects_by_prefix(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    prefix: &str,
+) -> Result<usize, S3Error> {
+    for_each_page(client, bucket, prefix, |objects| {
+        let keys: Vec<String> = objects.into_iter().map(|(key, _)| key).collect();
+        async move { delete_keys(client, bucket, &keys).await }
+    })
+    .await
 }
 
 /// Delete up to 1,000 keys in one call. Returns the count deleted.
@@ -199,4 +229,77 @@ async fn delete_keys(
     }
 
     Ok(keys.len())
+}
+
+/// Download `length` bytes of `key` starting at `offset`.
+///
+/// The range is inclusive on the wire (`bytes=<first>-<last>`), so a zero
+/// `length` has no valid encoding and is rejected rather than turned into a
+/// whole-object GET.
+pub async fn get_object_range(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+    offset: u64,
+    length: u64,
+) -> Result<Vec<u8>, S3Error> {
+    if length == 0 {
+        return Err(S3Error::EmptyRange {
+            key: key.to_string(),
+        });
+    }
+    let last = offset + length - 1;
+
+    let resp = client
+        .get_object()
+        .bucket(bucket)
+        .key(key)
+        .range(format!("bytes={offset}-{last}"))
+        .send()
+        .await
+        .map_err(|e| S3Error::GetObject(Box::new(e)))?;
+
+    Ok(resp
+        .body
+        .collect()
+        .await
+        .map_err(S3Error::ReadBody)?
+        .into_bytes()
+        .to_vec())
+}
+
+/// The size of `key` in bytes, or `Ok(None)` when it does not exist.
+///
+/// Existence is answered from the response status alone. Unlike
+/// [`head_object_modified_at`] this needs no `Last-Modified` header, so a store
+/// that omits one still answers "the object is there".
+pub async fn head_object_size(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+) -> Result<Option<u64>, S3Error> {
+    match client.head_object().bucket(bucket).key(key).send().await {
+        Ok(resp) => Ok(Some(resp.content_length().unwrap_or(0).max(0) as u64)),
+        Err(e) => match e.as_service_error() {
+            Some(se) if se.is_not_found() => Ok(None),
+            _ => Err(S3Error::HeadObject(Box::new(e))),
+        },
+    }
+}
+
+/// Every key under `prefix` in `bucket`, with its size in bytes.
+pub async fn list_objects_with_size(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    prefix: &str,
+) -> Result<Vec<(String, u64)>, S3Error> {
+    let mut found = Vec::new();
+
+    for_each_page(client, bucket, prefix, |objects| {
+        found.extend(objects);
+        async { Ok(0) }
+    })
+    .await?;
+
+    Ok(found)
 }

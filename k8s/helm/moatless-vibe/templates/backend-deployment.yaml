@@ -133,6 +133,10 @@ spec:
               value: {{ .Values.kubernetes.sandboxStorage.defaultPvc | quote }}
             - name: K8S_SANDBOX_DEFAULT_S3
               value: {{ .Values.kubernetes.sandboxStorage.defaultS3 | quote }}
+            {{- with .Values.kubernetes.sandboxStorage.workspaceSnapshotFormat }}
+            - name: SANDBOX_WORKSPACE_SNAPSHOT_FORMAT
+              value: {{ . | quote }}
+            {{- end }}
             # Plain `quote` for the same reason as the two switches above — and
             # `coldAfterHours` has the same hazard with a numeric `0`, which
             # `default` would also read as empty and replace.
@@ -238,6 +242,14 @@ spec:
                   name: {{ include "moatless-vibe.secretsName" . }}
                   key: TASK_TOKEN_SECRET
                   optional: true
+            # Derives each task's workspace-repository password. Optional: without
+            # it the backend reads a stopped task's files from the file mirror.
+            - name: SANDBOX_WORKSPACE_REPOSITORY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: SANDBOX_WORKSPACE_REPOSITORY_SECRET
+                  optional: true
             # Signs short-lived WebSocket tickets. Browser auth sessions are opaque.
             - name: SESSION_JWT_SECRET
               valueFrom:
@@ -299,6 +311,10 @@ spec:
               value: {{ .Values.storage.s3.region | quote }}
             - name: S3_KEY_PREFIX
               value: {{ .Values.storage.s3.keyPrefix | quote }}
+            {{- with .Values.storage.s3.workspaceRepositoryRoleArn }}
+            - name: SANDBOX_WORKSPACE_REPOSITORY_ROLE_ARN
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.storage.s3.createSharedVolume }}
             - name: SHARED_STORAGE_PVC_NAME
               value: {{ include "moatless-vibe.fullname" . }}-shared-storage

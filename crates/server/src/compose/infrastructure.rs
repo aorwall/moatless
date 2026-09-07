@@ -91,6 +91,20 @@ pub async fn init_s3(config: &Config) -> Option<crate::file_storage::s3::S3Stora
     ))
 }
 
+/// The STS client the workspace-repository grant assumes its role through.
+///
+/// Built off the same default chain as the S3 client, so in-cluster it is the
+/// backend's IRSA identity that does the assuming.
+pub async fn init_sts(config: &Config) -> Option<aws_sdk_sts::Client> {
+    _ = config.sandbox.workspace_repository_role_arn.as_ref()?;
+    let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .region(aws_config::Region::new(config.s3.region.clone()))
+        .load()
+        .await;
+    info!("STS client initialized for workspace repository grants");
+    Some(aws_sdk_sts::Client::new(&aws_config))
+}
+
 pub fn build_k8s_sandbox_adapter(
     config: &Config,
     k8s: K8sClient,
@@ -231,6 +245,9 @@ pub fn grpc_service(
     ports: Option<&Ports>,
     event_publisher: Option<Arc<dyn EventPublisher>>,
     s3: Option<Arc<crate::file_storage::s3::S3Storage>>,
+    workspace_repository: Option<
+        Arc<crate::sandbox::workspace_repository::WorkspaceRepositoryAccess>,
+    >,
     connector: Arc<dyn sandbox_proto::client::SandboxConnector>,
 ) -> BackendSandboxServiceImpl {
     // `tasks` and `users` are read by the authorizer's control gate; the request
@@ -329,6 +346,7 @@ pub fn grpc_service(
         github_apps,
         backend_config,
         s3,
+        workspace_repository,
         s3_bucket,
         s3_key_prefix,
         transcript_s3_prefix,

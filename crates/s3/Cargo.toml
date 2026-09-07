@@ -5,14 +5,32 @@ edition.workspace = true
 authors.workspace = true
 description = "S3 object operations and presigning — a leaf over aws-sdk-s3, named from band 8 upward"
 
+[features]
+# The `rustic_core` backend adapter. Optional so the crate stays a thin leaf for
+# every caller that only moves objects.
+restic-backend = ["dep:rustic_core", "dep:bytes", "dep:tokio"]
+# Minting an STS session scoped to one key prefix. Only the backend hands access
+# out, so nothing else pays for the STS client.
+sts = ["dep:aws-sdk-sts", "dep:serde_json"]
+
 [dependencies]
 aws-sdk-s3 = { workspace = true }
 thiserror = { workspace = true }
 # `head_object_modified_at` returns the object's mtime as a `DateTime<Utc>`.
 chrono = { workspace = true }
+rustic_core = { workspace = true, optional = true }
+bytes = { version = "1", optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
+aws-sdk-sts = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "net", "io-util", "time"] }
+# Self-dependency so the crate's own test targets always build `restic-backend`.
+# Without it nothing in the workspace enables the feature until the sandbox and
+# sandbox-control consume it, and `cargo clippy --workspace --all-targets` would
+# leave the adapter unlinted.
+moatless-s3 = { path = ".", features = ["restic-backend", "sts"] }

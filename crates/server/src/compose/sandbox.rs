@@ -39,21 +39,48 @@ pub(crate) async fn build(
                     config.s3.workspace_prefix.clone(),
                 ))
             });
-    // Reads a stopped Task's files out of the per-file S3 mirror, for the file
-    // endpoints and the T3 read surfaces. Present under the same condition as
+    // Reads a stopped Task's files out of what S3 holds, for the file endpoints
+    // and the T3 read surfaces. Present under the same condition as
     // `workspace_archive`: no S3, no snapshot to read.
+    //
+    // The restic repository comes first and the per-file mirror second, so a
+    // task that predates the new format is still served by the reader that can
+    // read it. Without a master secret no repository can be opened, and the
+    // chain is the mirror alone.
     let workspace_snapshots: Option<Arc<dyn moatless_ports::sandbox::WorkspaceSnapshotSource>> =
         s3_client
             .clone()
             .zip(config.s3.bucket_name.clone())
             .map(|(s3, bucket)| {
-                Arc::new(
-                    crate::sandbox::workspace_snapshot::S3WorkspaceSnapshots::new(
-                        Arc::new(s3),
-                        bucket,
-                        config.s3.workspace_prefix.clone(),
+                let mut backings: Vec<(
+                    &'static str,
+                    Box<dyn moatless_ports::sandbox::WorkspaceSnapshotSource>,
+                )> = Vec::new();
+                if let Some(secret) = config.sandbox.workspace_repository_secret.clone() {
+                    backings.push((
+                        "restic",
+                        Box::new(
+                            crate::sandbox::workspace_snapshot::ResticWorkspaceSnapshots::new(
+                                s3.client.clone(),
+                                bucket.clone(),
+                                config.s3.workspace_prefix.clone(),
+                                secret,
+                            ),
+                        ),
+                    ));
+                }
+                backings.push((
+                    "mirror",
+                    Box::new(
+                        crate::sandbox::workspace_snapshot::S3WorkspaceSnapshots::new(
+                            Arc::new(s3),
+                            bucket,
+                            config.s3.workspace_prefix.clone(),
+                        ),
                     ),
-                ) as Arc<dyn moatless_ports::sandbox::WorkspaceSnapshotSource>
+                ));
+                Arc::new(crate::sandbox::workspace_snapshot::WorkspaceSnapshotChain::new(backings))
+                    as Arc<dyn moatless_ports::sandbox::WorkspaceSnapshotSource>
             });
     let provision_deps = ports.map(|p| {
         crate::sandbox::lifecycle::ProvisionDeps::new(

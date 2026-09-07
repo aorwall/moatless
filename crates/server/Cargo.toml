@@ -97,6 +97,9 @@ async-trait = { workspace = true }
 # S3 file storage
 aws-sdk-s3 = { workspace = true }
 aws-config = "1"
+# Mints the prefix-scoped session a sandbox reaches its workspace repository
+# with. Only the backend hands access out.
+aws-sdk-sts = { workspace = true }
 
 # Multipart uploads
 axum-extra = { version = "0.12", features = ["multipart"] }
@@ -124,7 +127,7 @@ moatless-core = { workspace = true, features = ["openapi"] }
 moatless-adapter-model = { workspace = true, features = ["postgres", "http"] }
 moatless-identity = { workspace = true }
 moatless-workspaces = { workspace = true }
-moatless-s3 = { workspace = true }
+moatless-s3 = { workspace = true, features = ["sts"] }
 moatless-tasks = { workspace = true }
 moatless-loops = { workspace = true }
 moatless-adapter-webhook = { workspace = true }

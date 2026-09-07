@@ -32,6 +32,7 @@ pub mod notify;
 pub mod preflight;
 pub mod routes;
 pub mod secrets;
+pub mod workspace_repository;
 pub mod workspace_snapshot;
 
 pub mod access;

@@ -6,6 +6,7 @@
  */
 
 import type { MoatApi } from './moat-api'
+import type { FileTreeNodeDto } from './types'
 
 // =============================================================================
 // Types
@@ -19,6 +20,18 @@ export interface FileMatch {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+/** Every node in a file tree, directories and their contents alike. */
+export function flattenTree(nodes: FileTreeNodeDto[]): FileTreeNodeDto[] {
+  return nodes.flatMap((node) => [node, ...flattenTree(node.children ?? [])])
+}
+
+/** Every file path in a file tree, with the directories dropped. */
+export function filePaths(nodes: FileTreeNodeDto[]): string[] {
+  return flattenTree(nodes)
+    .filter((node) => node.type !== 'directory')
+    .map((node) => node.path)
+}
 
 /**
  * Find a file the agent was asked to create, and check what is in it.

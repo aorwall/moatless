@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use super::lifecycle::Lifecycle;
 use moatless_ports::sandbox::WorkspaceSnapshotSource;
+
+use crate::workspace_repository::WorkspaceRepositoryAccess;
 use moatless_ports::task::TurnStateReader;
 use moatless_sandbox_runtime::client::SandboxConnector;
 use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
@@ -29,4 +31,9 @@ pub struct SandboxApiState {
     /// bucket configured), in which case a stopped Task answers as before —
     /// sandbox not ready.
     pub snapshots: Option<Arc<dyn WorkspaceSnapshotSource>>,
+    /// Mints direct access to a task's workspace repository, for an
+    /// administrator opening it with the `restic` CLI. `None` unless the
+    /// deployment configures the repository role, the master secret and a
+    /// bucket.
+    pub workspace_repository: Option<Arc<WorkspaceRepositoryAccess>>,
 }

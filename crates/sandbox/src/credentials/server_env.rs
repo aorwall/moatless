@@ -63,6 +63,7 @@ async fn set_secret_perms(path: &str) {
 
 #[cfg(test)]
 mod tests {
+    use crate::config::WorkspaceSnapshotFormat;
     use std::collections::HashMap;
 
     use tempfile::TempDir;
@@ -97,7 +98,7 @@ mod tests {
             command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
-            workspace_mirror_enabled: true,
+            workspace_snapshot_format: WorkspaceSnapshotFormat::Mirror,
             workspace_restore_if_empty: false,
             headless: false,
             default_model: None,

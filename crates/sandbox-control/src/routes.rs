@@ -52,6 +52,7 @@ pub fn api_router(state: SandboxApiState) -> (axum::Router, utoipa::openapi::Ope
         .routes(routes!(handlers::restart_handler))
         .routes(routes!(handlers::redeploy_handler))
         .routes(routes!(handlers::remove_handler))
+        .routes(routes!(handlers::workspace_repository_access_handler))
         .routes(routes!(handlers::server_status_handler))
         .routes(routes!(handlers::server_logs_handler))
         .routes(routes!(handlers::list_server_config_handler))

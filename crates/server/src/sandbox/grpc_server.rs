@@ -17,6 +17,7 @@ use sandbox_proto::{
     DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
     GetSystemPromptResponse, GetWorkspaceObjectUrlsRequest, GetWorkspaceObjectUrlsResponse,
+    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
     GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse,
     InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest, PublishEventResponse,
     RecordGitPushRequest, RecordGitPushResponse, RecoverInterruptedRunRequest,
@@ -37,6 +38,7 @@ use crate::sandbox::secrets::{
 use crate::sandbox::storage::{
     is_safe_workspace_path, manifest_key, sandbox_key, workspace_object_key,
 };
+use crate::sandbox::workspace_repository::GrantError;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::file_storage::dao::FileDao;
@@ -264,6 +266,11 @@ pub struct BackendSandboxServiceImpl {
     pub backend_config: Arc<Config>,
     /// S3 handle used by `download_upload` and workspace sync.
     pub s3: Option<Arc<moatless_s3::S3Storage>>,
+    /// Mints what `GetWorkspaceRepositoryAccess` hands out. `None` unless the
+    /// repository role, master secret and bucket are all configured, which is
+    /// what makes that RPC answer `FailedPrecondition`.
+    pub workspace_repository:
+        Option<Arc<crate::sandbox::workspace_repository::WorkspaceRepositoryAccess>>,
     /// S3 bucket name (`config.s3.bucket_name`).
     pub s3_bucket: Option<String>,
     /// S3 key prefix for uploaded files (`config.s3.key_prefix`).
@@ -647,6 +654,7 @@ impl BackendSandboxServiceImpl {
             github_app_service: None,
             backend_config: Arc::new(Config::test_minimal()),
             s3: None,
+            workspace_repository: None,
             s3_bucket: None,
             s3_key_prefix: String::new(),
             transcript_s3_prefix: String::new(),
@@ -2156,6 +2164,51 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         }))
     }
 
+    /// Hand the sandbox direct S3 access to its own workspace `restic`
+    /// repository, plus the password that opens it.
+    ///
+    /// Two things a presigned URL cannot carry. `rustic_core` lists the
+    /// repository by prefix on every open, and a signature covers one key; and
+    /// the repository is encrypted, so access without the password reads
+    /// nothing. Both are scoped to this task alone: the session policy names
+    /// only this prefix, and the password is derived from the task id.
+    ///
+    /// Auth: task-scoped JWT via gRPC metadata.
+    async fn get_workspace_repository_access(
+        &self,
+        request: Request<GetWorkspaceRepositoryAccessRequest>,
+    ) -> Result<Response<GetWorkspaceRepositoryAccessResponse>, Status> {
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
+
+        let Some(access) = self.workspace_repository.as_deref() else {
+            return Err(Status::failed_precondition(
+                "Workspace repositories are not configured",
+            ));
+        };
+        let grant = access.grant(&task_id).await.map_err(|error| match error {
+            GrantError::Sts(_) => Status::internal("Failed to grant workspace repository access"),
+        })?;
+
+        info!(
+            task_id = %task_id,
+            expires_at = %grant.expires_at,
+            "Granted workspace repository access"
+        );
+        Ok(Response::new(GetWorkspaceRepositoryAccessResponse {
+            bucket: grant.bucket,
+            prefix: grant.prefix,
+            region: grant.region,
+            access_key_id: grant.access_key_id,
+            secret_access_key: grant.secret_access_key,
+            session_token: grant.session_token,
+            expires_at: grant
+                .expires_at
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            password: grant.password,
+        }))
+    }
+
     /// Record a workspace-sync outcome reported by the sandbox as Prometheus
     /// metrics. The `s3` backend transfers directly to S3, so the backend never
     /// sees the bytes and must be told the size/duration/outcome to build the
@@ -2651,6 +2704,7 @@ mod tests {
             github_apps: Arc::new(GitHubAppRegistry::default()),
             backend_config: Arc::new(Config::test_minimal()),
             s3: None,
+            workspace_repository: None,
             s3_bucket: None,
             s3_key_prefix: String::new(),
             transcript_s3_prefix: String::new(),
@@ -2826,6 +2880,35 @@ mod tests {
             .await
             .expect("matching binding + owner must be granted");
         assert_eq!(grant.sandbox_id, "task-1");
+    }
+
+    // =========================================================================
+    // GetWorkspaceRepositoryAccess — what an unconfigured deployment answers
+    // =========================================================================
+
+    fn repository_request(task_id: &str) -> Request<GetWorkspaceRepositoryAccessRequest> {
+        Request::new(GetWorkspaceRepositoryAccessRequest {
+            task_id: task_id.to_string(),
+        })
+    }
+
+    /// An unconfigured deployment answers `FailedPrecondition` and not
+    /// `Internal`: the sandbox retries an internal error and gives up on this
+    /// one, which is the right behaviour for a deployment that simply has no
+    /// repository role. Which pieces are missing is
+    /// `WorkspaceRepositoryAccess::new`'s question, tested where it lives.
+    #[tokio::test]
+    async fn a_deployment_without_a_repository_refuses_the_grant() {
+        let svc = service_with(
+            tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
+            users_regular(),
+        );
+
+        let err = svc
+            .get_workspace_repository_access(repository_request("task-1"))
+            .await
+            .expect_err("no repository access handle, no grant");
+        assert_eq!(err.code(), tonic::Code::FailedPrecondition);
     }
 
     // =========================================================================

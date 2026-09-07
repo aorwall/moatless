@@ -35,9 +35,10 @@ use sandbox_proto::workspace_manifest::{Entry, MANIFEST_VERSION, Manifest};
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
+use super::file_set;
 use super::sync::{
-    RestoreDecision, SyncOutcome, clear_dir_contents, http_client, http_get, http_put, join_prefix,
-    primary_prefix, rel_from,
+    RestoreDecision, SyncOutcome, clear_dir_contents, http_client, http_get, http_put,
+    primary_prefix,
 };
 use crate::backend_client::BackendClient;
 use crate::config::Config;
@@ -121,17 +122,14 @@ fn diff(baseline: Option<&Manifest>, current: &Manifest) -> Delta {
 
 /// Walk the workspace into a manifest, or `None` when it holds nothing.
 ///
-/// The file set is the one `workspace_sync::append_tree` archives: inside a git
-/// repo the tracked and untracked-non-ignored files plus the whole `.git`, and
-/// outside one every regular file. Runs on a blocking thread (`git` subprocess
-/// plus `std::fs`).
+/// The file set is [`file_set::collect`]'s. Runs on a blocking thread (`git`
+/// subprocess plus `std::fs`).
 pub(super) async fn build_manifest(workspace_dir: PathBuf) -> Option<Manifest> {
     tokio::task::spawn_blocking(move || {
-        if !workspace_dir.is_dir() {
-            return None;
-        }
         let mut entries = Vec::new();
-        collect_tree(&mut entries, &workspace_dir, &workspace_dir);
+        for file in file_set::collect(&workspace_dir) {
+            push_entry(&mut entries, file.rel, &file.full, &file.meta);
+        }
         if entries.is_empty() {
             return None;
         }
@@ -141,85 +139,6 @@ pub(super) async fn build_manifest(workspace_dir: PathBuf) -> Option<Manifest> {
     .await
     .ok()
     .flatten()
-}
-
-/// Metadata twin of `workspace_sync::append_tree`: a git repo root is enumerated
-/// through git and not descended into, every other directory is walked.
-fn collect_tree(entries: &mut Vec<Entry>, root: &Path, dir: &Path) {
-    if dir.join(".git").is_dir() {
-        collect_repo(entries, dir, &rel_from(root, dir));
-        return;
-    }
-    let Ok(dir_entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for path in dir_entries.flatten().map(|e| e.path()) {
-        let Ok(meta) = std::fs::symlink_metadata(&path) else {
-            continue;
-        };
-        if meta.is_dir() {
-            collect_tree(entries, root, &path);
-        } else if meta.is_file() {
-            push_entry(entries, rel_from(root, &path), &path, &meta);
-        }
-    }
-}
-
-/// Metadata twin of `workspace_sync::append_repo`: the working-tree file set
-/// from `git ls-files -c -o --exclude-standard` plus the whole `.git`.
-fn collect_repo(entries: &mut Vec<Entry>, repo_dir: &Path, prefix: &str) {
-    if let Ok(output) = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_dir)
-        .args(["ls-files", "-c", "-o", "--exclude-standard", "-z"])
-        .output()
-    {
-        if output.status.success() {
-            for rel in output.stdout.split(|b| *b == 0) {
-                if rel.is_empty() {
-                    continue;
-                }
-                let Ok(rel) = std::str::from_utf8(rel) else {
-                    continue;
-                };
-                let full = repo_dir.join(rel);
-                let Ok(meta) = std::fs::symlink_metadata(&full) else {
-                    continue;
-                };
-                if meta.is_file() || meta.is_symlink() {
-                    push_entry(entries, join_prefix(prefix, rel), &full, &meta);
-                }
-            }
-        }
-    }
-    collect_dir(
-        entries,
-        &join_prefix(prefix, ".git"),
-        &repo_dir.join(".git"),
-    );
-}
-
-/// Every regular file under `dir`, keyed at `<name_prefix>/<path-below-dir>`.
-/// Used for a repo's `.git`, which has no gitignore to honor.
-fn collect_dir(entries: &mut Vec<Entry>, name_prefix: &str, dir: &Path) {
-    let Ok(dir_entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in dir_entries.flatten() {
-        let path = entry.path();
-        let Ok(meta) = std::fs::symlink_metadata(&path) else {
-            continue;
-        };
-        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        let name = format!("{name_prefix}/{file_name}");
-        if meta.is_dir() {
-            collect_dir(entries, &name, &path);
-        } else if meta.is_file() {
-            push_entry(entries, name, &path, &meta);
-        }
-    }
 }
 
 /// Record one path, resolving a symlink to its target rather than reading

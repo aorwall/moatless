@@ -342,6 +342,27 @@ pub struct SandboxConfig {
     /// a mirror-on one never wrote. Env `SANDBOX_WORKSPACE_MIRROR_ENABLED`
     /// (default `true`).
     pub default_workspace_mirror_enabled: bool,
+    /// How a sandbox stores its workspace: `tar`, `mirror`, `restic`, or
+    /// `restic+mirror`. Empty leaves the sandbox on
+    /// [`Self::default_workspace_mirror_enabled`], which is what a fleet that
+    /// has not adopted the repository format runs.
+    ///
+    /// `restic+mirror` is what a soak runs: both formats are written, so
+    /// rolling back to `mirror` loses nothing.
+    /// Env `SANDBOX_WORKSPACE_SNAPSHOT_FORMAT`.
+    pub workspace_snapshot_format: Option<String>,
+    /// Master secret every task's workspace-repository password is derived
+    /// from (`moatless_core::workspace_repository::derive_repository_password`).
+    /// Without it no restic repository can be opened or written, and the
+    /// snapshot falls back to the mirror and the tar.
+    /// Env `SANDBOX_WORKSPACE_REPOSITORY_SECRET`.
+    pub workspace_repository_secret: Option<String>,
+    /// IAM role the backend assumes to hand a sandbox direct S3 access to its
+    /// own workspace repository. Each session is narrowed further by a session
+    /// policy naming that one task's prefix, so the role itself stays
+    /// bucket-wide. Without it the sandbox cannot write a repository.
+    /// Env `SANDBOX_WORKSPACE_REPOSITORY_ROLE_ARN`.
+    pub workspace_repository_role_arn: Option<String>,
     /// Whether Kubernetes node-local workspace/Docker archives are tracked and
     /// managed across pod lifecycles. When disabled, `node` storage still uses
     /// hostPath volumes, but the backend does not access archive `ConfigMap`s,
@@ -833,6 +854,9 @@ impl Config {
                     "SANDBOX_WORKSPACE_MIRROR_ENABLED",
                     true,
                 ),
+                workspace_snapshot_format: env_opt("SANDBOX_WORKSPACE_SNAPSHOT_FORMAT"),
+                workspace_repository_secret: env_opt("SANDBOX_WORKSPACE_REPOSITORY_SECRET"),
+                workspace_repository_role_arn: env_opt("SANDBOX_WORKSPACE_REPOSITORY_ROLE_ARN"),
                 node_archive_enabled: env_bool("K8S_SANDBOX_NODE_ARCHIVE_ENABLED", false),
                 retain_storage_on_close: env_bool("SANDBOX_RETAIN_STORAGE_ON_CLOSE", true),
                 pod_startup_timeout_secs: env_or("K8S_POD_STARTUP_TIMEOUT_SECS", 120),
@@ -1305,6 +1329,9 @@ impl Config {
                 default_pvc_enabled: true,
                 default_s3_enabled: true,
                 default_workspace_mirror_enabled: true,
+                workspace_snapshot_format: None,
+                workspace_repository_secret: None,
+                workspace_repository_role_arn: None,
                 node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,
@@ -1455,7 +1482,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+    use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
     use std::sync::{Mutex, PoisonError};
 
     use super::*;
@@ -1489,7 +1516,9 @@ mod tests {
     fn with_origin_vars(csrf: Option<&str>, websocket: Option<&str>, check: impl FnOnce()) {
         // A failing test poisons the lock. The guarded data is `()`, so there is
         // no torn state to protect the next test from.
-        let _guard = ORIGIN_ENV_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        let _guard = ORIGIN_ENV_LOCK
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
 
         let previous = ORIGIN_VARS.map(|name| std::env::var(name).ok());
         apply_origin_vars([csrf.map(str::to_string), websocket.map(str::to_string)]);

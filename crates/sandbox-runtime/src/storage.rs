@@ -9,7 +9,7 @@
 //!   plus a drain wait, and is deleted with the sandbox. Without it the
 //!   workspace is a node-local `emptyDir` that dies with the pod.
 //! - **S3** ([`StorageBackend::s3`]) — the copy that outlives the Deployment;
-//!   `crates/sandbox/src/init/workspace_sync.rs` owns the file set.
+//!   `crates/sandbox/src/workspace_sync/` owns the file set.
 //!
 //! The pair decides how a start treats the volume it finds:
 //!
@@ -105,9 +105,21 @@ pub fn manifest_key(prefix: &str, task_id: &str) -> String {
     )
 }
 
-/// The path-safety rule for a mirrored file, owned by the wire contract both the
-/// sandbox and the backend speak — see [`sandbox_proto::is_safe_workspace_path`].
-pub use sandbox_proto::is_safe_workspace_path;
+/// Build the prefix holding the task's `restic` repository:
+/// `<prefix>/<task_id>/repo`.
+///
+/// Its own segment, so restic's `config`, `keys/`, `snapshots/`, `index/` and
+/// `data/` cannot collide with the tar and the mirror that sit beside it under
+/// the task prefix.
+pub fn workspace_repository_prefix(prefix: &str, task_id: &str) -> String {
+    format!("{}/{}/repo", prefix.trim_end_matches('/'), task_id)
+}
+
+/// The path-safety rule for a mirrored file and the root every snapshot records
+/// under, both owned by the wire contract the sandbox and the backend speak —
+/// see [`sandbox_proto::is_safe_workspace_path`] and
+/// [`sandbox_proto::SNAPSHOT_ROOT`].
+pub use sandbox_proto::{SNAPSHOT_ROOT, is_safe_workspace_path};
 
 /// Build the S3 key for one mirrored workspace file:
 /// `<prefix>/<task_id>/files/<workspace-relative-path>`.

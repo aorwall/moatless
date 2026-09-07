@@ -701,6 +701,7 @@ fn resolve_resume(request: &AgentRunRequest) -> (Option<String>, Option<bool>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WorkspaceSnapshotFormat;
 
     use crate::config::{AgentConfig, ProxyConfig};
     use moatless_types::workspace::RepoCheckout;
@@ -737,7 +738,7 @@ mod tests {
             command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
-            workspace_mirror_enabled: true,
+            workspace_snapshot_format: WorkspaceSnapshotFormat::Mirror,
             workspace_restore_if_empty: false,
             headless: false,
             home_dir: "/tmp/home".to_string(),

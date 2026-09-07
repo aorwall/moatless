@@ -30,3 +30,4 @@ pub mod change_feed;
 pub mod db_enum;
 
 pub mod sandbox_jwt;
+pub mod workspace_repository;

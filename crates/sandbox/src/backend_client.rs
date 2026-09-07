@@ -13,6 +13,7 @@ use sandbox_proto::{
     AcknowledgeMessagesRequest, DownloadTranscriptRequest, DownloadUploadRequest,
     DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetSystemPromptRequest, GetWorkspaceObjectUrlsRequest,
+    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
     GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, InterruptedTurn,
     PendingAgentDelivery, PublishEventRequest, RecordGitPushRequest, RecoverInterruptedRunRequest,
     ReportWorkspaceSyncRequest, TranscriptChunk, UpdateCredentialRequest,
@@ -128,6 +129,20 @@ pub trait BackendClient: Send + Sync {
         Err(tonic::Status::unimplemented("workspace sync not supported"))
     }
 
+    /// Fetch direct S3 access to the task's workspace `restic` repository, plus
+    /// the password that opens it.
+    ///
+    /// Default impl reports the feature unsupported, which is also what a
+    /// backend without a repository role answers.
+    async fn get_workspace_repository_access(
+        &self,
+        _task_id: &str,
+    ) -> Result<GetWorkspaceRepositoryAccessResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "workspace repositories not supported",
+        ))
+    }
+
     /// Mint one presigned S3 URL per workspace-relative path for the file
     /// mirror, in the requested order. `operation` is `"put"`, `"get"` or
     /// `"delete"`; `restore_source` sends a fork's reads to the source task's
@@ -149,8 +164,9 @@ pub trait BackendClient: Send + Sync {
     }
 
     /// Report the outcome of a direct-to-S3 workspace transfer so the backend
-    /// can record comparison metrics and publish the sandbox event. `format` is
-    /// `"tar"` or `"mirror"`. `error` is `None` on success, and otherwise the
+    /// can record comparison metrics and publish the sandbox event. The legal
+    /// `format` values are on `ReportWorkspaceSyncRequest.format` in
+    /// `sandbox.proto`. `error` is `None` on success, and otherwise the
     /// failure this sandbox logged — the event is the only copy that outlives
     /// the pod, so a caller that has a reason must pass it.
     /// Fire-and-forget; the default impl is a no-op.
@@ -469,6 +485,19 @@ impl BackendClient for BackendGrpcClient {
         let mut client = self.client.clone();
         let resp = client
             .get_workspace_sync_urls(GetWorkspaceSyncUrlsRequest {
+                task_id: task_id.to_string(),
+            })
+            .await?;
+        Ok(resp.into_inner())
+    }
+
+    async fn get_workspace_repository_access(
+        &self,
+        task_id: &str,
+    ) -> Result<GetWorkspaceRepositoryAccessResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        let resp = client
+            .get_workspace_repository_access(GetWorkspaceRepositoryAccessRequest {
                 task_id: task_id.to_string(),
             })
             .await?;

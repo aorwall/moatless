@@ -34,6 +34,12 @@ export interface Capabilities {
   githubRepositories: boolean
   /** The runtime schedules onto this machine, so an image built here can run. */
   localImages: boolean
+  /**
+   * A stopped task's files can be read from the store. Needs an S3 bucket: with
+   * none, a stopped sandbox has no durable copy and every read answers "not
+   * running".
+   */
+  storedWorkspace: boolean
 }
 
 /** How long to wait for the slow, environment-dependent transitions. */
@@ -97,6 +103,8 @@ function dockerProfile(): Profile {
       agentCredentials: hasAgentCredentials(),
       githubRepositories: Boolean(process.env.GITHUB_PAT),
       localImages: true,
+      // The compose stack configures no bucket, so nothing is stored.
+      storedWorkspace: false,
     },
   }
 }
@@ -134,6 +142,7 @@ function k8sProfile(): Profile {
       // from a registry — a local `docker build` is not reachable from it.
       githubRepositories: Boolean(process.env.GITHUB_PAT),
       localImages: false,
+      storedWorkspace: true,
     },
   }
 }

@@ -13,7 +13,7 @@
 
 pub use moatless_sandbox_control::{
     auto_provision, event_dedup, file_handlers, handlers, lifecycle, notify, preflight, routes,
-    secrets, workspace_snapshot,
+    secrets, workspace_repository, workspace_snapshot,
 };
 pub use moatless_sandbox_runtime::{
     access, client, container_status, error, live_status, metrics, provisioning, schemas,

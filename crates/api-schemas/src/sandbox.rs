@@ -34,6 +34,31 @@ pub struct ServerSnapshot {
     pub pid: Option<u32>,
 }
 
+/// Direct access to one task's workspace `restic` repository, for opening it
+/// with the `restic` CLI.
+///
+/// Every field is a credential. The session reaches this task's prefix and
+/// nothing else in the bucket, and the password opens this task's repository
+/// and no other, but both are live until `expires_at`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRepositoryAccessResponse {
+    /// The repository as `restic -r` addresses it.
+    pub repository: String,
+    pub bucket: String,
+    /// Key prefix the repository is rooted at, with no trailing slash.
+    pub prefix: String,
+    pub region: String,
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub session_token: String,
+    /// RFC 3339. The credentials stop working here; the password does not
+    /// expire.
+    pub expires_at: String,
+    pub password: String,
+}
+
 /// Resource metrics from sandbox GET /status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -456,7 +481,7 @@ pub enum MoatlessToolName {
 
 /// Which copy of the workspace answered a file read.
 ///
-/// A stopped sandbox is still readable, out of the S3 mirror
+/// A stopped sandbox is still readable, out of the stored workspace
 /// (`sandbox-control::workspace_snapshot`), so a caller has to be able to tell
 /// live content from content that stopped changing when the pod did.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -465,7 +490,7 @@ pub enum MoatlessToolName {
 pub enum ContentSource {
     /// A running sandbox read the file from its own disk.
     Sandbox,
-    /// The S3 workspace mirror answered, because no sandbox is running.
+    /// The stored workspace answered, because no sandbox is running.
     Snapshot,
 }
 
@@ -475,7 +500,7 @@ pub enum ContentSource {
 #[serde(rename_all = "camelCase")]
 pub struct ContentOrigin {
     pub source: ContentSource,
-    /// When the mirror this came from was stored, RFC 3339. Absent for
+    /// When the snapshot this came from was written, RFC 3339. Absent for
     /// [`ContentSource::Sandbox`], whose answer is current by construction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub synced_at: Option<String>,
@@ -526,7 +551,9 @@ mod wire_contract_tests {
 
     #[test]
     fn live_origin_does_not_claim_a_snapshot_timestamp() {
-        assert_eq!(serde_json::to_value(ContentOrigin::sandbox()).expect("origin"),
-            serde_json::json!({"source": "sandbox"}));
+        assert_eq!(
+            serde_json::to_value(ContentOrigin::sandbox()).expect("origin"),
+            serde_json::json!({"source": "sandbox"})
+        );
     }
 }

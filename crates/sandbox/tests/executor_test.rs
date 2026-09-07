@@ -17,7 +17,7 @@ use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::agent::prompt::{PendingPrompt, PromptResponse, PromptToolName};
 use moatless_sandbox::agent::types::{AgentStatus, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
-use moatless_sandbox::config::Config;
+use moatless_sandbox::config::{Config, WorkspaceSnapshotFormat};
 use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
@@ -219,7 +219,7 @@ fn test_config() -> Config {
         openai_base_url: None,
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
-        workspace_mirror_enabled: true,
+        workspace_snapshot_format: WorkspaceSnapshotFormat::Mirror,
         workspace_restore_if_empty: false,
         headless: false,
     }

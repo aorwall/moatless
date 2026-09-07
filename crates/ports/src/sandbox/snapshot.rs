@@ -49,6 +49,7 @@ pub struct SnapshotListing {
 ///
 /// **Every method is scoped to one task**, so a caller that has already decided
 /// the viewer may read that task has decided the whole access question.
+#[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait WorkspaceSnapshotSource: Send + Sync {
     async fn read(&self, task_id: &str, path: &str) -> Result<SnapshotFile, SnapshotError>;

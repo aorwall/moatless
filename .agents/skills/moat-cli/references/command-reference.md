@@ -51,3 +51,8 @@ moat tasks logs <task-id> --server <configured-name> --no-follow --tail 500
 Use `--previous` for a prior crashed container instance when supported by the
 runtime. Without `--no-follow`, logs keep streaming. Server names come from task
 status; do not append `-server` to the CLI name.
+
+`moat tasks workspace-repo <task-id>` prints a block of `export` lines that point
+the `restic` CLI at the task's own stored workspace. Platform admins only, and
+only where the deployment writes the `restic` format. Read-only inspection:
+writing to that repository races the sandbox.

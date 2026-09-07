@@ -90,6 +90,23 @@ service BackendSandboxService {
   // `FailedPrecondition` when S3 isn't configured. Auth via gRPC metadata.
   rpc GetWorkspaceObjectUrls(GetWorkspaceObjectUrlsRequest) returns (GetWorkspaceObjectUrlsResponse);
 
+  // Grant the sandbox direct S3 access to its own workspace `restic` repository
+  // (`<workspace_prefix>/<task_id>/repo/`), plus the password that opens it.
+  //
+  // A dedicated RPC and not a `GetCredentials` entry: that map is env-var-shaped
+  // and `credentials/fetch.rs` sets every entry as a process env var, which is
+  // what `purge_exposed_user_tokens` exists to undo. These values are consumed
+  // in process, the way `GetCredentialsResponse.ssh_keys` already is.
+  //
+  // Presigned URLs cannot serve this: `rustic_core` lists the repository by
+  // prefix on every open, and no per-key signature covers a LIST. The backend
+  // therefore mints an STS session narrowed to this one task's prefix.
+  //
+  // Called once per sync, so a session outlives the snapshot it was minted for.
+  // `FailedPrecondition` when S3 or the repository role is not configured.
+  // Auth via gRPC metadata.
+  rpc GetWorkspaceRepositoryAccess(GetWorkspaceRepositoryAccessRequest) returns (GetWorkspaceRepositoryAccessResponse);
+
   // Report the outcome of a direct-to-S3 workspace transfer so the backend can
   // record comparison metrics (the backend isn't in the data path for `s3`-mode
   // syncs, so it can't time them itself). Fire-and-forget; non-fatal on failure.
@@ -145,13 +162,39 @@ message GetWorkspaceObjectUrlsResponse {
   int64 expires_in_secs = 2;
 }
 
+message GetWorkspaceRepositoryAccessRequest {
+  string task_id = 1;
+  // auth via gRPC metadata (authorization: Bearer <token>)
+}
+
+message GetWorkspaceRepositoryAccessResponse {
+  // Bucket holding the repository.
+  string bucket = 1;
+  // Key prefix the repository is rooted at, with no trailing slash. Restic's
+  // own layout hangs directly off it: `config`, `keys/`, `snapshots/`,
+  // `index/`, `data/`.
+  string prefix = 2;
+  string region = 3;
+  // STS session credentials, narrowed by a session policy to `prefix` alone.
+  string access_key_id = 4;
+  string secret_access_key = 5;
+  string session_token = 6;
+  // When the session stops working, as RFC 3339. Read by the admin HTTP path,
+  // which hands these credentials to a person; the sandbox refetches per sync
+  // and never consults it. `crates/s3/src/session.rs` owns how long a session
+  // is minted for and why.
+  string expires_at = 7;
+  // The repository password, derived by the backend for this task alone.
+  string password = 8;
+}
+
 message ReportWorkspaceSyncRequest {
   string task_id = 1;
   string direction = 2;    // "upload" | "download"
   int64 bytes = 3;
   int64 duration_ms = 4;
   bool ok = 5;
-  string format = 6;       // "tar" | "mirror"; empty from a pre-mirror sandbox
+  string format = 6;       // "tar" | "mirror" | "restic"; empty from a pre-mirror sandbox
   // Why the transfer failed, as the sandbox logged it. Empty when `ok`, and
   // empty from a sandbox predating this field.
   string error = 7;

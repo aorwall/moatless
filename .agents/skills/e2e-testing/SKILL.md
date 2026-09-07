@@ -42,6 +42,7 @@ environment can do is declared in `tests/shared/profile.ts`:
 | `agentCredentials` | agent-tier chains can run | when a key is set | yes |
 | `githubRepositories` | create and delete real repositories on GitHub | when `GITHUB_PAT` is set | when `GITHUB_PAT` is set |
 | `localImages` | run an image built here and pushed nowhere | yes | no — the cluster pulls from a registry |
+| `storedWorkspace` | read a stopped task's files from the store | no — the compose stack configures no bucket | yes |
 
 In a spec:
 
