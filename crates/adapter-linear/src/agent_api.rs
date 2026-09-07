@@ -980,6 +980,7 @@ const ISSUE_FIELDS: &str = "id identifier number title description priority \
 estimate dueDate url \
 state { id name type } \
 assignee { id name displayName email } \
+delegate { id name displayName email } \
 creator { id name displayName email } \
 project { id name state } \
 cycle { id number startsAt endsAt } \
@@ -1121,6 +1122,16 @@ pub struct TokenResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Linear moves an app-agent assignment to `delegate` and leaves
+    /// `assignee` null. Without this field every read-back of a delegated
+    /// issue reports it as unassigned, and callers re-claim work already
+    /// claimed.
+    #[test]
+    fn issue_fields_select_delegate() {
+        assert!(ISSUE_FIELDS.contains("delegate {"));
+        assert!(ISSUE_FIELDS.contains("assignee {"));
+    }
 
     #[test]
     fn needs_refresh_when_within_leeway() {

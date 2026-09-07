@@ -29,8 +29,16 @@ pub struct LinearIssueCreateRequest {
     pub labels: Vec<String>,
     /// Assignee email, display name, or UUID. `"me"` resolves to the
     /// authenticated agent (the workspace OAuth viewer).
+    ///
+    /// Linear rejects an app user here and routes it to `delegate` instead:
+    /// pass an app agent as [`Self::delegate`] so the read-back is meaningful.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
+    /// App agent to delegate the issue to. Accepts email, display name, UUID,
+    /// or `"me"`. Delegation is how Linear hands work to an app agent while a
+    /// human keeps the `assignee` slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegate: Option<String>,
     /// Real Linear user to record as the issue reporter. Accepts email,
     /// display name, UUID, or "me". Added as a subscriber and mentioned in
     /// the description (Linear has no settable creator/reporter field).
@@ -80,8 +88,12 @@ pub struct LinearIssueUpdateRequest {
     pub state: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// See [`LinearIssueCreateRequest::assignee`]. Pass `"null"` to unassign.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
+    /// See [`LinearIssueCreateRequest::delegate`]. Pass `"null"` to undelegate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegate: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -193,6 +205,10 @@ pub struct LinearIssueListParams {
     /// Assignee email, display name, `me`, or UUID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
+    /// Delegate email, display name, `me`, or UUID. An issue delegated to an
+    /// app agent has no `assignee`, so filtering on assignee alone misses it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegate: Option<String>,
     /// Keep only issues whose state type is not `completed` or `canceled`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_only: Option<bool>,

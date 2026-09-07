@@ -13,6 +13,9 @@ export interface LinearIssueCreateRequest {
   /**
    * Assignee email, display name, or UUID. `"me"` resolves to the
 authenticated agent (the workspace OAuth viewer).
+
+Linear rejects an app user here and routes it to `delegate` instead:
+pass an app agent as [`Self::delegate`] so the read-back is meaningful.
    * @nullable
    */
   assignee?: string | null;
@@ -30,6 +33,13 @@ NOT bind — this defaults to `false`.
    * @nullable
    */
   cycle?: string | null;
+  /**
+   * App agent to delegate the issue to. Accepts email, display name, UUID,
+or `"me"`. Delegation is how Linear hands work to an app agent while a
+human keeps the `assignee` slot.
+   * @nullable
+   */
+  delegate?: string | null;
   /** @nullable */
   description?: string | null;
   /**

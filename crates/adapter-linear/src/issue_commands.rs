@@ -84,6 +84,7 @@ pub(crate) async fn create_issue(
         Some(value) => Some(resolve_user_required(&api, value).await?.id),
         None => default_assignee_from_caller(users.as_ref(), &api, &ctx.user_id).await,
     };
+    let delegate_id = resolve_delegate(&api, req.delegate.as_deref()).await?;
     // Reporter (records who requested the issue) hard-fails on an explicit miss.
     let reporter = match req.reporter.as_deref() {
         Some(value) => Some(resolve_user_required(&api, value).await?),
@@ -122,6 +123,9 @@ pub(crate) async fn create_issue(
     }
     if let Some(a) = assignee_id {
         input["assigneeId"] = json!(a);
+    }
+    if let Some(d) = delegate_id {
+        input["delegateId"] = d;
     }
     if let Some(p) = req.priority {
         input["priority"] = json!(p);
@@ -188,6 +192,7 @@ pub(crate) async fn update_issue(
     let state_id = resolve_optional(&api, LookupKind::State, req.state.as_deref()).await?;
     let project_id = resolve_optional(&api, LookupKind::Project, req.project.as_deref()).await?;
     let assignee_id = resolve_assignee(&api, req.assignee.as_deref()).await?;
+    let delegate_id = resolve_delegate(&api, req.delegate.as_deref()).await?;
 
     let parent_id = match req.parent.as_deref() {
         Some("null") | Some("") => Some(Value::Null),
@@ -229,6 +234,9 @@ pub(crate) async fn update_issue(
     }
     if let Some(a) = assignee_id {
         input["assigneeId"] = json!(a);
+    }
+    if let Some(d) = delegate_id {
+        input["delegateId"] = d;
     }
     if let Some(p) = req.priority {
         input["priority"] = json!(p);
@@ -441,6 +449,10 @@ pub(crate) async fn list_issues(
     if let Some(assignee) = params.assignee.as_deref() {
         let user = resolve_user_required(&api, assignee).await?;
         filter.insert("assignee".into(), json!({ "id": { "eq": user.id } }));
+    }
+    if let Some(delegate) = params.delegate.as_deref() {
+        let user = resolve_user_required(&api, delegate).await?;
+        filter.insert("delegate".into(), json!({ "id": { "eq": user.id } }));
     }
 
     let first = params.limit.unwrap_or(50).clamp(1, 250);

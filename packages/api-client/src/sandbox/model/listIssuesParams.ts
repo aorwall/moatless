@@ -39,6 +39,12 @@ label?: string | null;
  */
 assignee?: string | null;
 /**
+ * Delegate email, display name, `me`, or UUID. An issue delegated to an
+app agent has no `assignee`, so filtering on assignee alone misses it.
+ * @nullable
+ */
+delegate?: string | null;
+/**
  * Keep only issues whose state type is not `completed` or `canceled`.
  * @nullable
  */

@@ -198,6 +198,22 @@ pub(super) async fn resolve_assignee(
     Ok(Some(resolve_user_required(api, value).await?.id))
 }
 
+/// Resolve a delegate the same way as [`resolve_assignee`], with `"null"` and
+/// `""` clearing the field. Follows the `parent` convention in
+/// `issue_commands`, because undelegating is how a lane releases a claim.
+pub(super) async fn resolve_delegate(
+    api: &LinearAgentApi,
+    value: Option<&str>,
+) -> Result<Option<serde_json::Value>, AdapterError> {
+    match value {
+        None => Ok(None),
+        Some("null") | Some("") => Ok(Some(serde_json::Value::Null)),
+        Some(v) => Ok(Some(serde_json::Value::String(
+            resolve_user_required(api, v).await?.id,
+        ))),
+    }
+}
+
 /// Best-effort assignee default: resolve the calling moat user's email to a
 /// Linear user. Returns `None` (and warns) when the caller has no email on
 /// file or the email doesn't match a Linear member — never fails issue

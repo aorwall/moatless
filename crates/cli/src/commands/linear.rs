@@ -77,6 +77,10 @@ pub enum IssueAction {
         /// Assignee email, display name, `me`, or UUID
         #[arg(long)]
         assignee: Option<String>,
+        /// Delegate email, display name, `me`, or UUID. Use this for an app
+        /// agent: Linear routes an app out of `assignee` and into `delegate`.
+        #[arg(long)]
+        delegate: Option<String>,
         /// Reporter email, display name, `me`, or UUID. Added as a subscriber
         /// and mentioned in the description (records who requested the issue).
         #[arg(long)]
@@ -125,6 +129,9 @@ pub enum IssueAction {
         project: Option<String>,
         #[arg(long)]
         assignee: Option<String>,
+        /// App agent to delegate to. Pass `null` (literal) to clear.
+        #[arg(long)]
+        delegate: Option<String>,
         #[arg(long)]
         priority: Option<i32>,
         #[arg(long)]
@@ -200,6 +207,10 @@ pub enum IssueAction {
         /// Assignee email, display name, `me`, or UUID
         #[arg(long)]
         assignee: Option<String>,
+        /// Delegate email, display name, `me`, or UUID. An issue delegated to
+        /// an app agent has no assignee, so `--assignee` alone misses it.
+        #[arg(long)]
+        delegate: Option<String>,
         /// Drop issues whose state type is `completed` or `canceled`
         #[arg(long = "open")]
         open_only: bool,
@@ -293,6 +304,7 @@ async fn run_issue(
             project,
             labels,
             assignee,
+            delegate,
             reporter,
             priority,
             estimate,
@@ -313,6 +325,7 @@ async fn run_issue(
                 project,
                 labels,
                 assignee,
+                delegate,
                 reporter,
                 priority,
                 estimate,
@@ -344,6 +357,7 @@ async fn run_issue(
             state,
             project,
             assignee,
+            delegate,
             priority,
             estimate,
             due_date,
@@ -357,6 +371,7 @@ async fn run_issue(
                 state,
                 project,
                 assignee,
+                delegate,
                 priority,
                 estimate,
                 due_date,
@@ -455,6 +470,7 @@ async fn run_issue(
             state,
             label,
             assignee,
+            delegate,
             open_only,
             limit,
             connection,
@@ -466,6 +482,7 @@ async fn run_issue(
                 state,
                 label,
                 assignee,
+                delegate,
                 open_only: open_only.then_some(true),
                 limit,
                 connection_id: connection,
@@ -495,12 +512,17 @@ fn print_issue_row(issue: &Value) {
         .pointer("/state/name")
         .and_then(Value::as_str)
         .unwrap_or("?");
-    let assignee = issue
-        .pointer("/assignee/displayName")
-        .and_then(Value::as_str)
-        .unwrap_or("-");
+    // An issue delegated to an app agent has no assignee. Fall back to the
+    // delegate so the owner column is never a bare `-` on claimed work.
+    let owner = match issue.pointer("/assignee/displayName").and_then(Value::as_str) {
+        Some(a) => a.to_string(),
+        None => match issue.pointer("/delegate/displayName").and_then(Value::as_str) {
+            Some(d) => format!("{d} (delegate)"),
+            None => "-".to_string(),
+        },
+    };
     let title = issue.get("title").and_then(Value::as_str).unwrap_or("");
-    println!("{identifier}\t{state}\t{assignee}\t{title}");
+    println!("{identifier}\t{state}\t{owner}\t{title}");
 }
 
 async fn run_label(
@@ -606,6 +628,14 @@ fn print_issue(issue: &Value, json: bool) {
         .or_else(|| issue.pointer("/assignee/name"))
         .and_then(Value::as_str)
         .unwrap_or("unassigned");
+    // Printed whenever set: an issue delegated to an app agent keeps
+    // `assignee` empty, so without this line a successful delegation reads as
+    // "unassigned" and a caller retries or re-claims it.
+    let delegate = issue
+        .pointer("/delegate/displayName")
+        .or_else(|| issue.pointer("/delegate/name"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let project = issue
         .pointer("/project/name")
         .and_then(Value::as_str)
@@ -625,6 +655,9 @@ fn print_issue(issue: &Value, json: bool) {
     println!("{identifier}  {title}");
     println!("  state:    {state}");
     println!("  assignee: {assignee}");
+    if !delegate.is_empty() {
+        println!("  delegate: {delegate}");
+    }
     if !project.is_empty() {
         println!("  project:  {project}");
     }
