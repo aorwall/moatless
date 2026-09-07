@@ -4,12 +4,13 @@ use super::error::LoopError;
 use super::fetcher::{GitHubLoopFetcher, LoopFetcher};
 use super::models::ParsedLoop;
 use super::parser::parse_loop;
-use super::resolve::{ResolveOutcome, managed_loop_input};
+use super::resolve::{ResolveOutcome, declared_agent_type, managed_loop_input};
 use crate::loops::dao::LoopDao;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary, LoopSyncWarning};
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::task::TagResolver;
+use moatless_tasks::agent::catalog;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::repository::{Repository, RepositoryProvider};
 use std::collections::HashSet;
@@ -173,6 +174,23 @@ impl LoopSyncService {
                     message: "ignored: select the run-as user during administrator activation"
                         .to_string(),
                 });
+            }
+            // A model no catalog agent offers still runs, because `model` is a
+            // pass-through to the agent CLI, so it warns here; one another agent
+            // offers is a `Skipped` from `resolve_loop`.
+            if let Some(model) = parsed.frontmatter.model.as_deref() {
+                let agent_type = declared_agent_type(&parsed.frontmatter);
+                if !catalog::offers_model(&agent_type, model)
+                    && !catalog::model_conflicts(&agent_type, model)
+                {
+                    summary.warnings.push(LoopSyncWarning {
+                        loop_name: parsed.dir_name.clone(),
+                        field: "model".to_string(),
+                        message: format!(
+                            "`{model}` is not one of the models `{agent_type}` offers; passed to the agent as written"
+                        ),
+                    });
+                }
             }
             match self.resolve_loop(repo, parsed).await? {
                 ResolveOutcome::Skipped(reason) => {

@@ -12,6 +12,11 @@ export interface UpdateLoopConfig {
   agentType?: string | null;
   /** @nullable */
   inactiveTtlDays?: number | null;
+  /**
+   * See [`LoopConfig::model`]. `Some(None)` clears the override.
+   * @nullable
+   */
+  model?: string | null;
   /** @nullable */
   ongoingTaskId?: string | null;
   /** @nullable */

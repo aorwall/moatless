@@ -173,6 +173,15 @@ pub enum LoopsAction {
         clear_skills: bool,
         #[arg(long)]
         agent_type: Option<String>,
+        /// Model the loop's tasks run on, from those the agent type offers
+        /// (e.g. `opus`, `fable` for `claude-code`). The backend rejects a
+        /// model the agent type does not offer.
+        #[arg(long)]
+        model: Option<String>,
+        /// Drop the model override, so tasks run on the platform default for
+        /// the agent type.
+        #[arg(long)]
+        clear_model: bool,
         #[arg(long, value_name = "DAYS")]
         inactive_ttl_days: Option<i32>,
         #[arg(long)]
@@ -267,6 +276,11 @@ pub struct CreateConfigArgs {
     run_as_user_id: Option<String>,
     #[arg(long, default_value = "claude-code")]
     agent_type: String,
+    /// Model the loop's tasks run on, from those the agent type offers
+    /// (e.g. `opus`, `fable` for `claude-code`). Omit to inherit the platform
+    /// default for the agent type.
+    #[arg(long)]
+    model: Option<String>,
     #[arg(long = "tag")]
     tag_ids: Vec<String>,
     /// Skills every task this loop spawns activates on each fresh agent
@@ -376,6 +390,8 @@ pub async fn run_loops(
             skills,
             clear_skills,
             agent_type,
+            model,
+            clear_model,
             inactive_ttl_days,
             clear_inactive_ttl_days,
             connection_id,
@@ -425,6 +441,8 @@ pub async fn run_loops(
                 skills,
                 clear_skills,
                 agent_type,
+                model,
+                clear_model,
                 inactive_ttl_days,
                 clear_inactive_ttl_days,
             )?;
@@ -509,6 +527,7 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
         skills: Some(args.skills),
         run_as_user_id: args.run_as_user_id,
         agent_type: Some(args.agent_type),
+        model: args.model,
         inactive_ttl_days: args.inactive_ttl_days,
     })
 }
@@ -530,6 +549,8 @@ fn update_config(
     skills: Vec<String>,
     clear_skills: bool,
     agent_type: Option<String>,
+    model: Option<String>,
+    clear_model: bool,
     inactive_ttl_days: Option<i32>,
     clear_inactive_ttl_days: bool,
 ) -> Result<Option<UpdateLoopConfig>, ClientError> {
@@ -544,6 +565,7 @@ fn update_config(
         tag_ids,
         skills,
         agent_type,
+        model: fold_clearable(model, clear_model, "model")?,
         inactive_ttl_days: fold_clearable(
             inactive_ttl_days,
             clear_inactive_ttl_days,
@@ -558,6 +580,7 @@ fn update_config(
         && config.tag_ids.is_none()
         && config.skills.is_none()
         && config.agent_type.is_none()
+        && config.model.is_none()
         && config.inactive_ttl_days.is_none()
     {
         Ok(None)
@@ -924,6 +947,47 @@ mod tests {
                 "ignored_title_patterns": ["^chore\\(deps"],
             }))
         );
+    }
+
+    fn model_update(
+        model: Option<&str>,
+        clear: bool,
+    ) -> Result<Option<UpdateLoopConfig>, ClientError> {
+        update_config(
+            None,
+            None,
+            None,
+            false,
+            None,
+            false,
+            None,
+            false,
+            vec![],
+            false,
+            vec![],
+            false,
+            None,
+            model.map(ToString::to_string),
+            clear,
+            None,
+            false,
+        )
+    }
+
+    #[test]
+    fn model_sets_clears_and_refuses_both() {
+        let set = model_update(Some("fable"), false)
+            .unwrap()
+            .expect("--model is an update on its own");
+        assert_eq!(set.model, Some(Some("fable".to_string())));
+
+        let cleared = model_update(None, true)
+            .unwrap()
+            .expect("--clear-model is an update on its own");
+        assert_eq!(cleared.model, Some(None));
+
+        assert!(model_update(Some("fable"), true).is_err());
+        assert!(model_update(None, false).unwrap().is_none());
     }
 
     #[tokio::test]

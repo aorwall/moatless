@@ -1,9 +1,10 @@
 //! Auth API request/response schemas.
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::UserRole;
+use crate::patch::deserialize_optional_nullable_field;
 use crate::setup::SetupStatus;
 
 // ============================================================================
@@ -53,18 +54,6 @@ pub struct AdminUpdateUserRequest {
     #[serde(default, deserialize_with = "deserialize_optional_nullable_field")]
     pub email: Option<Option<String>>,
     pub role: Option<UserRole>,
-}
-
-// This endpoint needs a tri-state field: omitted, explicit null, or value.
-#[allow(clippy::option_option)]
-fn deserialize_optional_nullable_field<'de, D, T>(
-    deserializer: D,
-) -> Result<Option<Option<T>>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// Body for POST /api/v1/auth/api-keys.

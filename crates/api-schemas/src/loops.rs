@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bindings::TaskBindingResponse;
 use crate::enums::{AdapterKind, RoutingMode, Scope, TaskStatus};
+use crate::patch::deserialize_optional_nullable_field;
 use crate::repository::RepositoryResponse;
 use crate::workspace::WorkspaceSyncSummary;
 
@@ -39,6 +40,10 @@ pub struct LoopConfig {
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
+    /// Model the spawned Tasks run on, from the `agent_type` entry's catalog
+    /// models. `None` means "inherit the platform default the sandbox resolves
+    /// for `agent_type`". Flows into `tasks.model` when this Loop spawns a task.
+    pub model: Option<String>,
     /// Per-Loop inactivity TTL in days. `None` means "inherit the global
     /// default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`
     /// when this Loop spawns a task.
@@ -58,6 +63,8 @@ pub struct CreateLoopConfig {
     pub skills: Option<Vec<String>>,
     pub run_as_user_id: Option<String>,
     pub agent_type: Option<String>,
+    /// See [`LoopConfig::model`].
+    pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
 }
 
@@ -73,6 +80,13 @@ pub struct UpdateLoopConfig {
     pub tag_ids: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
     pub agent_type: Option<String>,
+    /// See [`LoopConfig::model`]. `Some(None)` clears the override.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
+    pub model: Option<Option<String>>,
     pub inactive_ttl_days: Option<Option<i32>>,
 }
 
@@ -334,4 +348,50 @@ pub struct SyncConfigResponse {
     pub repository: RepositoryResponse,
     pub loops: LoopSyncSummary,
     pub workspaces: WorkspaceSyncSummary,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::UpdateLoopConfig;
+
+    #[test]
+    fn update_loop_config_distinguishes_omitted_null_and_value() {
+        let omitted: UpdateLoopConfig = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(omitted.model, None);
+
+        let cleared: UpdateLoopConfig = serde_json::from_value(json!({ "model": null })).unwrap();
+        assert_eq!(cleared.model, Some(None));
+
+        let set: UpdateLoopConfig = serde_json::from_value(json!({ "model": "fable" })).unwrap();
+        assert_eq!(set.model, Some(Some("fable".to_string())));
+    }
+
+    /// The CLI sends this struct, so an omitted `model` must not reach the
+    /// server as a clear.
+    #[test]
+    fn an_omitted_model_survives_a_round_trip_as_omitted() {
+        let round_trip = |patch: UpdateLoopConfig| -> UpdateLoopConfig {
+            serde_json::from_str(&serde_json::to_string(&patch).unwrap()).unwrap()
+        };
+
+        assert_eq!(round_trip(UpdateLoopConfig::default()).model, None);
+        assert_eq!(
+            round_trip(UpdateLoopConfig {
+                model: Some(None),
+                ..UpdateLoopConfig::default()
+            })
+            .model,
+            Some(None)
+        );
+        assert_eq!(
+            round_trip(UpdateLoopConfig {
+                model: Some(Some("fable".into())),
+                ..UpdateLoopConfig::default()
+            })
+            .model,
+            Some(Some("fable".to_string()))
+        );
+    }
 }

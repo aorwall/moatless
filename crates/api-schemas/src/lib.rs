@@ -24,6 +24,7 @@ pub mod github;
 pub mod linear;
 pub mod loops;
 pub mod message;
+pub mod patch;
 pub mod plugin;
 pub mod repository;
 pub mod sandbox;

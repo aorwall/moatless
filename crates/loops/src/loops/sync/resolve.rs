@@ -6,6 +6,7 @@ use super::reconcile::LoopSyncService;
 use crate::loops::dao::{ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
 use crate::loops::schedule::next_fire_at;
 use chrono::{DateTime, Utc};
+use moatless_tasks::agent::catalog;
 use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_types::loops::{LoopKind, RoutingMode};
 use moatless_types::repository::{GitHostRepo, Repository, RepositoryProvider as GitHostProvider};
@@ -47,6 +48,13 @@ pub(super) enum ResolveOutcome {
     Skipped(String),
 }
 
+/// The agent a Loop declaration runs on: its `agentType`, else the default.
+pub(super) fn declared_agent_type(fm: &LoopFrontmatter) -> String {
+    fm.agent_type
+        .clone()
+        .unwrap_or_else(|| "claude-code".to_string())
+}
+
 impl LoopSyncService {
     /// Resolve a parsed loop into concrete persistence values, or a skip reason.
     ///
@@ -67,11 +75,11 @@ impl LoopSyncService {
             },
         };
 
-        let agent_type = fm
-            .agent_type
-            .clone()
-            .unwrap_or_else(|| "claude-code".to_string());
+        let agent_type = declared_agent_type(fm);
         let model = fm.model.clone();
+        if let Err(e) = catalog::validate_agent_model(&agent_type, model.as_deref()) {
+            return Ok(ResolveOutcome::Skipped(e));
+        }
         let prompt = if parsed.prompt_body.is_empty() {
             None
         } else {

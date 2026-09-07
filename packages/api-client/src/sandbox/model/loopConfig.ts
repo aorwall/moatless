@@ -16,6 +16,13 @@ when this Loop spawns a task.
    * @nullable
    */
   inactiveTtlDays?: number | null;
+  /**
+   * Model the spawned Tasks run on, from the `agent_type` entry's catalog
+models. `None` means "inherit the platform default the sandbox resolves
+for `agent_type`". Flows into `tasks.model` when this Loop spawns a task.
+   * @nullable
+   */
+  model?: string | null;
   /** @nullable */
   ongoingTaskId?: string | null;
   /** @nullable */

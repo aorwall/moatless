@@ -240,7 +240,7 @@ pub async fn normalize(
         provision,
         first_message_uuid,
     } = intent;
-    let agent_type = validate_agent_type(req.agent_type)?;
+    let agent_type = validate_agent_type(req.agent_type, req.model.as_deref())?;
 
     // A task accepts `repository_id` and/or `workspace_id`. When a workspace is
     // supplied it drives the task's repositories (workspace wins): the effective
@@ -425,16 +425,14 @@ pub(super) fn validate_task_name(name: &str) -> Result<(), TaskError> {
     Ok(())
 }
 
-fn validate_agent_type(agent_type: Option<AgentType>) -> Result<AgentType, TaskError> {
+fn validate_agent_type(
+    agent_type: Option<AgentType>,
+    model: Option<&str>,
+) -> Result<AgentType, TaskError> {
     let Some(agent_type) = agent_type else {
         return Err(agent_type_error("agentType is required"));
     };
-    if catalog::find(agent_type.as_str()).is_none() {
-        return Err(agent_type_error(&format!(
-            "unknown agentType `{}`",
-            agent_type.as_str()
-        )));
-    }
+    catalog::validate_agent_model(agent_type.as_str(), model).map_err(TaskError::BadRequest)?;
     Ok(agent_type)
 }
 

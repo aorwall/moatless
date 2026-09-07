@@ -14,9 +14,12 @@ use moatless_adapter_model::access::{
 };
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_api_schemas::loops::{CreateLoopRequest, UpdateLoopRequest, UpdateLoopSource};
+use moatless_api_schemas::loops::{
+    CreateLoopRequest, UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource,
+};
 use moatless_ports::identity::UserResolver;
 use moatless_ports::workspace::RepositoryReader;
+use moatless_tasks::agent::catalog;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::loops::LoopKind as DomainLoopKind;
 
@@ -29,6 +32,11 @@ fn require_admin(ctx: &ScopeContext) -> Result<(), AdapterError> {
                 .into(),
         )
     }
+}
+
+fn require_agent_and_model(agent_type: &str, model: Option<&str>) -> Result<(), AdapterError> {
+    catalog::validate_agent_model(agent_type, model)
+        .map_err(|e| SharedAdapterError::BadRequest(e).into())
 }
 
 fn require_name(name: &str) -> Result<String, AdapterError> {
@@ -63,6 +71,12 @@ pub async fn create_loop(
 ) -> Result<LoopRecord, AdapterError> {
     require_admin(ctx)?;
     let name = require_name(&req.name)?;
+    let agent_type = req
+        .config
+        .agent_type
+        .clone()
+        .unwrap_or_else(|| "claude-code".to_string());
+    require_agent_and_model(&agent_type, req.config.model.as_deref())?;
     ensure_repository_exists(repositories, ctx, &req.config.repository_id).await?;
     let run_as_user_id = match req.config.run_as_user_id.as_deref() {
         Some(requested) => Some(resolve_run_as_user(users, requested).await?),
@@ -179,12 +193,8 @@ pub async fn create_loop(
                 tag_ids: req.config.tag_ids.clone().unwrap_or_default(),
                 skills: req.config.skills.clone().unwrap_or_default(),
                 run_as_user_id,
-                agent_type: req
-                    .config
-                    .agent_type
-                    .clone()
-                    .unwrap_or_else(|| "claude-code".to_string()),
-                model: None,
+                agent_type,
+                model: req.config.model.clone(),
                 inactive_ttl_days: req.config.inactive_ttl_days,
             },
             source,
@@ -196,6 +206,54 @@ pub async fn create_loop(
         .await?
         .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")))?;
     Ok(record)
+}
+
+/// Merge a config patch onto the Loop's current config.
+///
+/// An omitted field keeps its current value. `model` is the exception: a model
+/// carried forward onto an `agent_type` the patch changed is dropped when it
+/// belongs to the agent the Loop is leaving, rather than rejecting the patch.
+/// The Loop form does not send `model` (`buildUpdateConfig` in
+/// `loop-form.tsx`), so rejecting would leave the UI's agent-type switch with
+/// no way through. A model the patch names explicitly is validated instead.
+fn next_config(
+    current: &LoopRecord,
+    rule: UpdateLoopConfig,
+) -> Result<NewLoopConfig, AdapterError> {
+    let agent_type = rule
+        .agent_type
+        .unwrap_or_else(|| current.config.agent_type.as_str().to_string());
+    let model = rule.model.unwrap_or_else(|| {
+        current
+            .config
+            .model
+            .clone()
+            .filter(|m| !catalog::model_conflicts(&agent_type, m))
+    });
+    require_agent_and_model(&agent_type, model.as_deref())?;
+    Ok(NewLoopConfig {
+        repository_id: rule
+            .repository_id
+            .unwrap_or_else(|| current.config.repository_id.clone()),
+        routing_mode: rule.routing_mode.unwrap_or(current.config.routing_mode),
+        ongoing_task_id: rule
+            .ongoing_task_id
+            .unwrap_or_else(|| current.config.ongoing_task_id.clone()),
+        prompt: rule.prompt.unwrap_or_else(|| current.config.prompt.clone()),
+        task_name: rule
+            .task_name
+            .unwrap_or_else(|| current.config.task_name.clone()),
+        tag_ids: rule
+            .tag_ids
+            .unwrap_or_else(|| current.config.tag_ids.clone()),
+        skills: rule.skills.unwrap_or_else(|| current.config.skills.clone()),
+        run_as_user_id: current.config.run_as_user_id.clone(),
+        agent_type,
+        model,
+        inactive_ttl_days: rule
+            .inactive_ttl_days
+            .unwrap_or(current.config.inactive_ttl_days),
+    })
 }
 
 /// Apply administrator edits to a mutable Loop configuration.
@@ -275,32 +333,10 @@ pub async fn update_loop(
         None
     };
 
-    let rule_update = req.config.map(|rule| NewLoopConfig {
-        repository_id: rule
-            .repository_id
-            .unwrap_or_else(|| current.config.repository_id.clone()),
-        routing_mode: rule.routing_mode.unwrap_or(current.config.routing_mode),
-        ongoing_task_id: rule
-            .ongoing_task_id
-            .unwrap_or_else(|| current.config.ongoing_task_id.clone()),
-        prompt: rule.prompt.unwrap_or_else(|| current.config.prompt.clone()),
-        task_name: rule
-            .task_name
-            .unwrap_or_else(|| current.config.task_name.clone()),
-        tag_ids: rule
-            .tag_ids
-            .unwrap_or_else(|| current.config.tag_ids.clone()),
-        skills: rule.skills.unwrap_or_else(|| current.config.skills.clone()),
-        run_as_user_id: current.config.run_as_user_id.clone(),
-        agent_type: rule
-            .agent_type
-            .unwrap_or_else(|| current.config.agent_type.as_str().to_string()),
-        model: current.config.model.clone(),
-        inactive_ttl_days: rule
-            .inactive_ttl_days
-            .unwrap_or(current.config.inactive_ttl_days),
-    });
-
+    let rule_update = req
+        .config
+        .map(|rule| next_config(&current, rule))
+        .transpose()?;
     let source_update = match req.source {
         Some(UpdateLoopSource::AdapterEvent(source)) => {
             let LoopSourceRow::AdapterEvent(current_source) = &current.source else {
@@ -540,6 +576,119 @@ mod tests {
                 .connect_lazy("postgres://unused@127.0.0.1:1/unused")
                 .unwrap(),
         )
+    }
+
+    fn record_on(agent_type: &str, model: Option<&str>) -> LoopRecord {
+        let now = Utc::now();
+        LoopRecord {
+            loop_: crate::loops::dao::LoopRow {
+                id: "loop".into(),
+                name: "Review".into(),
+                kind: DomainLoopKind::AdapterEvent,
+                active: true,
+                scope: moatless_types::access_control::Scope::Global,
+                owner_user_id: None,
+                created_by: "admin".into(),
+                created_at: now,
+                updated_at: now,
+                config_source: moatless_types::loops::LoopConfigSource::Manual,
+                source_repository_id: None,
+                source_key: None,
+                source_config_path: None,
+                deleted: false,
+            },
+            config: crate::loops::dao::LoopConfigRow {
+                loop_id: "loop".into(),
+                repository_id: "repo".into(),
+                routing_mode: moatless_types::loops::RoutingMode::BySubject,
+                ongoing_task_id: None,
+                prompt: None,
+                task_name: None,
+                tag_ids: vec![],
+                skills: vec![],
+                run_as_user_id: Some("runner".into()),
+                agent_type: moatless_types::agent::AgentType(agent_type.into()),
+                model: model.map(ToString::to_string),
+                inactive_ttl_days: None,
+            },
+            source: LoopSourceRow::Manual,
+        }
+    }
+
+    #[test]
+    fn an_omitted_model_keeps_the_current_one() {
+        let next = next_config(
+            &record_on("claude-code", Some("opus")),
+            UpdateLoopConfig::default(),
+        )
+        .expect("no change is valid");
+        assert_eq!(next.model.as_deref(), Some("opus"));
+        assert_eq!(next.agent_type, "claude-code");
+    }
+
+    #[test]
+    fn a_carried_forward_model_the_new_agent_does_not_offer_is_dropped() {
+        // The patch names only the agent, so `opus` would carry forward onto
+        // Codex. The Loop form never sends `model`, so this is the UI's every
+        // agent-type change.
+        let next = next_config(
+            &record_on("claude-code", Some("opus")),
+            UpdateLoopConfig {
+                agent_type: Some("codex".into()),
+                ..UpdateLoopConfig::default()
+            },
+        )
+        .expect("changing agent drops the model it belonged to");
+        assert_eq!(next.model, None);
+        assert_eq!(next.agent_type, "codex");
+    }
+
+    #[test]
+    fn a_model_belonging_to_another_agent_is_rejected() {
+        let Err(err) = next_config(
+            &record_on("claude-code", None),
+            UpdateLoopConfig {
+                agent_type: Some("codex".into()),
+                model: Some(Some("opus".into())),
+                ..UpdateLoopConfig::default()
+            },
+        ) else {
+            panic!("codex does not offer opus");
+        };
+        assert!(
+            matches!(&err, AdapterError::Shared(SharedAdapterError::BadRequest(m)) if m.contains("model `opus` belongs to another agentType")),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn clearing_the_model_frees_an_agent_change() {
+        let next = next_config(
+            &record_on("claude-code", Some("opus")),
+            UpdateLoopConfig {
+                agent_type: Some("codex".into()),
+                model: Some(None),
+                ..UpdateLoopConfig::default()
+            },
+        )
+        .expect("cleared model imposes nothing on codex");
+        assert_eq!(next.model, None);
+        assert_eq!(next.agent_type, "codex");
+    }
+
+    /// `model` reaches the agent CLI as written, so a model no catalog entry
+    /// lists is unknown rather than wrong.
+    #[test]
+    fn a_model_no_agent_offers_is_accepted() {
+        let next = next_config(
+            &record_on("claude-code", None),
+            UpdateLoopConfig {
+                model: Some(Some("claude-haiku-4-5-20251001".into())),
+                ..UpdateLoopConfig::default()
+            },
+        )
+        .expect("a pinned upstream id runs");
+        assert_eq!(next.model.as_deref(), Some("claude-haiku-4-5-20251001"));
     }
 
     #[tokio::test]

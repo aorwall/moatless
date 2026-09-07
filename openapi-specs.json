@@ -10972,6 +10972,13 @@
             ],
             "format": "int32"
           },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "See [`LoopConfig::model`]."
+          },
           "ongoingTaskId": {
             "type": [
               "string",
@@ -13465,6 +13472,13 @@
             ],
             "format": "int32",
             "description": "Per-Loop inactivity TTL in days. `None` means \"inherit the global\ndefault\" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`\nwhen this Loop spawns a task."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Model the spawned Tasks run on, from the `agent_type` entry's catalog\nmodels. `None` means \"inherit the platform default the sandbox resolves\nfor `agent_type`\". Flows into `tasks.model` when this Loop spawns a task."
           },
           "ongoingTaskId": {
             "type": [
@@ -18289,6 +18303,13 @@
               "null"
             ],
             "format": "int32"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "See [`LoopConfig::model`]. `Some(None)` clears the override."
           },
           "ongoingTaskId": {
             "type": [

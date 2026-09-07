@@ -12,6 +12,11 @@ export interface CreateLoopConfig {
   agentType?: string | null;
   /** @nullable */
   inactiveTtlDays?: number | null;
+  /**
+   * See [`LoopConfig::model`].
+   * @nullable
+   */
+  model?: string | null;
   /** @nullable */
   ongoingTaskId?: string | null;
   /** @nullable */

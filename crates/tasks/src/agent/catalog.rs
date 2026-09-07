@@ -227,3 +227,100 @@ pub fn find(id: &str) -> Option<&'static AgentEntry> {
 pub fn use_tmux_for(agent_type: &str) -> bool {
     find(agent_type).is_some_and(|e| e.params.use_tmux)
 }
+
+/// Whether `model` is one of the models `agent_type` offers.
+pub fn offers_model(agent_type: &str, model: &str) -> bool {
+    find(agent_type).is_some_and(|e| e.models.iter().any(|m| m.id == model))
+}
+
+/// Whether `model` is knowably wrong for `agent_type`: some other catalog agent
+/// offers it and this one does not.
+///
+/// `models` is the picker's menu, not the set of runnable models. `model` is a
+/// free-form pass-through to the agent CLI (`build_options` in
+/// `sandbox/src/agent/options.rs`), so a pinned upstream id such as
+/// `claude-haiku-4-5-20251001` runs while no entry lists it. An unlisted model
+/// is therefore unknown rather than wrong, and only one that belongs to a
+/// different agent can be rejected on the catalog's word alone.
+pub fn model_conflicts(agent_type: &str, model: &str) -> bool {
+    !offers_model(agent_type, model)
+        && catalog()
+            .iter()
+            .any(|e| e.models.iter().any(|m| m.id == model))
+}
+
+/// Check that `agent_type` names a catalog agent and that `model`, when given,
+/// does not belong to a different one.
+///
+/// The `Err` names the valid options, so a caller can surface it verbatim.
+pub fn validate_agent_model(agent_type: &str, model: Option<&str>) -> Result<(), String> {
+    let Some(entry) = find(agent_type) else {
+        let options = catalog()
+            .iter()
+            .map(|e| e.id)
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "unknown agentType `{agent_type}`. Available options: {options}"
+        ));
+    };
+    let Some(model) = model else {
+        return Ok(());
+    };
+    if !model_conflicts(agent_type, model) {
+        return Ok(());
+    }
+    let options = entry
+        .models
+        .iter()
+        .map(|m| m.id)
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "model `{model}` belongs to another agentType, not `{agent_type}`. Available options: {options}"
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{model_conflicts, offers_model, validate_agent_model};
+
+    #[test]
+    fn accepts_a_model_the_agent_offers() {
+        assert!(validate_agent_model("claude-code", Some("fable")).is_ok());
+        assert!(validate_agent_model("claude-code", None).is_ok());
+    }
+
+    #[test]
+    fn rejects_a_model_from_another_agent() {
+        let err =
+            validate_agent_model("codex", Some("opus")).expect_err("opus is a claude-code model");
+        assert!(
+            err.contains("model `opus` belongs to another agentType"),
+            "{err}"
+        );
+        assert!(err.contains("gpt-5.6-sol"), "{err}");
+    }
+
+    #[test]
+    fn rejects_an_unknown_agent() {
+        let err = validate_agent_model("claude-kode", None).expect_err("typo is rejected");
+        assert!(err.contains("unknown agentType `claude-kode`"), "{err}");
+    }
+
+    /// `models` is a menu, not an allowlist — the agent CLI takes any model
+    /// string, so an unlisted one is unknown rather than wrong.
+    #[test]
+    fn accepts_a_model_no_agent_offers() {
+        assert!(validate_agent_model("claude-code", Some("claude-haiku-4-5-20251001")).is_ok());
+        assert!(validate_agent_model("claude-code", Some("fabel")).is_ok());
+        assert!(!model_conflicts("claude-code", "fabel"));
+        assert!(!offers_model("claude-code", "fabel"));
+    }
+
+    #[test]
+    fn a_pinned_agent_offers_only_its_own_model() {
+        assert!(validate_agent_model("claude-code-fable", Some("fable")).is_ok());
+        assert!(validate_agent_model("claude-code-fable", Some("opus")).is_err());
+    }
+}
