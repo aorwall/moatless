@@ -1053,8 +1053,9 @@ impl ThreadCommandSink for AppStateCommands {
         let mut intent = task_service::CreateTaskIntent::new(request);
         intent.task_id = Some(thread.task_id.clone());
         // A thread created with nothing in it gets no sandbox until something
-        // is sent to it.
-        intent.provision = thread.first_message.is_some();
+        // is sent to it, unless the create asked for one — see
+        // [`NewThread::provision`].
+        intent.provision = thread.first_message.is_some() || thread.provision;
         // T3's optimistic copy of the first message is keyed on the id it
         // minted, so that id has to be the one persisted.
         intent.first_message_uuid = thread.first_message.map(|m| m.message_uuid);

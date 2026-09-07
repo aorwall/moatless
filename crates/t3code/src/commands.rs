@@ -208,6 +208,7 @@ async fn turn_start(
                         attachments,
                         skills,
                     }),
+                    provision: false,
                 },
             )
             .await;
@@ -417,9 +418,11 @@ fn decode_data_url(data_url: &str) -> Option<(String, Vec<u8>)> {
     Some((mime_type, bytes))
 }
 
-/// A thread created with nothing in it. Reachable only from a proposed plan,
-/// which this surface never projects — implemented so the client's own "new
-/// chat" path is not the one thing that fails.
+/// A thread created with nothing in it, from a proposed plan or from a draft
+/// the person ran a Script in before they sent anything.
+///
+/// `provision` is what separates the two. A plan's thread is about to be sent
+/// a turn, so it waits for the Sandbox; a draft's Script needs one now.
 async fn create_thread(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -443,6 +446,10 @@ async fn create_thread(
                 model,
                 branch: branch(command),
                 first_message: None,
+                provision: command
+                    .get("provision")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             },
         )
         .await
@@ -938,6 +945,7 @@ mod tests {
             instance: String,
             branch: Option<String>,
             has_first_message: bool,
+            provision: bool,
             skills: Vec<String>,
         },
         Fork {
@@ -1045,6 +1053,7 @@ mod tests {
                 instance: thread.instance,
                 branch: thread.branch,
                 has_first_message: thread.first_message.is_some(),
+                provision: thread.provision,
                 skills: thread
                     .first_message
                     .map(|message| message.skills)
@@ -1845,6 +1854,7 @@ mod tests {
                 instance: "claudeAgent".to_string(),
                 branch: None,
                 has_first_message: true,
+                provision: false,
                 skills: vec![],
             }]
         );
@@ -1899,9 +1909,36 @@ mod tests {
                 instance: "codex".to_string(),
                 branch: None,
                 has_first_message: false,
+                provision: false,
                 skills: vec![],
             }]
         );
+    }
+
+    /// The draft's Script run: the Task is created for the Sandbox rather than
+    /// for a turn, so the create is the only thing that will ever ask for one.
+    #[tokio::test]
+    async fn a_standalone_create_can_ask_for_a_sandbox() {
+        let mut command = json!({
+            "type": "thread.create",
+            "commandId": "cmd-1",
+            "threadId": "task-1",
+            "projectId": "ws-1",
+            "title": "Dev server",
+            "modelSelection": { "instanceId": "codex", "model": "gpt-5.6-sol" },
+            "runtimeMode": "full-access",
+            "interactionMode": "default",
+            "branch": null,
+            "worktreePath": null,
+            "createdAt": "2026-07-01T09:00:00.000Z"
+        });
+        command["provision"] = json!(true);
+        let (result, calls) = run_against(command, None).await;
+        assert!(result.is_ok());
+        assert!(matches!(
+            calls.as_slice(),
+            [Call::CreateThread { provision: true, .. }]
+        ));
     }
 
     /// The command a hover-icon fork sends with nothing else picked: the

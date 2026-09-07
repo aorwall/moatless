@@ -762,6 +762,7 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
                 branch: None,
                 model: None,
                 first_message: Some(turn(task_id, message_id, "get started")),
+                provision: false,
             },
         )
         .await
@@ -807,6 +808,7 @@ async fn a_thread_created_with_no_message_keeps_its_sandbox_stopped(pool: PgPool
                 branch: None,
                 model: None,
                 first_message: None,
+                provision: false,
             },
         )
         .await
@@ -822,6 +824,36 @@ async fn a_thread_created_with_no_message_keeps_its_sandbox_stopped(pool: PgPool
     assert!(
         !sandbox_requested(&pool, task_id).await,
         "an empty thread was provisioned"
+    );
+}
+
+/// The exception to it: a person who ran a Script in a draft asked for the
+/// Sandbox, and there is no message coming that would otherwise start it.
+#[sqlx::test]
+async fn a_thread_created_with_no_message_provisions_when_the_create_asks_for_it(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+
+    let task_id = "13131313-3535-4565-8787-919191919191";
+    sink(&pool)
+        .create_thread(
+            &viewer(USER_1),
+            NewThread {
+                task_id: task_id.into(),
+                workspace_id: WS.into(),
+                instance: "claudeAgent".into(),
+                branch: None,
+                model: None,
+                first_message: None,
+                provision: true,
+            },
+        )
+        .await
+        .expect("the thread is created");
+
+    assert!(message_uuids(&pool, task_id).await.is_empty());
+    assert!(
+        sandbox_requested(&pool, task_id).await,
+        "the create asked for a sandbox and did not get one"
     );
 }
 
@@ -843,6 +875,7 @@ async fn sending_into_an_unprovisioned_thread_provisions_it(pool: PgPool) {
             branch: None,
             model: None,
             first_message: None,
+            provision: false,
         },
     )
     .await

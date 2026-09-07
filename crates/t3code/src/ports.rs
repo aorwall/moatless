@@ -172,9 +172,13 @@ pub struct NewThread {
     /// The branch the person picked, if any. `None` falls back to the primary
     /// repository's default branch when the Task is created.
     pub branch: Option<String>,
-    /// The first message, when the command carried one. Absent means the Task
-    /// is created without a Sandbox.
+    /// The first message, when the command carried one.
     pub first_message: Option<ThreadTurn>,
+    /// Whether to start the Sandbox for a Task created with no first message.
+    /// A create carrying one always provisions; this is what a client asks for
+    /// when it wants the Sandbox for something other than an agent turn, such
+    /// as running a Script straight out of a draft.
+    pub provision: bool,
 }
 
 /// A title and model change, as this surface understood it.
