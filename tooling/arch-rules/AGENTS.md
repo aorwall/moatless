@@ -8,6 +8,10 @@ cargo test -p moatless-arch-rules                                       # fails 
 ARCH_STRICT=1 cargo test -p moatless-arch-rules                         # fails on any violation
 ```
 
+**Run this package with `cargo test`, never `cargo nextest run`.** Every rule
+test reads one `run_all` through a process-wide `OnceLock`, and nextest's
+process-per-test pays that workspace parse once per test.
+
 ## How a rule lands
 
 A rule ships before the workspace satisfies it. Put the violations present on
@@ -33,8 +37,9 @@ reached zero.
 ## Adding a rule
 
 - Write one module per rule, named for what it asserts, exporting `RULE` and
-  `check(&Workspace)`. Register it in `runner::run_all` and in `runner::RULES`, and add one test
-  to `tests/architecture.rs` so a failure names the rule.
+  `check(&Workspace) -> Result<Vec<Violation>>`. Register it in `runner::RULES`,
+  which `runner::run_all` iterates, and add one test to `tests/architecture.rs`
+  so a failure names the rule.
 - **Split the judgement from the workspace read.** `check` gathers, a private
   function decides, and the fixture tests beside it drive that function with
   hand-written input. A rule whose boundaries can only be exercised by editing

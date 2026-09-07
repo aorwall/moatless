@@ -36,10 +36,10 @@ pub(super) fn run(update: bool, json: bool) -> Result<()> {
 
     println!("Architecture report\n");
 
-    for (rule, description) in RULES {
-        let hits = by_rule.get(rule).map_or(&[][..], Vec::as_slice);
-        println!("── {rule} ── {} violation(s)", hits.len());
-        println!("   {description}\n");
+    for rule in RULES {
+        let hits = by_rule.get(rule.name).map_or(&[][..], Vec::as_slice);
+        println!("── {} ── {} violation(s)", rule.name, hits.len());
+        println!("   {}\n", rule.about);
         for violation in hits {
             let marker = if known.contains(&violation.id()) {
                 "known"

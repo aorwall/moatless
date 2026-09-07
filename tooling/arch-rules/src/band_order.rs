@@ -3,6 +3,7 @@
 use crate::Violation;
 use crate::annotations::permits_dependency;
 use crate::workspace::Workspace;
+use anyhow::Result;
 
 pub const RULE: &str = "band-order";
 
@@ -71,7 +72,7 @@ fn forbidden(source: Option<usize>, target: Option<usize>) -> bool {
     matches!((source, target), (Some(s), Some(t)) if s <= t)
 }
 
-pub fn check(ws: &Workspace) -> Vec<Violation> {
+pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let mut out = Vec::new();
     for member in ws.members() {
         let source = band(&member.name);
@@ -104,7 +105,7 @@ pub fn check(ws: &Workspace) -> Vec<Violation> {
             }
         }
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]

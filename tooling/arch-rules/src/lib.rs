@@ -35,7 +35,7 @@ pub mod workspace;
 mod violation;
 mod runner;
 pub use violation::Violation;
-pub use runner::{run_all, RULES};
+pub use runner::{RULES, Rule, run_all};
 
 #[cfg(test)]
 #[allow(clippy::expect_used, reason = "fixture I/O must succeed")]

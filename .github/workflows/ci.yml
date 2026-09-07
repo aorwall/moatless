@@ -95,9 +95,13 @@ jobs:
           filters: |
             everything:
               - '**'
-            # Workspace-wide inputs — invalidate all per-crate narrowing.
+            # Feature-resolution and toolchain inputs; invalidate all per-crate
+            # narrowing. `**/Cargo.toml` covers member manifests deliberately:
+            # the feature-wiring break the db-tests loop guards is a member edit
+            # that leaves `Cargo.lock` untouched, which root-anchored
+            # `Cargo.toml` never matched.
             cargo-manifest:
-              - 'Cargo.toml'
+              - '**/Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
               - 'clippy.toml'
@@ -166,17 +170,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - name: Install install-action prerequisites
-        run: |
-          .github/scripts/apt-https-mirrors.sh
-          apt-get update
-          apt-get install -y --no-install-recommends jq
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
-        with:
-          tool: cargo-nextest
+      # libtest, not nextest — tooling/arch-rules/AGENTS.md says why.
       - name: Check architecture independently of changed packages
-        run: cargo nextest run --locked -p moatless-arch-rules
+        run: cargo test -p moatless-arch-rules --locked
 
   # Plan-claim invariant — a spec in .plans/ does not outlive the code it
   # asserts. The other checks ratchet counts and file sets; nothing re-validated
@@ -276,10 +272,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Measure restored Rust cache footprint
-        run: |
-          du -sh "${CARGO_HOME:-$HOME/.cargo}" 2>/dev/null || true
-          du -sh target 2>/dev/null || true
-          du -sh target/debug 2>/dev/null || true
+        run: .github/scripts/measure-rust-cache.sh debug
 
       - name: Clippy workspace floor (deny warnings)
         run: |
@@ -336,7 +329,17 @@ jobs:
             echo "::error::cargo metadata found no packages declaring db-tests"
             exit 1
           fi
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+          # The isolated per-package loop costs 4m24; one unified pass links
+          # the overlapping graph once instead. The loop buys one thing:
+          # unified sibling features mask a crate that only links when another
+          # package enables test-support. That is a feature-wiring break, which
+          # a manifest edit causes — the same gate this step already applies to
+          # `moatless-ports --no-default-features`.
+          if [ "$CARGO_MANIFEST_CHANGED" = true ]; then
+            for package in "${DB_TEST_PACKAGES[@]}"; do
+              cargo clippy -p "$package" --all-targets --features db-tests -- -D warnings
+            done
+          else
             DB_TEST_ARGS=""
             DB_TEST_FEATURES=""
             for package in "${DB_TEST_PACKAGES[@]}"; do
@@ -349,10 +352,6 @@ jobs:
             done
             # shellcheck disable=SC2086
             cargo clippy --all-targets $DB_TEST_ARGS --features "$DB_TEST_FEATURES" -- -D warnings
-          else
-            for package in "${DB_TEST_PACKAGES[@]}"; do
-              cargo clippy -p "$package" --all-targets --features db-tests -- -D warnings
-            done
           fi
 
       - name: sccache stats
@@ -410,10 +409,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Measure restored Rust cache footprint
-        run: |
-          du -sh "${CARGO_HOME:-$HOME/.cargo}" 2>/dev/null || true
-          du -sh target 2>/dev/null || true
-          du -sh target/debug 2>/dev/null || true
+        run: .github/scripts/measure-rust-cache.sh debug
 
       # install-action apt-installs jq itself, which needs HTTPS sources here.
       - name: Install install-action prerequisites
@@ -434,6 +430,7 @@ jobs:
         shell: bash
         env:
           CHANGED_FILES: ${{ needs.detect-changes.outputs.changed-files }}
+          CARGO_MANIFEST_CHANGED: ${{ needs.detect-changes.outputs.cargo-manifest }}
         run: |
           set -euo pipefail
           # On the main-push seed run the narrowing is counterproductive: the
@@ -457,8 +454,15 @@ jobs:
           PKGS=$(.github/scripts/rust-changed-packages.sh /tmp/changed-files.txt)
           echo "Testing: $PKGS"
 
+          # `moatless-arch-rules` is owned by the `architecture` job, which runs
+          # the whole package on every event; its rule tests otherwise set this
+          # job's nextest wall time. A filterset rather than a carve in the
+          # selector, which would send an arch-rules-only PR into the "closure
+          # selected nothing" fail-safe. Such a PR leaves the filterset with
+          # nothing to run, and nextest's default exits 4 on that — hence warn.
           # shellcheck disable=SC2086
-          cargo nextest run --profile ci $PKGS
+          cargo nextest run --profile ci $PKGS \
+            -E 'not package(moatless-arch-rules)' --no-tests=warn
 
           # nextest does not run doctests; the workspace has a handful.
           # `cargo test --doc` errors ("no library targets found") when EVERY
@@ -515,14 +519,12 @@ jobs:
             esac
           done
           if [ -n "$DB_TEST_ARGS" ]; then
-            # PRs use one unified db-tests pass so cargo links the overlapping
-            # graph once; main pushes keep the isolated loop because unified
-            # sibling features can mask a crate that only links when another
-            # package enables test-support.
-            if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-              # shellcheck disable=SC2086
-              cargo nextest run $DB_TEST_ARGS --features "$DB_TEST_FEATURES" --no-run
-            else
+            # One unified pass links the overlapping graph once. The isolated
+            # loop runs only on a manifest change, which is what can break the
+            # feature wiring it guards — unified sibling features mask a crate
+            # that only links when another package enables test-support. Same
+            # gate as the clippy job's db-tests tier.
+            if [ "$CARGO_MANIFEST_CHANGED" = true ]; then
               for package in $DB_TEST_PACKAGES; do
                 case " $PKGS " in
                   *" -p ${package} "*)
@@ -530,6 +532,9 @@ jobs:
                     ;;
                 esac
               done
+            else
+              # shellcheck disable=SC2086
+              cargo nextest run $DB_TEST_ARGS --features "$DB_TEST_FEATURES" --no-run
             fi
           else
             echo "No selected package declares db-tests — skipping db-tests no-run."
@@ -650,10 +655,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Measure restored Rust cache footprint
-        run: |
-          du -sh "${CARGO_HOME:-$HOME/.cargo}" 2>/dev/null || true
-          du -sh target 2>/dev/null || true
-          du -sh target/ci 2>/dev/null || true
+        run: .github/scripts/measure-rust-cache.sh ci
 
       - name: Cache sccache objects
         if: env.SCCACHE_ON_ACTIONS_CACHE == '1'

@@ -11,7 +11,7 @@ fn band_edges_include_aliases_optional_and_target_dependencies() {
         let mut f = Fixture::new();
         f.member("moatless-loops", "", "");
         f.member("moatless-sandbox-k8s", declaration, "");
-        let found = crate::band_order::check(&f.load());
+        let found = crate::band_order::check(&f.load()).expect("band order");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].key, "moatless-sandbox-k8s -> moatless-loops");
     }
@@ -29,7 +29,7 @@ fn dependency_exceptions_cover_exactly_one_edge() {
             .expect("annotations")
             .is_empty()
     );
-    let found = crate::band_order::check(&ws);
+    let found = crate::band_order::check(&ws).expect("band order");
     assert_eq!(found.len(), 1);
     assert!(found[0].key.ends_with("moatless-loops"));
 }
@@ -39,7 +39,11 @@ fn dev_and_build_edges_do_not_change_production_bands() {
     let mut f = Fixture::new();
     f.member("moatless-loops", "", "");
     f.member("moatless-types", "[dev-dependencies]\nmoatless-loops = { path = '../moatless-loops' }\n[build-dependencies]\nmoatless-loops = { path = '../moatless-loops' }", "");
-    assert!(crate::band_order::check(&f.load()).is_empty());
+    assert!(
+        crate::band_order::check(&f.load())
+            .expect("band order")
+            .is_empty()
+    );
 }
 
 #[test]

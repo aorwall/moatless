@@ -3,6 +3,7 @@
 use crate::Violation;
 use crate::annotations::permits_dependency;
 use crate::workspace::Workspace;
+use anyhow::Result;
 
 pub const RULE: &str = "base-surface";
 const TRANSPORTS: &[&str] = &[
@@ -55,7 +56,7 @@ fn default_activates(dependency: &str, features: &toml::Table) -> bool {
     false
 }
 
-pub fn check(ws: &Workspace) -> Vec<Violation> {
+pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let mut out = Vec::new();
     if let Some(m) = ws.member("moatless-adapter-model") {
         let empty = toml::Table::new();
@@ -79,7 +80,7 @@ pub fn check(ws: &Workspace) -> Vec<Violation> {
             }
         }
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]

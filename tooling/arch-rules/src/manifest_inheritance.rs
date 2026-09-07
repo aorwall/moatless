@@ -2,6 +2,7 @@
 
 use crate::Violation;
 use crate::workspace::Workspace;
+use anyhow::Result;
 
 pub const RULE: &str = "manifest-inheritance";
 
@@ -22,8 +23,8 @@ fn missing(manifest: &toml::Table) -> Vec<&'static str> {
         .collect()
 }
 
-pub fn check(ws: &Workspace) -> Vec<Violation> {
-    ws.members()
+pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
+    Ok(ws.members()
         .flat_map(|m| {
             missing(&m.manifest).into_iter().map(move |key| {
                 Violation::at(
@@ -34,7 +35,7 @@ pub fn check(ws: &Workspace) -> Vec<Violation> {
                 )
             })
         })
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]

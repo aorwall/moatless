@@ -3,6 +3,7 @@
 use crate::Violation;
 use crate::annotations::permits_dependency;
 use crate::workspace::Workspace;
+use anyhow::Result;
 
 pub const RULE: &str = "closed-dependency-list";
 pub const ALLOWED: &[&str] = &[
@@ -16,8 +17,8 @@ pub const ALLOWED: &[&str] = &[
     "utoipa",
 ];
 
-pub fn check(ws: &Workspace) -> Vec<Violation> {
-    ws.member("moatless-types")
+pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
+    Ok(ws.member("moatless-types")
         .into_iter()
         .flat_map(|m| {
             m.normal_deps
@@ -32,7 +33,7 @@ pub fn check(ws: &Workspace) -> Vec<Violation> {
                     )
                 })
         })
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]

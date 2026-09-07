@@ -7,6 +7,7 @@
 
 use crate::Violation;
 use crate::workspace::Workspace;
+use anyhow::Result;
 
 pub const RULE: &str = "dependency-privacy";
 
@@ -89,8 +90,8 @@ const FORBIDDEN: &[Forbidden] = &[
     },
 ];
 
-pub fn check(ws: &Workspace) -> Vec<Violation> {
-    FORBIDDEN
+pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
+    Ok(FORBIDDEN
         .iter()
         .filter(|rule| {
             ws.member(rule.source)
@@ -123,5 +124,5 @@ pub fn check(ws: &Workspace) -> Vec<Violation> {
                 rule.source.trim_start_matches("moatless-")
             )],
         })
-        .collect()
+        .collect())
 }

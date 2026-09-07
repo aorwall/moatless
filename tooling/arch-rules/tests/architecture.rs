@@ -5,9 +5,10 @@
 //! The enforcing half.
 //!
 //! Each rule is one test, so a failure names the rule in the test list rather
-//! than in a wall of shell output. A test fails on a violation that is not in
-//! `arch-baseline.json`; with `ARCH_STRICT=1` it fails on any violation at
-//! all, which is the switch to flip once a rule's baseline reaches zero.
+//! than in a wall of shell output. Every test reads one `cached_violations`
+//! run; `AGENTS.md` owns why that requires `cargo test` and not nextest.
+//! A test fails on a violation absent from `arch-baseline.json`; with
+//! `ARCH_STRICT=1` it fails on any violation at all.
 
 use std::collections::BTreeSet;
 
@@ -56,28 +57,30 @@ fn render(violations: &[Violation]) -> String {
         .join("\n")
 }
 
-fn workspace() -> Workspace {
-    Workspace::load(workspace_root()).expect("loading the workspace")
+/// The one workspace read every rule test shares.
+fn cached_violations() -> Vec<Violation> {
+    static FOUND: std::sync::OnceLock<Vec<Violation>> = std::sync::OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            let ws = Workspace::load(workspace_root()).expect("loading the workspace");
+            moatless_arch_rules::run_all(&ws).expect("running architecture rules")
+        })
+        .clone()
 }
 
 #[test]
 fn one_public_type_name_means_one_thing() {
-    let ws = workspace();
-    let found = duplicate_names::check(&ws).expect("running the duplicate-name rule");
-    assert_rule(duplicate_names::RULE, found);
+    assert_rule(duplicate_names::RULE, cached_violations());
 }
 
 #[test]
 fn no_crate_names_a_dependency_its_band_forbids() {
-    let ws = workspace();
-    assert_rule(dependency_privacy::RULE, dependency_privacy::check(&ws));
+    assert_rule(dependency_privacy::RULE, cached_violations());
 }
 
 #[test]
 fn a_module_is_named_for_its_domain() {
-    let ws = workspace();
-    let found = module_names::check(&ws).expect("running the module-name rule");
-    assert_rule(module_names::RULE, found);
+    assert_rule(module_names::RULE, cached_violations());
 }
 
 /// A baseline entry that no longer occurs must be removed, or the file stops
@@ -104,10 +107,7 @@ fn the_baseline_holds_no_fixed_violations() {
 #[test]
 fn every_registered_rule_is_enforced() {
     let found = cached_violations();
-    let rules: BTreeSet<_> = moatless_arch_rules::RULES
-        .iter()
-        .map(|(name, _)| *name)
-        .collect();
+    let rules: BTreeSet<_> = moatless_arch_rules::RULES.iter().map(|r| r.name).collect();
     assert_eq!(rules.len(), moatless_arch_rules::RULES.len());
     assert!(found.iter().all(|v| rules.contains(v.rule)));
     for rule in rules {
@@ -119,8 +119,7 @@ macro_rules! enforce {
     ($($rule:ident),+ $(,)?) => {$(
         #[test]
         fn $rule() {
-            let found = moatless_arch_rules::$rule::check(&workspace()).expect("running rule");
-            assert_rule(moatless_arch_rules::$rule::RULE, found);
+            assert_rule(moatless_arch_rules::$rule::RULE, cached_violations());
         }
     )+};
 }
@@ -140,27 +139,7 @@ enforce!(
     composition_root,
     table_ownership,
     store_privacy,
-    adapter_boundaries
-);
-
-fn cached_violations() -> Vec<Violation> {
-    static FOUND: std::sync::OnceLock<Vec<Violation>> = std::sync::OnceLock::new();
-    FOUND
-        .get_or_init(|| {
-            moatless_arch_rules::run_all(&workspace()).expect("running architecture rules")
-        })
-        .clone()
-}
-
-macro_rules! enforce_manifest {
-    ($($rule:ident),+ $(,)?) => {$(
-        #[test]
-        fn $rule() {
-            assert_rule(moatless_arch_rules::$rule::RULE, moatless_arch_rules::$rule::check(&workspace()));
-        }
-    )+};
-}
-enforce_manifest!(
+    adapter_boundaries,
     band_order,
     manifest_inheritance,
     closed_dependency_list,

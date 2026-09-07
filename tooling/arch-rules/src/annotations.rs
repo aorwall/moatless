@@ -27,7 +27,7 @@ fn parse(line: &str) -> Result<Option<Allow<'_>>, &'static str> {
         .ok_or("expected arch-allow(rule): reason")?;
     let rule = rule.trim();
     let reason = reason.trim();
-    if !RULES.iter().any(|(name, _)| *name == rule) {
+    if !RULES.iter().any(|r| r.name == rule) {
         return Err("unknown architecture rule");
     }
     if reason.is_empty() {
@@ -133,7 +133,7 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
             for a in allows {
                 let rule = a["rule"].as_str().unwrap_or_default();
                 let dependency = a["dependency"].as_str().unwrap_or_default();
-                if !RULES.iter().any(|(name, _)| *name == rule)
+                if !RULES.iter().any(|r| r.name == rule)
                     || !dependency_rule(rule)
                     || !member.normal_deps.contains(dependency)
                     || a["reason"].as_str().is_none_or(|r| r.trim().is_empty())
