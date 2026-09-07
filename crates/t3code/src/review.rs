@@ -588,6 +588,7 @@ fn pull_request_json(pr: &BoundPullRequest) -> Value {
         "baseRef": pr.base_ref,
         "headRef": pr.head_ref,
         "state": t3_pr_state(&pr.state_kind),
+        "isDraft": is_draft(&pr.state_kind),
     })
 }
 
@@ -656,6 +657,7 @@ fn pull_request_summary_json(project_id: &str, repository: &str, pr: &BoundPullR
         "title": pr.title,
         "url": pr.url,
         "state": t3_pr_state(&pr.state_kind),
+        "isDraft": is_draft(&pr.state_kind),
         "headBranch": pr.head_ref,
         "baseBranch": pr.base_ref,
         "updatedAt": pr.status_read_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -663,14 +665,21 @@ fn pull_request_summary_json(project_id: &str, repository: &str, pr: &BoundPullR
 }
 
 /// The Binding's state kind, mapped onto T3's three-value set. A draft reports
-/// as `open` — T3's `VcsStatusChangeRequestState` has no `draft` — and
-/// draftness is not carried onto this surface.
+/// as `open`, because T3's `VcsStatusChangeRequestState` has no `draft`;
+/// [`is_draft`] carries the distinction beside the state.
 fn t3_pr_state(state_kind: &str) -> &'static str {
     match state_kind {
         "merged" => "merged",
         "closed" => "closed",
         _ => "open",
     }
+}
+
+/// Whether the Binding's state kind is `draft`, for T3's `isDraft`. Reported
+/// beside every state, so a client that keeps a summary does not have to tell a
+/// server that omits the field from one saying the pull request left draft.
+fn is_draft(state_kind: &str) -> bool {
+    state_kind == "draft"
 }
 
 fn now_rfc3339() -> String {
@@ -1172,15 +1181,17 @@ mod tests {
         assert_eq!(remote["pr"]["baseRef"], "main");
         assert_eq!(remote["pr"]["headRef"], "feature");
         assert_eq!(remote["pr"]["state"], "open");
+        assert_eq!(remote["pr"]["isDraft"], false);
     }
 
     /// T3's `VcsStatusChangeRequestState` has no `draft`, so a draft binding
-    /// reports as `open`.
+    /// reports as `open` and says so in `isDraft`.
     #[test]
     fn a_draft_binding_reports_as_open() {
         let pr = bound_pr("draft");
         let remote = remote_status(&GetGitStatusResponse::default(), Some(&pr));
         assert_eq!(remote["pr"]["state"], "open");
+        assert_eq!(remote["pr"]["isDraft"], true);
     }
 
     #[test]
@@ -1376,8 +1387,8 @@ mod tests {
         dao
     }
 
-    async fn summary(readable: bool) -> Result<Value, PullRequestSummaryError> {
-        let bound = StubBoundPullRequests::new(vec![("task-a".to_string(), bound_pr("open"))]);
+    async fn summary(state_kind: &str, readable: bool) -> Result<Value, PullRequestSummaryError> {
+        let bound = StubBoundPullRequests::new(vec![("task-a".to_string(), bound_pr(state_kind))]);
         pull_request_summary(
             &readable_conversations(readable),
             &bound,
@@ -1393,7 +1404,10 @@ mod tests {
     /// sidebar's per-thread status check reaches no git host.
     #[tokio::test]
     async fn a_linked_pull_request_is_summarized_from_its_binding() {
-        let summary = summary(true).await.ok().expect("a readable task answers");
+        let summary = summary("open", true)
+            .await
+            .ok()
+            .expect("a readable task answers");
         assert_eq!(summary["provider"], "github");
         assert_eq!(summary["projectId"], "ws-1");
         assert_eq!(summary["repository"], "acme/web");
@@ -1401,6 +1415,7 @@ mod tests {
         assert_eq!(summary["title"], "Add widgets");
         assert_eq!(summary["url"], "https://github.com/acme/web/pull/7");
         assert_eq!(summary["state"], "open");
+        assert_eq!(summary["isDraft"], false);
         assert_eq!(summary["headBranch"], "feature");
         assert_eq!(summary["baseBranch"], "main");
         assert!(
@@ -1410,12 +1425,25 @@ mod tests {
         );
     }
 
+    /// The sidebar and the composer's pull-request menu tell a draft from an
+    /// open pull request by `isDraft` alone, since both report `state` as
+    /// `open`.
+    #[tokio::test]
+    async fn a_draft_pull_request_is_summarized_as_a_draft() {
+        let summary = summary("draft", true)
+            .await
+            .ok()
+            .expect("a readable task answers");
+        assert_eq!(summary["state"], "open");
+        assert_eq!(summary["isDraft"], true);
+    }
+
     /// The bound Task is the access rule: a viewer who cannot read it is told
     /// the same thing as one asking about a pull request nothing is bound to.
     #[tokio::test]
     async fn a_pull_request_on_an_unreadable_task_is_not_summarized() {
         assert!(matches!(
-            summary(false).await,
+            summary("open", false).await,
             Err(PullRequestSummaryError::Unknown)
         ));
     }
