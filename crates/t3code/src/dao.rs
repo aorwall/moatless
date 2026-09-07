@@ -123,13 +123,24 @@ pub struct Conversation {
 /// One GitHub pull request bound to a Task, as the listing query aggregates it.
 ///
 /// `subject_key` alone makes a row reportable, so a binding links from the
-/// moment it is written. The status blob only sharpens the URL and the
-/// live/terminal ordering once a refresh has filled it in.
+/// moment it is written. The four fields the status blob holds are `None` until
+/// a refresh has filled it in, and one refresh writes all four, so they are
+/// present or absent together.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationPullRequest {
     pub repository: String,
     pub number: i64,
     pub url: String,
+    pub title: Option<String>,
+    pub base_ref: Option<String>,
+    pub head_ref: Option<String>,
+    /// The binding's normalized state kind: `open`, `draft`, `merged` or
+    /// `closed`, read by [`crate::ports::t3_pr_state`].
+    pub state_kind: Option<String>,
+    /// When this deployment last read the pull request's state from GitHub —
+    /// see [`crate::ports::BoundPullRequest::status_read_at`], which the status
+    /// surface reports from the same columns.
+    pub status_read_at: Option<DateTime<Utc>>,
 }
 
 impl Conversation {
@@ -902,7 +913,12 @@ impl PgConversationDao {
                               jsonb_build_object(
                                   'repository', bound.repository,
                                   'number', bound.number,
-                                  'url', bound.url
+                                  'url', bound.url,
+                                  'title', bound.title,
+                                  'base_ref', bound.base_ref,
+                                  'head_ref', bound.head_ref,
+                                  'state_kind', bound.state_kind,
+                                  'status_read_at', bound.status_read_at
                               )
                               ORDER BY bound.live DESC, bound.number DESC
                           ) AS pull_requests
@@ -915,6 +931,12 @@ impl PgConversationDao {
                                'https://github.com/' || split_part(b.subject_key, '#', 1)
                                    || '/pull/' || split_part(b.subject_key, '#', 2)
                            ) AS url,
+                           NULLIF(b.external_status_raw ->> 'title', '')  AS title,
+                           NULLIF(b.external_status_raw ->> 'baseRef', '') AS base_ref,
+                           NULLIF(b.external_status_raw ->> 'headRef', '') AS head_ref,
+                           b.external_state_kind AS state_kind,
+                           COALESCE(b.external_status_updated_at, b.last_event_at)
+                               AS status_read_at,
                            (COALESCE(b.external_state_kind, 'open')
                                 NOT IN ('merged', 'closed')) AS live
                        FROM task_bindings b

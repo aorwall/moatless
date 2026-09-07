@@ -1582,6 +1582,27 @@ async fn seed_pr_binding(
     .unwrap();
 }
 
+/// Fill in the status blob a refresh writes, in the shape
+/// `github_external_status` builds it. The listing reads the title and the two
+/// branches back out of it.
+async fn refresh_pr_binding(pool: &PgPool, binding_id: &str, title: &str, head_ref: &str) {
+    sqlx::query(
+        r#"UPDATE task_bindings
+              SET external_status_raw = jsonb_build_object(
+                      'title', $2::text,
+                      'baseRef', 'main',
+                      'headRef', $3::text),
+                  external_status_updated_at = TIMESTAMPTZ '2026-02-03T04:05:06Z'
+            WHERE id = $1"#,
+    )
+    .bind(binding_id)
+    .bind(title)
+    .bind(head_ref)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 /// The regression behind the surfaces showing nothing: a binding is written
 /// with `external_status_raw` NULL and only filled in by a refresh the listing
 /// cannot trigger, so a link conditioned on that blob never appeared for a pull
@@ -1633,6 +1654,38 @@ async fn a_thread_links_every_bound_pull_request_live_first_then_newest(pool: Pg
     );
     // The single reference every existing reader uses is the list's primary.
     assert_eq!(row["linkedPullRequest"], linked[0]);
+}
+
+/// What spares every pull-request surface a `pullRequests.summary` round trip:
+/// a refreshed binding's title, branches and state reach the client on the
+/// thread row itself, and one that was never refreshed still carries the
+/// reference alone.
+#[sqlx::test]
+async fn a_thread_carries_the_status_of_each_pull_request_that_was_refreshed(pool: PgPool) {
+    seed_live_project(&pool).await;
+    seed_task(&pool, "t-prs", "user-1", Some("ws-live")).await;
+    seed_pr_connection(&pool).await;
+    seed_pr_binding(&pool, "b-1", "t-prs", "acme/web#7", Some("draft")).await;
+    refresh_pr_binding(&pool, "b-1", "Ship the composer pill", "feature/pill").await;
+    seed_pr_binding(&pool, "b-2", "t-prs", "acme/api#8", None).await;
+
+    let row = thread(&pool, &viewer("user-1"), "t-prs").await;
+    let linked = row["linkedPullRequests"].as_array().unwrap();
+    let refreshed = linked.iter().find(|pr| pr["number"] == 7).unwrap();
+
+    assert_eq!(refreshed["title"], "Ship the composer pill");
+    // A draft has no state of its own in the contract, so `isDraft` is what
+    // tells it apart from an open pull request.
+    assert_eq!(refreshed["state"], "open");
+    assert_eq!(refreshed["isDraft"], true);
+    assert_eq!(refreshed["baseBranch"], "main");
+    assert_eq!(refreshed["headBranch"], "feature/pill");
+    assert_eq!(refreshed["updatedAt"], "2026-02-03T04:05:06.000Z");
+
+    let unrefreshed = linked.iter().find(|pr| pr["number"] == 8).unwrap();
+    for absent in ["title", "state", "isDraft", "baseBranch", "headBranch"] {
+        assert_eq!(unrefreshed.get(absent), None, "{absent} was never fetched");
+    }
 }
 
 /// The guard exists so a malformed key drops its own row: the `::bigint` cast

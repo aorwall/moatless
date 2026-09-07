@@ -22,8 +22,8 @@ use sha2::{Digest, Sha256};
 
 use super::dao::ConversationDao;
 use super::ports::{
-    BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource,
-    primary_pull_request,
+    BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource, is_draft,
+    primary_pull_request, t3_pr_state,
 };
 use super::projection;
 use super::workspace::{self, WorkspaceAccessError};
@@ -662,24 +662,6 @@ fn pull_request_summary_json(project_id: &str, repository: &str, pr: &BoundPullR
         "baseBranch": pr.base_ref,
         "updatedAt": pr.status_read_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
     })
-}
-
-/// The Binding's state kind, mapped onto T3's three-value set. A draft reports
-/// as `open`, because T3's `VcsStatusChangeRequestState` has no `draft`;
-/// [`is_draft`] carries the distinction beside the state.
-fn t3_pr_state(state_kind: &str) -> &'static str {
-    match state_kind {
-        "merged" => "merged",
-        "closed" => "closed",
-        _ => "open",
-    }
-}
-
-/// Whether the Binding's state kind is `draft`, for T3's `isDraft`. Reported
-/// beside every state, so a client that keeps a summary does not have to tell a
-/// server that omits the field from one saying the pull request left draft.
-fn is_draft(state_kind: &str) -> bool {
-    state_kind == "draft"
 }
 
 fn now_rfc3339() -> String {

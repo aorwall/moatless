@@ -11,7 +11,10 @@ use serde_json::{Map, Value, json};
 use tracing::warn;
 
 use super::AgentModelDefaults;
-use super::dao::{Conversation, ConversationMatch, Transcript, TranscriptMessage};
+use super::dao::{
+    Conversation, ConversationMatch, ConversationPullRequest, Transcript, TranscriptMessage,
+};
+use super::ports::{is_draft, t3_pr_state};
 use crate::activity::T3ActivityViewExt;
 use crate::agent::catalog;
 use crate::agent::catalog::UiRpcAgentKind;
@@ -1508,14 +1511,41 @@ fn linked_pull_requests(conversation: &Conversation, project_id: &str) -> Vec<Va
             if pr.number <= 0 {
                 return None;
             }
-            Some(json!({
-                "projectId": project_id,
-                "repository": repository,
-                "number": pr.number,
-                "url": url,
-            }))
+            let mut reference = Map::from_iter([
+                ("projectId".to_string(), json!(project_id)),
+                ("repository".to_string(), json!(repository)),
+                ("number".to_string(), json!(pr.number)),
+                ("url".to_string(), json!(url)),
+            ]);
+            if let Some(status) = pull_request_status(pr) {
+                reference.extend(status);
+            }
+            Some(Value::Object(reference))
         })
         .collect()
+}
+
+/// What a fetched binding's status blob adds to a reference, or `None` while
+/// that blob is still NULL.
+///
+/// The fields travel together, because one refresh writes all of them: their
+/// presence is how the client tells a binding whose status is known — and
+/// answers a row's title and state without a call of its own — from one it has
+/// to ask `pullRequests.summary` about, which is also what refreshes it.
+fn pull_request_status(pr: &ConversationPullRequest) -> Option<Map<String, Value>> {
+    let state_kind = pr.state_kind.as_deref()?;
+    let title = non_empty(pr.title.as_deref()?)?;
+    let head_branch = non_empty(pr.head_ref.as_deref()?)?;
+    let base_branch = non_empty(pr.base_ref.as_deref()?)?;
+    let read_at = pr.status_read_at?;
+    Some(Map::from_iter([
+        ("title".to_string(), json!(title)),
+        ("state".to_string(), json!(t3_pr_state(state_kind))),
+        ("isDraft".to_string(), json!(is_draft(state_kind))),
+        ("headBranch".to_string(), json!(head_branch)),
+        ("baseBranch".to_string(), json!(base_branch)),
+        ("updatedAt".to_string(), json!(instant(read_at))),
+    ]))
 }
 
 /// A distinct, stable, nominal worktree path for one conversation.
@@ -1876,7 +1906,6 @@ mod tests {
 
     use super::*;
     use crate::activity_dao::SubagentUsage;
-    use crate::dao::ConversationPullRequest;
     use moatless_types::access_control::Scope;
     use moatless_types::activity::{ActivityKind, ActivityStatus};
     use moatless_types::agent::AgentType;
@@ -2472,11 +2501,30 @@ mod tests {
         );
     }
 
+    /// A binding whose status blob has never been fetched, which is how one is
+    /// written.
     fn bound(repository: &str, number: i64) -> ConversationPullRequest {
         ConversationPullRequest {
             repository: repository.to_string(),
             number,
             url: format!("https://github.com/{repository}/pull/{number}"),
+            title: None,
+            base_ref: None,
+            head_ref: None,
+            state_kind: None,
+            status_read_at: None,
+        }
+    }
+
+    /// The same binding after a refresh, which fills every status field at once.
+    fn fetched(pr: ConversationPullRequest, state_kind: &str) -> ConversationPullRequest {
+        ConversationPullRequest {
+            title: Some(format!("Ship {}", pr.number)),
+            base_ref: Some("main".to_string()),
+            head_ref: Some(format!("feature/{}", pr.number)),
+            state_kind: Some(state_kind.to_string()),
+            status_read_at: Some(instant_at("2026-02-03T04:05:06Z")),
+            ..pr
         }
     }
 
@@ -2514,6 +2562,51 @@ mod tests {
         assert_eq!(thread["linkedPullRequest"]["number"], 7);
     }
 
+    /// What the rows of the composer's pull-request menu and the sidebar's
+    /// status chip read, so neither has to ask `pullRequests.summary` for a
+    /// binding this deployment has already fetched.
+    #[test]
+    fn a_thread_row_carries_the_status_a_refreshed_binding_recorded() {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![fetched(bound("acme/web", 42), "open")]));
+
+        let linked = &one_thread(&row)["linkedPullRequest"];
+        assert_eq!(linked["title"], "Ship 42");
+        assert_eq!(linked["state"], "open");
+        assert_eq!(linked["isDraft"], false);
+        assert_eq!(linked["baseBranch"], "main");
+        assert_eq!(linked["headBranch"], "feature/42");
+        assert_eq!(linked["updatedAt"], "2026-02-03T04:05:06.000Z");
+    }
+
+    /// A draft reports the same `state` as an open pull request, because the
+    /// contract has no fourth value, so `isDraft` is what colours it grey.
+    #[test]
+    fn a_thread_row_reports_a_draft_binding_as_an_open_draft() {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![fetched(bound("acme/web", 42), "draft")]));
+
+        let linked = &one_thread(&row)["linkedPullRequest"];
+        assert_eq!(linked["state"], "open");
+        assert_eq!(linked["isDraft"], true);
+    }
+
+    /// A binding is written with its blob NULL and filled in by a refresh no
+    /// listing can trigger, so the reference travels alone rather than with a
+    /// state nobody read off GitHub. `pullRequests.summary` is what the client
+    /// falls back to, and what refreshes it.
+    #[test]
+    fn a_thread_row_carries_no_status_for_a_binding_never_fetched() {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![bound("acme/web", 42)]));
+
+        let linked = &one_thread(&row)["linkedPullRequest"];
+        assert_eq!(linked["number"], 42);
+        for absent in ["title", "state", "isDraft", "baseBranch", "headBranch", "updatedAt"] {
+            assert_eq!(linked.get(absent), None, "{absent} has nothing to report");
+        }
+    }
+
     #[test]
     fn a_thread_row_with_no_binding_links_no_pull_request() {
         let thread = one_thread(&conversation("task-a", "ws-a"));
@@ -2529,8 +2622,7 @@ mod tests {
         row.pull_requests = Some(Json(vec![
             ConversationPullRequest {
                 repository: String::new(),
-                number: 42,
-                url: "https://github.com/acme/web/pull/42".to_string(),
+                ..bound("acme/web", 42)
             },
             bound("acme/web", 7),
         ]));
