@@ -143,10 +143,11 @@ A comment carries a fact the code cannot show. Four kinds qualify:
 - A non-obvious mechanic.
 - A unit or an ordering the signature does not state.
 
-Default to none. A public item gets a one-line doc that says what it is. The
-working ceiling is three lines for a comment and eight for a module doc. Past
-that ceiling the content is rationale, and it belongs in the commit or the pull
-request.
+Default to none. A public item gets a one-line doc that says what it is. Three
+lines for a comment and eight for a module doc is where the writing has gone
+wrong, not an allowance to spend. Past it, cut. Text moves to the commit or the
+pull request only when a reviewer of the change needs it. Text no reader needs
+is deleted, not relocated.
 
 These rules apply to a doc comment and a line comment in every language. The
 `rust-dev-guidelines` skill holds the Rust specifics and
@@ -167,8 +168,8 @@ These rules apply to a doc comment and a line comment in every language. The
 - **A rationale ends on what depends on it**: the caller, query, migration, test,
   or invariant that breaks under the alternative. Use `deliberately` and
   `rather than` when what follows names the alternative and what breaks. Cite the
-  PR when one produced the decision. Record an alternative you considered in the
-  pull request, never in a comment or an `AGENTS.md`.
+  PR when one produced the decision. An alternative you considered goes in the
+  pull request when a reviewer needs it, never in a comment or an `AGENTS.md`.
 - **Use the code's own names, in backticks**: `kyc_status` and `Pending`, never a
   paraphrase of them.
 - **A negative statement names the wrong assumption it prevents.** "No `Activated`
@@ -206,9 +207,10 @@ These rules apply to a doc comment and a line comment in every language. The
   `AGENTS.md`, commit `ln -s AGENTS.md CLAUDE.md` alongside it.
 - An `AGENTS.md` holds operational guidance only: what a future agent must do
   and must not do, where the code does not already show it. Give a reason only
-  when the rule reads as arbitrary without one, and keep it to a clause. A
-  decision, a rejected alternative and a history note go in the commit or the
-  pull request.
+  when the rule reads as arbitrary without one, and keep it to a clause. Never
+  move text here to get a comment under its ceiling. A decision, a rejected
+  alternative or a history note goes in the commit or the pull request when a
+  reviewer needs it, and nowhere when they do not.
 - The language skills are model-invoked: `rust-dev-guidelines` covers
   `crates/`, and `frontend-dev-guidelines` covers `apps/` and `packages/`.
 - `routeTree.gen.ts` is generated, and lint and format exclude it. Edit the
