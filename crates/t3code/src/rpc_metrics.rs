@@ -2,7 +2,9 @@
 //!
 //! Emitted at the one seam every request crosses — the `ClientFrame::Request`
 //! arm of `ProtocolSession::handle_json` — by reading the frames the handler
-//! produced. Nothing else in this crate increments them.
+//! produced. [`CONNECTION_BLOCKED`] is the exception and is emitted from
+//! `serve_websocket`, because what it measures is the connection rather than
+//! the request. Nothing else in this crate increments them.
 //!
 //! # Cardinality
 //! The `tag` label is a method name the client chose, so it is bounded by
@@ -21,6 +23,20 @@ pub(crate) const REQUEST_DURATION: &str = "moatless_ui_rpc_request_duration_seco
 /// Frames the socket refused before any dispatch, by `reason`.
 pub(crate) const CONNECTION_DEFECTS: &str = "moatless_ui_rpc_connection_defects_total";
 
+/// Seconds one connection spent answering a frame and so unable to read its
+/// socket.
+///
+/// [`REQUEST_DURATION`] starts at dispatch, so a request that waited behind
+/// another on the same connection is measured from the moment its turn came and
+/// its wait is attributed to nothing. This is the other side of that wait: the
+/// time the frame loop was occupied, which is what a queued request was waiting
+/// for. The wait itself is not observable here — a frame is already read by the
+/// time `incoming.next()` yields it. Unlabeled deliberately: which method is
+/// slow is [`REQUEST_DURATION`]'s question, and this one is how long a single
+/// frame holds a loop. Saturation is a further step: it needs a count of open
+/// connections to divide by, which this crate does not export.
+pub(crate) const CONNECTION_BLOCKED: &str = "moatless_ui_rpc_connection_blocked_seconds";
+
 /// Register the descriptions. Called once per process, from [`crate::router`].
 pub(crate) fn describe() {
     metrics::describe_counter!(REQUESTS, "T3 UI-RPC requests by method tag and outcome");
@@ -31,6 +47,10 @@ pub(crate) fn describe() {
     metrics::describe_counter!(
         CONNECTION_DEFECTS,
         "T3 UI-RPC frames refused before dispatch, by reason"
+    );
+    metrics::describe_histogram!(
+        CONNECTION_BLOCKED,
+        "T3 UI-RPC seconds a connection could not read its socket"
     );
 }
 

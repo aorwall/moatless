@@ -60,6 +60,13 @@ of them reports an outcome of its own.
 `rpc_metrics::Outcome` and let the seam emit it. Two counters drift, and a
 reader then cannot tell which one is the surface's.
 
+`rpc_metrics::CONNECTION_BLOCKED` is the one metric emitted outside that seam,
+from `serve_websocket`. It measures the connection and not the request: a frame
+is already read by the time `incoming.next()` yields it, so the wait a queued
+request suffers is not observable from the seam that answers it. A metric whose
+subject is the connection goes in the connection loop; everything a request
+answers with still goes through `record_request`.
+
 **The `tag` label is bounded by outcome, and never by trust.** A tag is a
 string the client chose, so labelling with it directly gives an unbounded label
 set. Only an outcome that a matched dispatch arm could have produced carries

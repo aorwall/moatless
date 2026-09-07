@@ -1396,14 +1396,20 @@ async fn serve_websocket(socket: WebSocket, state: UiRpcState, identity: UiRpcAu
     let mut session = ProtocolSession::new(frames);
 
     'connection: loop {
+        // Set the moment a client frame is in hand and cleared once it is
+        // answered: everything in between is time this connection cannot read
+        // its socket, so a second request from the same client waits it out.
+        let mut blocked_since = None;
         let frames = tokio::select! {
             message = incoming.next() => {
                 let Some(message) = message else { break };
                 let output = match message {
                     Ok(Message::Text(text)) => {
+                        blocked_since = Some(std::time::Instant::now());
                         session.handle_json(text.as_bytes(), &state, &identity).await
                     }
                     Ok(Message::Binary(bytes)) => {
+                        blocked_since = Some(std::time::Instant::now());
                         session.handle_json(&bytes, &state, &identity).await
                     }
                     Ok(Message::Ping(payload)) => {
@@ -1420,6 +1426,8 @@ async fn serve_websocket(socket: WebSocket, state: UiRpcState, identity: UiRpcAu
                     }
                 };
                 if output.eof {
+                    // No `CONNECTION_BLOCKED` sample: this breaks the loop, so
+                    // nothing can be queued behind the frame that ended it.
                     send_frames(&mut sink, output.frames).await;
                     break;
                 }
@@ -1435,7 +1443,12 @@ async fn serve_websocket(socket: WebSocket, state: UiRpcState, identity: UiRpcAu
             }
         };
 
-        if !send_frames(&mut sink, frames).await {
+        let sent = send_frames(&mut sink, frames).await;
+        if let Some(started) = blocked_since {
+            metrics::histogram!(rpc_metrics::CONNECTION_BLOCKED)
+                .record(started.elapsed().as_secs_f64());
+        }
+        if !sent {
             break 'connection;
         }
     }
@@ -1582,8 +1595,8 @@ fn request_root_span(
 ) -> tracing::Span {
     // `otel.*` are `tracing-opentelemetry`'s own field names, and a field it can
     // record has to be declared here: a span records only what it was built
-    // with. `outcome` and the status are filled in once the handler answers, in
-    // [`ProtocolSession::handle_json`].
+    // with. `outcome`, `duration_ms` and the status are filled in once the
+    // handler answers, in [`record_request`].
     let span = tracing::info_span!(
         "ui_rpc.request",
         tag = %tag,
@@ -1592,6 +1605,7 @@ fn request_root_span(
         outcome = tracing::field::Empty,
         error.type = tracing::field::Empty,
         client_trace_id = tracing::field::Empty,
+        duration_ms = tracing::field::Empty,
     );
     match remote_span_context(trace_id, span_id, sampled) {
         Some(cx) => {
@@ -1643,6 +1657,12 @@ fn record_request(
     .record(elapsed.as_secs_f64());
 
     span.record("outcome", outcome.as_str());
+    // Read `duration_ms`, not the span's own duration. A span's exported end
+    // time is restamped on every exit, and something below this surface enters
+    // a handle again after the handler answered: measured on staging,
+    // `ui_rpc.request` spans of 30s and 144s against requests this histogram
+    // put under 5s.
+    span.record("duration_ms", elapsed.as_secs_f64() * 1000.0);
     if outcome.is_failure() {
         span.record("otel.status_code", "ERROR");
         // Which failure it was. Without this, `outcome="fail"` cannot separate a
@@ -6873,6 +6893,71 @@ mod tests {
             assert_eq!(
                 outcome.map(|kv| kv.value.as_str().to_string()),
                 Some("success".to_string())
+            );
+        }
+
+        /// Why `duration_ms` exists, pinned: a span's exported end time is
+        /// restamped on every exit, so anything that enters a handle again after
+        /// the handler answered stretches the span. Should this assertion ever
+        /// fail, the exported duration became trustworthy and the field can go.
+        #[test]
+        fn a_span_reentered_past_the_handler_stretches_but_duration_ms_does_not() {
+            let exporter = InMemorySpanExporter::default();
+            let provider = SdkTracerProvider::builder()
+                .with_simple_exporter(exporter.clone())
+                .build();
+            let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("test"));
+            let subscriber = tracing_subscriber::registry().with(otel_layer);
+            let _guard = tracing::subscriber::set_default(subscriber);
+
+            let holder = {
+                let span = request_root_span("shell.list", None, None, None);
+                let entered = span.enter();
+                record_request(
+                    &span,
+                    "shell.list",
+                    &[json!({
+                        "_tag": "Exit",
+                        "requestId": "1",
+                        "exit": { "_tag": "Success", "value": {} }
+                    })],
+                    Duration::from_millis(7),
+                    &viewer(),
+                );
+                drop(entered);
+                span.clone()
+            };
+            std::thread::sleep(Duration::from_millis(60));
+            assert!(
+                exporter
+                    .get_finished_spans()
+                    .expect("exporter is readable")
+                    .is_empty(),
+                "a live handle keeps the span open"
+            );
+            // What a task polled after the handler answered does, once.
+            drop(holder.enter());
+            drop(holder);
+            provider.force_flush().expect("flush the simple exporter");
+
+            let spans = exporter.get_finished_spans().expect("exporter is readable");
+            assert_eq!(spans.len(), 1);
+            let exported = spans[0]
+                .end_time
+                .duration_since(spans[0].start_time)
+                .expect("a span ends after it starts");
+            assert!(
+                exported >= Duration::from_millis(25),
+                "the exported span carries the re-entry, not the handler: {exported:?}"
+            );
+            let recorded = spans[0]
+                .attributes
+                .iter()
+                .find(|kv| kv.key.as_str() == "duration_ms")
+                .map(|kv| kv.value.clone());
+            assert!(
+                matches!(recorded, Some(opentelemetry::Value::F64(ms)) if (ms - 7.0).abs() < 0.001),
+                "duration_ms is what the handler took: {recorded:?}"
             );
         }
     }
