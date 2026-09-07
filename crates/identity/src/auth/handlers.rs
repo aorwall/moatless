@@ -31,8 +31,8 @@ use super::schemas::{
     TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
     format_datetime, format_datetime_opt,
 };
-use super::session;
-use super::session::IssuedAuthSession;
+use super::sessions as session;
+use super::sessions::IssuedAuthSession;
 
 // ============================================================================
 // Local email/password authentication

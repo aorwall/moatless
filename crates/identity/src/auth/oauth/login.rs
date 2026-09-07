@@ -2,7 +2,7 @@ use super::provider::OAuthProvider;
 use crate::auth::{
     api_key,
     error::AuthError,
-    session::{self, IssuedAuthSession},
+    sessions::{self as session, IssuedAuthSession},
     state::AuthState,
 };
 use moatless_types::auth::AuthProvider;

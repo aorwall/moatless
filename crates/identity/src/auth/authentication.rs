@@ -2,18 +2,19 @@
 
 use super::{
     api_keys, github, middleware, pairing, password, provider_token_dao, provider_tokens, routes,
-    sessions, state, users,
+    state, users,
 };
 use std::sync::Arc;
-
 
 use crate::secret::service::SecretService;
 use moatless_core::http_auth::{TaskAccess, UserTokenVerifier};
 
 /// Application-owned ports needed by authentication. Construction pays this
 /// wiring cost once; route callers see only [`Authentication`].
+/// ```compile_fail
+/// use moatless_identity::auth::sessions::PgSessionDao;
+/// ```
 pub struct AuthenticationPorts {
-    pub sessions: Arc<dyn sessions::SessionDao>,
     pub api_keys: Arc<dyn api_keys::ApiKeyDao>,
     pub pairing: Arc<pairing::DevicePairing>,
     pub users: Arc<dyn users::UserDao>,
@@ -30,16 +31,34 @@ pub struct AuthenticationPorts {
 
 /// Deep authentication capsule: protocol routes and request authentication
 /// share one private state graph and one session policy.
+/// ```compile_fail
+/// use moatless_identity::auth::sessions::SessionDao;
+/// ```
 pub struct Authentication {
     pub(super) routes: state::AuthState,
     pub(super) layer: middleware::AuthMiddlewareState,
 }
 
 impl Authentication {
+    /// Mount the authentication routes without exposing their persistence.
+    /// ```no_run
+    /// use moatless_identity::auth::Authentication;
+    /// fn mount(auth: &Authentication) {
+    ///     let _routes = auth.routes();
+    ///     let _layer = auth.layer();
+    /// }
+    /// ```
     pub fn routes(&self) -> (axum::Router, utoipa::openapi::OpenApi) {
         routes::auth_router(self.routes.clone())
     }
 
+    /// Clone the middleware state without exposing its session store.
+    /// ```compile_fail
+    /// use moatless_identity::auth::Authentication;
+    /// fn session_store(auth: &Authentication) {
+    ///     let _ = auth.layer().sessions;
+    /// }
+    /// ```
     pub fn layer(&self) -> middleware::AuthMiddlewareState {
         self.layer.clone()
     }

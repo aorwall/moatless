@@ -1,7 +1,7 @@
 //! Persisting the GitHub App user access token a person authorized.
 //!
 //! Written by two flows that must agree byte for byte on the row they leave
-//! behind: GitHub App *login* ([`crate::auth::session::create_session`]) and
+//! behind: GitHub App *login* ([`crate::auth::sessions::create_session`]) and
 //! *connect*, which attaches the same credential to a session established by
 //! some other provider. A second copy of this would drift on the next change to
 //! one of them.

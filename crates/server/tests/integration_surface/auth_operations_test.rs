@@ -161,6 +161,63 @@ async fn failed_login_is_indistinguishable_and_throttling_precedes_password_work
 }
 
 #[sqlx::test]
+async fn owner_built_sessions_are_shared_by_login_middleware_and_logout(pool: PgPool) {
+    let user = seed_user(&pool, "session-owner", UserRole::User).await;
+    let mut config = crate::common::test_config();
+    config.auth.provider = AuthProvider::Local;
+    let origin = config.auth.frontend_url.clone();
+    let auth = compose(pool.clone(), &config)
+        .build_authentication(Arc::new(config))
+        .unwrap();
+    let app = auth
+        .routes()
+        .0
+        .route(
+            "/session-probe",
+            axum::routing::get(|| async { StatusCode::OK }),
+        )
+        .layer(axum::middleware::from_fn(
+            moatless_identity::auth::middleware::auth_middleware,
+        ))
+        .layer(axum::Extension(auth.layer()));
+
+    let cookie = session_cookie(&login(&app, "session-owner", PASSWORD).await);
+    assert_eq!(active_sessions(&pool, user).await, 1);
+    assert_eq!(
+        request(&app, "GET", "/session-probe", Value::Null, Some(&cookie))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let csrf = cookie
+        .split("; ")
+        .find_map(|part| part.strip_prefix("moatless_csrf="))
+        .unwrap();
+    let logout = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .header("cookie", &cookie)
+                .header("x-csrf-token", csrf)
+                .header("origin", origin)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(logout.status(), StatusCode::OK);
+    assert_eq!(active_sessions(&pool, user).await, 0);
+    assert_eq!(
+        request(&app, "GET", "/session-probe", Value::Null, Some(&cookie))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[sqlx::test]
 async fn password_change_requires_cookie_and_current_password_then_revokes_every_session(
     pool: PgPool,
 ) {

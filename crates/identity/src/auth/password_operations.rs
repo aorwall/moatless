@@ -6,7 +6,7 @@ use super::{
         AdminResetPasswordRequest, ChangePasswordRequest, PasswordLoginRequest, SessionResponse,
         UserInfo, format_datetime,
     },
-    session::{self, IssuedAuthSession},
+    sessions::{self as session, IssuedAuthSession},
     state::AuthState,
 };
 use moatless_types::{auth::AuthIdentity, user::UserRole};

@@ -18,6 +18,14 @@ stored credentials through `AdapterAppReader`, declared in
 `moatless-adapter-model`. Adding an Adapter must not edit this crate. User login
 and git-host credentials remain identity responsibilities.
 
+## Auth-session privacy
+
+Auth-session persistence and policy live in private `auth/sessions/` modules.
+`Authentication::build` constructs the session DAO and shares it between routes
+and middleware. Keep its DAO, rows and helpers private, including under
+`test-support`. Run its PostgreSQL tests with
+`cargo test -p moatless-identity --features db-tests`.
+
 ## GitHub: signing in and having access are separate
 
 `config.auth.provider` decides how somebody signs in.
@@ -26,7 +34,7 @@ deployment that signs people in with OIDC still hands them GitHub access. Two
 writers reach the same row:
 
 - `auth/github/user_credential.rs` holds the App user token. GitHub App *login*
-  (`auth/session.rs`) and *connect* (`auth/github_connect.rs`) both go through
+  (`auth/sessions/service.rs`) and *connect* (`auth/github_connect.rs`) both go through
   its one `persist`, because the row they leave behind has to match.
 - `git_host_access.rs` holds a Personal Access Token, stored as a secret with
   the row carrying `secret_ref` and a placeholder. Setting one stashes whatever

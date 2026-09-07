@@ -35,8 +35,6 @@ use moatless_identity::auth::provider_token_dao::PgProviderTokenDao;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::provider_tokens::PgProviderTokenAuthDao;
 use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
-use moatless_identity::auth::sessions::PgSessionDao;
-use moatless_identity::auth::sessions::SessionDao;
 use moatless_identity::auth::users::PgUserDao;
 use moatless_identity::auth::users::UserDao;
 use moatless_identity::git_host_tokens::GitHostTokens;
@@ -171,7 +169,6 @@ pub struct Ports {
     pub adapter_apps: Arc<dyn moatless_adapter_model::apps::AdapterAppReader>,
     /// Local password credentials (`user_credentials`).
     pub user_credentials: Arc<dyn UserCredentialDao>,
-    pub sessions: Arc<dyn SessionDao>,
     pub api_keys: Arc<dyn ApiKeyDao>,
     pub provider_tokens: Arc<dyn ProviderTokenDao>,
     pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
@@ -333,7 +330,6 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
             Arc::new(config.clone()),
         )),
         user_credentials: Arc::new(PgUserCredentialDao(pool.clone())),
-        sessions: Arc::new(PgSessionDao(pool.clone())),
         api_keys,
         provider_tokens,
         provider_token_auth,
@@ -461,7 +457,6 @@ impl Ports {
             config,
             self.pool.clone(),
             moatless_identity::auth::AuthenticationPorts {
-                sessions: self.sessions.clone(),
                 api_keys: self.api_keys.clone(),
                 pairing: self.pairing.clone(),
                 users: self.users.clone(),

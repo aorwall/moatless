@@ -20,7 +20,7 @@ use super::api_keys::ApiKeyDao;
 use super::cache::AuthCache;
 use super::cookie::{CSRF_COOKIE_NAME, get_all_cookie_values, get_cookie_value};
 use super::jwt;
-use super::session;
+use super::sessions as session;
 use super::sessions::SessionDao;
 use super::users::UserDao;
 use moatless_api_schemas::error::ErrorBody;
@@ -40,7 +40,7 @@ const WEBSOCKET_TICKET_PARAM: &str = "wsTicket";
 pub struct AuthMiddlewareState {
     pub api_keys: Arc<dyn ApiKeyDao>,
     pub users: Arc<dyn UserDao>,
-    pub sessions: Arc<dyn SessionDao>,
+    pub(super) sessions: Arc<dyn SessionDao>,
     pub token_verifier: Arc<dyn UserTokenVerifier>,
     pub cache: AuthCache,
     pub config: Arc<Config>,

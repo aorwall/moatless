@@ -6,12 +6,12 @@ use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use super::super::github::user_credential;
+use super::super::models::{OAuthTokens, ProviderUserInfo};
+use super::super::provider_tokens::ProviderTokenAuthDao;
+use super::super::users::{User, UserDao};
+use super::dao::{AuthenticatedSession, NewAuthSession, SessionDao};
 use moatless_types::user::UserRole;
-use super::github::user_credential;
-use super::models::{OAuthTokens, ProviderUserInfo};
-use super::provider_tokens::ProviderTokenAuthDao;
-use super::sessions::{AuthenticatedSession, NewAuthSession, SessionDao};
-use super::users::{User, UserDao};
 
 /// Generate a cryptographically secure session ID (64 hex chars).
 fn generate_token() -> String {
@@ -20,12 +20,12 @@ fn generate_token() -> String {
 }
 
 /// Raw bearer and CSRF values returned exactly once when a session is issued.
-pub struct IssuedAuthSession {
+pub(in crate::auth) struct IssuedAuthSession {
     pub token: String,
     pub csrf_token: String,
 }
 
-pub(crate) fn hash_token(token: &str) -> Vec<u8> {
+pub(in crate::auth) fn hash_token(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
 }
 
@@ -64,7 +64,7 @@ async fn issue_auth_session(
 /// Upserts the user, creates a session row (audit trail + provider token persistence),
 /// and returns an opaque token for the auth-session cookie.
 #[allow(clippy::too_many_arguments)]
-pub async fn create_session(
+pub(in crate::auth) async fn create_session(
     users: &dyn UserDao,
     sessions: &dyn SessionDao,
     provider_tokens: &dyn ProviderTokenAuthDao,
@@ -184,7 +184,7 @@ pub async fn create_session(
 /// Unlike `create_session`, this doesn't require OAuth tokens — it creates
 /// a session with `provider = "api-key"` and no token fields.
 /// Returns an opaque token for the auth-session cookie.
-pub async fn create_session_from_user(
+pub(in crate::auth) async fn create_session_from_user(
     sessions: &dyn SessionDao,
     user: &User,
     group_id: Option<&str>,
@@ -206,7 +206,7 @@ pub async fn create_session_from_user(
 ///
 /// `provider` records how this auth session was established and flows through
 /// to `AuthUser.provider`; it is not an application identity key.
-pub async fn create_session_from_user_with_provider(
+pub(in crate::auth) async fn create_session_from_user_with_provider(
     sessions: &dyn SessionDao,
     user: &User,
     group_id: Option<&str>,
@@ -236,7 +236,7 @@ pub async fn create_session_from_user_with_provider(
 
 /// Resolve an opaque auth-session token. Revoked, expired, disabled-account,
 /// and unknown tokens all produce `None`.
-pub async fn validate_session(
+pub(in crate::auth) async fn validate_session(
     sessions: &dyn SessionDao,
     token: &str,
     idle_timeout_secs: u64,
@@ -259,7 +259,7 @@ pub async fn validate_session(
 }
 
 /// Revoke the auth session represented by a raw browser token.
-pub async fn revoke_session(
+pub(in crate::auth) async fn revoke_session(
     sessions: &dyn SessionDao,
     token: &str,
 ) -> Result<bool, crate::auth::error::AuthError> {
@@ -276,7 +276,160 @@ mod tests {
     use chrono::Duration;
 
     use super::*;
-    use crate::auth::sessions::MockSessionDao;
+    use crate::auth::sessions::dao::MockSessionDao;
+
+    fn authenticated_session(last_seen_at: chrono::DateTime<Utc>) -> AuthenticatedSession {
+        AuthenticatedSession {
+            id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            login: "alice".into(),
+            role: UserRole::User,
+            authenticated_via: "local".into(),
+            csrf_token_hash: hash_token("csrf"),
+            group_id: None,
+            last_seen_at,
+            idle_expires_at: Utc::now() + Duration::minutes(1),
+            absolute_expires_at: Utc::now() + Duration::minutes(2),
+        }
+    }
+
+    #[tokio::test]
+    async fn issuance_persists_only_hashes_and_caps_the_idle_lifetime() {
+        let hashes = Arc::new(std::sync::Mutex::new(None));
+        let captured = hashes.clone();
+        let user_id = Uuid::new_v4();
+        let mut sessions = MockSessionDao::new();
+        sessions
+            .expect_insert_session()
+            .once()
+            .returning(move |row| {
+                assert_eq!(row.user_id, user_id);
+                assert_eq!(row.group_id.as_deref(), Some("group"));
+                assert_eq!(row.authenticated_via, "local");
+                assert_eq!(row.idle_expires_at, row.absolute_expires_at);
+                assert_eq!(
+                    row.absolute_expires_at - row.created_at,
+                    Duration::seconds(60)
+                );
+                *captured.lock().unwrap() =
+                    Some((row.token_hash.clone(), row.csrf_token_hash.clone()));
+                Ok(())
+            });
+        let issued = issue_auth_session(&sessions, user_id, Some("group"), "local", 3600, 60)
+            .await
+            .unwrap();
+        assert_eq!(issued.token.len(), 64);
+        assert_eq!(issued.csrf_token.len(), 64);
+        assert_ne!(issued.token, issued.csrf_token);
+        assert_eq!(
+            hashes.lock().unwrap().as_ref().unwrap(),
+            &(hash_token(&issued.token), hash_token(&issued.csrf_token))
+        );
+    }
+
+    #[tokio::test]
+    async fn validation_refreshes_only_stale_sessions_and_caps_returned_expiry() {
+        for stale in [false, true] {
+            let now = Utc::now();
+            let row = authenticated_session(now - Duration::minutes(if stale { 6 } else { 4 }));
+            let expected = row.clone();
+            let mut sessions = MockSessionDao::new();
+            sessions
+                .expect_find_active_by_token_hash()
+                .withf(|hash, _| hash == hash_token("cookie"))
+                .once()
+                .returning(move |_, _| Ok(Some(row.clone())));
+            if stale {
+                let session_id = expected.id;
+                sessions
+                    .expect_touch()
+                    .withf(move |id, at, expiry| {
+                        *id == session_id && *expiry - *at == Duration::seconds(3600)
+                    })
+                    .once()
+                    .returning(|_, _, _| Ok(()));
+            } else {
+                sessions.expect_touch().never();
+            }
+            let actual = validate_session(&sessions, "cookie", 3600)
+                .await
+                .unwrap()
+                .unwrap();
+            if stale {
+                assert!(actual.last_seen_at >= now);
+                assert_eq!(actual.idle_expires_at, expected.absolute_expires_at);
+            } else {
+                assert_eq!(actual.last_seen_at, expected.last_seen_at);
+                assert_eq!(actual.idle_expires_at, expected.idle_expires_at);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_session_does_not_touch_the_database() {
+        let mut sessions = MockSessionDao::new();
+        sessions
+            .expect_find_active_by_token_hash()
+            .once()
+            .returning(|_, _| Ok(None));
+        sessions.expect_touch().never();
+        assert!(
+            validate_session(&sessions, "unknown", 3600)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn database_errors_keep_their_cause_through_session_operations() {
+        use crate::auth::error::AuthError;
+        let mut sessions = MockSessionDao::new();
+        sessions
+            .expect_insert_session()
+            .once()
+            .returning(|_| Err(sqlx::Error::PoolClosed));
+        sessions
+            .expect_find_active_by_token_hash()
+            .once()
+            .returning(|_, _| Err(sqlx::Error::PoolClosed));
+        sessions
+            .expect_revoke_by_token_hash()
+            .once()
+            .returning(|_, _| Err(sqlx::Error::PoolClosed));
+        assert!(matches!(
+            issue_auth_session(&sessions, Uuid::new_v4(), None, "local", 60, 60).await,
+            Err(AuthError::Database(sqlx::Error::PoolClosed))
+        ));
+        assert!(matches!(
+            validate_session(&sessions, "cookie", 60).await,
+            Err(AuthError::Database(sqlx::Error::PoolClosed))
+        ));
+        assert!(matches!(
+            revoke_session(&sessions, "cookie").await,
+            Err(AuthError::Database(sqlx::Error::PoolClosed))
+        ));
+    }
+
+    #[tokio::test]
+    async fn refresh_failure_does_not_return_an_authenticated_session() {
+        let row = authenticated_session(Utc::now() - Duration::minutes(6));
+        let mut sessions = MockSessionDao::new();
+        sessions
+            .expect_find_active_by_token_hash()
+            .once()
+            .returning(move |_, _| Ok(Some(row.clone())));
+        sessions
+            .expect_touch()
+            .once()
+            .returning(|_, _, _| Err(sqlx::Error::PoolClosed));
+        assert!(matches!(
+            validate_session(&sessions, "cookie", 60).await,
+            Err(crate::auth::error::AuthError::Database(
+                sqlx::Error::PoolClosed
+            ))
+        ));
+    }
 
     #[tokio::test]
     async fn revoking_the_row_immediately_invalidates_the_cookie_token() {

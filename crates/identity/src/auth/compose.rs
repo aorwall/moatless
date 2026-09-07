@@ -2,17 +2,24 @@
 
 use super::oauth::provider::OAuthProvider;
 use super::state::OAuthProviders;
-use super::{Authentication, AuthenticationPorts, cache, error, middleware, oidc, password, state};
+use super::{
+    Authentication, AuthenticationPorts, cache, error, middleware, oidc, password, sessions, state,
+};
 use moatless_core::{config::Config, db::DbPool};
 use moatless_types::auth::AuthProvider;
 use std::sync::Arc;
 
 impl Authentication {
+    /// Build authentication with owner-private session persistence.
+    /// ```compile_fail
+    /// use moatless_identity::auth::sessions::dao::PgSessionDao;
+    /// ```
     pub fn build(
         config: Arc<Config>,
         db: DbPool,
         ports: AuthenticationPorts,
     ) -> Result<Self, error::AuthError> {
+        let sessions: Arc<dyn sessions::SessionDao> = Arc::new(sessions::PgSessionDao(db.clone()));
         let providers = OAuthProviders::from_config(&config);
         let oidc = config
             .auth
@@ -25,7 +32,7 @@ impl Authentication {
         let layer = middleware::AuthMiddlewareState {
             api_keys: ports.api_keys.clone(),
             users: ports.users.clone(),
-            sessions: ports.sessions.clone(),
+            sessions: sessions.clone(),
             token_verifier: ports.token_verifier.clone(),
             cache: cache.clone(),
             config: config.clone(),
@@ -36,7 +43,7 @@ impl Authentication {
             providers: Arc::new(providers),
             oidc,
             cache,
-            sessions: ports.sessions,
+            sessions,
             api_keys: ports.api_keys,
             pairing: ports.pairing,
             users: ports.users,
@@ -75,9 +82,6 @@ impl OAuthProviders {
             tracing::info!("Auth0 OAuth provider configured");
             Arc::new(p) as Arc<dyn OAuthProvider>
         });
-        Self {
-            github_app,
-            auth0,
-        }
+        Self { github_app, auth0 }
     }
 }

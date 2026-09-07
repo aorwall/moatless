@@ -1,11 +1,70 @@
+//! Authoritative browser auth-session persistence.
+
 use async_trait::async_trait;
-use moatless_core::db::DbPool;
-use super::sessions::{SessionDao, NewAuthSession, AuthenticatedSession};
 use chrono::{DateTime, Utc};
+use moatless_core::db::DbPool;
 use uuid::Uuid;
 
+use moatless_types::user::UserRole;
+
+/// A newly issued auth session. The browser receives the raw token; this row
+/// contains only its SHA-256 digest.
+#[derive(Debug)]
+pub(in crate::auth) struct NewAuthSession {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub token_hash: Vec<u8>,
+    pub csrf_token_hash: Vec<u8>,
+    pub authenticated_via: String,
+    pub group_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub idle_expires_at: DateTime<Utc>,
+    pub absolute_expires_at: DateTime<Utc>,
+}
+
+/// The current account and session facts returned for a valid opaque token.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub(in crate::auth) struct AuthenticatedSession {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub login: String,
+    #[sqlx(try_from = "String")]
+    pub role: UserRole,
+    pub authenticated_via: String,
+    pub csrf_token_hash: Vec<u8>,
+    pub group_id: Option<String>,
+    pub last_seen_at: DateTime<Utc>,
+    pub idle_expires_at: DateTime<Utc>,
+    pub absolute_expires_at: DateTime<Utc>,
+}
+
+/// Persistence seam exercised by auth route and middleware tests.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub(in crate::auth) trait SessionDao: Send + Sync {
+    async fn insert_session(&self, session: &NewAuthSession) -> Result<(), sqlx::Error>;
+    async fn find_active_by_token_hash(
+        &self,
+        token_hash: &[u8],
+        now: DateTime<Utc>,
+    ) -> Result<Option<AuthenticatedSession>, sqlx::Error>;
+    async fn touch(
+        &self,
+        session_id: Uuid,
+        now: DateTime<Utc>,
+        idle_expires_at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>;
+    async fn revoke_by_token_hash(
+        &self,
+        token_hash: &[u8],
+        now: DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error>;
+    async fn delete_sessions_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error>;
+}
+
 /// PostgreSQL implementation of [`SessionDao`].
-pub struct PgSessionDao(pub DbPool);
+pub(in crate::auth) struct PgSessionDao(pub(in crate::auth) DbPool);
 
 #[async_trait]
 impl SessionDao for PgSessionDao {
@@ -42,12 +101,8 @@ impl SessionDao for PgSessionDao {
         Ok(())
     }
 
-    // Validates an already-issued opaque session token. Deliberately does NOT
-    // filter `NOT u.is_bot`: the interactive login paths (OAuth, password) block
-    // bots at login, so the only sessions a bot ever holds are the ones the
-    // token/api-key exchange endpoints issued on purpose for its sandbox CLI.
-    // Filtering bots here rejected exactly those sessions, wedging a bot-owned
-    // task's `moat` in a permanent 401 once its `X-User-Token` JWT expired.
+    // Bot sessions are issued by token/API-key exchange; filtering bots here
+    // rejects the sandbox CLI after its user-token JWT expires.
     async fn find_active_by_token_hash(
         &self,
         token_hash: &[u8],
@@ -141,3 +196,7 @@ impl SessionDao for PgSessionDao {
         Ok(result.rows_affected())
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "dao_tests.rs"]
+mod tests;

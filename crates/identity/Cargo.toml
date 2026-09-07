@@ -43,6 +43,7 @@ moatless-adapter-model = { workspace = true }
 moatless-types = { workspace = true }
 
 [features]
+db-tests = []
 test-support = ["dep:mockall"]
 
 [lints]
