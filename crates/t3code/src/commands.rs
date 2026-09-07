@@ -2458,11 +2458,13 @@ mod tests {
                     && scripts[0].command == "pnpm dev"
                     && scripts[0].port == Some(3000)
                     && scripts[0].env_vars.is_none()
+                    && scripts[0].run_on_start
             })
             .once()
             .returning(|_, _, _| Ok(()));
         let mut script = wire_script("dev", "pnpm dev");
         script["port"] = json!(3000);
+        script["runOnWorktreeCreate"] = json!(true);
         let (result, calls) = dispatch_with_workspaces(
             conversations(None),
             commands,

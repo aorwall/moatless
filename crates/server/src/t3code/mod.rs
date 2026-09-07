@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod projection;
+pub mod startup_scripts;
 
 // `test` stays first so the census keeps scoring this as test-context; the
 // feature exposes it to this crate's own integration tests.

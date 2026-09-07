@@ -60,6 +60,14 @@ describe('describeEvent', () => {
     expect(describeEvent(makeEvent({ lifecycleEvent: 'pod_ready' })).tone).toBe('ok')
   })
 
+  it('renders a failed startup script as an error despite its ready subType', () => {
+    const { label, tone } = describeEvent(
+      makeEvent({ subType: 'ready', lifecycleEvent: 'startup_script_failed' }),
+    )
+    expect(label).toBe('Startup script failed')
+    expect(tone).toBe('error')
+  })
+
   it('covers the new Phase 2 subtypes', () => {
     expect(describeEvent(makeEvent({ lifecycleEvent: 'scheduling_blocked' })).tone).toBe(
       'recovering',

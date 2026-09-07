@@ -191,8 +191,13 @@ pub enum WorkspaceScriptAction {
         /// Icon shown next to the script in the Run menu
         #[arg(long)]
         icon: Option<String>,
+        /// Start the script automatically whenever a task's sandbox starts,
+        /// instead of only when someone runs it. It still waits for the
+        /// workspace's setup commands to finish first
+        #[arg(long)]
+        run_on_start: bool,
     },
-    /// Change an existing script's command, port, label, or icon
+    /// Change an existing script's command, port, label, icon, or start behavior
     Update {
         workspace_id: String,
         name: String,
@@ -211,6 +216,10 @@ pub enum WorkspaceScriptAction {
         /// Pass an empty string to clear a previously set icon
         #[arg(long)]
         icon: Option<String>,
+        /// Start the script automatically whenever a task's sandbox starts.
+        /// Pass `--run-on-start=false` to go back to running it on request
+        #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+        run_on_start: Option<bool>,
     },
     /// Remove a declared script
     Remove { workspace_id: String, name: String },
@@ -489,6 +498,7 @@ async fn run_workspace_scripts(
             label,
             port,
             icon,
+            run_on_start,
         } => {
             if let Some(port) = port {
                 validate_port(i32::from(port))?;
@@ -512,6 +522,7 @@ async fn run_workspace_scripts(
                 icon,
                 port,
                 env_vars: None,
+                run_on_start,
             });
             let updated = replace_scripts(client, &workspace_id, scripts).await?;
             print_scripts_result(&updated, json);
@@ -523,6 +534,7 @@ async fn run_workspace_scripts(
             label,
             port,
             icon,
+            run_on_start,
         } => {
             let mut scripts = client
                 .api()
@@ -549,6 +561,9 @@ async fn run_workspace_scripts(
                 } else {
                     Some(validate_port(port)?)
                 };
+            }
+            if let Some(run_on_start) = run_on_start {
+                script.run_on_start = run_on_start;
             }
             let updated = replace_scripts(client, &workspace_id, scripts).await?;
             print_scripts_result(&updated, json);
@@ -630,10 +645,11 @@ pub(crate) fn format_scripts_list(scripts: &[ScriptConfig]) {
                 s.label.clone().unwrap_or_default(),
                 summarize_command(&s.command),
                 s.port.map(|p| p.to_string()).unwrap_or_default(),
+                if s.run_on_start { "yes" } else { "" }.to_string(),
             ]
         })
         .collect();
-    output::print_table(&["NAME", "LABEL", "COMMAND", "PORT"], &rows);
+    output::print_table(&["NAME", "LABEL", "COMMAND", "PORT", "ON START"], &rows);
 }
 
 fn summarize_command(command: &str) -> String {

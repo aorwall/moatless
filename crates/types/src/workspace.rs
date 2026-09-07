@@ -214,7 +214,7 @@ pub fn sanitize_mount_name(name: &str) -> Option<String> {
     Some(cleaned)
 }
 
-/// Named command run on demand inside a Sandbox.
+/// Named command run inside a Sandbox, on demand or at Sandbox start.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -229,6 +229,11 @@ pub struct ScriptConfig {
     pub port: Option<u16>,
     #[serde(default)]
     pub env_vars: Option<HashMap<String, String>>,
+    /// Start this Script automatically when the Task's Sandbox reports Ready,
+    /// rather than only when someone runs it. Reported to the T3 client as
+    /// `runOnWorktreeCreate`.
+    #[serde(default)]
+    pub run_on_start: bool,
 }
 
 /// A provider whose credential can be pinned to a Workspace.

@@ -43,6 +43,8 @@ struct UiRpcScriptConfig {
     icon: Option<String>,
     #[serde(default)]
     port: Option<u16>,
+    #[serde(default)]
+    run_on_start: bool,
 }
 
 /// Prefix of the nominal root path reported for each workspace.
@@ -1737,11 +1739,11 @@ fn scripts(workspace: &Workspace) -> Vec<Value> {
                 "name": name,
                 "command": command,
                 "icon": icon,
-                // An instruction to the client, not a description of Moatless:
-                // it asks the client to run this command itself when it creates
-                // a working copy. Moatless has no worktrees — a Sandbox is the
-                // isolation — and setup commands already own provisioning.
-                "runOnWorktreeCreate": false,
+                // The client's name for `run_on_start`. Moatless has no
+                // worktrees — a Sandbox is the isolation — so the backend runs
+                // the flagged Script itself when the Sandbox reports Ready
+                // (`startup_scripts`), and the client only labels it "(setup)".
+                "runOnWorktreeCreate": script.run_on_start,
                 // A script that serves a port is worth auto-opening a preview
                 // for; one that prints to a console is not.
                 "autoOpenPreview": script.port.is_some(),

@@ -12,6 +12,7 @@ use crate::routes::router;
 use crate::sandbox::SandboxState;
 use crate::scripts::ScriptsState;
 use crate::servers::ServersState;
+use crate::startup_scripts::StartupScripts;
 use crate::state::UiRpcState;
 use crate::subtasks::SubtasksState;
 use crate::task_dao::T3TaskDao;
@@ -41,7 +42,7 @@ use tracing::info;
 /// identity, which is read from the database. See `environment_id`.
 pub async fn router_from_env(
     dependencies: UiRpcDependencies,
-) -> Result<Option<Router>, UiRpcConfigError> {
+) -> Result<Option<UiRpc>, UiRpcConfigError> {
     if !env_enabled("T3_UI_RPC_ENABLED")? {
         return Ok(None);
     }
@@ -105,7 +106,22 @@ pub async fn router_from_env(
         tabs: preview_tabs,
         tasks: tasks.clone(),
     };
-    Ok(Some(router(UiRpcState {
+    // Both held outside the state literal because the startup runner is handed
+    // the same two: a Script started at Sandbox Ready has to land in the hub
+    // the RPC surface serves terminal reads from.
+    let scripts = ScriptsState {
+        workspaces: workspaces.clone(),
+        ports,
+        preview: preview.clone(),
+    };
+    let terminal = terminal::TerminalHub::default();
+    let startup_scripts = StartupScripts::new(
+        scripts.clone(),
+        conversations.clone(),
+        sandboxes.clone(),
+        terminal.clone(),
+    );
+    let router = router(UiRpcState {
         rpc: Arc::new(config),
         environment: Arc::new(environment),
         session_cookie_name: Arc::from(session_cookie_name),
@@ -122,11 +138,7 @@ pub async fn router_from_env(
             tasks: tasks.clone(),
             intent: intent.clone(),
         },
-        scripts: ScriptsState {
-            workspaces,
-            ports,
-            preview: preview.clone(),
-        },
+        scripts,
         sandbox: SandboxState {
             observer,
             tasks: tasks.clone(),
@@ -149,10 +161,24 @@ pub async fn router_from_env(
         commands,
         attachments,
         usage,
-        terminal: terminal::TerminalHub::default(),
+        terminal,
         client_traces,
         usage_limit_sources,
-    })))
+    });
+    Ok(Some(UiRpc {
+        router,
+        startup_scripts,
+    }))
+}
+
+/// The two halves of the T3 compatibility module: the routes it serves, and the
+/// Scripts it starts on its own when a Sandbox becomes Ready.
+///
+/// One value because the second half is only reachable through state the first
+/// half owns; the Task band subscribes it to the Ready event.
+pub struct UiRpc {
+    pub router: Router,
+    pub startup_scripts: StartupScripts,
 }
 
 /// Everything the T3 compatibility routes need from the rest of the backend.

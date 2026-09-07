@@ -290,6 +290,7 @@ mod tests {
             icon: Some("database".to_string()),
             port: Some(4321),
             env_vars: Some(HashMap::from([("RESET".to_string(), "1".to_string())])),
+            run_on_start: true,
         };
         assert_eq!(
             serde_json::to_value(&script).expect("serialize")["envVars"]["RESET"],

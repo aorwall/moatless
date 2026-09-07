@@ -60,7 +60,7 @@ pub(crate) async fn ui_rpc(
     ports: &Ports,
     app_state: &AppState,
     inputs: UiRpcInputs,
-) -> Result<Option<Router>, Box<dyn std::error::Error>> {
+) -> Result<Option<moatless_t3code::UiRpc>, Box<dyn std::error::Error>> {
     let ui_rpc_conversations = ports.ui_rpc_conversations.clone();
     moatless_t3code::router_from_env(moatless_t3code::UiRpcDependencies {
         session_cookie_name: config.auth.session_cookie_name.clone(),

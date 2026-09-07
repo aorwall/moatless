@@ -99,6 +99,9 @@ const DESCRIPTORS: Record<string, Descriptor> = {
   idle_reaped: { label: 'Stopped (idle)', tone: 'neutral' },
   scheduling_blocked: { label: 'Scheduling blocked', tone: 'recovering', icon: Clock },
   startup_slow: { label: 'Slow startup', tone: 'recovering', icon: Clock },
+  // Published under a `ready` subType with isError false — the sandbox is up,
+  // only the script is not — so the tone has to come from here.
+  startup_script_failed: { label: 'Startup script failed', tone: 'error' },
   // Lifecycle failure causes (`lifecycleEvent` on an `error` sandbox
   // event). The operation and the underlying reason are in the message; these
   // are the bounded cause vocabulary the backend publishes.

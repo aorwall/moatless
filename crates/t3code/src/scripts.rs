@@ -131,6 +131,7 @@ pub fn public_script_list(scripts: &[ScriptConfig]) -> Vec<Value> {
                 "command": script.command,
                 "icon": script.icon,
                 "port": script.port,
+                "runOnStart": script.run_on_start,
             })
         })
         .collect()
@@ -349,6 +350,14 @@ fn script_config(script: &Value) -> Result<ScriptConfig, ScriptsWriteError> {
         .filter(|icon| projection::is_script_icon(icon))
         .map(str::to_string);
 
+    // Absent, null and non-bool all mean "run only on request": the flag is the
+    // client's `runOnWorktreeCreate`, and a client that does not know about it
+    // must not silently start turning it off.
+    let run_on_start = script
+        .get("runOnWorktreeCreate")
+        .and_then(Value::as_bool)
+        .unwrap_or_default();
+
     Ok(ScriptConfig {
         env_vars: None,
         port: port(script)?,
@@ -356,6 +365,7 @@ fn script_config(script: &Value) -> Result<ScriptConfig, ScriptsWriteError> {
         label,
         command,
         icon,
+        run_on_start,
     })
 }
 
@@ -465,5 +475,37 @@ mod tests {
     #[test]
     fn every_line_ends_with_the_carriage_return_that_runs_it() {
         assert!(exec_line("true").ends_with('\r'));
+    }
+
+    /// The flag the client calls `runOnWorktreeCreate` is stored as
+    /// `run_on_start`, and an edit that carries it back must not lose it.
+    #[test]
+    fn a_flagged_wire_script_is_stored_as_run_on_start() {
+        let stored = script_config(&json!({
+            "id": "dev",
+            "command": "bun run dev",
+            "runOnWorktreeCreate": true
+        }))
+        .expect("a script with an id and a command decodes");
+
+        assert!(stored.run_on_start);
+    }
+
+    /// Absent, null and a non-bool are one answer, so a malformed flag cannot
+    /// make a Script start by itself.
+    #[test]
+    fn an_absent_or_unreadable_flag_means_run_on_request() {
+        for script in [
+            json!({"id": "dev", "command": "bun run dev"}),
+            json!({"id": "dev", "command": "bun run dev", "runOnWorktreeCreate": null}),
+            json!({"id": "dev", "command": "bun run dev", "runOnWorktreeCreate": "yes"}),
+        ] {
+            assert!(
+                !script_config(&script)
+                    .expect("a script with an id and a command decodes")
+                    .run_on_start,
+                "{script}"
+            );
+        }
     }
 }

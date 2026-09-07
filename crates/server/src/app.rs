@@ -15,11 +15,14 @@ use crate::sandbox;
 use crate::startup;
 use crate::state::AppState;
 use crate::supervisor::{Criticality, Supervisor};
+use crate::t3code;
 use moatless_core::config::Config;
 use moatless_core::feature_flags::FeatureFlags;
 use moatless_identity::auth;
+use moatless_tasks::agent_event::EventKey;
 use moatless_tasks::event_ingress::relay::IngressRelayHandle;
 use moatless_tasks::task_listing;
+use moatless_types::sandbox::SandboxStatus;
 use moatless_workspaces::repository;
 
 const SHUTDOWN_JOIN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
@@ -289,7 +292,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let (domain_router, domain_api) = crate::compose::http::domain_routes(&app_state);
         router = router.merge(domain_router);
         api.merge(domain_api);
-        if let Some(t3code_router) = crate::compose::http::ui_rpc(
+        // Held for the event-subscriber registration below: the Scripts this
+        // starts run through the router's own state.
+        let mut startup_scripts = None;
+        if let Some(t3code) = crate::compose::http::ui_rpc(
             &config,
             &ports,
             &app_state,
@@ -304,7 +310,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?
         {
-            router = router.merge(t3code_router);
+            router = router.merge(t3code.router);
+            startup_scripts = Some(t3code.startup_scripts);
             device_pairing = true;
         }
         info!("Domain routes registered");
@@ -349,7 +356,19 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // The Adapters that mirror a task's own events back to their provider.
         // Built here for the same reason as the delivery handlers: the
         // reactions read process ports, and no Adapter retains the aggregate.
-        let event_subscribers = Arc::new(adapter_installations.event_subscribers(&app_state));
+        let mut subscribers = adapter_installations.event_subscribers(&app_state);
+        // Not an Adapter: the T3 module's own reaction, registered here because
+        // this is where both its handle and the subscriber set exist.
+        if let Some(startup_scripts) = startup_scripts {
+            subscribers.subscribe(
+                [EventKey::Sandbox(SandboxStatus::Ready)],
+                Arc::new(t3code::startup_scripts::StartupScriptSubscriber::new(
+                    startup_scripts,
+                    app_state.events.clone(),
+                )),
+            );
+        }
+        let event_subscribers = Arc::new(subscribers);
         if let Some(handle) =
             spawn_event_handler(&config, &app_state, event_subscribers, cancel.clone()).await
         {

@@ -868,7 +868,8 @@ async fn the_mounted_route_returns_the_viewers_projects(pool: PgPool) {
     let router = router_from_env(mounted_dependencies(&pool))
         .await
         .unwrap()
-        .expect("the compatibility routes are gated on");
+        .expect("the compatibility routes are gated on")
+        .router;
 
     let response = router
         .oneshot(ui_rpc_authed_request(
@@ -926,6 +927,29 @@ async fn a_projects_scripts_are_separate_from_servers_and_setup(pool: PgPool) {
         scripts[0].get("previewUrl").is_none(),
         "a stored port is not a preview URL"
     );
+}
+
+/// `runOnWorktreeCreate` is the client's name for `run_on_start`, and the
+/// backend acts on it: a flagged Script starts when the Sandbox reports Ready.
+#[sqlx::test]
+async fn a_script_that_runs_on_sandbox_start_is_projected_as_flagged(pool: PgPool) {
+    let repo = PgWorkspaceDao(pool.clone());
+    let mut ws = make_workspace_row("ws-a", "user-1");
+    ws.scripts = Some(run_config(json!([
+        { "name": "dev", "command": "bun run dev", "runOnStart": true },
+        { "name": "test", "command": "bun test" }
+    ])));
+    repo.insert_workspace(&ws).await.unwrap();
+
+    let scripts = project(&pool, &viewer("user-1"), "ws-a").await["scripts"]
+        .as_array()
+        .unwrap()
+        .clone();
+
+    assert_eq!(scripts[0]["id"], "dev");
+    assert_eq!(scripts[0]["runOnWorktreeCreate"], true);
+    assert_eq!(scripts[1]["id"], "test");
+    assert_eq!(scripts[1]["runOnWorktreeCreate"], false);
 }
 
 /// Server and setup declarations do not become client-run Scripts.
@@ -3952,7 +3976,8 @@ async fn descriptor(pool: &PgPool) -> Value {
     let router = router_from_env(mounted_dependencies(pool))
         .await
         .unwrap()
-        .expect("the compatibility routes are gated on");
+        .expect("the compatibility routes are gated on")
+        .router;
     let response = router
         .oneshot(
             axum::http::Request::builder()
