@@ -25,7 +25,9 @@ pub use objects::{
     delete_object, delete_objects_by_prefix, get_object, get_object_opt, get_object_range,
     head_object_modified_at, head_object_size, list_objects_with_size, put_object,
 };
-pub use presign::{PresignedUrl, presign_delete, presign_get, presign_put};
+pub use presign::{
+    PresignOp, PresignedUrl, presign_batch, presign_delete, presign_get, presign_put,
+};
 #[cfg(feature = "restic-backend")]
 pub use restic_backend::ResticS3Backend;
 #[cfg(feature = "sts")]

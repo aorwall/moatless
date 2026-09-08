@@ -21,6 +21,7 @@
 //! operation is best-effort: a fresh clone already gives a working repo.
 
 use std::collections::hash_map::DefaultHasher;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -367,6 +368,26 @@ fn hold_for_unread_snapshot(state: &SandboxState, format: &str) -> RestoreDecisi
         "Stored workspace snapshot could not be read; cloning and holding every upload so it is not overwritten"
     );
     state.workspace_sync.hold_uploads();
+    // The hold lasts the pod's life and silently ends this task's durability,
+    // so it is published rather than left in a container log that dies with it.
+    let payload = serde_json::json!({
+        "format": format,
+        "message": "The stored workspace snapshot could not be read. This pod is running on a fresh clone, and every upload is held so the snapshot is not overwritten.",
+    });
+    match serde_json::to_string(&payload) {
+        Ok(payload_json) => {
+            state.events.enqueue(sandbox_proto::PublishEventRequest {
+                task_id: state.config.task_id.clone(),
+                event_type: sandbox_proto::EventType::Sandbox as i32,
+                sub_type: "workspace_uploads_held".to_string(),
+                payload_json,
+                event_id: String::new(),
+                sequence: 0,
+                run_id: String::new(),
+            });
+        }
+        Err(e) => warn!(error = %e, "Failed to serialize the upload-hold event"),
+    }
     RestoreDecision::CloneOnly
 }
 
@@ -479,7 +500,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                     FORMAT,
                     0,
                     started.elapsed().as_millis() as u64,
-                    Some(&e),
+                    Some(&e.to_string()),
                 )
                 .await;
             return RestoreDecision::Nothing;
@@ -583,7 +604,7 @@ pub async fn download_on_start(state: &SandboxState) {
                     FORMAT,
                     0,
                     started.elapsed().as_millis() as u64,
-                    Some(&e),
+                    Some(&e.to_string()),
                 )
                 .await;
             return;
@@ -762,7 +783,7 @@ async fn upload_from_config(config: &Config, backend_client: &dyn BackendClient)
             }
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Workspace upload failed (non-fatal)");
-                Some(e)
+                Some(e.into())
             }
         },
         Err(e) => {
@@ -905,18 +926,61 @@ pub(super) async fn http_put(
     client: &reqwest::Client,
     url: &str,
     body: Vec<u8>,
-) -> Result<(), String> {
+) -> Result<(), HttpFailure> {
     let resp = client
         .put(url)
         .header(reqwest::header::CONTENT_LENGTH, body.len())
         .body(body)
         .send()
         .await
-        .map_err(|e| format!("PUT request failed: {e}"))?;
+        .map_err(|e| HttpFailure::transport("PUT", e))?;
     if resp.status().is_success() {
         Ok(())
     } else {
-        Err(format!("PUT returned HTTP {}", resp.status()))
+        Err(HttpFailure::from_status("PUT", resp.status()))
+    }
+}
+
+/// A failed transfer, and whether trying it again can produce a different
+/// answer.
+#[derive(Debug)]
+pub(super) struct HttpFailure {
+    message: String,
+    /// `false` for a 4xx other than 408 and 429. A presigned URL that S3 has
+    /// refused stays refused, so a retry loop spends its whole budget to reach
+    /// the answer it already had — and on the restore path that budget is a
+    /// share of the pod's startup-probe window.
+    pub(super) retryable: bool,
+}
+
+impl HttpFailure {
+    fn from_status(method: &str, status: reqwest::StatusCode) -> Self {
+        let permanent = status.is_client_error()
+            && status != reqwest::StatusCode::REQUEST_TIMEOUT
+            && status != reqwest::StatusCode::TOO_MANY_REQUESTS;
+        Self {
+            message: format!("{method} returned HTTP {status}"),
+            retryable: !permanent,
+        }
+    }
+
+    fn transport(method: &str, error: reqwest::Error) -> Self {
+        Self {
+            message: format!("{method} request failed: {error}"),
+            retryable: true,
+        }
+    }
+}
+
+impl fmt::Display for HttpFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl From<HttpFailure> for String {
+    fn from(failure: HttpFailure) -> Self {
+        failure.message
     }
 }
 
@@ -925,22 +989,22 @@ pub(super) async fn http_put(
 pub(super) async fn http_get(
     client: &reqwest::Client,
     url: &str,
-) -> Result<Option<Vec<u8>>, String> {
+) -> Result<Option<Vec<u8>>, HttpFailure> {
     let resp = client
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("GET request failed: {e}"))?;
+        .map_err(|e| HttpFailure::transport("GET", e))?;
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
     if !resp.status().is_success() {
-        return Err(format!("GET returned HTTP {}", resp.status()));
+        return Err(HttpFailure::from_status("GET", resp.status()));
     }
     let bytes = resp
         .bytes()
         .await
-        .map_err(|e| format!("reading GET body failed: {e}"))?;
+        .map_err(|e| HttpFailure::transport("reading the GET body", e))?;
     Ok(Some(bytes.to_vec()))
 }
 
@@ -1689,7 +1753,7 @@ mod tests {
     /// backend produced `Nothing`, which sends `init` on to
     /// [`download_on_start`] — and that extracts the rescue tar over the clone,
     /// which is how the task came up three days stale.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_mirror_that_cannot_be_read_neither_descends_nor_overlays() {
         let tmp = tempfile::tempdir().unwrap();
         let mut config = sync_config(tmp.path(), true, false);
@@ -1788,7 +1852,15 @@ mod tests {
         let backend = CountingBackend::flaky_object_urls(2);
         let paths = vec!["a.txt".to_string()];
 
-        let urls = workspace_mirror::mint_urls(&backend, "task", &paths, "get", false).await;
+        let urls = workspace_mirror::mint_urls(
+            &backend,
+            "task",
+            &paths,
+            "get",
+            false,
+            workspace_mirror::Retry::Upload,
+        )
+        .await;
 
         assert!(
             urls.is_ok(),
@@ -1804,12 +1876,46 @@ mod tests {
         let backend = CountingBackend::flaky_object_urls(usize::MAX);
         let paths = vec!["a.txt".to_string()];
 
-        let urls = workspace_mirror::mint_urls(&backend, "task", &paths, "get", false).await;
+        let urls = workspace_mirror::mint_urls(
+            &backend,
+            "task",
+            &paths,
+            "get",
+            false,
+            workspace_mirror::Retry::Upload,
+        )
+        .await;
 
         assert!(urls.is_err());
         assert_eq!(
             backend.object_url_calls(),
-            workspace_mirror::URL_MINT_ATTEMPTS as usize
+            workspace_mirror::UPLOAD_ATTEMPTS as usize
+        );
+    }
+
+    /// A restore outlasts what an upload gives up on. The two have opposite
+    /// stakes: the upload retries on the next tick, and the restore clones over
+    /// the snapshot and holds every upload for the pod's life.
+    #[tokio::test(start_paused = true)]
+    async fn a_restore_retries_past_what_an_upload_would() {
+        let backend =
+            CountingBackend::flaky_object_urls(workspace_mirror::UPLOAD_ATTEMPTS as usize);
+        let paths = vec!["a.txt".to_string()];
+
+        let urls = workspace_mirror::mint_urls(
+            &backend,
+            "task",
+            &paths,
+            "get",
+            true,
+            workspace_mirror::Retry::restore(),
+        )
+        .await;
+
+        assert!(urls.is_ok(), "the restore budget outlasts the upload's");
+        assert_eq!(
+            backend.object_url_calls(),
+            workspace_mirror::UPLOAD_ATTEMPTS as usize + 1
         );
     }
 
@@ -1820,7 +1926,15 @@ mod tests {
         let backend = CountingBackend::default();
         let paths = vec!["a.txt".to_string()];
 
-        let urls = workspace_mirror::mint_urls(&backend, "task", &paths, "get", false).await;
+        let urls = workspace_mirror::mint_urls(
+            &backend,
+            "task",
+            &paths,
+            "get",
+            false,
+            workspace_mirror::Retry::Upload,
+        )
+        .await;
 
         assert!(urls.is_err());
         assert_eq!(backend.object_url_calls(), 1);
@@ -1833,7 +1947,13 @@ mod tests {
         let client = http_client(Duration::from_secs(1)).unwrap();
 
         let backend = CountingBackend::sync_urls_failing(tonic::Code::Cancelled);
-        let got = workspace_mirror::fetch_stored_manifest("task", &backend, &client).await;
+        let got = workspace_mirror::fetch_stored_manifest(
+            "task",
+            &backend,
+            &client,
+            workspace_mirror::Retry::Upload,
+        )
+        .await;
         assert!(
             got.is_err(),
             "a transport failure must not read as `this task has no mirror`"
@@ -1842,7 +1962,13 @@ mod tests {
         // The backend saying it stores no workspace at all is an absence: there
         // is then nothing for any format to read, so descending is correct.
         let disabled = CountingBackend::default();
-        let got = workspace_mirror::fetch_stored_manifest("task", &disabled, &client).await;
+        let got = workspace_mirror::fetch_stored_manifest(
+            "task",
+            &disabled,
+            &client,
+            workspace_mirror::Retry::Upload,
+        )
+        .await;
         assert!(matches!(got, Ok(None)));
     }
 

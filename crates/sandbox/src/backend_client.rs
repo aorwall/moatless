@@ -234,10 +234,28 @@ impl tonic::service::Interceptor for AuthInterceptor {
     }
 }
 
+/// Deadline for an RPC other than a workspace-sync one.
+///
+/// Sized for a call the sandbox can afford to lose: `publish_event` shares the
+/// channel, and one in-order drainer stalls behind whatever it waits on.
+const RPC_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Deadline for the workspace-sync RPCs, on [`BackendGrpcClient::workspace`].
+///
+/// `GetWorkspaceObjectUrls` presigns a batch of up to 500 keys, so it is the one
+/// call whose server-side work scales with the request. Losing it on a restore
+/// clones over the snapshot, which is worth waiting past [`RPC_TIMEOUT`] for.
+const WORKSPACE_RPC_TIMEOUT: Duration = Duration::from_mins(1);
+
 /// Wrapper around `BackendSandboxServiceClient` with auth interceptor.
 #[derive(Clone)]
 pub struct BackendGrpcClient {
     client: BackendSandboxServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    /// The same service over a channel carrying [`WORKSPACE_RPC_TIMEOUT`]. A
+    /// second channel rather than a per-call deadline: `Endpoint::timeout`
+    /// applies to every request on the channel and a longer `grpc-timeout`
+    /// header cannot outlive it.
+    workspace: BackendSandboxServiceClient<InterceptedService<Channel, AuthInterceptor>>,
     /// Shared handle to the interceptor's token so it can be swapped at runtime.
     auth_token: Arc<RwLock<Option<String>>>,
 }
@@ -252,20 +270,35 @@ impl BackendGrpcClient {
     /// The `auth_token` is injected as a Bearer token on every outbound call and
     /// can later be replaced via [`BackendClient::update_auth_token`].
     pub fn connect(url: &str, auth_token: Option<String>) -> Result<Self, BackendGrpcClientError> {
-        let channel = Channel::from_shared(url.to_string())?
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(10))
-            .http2_keep_alive_interval(Duration::from_secs(30))
-            .keep_alive_timeout(Duration::from_secs(10))
-            .connect_lazy();
+        let endpoint = |timeout| {
+            Channel::from_shared(url.to_string()).map(|endpoint| {
+                endpoint
+                    .connect_timeout(Duration::from_secs(5))
+                    .timeout(timeout)
+                    .http2_keep_alive_interval(Duration::from_secs(30))
+                    .keep_alive_timeout(Duration::from_secs(10))
+                    .connect_lazy()
+            })
+        };
 
         let auth_token = Arc::new(RwLock::new(auth_token));
         let interceptor = AuthInterceptor {
             token: Arc::clone(&auth_token),
         };
-        let client = BackendSandboxServiceClient::with_interceptor(channel, interceptor);
+        let client =
+            BackendSandboxServiceClient::with_interceptor(endpoint(RPC_TIMEOUT)?, interceptor);
+        let workspace = BackendSandboxServiceClient::with_interceptor(
+            endpoint(WORKSPACE_RPC_TIMEOUT)?,
+            AuthInterceptor {
+                token: Arc::clone(&auth_token),
+            },
+        );
 
-        Ok(Self { client, auth_token })
+        Ok(Self {
+            client,
+            workspace,
+            auth_token,
+        })
     }
 }
 
@@ -482,7 +515,7 @@ impl BackendClient for BackendGrpcClient {
         &self,
         task_id: &str,
     ) -> Result<GetWorkspaceSyncUrlsResponse, tonic::Status> {
-        let mut client = self.client.clone();
+        let mut client = self.workspace.clone();
         let resp = client
             .get_workspace_sync_urls(GetWorkspaceSyncUrlsRequest {
                 task_id: task_id.to_string(),
@@ -511,7 +544,7 @@ impl BackendClient for BackendGrpcClient {
         operation: &str,
         restore_source: bool,
     ) -> Result<Vec<String>, tonic::Status> {
-        let mut client = self.client.clone();
+        let mut client = self.workspace.clone();
         let resp = client
             .get_workspace_object_urls(GetWorkspaceObjectUrlsRequest {
                 task_id: task_id.to_string(),

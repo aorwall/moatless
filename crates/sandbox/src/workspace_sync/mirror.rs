@@ -24,15 +24,22 @@
 //! presigned URL the backend mints per path (`GetWorkspaceObjectUrls`).
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures::stream::{self, StreamExt};
 use sandbox_proto::workspace_manifest::{Entry, MANIFEST_VERSION, Manifest};
 use tokio::sync::Semaphore;
+// Deliberately tokio's clock, not `std`'s: a test that drives a permanently
+// failing restore terminates only when the budget expires, and under
+// `#[tokio::test(start_paused = true)]` only this clock advances with the
+// backoff sleeps. On `std`'s the same test spends the budget in real time,
+// which is how one of them hit nextest's 300s per-test ceiling.
+use tokio::time::Instant;
 use tracing::{debug, info, warn};
 
 use super::file_set;
@@ -51,11 +58,25 @@ pub(super) const FORMAT: &str = "mirror";
 /// cap (`WORKSPACE_OBJECT_URL_BATCH`), which rejects a larger request.
 const URL_BATCH: usize = 500;
 
-/// Attempts to mint one batch of object URLs before minting gives up.
+/// Attempts an upload makes at one transfer before the sync fails.
+pub(super) const UPLOAD_ATTEMPTS: u32 = 3;
+
+/// Wall clock one restore may spend retrying, across every transfer it makes.
 ///
-/// On a restore, giving up holds every upload and clones, so a transport blip
-/// must not be what decides that. The upload path mints through here too.
-pub(super) const URL_MINT_ATTEMPTS: u32 = 3;
+/// The pod's startup probe binds this, not the presign TTL. `restore_on_start`
+/// runs inside `init::run_core_init` with `/health` still 503, and the probe
+/// kills the container after `K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6` failed
+/// checks at 5s spacing — 150s at the default. A budget past what is left is
+/// SIGKILLed mid-backoff, so neither `report_failed_restore` nor
+/// `hold_for_unread_snapshot` runs and the restart repeats the same wait. This
+/// shares that window with `credentials::fetch::RETRY_BUDGET` (90s) ahead of it
+/// and `init::git::CLONE_RETRY_BUDGET` (45s) after it; the container restart is
+/// the outer retry.
+const RESTORE_RETRY_BUDGET: Duration = Duration::from_secs(45);
+
+/// First wait between attempts, doubled on each one up to [`BACKOFF_CAP`].
+const BACKOFF_START: Duration = Duration::from_millis(250);
+const BACKOFF_CAP: Duration = Duration::from_secs(5);
 
 /// Transfers in flight. Each object is a separate request, so the wall clock is
 /// round trips divided by this; 16 puts a few thousand objects inside a couple
@@ -76,6 +97,75 @@ const OBJECT_TIMEOUT: Duration = Duration::from_mins(1);
 /// Largest object a single `PUT` can carry. S3 rejects more; a file this size in
 /// a workspace is skipped rather than failing every sync from here on.
 const MAX_OBJECT_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+
+/// How hard a transfer retries a failure that may be transient.
+///
+/// The two directions have opposite stakes. A failed upload retries on the next
+/// sync tick, so it costs one interval and gives up after [`UPLOAD_ATTEMPTS`].
+/// A failed restore clears the workspace, clones over the snapshot and holds
+/// every upload for the pod's life, so it spends [`RESTORE_RETRY_BUDGET`] of
+/// wall clock before accepting that.
+#[derive(Clone, Copy)]
+pub(super) enum Retry {
+    Upload,
+    /// Retry until this instant, whatever number of attempts that allows. One
+    /// restore shares one deadline across every transfer it makes, so a restore
+    /// that is merely slow cannot extend its own budget.
+    Restore(Instant),
+}
+
+impl Retry {
+    /// A budget for one whole restore, spent from now.
+    pub(super) fn restore() -> Self {
+        Self::Restore(Instant::now() + RESTORE_RETRY_BUDGET)
+    }
+
+    /// Whether an operation that has failed `attempts` times may try again.
+    fn again(self, attempts: u32) -> bool {
+        match self {
+            Self::Upload => attempts < UPLOAD_ATTEMPTS,
+            Self::Restore(deadline) => Instant::now() < deadline,
+        }
+    }
+}
+
+/// One attempt at a transfer. `Err(_, false)` is an answer rather than a blip,
+/// and stops the retry loop at once.
+type Attempt<T> = Result<T, (String, bool)>;
+
+/// Run `op` until it succeeds, answers definitively, or `retry` is spent.
+async fn with_retry<T, F, Fut>(retry: Retry, what: &str, mut op: F) -> Result<T, String>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Attempt<T>>,
+{
+    let mut attempts = 0;
+    let mut delay = BACKOFF_START;
+    loop {
+        match op().await {
+            Ok(value) => return Ok(value),
+            Err((error, retryable)) => {
+                attempts += 1;
+                if !retryable || !retry.again(attempts) {
+                    return Err(error);
+                }
+                warn!(%error, attempts, "{what} failed; retrying");
+                tokio::time::sleep(delay + jitter(delay)).await;
+                delay = (delay * 2).min(BACKOFF_CAP);
+            }
+        }
+    }
+}
+
+/// Up to a quarter of `delay`, taken from the clock because this crate carries
+/// no RNG. A node reclaim restarts every pod on the node at once, and a fixed
+/// backoff would have all of them retry against the backend in step.
+fn jitter(delay: Duration) -> Duration {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| u64::from(since.subsec_nanos()));
+    Duration::from_nanos((delay.as_nanos() as u64 / 4).saturating_mul(nanos) / 1_000_000_000)
+}
 
 /// What one sync has to move.
 #[derive(Debug, Default)]
@@ -301,11 +391,14 @@ async fn mirror_delta(
     let sizes: HashMap<&str, u64> = files.iter().map(|e| (e.path.as_str(), e.size)).collect();
     let mut uploaded = 0u64;
 
-    for (chunk, urls) in batched_urls(backend_client, task_id, &paths, "put", false).await? {
+    // Mint each batch immediately before its transfers rather than all of them
+    // up front, so a URL is never older than the batch that uses it.
+    for chunk in paths.chunks(URL_BATCH) {
+        let urls = mint_urls(backend_client, task_id, chunk, "put", false, Retry::Upload).await?;
         let budget = Arc::new(Semaphore::new(INFLIGHT_BUDGET_MB));
         // Own each (path, url): a closure taking a borrowed path fails the
         // higher-ranked-lifetime bound `buffer_unordered` needs on its futures.
-        let transfers = chunk.into_iter().zip(urls).map(|(path, url)| {
+        let transfers = chunk.iter().cloned().zip(urls).map(|(path, url)| {
             let client = client.clone();
             let budget = Arc::clone(&budget);
             let full = workspace_dir.join(&path);
@@ -315,7 +408,7 @@ async fn mirror_delta(
                     .acquire_many(permits)
                     .await
                     .map_err(|e| format!("mirror budget closed: {e}"))?;
-                put_file(&client, &url, &full).await
+                put_file(&client, &url, &full, Retry::Upload).await
             }
         });
         let results: Vec<Result<u64, String>> = stream::iter(transfers)
@@ -327,7 +420,16 @@ async fn mirror_delta(
         }
     }
 
-    for (_, urls) in batched_urls(backend_client, task_id, &delta.removed, "delete", false).await? {
+    for chunk in delta.removed.chunks(URL_BATCH) {
+        let urls = mint_urls(
+            backend_client,
+            task_id,
+            chunk,
+            "delete",
+            false,
+            Retry::Upload,
+        )
+        .await?;
         let deletes = urls.into_iter().map(|url| {
             let client = client.clone();
             async move { delete_object(&client, &url).await }
@@ -360,33 +462,44 @@ pub(super) async fn fetch_stored_manifest(
     task_id: &str,
     backend_client: &dyn BackendClient,
     client: &reqwest::Client,
+    retry: Retry,
 ) -> Result<Option<Manifest>, String> {
-    let urls = match backend_client.get_workspace_sync_urls(task_id).await {
-        Ok(urls) => urls,
-        // Not an outage: the backend is telling us this deployment stores no
-        // workspace at all, so there is nothing for any format to read.
-        Err(status) if is_feature_disabled(&status) => return Ok(None),
-        Err(status) => return Err(format!("minting sync URLs failed: {status}")),
+    let minted = with_retry(retry, "Minting workspace sync URLs", || async {
+        match backend_client.get_workspace_sync_urls(task_id).await {
+            Ok(urls) => Ok(Some(urls)),
+            // Not an outage: the backend is telling us this deployment stores
+            // no workspace at all, so there is nothing for any format to read.
+            Err(status) if is_feature_disabled(&status) => Ok(None),
+            Err(status) => Err((format!("minting sync URLs failed: {status}"), true)),
+        }
+    })
+    .await?;
+    let Some(urls) = minted else {
+        return Ok(None);
     };
     if urls.manifest_get_url.is_empty() {
         debug!(task_id = %task_id, "Backend minted no manifest URL");
         return Ok(None);
     }
 
-    match http_get(client, &urls.manifest_get_url).await {
-        Ok(Some(bytes)) => match Manifest::from_gz_json(&bytes) {
-            Ok(manifest) if manifest.version == MANIFEST_VERSION => Ok(Some(manifest)),
-            Ok(manifest) => Err(format!(
-                "stored manifest is version {}, which this build cannot read",
-                manifest.version
-            )),
-            Err(e) => Err(format!("stored manifest could not be parsed: {e}")),
-        },
-        Ok(None) => {
-            debug!(task_id = %task_id, "No stored workspace mirror");
-            Ok(None)
-        }
-        Err(e) => Err(format!("manifest download failed: {e}")),
+    let fetched = with_retry(retry, "Downloading the stored manifest", || async {
+        http_get(client, &urls.manifest_get_url)
+            .await
+            .map_err(|e| (format!("manifest download failed: {e}"), e.retryable))
+    })
+    .await?;
+
+    let Some(bytes) = fetched else {
+        debug!(task_id = %task_id, "No stored workspace mirror");
+        return Ok(None);
+    };
+    match Manifest::from_gz_json(&bytes) {
+        Ok(manifest) if manifest.version == MANIFEST_VERSION => Ok(Some(manifest)),
+        Ok(manifest) => Err(format!(
+            "stored manifest is version {}, which this build cannot read",
+            manifest.version
+        )),
+        Err(e) => Err(format!("stored manifest could not be parsed: {e}")),
     }
 }
 
@@ -407,7 +520,7 @@ pub(super) async fn stored_baseline(
     let client = http_client(OBJECT_TIMEOUT).ok()?;
     // A manifest this sandbox could not read is no delta base either, so both
     // failure shapes collapse to `None` here.
-    fetch_stored_manifest(task_id, backend_client, &client)
+    fetch_stored_manifest(task_id, backend_client, &client, Retry::Upload)
         .await
         .ok()
         .flatten()
@@ -437,12 +550,16 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
         warn!(task_id = %task_id, "Mirror restore client build failed; cannot tell whether a mirror exists");
         return RestoreAttempt::Failed;
     };
+    // One budget for the whole restore, so a batch that keeps failing cannot
+    // spend more than the restore as a whole is allowed.
+    let retry = Retry::restore();
     let manifest =
-        match fetch_stored_manifest(task_id, state.backend_client.as_ref(), &client).await {
+        match fetch_stored_manifest(task_id, state.backend_client.as_ref(), &client, retry).await {
             Ok(Some(manifest)) => manifest,
             Ok(None) => return RestoreAttempt::Absent,
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Stored manifest could not be read");
+                report_failed_restore(state, started, &e).await;
                 return RestoreAttempt::Failed;
             }
         };
@@ -460,23 +577,13 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
         return RestoreAttempt::Absent;
     };
 
-    let bytes = match download_manifest_files(state, &client, &manifest, &target).await {
+    let bytes = match download_manifest_files(state, &client, &manifest, &target, retry).await {
         Ok(bytes) => bytes,
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Workspace mirror restore failed; clearing partial state");
             state.workspace_sync.mark_mirror_unusable();
             clear_dir_contents(&workspace_dir).await;
-            state
-                .backend_client
-                .report_workspace_sync(
-                    task_id,
-                    "download",
-                    FORMAT,
-                    0,
-                    started.elapsed().as_millis() as u64,
-                    Some(&e),
-                )
-                .await;
+            report_failed_restore(state, started, &e).await;
             return RestoreAttempt::Failed;
         }
     };
@@ -502,6 +609,26 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
     RestoreAttempt::Restored(RestoreDecision::RestoredSnapshot)
 }
 
+/// Report a restore this pod could not complete.
+///
+/// The backend turns this into a `sandbox`/`workspace_sync_failed` event, which
+/// is the only durable trace of it: the pod clones over the snapshot and its
+/// container log dies with it, so the reason is otherwise unreadable by the time
+/// anyone asks why the tree came back empty.
+async fn report_failed_restore(state: &SandboxState, started: Instant, error: &str) {
+    state
+        .backend_client
+        .report_workspace_sync(
+            &state.config.task_id,
+            "download",
+            FORMAT,
+            0,
+            started.elapsed().as_millis() as u64,
+            Some(error),
+        )
+        .await;
+}
+
 /// Fetch every file the manifest names into `target`, recreating symlinks from
 /// the manifest rather than fetching them.
 async fn download_manifest_files(
@@ -509,6 +636,7 @@ async fn download_manifest_files(
     client: &reqwest::Client,
     manifest: &Manifest,
     target: &Path,
+    retry: Retry,
 ) -> Result<u64, String> {
     for entry in manifest.entries.iter().filter(|e| e.is_symlink()) {
         write_symlink(target, entry).await?;
@@ -523,17 +651,18 @@ async fn download_manifest_files(
     let by_path: HashMap<&str, &Entry> = files.iter().map(|e| (e.path.as_str(), *e)).collect();
     let mut downloaded = 0u64;
 
-    for (chunk, urls) in batched_urls(
-        state.backend_client.as_ref(),
-        &state.config.task_id,
-        &paths,
-        "get",
-        true,
-    )
-    .await?
-    {
+    for chunk in paths.chunks(URL_BATCH) {
+        let urls = mint_urls(
+            state.backend_client.as_ref(),
+            &state.config.task_id,
+            chunk,
+            "get",
+            true,
+            retry,
+        )
+        .await?;
         let budget = Arc::new(Semaphore::new(INFLIGHT_BUDGET_MB));
-        let transfers = chunk.into_iter().zip(urls).map(|(path, url)| {
+        let transfers = chunk.iter().cloned().zip(urls).map(|(path, url)| {
             let client = client.clone();
             let budget = Arc::clone(&budget);
             let full = target.join(&path);
@@ -544,7 +673,7 @@ async fn download_manifest_files(
                     .acquire_many(permits)
                     .await
                     .map_err(|e| format!("mirror budget closed: {e}"))?;
-                get_file(&client, &url, &full, entry.as_ref()).await
+                get_file(&client, &url, &full, entry.as_ref(), retry).await
             }
         });
         let results: Vec<Result<u64, String>> = stream::iter(transfers)
@@ -559,23 +688,6 @@ async fn download_manifest_files(
     Ok(downloaded)
 }
 
-/// Mint presigned URLs for `paths` in batches the backend accepts, pairing each
-/// batch with the paths it covers so a caller keeps the association.
-async fn batched_urls(
-    backend_client: &dyn BackendClient,
-    task_id: &str,
-    paths: &[String],
-    operation: &str,
-    restore_source: bool,
-) -> Result<Vec<(Vec<String>, Vec<String>)>, String> {
-    let mut batches = Vec::new();
-    for chunk in paths.chunks(URL_BATCH) {
-        let urls = mint_urls(backend_client, task_id, chunk, operation, restore_source).await?;
-        batches.push((chunk.to_vec(), urls));
-    }
-    Ok(batches)
-}
-
 /// Mint one batch of object URLs, retrying a transient backend failure.
 ///
 /// `FailedPrecondition` and `Unimplemented` are answers rather than blips, so
@@ -586,29 +698,20 @@ pub(super) async fn mint_urls(
     chunk: &[String],
     operation: &str,
     restore_source: bool,
+    retry: Retry,
 ) -> Result<Vec<String>, String> {
-    let mut delay = Duration::from_millis(250);
-    let mut last = format!("minting {operation} URLs failed");
-    for attempt in 1..=URL_MINT_ATTEMPTS {
-        match backend_client
+    with_retry(retry, "Minting workspace object URLs", || async {
+        backend_client
             .get_workspace_object_urls(task_id, chunk, operation, restore_source)
             .await
-        {
-            Ok(urls) => return Ok(urls),
-            Err(status) => {
-                last = format!("minting {operation} URLs failed: {status}");
-                if is_feature_disabled(&status) {
-                    break;
-                }
-                if attempt < URL_MINT_ATTEMPTS {
-                    warn!(task_id = %task_id, %status, attempt, "Minting workspace object URLs failed; retrying");
-                    tokio::time::sleep(delay).await;
-                    delay *= 2;
-                }
-            }
-        }
-    }
-    Err(last)
+            .map_err(|status| {
+                (
+                    format!("minting {operation} URLs failed: {status}"),
+                    !is_feature_disabled(&status),
+                )
+            })
+    })
+    .await
 }
 
 /// In-flight permits one file claims, one per megabyte and never more than the
@@ -621,19 +724,37 @@ fn permits_for(size: u64) -> u32 {
 /// `PUT` one file's bytes, returning what was sent. A file that disappeared
 /// between the walk and the read is skipped: a build artifact deleted mid-sync
 /// must not fail the sync and strand every later one.
-async fn put_file(client: &reqwest::Client, url: &str, path: &Path) -> Result<u64, String> {
-    let body = match tokio::fs::read(path).await {
-        Ok(body) => body,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
-        Err(e) => return Err(format!("reading {} failed: {e}", path.display())),
-    };
-    let bytes = body.len() as u64;
-    // Name the object: one bad file fails the whole sync, and the bare transport
-    // error left no way to tell which — or how big it was.
-    http_put(client, url, body)
-        .await
-        .map_err(|e| format!("{e} ({}, {bytes} bytes)", path.display()))?;
-    Ok(bytes)
+async fn put_file(
+    client: &reqwest::Client,
+    url: &str,
+    path: &Path,
+    retry: Retry,
+) -> Result<u64, String> {
+    // A `PUT` overwrites one key, so a retry after an ambiguous failure is safe
+    // whether or not the first one landed.
+    let sent = with_retry(retry, "Uploading a workspace object", || async {
+        // Read inside the attempt. Holding a second copy of the body for a
+        // retry that may never come would double what `permits_for` reserved.
+        let body = match tokio::fs::read(path).await {
+            Ok(body) => body,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err((format!("reading {} failed: {e}", path.display()), false)),
+        };
+        let bytes = body.len() as u64;
+        // Name the object: one bad file fails the whole sync, and the bare
+        // transport error left no way to tell which — or how big it was.
+        http_put(client, url, body)
+            .await
+            .map(|()| Some(bytes))
+            .map_err(|e| {
+                (
+                    format!("{e} ({}, {bytes} bytes)", path.display()),
+                    e.retryable,
+                )
+            })
+    })
+    .await?;
+    Ok(sent.unwrap_or(0))
 }
 
 /// `GET` one object into `path`, creating its parent directories and restoring
@@ -651,13 +772,24 @@ async fn get_file(
     url: &str,
     path: &Path,
     entry: Option<&Entry>,
+    retry: Retry,
 ) -> Result<u64, String> {
-    let body = http_get(client, url).await?.ok_or_else(|| {
-        format!(
-            "manifest names an object that is not stored: {}",
-            path.display()
-        )
-    })?;
+    let body = with_retry(retry, "Downloading a workspace object", || async {
+        match http_get(client, url).await {
+            // A 404 is S3 answering, not failing: the object is not there, and
+            // no number of retries puts it there.
+            Ok(None) => Err((
+                format!(
+                    "manifest names an object that is not stored: {}",
+                    path.display()
+                ),
+                false,
+            )),
+            Ok(Some(body)) => Ok(body),
+            Err(e) => Err((format!("{e} ({})", path.display()), e.retryable)),
+        }
+    })
+    .await?;
     let bytes = body.len() as u64;
     let path = path.to_path_buf();
     let mode = entry.map_or(0o644, |e| e.mode);

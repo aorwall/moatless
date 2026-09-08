@@ -19,20 +19,7 @@ pub async fn presign_put(
     key: &str,
     ttl: Duration,
 ) -> Result<PresignedUrl, S3Error> {
-    let ttl = effective_presign_ttl(storage.credentials_provider(), ttl).await?;
-    let cfg = PresigningConfig::expires_in(ttl).map_err(S3Error::InvalidPresignConfig)?;
-    let req = storage
-        .client
-        .put_object()
-        .bucket(bucket)
-        .key(key)
-        .presigned(cfg)
-        .await
-        .map_err(|e| S3Error::PresignPut(Box::new(e)))?;
-    Ok(PresignedUrl {
-        url: req.uri().to_string(),
-        expires_in: ttl,
-    })
+    presign_single(storage, bucket, key, PresignOp::Put, ttl).await
 }
 
 /// Presign an HTTP `GET` URL for `key`, valid for `ttl`.
@@ -42,20 +29,7 @@ pub async fn presign_get(
     key: &str,
     ttl: Duration,
 ) -> Result<PresignedUrl, S3Error> {
-    let ttl = effective_presign_ttl(storage.credentials_provider(), ttl).await?;
-    let cfg = PresigningConfig::expires_in(ttl).map_err(S3Error::InvalidPresignConfig)?;
-    let req = storage
-        .client
-        .get_object()
-        .bucket(bucket)
-        .key(key)
-        .presigned(cfg)
-        .await
-        .map_err(|e| S3Error::PresignGet(Box::new(e)))?;
-    Ok(PresignedUrl {
-        url: req.uri().to_string(),
-        expires_in: ttl,
-    })
+    presign_single(storage, bucket, key, PresignOp::Get, ttl).await
 }
 
 /// Presign an HTTP `DELETE` URL for `key`, valid for `ttl`.
@@ -65,20 +39,89 @@ pub async fn presign_delete(
     key: &str,
     ttl: Duration,
 ) -> Result<PresignedUrl, S3Error> {
+    presign_single(storage, bucket, key, PresignOp::Delete, ttl).await
+}
+
+/// The request a presign signs a key for.
+#[derive(Clone, Copy, Debug)]
+pub enum PresignOp {
+    Get,
+    Put,
+    Delete,
+}
+
+/// Presign `keys` for one operation, in order, under a single TTL.
+///
+/// [`effective_presign_ttl`] reads the credentials provider, and that read is a
+/// network call whenever the provider's cache is cold. Signing a few hundred
+/// keys one call at a time pays it a few hundred times, which is what put a
+/// batch of 500 past the sandbox's gRPC deadline. The whole batch shares one
+/// resolved TTL, so the caller gets it back rather than a per-URL minimum.
+pub async fn presign_batch(
+    storage: &S3Storage,
+    bucket: &str,
+    keys: &[String],
+    op: PresignOp,
+    ttl: Duration,
+) -> Result<(Vec<String>, Duration), S3Error> {
     let ttl = effective_presign_ttl(storage.credentials_provider(), ttl).await?;
-    let cfg = PresigningConfig::expires_in(ttl).map_err(S3Error::InvalidPresignConfig)?;
-    let req = storage
-        .client
-        .delete_object()
-        .bucket(bucket)
-        .key(key)
-        .presigned(cfg)
-        .await
-        .map_err(|e| S3Error::PresignDelete(Box::new(e)))?;
+    let mut urls = Vec::with_capacity(keys.len());
+    for key in keys {
+        urls.push(presign_one(storage, bucket, key, op, ttl).await?);
+    }
+    Ok((urls, ttl))
+}
+
+async fn presign_single(
+    storage: &S3Storage,
+    bucket: &str,
+    key: &str,
+    op: PresignOp,
+    ttl: Duration,
+) -> Result<PresignedUrl, S3Error> {
+    let ttl = effective_presign_ttl(storage.credentials_provider(), ttl).await?;
     Ok(PresignedUrl {
-        url: req.uri().to_string(),
+        url: presign_one(storage, bucket, key, op, ttl).await?,
         expires_in: ttl,
     })
+}
+
+/// Sign one key, for a `ttl` [`effective_presign_ttl`] has already resolved.
+async fn presign_one(
+    storage: &S3Storage,
+    bucket: &str,
+    key: &str,
+    op: PresignOp,
+    ttl: Duration,
+) -> Result<String, S3Error> {
+    let cfg = PresigningConfig::expires_in(ttl).map_err(S3Error::InvalidPresignConfig)?;
+    let req = match op {
+        PresignOp::Get => storage
+            .client
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .presigned(cfg)
+            .await
+            .map_err(|e| S3Error::PresignGet(Box::new(e)))?,
+        PresignOp::Put => storage
+            .client
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .presigned(cfg)
+            .await
+            .map_err(|e| S3Error::PresignPut(Box::new(e)))?,
+        PresignOp::Delete => storage
+            .client
+            .delete_object()
+            .bucket(bucket)
+            .key(key)
+            .presigned(cfg)
+            .await
+            .map_err(|e| S3Error::PresignDelete(Box::new(e)))?,
+    };
+    Ok(req.uri().to_string())
 }
 
 async fn effective_presign_ttl(

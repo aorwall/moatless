@@ -2128,29 +2128,30 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             req.task_id.clone()
         };
 
-        let mut urls = Vec::with_capacity(req.paths.len());
-        let mut expires_in = WORKSPACE_PRESIGN_TTL;
-        for path in &req.paths {
-            let key = workspace_object_key(&self.workspace_s3_prefix, &key_task_id, path);
-            let presigned = match req.operation.as_str() {
-                "put" => file_s3::presign_put(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL).await,
-                "get" => file_s3::presign_get(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL).await,
-                "delete" => {
-                    file_s3::presign_delete(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL).await
-                }
-                other => {
-                    return Err(Status::invalid_argument(format!(
-                        "unknown operation: {other}"
-                    )));
-                }
+        let op = match req.operation.as_str() {
+            "put" => file_s3::PresignOp::Put,
+            "get" => file_s3::PresignOp::Get,
+            "delete" => file_s3::PresignOp::Delete,
+            other => {
+                return Err(Status::invalid_argument(format!(
+                    "unknown operation: {other}"
+                )));
             }
-            .map_err(|e| {
-                warn!(error = %e, task_id = %req.task_id, operation = %req.operation, "presign for a workspace object failed");
-                Status::internal("Failed to presign workspace object URL")
-            })?;
-            expires_in = expires_in.min(presigned.expires_in);
-            urls.push(presigned.url);
-        }
+        };
+        let keys: Vec<String> = req
+            .paths
+            .iter()
+            .map(|path| workspace_object_key(&self.workspace_s3_prefix, &key_task_id, path))
+            .collect();
+        // One batch presign, not one call per key: the per-call credential read
+        // is what took a 500-path request past the sandbox's gRPC deadline.
+        let (urls, expires_in) =
+            file_s3::presign_batch(s3_client, bucket, &keys, op, WORKSPACE_PRESIGN_TTL)
+                .await
+                .map_err(|e| {
+                    warn!(error = %e, task_id = %req.task_id, operation = %req.operation, "presign for a workspace object failed");
+                    Status::internal("Failed to presign workspace object URL")
+                })?;
 
         debug!(
             task_id = %req.task_id,
@@ -2230,52 +2231,52 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             req.ok,
         );
 
-        // A failed upload is recorded as well as a successful one. The sandbox
-        // treats it as non-fatal and only warns into its own container log, so
-        // without a durable event a workspace that has stopped reaching S3 is
-        // invisible to `moat events`, `moat tasks diagnose` and the UI — and the
-        // agent goes on being told its working tree survives a restart when it
-        // does not.
-        if req.direction == "upload" {
-            if let Some(task_events) = self.ingress.as_ref().map(|i| &i.task_events) {
-                let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-                let mut payload = serde_json::json!({
-                    "direction": req.direction,
-                    "format": if req.format.is_empty() { "tar" } else { &req.format },
-                    "bytes": req.bytes.max(0),
-                    "durationMs": req.duration_ms.max(0),
-                    "ok": req.ok,
-                });
-                // `error` is what every reader of this event renders, and the
-                // container log holding the same reason dies with the pod. A
-                // sandbox predating the field sends none, so the key is absent
-                // rather than empty.
-                if !req.error.is_empty() {
-                    payload["error"] = serde_json::Value::String(req.error.clone());
-                }
-                let event = InsertTaskEvent {
-                    event_id: uuid::Uuid::new_v4().to_string(),
-                    task_id: req.task_id.clone(),
-                    event_type: "sandbox".to_string(),
-                    sub_type: if req.ok {
-                        "workspace_synced".to_string()
-                    } else {
-                        "workspace_sync_failed".to_string()
-                    },
-                    is_error: !req.ok,
-                    agent_type: None,
-                    turn_number: None,
-                    payload,
-                    timestamp: now,
-                };
-                if let Err(e) = task_events.insert_event(&event).await {
-                    warn!(
-                        task_id = %req.task_id,
-                        ok = req.ok,
-                        error = %e,
-                        "Failed to persist workspace sync marker"
-                    );
-                }
+        // Every direction is recorded, and a failure as well as a success. The
+        // sandbox only warns into its own container log, so without a durable
+        // event a workspace that has stopped reaching S3 is invisible to `moat
+        // events`, `moat tasks diagnose` and the UI — and the agent goes on
+        // being told its working tree survives a restart when it does not. A
+        // failed download is the more consequential of the two: that pod clears
+        // the tree and clones, and its log dies with it.
+        if let Some(task_events) = self.ingress.as_ref().map(|i| &i.task_events) {
+            let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            let mut payload = serde_json::json!({
+                "direction": req.direction,
+                "format": if req.format.is_empty() { "tar" } else { &req.format },
+                "bytes": req.bytes.max(0),
+                "durationMs": req.duration_ms.max(0),
+                "ok": req.ok,
+            });
+            // `error` is what every reader of this event renders, and the
+            // container log holding the same reason dies with the pod. A
+            // sandbox predating the field sends none, so the key is absent
+            // rather than empty.
+            if !req.error.is_empty() {
+                payload["error"] = serde_json::Value::String(req.error.clone());
+            }
+            let event = InsertTaskEvent {
+                event_id: uuid::Uuid::new_v4().to_string(),
+                task_id: req.task_id.clone(),
+                event_type: "sandbox".to_string(),
+                sub_type: if req.ok {
+                    "workspace_synced".to_string()
+                } else {
+                    "workspace_sync_failed".to_string()
+                },
+                is_error: !req.ok,
+                agent_type: None,
+                turn_number: None,
+                payload,
+                timestamp: now,
+            };
+            if let Err(e) = task_events.insert_event(&event).await {
+                warn!(
+                    task_id = %req.task_id,
+                    direction = %req.direction,
+                    ok = req.ok,
+                    error = %e,
+                    "Failed to persist workspace sync marker"
+                );
             }
         }
 

@@ -184,9 +184,13 @@ impl std::fmt::Display for CloneFailure {
 ///
 /// The pod's startup probe kills the container after
 /// `K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6` failed `/health` checks at 5s spacing
-/// — 150s at the default — and the credential fetch ahead of this can spend 90s
-/// of that. A loop outlasting what is left is SIGKILLed mid-backoff and never
-/// reports why it was failing; the container restart is the outer retry.
+/// — 150s at the default. `credentials::fetch::RETRY_BUDGET` (90s) and
+/// `workspace_sync::mirror::RESTORE_RETRY_BUDGET` (45s) run ahead of this one,
+/// so an outage spending both leaves 15s here and this loop is SIGKILLed
+/// mid-backoff before it reports. That is the deliberate loser of the three:
+/// the restore must reach its own reporting, which is what holds this pod's
+/// uploads off a snapshot it could not read, and a clone that reports nothing
+/// costs a diagnostic. The container restart is the outer retry for all three.
 const CLONE_RETRY_BUDGET: Duration = Duration::from_secs(45);
 
 /// Longest single backoff between clone attempts.
