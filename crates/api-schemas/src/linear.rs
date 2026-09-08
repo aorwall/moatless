@@ -27,21 +27,28 @@ pub struct LinearIssueCreateRequest {
     /// Label names or UUIDs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<String>,
-    /// Assignee email, display name, or UUID. `"me"` resolves to the
-    /// authenticated agent (the workspace OAuth viewer).
+    /// Assignee: a Moatless login, an email, a display name, or a UUID. `"me"`
+    /// resolves to the authenticated agent (the workspace OAuth viewer). A
+    /// Moatless login resolves through the Linear user id stored for that user
+    /// (`moat user <login> set-provider-id --provider linear --id <uuid>`), and
+    /// outranks an email or display-name match.
+    ///
+    /// Omitted on create, this defaults to the caller — their stored Linear
+    /// id, or their moat email matched against Linear's members. Both missing
+    /// leaves the issue unassigned.
     ///
     /// Linear rejects an app user here and routes it to `delegate` instead:
     /// pass an app agent as [`Self::delegate`] so the read-back is meaningful.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
-    /// App agent to delegate the issue to. Accepts email, display name, UUID,
-    /// or `"me"`. Delegation is how Linear hands work to an app agent while a
-    /// human keeps the `assignee` slot.
+    /// App agent to delegate the issue to. Resolved like [`Self::assignee`].
+    /// Delegation is how Linear hands work to an app agent while a human keeps
+    /// the `assignee` slot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegate: Option<String>,
-    /// Real Linear user to record as the issue reporter. Accepts email,
-    /// display name, UUID, or "me". Added as a subscriber and mentioned in
-    /// the description (Linear has no settable creator/reporter field).
+    /// Real Linear user to record as the issue reporter. Resolved like
+    /// [`Self::assignee`]. Added as a subscriber and mentioned in the
+    /// description (Linear has no settable creator/reporter field).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reporter: Option<String>,
     /// Linear priority: 0 No-priority, 1 Urgent, 2 High, 3 Normal, 4 Low.
@@ -202,11 +209,13 @@ pub struct LinearIssueListParams {
     /// Label name or UUID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    /// Assignee email, display name, `me`, or UUID.
+    /// Assignee to filter on, resolved like
+    /// [`LinearIssueCreateRequest::assignee`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
-    /// Delegate email, display name, `me`, or UUID. An issue delegated to an
-    /// app agent has no `assignee`, so filtering on assignee alone misses it.
+    /// Delegate to filter on, resolved like
+    /// [`LinearIssueCreateRequest::assignee`]. An issue delegated to an app
+    /// agent has no `assignee`, so filtering on assignee alone misses it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegate: Option<String>,
     /// Keep only issues whose state type is not `completed` or `canceled`.

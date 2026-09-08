@@ -3478,7 +3478,7 @@
           {
             "name": "assignee",
             "in": "query",
-            "description": "Assignee email, display name, `me`, or UUID.",
+            "description": "Assignee to filter on, resolved like\n[`LinearIssueCreateRequest::assignee`].",
             "required": false,
             "schema": {
               "type": [
@@ -3490,7 +3490,7 @@
           {
             "name": "delegate",
             "in": "query",
-            "description": "Delegate email, display name, `me`, or UUID. An issue delegated to an\napp agent has no `assignee`, so filtering on assignee alone misses it.",
+            "description": "Delegate to filter on, resolved like\n[`LinearIssueCreateRequest::assignee`]. An issue delegated to an app\nagent has no `assignee`, so filtering on assignee alone misses it.",
             "required": false,
             "schema": {
               "type": [
@@ -12898,7 +12898,7 @@
               "string",
               "null"
             ],
-            "description": "Assignee email, display name, or UUID. `\"me\"` resolves to the\nauthenticated agent (the workspace OAuth viewer).\n\nLinear rejects an app user here and routes it to `delegate` instead:\npass an app agent as [`Self::delegate`] so the read-back is meaningful."
+            "description": "Assignee: a Moatless login, an email, a display name, or a UUID. `\"me\"`\nresolves to the authenticated agent (the workspace OAuth viewer). A\nMoatless login resolves through the Linear user id stored for that user\n(`moat user <login> set-provider-id --provider linear --id <uuid>`), and\noutranks an email or display-name match.\n\nOmitted on create, this defaults to the caller — their stored Linear\nid, or their moat email matched against Linear's members. Both missing\nleaves the issue unassigned.\n\nLinear rejects an app user here and routes it to `delegate` instead:\npass an app agent as [`Self::delegate`] so the read-back is meaningful."
           },
           "bind": {
             "type": [
@@ -12919,7 +12919,7 @@
               "string",
               "null"
             ],
-            "description": "App agent to delegate the issue to. Accepts email, display name, UUID,\nor `\"me\"`. Delegation is how Linear hands work to an app agent while a\nhuman keeps the `assignee` slot."
+            "description": "App agent to delegate the issue to. Resolved like [`Self::assignee`].\nDelegation is how Linear hands work to an app agent while a human keeps\nthe `assignee` slot."
           },
           "description": {
             "type": [
@@ -12976,7 +12976,7 @@
               "string",
               "null"
             ],
-            "description": "Real Linear user to record as the issue reporter. Accepts email,\ndisplay name, UUID, or \"me\". Added as a subscriber and mentioned in\nthe description (Linear has no settable creator/reporter field)."
+            "description": "Real Linear user to record as the issue reporter. Resolved like\n[`Self::assignee`]. Added as a subscriber and mentioned in the\ndescription (Linear has no settable creator/reporter field)."
           },
           "state": {
             "type": [
@@ -17648,7 +17648,7 @@
               "string",
               "null"
             ],
-            "description": "Workspace the task runs in. Every task has one — the insert resolves the\nrepository's shadow workspace when the creating request named none, and\npre-workspace tasks were backfilled the same way — so this is only\n`None` for a response built without reading the persisted row."
+            "description": "Workspace the task runs in. Every task has one, so this is only `None`\nfor a response built without reading the persisted row."
           },
           "workspaceName": {
             "type": [

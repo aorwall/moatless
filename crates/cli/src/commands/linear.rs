@@ -74,15 +74,17 @@ pub enum IssueAction {
         /// Label name or UUID (repeatable)
         #[arg(long = "label")]
         labels: Vec<String>,
-        /// Assignee email, display name, `me`, or UUID
+        /// Moatless login, email, display name, `me`, or UUID. Defaults to
+        /// you when omitted.
         #[arg(long)]
         assignee: Option<String>,
-        /// Delegate email, display name, `me`, or UUID. Use this for an app
-        /// agent: Linear routes an app out of `assignee` and into `delegate`.
+        /// Moatless login, email, display name, `me`, or UUID. Use this for an
+        /// app agent: Linear routes an app out of `assignee` into `delegate`.
         #[arg(long)]
         delegate: Option<String>,
-        /// Reporter email, display name, `me`, or UUID. Added as a subscriber
-        /// and mentioned in the description (records who requested the issue).
+        /// Moatless login, email, display name, `me`, or UUID. Added as a
+        /// subscriber and mentioned in the description (records who requested
+        /// the issue).
         #[arg(long)]
         reporter: Option<String>,
         /// 0 No-priority, 1 Urgent, 2 High, 3 Normal, 4 Low
@@ -127,6 +129,7 @@ pub enum IssueAction {
         state: Option<String>,
         #[arg(long)]
         project: Option<String>,
+        /// Moatless login, email, display name, `me`, or UUID
         #[arg(long)]
         assignee: Option<String>,
         /// App agent to delegate to. Pass `null` (literal) to clear.
@@ -204,11 +207,12 @@ pub enum IssueAction {
         /// Label name or UUID
         #[arg(long)]
         label: Option<String>,
-        /// Assignee email, display name, `me`, or UUID
+        /// Moatless login, email, display name, `me`, or UUID
         #[arg(long)]
         assignee: Option<String>,
-        /// Delegate email, display name, `me`, or UUID. An issue delegated to
-        /// an app agent has no assignee, so `--assignee` alone misses it.
+        /// Moatless login, email, display name, `me`, or UUID. An issue
+        /// delegated to an app agent has no assignee, so `--assignee` alone
+        /// misses it.
         #[arg(long)]
         delegate: Option<String>,
         /// Drop issues whose state type is `completed` or `canceled`
@@ -514,9 +518,15 @@ fn print_issue_row(issue: &Value) {
         .unwrap_or("?");
     // An issue delegated to an app agent has no assignee. Fall back to the
     // delegate so the owner column is never a bare `-` on claimed work.
-    let owner = match issue.pointer("/assignee/displayName").and_then(Value::as_str) {
+    let owner = match issue
+        .pointer("/assignee/displayName")
+        .and_then(Value::as_str)
+    {
         Some(a) => a.to_string(),
-        None => match issue.pointer("/delegate/displayName").and_then(Value::as_str) {
+        None => match issue
+            .pointer("/delegate/displayName")
+            .and_then(Value::as_str)
+        {
             Some(d) => format!("{d} (delegate)"),
             None => "-".to_string(),
         },

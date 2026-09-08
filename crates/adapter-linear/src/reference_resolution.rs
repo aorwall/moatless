@@ -1,8 +1,11 @@
 use super::agent_api::{LinearAgentApi, LookupKind};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_ports::identity::UserDisplay;
+use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
 use serde_json::{json, Value};
 use tracing::warn;
+
+/// The `provider` a Linear user id is stored under in `user_provider_ids`.
+pub(super) const LINEAR_PROVIDER: &str = "linear";
 
 /// Heuristic: a Linear UUID is 36 chars with dashes at positions 8/13/18/23.
 /// Identifiers like `SP-123` start with letters and a dash. Anything that
@@ -128,12 +131,35 @@ pub(super) fn user_from_node(node: &Value) -> Option<ResolvedUser> {
     Some(ResolvedUser { id, url })
 }
 
-/// Resolve a user reference (`me`, UUID, email, or display name) to a Linear
-/// user. Returns `Ok(None)` when no user matches — callers decide whether a
-/// miss is fatal (explicit `--assignee`/`--reporter`) or skippable (the
-/// best-effort assignee default).
+/// The Linear user id stored against a Moatless `login`, or `None` when the
+/// login has no `linear` mapping. A store error is a miss, not a failure: this
+/// is one branch of [`resolve_user_opt`], and the branches after it can still
+/// match.
+pub(super) async fn linear_id_for_login(
+    identity: &dyn ProviderIdentityLink,
+    login: &str,
+) -> Option<String> {
+    match identity.provider_id_for_login(LINEAR_PROVIDER, login).await {
+        Ok(id) => id,
+        Err(e) => {
+            warn!(error = %e, login, "Linear id lookup for login failed; trying the remaining resolution steps");
+            None
+        }
+    }
+}
+
+/// Resolve a user reference to a Linear user, trying in order: `me` → viewer;
+/// UUID → passthrough; Moatless login → its stored `linear` provider id; email;
+/// display name.
+///
+/// The login step precedes email so an id someone set deliberately outranks a
+/// coincidental email or display-name match. Returns `Ok(None)` when no step
+/// matches — callers decide whether a miss is fatal (explicit
+/// `--assignee`/`--delegate`/`--reporter`) or skippable (the best-effort
+/// assignee default).
 pub(super) async fn resolve_user_opt(
     api: &LinearAgentApi,
+    identity: &dyn ProviderIdentityLink,
     value: &str,
 ) -> Result<Option<ResolvedUser>, AdapterError> {
     if value == "me" {
@@ -143,15 +169,31 @@ pub(super) async fn resolve_user_opt(
         return Ok(viewer.pointer("/data/viewer").and_then(user_from_node));
     }
     if looks_like_uuid(value) {
-        let by_id = api
-            .graphql(json!({
-                "query": "query($id: String!) { user(id: $id) { id url } }",
-                "variables": { "id": value }
-            }))
-            .await?;
-        return Ok(by_id.pointer("/data/user").and_then(user_from_node));
+        return user_by_id(api, value).await;
     }
-    // Try email match first, then fall back to display-name lookup.
+    // A login is checked before the two Linear-side name matches: it is the
+    // mapping someone set on purpose.
+    if let Some(id) = linear_id_for_login(identity, value).await {
+        if let Some(user) = user_by_id(api, &id).await? {
+            return Ok(Some(user));
+        }
+        warn!(
+            login = value,
+            linear_id = id,
+            "Linear id mapped to this login no longer names a Linear user; trying email and display name"
+        );
+    }
+    user_by_email_or_name(api, value).await
+}
+
+/// Match `value` against Linear's own directory: email first, then display
+/// name. The half of [`resolve_user_opt`] that consults no Moatless mapping —
+/// [`default_assignee_from_caller`] enters here directly, having already tried
+/// the caller's login.
+async fn user_by_email_or_name(
+    api: &LinearAgentApi,
+    value: &str,
+) -> Result<Option<ResolvedUser>, AdapterError> {
     let by_email = api
         .graphql(json!({
             "query": "query($email: String!) { users(filter: { email: { eq: $email } }, first: 1) { nodes { id url } } }",
@@ -167,10 +209,15 @@ pub(super) async fn resolve_user_opt(
     let Some(lookup) = api.lookup(LookupKind::User, value).await? else {
         return Ok(None);
     };
+    user_by_id(api, &lookup.id).await
+}
+
+/// Fetch one Linear user by its UUID. `Ok(None)` when Linear knows no such id.
+async fn user_by_id(api: &LinearAgentApi, id: &str) -> Result<Option<ResolvedUser>, AdapterError> {
     let by_id = api
         .graphql(json!({
             "query": "query($id: String!) { user(id: $id) { id url } }",
-            "variables": { "id": lookup.id }
+            "variables": { "id": id }
         }))
         .await?;
     Ok(by_id.pointer("/data/user").and_then(user_from_node))
@@ -180,22 +227,25 @@ pub(super) async fn resolve_user_opt(
 /// no user matches.
 pub(super) async fn resolve_user_required(
     api: &LinearAgentApi,
+    identity: &dyn ProviderIdentityLink,
     value: &str,
 ) -> Result<ResolvedUser, AdapterError> {
-    resolve_user_opt(api, value).await?.ok_or_else(|| {
-        SharedAdapterError::NotFound(format!("Linear user `{value}` not found")).into()
-    })
+    resolve_user_opt(api, identity, value)
+        .await?
+        .ok_or_else(|| {
+            SharedAdapterError::NotFound(format!("Linear user `{value}` not found")).into()
+        })
 }
 
-/// Resolve assignee: `me` → viewer.id; UUID → passthrough; email or display
-/// name → user lookup. Hard-fails on miss (used by issue update and explicit
-/// create assignees).
+/// Resolve an assignee through [`resolve_user_opt`], hard-failing on a miss.
+/// Used by issue update and by an explicit create assignee.
 pub(super) async fn resolve_assignee(
     api: &LinearAgentApi,
+    identity: &dyn ProviderIdentityLink,
     value: Option<&str>,
 ) -> Result<Option<String>, AdapterError> {
     let Some(value) = value else { return Ok(None) };
-    Ok(Some(resolve_user_required(api, value).await?.id))
+    Ok(Some(resolve_user_required(api, identity, value).await?.id))
 }
 
 /// Resolve a delegate the same way as [`resolve_assignee`], with `"null"` and
@@ -203,26 +253,45 @@ pub(super) async fn resolve_assignee(
 /// `issue_commands`, because undelegating is how a lane releases a claim.
 pub(super) async fn resolve_delegate(
     api: &LinearAgentApi,
+    identity: &dyn ProviderIdentityLink,
     value: Option<&str>,
 ) -> Result<Option<serde_json::Value>, AdapterError> {
     match value {
         None => Ok(None),
         Some("null") | Some("") => Ok(Some(serde_json::Value::Null)),
         Some(v) => Ok(Some(serde_json::Value::String(
-            resolve_user_required(api, v).await?.id,
+            resolve_user_required(api, identity, v).await?.id,
         ))),
     }
 }
 
-/// Best-effort assignee default: resolve the calling moat user's email to a
-/// Linear user. Returns `None` (and warns) when the caller has no email on
-/// file or the email doesn't match a Linear member — never fails issue
-/// creation.
+/// Best-effort assignee default: the Linear user the caller is, from their
+/// stored `linear` provider id, falling back to matching their moat email
+/// against Linear's members.
+///
+/// The provider id is the reliable half — an email only matches when the two
+/// directories happen to agree on the address. Returns `None` (and warns) when
+/// neither resolves; never fails issue creation.
 pub(super) async fn default_assignee_from_caller(
     users: &dyn UserDisplay,
+    identity: &dyn ProviderIdentityLink,
     api: &LinearAgentApi,
     user_id: &str,
+    login: &str,
 ) -> Option<String> {
+    if let Some(id) = linear_id_for_login(identity, login).await {
+        match user_by_id(api, &id).await {
+            Ok(Some(u)) => return Some(u.id),
+            Ok(None) => warn!(
+                login,
+                linear_id = id,
+                "assignee default: the login's Linear id names no Linear user; falling back to email"
+            ),
+            Err(e) => {
+                warn!(error = %e, login, linear_id = id, "assignee default: Linear id lookup failed; falling back to email");
+            }
+        }
+    }
     let Ok(uid) = user_id.parse::<uuid::Uuid>() else {
         return None;
     };
@@ -240,7 +309,7 @@ pub(super) async fn default_assignee_from_caller(
             return None;
         }
     };
-    match resolve_user_opt(api, &email).await {
+    match user_by_email_or_name(api, &email).await {
         Ok(Some(u)) => Some(u.id),
         Ok(None) => {
             warn!(
@@ -312,4 +381,198 @@ pub(super) async fn resolve_cycle_id(
         .pointer("/data/cycles/nodes/0/id")
         .and_then(Value::as_str)
         .map(str::to_string))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use moatless_adapter_model::test_support::ProviderStub;
+    use moatless_ports::identity::{
+        AppToken, MockAppCredentials, MockProviderIdentityLink, MockUserDisplay,
+    };
+    use moatless_types::store::StoreError;
+    use reqwest::Client;
+    use serde_json::json;
+
+    use super::super::agent_api::LinearAgentApi;
+    use super::{
+        default_assignee_from_caller, linear_id_for_login, resolve_user_opt, LINEAR_PROVIDER,
+    };
+
+    /// The Linear id stored against the login, and the answer the precedence
+    /// tests expect back.
+    const MAPPED_ID: &str = "11111111-2222-3333-4444-555555555555";
+    /// The Linear id the directory returns for an email or display-name match.
+    /// A different user, so which branch ran is readable off the result.
+    const DIRECTORY_ID: &str = "99999999-8888-7777-6666-555555555555";
+
+    /// A client whose whole API host is `base`, with a token that never needs
+    /// refreshing so nothing but the query under test reaches the stub.
+    fn api_at(base: &str) -> LinearAgentApi {
+        let mut tokens = MockAppCredentials::new();
+        tokens.expect_app_token().returning(|_| {
+            Ok(Some(AppToken {
+                access_token: "lin_test".into(),
+                refresh_token: None,
+                token_type: None,
+                expires_at: Some(chrono::Utc::now() + chrono::Duration::days(1)),
+                metadata: None,
+            }))
+        });
+        LinearAgentApi::with_base_url(
+            Client::new(),
+            Arc::new(tokens),
+            "test-org".to_string(),
+            None,
+            None,
+            base,
+        )
+    }
+
+    /// A Linear that answers every user query at once: `user(id:)` with
+    /// [`MAPPED_ID`] and `users(filter: { email: })` with [`DIRECTORY_ID`].
+    /// Both branches can succeed, so the id that comes back names the branch
+    /// that ran.
+    async fn stub_answering_every_user_query() -> ProviderStub {
+        ProviderStub::start(|_path| {
+            json!({
+                "data": {
+                    "user": { "id": MAPPED_ID, "url": "https://linear.app/u/mapped" },
+                    "users": { "nodes": [{ "id": DIRECTORY_ID, "url": "https://linear.app/u/directory" }] }
+                }
+            })
+        })
+        .await
+    }
+
+    /// The branch order this change exists for: a stored id beats an email or
+    /// display-name match, and costs one call rather than running both.
+    #[tokio::test]
+    async fn a_stored_id_outranks_a_directory_match() {
+        let stub = stub_answering_every_user_query().await;
+        let api = api_at(stub.base_url());
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_login()
+            .returning(|_, _| Ok(Some(MAPPED_ID.into())));
+
+        let user = resolve_user_opt(&api, &identity, "aorwall")
+            .await
+            .expect("stub answers the query")
+            .expect("the mapped id resolves");
+
+        assert_eq!(user.id, MAPPED_ID);
+        assert_eq!(stub.graphql_operations(), vec!["user".to_string()]);
+    }
+
+    /// An unmapped login still resolves the way it did before this change.
+    #[tokio::test]
+    async fn an_unmapped_login_falls_through_to_the_directory() {
+        let stub = stub_answering_every_user_query().await;
+        let api = api_at(stub.base_url());
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_login()
+            .returning(|_, _| Ok(None));
+
+        let user = resolve_user_opt(&api, &identity, "someone")
+            .await
+            .expect("stub answers the query")
+            .expect("the email match resolves");
+
+        assert_eq!(user.id, DIRECTORY_ID);
+        assert_eq!(stub.graphql_operations(), vec!["users".to_string()]);
+    }
+
+    /// The assignee default prefers the caller's stored id, and never loads
+    /// their email when it has one.
+    #[tokio::test]
+    async fn the_assignee_default_prefers_the_stored_id() {
+        let stub = stub_answering_every_user_query().await;
+        let api = api_at(stub.base_url());
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_login()
+            .returning(|_, _| Ok(Some(MAPPED_ID.into())));
+        let mut users = MockUserDisplay::new();
+        users.expect_email().never();
+
+        let assignee = default_assignee_from_caller(
+            &users,
+            &identity,
+            &api,
+            "00000000-0000-4000-8000-000000000001",
+            "aorwall",
+        )
+        .await;
+
+        assert_eq!(assignee.as_deref(), Some(MAPPED_ID));
+        assert_eq!(stub.graphql_operations(), vec!["user".to_string()]);
+    }
+
+    /// With no stored id the default falls back to the caller's email, and the
+    /// fallback does not re-enter the login branch it already tried.
+    #[tokio::test]
+    async fn the_assignee_default_falls_back_to_the_caller_email() {
+        let stub = stub_answering_every_user_query().await;
+        let api = api_at(stub.base_url());
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_login()
+            .times(1)
+            .returning(|_, _| Ok(None));
+        let mut users = MockUserDisplay::new();
+        users
+            .expect_email()
+            .returning(|_| Ok(Some("albert@example.com".into())));
+
+        let assignee = default_assignee_from_caller(
+            &users,
+            &identity,
+            &api,
+            "00000000-0000-4000-8000-000000000001",
+            "aorwall",
+        )
+        .await;
+
+        assert_eq!(assignee.as_deref(), Some(DIRECTORY_ID));
+        assert_eq!(stub.graphql_operations(), vec!["users".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn login_resolves_to_its_stored_linear_id() {
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_login()
+            .withf(|provider, login| provider == LINEAR_PROVIDER && login == "aorwall")
+            .returning(|_, _| Ok(Some("11111111-2222-3333-4444-555555555555".into())));
+
+        assert_eq!(
+            linear_id_for_login(&identity, "aorwall").await.as_deref(),
+            Some("11111111-2222-3333-4444-555555555555")
+        );
+    }
+
+    #[tokio::test]
+    async fn unmapped_login_is_a_miss() {
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_login()
+            .returning(|_, _| Ok(None));
+
+        assert_eq!(linear_id_for_login(&identity, "someone").await, None);
+    }
+
+    /// A store failure must fall through to the email and display-name steps
+    /// rather than fail the request: the caller may still be resolvable.
+    #[tokio::test]
+    async fn store_error_is_a_miss() {
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_login()
+            .returning(|_, _| Err(StoreError::new("database is down")));
+
+        assert_eq!(linear_id_for_login(&identity, "aorwall").await, None);
+    }
 }

@@ -1,25 +1,24 @@
 //! Typed provider HTTP extraction, response adaptation, and OpenAPI metadata.
 
-use std::sync::Arc;
+use super::adapter::LinearAdapter;
+use axum::extract::{Path, Query, State};
 use axum::Json;
-use axum::extract::{Path, State, Query};
-use moatless_core::http_auth::AuthUser;
 use moatless_adapter_model::error::AdapterError;
-use moatless_ports::task::TaskReader;
 use moatless_api_schemas::linear::{
     LinearCommentCreateRequest, LinearConnectionParams, LinearGraphqlRequest,
     LinearIssueCreateRequest, LinearIssueListParams, LinearIssueListResponse,
     LinearIssueRelateRequest, LinearIssueResponse, LinearIssueUpdateRequest,
-    LinearLabelMutationRequest, LinearLookupParams, LinearLookupResponse,
-    LinearOkResponse,
+    LinearLabelMutationRequest, LinearLookupParams, LinearLookupResponse, LinearOkResponse,
 };
+use moatless_core::http_auth::AuthUser;
 use moatless_loops::bindings::dao::TaskBindingDao;
-use moatless_ports::identity::UserDisplay;
-use serde_json::Value;
-use tracing::warn;
+use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
+use moatless_ports::task::TaskReader;
 #[cfg(test)]
 use serde_json::json;
-use super::adapter::LinearAdapter;
+use serde_json::Value;
+use std::sync::Arc;
+use tracing::warn;
 
 #[utoipa::path(
     get,
@@ -56,21 +55,31 @@ pub async fn get_issue(
         (status = 400, description = "Bad request", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "an axum handler's width is its extractor list, and each State names \
+              exactly one port the create path uses; bundling them would re-bag \
+              the AppState these handlers exist to unbag"
+)]
 pub async fn create_issue(
     State(linear): State<Option<Arc<LinearAdapter>>>,
     State(tasks): State<Arc<dyn TaskReader>>,
     State(users): State<Arc<dyn UserDisplay>>,
+    State(identity): State<Arc<dyn ProviderIdentityLink>>,
     State(task_bindings): State<Arc<dyn TaskBindingDao>>,
     auth: AuthUser,
     Query(params): Query<LinearConnectionParams>,
     Json(req): Json<LinearIssueCreateRequest>,
 ) -> Result<Json<LinearIssueResponse>, AdapterError> {
+    let ctx = auth.scope_context();
     super::issue_commands::create_issue(
         linear,
         tasks,
         users,
+        identity,
         task_bindings,
-        auth.scope_context(),
+        ctx,
+        auth.login,
         params,
         req,
     )
@@ -94,12 +103,13 @@ pub async fn create_issue(
 )]
 pub async fn update_issue(
     State(linear): State<Option<Arc<LinearAdapter>>>,
+    State(identity): State<Arc<dyn ProviderIdentityLink>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<LinearConnectionParams>,
     Json(req): Json<LinearIssueUpdateRequest>,
 ) -> Result<Json<LinearIssueResponse>, AdapterError> {
-    super::issue_commands::update_issue(linear, auth.scope_context(), id, params, req)
+    super::issue_commands::update_issue(linear, identity, auth.scope_context(), id, params, req)
         .await
         .map(Json)
 }
@@ -204,10 +214,11 @@ pub async fn relate_issue(
 )]
 pub async fn list_issues(
     State(linear): State<Option<Arc<LinearAdapter>>>,
+    State(identity): State<Arc<dyn ProviderIdentityLink>>,
     auth: AuthUser,
     Query(params): Query<LinearIssueListParams>,
 ) -> Result<Json<LinearIssueListResponse>, AdapterError> {
-    super::issue_commands::list_issues(linear, auth.scope_context(), params)
+    super::issue_commands::list_issues(linear, identity, auth.scope_context(), params)
         .await
         .map(Json)
 }

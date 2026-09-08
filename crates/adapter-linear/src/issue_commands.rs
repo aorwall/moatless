@@ -18,7 +18,7 @@ use moatless_core::config::Config;
 use moatless_loops::adapters::access::ensure_task_access_only;
 use moatless_loops::bindings::dao::TaskBindingDao;
 use moatless_loops::bindings::runtime::upsert_binding_into;
-use moatless_ports::identity::UserDisplay;
+use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
 use moatless_ports::task::TaskReader;
 use moatless_types::adapter::AdapterConnection;
 
@@ -27,8 +27,6 @@ use super::agent_api::{LinearAgentApi, LookupKind};
 use super::auth::{require_linear, resolve_linear_api};
 use super::reference_resolution::*;
 use super::SUBJECT_KIND_ISSUE;
-
-const LINEAR_PROVIDER: &str = "linear";
 
 // ---------------------------------------------------------------------------
 // Issue: GET / CREATE / UPDATE
@@ -50,12 +48,20 @@ pub(crate) async fn get_issue(
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the authorized mutation receives its provider, binding, task and \
+              caller-identity dependencies separately, matching the handler that \
+              extracts them"
+)]
 pub(crate) async fn create_issue(
     linear: Option<Arc<LinearAdapter>>,
     tasks: Arc<dyn TaskReader>,
     users: Arc<dyn UserDisplay>,
+    identity: Arc<dyn ProviderIdentityLink>,
     task_bindings: Arc<dyn TaskBindingDao>,
     ctx: moatless_types::access_control::ScopeContext,
+    login: String,
     params: LinearConnectionParams,
     req: LinearIssueCreateRequest,
 ) -> Result<LinearIssueResponse, AdapterError> {
@@ -79,15 +85,28 @@ pub(crate) async fn create_issue(
     let state_id = resolve_optional(&api, LookupKind::State, req.state.as_deref()).await?;
     let project_id = resolve_optional(&api, LookupKind::Project, req.project.as_deref()).await?;
     // Explicit assignee hard-fails on miss; when omitted, default to the
-    // calling user's email (best-effort — never fails issue creation).
+    // caller (best-effort — never fails issue creation).
     let assignee_id = match req.assignee.as_deref() {
-        Some(value) => Some(resolve_user_required(&api, value).await?.id),
-        None => default_assignee_from_caller(users.as_ref(), &api, &ctx.user_id).await,
+        Some(value) => Some(
+            resolve_user_required(&api, identity.as_ref(), value)
+                .await?
+                .id,
+        ),
+        None => {
+            default_assignee_from_caller(
+                users.as_ref(),
+                identity.as_ref(),
+                &api,
+                &ctx.user_id,
+                &login,
+            )
+            .await
+        }
     };
-    let delegate_id = resolve_delegate(&api, req.delegate.as_deref()).await?;
+    let delegate_id = resolve_delegate(&api, identity.as_ref(), req.delegate.as_deref()).await?;
     // Reporter (records who requested the issue) hard-fails on an explicit miss.
     let reporter = match req.reporter.as_deref() {
-        Some(value) => Some(resolve_user_required(&api, value).await?),
+        Some(value) => Some(resolve_user_required(&api, identity.as_ref(), value).await?),
         None => None,
     };
     let parent_id = resolve_optional_issue(&api, req.parent.as_deref()).await?;
@@ -179,6 +198,7 @@ pub(crate) async fn create_issue(
 
 pub(crate) async fn update_issue(
     linear: Option<Arc<LinearAdapter>>,
+    identity: Arc<dyn ProviderIdentityLink>,
     ctx: moatless_types::access_control::ScopeContext,
     id: String,
     params: LinearConnectionParams,
@@ -191,8 +211,8 @@ pub(crate) async fn update_issue(
     // Resolve names. The team comes from the issue itself if a cycle is set.
     let state_id = resolve_optional(&api, LookupKind::State, req.state.as_deref()).await?;
     let project_id = resolve_optional(&api, LookupKind::Project, req.project.as_deref()).await?;
-    let assignee_id = resolve_assignee(&api, req.assignee.as_deref()).await?;
-    let delegate_id = resolve_delegate(&api, req.delegate.as_deref()).await?;
+    let assignee_id = resolve_assignee(&api, identity.as_ref(), req.assignee.as_deref()).await?;
+    let delegate_id = resolve_delegate(&api, identity.as_ref(), req.delegate.as_deref()).await?;
 
     let parent_id = match req.parent.as_deref() {
         Some("null") | Some("") => Some(Value::Null),
@@ -408,6 +428,7 @@ pub(crate) async fn relate_issue(
 
 pub(crate) async fn list_issues(
     linear: Option<Arc<LinearAdapter>>,
+    identity: Arc<dyn ProviderIdentityLink>,
     ctx: moatless_types::access_control::ScopeContext,
     params: LinearIssueListParams,
 ) -> Result<LinearIssueListResponse, AdapterError> {
@@ -447,11 +468,11 @@ pub(crate) async fn list_issues(
         filter.insert("labels".into(), json!({ "id": { "eq": label_id } }));
     }
     if let Some(assignee) = params.assignee.as_deref() {
-        let user = resolve_user_required(&api, assignee).await?;
+        let user = resolve_user_required(&api, identity.as_ref(), assignee).await?;
         filter.insert("assignee".into(), json!({ "id": { "eq": user.id } }));
     }
     if let Some(delegate) = params.delegate.as_deref() {
-        let user = resolve_user_required(&api, delegate).await?;
+        let user = resolve_user_required(&api, identity.as_ref(), delegate).await?;
         filter.insert("delegate".into(), json!({ "id": { "eq": user.id } }));
     }
 
