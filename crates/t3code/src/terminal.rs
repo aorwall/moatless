@@ -512,6 +512,25 @@ impl From<sqlx::Error> for TerminalError {
     }
 }
 
+/// Whether the failure means there was no Sandbox to run in.
+///
+/// [`typed_error`] answers these with `TerminalNotRunningError`, and
+/// `scripts.run` answers them with the `SandboxNotRunningError` its own contract
+/// declares. Both read this rather than the tag, so the two cannot drift.
+pub fn means_not_running(error: &TerminalError) -> bool {
+    match error {
+        TerminalError::Workspace(WorkspaceAccessError::NotRunning(_))
+        | TerminalError::Sandbox(SandboxError::NotReady(_)) => true,
+        TerminalError::Workspace(WorkspaceAccessError::Sandbox(SandboxError::BadRequest(
+            detail,
+        )))
+        | TerminalError::Sandbox(SandboxError::BadRequest(detail)) => {
+            detail.contains("not running")
+        }
+        _ => false,
+    }
+}
+
 pub fn typed_error(error: &TerminalError, payload: &Value) -> Option<Value> {
     let thread_id = payload
         .get("threadId")
@@ -521,6 +540,13 @@ pub fn typed_error(error: &TerminalError, payload: &Value) -> Option<Value> {
         .get("terminalId")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    if means_not_running(error) {
+        return Some(json!({
+            "_tag": "TerminalNotRunningError",
+            "threadId": thread_id,
+            "terminalId": terminal_id
+        }));
+    }
     match error {
         TerminalError::Workspace(WorkspaceAccessError::Sandbox(SandboxError::NotFound(_)))
         | TerminalError::Sandbox(SandboxError::NotFound(_)) => Some(json!({
@@ -531,27 +557,9 @@ pub fn typed_error(error: &TerminalError, payload: &Value) -> Option<Value> {
         TerminalError::Workspace(WorkspaceAccessError::Sandbox(SandboxError::BadRequest(
             detail,
         )))
-        | TerminalError::Sandbox(SandboxError::BadRequest(detail))
-            if detail.contains("not running") =>
-        {
-            Some(json!({
-                "_tag": "TerminalNotRunningError",
-                "threadId": thread_id,
-                "terminalId": terminal_id
-            }))
-        }
-        TerminalError::Workspace(WorkspaceAccessError::Sandbox(SandboxError::BadRequest(
-            detail,
-        )))
         | TerminalError::Sandbox(SandboxError::BadRequest(detail)) => {
             Some(cwd_error(payload, detail))
         }
-        TerminalError::Workspace(WorkspaceAccessError::NotRunning(_))
-        | TerminalError::Sandbox(SandboxError::NotReady(_)) => Some(json!({
-            "_tag": "TerminalNotRunningError",
-            "threadId": thread_id,
-            "terminalId": terminal_id
-        })),
         TerminalError::Workspace(WorkspaceAccessError::NoWorktree)
         | TerminalError::Workspace(WorkspaceAccessError::Unaddressable) => Some(json!({
             "_tag": "TerminalCwdStatError",

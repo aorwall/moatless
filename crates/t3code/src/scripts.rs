@@ -77,8 +77,7 @@ pub enum ScriptsError {
     #[error("the script's port could not be published")]
     Port(#[source] SandboxError),
     /// The terminal could not be opened or written to. `TerminalError` is not a
-    /// `std::error::Error`, so it is not a `#[source]`; the dispatch delegates it
-    /// to the terminal path's own failure rendering.
+    /// `std::error::Error`, so it is not a `#[source]`.
     #[error("the script's terminal could not be started")]
     Terminal(TerminalError),
     #[error("the task could not be read")]

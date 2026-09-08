@@ -526,6 +526,14 @@ pub(crate) fn terminal_failure_exit(
     error: &terminal::TerminalError,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
+    log_terminal_failure(error, identity);
+    match terminal::typed_error(error, payload) {
+        Some(error) => typed_failure_exit(request_id, error),
+        None => failure_exit(request_id, terminal::message(error)),
+    }
+}
+
+fn log_terminal_failure(error: &terminal::TerminalError, identity: &UiRpcAuthIdentity) {
     match error {
         terminal::TerminalError::Workspace(WorkspaceAccessError::Database(cause)) => {
             error!(%cause, user_id = %identity.user_id, "T3 UI terminal request failed");
@@ -543,10 +551,6 @@ pub(crate) fn terminal_failure_exit(
         | terminal::TerminalError::Malformed(_) => {
             debug!(?error, user_id = %identity.user_id, "T3 UI terminal request refused");
         }
-    }
-    match terminal::typed_error(error, payload) {
-        Some(error) => typed_failure_exit(request_id, error),
-        None => failure_exit(request_id, terminal::message(error)),
     }
 }
 
@@ -574,38 +578,35 @@ pub(crate) fn subtasks_failure_exit(
 
 /// How a failed `scripts.run` reaches the client.
 ///
-/// A terminal failure is delegated to [`terminal_failure_exit`] so the person
-/// sees the same typed "not running" they would from `terminal.open` directly.
-/// A reserved-port refusal is a configuration mistake and its message is shown
-/// verbatim; a database error is logged here and generalised.
+/// A terminal failure that means the Sandbox is stopped is retold as
+/// [`sandbox_not_running`], which is what this method's contract declares; the
+/// rest of the terminal errors are not in that union and reach the client as a
+/// string. A reserved-port refusal is a configuration mistake and its message is
+/// shown verbatim; a database error is logged here and generalised.
 pub(crate) fn scripts_failure_exit(
     request_id: &RequestId,
     error: &ScriptsError,
     payload: &Value,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
+    let thread_id = payload
+        .get("threadId")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     match error {
         ScriptsError::Terminal(terminal_error) => {
-            // Reuse the terminal path's own logging and typed errors, addressed
-            // to the session the script would have run in.
-            let terminal_payload = json!({
-                "threadId": payload.get("threadId").and_then(Value::as_str).unwrap_or_default(),
-            });
-            terminal_failure_exit(request_id, &terminal_payload, terminal_error, identity)
+            log_terminal_failure(terminal_error, identity);
+            // `scripts.run` does not declare the `Terminal*` tags, so one of
+            // them reaches the browser as a `Fail` the client cannot decode.
+            if terminal::means_not_running(terminal_error) {
+                typed_failure_exit(request_id, sandbox_not_running(thread_id))
+            } else {
+                failure_exit(request_id, terminal::message(terminal_error))
+            }
         }
         ScriptsError::Port(SandboxError::NotReady(_)) => {
             debug!(?error, user_id = %identity.user_id, "scripts.run refused: sandbox not running");
-            // Typed, not a string: this is the one scripts.run refusal a client
-            // can *act* on rather than report — start the Sandbox, wait for it,
-            // and run the Script the person already asked for. A `Die` with a
-            // sentence in it would leave that behind string matching.
-            typed_failure_exit(
-                request_id,
-                json!({
-                    "_tag": "SandboxNotRunningError",
-                    "threadId": payload.get("threadId").and_then(Value::as_str).unwrap_or_default(),
-                }),
-            )
+            typed_failure_exit(request_id, sandbox_not_running(thread_id))
         }
         ScriptsError::Port(SandboxError::BadRequest(detail)) => {
             debug!(%detail, user_id = %identity.user_id, "scripts.run refused a reserved port");
@@ -631,6 +632,19 @@ pub(crate) fn scripts_failure_exit(
             failure_exit(request_id, "Failed to read the conversation.")
         }
     }
+}
+
+/// The contract's `SandboxNotRunningError`, as the error a `Fail` cause carries.
+///
+/// Typed, not a string: this is the one `scripts.run` refusal a client can *act*
+/// on rather than report — start the Sandbox, wait for it, and run the Script
+/// the person already asked for. A `Die` with a sentence in it would leave that
+/// behind string matching.
+fn sandbox_not_running(thread_id: &str) -> Value {
+    json!({
+        "_tag": "SandboxNotRunningError",
+        "threadId": thread_id,
+    })
 }
 
 /// The client is told the sandbox status or command could not be answered; the
