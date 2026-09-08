@@ -1323,40 +1323,7 @@ impl ApiClient {
         &self,
         params: &moatless_api_schemas::linear::LinearIssueListParams,
     ) -> Result<moatless_api_schemas::linear::LinearIssueListResponse, ApiError> {
-        let mut qs: Vec<String> = Vec::new();
-        let mut push = |key: &str, value: &str| qs.push(format!("{key}={}", urlenc(value)));
-        if let Some(v) = params.query.as_deref() {
-            push("query", v);
-        }
-        if let Some(v) = params.team.as_deref() {
-            push("team", v);
-        }
-        if let Some(v) = params.project.as_deref() {
-            push("project", v);
-        }
-        if let Some(v) = params.state.as_deref() {
-            push("state", v);
-        }
-        if let Some(v) = params.label.as_deref() {
-            push("label", v);
-        }
-        if let Some(v) = params.assignee.as_deref() {
-            push("assignee", v);
-        }
-        if params.open_only.unwrap_or(false) {
-            push("openOnly", "true");
-        }
-        if let Some(v) = params.limit {
-            push("limit", &v.to_string());
-        }
-        if let Some(v) = params.connection_id.as_deref() {
-            push("connectionId", v);
-        }
-        let qs = if qs.is_empty() {
-            String::new()
-        } else {
-            format!("?{}", qs.join("&"))
-        };
+        let qs = linear_list_issues_qs(params);
         self.get(&format!("/api/v1/linear/issues{qs}")).await
     }
 
@@ -1466,6 +1433,54 @@ impl ApiClient {
     }
 }
 
+/// Build the query string for `GET /api/v1/linear/issues` (or empty).
+///
+/// Every filter field of [`LinearIssueListParams`] must be pushed here. The
+/// handler deserializes with `#[serde(default)]`, so a field missing from this
+/// function is dropped server-side and the call returns unfiltered results
+/// rather than failing.
+///
+/// [`LinearIssueListParams`]: moatless_api_schemas::linear::LinearIssueListParams
+fn linear_list_issues_qs(params: &moatless_api_schemas::linear::LinearIssueListParams) -> String {
+    let mut qs: Vec<String> = Vec::new();
+    let mut push = |key: &str, value: &str| qs.push(format!("{key}={}", urlenc(value)));
+    if let Some(v) = params.query.as_deref() {
+        push("query", v);
+    }
+    if let Some(v) = params.team.as_deref() {
+        push("team", v);
+    }
+    if let Some(v) = params.project.as_deref() {
+        push("project", v);
+    }
+    if let Some(v) = params.state.as_deref() {
+        push("state", v);
+    }
+    if let Some(v) = params.label.as_deref() {
+        push("label", v);
+    }
+    if let Some(v) = params.assignee.as_deref() {
+        push("assignee", v);
+    }
+    if let Some(v) = params.delegate.as_deref() {
+        push("delegate", v);
+    }
+    if params.open_only.unwrap_or(false) {
+        push("openOnly", "true");
+    }
+    if let Some(v) = params.limit {
+        push("limit", &v.to_string());
+    }
+    if let Some(v) = params.connection_id.as_deref() {
+        push("connectionId", v);
+    }
+    if qs.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", qs.join("&"))
+    }
+}
+
 /// Build the `?connectionId=...` query string fragment (or empty).
 fn linear_connection_qs(connection_id: Option<&str>) -> String {
     connection_id
@@ -1482,4 +1497,50 @@ fn urlenc(s: &str) -> String {
         .replace('=', "%3D")
         .replace('+', "%2B")
         .replace('#', "%23")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moatless_api_schemas::linear::LinearIssueListParams;
+
+    /// Every filter a caller can set must reach the wire.
+    ///
+    /// The expected keys come from serializing the params rather than a hand-
+    /// written list, so a field added to `LinearIssueListParams` fails here
+    /// until `linear_list_issues_qs` pushes it: the exhaustive literal forces
+    /// the new field to be set, and serializing it then demands the key.
+    #[test]
+    fn list_issues_qs_carries_every_filter() {
+        let params = LinearIssueListParams {
+            query: Some("q".into()),
+            team: Some("SP".into()),
+            project: Some("proj".into()),
+            state: Some("In Progress".into()),
+            label: Some("moatless".into()),
+            assignee: Some("me".into()),
+            delegate: Some("moatless".into()),
+            open_only: Some(true),
+            limit: Some(7),
+            connection_id: Some("conn".into()),
+        };
+        let qs = linear_list_issues_qs(&params);
+
+        let fields: Vec<String> = serde_json::to_value(&params)
+            .ok()
+            .and_then(|v| v.as_object().map(|m| m.keys().cloned().collect()))
+            .unwrap_or_default();
+        assert!(!fields.is_empty(), "params must serialize to an object");
+        for key in &fields {
+            assert!(qs.contains(&format!("{key}=")), "{key} missing from {qs}");
+        }
+
+        // The keys above do not pin encoding, so check the one value that needs it.
+        assert!(qs.contains("state=In%20Progress"), "{qs}");
+    }
+
+    #[test]
+    fn list_issues_qs_is_empty_without_filters() {
+        assert_eq!(linear_list_issues_qs(&LinearIssueListParams::default()), "");
+    }
 }
