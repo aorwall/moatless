@@ -63,8 +63,7 @@ pub(super) fn delivery_only_rule(
         source_name: None,
         routing_mode: RoutingMode::BySubject,
         event_filter: serde_json::json!([]),
-        repository_id: String::new(),
-        workspace_id: None,
+        workspace_id: String::new(),
         prompt_template: None,
         task_name: None,
         tag_ids: Vec::new(),
@@ -682,7 +681,7 @@ mod tests {
         let rule = delivery_only_rule(&connection, "acme/widget");
 
         assert!(rule.active);
-        assert!(rule.repository_id.is_empty());
+        assert!(rule.workspace_id.is_empty());
         assert!(rule.agent_type.as_str().is_empty());
         assert!(rule.prompt_template.is_none());
         assert_eq!(rule.event_filter, serde_json::json!([]));

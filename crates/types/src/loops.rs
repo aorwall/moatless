@@ -68,10 +68,10 @@ pub struct LoopContext {
     pub adapter_kind: String,
     pub source_id: String,
     pub source_name: Option<String>,
-    pub repository_id: String,
-    /// The Workspace every task this Loop spawns runs in. `None` falls back to
-    /// a live Workspace placing `repository_id`.
-    pub workspace_id: Option<String>,
+    /// The Workspace every task this Loop spawns runs in, and what the task's
+    /// repositories are resolved from — its primary placement is what the task
+    /// runs against.
+    pub workspace_id: String,
     pub routing_mode: RoutingMode,
     pub prompt_template: Option<String>,
     pub active: bool,
@@ -146,9 +146,8 @@ pub struct SubscriptionMatch {
     pub source_name: Option<String>,
     pub routing_mode: RoutingMode,
     pub event_filter: serde_json::Value,
-    pub repository_id: String,
     /// See [`LoopContext::workspace_id`].
-    pub workspace_id: Option<String>,
+    pub workspace_id: String,
     pub prompt_template: Option<String>,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,

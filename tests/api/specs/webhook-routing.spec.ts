@@ -35,6 +35,7 @@ test.describe('Chain 2: Webhook by_subject routing without thread', () => {
   test.beforeAll(async ({ api }) => {
     const repo = await api.ensureTemplateRepository()
     ctx.repositoryId = repo.id
+    ctx.workspaceId = (await api.ensureTemplateWorkspace()).id
   })
 
   test.afterAll(async ({ api }) => {
@@ -51,7 +52,7 @@ test.describe('Chain 2: Webhook by_subject routing without thread', () => {
     const sourceId = `per-msg-${Date.now()}`
     const result = await createWebhookTriggerFixtureWithRouting(
       api,
-      ctx.repositoryId!,
+      ctx.workspaceId!,
       'by_subject',
       { sourceId },
     )
@@ -143,6 +144,7 @@ test.describe('Chain 3: Webhook ongoing routing', () => {
   test.beforeAll(async ({ api }) => {
     const repo = await api.ensureTemplateRepository()
     ctx.repositoryId = repo.id
+    ctx.workspaceId = (await api.ensureTemplateWorkspace()).id
   })
 
   test.afterAll(async ({ api }) => {
@@ -156,7 +158,7 @@ test.describe('Chain 3: Webhook ongoing routing', () => {
   })
 
   test('INT-20: Create webhook config with ongoing routing', async ({ api }) => {
-    const result = await createWebhookTriggerFixtureWithRouting(api, ctx.repositoryId!, 'ongoing', {
+    const result = await createWebhookTriggerFixtureWithRouting(api, ctx.workspaceId!, 'ongoing', {
       sourceId: `ongoing-${Date.now()}`,
     })
 
@@ -242,6 +244,7 @@ test.describe('Chain 4: Webhook by_subject routing with thread', () => {
   test.beforeAll(async ({ api }) => {
     const repo = await api.ensureTemplateRepository()
     ctx.repositoryId = repo.id
+    ctx.workspaceId = (await api.ensureTemplateWorkspace()).id
   })
 
   test.afterAll(async ({ api }) => {
@@ -258,7 +261,7 @@ test.describe('Chain 4: Webhook by_subject routing with thread', () => {
     const sourceId = `thread-${Date.now()}`
     const result = await createWebhookTriggerFixtureWithRouting(
       api,
-      ctx.repositoryId!,
+      ctx.workspaceId!,
       'by_subject',
       { sourceId },
     )
@@ -344,6 +347,7 @@ test.describe('Chain 5: Webhook delivery admission', () => {
   test.beforeAll(async ({ api }) => {
     const repo = await api.ensureTemplateRepository()
     ctx.repositoryId = repo.id
+    ctx.workspaceId = (await api.ensureTemplateWorkspace()).id
   })
 
   test.afterAll(async ({ api }) => {
@@ -360,7 +364,7 @@ test.describe('Chain 5: Webhook delivery admission', () => {
     const sourceId = `admission-${Date.now()}`
     const result = await createWebhookTriggerFixtureWithRouting(
       api,
-      ctx.repositoryId!,
+      ctx.workspaceId!,
       'by_subject',
       { sourceId },
     )
@@ -424,12 +428,12 @@ test.describe('Chain 5: Webhook delivery admission', () => {
 })
 
 test('INT-34: A reply after close starts a new task', async ({ api }) => {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
   const suffix = Date.now()
   const sourceId = `closed-${suffix}`
   const { triggerId, config } = await createWebhookTriggerFixtureWithRouting(
     api,
-    repo.id,
+    workspace.id,
     'by_subject',
     { sourceId },
   )

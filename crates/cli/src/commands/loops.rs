@@ -50,7 +50,7 @@ pub enum LoopsAction {
     /// Examples:
     ///   # skip dependency PRs by title
     ///   moat loops create-subscription --adapter github --connection-id <c> \
-    ///     --source-matcher owner/repo --repository-id <r> \
+    ///     --source-matcher owner/repo --workspace-id <w> \
     ///     --append `ignored_title_patterns`='^chore\(deps' \
     ///     --append `ignored_title_patterns`='^deps[:(]'
     ///
@@ -148,7 +148,7 @@ pub enum LoopsAction {
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
-        repository_id: Option<String>,
+        workspace_id: Option<String>,
         #[arg(long)]
         routing_mode: Option<String>,
         #[arg(long)]
@@ -264,8 +264,9 @@ pub enum LoopsAction {
 
 #[derive(clap::Args)]
 pub struct CreateConfigArgs {
+    /// The Workspace every task this loop spawns runs in.
     #[arg(long)]
-    repository_id: String,
+    workspace_id: String,
     #[arg(long, default_value = "by_subject")]
     routing_mode: String,
     #[arg(long)]
@@ -377,7 +378,7 @@ pub async fn run_loops(
         LoopsAction::Update {
             id,
             name,
-            repository_id,
+            workspace_id,
             routing_mode,
             ongoing_task_id,
             clear_ongoing_task_id,
@@ -428,7 +429,7 @@ pub async fn run_loops(
             )
             .await?;
             let config = update_config(
-                repository_id,
+                workspace_id,
                 routing_mode,
                 ongoing_task_id,
                 clear_ongoing_task_id,
@@ -518,8 +519,7 @@ pub async fn run_loops(
 
 fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError> {
     Ok(CreateLoopConfig {
-        repository_id: args.repository_id,
-        workspace_id: None,
+        workspace_id: args.workspace_id,
         routing_mode: parse_routing_mode(&args.routing_mode)?,
         ongoing_task_id: None,
         task_name: args.task_name,
@@ -537,7 +537,7 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
 // nullable field, so the bool count is intrinsic to the surface.
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 fn update_config(
-    repository_id: Option<String>,
+    workspace_id: Option<String>,
     routing_mode: Option<RoutingMode>,
     ongoing_task_id: Option<String>,
     clear_ongoing_task_id: bool,
@@ -558,8 +558,7 @@ fn update_config(
     let tag_ids = fold_list(tag_ids, clear_tags, "tag", "clear-tags")?;
     let skills = fold_list(skills, clear_skills, "skill", "clear-skills")?;
     let config = UpdateLoopConfig {
-        repository_id,
-        workspace_id: None,
+        workspace_id,
         routing_mode,
         ongoing_task_id: fold_clearable(ongoing_task_id, clear_ongoing_task_id, "ongoing-task-id")?,
         prompt: fold_clearable(prompt, clear_prompt, "prompt")?,
@@ -574,7 +573,7 @@ fn update_config(
             "inactive-ttl-days",
         )?,
     };
-    if config.repository_id.is_none()
+    if config.workspace_id.is_none()
         && config.routing_mode.is_none()
         && config.ongoing_task_id.is_none()
         && config.prompt.is_none()

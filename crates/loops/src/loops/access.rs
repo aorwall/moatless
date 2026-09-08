@@ -1,28 +1,29 @@
-//! Scoped Loop and repository access for Loop operations.
+//! Scoped Loop and workspace access for Loop operations.
 
 use super::dao::{LoopDao, LoopRecord};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_ports::workspace::RepositoryReader;
-use moatless_types::access_control::{ScopeContext, ScopedResource, ensure_can_use_repository};
+use moatless_ports::workspace::WorkspaceResolver;
+use moatless_types::access_control::ScopeContext;
 
-pub(crate) async fn ensure_repository_exists(
-    repositories: &dyn RepositoryReader,
+/// A Workspace `ctx` may run a Loop in. `describe` is scoped, so one the caller
+/// cannot see reads as one that does not exist.
+pub(crate) async fn ensure_workspace_usable(
+    workspaces: &dyn WorkspaceResolver,
     ctx: &ScopeContext,
-    repository_id: &str,
+    workspace_id: &str,
 ) -> Result<(), AdapterError> {
-    let repo = repositories
-        .describe(ctx, repository_id)
+    let workspace = workspaces
+        .describe(ctx, workspace_id)
         .await?
         .ok_or_else(|| {
-            SharedAdapterError::BadRequest(format!("Repository {repository_id} not found"))
+            SharedAdapterError::BadRequest(format!("Workspace {workspace_id} not found"))
         })?;
-    ensure_can_use_repository(
-        ctx,
-        &ScopedResource::borrowed(
-            repo.scope,
-            repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
-        ),
-    )?;
+    if workspace.deleted {
+        return Err(SharedAdapterError::BadRequest(format!(
+            "Workspace {workspace_id} has been deleted"
+        ))
+        .into());
+    }
     Ok(())
 }
 

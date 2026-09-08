@@ -299,27 +299,35 @@ impl TagResolver for TagCatalog {
 impl TaskOpener for crate::task::creation::TaskCreationService {
     async fn open(&self, req: NewTask) -> Result<TaskOpened, TaskOpenError> {
         let metadata = req.event_metadata.clone();
-        let workspace_id = match req.workspace_id {
-            Some(id) => id,
-            None => self
-                .workspaces
-                .for_repository(&req.repository_id)
+        let workspace_id = req.workspace_id;
+        // A Loop outlives the Workspace it names, so the liveness `create_loop`
+        // checked can be stale by the time this fires. `service::normalize`
+        // refuses a tombstone the same way on the HTTP path.
+        let workspace = self
+            .workspaces
+            .resolve(&workspace_id)
+            .await?
+            .ok_or_else(|| {
+                TaskOpenError::BadRequest(format!("workspace {workspace_id} does not exist"))
+            })?;
+        if workspace.deleted {
+            return Err(TaskOpenError::BadRequest(format!(
+                "workspace {workspace_id} has been deleted; restore it from Git before firing"
+            )));
+        }
+        let repository_id =
+            crate::task::service::primary_repository_id(self.workspaces.as_ref(), &workspace_id)
                 .await?
-                .into_iter()
-                .next()
-                .map(|workspace| workspace.id)
                 .ok_or_else(|| {
                     TaskOpenError::BadRequest(format!(
-                        "repository {} places no workspace; name one on the loop",
-                        req.repository_id
+                        "workspace {workspace_id} places no repository"
                     ))
-                })?,
-        };
+                })?;
         let outcome = self
             .create(
                 crate::task::creation::NewTaskRequest {
                     forked_from: None,
-                    repository_id: req.repository_id,
+                    repository_id,
                     agent_type: req.agent_type,
                     name: req.name,
                     description: req.description,

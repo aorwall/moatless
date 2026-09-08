@@ -24,7 +24,7 @@ use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_core::http_auth::AuthUser;
 use moatless_ports::identity::UserResolver;
-use moatless_ports::workspace::RepositoryReader;
+use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RecentTasksQuery {
@@ -123,7 +123,7 @@ pub async fn list_loops(
 pub async fn create_loop(
     State(loops): State<Arc<LoopDao>>,
     State(users): State<Arc<dyn UserResolver>>,
-    State(repositories): State<Arc<dyn RepositoryReader>>,
+    State(workspaces): State<Arc<dyn WorkspaceResolver>>,
     State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
     auth: AuthUser,
     Json(req): Json<CreateLoopRequest>,
@@ -131,7 +131,7 @@ pub async fn create_loop(
     let record = super::super::mutations::create_loop(
         loops.as_ref(),
         users.as_ref(),
-        repositories.as_ref(),
+        workspaces.as_ref(),
         adapter_connections.as_ref(),
         &auth.scope_context(),
         req,
@@ -149,7 +149,7 @@ pub async fn create_loop(
 )]
 pub async fn update_loop(
     State(loops): State<Arc<LoopDao>>,
-    State(repositories): State<Arc<dyn RepositoryReader>>,
+    State(workspaces): State<Arc<dyn WorkspaceResolver>>,
     State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
     auth: AuthUser,
     Path(id): Path<String>,
@@ -157,7 +157,7 @@ pub async fn update_loop(
 ) -> Result<Json<Loop>, AdapterError> {
     let record = super::super::mutations::update_loop(
         loops.as_ref(),
-        repositories.as_ref(),
+        workspaces.as_ref(),
         adapter_connections.as_ref(),
         &auth.scope_context(),
         &id,

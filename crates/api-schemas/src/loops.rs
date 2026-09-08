@@ -30,10 +30,9 @@ pub enum LoopExecutionState {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct LoopConfig {
-    pub repository_id: String,
-    /// The Workspace every task this Loop spawns runs in. `None` falls back to
-    /// a live Workspace placing `repository_id`.
-    pub workspace_id: Option<String>,
+    /// The Workspace every task this Loop spawns runs in. Its primary placement
+    /// is the repository those tasks run against.
+    pub workspace_id: String,
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
     pub task_name: Option<String>,
@@ -57,9 +56,8 @@ pub struct LoopConfig {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateLoopConfig {
-    pub repository_id: String,
     /// See [`LoopConfig::workspace_id`].
-    pub workspace_id: Option<String>,
+    pub workspace_id: String,
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
     pub task_name: Option<String>,
@@ -77,14 +75,8 @@ pub struct CreateLoopConfig {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateLoopConfig {
-    pub repository_id: Option<String>,
-    /// See [`LoopConfig::workspace_id`]. `Some(None)` clears the override.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_optional_nullable_field"
-    )]
-    pub workspace_id: Option<Option<String>>,
+    /// See [`LoopConfig::workspace_id`].
+    pub workspace_id: Option<String>,
     pub routing_mode: Option<RoutingMode>,
     pub ongoing_task_id: Option<Option<String>>,
     pub task_name: Option<Option<String>>,

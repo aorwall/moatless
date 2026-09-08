@@ -27,9 +27,9 @@ import {
 
 /** A task with a message and no binding of any kind. */
 async function bareTask(api: MoatApi): Promise<string> {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
   const task = await api.createVibeTask({
-    templateId: repo.id,
+    workspaceId: workspace.id,
     name: 'reply-routing-test',
     message: 'Reply-routing fixture task',
   })
@@ -62,11 +62,11 @@ test('INT-40: Replying to a task with no binding answers 404', async ({ api }) =
 // ─── INT-41: Replying to a task with one binding sends to it ────────────
 
 test('INT-41: Replying to a task with one binding sends to it', async ({ api }) => {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
   const suffix = Date.now()
   const sourceId = `reply-single-${suffix}`
   const threadId = `thread-${suffix}`
-  const { triggerId, config } = await createWebhookTriggerFixture(api, repo.id, {
+  const { triggerId, config } = await createWebhookTriggerFixture(api, workspace.id, {
     sourceId,
   })
 
@@ -109,10 +109,10 @@ test('INT-41: Replying to a task with one binding sends to it', async ({ api }) 
 test('INT-42: Replying to a task with several bindings answers 400 and lists them', async ({
   api,
 }) => {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
   const suffix = Date.now()
   const taskId = await bareTask(api)
-  const { triggerId, config } = await createWebhookTriggerFixture(api, repo.id, {
+  const { triggerId, config } = await createWebhookTriggerFixture(api, workspace.id, {
     sourceId: `reply-multi-${suffix}`,
   })
 
@@ -151,10 +151,10 @@ test('INT-42: Replying to a task with several bindings answers 400 and lists the
 // ─── INT-43: Naming the binding explicitly sends to it ──────────────────
 
 test('INT-43: Naming the binding explicitly sends to it', async ({ api }) => {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
   const suffix = Date.now()
   const taskId = await bareTask(api)
-  const { triggerId, config } = await createWebhookTriggerFixture(api, repo.id, {
+  const { triggerId, config } = await createWebhookTriggerFixture(api, workspace.id, {
     sourceId: `reply-explicit-${suffix}`,
   })
 

@@ -14,7 +14,7 @@ use crate::loops::sync::LoopSyncService;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_core::http_auth::UserTokenVerifier;
 use moatless_ports::identity::UserResolver;
-use moatless_ports::workspace::RepositoryReader;
+use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -50,6 +50,7 @@ where
     Arc<dyn UserResolver>: FromRef<S>,
     Arc<dyn TaskBindingDao>: FromRef<S>,
     Arc<dyn RepositoryReader>: FromRef<S>,
+    Arc<dyn WorkspaceResolver>: FromRef<S>,
     Arc<LoopSyncService>: FromRef<S>,
     Arc<dyn AdapterConnectionDao>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,

@@ -64,7 +64,6 @@ pub fn subscription_context(subscription: &SubscriptionMatch) -> LoopContext {
         adapter_kind: subscription.adapter_kind.as_str().to_string(),
         source_id: subscription.source_matcher.clone(),
         source_name: subscription.source_name.clone(),
-        repository_id: subscription.repository_id.clone(),
         workspace_id: subscription.workspace_id.clone(),
         routing_mode: subscription.routing_mode,
         prompt_template: subscription.prompt_template.clone(),

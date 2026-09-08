@@ -80,8 +80,7 @@ impl AdapterBindingReply for TelegramAdapter {
                     .unwrap_or_default()
                     .to_string(),
                 source_name: None,
-                repository_id: String::new(),
-                workspace_id: None,
+                workspace_id: String::new(),
                 routing_mode: RoutingMode::BySubject,
                 prompt_template: None,
                 active: true,

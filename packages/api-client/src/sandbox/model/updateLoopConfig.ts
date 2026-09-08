@@ -21,8 +21,6 @@ export interface UpdateLoopConfig {
   ongoingTaskId?: string | null;
   /** @nullable */
   prompt?: string | null;
-  /** @nullable */
-  repositoryId?: string | null;
   routingMode?: null | RoutingMode;
   /** @nullable */
   skills?: string[] | null;
@@ -31,7 +29,7 @@ export interface UpdateLoopConfig {
   /** @nullable */
   taskName?: string | null;
   /**
-   * See [`LoopConfig::workspace_id`]. `Some(None)` clears the override.
+   * See [`LoopConfig::workspace_id`].
    * @nullable
    */
   workspaceId?: string | null;

@@ -10955,7 +10955,7 @@
       "CreateLoopConfig": {
         "type": "object",
         "required": [
-          "repositoryId",
+          "workspaceId",
           "routingMode"
         ],
         "properties": {
@@ -10991,9 +10991,6 @@
               "null"
             ]
           },
-          "repositoryId": {
-            "type": "string"
-          },
           "routingMode": {
             "$ref": "#/components/schemas/RoutingMode"
           },
@@ -11028,10 +11025,7 @@
             ]
           },
           "workspaceId": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": "string",
             "description": "See [`LoopConfig::workspace_id`]."
           }
         }
@@ -13462,7 +13456,7 @@
       "LoopConfig": {
         "type": "object",
         "required": [
-          "repositoryId",
+          "workspaceId",
           "routingMode",
           "tagIds",
           "skills",
@@ -13499,9 +13493,6 @@
               "null"
             ]
           },
-          "repositoryId": {
-            "type": "string"
-          },
           "routingMode": {
             "$ref": "#/components/schemas/RoutingMode"
           },
@@ -13531,11 +13522,8 @@
             ]
           },
           "workspaceId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The Workspace every task this Loop spawns runs in. `None` falls back to\na live Workspace placing `repository_id`."
+            "type": "string",
+            "description": "The Workspace every task this Loop spawns runs in. Its primary placement\nis the repository those tasks run against."
           }
         }
       },
@@ -18337,12 +18325,6 @@
               "null"
             ]
           },
-          "repositoryId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "routingMode": {
             "oneOf": [
               {
@@ -18382,7 +18364,7 @@
               "string",
               "null"
             ],
-            "description": "See [`LoopConfig::workspace_id`]. `Some(None)` clears the override."
+            "description": "See [`LoopConfig::workspace_id`]."
           }
         }
       },

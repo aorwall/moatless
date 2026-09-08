@@ -264,6 +264,27 @@ export class MoatApi {
     return this.moat.json<WorkspaceResponse[]>(['workspaces', 'list'])
   }
 
+  /**
+   * A live workspace placing the template repository, created on first use.
+   *
+   * Every Task and every Loop names a workspace, so a test that only cares
+   * about the repository still needs one to run in.
+   */
+  async ensureTemplateWorkspace(): Promise<WorkspaceResponse> {
+    const repo = await this.ensureTemplateRepository()
+    const existing = (await this.listWorkspaces()).find(
+      (workspace) =>
+        !workspace.deleted && workspace.repos.some((placed) => placed.repositoryId === repo.id),
+    )
+    if (existing) {
+      return existing
+    }
+    return this.createWorkspace({
+      name: 'template',
+      repos: [{ repositoryId: repo.id }],
+    })
+  }
+
   async deleteWorkspace(id: string): Promise<void> {
     this.expect(await this.deleteWorkspaceRaw(id))
   }
@@ -713,7 +734,7 @@ export class MoatApi {
    */
   async createScheduleLoop(config: {
     name: string
-    repositoryId: string
+    workspaceId: string
     cronExpression: string
     messageTemplate: string
     timezone?: string
@@ -728,8 +749,8 @@ export class MoatApi {
       'create-schedule',
       '--name',
       scopedName(config.name),
-      '--repository-id',
-      config.repositoryId,
+      '--workspace-id',
+      config.workspaceId,
       '--cron-expression',
       config.cronExpression,
       '--message-template',
@@ -977,7 +998,7 @@ export class MoatApi {
       kind: 'adapter_event',
       active: true,
       config: {
-        repositoryId: config.repositoryId,
+        workspaceId: config.workspaceId,
         routingMode: normalizeRoutingMode(config.routingMode),
         prompt: config.promptTemplate ?? null,
         taskName: config.taskName ?? null,
@@ -1062,7 +1083,7 @@ export class MoatApi {
   async listTaskTriggerFixtures(filters?: {
     adapterKind?: string
     provider?: string
-    repositoryId?: string
+    workspaceId?: string
   }): Promise<TaskLoopFixtureResponse[]> {
     const params = new URLSearchParams({ kind: 'adapter_event' })
     const adapterKind = filters?.adapterKind ?? filters?.provider
@@ -1073,7 +1094,7 @@ export class MoatApi {
     )
     return loops
       .map(toTaskTriggerFixture)
-      .filter((fixture) => !filters?.repositoryId || fixture.repositoryId === filters.repositoryId)
+      .filter((fixture) => !filters?.workspaceId || fixture.workspaceId === filters.workspaceId)
   }
 
   /** Deliver a message through a webhook connection. */
@@ -1335,7 +1356,7 @@ function toTaskTriggerFixture(loop: LoopResponse): TaskLoopFixtureResponse {
     adapterKind: loop.source.adapterKind,
     sourceId: loop.source.sourceMatcher,
     sourceName: loop.source.sourceName ?? undefined,
-    repositoryId: loop.config.repositoryId,
+    workspaceId: loop.config.workspaceId,
     routingMode: loop.config.routingMode,
     promptTemplate: loop.config.prompt ?? undefined,
     taskName: loop.config.taskName ?? undefined,

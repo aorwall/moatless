@@ -68,7 +68,6 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
         deleted: record.loop_.deleted,
         execution_state,
         config: LoopConfig {
-            repository_id: record.config.repository_id.clone(),
             workspace_id: record.config.workspace_id.clone(),
             routing_mode: record.config.routing_mode,
             ongoing_task_id: record.config.ongoing_task_id.clone(),

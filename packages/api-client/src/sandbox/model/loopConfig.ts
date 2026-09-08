@@ -27,7 +27,6 @@ for `agent_type`". Flows into `tasks.model` when this Loop spawns a task.
   ongoingTaskId?: string | null;
   /** @nullable */
   prompt?: string | null;
-  repositoryId: string;
   routingMode: RoutingMode;
   /** @nullable */
   runAsUserId?: string | null;
@@ -36,10 +35,7 @@ for `agent_type`". Flows into `tasks.model` when this Loop spawns a task.
   tagIds: string[];
   /** @nullable */
   taskName?: string | null;
-  /**
-   * The Workspace every task this Loop spawns runs in. `None` falls back to
-a live Workspace placing `repository_id`.
-   * @nullable
-   */
-  workspaceId?: string | null;
+  /** The Workspace every task this Loop spawns runs in. Its primary placement
+is the repository those tasks run against. */
+  workspaceId: string;
 }

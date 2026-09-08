@@ -114,13 +114,13 @@ Notes:
   a terminal state (`completed`/`canceled`) the spawned task is auto-closed.
   The same knobs work on a hand-made trigger:
   `moat loops create-subscription --adapter linear --connection-id <id>
-  --name "Ready Pool" --repository-id <repo-id> --source-matcher <team-uuid> --adapter-config
+  --name "Ready Pool" --workspace-id <workspace-id> --source-matcher <team-uuid> --adapter-config
   '{"create_on_status_entry":true,"trigger_states":["Ready"],"project_ids":["<proj>"],"start_state":"In Progress"}'`.
 - `workspace` names the Workspace every task the loop spawns runs in, by its
   display name. It must be a Workspace this repository is placed in, or the loop
   is **skipped** with `no workspace named \`<name>\` holds this repository`. Omit
-  it and a firing takes the repository's own workspaces, primary placements
-  first; a repository placed in none cannot fire a task at all.
+  it and sync resolves the repository's own Workspace, primary placement first; a
+  repository placed in none is **skipped**.
 - `skills` lists skill names by directory name under `.claude/skills/` or
   `.agents/skills/`. Every task the loop spawns activates them: the sandbox reads
   each `SKILL.md` and frontloads its body ahead of the prompt on each fresh agent

@@ -43,9 +43,7 @@ test.describe('Chain 6: Webhook Outbound Callback', () => {
     })
     await callbackServer.start()
 
-    // Set up repository
-    const repo = await api.ensureTemplateRepository()
-    ctx.repositoryId = repo.id
+    ctx.workspaceId = (await api.ensureTemplateWorkspace()).id
   })
 
   test.afterAll(async ({ api }) => {
@@ -67,7 +65,7 @@ test.describe('Chain 6: Webhook Outbound Callback', () => {
   // ─── INT-60: Create webhook config with callback URL ────────────────
 
   test('INT-60: Create webhook config with callback URL', async ({ api }) => {
-    const result = await createWebhookTriggerFixture(api, ctx.repositoryId!, {
+    const result = await createWebhookTriggerFixture(api, ctx.workspaceId!, {
       sourceId: `callback-test-${Date.now()}`,
       adapterConfig: {
         callback_url: callbackServer.url,

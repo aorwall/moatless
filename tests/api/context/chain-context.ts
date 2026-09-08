@@ -23,6 +23,9 @@ export class ChainContext {
   repositoryId?: string
   repository?: RepositoryResponse
 
+  /** Workspace placing the template repository — what a task or loop names */
+  workspaceId?: string
+
   /** Task created at the start of the chain */
   taskId?: string
   task?: TaskResponse

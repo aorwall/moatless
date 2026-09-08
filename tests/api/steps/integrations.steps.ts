@@ -16,7 +16,7 @@ import type { TaskLoopFixtureResponse } from '../../shared/types'
 
 export async function createWebhookTriggerFixture(
   api: MoatApi,
-  repositoryId: string,
+  workspaceId: string,
   options?: {
     sourceId?: string
     sourceName?: string
@@ -29,7 +29,7 @@ export async function createWebhookTriggerFixture(
     adapterKind: 'webhook',
     sourceId: options?.sourceId ?? `webhook-${Date.now()}`,
     sourceName: options?.sourceName,
-    repositoryId,
+    workspaceId,
     routingMode: options?.routingMode ?? 'by_subject',
     promptTemplate: options?.promptTemplate,
     adapterConfig: options?.adapterConfig,
@@ -43,14 +43,14 @@ export async function createWebhookTriggerFixture(
 
 export async function createWebhookTriggerFixtureWithRouting(
   api: MoatApi,
-  repositoryId: string,
+  workspaceId: string,
   routingMode: string,
   options?: {
     sourceId?: string
     adapterConfig?: Record<string, unknown>
   },
 ): Promise<{ triggerId: string; loopId: string; config: TaskLoopFixtureResponse }> {
-  return createWebhookTriggerFixture(api, repositoryId, {
+  return createWebhookTriggerFixture(api, workspaceId, {
     routingMode,
     sourceId: options?.sourceId,
     adapterConfig: options?.adapterConfig,

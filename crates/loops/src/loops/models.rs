@@ -6,9 +6,8 @@ use moatless_types::{agent::AgentType, access_control::Scope, loops::RoutingMode
 #[derive(Debug, Clone)]
 pub struct LoopSpawnConfig {
     pub id: String,
-    pub repository_id: String,
     /// See [`moatless_types::loops::LoopContext::workspace_id`].
-    pub workspace_id: Option<String>,
+    pub workspace_id: String,
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
     pub prompt_template: Option<String>,

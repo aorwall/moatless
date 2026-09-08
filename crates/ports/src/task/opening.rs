@@ -12,11 +12,9 @@ use moatless_types::task::Visibility;
 /// and what the firing event carried.
 #[derive(Debug, Clone)]
 pub struct NewTask {
-    pub repository_id: String,
-    /// The Workspace the Loop names. `None` falls back to a live Workspace
-    /// placing `repository_id`, so a Loop written before Workspaces existed
-    /// keeps firing.
-    pub workspace_id: Option<String>,
+    /// The Workspace the Loop names. Its primary placement is the repository
+    /// the Task runs against.
+    pub workspace_id: String,
     pub agent_type: AgentType,
     /// The model the spawned Task runs on. `None` keeps the platform default.
     pub model: Option<String>,

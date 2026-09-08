@@ -6,7 +6,7 @@
  * INT-50: Webhook to non-existent config
  * INT-51: Webhook to inactive config
  * INT-52: Webhook with invalid signature
- * INT-53: Create config with non-existent repository
+ * INT-53: Create config with non-existent workspace
  * INT-54: Webhook with missing text field
  */
 
@@ -26,9 +26,9 @@ test('INT-50: Webhook to non-existent config returns error', async ({ api }) => 
 // ─── INT-51: Webhook to inactive config ──────────────────────────────
 
 test('INT-51: Webhook to inactive config is rejected', async ({ api }) => {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
 
-  const { triggerId } = await createWebhookTriggerFixture(api, repo.id, {
+  const { triggerId } = await createWebhookTriggerFixture(api, workspace.id, {
     sourceId: `inactive-${Date.now()}`,
   })
 
@@ -50,9 +50,9 @@ test('INT-51: Webhook to inactive config is rejected', async ({ api }) => {
 // ─── INT-52: Webhook with invalid signature ──────────────────────────
 
 test('INT-52: Webhook with invalid signature is rejected', async ({ api }) => {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
 
-  const { triggerId } = await createWebhookTriggerFixture(api, repo.id, {
+  const { triggerId } = await createWebhookTriggerFixture(api, workspace.id, {
     sourceId: `sig-test-${Date.now()}`,
     adapterConfig: {
       webhook_secret: 'my-secret-key',
@@ -72,17 +72,17 @@ test('INT-52: Webhook with invalid signature is rejected', async ({ api }) => {
   await api.deleteTaskTriggerFixture(triggerId).catch(() => {})
 })
 
-// ─── INT-53: Create config with non-existent repository ──────────────
+// ─── INT-53: Create config with non-existent workspace ───────────────
 
-test('INT-53: Create config with non-existent repository returns error', async ({ api }) => {
+test('INT-53: Create config with non-existent workspace returns error', async ({ api }) => {
   const response = await api.createTaskTriggerFixtureRaw({
     adapterKind: 'webhook',
-    sourceId: `no-repo-${Date.now()}`,
-    repositoryId: 'non-existent-repo-id',
+    sourceId: `no-workspace-${Date.now()}`,
+    workspaceId: 'non-existent-workspace-id',
     routingMode: 'by_subject',
   })
 
-  // The rule names a repository that is not there, so the trigger is refused
+  // The rule names a workspace that is not there, so the trigger is refused
   // rather than created and left pointing at nothing.
   expect(response.status).toBe(400)
 })
@@ -90,9 +90,9 @@ test('INT-53: Create config with non-existent repository returns error', async (
 // ─── INT-54: Webhook with missing text field ─────────────────────────
 
 test('INT-54: Webhook with missing text field returns error', async ({ api }) => {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
 
-  const { triggerId } = await createWebhookTriggerFixture(api, repo.id, {
+  const { triggerId } = await createWebhookTriggerFixture(api, workspace.id, {
     sourceId: `no-text-${Date.now()}`,
   })
 

@@ -19,7 +19,7 @@ pub(super) struct ResolvedLoop {
     name: String,
     routing_mode: RoutingMode,
     /// See [`moatless_types::loops::LoopContext::workspace_id`].
-    workspace_id: Option<String>,
+    workspace_id: String,
     agent_type: String,
     model: Option<String>,
     prompt: Option<String>,
@@ -78,17 +78,27 @@ impl LoopSyncService {
         };
 
         // A named Workspace must be one this repository is placed in: firing into
-        // any other would run the Loop against a checkout it never declared.
+        // any other would run the Loop against a checkout it never declared. An
+        // unnamed one resolves to the repository's own Workspace, primary
+        // placement first, because every Loop stores a concrete Workspace.
+        let placed = self.workspaces.for_repository(&repo.id).await?;
         let workspace_id = match fm.workspace.as_deref().map(str::trim) {
-            None | Some("") => None,
+            None | Some("") => {
+                let Some(workspace) = placed.into_iter().next() else {
+                    return Ok(ResolveOutcome::Skipped(
+                        "no workspace holds this repository — declare `workspace:` or place it in one"
+                            .to_string(),
+                    ));
+                };
+                workspace.id
+            }
             Some(name) => {
-                let placed = self.workspaces.for_repository(&repo.id).await?;
                 let Some(workspace) = placed.into_iter().find(|w| w.name == name) else {
                     return Ok(ResolveOutcome::Skipped(format!(
                         "no workspace named `{name}` holds this repository"
                     )));
                 };
-                Some(workspace.id)
+                workspace.id
             }
         };
 

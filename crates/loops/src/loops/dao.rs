@@ -51,8 +51,7 @@ pub struct LoopRow {
 #[derive(Debug, Clone)]
 pub struct LoopConfigRow {
     pub loop_id: String,
-    pub repository_id: String,
-    pub workspace_id: Option<String>,
+    pub workspace_id: String,
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
     pub prompt: Option<String>,
@@ -122,8 +121,7 @@ struct JoinedLoopRecordRow {
     source_key: Option<String>,
     source_config_path: Option<String>,
     deleted: bool,
-    repository_id: String,
-    workspace_id: Option<String>,
+    workspace_id: String,
     #[sqlx(try_from = "String")]
     routing_mode: RoutingMode,
     ongoing_task_id: Option<String>,
@@ -174,7 +172,6 @@ impl JoinedLoopRecordRow {
         };
         let config = LoopConfigRow {
             loop_id: self.id.clone(),
-            repository_id: self.repository_id,
             workspace_id: self.workspace_id,
             routing_mode: self.routing_mode,
             ongoing_task_id: self.ongoing_task_id,
@@ -244,7 +241,6 @@ const LOOP_RECORD_SELECT: &str = r#"
            t.source_key,
            t.source_config_path,
            t.deleted,
-           r.repository_id,
            r.workspace_id,
            r.routing_mode,
            r.ongoing_task_id,
@@ -299,8 +295,7 @@ pub struct NewLoop {
 
 /// Resolved `loop_configs` values shared by create and update.
 pub struct NewLoopConfig {
-    pub repository_id: String,
-    pub workspace_id: Option<String>,
+    pub workspace_id: String,
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
     pub prompt: Option<String>,
@@ -369,7 +364,7 @@ pub struct ManagedLoopUpsert {
     pub source_repository_id: String,
     /// The Workspace the `workspace:` frontmatter names, resolved to an id.
     /// See [`moatless_types::loops::LoopContext::workspace_id`].
-    pub workspace_id: Option<String>,
+    pub workspace_id: String,
     pub source_key: String,
     pub source_config_path: String,
     pub trigger_name: String,
@@ -557,22 +552,20 @@ impl LoopDao {
         if let Some(config) = config {
             sqlx::query(
                 r#"UPDATE loop_configs
-                   SET repository_id = $2,
-                       routing_mode = $3,
-                       ongoing_task_id = $4,
-                       prompt = $5,
-                       task_name = $6,
-                       tag_ids = $7,
-                       skills = $8,
-                       run_as_user_id = $9,
-                       agent_type = $10,
-                       inactive_ttl_days = $11,
-                       model = $12,
-                       workspace_id = $13
+                   SET routing_mode = $2,
+                       ongoing_task_id = $3,
+                       prompt = $4,
+                       task_name = $5,
+                       tag_ids = $6,
+                       skills = $7,
+                       run_as_user_id = $8,
+                       agent_type = $9,
+                       inactive_ttl_days = $10,
+                       model = $11,
+                       workspace_id = $12
                    WHERE loop_id = $1"#,
             )
             .bind(id)
-            .bind(&config.repository_id)
             .bind(config.routing_mode.as_str())
             .bind(&config.ongoing_task_id)
             .bind(&config.prompt)
@@ -943,13 +936,12 @@ impl LoopDao {
 
         sqlx::query(
             r#"INSERT INTO loop_configs
-               (loop_id, repository_id, routing_mode, ongoing_task_id, prompt,
+               (loop_id, routing_mode, ongoing_task_id, prompt,
                 task_name, tag_ids, skills, run_as_user_id, agent_type,
                 inactive_ttl_days, model, workspace_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                ON CONFLICT (loop_id) DO UPDATE
-               SET repository_id     = EXCLUDED.repository_id,
-                   routing_mode      = EXCLUDED.routing_mode,
+               SET routing_mode      = EXCLUDED.routing_mode,
                    ongoing_task_id   = EXCLUDED.ongoing_task_id,
                    prompt            = EXCLUDED.prompt,
                    task_name         = EXCLUDED.task_name,
@@ -962,7 +954,6 @@ impl LoopDao {
                    workspace_id      = EXCLUDED.workspace_id"#,
         )
         .bind(&row.id)
-        .bind(&row.repository_id)
         .bind(row.routing_mode.as_str())
         .bind(&row.ongoing_task_id)
         .bind(&row.prompt_template)
@@ -1366,7 +1357,6 @@ impl LoopDao {
         // System-level query — schedule runner acts across all owners, no scope filter needed.
         let row = sqlx::query_as::<_, LoopSpawnConfigRow>(
             r#"SELECT t.id,
-                      r.repository_id,
                       r.workspace_id,
                       r.routing_mode,
                       r.ongoing_task_id,
@@ -1424,7 +1414,6 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            aes.source_name,
            r.routing_mode,
            aes.event_filter,
-           r.repository_id,
            r.workspace_id,
            r.prompt AS prompt_template,
            r.task_name,
@@ -1510,7 +1499,6 @@ async fn replace_managed_loop_rows(
         tx,
         loop_id,
         &NewLoopConfig {
-            repository_id: input.source_repository_id.clone(),
             workspace_id: input.workspace_id.clone(),
             routing_mode: input.routing_mode,
             ongoing_task_id,
@@ -1542,13 +1530,12 @@ async fn insert_config(
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"INSERT INTO loop_configs
-           (loop_id, repository_id, routing_mode, ongoing_task_id, prompt,
+           (loop_id, routing_mode, ongoing_task_id, prompt,
             task_name, tag_ids, skills, run_as_user_id, agent_type,
             inactive_ttl_days, model, workspace_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
     )
     .bind(loop_id)
-    .bind(&config.repository_id)
     .bind(config.routing_mode.as_str())
     .bind(&config.ongoing_task_id)
     .bind(&config.prompt)

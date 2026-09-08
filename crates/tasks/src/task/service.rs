@@ -216,6 +216,21 @@ pub struct CreateTaskPorts<'a> {
     pub config: &'a Config,
 }
 
+/// The repository a Task in this Workspace runs against, whatever repository
+/// the caller also named: the Workspace's primary placement. `None` when the
+/// Workspace places none, which each caller words for its own surface.
+pub(crate) async fn primary_repository_id(
+    workspaces: &dyn WorkspaceResolver,
+    workspace_id: &str,
+) -> Result<Option<String>, moatless_types::store::StoreError> {
+    Ok(workspaces
+        .placements(workspace_id)
+        .await?
+        .into_iter()
+        .next()
+        .map(|placement| placement.repository_id))
+}
+
 /// Turn a create request into the normalised form the creation service takes.
 ///
 /// The repository, access and scope resolution lives here, apart from
@@ -255,20 +270,14 @@ pub async fn normalize(
         )));
     }
 
-    // The Workspace drives the Task's repositories: the effective repository is
-    // its primary placement, whatever `repository_id` the request also carried.
-    let repository_id = workspaces
-        .placements(&workspace.id)
+    let repository_id = primary_repository_id(workspaces, &workspace.id)
         .await?
-        .into_iter()
-        .next()
         .ok_or_else(|| {
             TaskError::BadRequest(format!(
                 "Workspace {} has no primary repository",
                 workspace.id
             ))
-        })?
-        .repository_id;
+        })?;
 
     // Validate repository exists and is usable by this caller.
     let repo = repositories

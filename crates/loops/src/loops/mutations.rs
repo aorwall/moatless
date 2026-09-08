@@ -1,6 +1,6 @@
 //! Loop mutation policy and state transitions.
 
-use super::access::{ensure_repository_exists, load_loop_for_auth_with};
+use super::access::{ensure_workspace_usable, load_loop_for_auth_with};
 use super::dao::{
     AdapterSourceUpdate, LoopDao, LoopRecord, LoopSourceRow, LoopUpdate, NewAdapterEventSource,
     NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource,
@@ -18,7 +18,7 @@ use moatless_api_schemas::loops::{
     CreateLoopRequest, UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource,
 };
 use moatless_ports::identity::UserResolver;
-use moatless_ports::workspace::RepositoryReader;
+use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_tasks::agent::catalog;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::loops::LoopKind as DomainLoopKind;
@@ -64,7 +64,7 @@ async fn resolve_run_as_user(
 pub async fn create_loop(
     loops: &LoopDao,
     users: &dyn UserResolver,
-    repositories: &dyn RepositoryReader,
+    workspaces: &dyn WorkspaceResolver,
     adapter_connections: &dyn AdapterConnectionDao,
     ctx: &ScopeContext,
     req: CreateLoopRequest,
@@ -77,7 +77,7 @@ pub async fn create_loop(
         .clone()
         .unwrap_or_else(|| "claude-code".to_string());
     require_agent_and_model(&agent_type, req.config.model.as_deref())?;
-    ensure_repository_exists(repositories, ctx, &req.config.repository_id).await?;
+    ensure_workspace_usable(workspaces, ctx, &req.config.workspace_id).await?;
     let run_as_user_id = match req.config.run_as_user_id.as_deref() {
         Some(requested) => Some(resolve_run_as_user(users, requested).await?),
         None => None,
@@ -185,7 +185,6 @@ pub async fn create_loop(
             created_by: ctx.user_id.clone(),
             created_at: now,
             config: NewLoopConfig {
-                repository_id: req.config.repository_id.clone(),
                 workspace_id: req.config.workspace_id.clone(),
                 routing_mode: req.config.routing_mode,
                 ongoing_task_id: req.config.ongoing_task_id.clone(),
@@ -237,9 +236,6 @@ fn next_config(
             .filter(|m| !(agent_changed && catalog::model_conflicts(&agent_type, m)))
     });
     Ok(NewLoopConfig {
-        repository_id: rule
-            .repository_id
-            .unwrap_or_else(|| current.config.repository_id.clone()),
         workspace_id: rule
             .workspace_id
             .unwrap_or_else(|| current.config.workspace_id.clone()),
@@ -267,7 +263,7 @@ fn next_config(
 /// Apply administrator edits to a mutable Loop configuration.
 pub async fn update_loop(
     loops: &LoopDao,
-    repositories: &dyn RepositoryReader,
+    workspaces: &dyn WorkspaceResolver,
     adapter_connections: &dyn AdapterConnectionDao,
     ctx: &ScopeContext,
     id: &str,
@@ -290,8 +286,8 @@ pub async fn update_loop(
     };
 
     if let Some(rule) = &req.config {
-        if let Some(repository_id) = rule.repository_id.as_deref() {
-            ensure_repository_exists(repositories, ctx, repository_id).await?;
+        if let Some(workspace_id) = rule.workspace_id.as_deref() {
+            ensure_workspace_usable(workspaces, ctx, workspace_id).await?;
         }
     }
 
@@ -607,8 +603,7 @@ mod tests {
             },
             config: crate::loops::dao::LoopConfigRow {
                 loop_id: "loop".into(),
-                repository_id: "repo".into(),
-                workspace_id: None,
+                workspace_id: "ws".into(),
                 routing_mode: moatless_types::loops::RoutingMode::BySubject,
                 ongoing_task_id: None,
                 prompt: None,

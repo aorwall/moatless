@@ -120,7 +120,7 @@ function ConfigInfoSection({ loop }: { loop: Loop }) {
     <div className="rounded-md border p-4">
       <h2 className="mb-4 text-sm font-semibold">Config</h2>
       <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <DetailItem label="Repository ID" value={loop.config.repositoryId} />
+        <DetailItem label="Workspace ID" value={loop.config.workspaceId} />
         <DetailItem label="Routing mode" value={loop.config.routingMode} />
         <DetailItem label="Ongoing task ID" value={loop.config.ongoingTaskId ?? '-'} />
         <DetailItem label="Task name" value={loop.config.taskName ?? '-'} />

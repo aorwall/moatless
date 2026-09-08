@@ -98,7 +98,7 @@ async fn insert_linear_connection(pool: &PgPool, org_id: &str) {
 
 /// Insert a manual (non-Git) Loop on a repo so we can assert reconcile
 /// never touches it.
-async fn insert_manual_loop(pool: &PgPool, repo_id: &str) {
+async fn insert_manual_loop(pool: &PgPool, workspace_id: &str) {
     sqlx::query(
         "INSERT INTO loops (id, name, kind, active, scope, created_by, owner_user_id) \
          VALUES ('tr_manual_1', 'manual one', 'adapter_event', true, 'user', 'user-1', 'user-1')",
@@ -107,10 +107,10 @@ async fn insert_manual_loop(pool: &PgPool, repo_id: &str) {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO loop_configs (loop_id, repository_id, routing_mode, agent_type) \
+        "INSERT INTO loop_configs (loop_id, workspace_id, routing_mode, agent_type) \
          VALUES ('tr_manual_1', $1, 'by_subject', 'claude-code')",
     )
-    .bind(repo_id)
+    .bind(workspace_id)
     .execute(pool)
     .await
     .unwrap();
@@ -133,9 +133,10 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     let repo = make_repository_row("repo-loops", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     // make_repository_row uses https://github.com/test/{id}.git -> org "test".
     insert_github_connection(&pool, "test").await;
-    insert_manual_loop(&pool, &repo.id).await;
+    insert_manual_loop(&pool, "ws-1").await;
 
     let state = test_app_state(pool.clone());
     let auth = auth("user-1");
@@ -306,6 +307,7 @@ async fn github_pr_loop_without_connection_is_skipped(pool: PgPool) {
     let repo = make_repository_row("repo-noconn", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     // No github connection inserted for org "test".
 
     let state = test_app_state(pool.clone());
@@ -339,10 +341,46 @@ async fn github_pr_loop_without_connection_is_skipped(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn loop_whose_repository_is_placed_nowhere_is_skipped(pool: PgPool) {
+    let repo = make_repository_row("repo-unplaced", "user-1");
+    seed_team(&pool, "user-1").await;
+    repository_dao::insert(&pool, &repo).await.unwrap();
+    // No workspace placing the repository, and the declaration names none.
+
+    let state = test_app_state(pool.clone());
+    let auth = auth("user-1");
+
+    let loops = vec![parse_loop(SCHEDULE_LOOP, "daily-health-check").unwrap()];
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
+
+    assert_eq!(summary.created, 0);
+    assert_eq!(summary.skipped.len(), 1, "unplaced repository skipped");
+    assert!(
+        summary.skipped[0].reason.contains("no workspace"),
+        "reason: {}",
+        summary.skipped[0].reason
+    );
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM loops WHERE source_repository_id = $1 AND config_source = 'git'",
+    )
+    .bind(&repo.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0, "no Loop created for a skipped declaration");
+}
+
+#[sqlx::test]
 async fn sync_creates_slack_loop(pool: PgPool) {
     let repo = make_repository_row("repo-slack", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_slack_connection(&pool, "T0000000001").await;
 
     let state = test_app_state(pool.clone());
@@ -398,6 +436,7 @@ async fn sync_creates_linear_loop(pool: PgPool) {
     let repo = make_repository_row("repo-linear", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     // Single linear connection — resolved without an explicit teamId.
     insert_linear_connection(&pool, "org-acme").await;
 
@@ -460,6 +499,7 @@ async fn linear_loop_without_connection_is_skipped(pool: PgPool) {
     let repo = make_repository_row("repo-linear-noconn", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     // No linear connection inserted.
 
     let state = test_app_state(pool.clone());
@@ -486,6 +526,7 @@ async fn slack_loop_without_connection_is_skipped(pool: PgPool) {
     let repo = make_repository_row("repo-slack-noconn", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     // No slack connection inserted for team T0000000001.
 
     let state = test_app_state(pool.clone());
@@ -526,6 +567,7 @@ async fn resync_preserves_ongoing_task_id(pool: PgPool) {
     let repo = make_repository_row("repo-ongoing", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_github_connection(&pool, "test").await;
 
     let state = test_app_state(pool.clone());
@@ -588,6 +630,7 @@ async fn resync_preserves_activation_across_a_changed_declaration(pool: PgPool) 
     let repo = make_repository_row("repo-reapprove", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_github_connection(&pool, "test").await;
 
     let state = test_app_state(pool.clone());
@@ -663,6 +706,7 @@ async fn reset_to_git_keeps_the_execution_approval(pool: PgPool) {
     let repo = make_repository_row("repo-reset", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
 
     let state = test_app_state(pool.clone());
     let auth = auth("user-1");
@@ -728,7 +772,7 @@ async fn reset_to_git_keeps_the_execution_approval(pool: PgPool) {
 fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
     ManagedLoopUpsert {
         source_repository_id: repo.id.clone(),
-        workspace_id: None,
+        workspace_id: "ws-1".to_string(),
         source_key: "daily-health-check".to_string(),
         source_config_path: ".moatless/loops/daily-health-check/LOOP.md".to_string(),
         trigger_name: "Daily Health Check".to_string(),
@@ -758,6 +802,7 @@ async fn resync_skips_an_override_and_preserves_its_approval(pool: PgPool) {
     let repo = make_repository_row("repo-override", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_github_connection(&pool, "test").await;
 
     let state = test_app_state(pool.clone());
@@ -821,6 +866,7 @@ async fn concurrent_activation_and_resync_finish_in_a_serial_state(pool: PgPool)
     let repo = make_repository_row("repo-concurrent", "user-1");
     seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_github_connection(&pool, "test").await;
 
     let state = test_app_state(pool.clone());

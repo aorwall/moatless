@@ -29,6 +29,7 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
     const repo = await api.ensureTemplateRepository()
     ctx.repositoryId = repo.id
     ctx.repository = repo
+    ctx.workspaceId = (await api.ensureTemplateWorkspace()).id
   })
 
   test.afterAll(async ({ api }) => {
@@ -42,7 +43,7 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
 
   test('INT-01: Create webhook task trigger fixture', async ({ api }) => {
     const sourceId = `crud-test-${Date.now()}`
-    const result = await createWebhookTriggerFixture(api, ctx.repositoryId!, {
+    const result = await createWebhookTriggerFixture(api, ctx.workspaceId!, {
       sourceId,
       sourceName: 'CRUD Test Webhook',
     })
@@ -50,7 +51,7 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
     expect(result.config.active).toBe(true)
     expect(result.triggerId).toBeTruthy()
     expect(result.config.adapterKind).toBe('webhook')
-    expect(result.config.repositoryId).toBe(ctx.repositoryId)
+    expect(result.config.workspaceId).toBe(ctx.workspaceId)
     // The matcher is what the inbound event is routed by, so it has to be
     // the one asked for — the connection is created from the same string.
     expect(result.config.connectionId).toBeTruthy()
@@ -150,8 +151,7 @@ test.describe('Chain 2: Schedule Loop CRUD', () => {
   const updatedCron = '0 0 0 1 6 * 2098'
 
   test.beforeAll(async ({ api }) => {
-    const repo = await api.ensureTemplateRepository()
-    ctx.repositoryId = repo.id
+    ctx.workspaceId = (await api.ensureTemplateWorkspace()).id
   })
 
   test.afterAll(async ({ api }) => {
@@ -166,7 +166,7 @@ test.describe('Chain 2: Schedule Loop CRUD', () => {
   test('INT-07: Create a schedule loop', async ({ api }) => {
     const loop = await api.createScheduleLoop({
       name: 'scheduled-crud',
-      repositoryId: ctx.repositoryId!,
+      workspaceId: ctx.workspaceId!,
       cronExpression: cron,
       messageTemplate: 'Scheduled smoke message',
       timezone: 'UTC',
@@ -177,7 +177,7 @@ test.describe('Chain 2: Schedule Loop CRUD', () => {
 
     expect(loop.kind).toBe('schedule')
     expect(loop.active).toBe(false)
-    expect(loop.config.repositoryId).toBe(ctx.repositoryId)
+    expect(loop.config.workspaceId).toBe(ctx.workspaceId)
     expect(loop.config.routingMode).toBe('by_subject')
     expect(loop.config.taskName).toBe(scopedName('Scheduled smoke task'))
     expect(loop.config.prompt).toBe('Scheduled prompt: {message}')

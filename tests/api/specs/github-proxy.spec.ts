@@ -110,7 +110,7 @@ test.describe('Standalone: GitHub proxy binds the task', () => {
       connectionKind: 'github_org',
       sourceId: owner,
       sourceMatcher: `${owner}/${repo}`,
-      repositoryId: (await api.ensureTemplateRepository()).id,
+      workspaceId: (await api.ensureTemplateWorkspace()).id,
       routingMode: 'by_subject',
     })
 

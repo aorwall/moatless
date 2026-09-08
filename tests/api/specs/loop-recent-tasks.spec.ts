@@ -32,9 +32,10 @@ test.describe('Standalone: Schedule loop recent tasks', () => {
 
   test("INT-45: A schedule loop's tasks are listed, with no binding", async ({ api }) => {
     const repo = await api.ensureTemplateRepository()
+    const workspace = await api.ensureTemplateWorkspace()
     const loop = await api.createScheduleLoop({
       name: 'recent-tasks-schedule',
-      repositoryId: repo.id,
+      workspaceId: workspace.id,
       // Created paused, and dated far enough out that it could not fire
       // even if it were active — the task row is stamped below instead.
       cronExpression: '0 0 0 1 1 * 2099',
@@ -47,11 +48,12 @@ test.describe('Standalone: Schedule loop recent tasks', () => {
     try {
       psql(
         'INSERT INTO tasks (task_id, short_id, created_at, last_message_at, agent_type, ' +
-          'repository_id, status, total_cost_usd, visibility, scope, team_id, headless, ' +
-          `ttl_minutes, inactive_ttl_days, loop_id) VALUES ('${taskId}', ` +
+          'repository_id, workspace_id, status, total_cost_usd, visibility, scope, team_id, ' +
+          `headless, ttl_minutes, inactive_ttl_days, loop_id) VALUES ('${taskId}', ` +
           `'${taskId.slice(0, 8)}', (now() AT TIME ZONE 'UTC')::text, ` +
-          `(now() AT TIME ZONE 'UTC')::text, 'claude-code', '${repo.id}', 'open', 0, ` +
-          `'private', 'global', 'system', true, 15, 7, '${loop.id}')`,
+          `(now() AT TIME ZONE 'UTC')::text, 'claude-code', '${repo.id}', ` +
+          `'${workspace.id}', 'open', 0, 'private', 'global', 'system', true, 15, 7, ` +
+          `'${loop.id}')`,
       )
 
       const items = await api.listLoopRecentTasks(loop.id)
@@ -69,10 +71,10 @@ test.describe('Standalone: Schedule loop recent tasks', () => {
 // ─── INT-46: A subscription loop's tasks are listed with their binding ──
 
 test("INT-46: A subscription loop's tasks are listed with their binding", async ({ api }) => {
-  const repo = await api.ensureTemplateRepository()
+  const workspace = await api.ensureTemplateWorkspace()
   const suffix = Date.now()
   const threadId = `recent-tasks-thread-${suffix}`
-  const { loopId, config } = await createWebhookTriggerFixture(api, repo.id, {
+  const { loopId, config } = await createWebhookTriggerFixture(api, workspace.id, {
     sourceId: `recent-tasks-adapter-${suffix}`,
   })
 

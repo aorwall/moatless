@@ -50,7 +50,7 @@ describe('loopsApi', () => {
       name: 'Slack triage',
       active: true,
       config: {
-        repositoryId: 'repo-1',
+        workspaceId: 'ws-1',
         routingMode: RoutingMode.by_subject,
         prompt: null,
         taskName: null,
@@ -82,7 +82,7 @@ describe('loopsApi', () => {
       syncedFromGit: false,
       scope: Scope.user,
       config: {
-        repositoryId: 'repo-1',
+        workspaceId: 'ws-1',
         routingMode: RoutingMode.by_subject,
         ongoingTaskId: null,
         taskName: null,

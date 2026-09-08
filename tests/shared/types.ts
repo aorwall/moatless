@@ -26,7 +26,7 @@ export interface TaskLoopFixtureResponse {
   adapterKind: string
   sourceId: string
   sourceName?: string
-  repositoryId: string
+  workspaceId: string
   routingMode: string
   promptTemplate?: string
   taskName?: string
@@ -44,7 +44,7 @@ export interface TaskLoopFixtureConfig {
   provider?: string
   sourceId: string
   sourceName?: string
-  repositoryId: string
+  workspaceId: string
   routingMode: string
   promptTemplate?: string
   taskName?: string
@@ -59,7 +59,7 @@ export interface TaskLoopFixtureConfig {
 }
 
 export interface LoopConfigResponse {
-  repositoryId: string
+  workspaceId: string
   routingMode: string
   ongoingTaskId?: string | null
   prompt?: string | null
