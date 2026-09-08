@@ -127,7 +127,8 @@ dbg_macro = "deny"
 # Require safety comments on every unsafe block
 undocumented_unsafe_blocks = "deny"
 # Ban .unwrap() in production code — use `?`, `.unwrap_or()`, or `.expect()` instead.
-# Test code (`cargo clippy --tests`) is exempt; only lib/bin targets are checked by default.
+# Test code is not exempt: the `--all-targets` floor line lints test targets, and
+# `clippy.toml` sets no `allow-unwrap-in-tests` / `allow-expect-in-tests`.
 unwrap_used = "deny"
 # Nudge away from .expect() toward proper error handling; warn (not deny) because
 # .expect("reason") is acceptable for invariants that are genuinely unreachable.

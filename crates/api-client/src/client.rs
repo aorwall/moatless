@@ -1531,8 +1531,13 @@ mod tests {
             .and_then(|v| v.as_object().map(|m| m.keys().cloned().collect()))
             .unwrap_or_default();
         assert!(!fields.is_empty(), "params must serialize to an object");
+        let sent: Vec<&str> = qs
+            .trim_start_matches('?')
+            .split('&')
+            .filter_map(|pair| pair.split_once('=').map(|(k, _)| k))
+            .collect();
         for key in &fields {
-            assert!(qs.contains(&format!("{key}=")), "{key} missing from {qs}");
+            assert!(sent.contains(&key.as_str()), "{key} missing from {qs}");
         }
 
         // The keys above do not pin encoding, so check the one value that needs it.
