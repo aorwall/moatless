@@ -70,7 +70,7 @@ pub async fn run(
     task_id: String,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = connect().await?;
+    let mut client = crate::commands::local_sandbox::connect().await?;
 
     match action {
         CmdAction::Run {
@@ -177,20 +177,6 @@ pub async fn run(
     }
 
     Ok(())
-}
-
-/// Connect to the sandbox's own gRPC server. It listens on loopback inside this
-/// container, so there is nothing to authenticate against.
-async fn connect(
-) -> Result<SandboxServiceClient<tonic::transport::Channel>, Box<dyn std::error::Error>> {
-    let port = std::env::var("GRPC_PORT").unwrap_or_else(|_| "50052".to_string());
-    let endpoint = format!("http://127.0.0.1:{port}");
-    let channel = tonic::transport::Endpoint::new(endpoint.clone())?
-        .connect_timeout(Duration::from_secs(5))
-        .connect()
-        .await
-        .map_err(|e| format!("cannot reach the sandbox at {endpoint}: {e}"))?;
-    Ok(SandboxServiceClient::new(channel))
 }
 
 async fn fetch_one(

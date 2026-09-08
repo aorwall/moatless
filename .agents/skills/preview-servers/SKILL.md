@@ -118,7 +118,8 @@ One practical consequence: reading an override needs a **running** sandbox.
 - **`port` and `dockerImage` cannot change live** — the port is wired into the
   Service and IngressRoute, the image is the container's identity. Both need
   `moat tasks redeploy $TASK_ID` after a config change, and both return an
-  explicit error rather than silently doing nothing.
+  explicit error rather than silently doing nothing. A redeploy of your own task
+  replaces the pod you are running in; see Promote below.
 - **You have a crash budget of 5.** A server that *exits on its own* five times
   is auto-disabled and forces a redeploy. Restarts you trigger do not count —
   only a self-exit does. So a start command that dies immediately burns the
@@ -152,13 +153,19 @@ Then land it and clean up:
 
 ```bash
 moat tasks servers $TASK_ID reset dev    # drop the scratchpad first
-moat tasks redeploy $TASK_ID             # rebuild on the new config (~1-2 min, restarts the agent)
-moat tasks status $TASK_ID --json        # confirm the server came back on it
+moat tasks redeploy $TASK_ID --yes       # rebuild on the new config (~1-2 min)
 ```
 
 Reset before redeploying: the override survives a redeploy and would keep
 shadowing the config you just promoted, leaving you unable to tell whether the
 committed version actually works.
+
+`$TASK_ID` here is your own task, so the redeploy replaces the pod you are
+running in. `--yes` is what confirms that. This command and your current turn
+die with the pod, so print nothing after it and check nothing after it. The new
+pod resumes your session and sends you a `<sandbox-restart-note>`. Run
+`moat tasks status $TASK_ID --json` in that turn, to confirm the server came
+back on the promoted config.
 
 **Completion criterion:** the override is gone, the config lives in the repo or
 the workspace row, and a fresh sandbox reaches `started` without it.

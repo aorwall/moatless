@@ -17,14 +17,15 @@ use tracing::info;
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
     ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundWatchJobInfo,
-    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
-    GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
-    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse,
-    GitRef, GitRepoRange, GitWorkingTreeFile, KillCommandRequest, KillCommandResponse,
-    ListCommandsRequest, ListCommandsResponse, ListFilesRequest, ListFilesResponse,
-    ListGitRefsRequest, ListGitRefsResponse, ManagedCommand as ManagedCommandProto,
-    ManagedCommandState, NotifyMessagesRequest, NotifyMessagesResponse, ReadFileRequest,
-    ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse, RunCommandRequest,
+    CancelWakeNoteRequest, CancelWakeNoteResponse, ExecuteAgentRequest, ExecuteAgentResponse,
+    GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse,
+    GetGitDiffPreviewRequest, GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse,
+    GetServerConfigRequest, GetServerConfigResponse, GitRef, GitRepoRange, GitWorkingTreeFile,
+    KillCommandRequest, KillCommandResponse, ListCommandsRequest, ListCommandsResponse,
+    ListFilesRequest, ListFilesResponse, ListGitRefsRequest, ListGitRefsResponse,
+    ManagedCommand as ManagedCommandProto, ManagedCommandState, NotifyMessagesRequest,
+    NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RecordWakeNoteRequest,
+    RecordWakeNoteResponse, RefreshCredentialRequest, RefreshCredentialResponse, RunCommandRequest,
     RunCommandResponse, ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse,
     ServerConfigOverride, StopAgentRequest, StopAgentResponse, SyncWorkspaceRequest,
     SyncWorkspaceResponse, TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest,
@@ -36,6 +37,7 @@ use sandbox_proto::{
 
 use crate::agent::scheduled_job::JobSnapshot;
 use crate::agent::types::AgentStatus;
+use crate::agent::wake_note;
 use crate::commands::{CommandError, CommandRecord, CommandSpec, CommandState};
 use crate::files;
 use crate::server_control;
@@ -309,6 +311,43 @@ impl SandboxService for SandboxServiceImpl {
         Ok(Response::new(KillCommandResponse {
             command: Some(managed_command_to_proto(command)),
         }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn record_wake_note(
+        &self,
+        request: Request<RecordWakeNoteRequest>,
+    ) -> Result<Response<RecordWakeNoteResponse>, Status> {
+        let req = request.into_inner();
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        if req.text.trim().is_empty() {
+            return Err(Status::invalid_argument("text must not be empty"));
+        }
+        wake_note::record(
+            &wake_note::default_path(&self.state.config.workspace_dir),
+            &context.task_id,
+            req.text,
+        )
+        .await
+        .map_err(|error| Status::internal(format!("failed to store the wake note: {error}")))?;
+        info!(task_id = %context.task_id, "Recorded a wake note for the next start");
+        Ok(Response::new(RecordWakeNoteResponse {}))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn cancel_wake_note(
+        &self,
+        request: Request<CancelWakeNoteRequest>,
+    ) -> Result<Response<CancelWakeNoteResponse>, Status> {
+        let req = request.into_inner();
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        wake_note::cancel(
+            &wake_note::default_path(&self.state.config.workspace_dir),
+            &context.task_id,
+        )
+        .await
+        .map_err(|error| Status::internal(format!("failed to drop the wake note: {error}")))?;
+        Ok(Response::new(CancelWakeNoteResponse {}))
     }
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]

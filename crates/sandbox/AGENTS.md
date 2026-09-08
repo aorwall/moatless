@@ -89,7 +89,7 @@ Each loss cause has its own counter, and each calls for a different response:
   target in order: the pod's last session id, then the backend-provided id, then
   `--continue` for the Claude family. Init restores transcripts to disk before
   Ready. The plain `send(text, None, …, None, false, None)` that
-  `report_lost_commands` and `JobInjector` both use then picks the session back
+  `report_wake_notes` and `JobInjector` both use then picks the session back
   up with its context.
 
 ## Writing files inside the pod
@@ -246,14 +246,23 @@ the volume whose size limit causes these evictions.
 
 `agent::restart::open_for_work` reads the journal through `take_journal`
 **before** anything else, or a recovered run or a new command overwrites it.
-`report_lost_commands` turns the journal into the wake the watch could not
+`report_wake_notes` turns the journal into the wake the watch could not
 deliver. `take_journal` clears the file whether or not it parsed, so the loss is
 announced exactly once. Key it on `Entry::reported`, like the watch.
 
 Install the journal by writing a sibling `.json.tmp` and renaming over it, so a
 kill or a snapshot racing the write cannot leave a truncated file.
 
-Consuming a journal also suppresses `adopt_current`. The delete is local while
+A **wake note** (`agent::wake_note`) is the general form of the same mechanism:
+text an in-pod caller leaves for the agent, held in
+`$WORKSPACE_DIR/.moat-wake-notes.json` and delivered once on the next start.
+`moat tasks restart --yes` is its first caller, and it records the note *before*
+it takes the pod down, because the process issuing the request dies with the
+pod. `report_wake_notes` delivers both inputs, and it joins the lost-command
+text to this pod's own Member's note, so one replacement opens one turn. Install
+and take a note the way the journal does, for the same reasons.
+
+Consuming either file also suppresses `adopt_current`. The delete is local while
 the S3 archive still holds the file, so adopting this tree as the upload baseline
 lets a turn that edits nothing skip the upload — and the next replacement then
-restores the stale archive and announces the same loss again.
+restores the stale archive and delivers the same wake again.

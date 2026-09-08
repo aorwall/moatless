@@ -35,5 +35,8 @@ Choose the next read from the symptom:
 
 Use [preview-servers](../preview-servers/SKILL.md) for a failed server and
 [E2E testing](../e2e-testing/SKILL.md) for reproducible smoke verification.
-Do not restart the sandbox running your own investigation. Check other members
-before a stop or redeploy, and capture evidence before destroying the failed pod.
+Capture evidence before you destroy a failed pod, and check the other members
+first. Restarting the sandbox running your own investigation ends the current
+turn: `moat tasks restart $TASK_ID --yes` replaces the pod and wakes you with a
+`<sandbox-restart-note>` once it is back, and everything not yet captured is
+gone. The `moat-cli` skill states that contract.

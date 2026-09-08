@@ -179,9 +179,21 @@ pub enum TaskAction {
     /// Show full task status (environment, agent, servers)
     Status { task_id: String },
     /// Restart sandbox for a task
-    Restart { task_id: String },
+    Restart {
+        task_id: String,
+        /// Restart this command's own sandbox. Required there, and ignored for
+        /// any other task.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Redeploy sandbox (recreate with fresh repo config, preserves workspace data)
-    Redeploy { task_id: String },
+    Redeploy {
+        task_id: String,
+        /// Redeploy this command's own sandbox. Required there, and ignored for
+        /// any other task.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Stream server logs from a task's sandbox
     Logs {
         task_id: String,
@@ -609,30 +621,34 @@ pub async fn run(
                 format_sandbox_status(&status);
             }
         }
-        TaskAction::Restart { task_id } => {
+        TaskAction::Restart { task_id, yes } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            if is_own_sandbox(config, &task_id) {
-                return Err(ClientError::Api {
-                    status: 400,
-                    body: "Cannot restart the entire sandbox from within it. Use `moat tasks logs $TASK_ID --server <name>` to diagnose server issues.".to_string(),
-                });
+            let note = self_restart_note(config, &task_id, yes, SandboxOperation::Restart)?;
+            record_wake_note(&task_id, note.as_deref()).await?;
+            match client.api().restart_sandbox(&task_id).await {
+                Ok(()) => println!("Sandbox for {task_id} restarted."),
+                Err(e) => {
+                    let e = ClientError::from(e);
+                    cancel_wake_note(&task_id, note.is_some(), &e).await;
+                    return Err(e);
+                }
             }
-            client.api().restart_sandbox(&task_id).await?;
-            println!("Sandbox for {task_id} restarted.");
         }
-        TaskAction::Redeploy { task_id } => {
+        TaskAction::Redeploy { task_id, yes } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            if is_own_sandbox(config, &task_id) {
-                return Err(ClientError::Api {
-                    status: 400,
-                    body: "Cannot redeploy the sandbox from within it.".to_string(),
-                });
+            let note = self_restart_note(config, &task_id, yes, SandboxOperation::Redeploy)?;
+            record_wake_note(&task_id, note.as_deref()).await?;
+            match client.api().redeploy_sandbox(&task_id).await {
+                Ok(resp) => println!(
+                    "Sandbox for {task_id} redeployed (status: {:?}).",
+                    resp.status
+                ),
+                Err(e) => {
+                    let e = ClientError::from(e);
+                    cancel_wake_note(&task_id, note.is_some(), &e).await;
+                    return Err(e);
+                }
             }
-            let resp = client.api().redeploy_sandbox(&task_id).await?;
-            println!(
-                "Sandbox for {task_id} redeployed (status: {:?}).",
-                resp.status
-            );
         }
         TaskAction::Logs {
             task_id,
@@ -1083,6 +1099,128 @@ fn label<'a>(name: Option<&'a str>, id: Option<&'a str>) -> &'a str {
 /// lifecycle, restart included.
 fn is_own_sandbox(config: &Config, task_id: &str) -> bool {
     config.task_id() == Some(task_id)
+}
+
+/// A pod-replacing operation, named for the caller it warns and the note it
+/// leaves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SandboxOperation {
+    Restart,
+    Redeploy,
+}
+
+impl SandboxOperation {
+    fn command(self) -> &'static str {
+        match self {
+            Self::Restart => "moat tasks restart",
+            Self::Redeploy => "moat tasks redeploy",
+        }
+    }
+
+    /// What the new pod is, which is the one way the two differ: a redeploy
+    /// rebuilds the pod from the current repository configuration.
+    fn outcome(self) -> &'static str {
+        match self {
+            Self::Restart => "The sandbox came back with the same configuration.",
+            Self::Redeploy => "The sandbox came back with the current repository configuration.",
+        }
+    }
+}
+
+/// The wake note to record before `op` runs, or `None` when the caller is not
+/// operating on its own sandbox.
+///
+/// Returns the warning as an error when the caller's own sandbox is the target
+/// and `yes` is false. The agent has to learn what this costs before it pays
+/// it: the pod dies, and the turn that ran the command dies with it.
+fn self_restart_note(
+    config: &Config,
+    task_id: &str,
+    yes: bool,
+    op: SandboxOperation,
+) -> Result<Option<String>, ClientError> {
+    if !is_own_sandbox(config, task_id) {
+        return Ok(None);
+    }
+    let command = op.command();
+    if !yes {
+        return Err(ClientError::Api {
+            status: 400,
+            body: format!(
+                "`{command}` on your own sandbox replaces this pod. This command and your \
+                 current turn die with it, and nothing you print after it reaches anybody. \
+                 The new pod resumes your session and sends you a <sandbox-restart-note> \
+                 that says the operation finished, so you continue from there. Gitignored \
+                 build artifacts do not survive. Run `{command} $TASK_ID --yes` to do it."
+            ),
+        });
+    }
+    Ok(Some(format!(
+        "You ran `{command} --yes` on your own sandbox, and the pod was replaced. {} \
+         Gitignored build artifacts were wiped, so re-run install and build steps before \
+         you rely on compiled output. Continue the task.",
+        op.outcome()
+    )))
+}
+
+/// Leave `text` with the sandbox, for the agent to be given after the pod comes
+/// back.
+///
+/// This runs before the operation, because the operation never returns: the pod
+/// dies while the request is in flight, and it takes this process with it.
+async fn record_wake_note(task_id: &str, text: Option<&str>) -> Result<(), ClientError> {
+    let Some(text) = text else {
+        return Ok(());
+    };
+    let mut client = crate::commands::local_sandbox::connect()
+        .await
+        .map_err(|e| ClientError::Other(e.to_string()))?;
+    client
+        .record_wake_note(sandbox_proto::RecordWakeNoteRequest {
+            text: text.to_string(),
+            task_id: Some(task_id.to_string()),
+        })
+        .await
+        .map_err(|e| {
+            ClientError::Other(format!(
+                "the sandbox refused the wake note, so the restart was not started: {e}"
+            ))
+        })?;
+    Ok(())
+}
+
+/// Take the note back after a failed operation, so no later pod replacement
+/// delivers it.
+///
+/// Only a refusal the backend spoke cancels: `Api`, plus the two `From<ApiError>`
+/// maps a refusal also arrives as. `Unauthorized` is 401, and `NotLoggedIn` is
+/// raised before the request goes out, so neither pod is going down.
+///
+/// A transport error keeps the note deliberately. It cannot tell a backend that
+/// refused the request from a pod that is already going down, and a note nobody
+/// needed costs one message where a cancelled one strands the agent.
+async fn cancel_wake_note(task_id: &str, recorded: bool, error: &ClientError) {
+    let refused = matches!(
+        error,
+        ClientError::Api { .. } | ClientError::Unauthorized | ClientError::NotLoggedIn
+    );
+    if !recorded || !refused {
+        return;
+    }
+    let outcome = async {
+        crate::commands::local_sandbox::connect()
+            .await
+            .map_err(|e| e.to_string())?
+            .cancel_wake_note(sandbox_proto::CancelWakeNoteRequest {
+                task_id: Some(task_id.to_string()),
+            })
+            .await
+            .map_err(|e| e.to_string())
+    }
+    .await;
+    if let Err(e) = outcome {
+        eprintln!("Warning: the wake note is still recorded and will be delivered later: {e}");
+    }
 }
 
 /// True if `s` looks like a full `task_id` (UUID: 36 chars with 4 hyphens).
@@ -1758,10 +1896,82 @@ mod tests {
     use crate::client::ClientError;
 
     use super::{
-        TaskAction, context_files_to_contexts, label, looks_like_task_id,
+        SandboxOperation, TaskAction, context_files_to_contexts, label, looks_like_task_id,
         normalize_context_file_path, require_a_workspace_source, resolve_parent_task_id,
-        validate_context_files_have_message,
+        self_restart_note, validate_context_files_have_message,
     };
+    use crate::config::{AuthMode, Config};
+
+    const OWN: &str = "11111111-2222-3333-4444-555555555555";
+    const OTHER: &str = "99999999-8888-7777-6666-555555555555";
+
+    /// A sandbox-mode config for the task `OWN`, which is the only task these
+    /// commands treat differently.
+    fn config_inside(task_id: &str) -> Config {
+        Config {
+            api_url: "https://example.invalid".to_string(),
+            auth_mode: AuthMode::Sandbox {
+                user_auth_token: "token".to_string(),
+                task_id: Some(task_id.to_string()),
+            },
+            session_file: "/tmp/.moat_session".to_string(),
+            cookie_name: "moatless_session".to_string(),
+        }
+    }
+
+    /// Another task's sandbox is somebody else's, so the flag changes nothing
+    /// and no note is left.
+    #[test]
+    fn another_task_needs_no_confirmation() {
+        let config = config_inside(OWN);
+        for yes in [false, true] {
+            let note = self_restart_note(&config, OTHER, yes, SandboxOperation::Restart)
+                .expect("another task must not be refused");
+            assert_eq!(note, None);
+        }
+    }
+
+    #[test]
+    fn a_standalone_caller_needs_no_confirmation() {
+        let config = Config {
+            auth_mode: AuthMode::Standalone { api_key: None },
+            ..config_inside(OWN)
+        };
+        let note = self_restart_note(&config, OWN, false, SandboxOperation::Restart)
+            .expect("a caller outside the sandbox owns no pod");
+        assert_eq!(note, None);
+    }
+
+    /// The agent has to learn what this costs before it pays it.
+    #[test]
+    fn your_own_sandbox_warns_before_it_acts() {
+        let err = self_restart_note(&config_inside(OWN), OWN, false, SandboxOperation::Restart)
+            .expect_err("an unconfirmed self-restart must warn");
+        let body = err.to_string();
+        assert!(body.contains("--yes"), "{body}");
+        assert!(body.contains("<sandbox-restart-note>"), "{body}");
+        assert!(body.contains("moat tasks restart"), "{body}");
+    }
+
+    #[test]
+    fn a_confirmed_self_restart_leaves_a_note() {
+        let note = self_restart_note(&config_inside(OWN), OWN, true, SandboxOperation::Restart)
+            .expect("a confirmed self-restart proceeds")
+            .expect("a confirmed self-restart must leave a note");
+        assert!(note.contains("moat tasks restart --yes"), "{note}");
+        assert!(note.contains("Continue the task"), "{note}");
+    }
+
+    /// The two operations differ in what the new pod is, so their notes must
+    /// not be interchangeable.
+    #[test]
+    fn a_redeploy_note_names_the_redeploy() {
+        let note = self_restart_note(&config_inside(OWN), OWN, true, SandboxOperation::Redeploy)
+            .expect("a confirmed self-redeploy proceeds")
+            .expect("note");
+        assert!(note.contains("moat tasks redeploy --yes"), "{note}");
+        assert!(note.contains("current repository configuration"), "{note}");
+    }
 
     /// `TaskAction` is a `Subcommand`, so parsing it standalone needs a
     /// `Parser` to hang it off.

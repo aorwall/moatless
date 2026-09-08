@@ -60,6 +60,30 @@ announces the loss once, on the next turn, and names the commands that died.
 Treat that message as the outcome you were waiting for, and start the work
 again if it still matters.
 
+## Restarting your own sandbox
+
+`moat tasks restart $TASK_ID --yes` and `moat tasks redeploy $TASK_ID --yes`
+replace the pod you are running in. Without `--yes` both refuse and print what
+it costs. Use a restart for a wedged pod, and a redeploy to pick up a new image
+or a changed repository configuration.
+
+**The command never returns.** The pod dies while the request is in flight, so
+this `moat` process and your current turn die with it. Say what you need to say
+before you run it.
+
+**You are woken once the pod is back.** The new pod resumes your session and
+sends you a `<sandbox-restart-note>` naming the operation you ran. Treat that as
+the outcome, and continue from there.
+
+**Gitignored build artifacts do not survive.** The workspace is restored from a
+snapshot, so re-run install and build steps before you rely on compiled output.
+
+**A restart that cannot leave that note is refused.** The wake is recorded
+inside the pod before the request goes out, so a pod too wedged to answer its
+own gRPC server stops the restart rather than replacing the pod silently. The
+command prints the failure. Ask a person to restart the task from outside when
+you see it.
+
 Read [command workflows](references/command-reference.md) for response shapes,
 workspace ownership, task reuse, and bounded diagnostics. Read
 [Loops](references/loops.md) when installing or operating automation.

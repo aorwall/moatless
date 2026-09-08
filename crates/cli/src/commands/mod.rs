@@ -11,6 +11,7 @@ pub mod github_apps;
 pub mod info;
 pub mod k8s;
 pub mod linear;
+pub mod local_sandbox;
 pub mod loops;
 pub mod messages;
 pub mod input;

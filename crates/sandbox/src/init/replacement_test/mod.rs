@@ -19,6 +19,8 @@
 //!   the restore-then-replay lifecycle.
 //! - [`lost_commands`] — the wake for `moat cmd` commands the replacement
 //!   destroyed, which no interrupted run covers because the turn had completed.
+//! - [`wake_notes`] — the wake for a caller that took the pod down and died
+//!   with it, which nothing else reports.
 //!
 //! [`CoordinatorService`]: crate::agent::coordinator::CoordinatorService
 //! [`Harness`]: crate::agent::harness::Harness
@@ -30,3 +32,4 @@ mod lost_commands;
 mod precedence;
 mod readiness;
 mod restore;
+mod wake_notes;

@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+
+use crate::agent::wake_note::{self, WakeNote};
 use crate::init::InitPhase;
 use crate::state::SandboxState;
 use tracing::{info, warn};
@@ -18,26 +21,27 @@ use tracing::{info, warn};
 /// the window before the probe — which would leave the probe seeing no pending
 /// row and enqueueing a now-stale Recover behind the Message.
 pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: WorkspaceOrigin) {
-    // Read and clear the command journal a prior pod left behind before anything
-    // — a recovered run, a new command — can overwrite it. The registry this pod
-    // started with is empty, so these entries exist only in the journal.
+    // Read and clear what a prior pod left behind before anything — a recovered
+    // run, a new command — can overwrite it. The registry this pod started with
+    // is empty, so these entries exist only on the workspace snapshot.
     let lost_commands = crate::commands::take_journal(&crate::commands::default_journal_path(
         &state.config.workspace_dir,
     ))
     .await;
+    let wake_notes = wake_note::take(&wake_note::default_path(&state.config.workspace_dir)).await;
 
     recover_interrupted_run_unless_pending(state, workspace_origin).await;
 
     // Adopt whatever the restore or the clone produced as the upload baseline: a
     // workspace nobody has touched since is not worth shipping back.
     //
-    // Consuming a journal is the exception. `take_journal` deleted the file
-    // here, but the S3 archive it was restored from still carries it, so this
-    // tree is already ahead of the object. Adopting it would let a turn that
-    // edits nothing skip the upload, and the next replacement would restore the
-    // stale archive and announce the same loss again. Leaving the baseline unset
-    // makes the next upload ship the removal.
-    if state.config.workspace_sync_enabled && lost_commands.is_empty() {
+    // Consuming either file is the exception. The take deleted it here, but the
+    // S3 archive it was restored from still carries it, so this tree is already
+    // ahead of the object. Adopting it would let a turn that edits nothing skip
+    // the upload, and the next replacement would restore the stale archive and
+    // deliver the same wake again. Leaving the baseline unset makes the next
+    // upload ship the removal.
+    if state.config.workspace_sync_enabled && lost_commands.is_empty() && wake_notes.is_empty() {
         state
             .workspace_sync
             .adopt_current(&state.config, state.backend_client.as_ref())
@@ -55,47 +59,79 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     // one authoritative startup dispatch and avoids an orphaned JoinHandle.
     crate::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
 
-    report_lost_commands(state, lost_commands).await;
+    report_wake_notes(state, wake_notes, lost_commands).await;
 }
 
-/// Wake the agent for `moat cmd` commands the restart destroyed.
+/// Wake each Member the replaced pod owes something to.
 ///
-/// A `moat cmd` command's process, its completion watch, and its log all live in
-/// the pod's memory and `/tmp`, so a pod replacement loses them with no wake —
-/// the agent that ended its turn expecting one would sit idle until a human
-/// prodded it. The journal on the workspace snapshot is what survives; this
-/// turns it into the wake the watch could not deliver. The resumed session
-/// (`--continue` for Claude, restored to disk in init) carries the context.
-async fn report_lost_commands(state: &SandboxState, lost: Vec<crate::commands::JournaledCommand>) {
-    let Some(note) = lost_commands_note(&lost) else {
-        return;
-    };
-    let task_id = &state.config.task_id;
-    match state.task_context(Some(task_id)).await {
-        Ok(context) => {
-            info!(
-                task_id = %task_id,
-                count = lost.len(),
-                "Waking the agent for background commands lost to the restart"
-            );
-            drop(
-                context
-                    .agent_handle
-                    .send(note, None, None, None, None, None, false, None),
-            );
-        }
-        Err(e) => {
-            warn!(error = %e, task_id = %task_id, "Cannot report lost commands without task context");
+/// Two things go unsaid across a pod replacement. A `moat cmd` command's
+/// process, its completion watch and its log live in memory and `/tmp`, so the
+/// wake the agent was promised cannot fire. A caller that took the pod down
+/// (`moat tasks restart --yes`) died with it, so it cannot report what it did.
+/// Both ride the workspace snapshot instead, and this turns them into the wake
+/// neither could deliver. The resumed session (`--continue` for Claude, restored
+/// to disk in init) carries the context.
+async fn report_wake_notes(
+    state: &SandboxState,
+    notes: BTreeMap<String, WakeNote>,
+    lost: Vec<crate::commands::JournaledCommand>,
+) {
+    for (task_id, text) in wake_messages(&state.config.task_id, notes, &lost) {
+        match state.task_context(Some(&task_id)).await {
+            Ok(context) => {
+                info!(task_id = %task_id, "Waking the agent for what the restart could not report");
+                drop(
+                    context
+                        .agent_handle
+                        .send(text, None, None, None, None, None, false, None),
+                );
+            }
+            Err(e) => {
+                warn!(error = %e, task_id = %task_id, "Cannot deliver a wake note without task context");
+            }
         }
     }
 }
 
-/// The wake for commands a restart destroyed, or `None` when none were owed.
+/// One message per Member owed a wake, each wrapped in one
+/// `<sandbox-restart-note>`.
+///
+/// The lost-command text joins `own_task_id`'s note rather than travelling on
+/// its own, so a self-restart that also lost commands opens one turn and not
+/// two.
+fn wake_messages(
+    own_task_id: &str,
+    notes: BTreeMap<String, WakeNote>,
+    lost: &[crate::commands::JournaledCommand],
+) -> Vec<(String, String)> {
+    let mut bodies: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (task_id, note) in notes {
+        bodies.entry(task_id).or_default().push(note.text);
+    }
+    if let Some(body) = lost_commands_body(lost) {
+        bodies
+            .entry(own_task_id.to_string())
+            .or_default()
+            .push(body);
+    }
+    bodies
+        .into_iter()
+        .map(|(task_id, parts)| {
+            let text = format!(
+                "<sandbox-restart-note>\n{}\n</sandbox-restart-note>",
+                parts.join("\n\n")
+            );
+            (task_id, text)
+        })
+        .collect()
+}
+
+/// What a restart destroyed, or `None` when no command was owed a wake.
 /// A command still `Running` at the snapshot was cut off mid-flight; a terminal
 /// one had finished but the agent never read the outcome. Neither log survives,
-/// so the note carries what the journal knew and tells the agent to re-run what
+/// so the text carries what the journal knew and tells the agent to re-run what
 /// it still needs.
-fn lost_commands_note(lost: &[crate::commands::JournaledCommand]) -> Option<String> {
+fn lost_commands_body(lost: &[crate::commands::JournaledCommand]) -> Option<String> {
     use crate::commands::CommandState;
     if lost.is_empty() {
         return None;
@@ -124,12 +160,10 @@ fn lost_commands_note(lost: &[crate::commands::JournaledCommand]) -> Option<Stri
         "commands were"
     };
     Some(format!(
-        "<sandbox-restart-note>\n\
-         The sandbox was restarted and {} background {noun} lost with it. Each was \
+        "The sandbox was restarted and {} background {noun} lost with it. Each was \
          started with `moat cmd`; its process and its log did not survive the \
          restart, so there is nothing left to read back:\n{}\n\n\
-         Re-run any of these you still need, then continue the task.\n\
-         </sandbox-restart-note>",
+         Re-run any of these you still need, then continue the task.",
         lost.len(),
         lines.join("\n")
     ))
@@ -357,52 +391,110 @@ mod tests {
 
     #[test]
     fn a_restart_with_no_outstanding_commands_wakes_nobody() {
-        assert!(lost_commands_note(&[]).is_none());
+        assert!(lost_commands_body(&[]).is_none());
     }
 
     /// The stranding case: the pod was replaced with a command in flight, so no
     /// wake could fire and the agent sat idle until a human prodded it.
     #[test]
     fn a_command_cut_off_mid_flight_is_named_as_unfinished() {
-        let note = lost_commands_note(&[journalled(
+        let body = lost_commands_body(&[journalled(
             "c33e9d6e",
             "verify",
             CommandState::Running,
             None,
         )])
         .expect("an outstanding command must wake the agent");
-        assert!(note.contains("<sandbox-restart-note>"), "{note}");
-        assert!(note.contains("c33e9d6e"), "{note}");
-        assert!(note.contains("verify"), "{note}");
-        assert!(note.contains("did not finish"), "{note}");
-        assert!(note.contains("1 background command was"), "{note}");
+        assert!(body.contains("c33e9d6e"), "{body}");
+        assert!(body.contains("verify"), "{body}");
+        assert!(body.contains("did not finish"), "{body}");
+        assert!(body.contains("1 background command was"), "{body}");
     }
 
     /// The outcome outlives the log, so a command that finished unread reports
     /// its exit code rather than sending the agent to a log that is gone.
     #[test]
     fn a_command_that_finished_unread_reports_its_exit_code() {
-        let note = lost_commands_note(&[journalled(
+        let body = lost_commands_body(&[journalled(
             "ab12cd34",
             "build",
             CommandState::Exited,
             Some(101),
         )])
         .expect("an unread outcome is still owed");
-        assert!(note.contains("exit 101"), "{note}");
-        assert!(!note.contains("did not finish"), "{note}");
+        assert!(body.contains("exit 101"), "{body}");
+        assert!(!body.contains("did not finish"), "{body}");
     }
 
     #[test]
     fn several_lost_commands_are_listed_and_counted() {
-        let note = lost_commands_note(&[
+        let body = lost_commands_body(&[
             journalled("aaaaaaaa", "build", CommandState::Running, None),
             journalled("bbbbbbbb", "test", CommandState::TimedOut, Some(124)),
         ])
-        .expect("note");
-        assert!(note.contains("2 background commands were"), "{note}");
-        assert!(note.contains("aaaaaaaa"), "{note}");
-        assert!(note.contains("bbbbbbbb"), "{note}");
-        assert!(note.contains("timeout"), "{note}");
+        .expect("body");
+        assert!(body.contains("2 background commands were"), "{body}");
+        assert!(body.contains("aaaaaaaa"), "{body}");
+        assert!(body.contains("bbbbbbbb"), "{body}");
+        assert!(body.contains("timeout"), "{body}");
+    }
+
+    fn noted(text: &str) -> WakeNote {
+        WakeNote {
+            text: text.to_string(),
+            recorded_at_unix_ms: 0,
+        }
+    }
+
+    /// A restart nobody asked for, with nothing in flight, keeps the pod quiet.
+    #[test]
+    fn a_restart_that_owes_nothing_sends_nothing() {
+        assert!(wake_messages("task-a", BTreeMap::new(), &[]).is_empty());
+    }
+
+    #[test]
+    fn a_wake_note_alone_produces_one_message() {
+        let notes = BTreeMap::from([("task-a".to_string(), noted("the restart you asked for"))]);
+
+        let messages = wake_messages("task-a", notes, &[]);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].0, "task-a");
+        assert!(
+            messages[0].1.starts_with("<sandbox-restart-note>"),
+            "{}",
+            messages[0].1
+        );
+        assert!(messages[0].1.contains("the restart you asked for"));
+    }
+
+    /// One restart opens one turn, so a self-restart that also lost commands
+    /// carries both facts in a single message.
+    #[test]
+    fn a_note_and_lost_commands_travel_in_one_message() {
+        let notes = BTreeMap::from([("task-a".to_string(), noted("the restart you asked for"))]);
+        let lost = [journalled("aaaaaaaa", "build", CommandState::Running, None)];
+
+        let messages = wake_messages("task-a", notes, &lost);
+        assert_eq!(messages.len(), 1);
+        let text = &messages[0].1;
+        assert!(text.contains("the restart you asked for"), "{text}");
+        assert!(text.contains("aaaaaaaa"), "{text}");
+        assert_eq!(text.matches("<sandbox-restart-note>").count(), 1, "{text}");
+    }
+
+    /// Lost commands belong to the pod's own Member, so a co-member's note must
+    /// not absorb them.
+    #[test]
+    fn lost_commands_go_to_the_pods_own_member() {
+        let notes = BTreeMap::from([("task-b".to_string(), noted("task-b restarted"))]);
+        let lost = [journalled("aaaaaaaa", "build", CommandState::Running, None)];
+
+        let messages = wake_messages("task-a", notes, &lost);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].0, "task-a");
+        assert!(messages[0].1.contains("aaaaaaaa"));
+        assert_eq!(messages[1].0, "task-b");
+        assert!(messages[1].1.contains("task-b restarted"));
+        assert!(!messages[1].1.contains("aaaaaaaa"));
     }
 }

@@ -518,6 +518,13 @@ service SandboxService {
   rpc RunCommand(RunCommandRequest) returns (RunCommandResponse);
   rpc ListCommands(ListCommandsRequest) returns (ListCommandsResponse);
   rpc KillCommand(KillCommandRequest) returns (KillCommandResponse);
+
+  // Wake notes: text an in-pod caller leaves for the agent, held across a pod
+  // replacement and delivered once when the pod is next open for work. A caller
+  // that takes the pod down (`moat tasks restart --yes`) records one before it
+  // does, because nothing it says afterwards survives.
+  rpc RecordWakeNote(RecordWakeNoteRequest) returns (RecordWakeNoteResponse);
+  rpc CancelWakeNote(CancelWakeNoteRequest) returns (CancelWakeNoteResponse);
 }
 
 // Lifecycle of a registered command.
@@ -565,6 +572,19 @@ message KillCommandRequest {
 message KillCommandResponse {
   ManagedCommand command = 1;
 }
+
+message RecordWakeNoteRequest {
+  // What the agent is told once the pod is open for work again. The caller
+  // owns the wording: it knows what it did, and the sandbox only delivers it.
+  string text = 1;
+  optional string task_id = 2;
+}
+message RecordWakeNoteResponse {}
+
+message CancelWakeNoteRequest {
+  optional string task_id = 1;
+}
+message CancelWakeNoteResponse {}
 
 // One command the agent registered through `moat cmd`.
 message ManagedCommand {

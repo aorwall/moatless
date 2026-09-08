@@ -18,3 +18,4 @@ pub(crate) mod compose;
 pub(crate) mod retry;
 
 pub(crate) mod restart;
+pub(crate) mod wake_note;
