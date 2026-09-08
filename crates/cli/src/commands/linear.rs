@@ -30,6 +30,10 @@ pub enum LinearAction {
         kind: String,
         /// Name to resolve (case-insensitive)
         name: String,
+        /// Team key (SP), name, or UUID. A state, label or project name is only
+        /// unique within a team; without this you get whichever team matches first
+        #[arg(long)]
+        team: Option<String>,
         /// Optional Linear connection ID (required only when more than one is accessible)
         #[arg(long)]
         connection: Option<String>,
@@ -275,8 +279,19 @@ pub async fn run(
         LinearAction::Lookup {
             kind,
             name,
+            team,
             connection,
-        } => run_lookup(client, &kind, &name, connection.as_deref(), json).await,
+        } => {
+            run_lookup(
+                client,
+                &kind,
+                &name,
+                team.as_deref(),
+                connection.as_deref(),
+                json,
+            )
+            .await
+        }
         LinearAction::Graphql {
             query,
             vars,
@@ -572,10 +587,14 @@ async fn run_lookup(
     client: &MoatClient,
     kind: &str,
     name: &str,
+    team: Option<&str>,
     connection: Option<&str>,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let resp = client.api().linear_lookup(kind, name, connection).await?;
+    let resp = client
+        .api()
+        .linear_lookup(kind, name, team, connection)
+        .await?;
     if json {
         output::print_json_typed(&resp);
     } else {

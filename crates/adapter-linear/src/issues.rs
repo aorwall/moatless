@@ -35,7 +35,7 @@ use moatless_types::loops::SubscriptionMatch;
 use moatless_types::task::Visibility;
 
 use super::active_turns::ActiveLinearTurns;
-use super::agent_api::LinearAgentApi;
+use super::agent_api::{LinearAgentApi, LookupKind};
 use super::close::close_active_bindings_for_issue;
 use super::config::LinearRuleConfig;
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
@@ -449,10 +449,13 @@ pub(super) async fn transition_issue_state(
         );
         return;
     }
-    match api.find_team_state_id(team_id, start_state).await {
-        Ok(Some(state_id)) => {
+    match api
+        .lookup(LookupKind::State, start_state, Some(team_id))
+        .await
+    {
+        Ok(Some(state)) => {
             match api
-                .update_issue(issue_id, serde_json::json!({ "stateId": state_id }))
+                .update_issue(issue_id, serde_json::json!({ "stateId": state.id }))
                 .await
             {
                 Ok(_) => info!(

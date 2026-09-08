@@ -291,6 +291,11 @@ pub struct LinearLookupParams {
     /// One of: `state`, `label`, `project`, `user`, `team`.
     pub kind: String,
     pub name: String,
+    /// Team key (`SP`), name, or UUID. A state, label or project name is only
+    /// unique within a team, so without this the match is whichever team Linear
+    /// returns first. Ignored for `user` and `team`, which are workspace-wide.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
 }
 
 /// A comment on a Linear issue, fetched via GraphQL. Used both by the CLI

@@ -15,17 +15,19 @@ pub(super) fn looks_like_uuid(s: &str) -> bool {
 }
 
 /// Resolve a value that may be either a UUID (passthrough) or a name
-/// (lookup). Returns `Ok(None)` for `None` input.
+/// (lookup). Returns `Ok(None)` for `None` input. `team_id` scopes the lookup —
+/// see [`LinearAgentApi::lookup`] for what passing `None` costs.
 pub(super) async fn resolve_optional(
     api: &LinearAgentApi,
     kind: LookupKind,
     value: Option<&str>,
+    team_id: Option<&str>,
 ) -> Result<Option<String>, AdapterError> {
     let Some(value) = value else { return Ok(None) };
     if looks_like_uuid(value) {
         return Ok(Some(value.to_string()));
     }
-    let lookup = api.lookup(kind, value).await?.ok_or_else(|| {
+    let lookup = api.lookup(kind, value, team_id).await?.ok_or_else(|| {
         SharedAdapterError::NotFound(format!("Linear {kind:?} `{value}` not found"))
     })?;
     Ok(Some(lookup.id))
@@ -36,12 +38,33 @@ pub(super) async fn resolve_required(
     api: &LinearAgentApi,
     kind: LookupKind,
     value: &str,
+    team_id: Option<&str>,
 ) -> Result<String, AdapterError> {
-    resolve_optional(api, kind, Some(value))
+    resolve_optional(api, kind, Some(value), team_id)
         .await?
         .ok_or_else(|| {
             SharedAdapterError::Internal("resolve_optional returned None unexpectedly".into())
                 .into()
+        })
+}
+
+/// The team a Linear issue belongs to, for scoping the state, project and cycle
+/// names an update resolves against.
+pub(super) async fn issue_team_id(
+    api: &LinearAgentApi,
+    id_or_key: &str,
+) -> Result<String, AdapterError> {
+    team_id_of(&api.get_issue(id_or_key).await?)
+}
+
+/// [`issue_team_id`] for a caller that already fetched the issue.
+pub(super) fn team_id_of(issue: &Value) -> Result<String, AdapterError> {
+    issue
+        .pointer("/team/id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            SharedAdapterError::AdapterApi("Linear issue is missing team.id".into()).into()
         })
 }
 
@@ -68,7 +91,7 @@ pub(super) async fn resolve_team_id(
         return Ok(id.to_string());
     }
     let lookup = api
-        .lookup(LookupKind::Team, value)
+        .lookup(LookupKind::Team, value, None)
         .await?
         .ok_or_else(|| SharedAdapterError::NotFound(format!("Linear team `{value}` not found")))?;
     Ok(lookup.id)
@@ -206,7 +229,7 @@ async fn user_by_email_or_name(
     {
         return Ok(Some(user));
     }
-    let Some(lookup) = api.lookup(LookupKind::User, value).await? else {
+    let Some(lookup) = api.lookup(LookupKind::User, value, None).await? else {
         return Ok(None);
     };
     user_by_id(api, &lookup.id).await
@@ -345,15 +368,21 @@ pub(super) async fn resolve_optional_issue(
 
 /// Resolve a cycle value: UUID → as-is; "active" → the team's active
 /// cycle; numeric string → cycle number on the team.
+///
+/// Only a name reads `team_id`, so a caller that fetches the team lazily passes
+/// `None` for a UUID. `None` for a name is a caller bug and fails here.
 pub(super) async fn resolve_cycle_id(
     api: &LinearAgentApi,
-    team_id: &str,
+    team_id: Option<&str>,
     value: Option<&str>,
 ) -> Result<Option<String>, AdapterError> {
     let Some(value) = value else { return Ok(None) };
     if looks_like_uuid(value) {
         return Ok(Some(value.to_string()));
     }
+    let team_id = team_id.ok_or_else(|| {
+        SharedAdapterError::Internal(format!("Linear cycle `{value}` needs a team to resolve in"))
+    })?;
     if value == "active" {
         let active = api
             .graphql(json!({

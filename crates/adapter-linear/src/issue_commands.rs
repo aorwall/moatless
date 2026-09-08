@@ -82,8 +82,20 @@ pub(crate) async fn create_issue(
         Some(id) => id,
         None => default_team_id(&api).await?,
     };
-    let state_id = resolve_optional(&api, LookupKind::State, req.state.as_deref()).await?;
-    let project_id = resolve_optional(&api, LookupKind::Project, req.project.as_deref()).await?;
+    let state_id = resolve_optional(
+        &api,
+        LookupKind::State,
+        req.state.as_deref(),
+        Some(&team_id),
+    )
+    .await?;
+    let project_id = resolve_optional(
+        &api,
+        LookupKind::Project,
+        req.project.as_deref(),
+        Some(&team_id),
+    )
+    .await?;
     // Explicit assignee hard-fails on miss; when omitted, default to the
     // caller (best-effort — never fails issue creation).
     let assignee_id = match req.assignee.as_deref() {
@@ -110,10 +122,10 @@ pub(crate) async fn create_issue(
         None => None,
     };
     let parent_id = resolve_optional_issue(&api, req.parent.as_deref()).await?;
-    let cycle_id = resolve_cycle_id(&api, &team_id, req.cycle.as_deref()).await?;
+    let cycle_id = resolve_cycle_id(&api, Some(&team_id), req.cycle.as_deref()).await?;
     let mut label_ids: Vec<String> = Vec::with_capacity(req.labels.len());
     for name in &req.labels {
-        label_ids.push(resolve_required(&api, LookupKind::Label, name).await?);
+        label_ids.push(resolve_required(&api, LookupKind::Label, name, Some(&team_id)).await?);
     }
 
     let mut input = json!({
@@ -208,9 +220,36 @@ pub(crate) async fn update_issue(
     let (_connection, api) =
         resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
 
-    // Resolve names. The team comes from the issue itself if a cycle is set.
-    let state_id = resolve_optional(&api, LookupKind::State, req.state.as_deref()).await?;
-    let project_id = resolve_optional(&api, LookupKind::Project, req.project.as_deref()).await?;
+    // State, project and cycle all resolve against the issue's own team, so one
+    // fetch serves all three. Only a name reads it: each resolver returns a UUID
+    // untouched, so an update that passes ids makes no extra request.
+    let resolves_a_name = [
+        req.state.as_deref(),
+        req.project.as_deref(),
+        req.cycle.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| !looks_like_uuid(value));
+    let team_id = if resolves_a_name {
+        Some(issue_team_id(&api, &id).await?)
+    } else {
+        None
+    };
+    let state_id = resolve_optional(
+        &api,
+        LookupKind::State,
+        req.state.as_deref(),
+        team_id.as_deref(),
+    )
+    .await?;
+    let project_id = resolve_optional(
+        &api,
+        LookupKind::Project,
+        req.project.as_deref(),
+        team_id.as_deref(),
+    )
+    .await?;
     let assignee_id = resolve_assignee(&api, identity.as_ref(), req.assignee.as_deref()).await?;
     let delegate_id = resolve_delegate(&api, identity.as_ref(), req.delegate.as_deref()).await?;
 
@@ -221,23 +260,7 @@ pub(crate) async fn update_issue(
             .map(Value::String),
     };
 
-    let cycle_id = match req.cycle.as_deref() {
-        Some(c) => {
-            // Need the team for a cycle lookup — fetch the issue to derive it.
-            let issue = api.get_issue(&id).await?;
-            let team_id = issue
-                .pointer("/team/id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    SharedAdapterError::AdapterApi(
-                        "Issue is missing team.id (cannot resolve cycle)".into(),
-                    )
-                })?
-                .to_string();
-            resolve_cycle_id(&api, &team_id, Some(c)).await?
-        }
-        None => None,
-    };
+    let cycle_id = resolve_cycle_id(&api, team_id.as_deref(), req.cycle.as_deref()).await?;
 
     let mut input = json!({});
     if let Some(t) = req.title {
@@ -384,7 +407,13 @@ pub(crate) async fn mutate_label(
         .and_then(Value::as_str)
         .ok_or_else(|| SharedAdapterError::NotFound(format!("Linear issue {id} missing id")))?
         .to_string();
-    let label_id = resolve_required(&api, LookupKind::Label, &req.label).await?;
+    let label_id = resolve_required(
+        &api,
+        LookupKind::Label,
+        &req.label,
+        Some(&team_id_of(&issue)?),
+    )
+    .await?;
 
     match req.op {
         LinearLabelOp::Add => api.issue_add_label(&issue_uuid, &label_id).await?,
@@ -440,19 +469,27 @@ pub(crate) async fn list_issues(
     if let Some(query) = params.query.as_deref().filter(|q| !q.is_empty()) {
         filter.insert("searchableContent".into(), json!({ "contains": query }));
     }
-    if let Some(team) = params.team.as_deref() {
-        let team_id = resolve_team_id(&api, team).await?;
+    // Scopes the project, state and label names below as well as the issues
+    // themselves: without a team, `state: "Done"` resolves to whichever team
+    // Linear returns first and the list comes back empty.
+    let team_id = match params.team.as_deref() {
+        Some(team) => Some(resolve_team_id(&api, team).await?),
+        None => None,
+    };
+    if let Some(team_id) = team_id.as_deref() {
         filter.insert("team".into(), json!({ "id": { "eq": team_id } }));
     }
     if let Some(project) = params.project.as_deref() {
-        let project_id = resolve_required(&api, LookupKind::Project, project).await?;
+        let project_id =
+            resolve_required(&api, LookupKind::Project, project, team_id.as_deref()).await?;
         filter.insert("project".into(), json!({ "id": { "eq": project_id } }));
     }
     // `state` and `open_only` both constrain the workflow state, so they share
     // one filter object — two `insert`s under the same key would drop the first.
     let mut state_filter = serde_json::Map::new();
     if let Some(state) = params.state.as_deref() {
-        let state_id = resolve_required(&api, LookupKind::State, state).await?;
+        let state_id =
+            resolve_required(&api, LookupKind::State, state, team_id.as_deref()).await?;
         state_filter.insert("id".into(), json!({ "eq": state_id }));
     }
     // `open_only` filters on the state's *type*, not its name: every team names
@@ -464,7 +501,8 @@ pub(crate) async fn list_issues(
         filter.insert("state".into(), Value::Object(state_filter));
     }
     if let Some(label) = params.label.as_deref() {
-        let label_id = resolve_required(&api, LookupKind::Label, label).await?;
+        let label_id =
+            resolve_required(&api, LookupKind::Label, label, team_id.as_deref()).await?;
         filter.insert("labels".into(), json!({ "id": { "eq": label_id } }));
     }
     if let Some(assignee) = params.assignee.as_deref() {
@@ -519,7 +557,11 @@ pub(crate) async fn lookup(
             params.kind
         ))
     })?;
-    let result = api.lookup(kind, &params.name).await?;
+    let team_id = match params.team.as_deref() {
+        Some(team) => Some(resolve_team_id(&api, team).await?),
+        None => None,
+    };
+    let result = api.lookup(kind, &params.name, team_id.as_deref()).await?;
     Ok(match result {
         Some(r) => LinearLookupResponse {
             id: Some(r.id),

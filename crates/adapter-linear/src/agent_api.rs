@@ -690,34 +690,6 @@ impl LinearAgentApi {
             })
     }
 
-    /// Resolve a workflow-state NAME to its UUID within a specific team.
-    /// Linear scopes workflow states per team, so a name like "In Progress"
-    /// can exist in several teams — filtering by team guarantees the issue is
-    /// transitioned to the right team's state (an `issueUpdate` with a
-    /// foreign-team state id is rejected). Case-insensitive; returns `None`
-    /// when no state in the team matches.
-    pub async fn find_team_state_id(
-        &self,
-        team_id: &str,
-        state_name: &str,
-    ) -> Result<Option<String>, AdapterError> {
-        let value = self
-            .graphql(serde_json::json!({
-                "query": "query($teamId: ID!, $name: String!) { \
-                    workflowStates(filter: { team: { id: { eq: $teamId } }, \
-                                             name: { eqIgnoreCase: $name } }, first: 1) { \
-                        nodes { id name } \
-                    } \
-                }",
-                "variables": { "teamId": team_id, "name": state_name }
-            }))
-            .await?;
-        Ok(value
-            .pointer("/data/workflowStates/nodes/0/id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string))
-    }
-
     /// Post a comment on an issue. Returns the created comment subobject
     /// (`id`, `url`, `body`).
     pub async fn create_comment(
@@ -889,21 +861,30 @@ impl LinearAgentApi {
 
     /// Resolve a human name to a Linear entity UUID. Returns the first
     /// match (case-insensitive); `None` if nothing matches.
+    ///
+    /// Pass `team_id` whenever one is in hand. `None` searches the whole
+    /// workspace, which is right for a user or a team and a guess everywhere
+    /// else; [`LookupKind::team_scope`] states what an unscoped match costs.
     pub async fn lookup(
         &self,
         kind: LookupKind,
         name: &str,
+        team_id: Option<&str>,
     ) -> Result<Option<LookupResult>, AdapterError> {
-        let (collection, fields) = match kind {
-            LookupKind::State => ("workflowStates", "id name type"),
-            LookupKind::Label => ("issueLabels", "id name color"),
-            LookupKind::Project => ("projects", "id name state"),
-            LookupKind::User => ("users", "id name displayName email"),
-            LookupKind::Team => ("teams", "id name key"),
+        let (collection, filter_type, fields) = match kind {
+            LookupKind::State => ("workflowStates", "WorkflowStateFilter", "id name type"),
+            LookupKind::Label => ("issueLabels", "IssueLabelFilter", "id name color"),
+            LookupKind::Project => ("projects", "ProjectFilter", "id name state"),
+            LookupKind::User => ("users", "UserFilter", "id name displayName email"),
+            LookupKind::Team => ("teams", "TeamFilter", "id name key"),
         };
+        let mut filter = serde_json::json!({ "name": { "eqIgnoreCase": name } });
+        if let Some((field, clause)) = team_id.and_then(|id| kind.team_scope(id)) {
+            filter[field] = clause;
+        }
         let query = format!(
-            "query($name: String!) {{ \
-                {collection}(filter: {{ name: {{ eqIgnoreCase: $name }} }}, first: 5) {{ \
+            "query($filter: {filter_type}) {{ \
+                {collection}(filter: $filter, first: 5) {{ \
                     nodes {{ {fields} }} \
                 }} \
             }}"
@@ -911,7 +892,7 @@ impl LinearAgentApi {
         let value = self
             .graphql(serde_json::json!({
                 "query": query,
-                "variables": { "name": name }
+                "variables": { "filter": filter }
             }))
             .await?;
         let nodes = value
@@ -953,6 +934,33 @@ pub enum LookupKind {
 }
 
 impl LookupKind {
+    /// The filter field restricting this kind to `team_id`, and the clause to
+    /// put under it. A state, label or project name is unique only within a
+    /// team, so an unscoped match can return another team's entity, and
+    /// `issueUpdate` rejects that with "Discrepancy between issue team and
+    /// state, cycle or project".
+    ///
+    /// Each collection states the relation differently: a project is shared
+    /// through `accessibleTeams` rather than owned by one team, and a label may
+    /// be a workspace label with no team at all, which stays usable on every
+    /// issue and so has to survive the filter. `users` and `teams` are
+    /// workspace-global and scope to nothing.
+    fn team_scope(self, team_id: &str) -> Option<(&'static str, serde_json::Value)> {
+        let team_is = serde_json::json!({ "id": { "eq": team_id } });
+        match self {
+            Self::State => Some(("team", team_is)),
+            Self::Label => Some((
+                "or",
+                serde_json::json!([{ "team": team_is }, { "team": { "null": true } }]),
+            )),
+            Self::Project => Some((
+                "accessibleTeams",
+                serde_json::json!({ "some": { "id": { "eq": team_id } } }),
+            )),
+            Self::User | Self::Team => None,
+        }
+    }
+
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "state" | "workflow_state" => Some(Self::State),
@@ -1217,6 +1225,119 @@ mod tests {
             "path": ["someOtherMutation"],
         });
         assert!(!is_attachment_already_linked_error(&err));
+    }
+}
+
+/// The filter each [`LookupKind`] sends. Every case here was run against the
+/// live API before it was written down: Linear rejects an unknown filter field
+/// outright, and a stub would happily accept one this crate invented.
+#[cfg(test)]
+mod lookup_scope_tests {
+    use moatless_adapter_model::test_support::ProviderStub;
+    use moatless_ports::identity::MockAppCredentials;
+    use serde_json::json;
+
+    use super::*;
+
+    const TEAM: &str = "3fa49663-046d-46db-9566-584753ff4b23";
+
+    /// The document and filter one lookup put on the wire.
+    async fn request_for(kind: LookupKind, team_id: Option<&str>) -> (String, serde_json::Value) {
+        let stub = ProviderStub::start(|_| json!({ "data": {} })).await;
+        let mut tokens = MockAppCredentials::new();
+        tokens.expect_app_token().returning(|_| {
+            Ok(Some(AppToken {
+                access_token: "lin_test".into(),
+                refresh_token: None,
+                token_type: None,
+                expires_at: Some(Utc::now() + chrono::Duration::days(1)),
+                metadata: None,
+            }))
+        });
+        let api = LinearAgentApi::with_base_url(
+            Client::new(),
+            Arc::new(tokens),
+            "test-org".to_string(),
+            None,
+            None,
+            stub.base_url(),
+        );
+
+        api.lookup(kind, "Canceled", team_id)
+            .await
+            .expect("the stub answers");
+
+        let body: serde_json::Value = serde_json::from_str(&stub.requests()[0].body)
+            .expect("the recorded body is the JSON we sent");
+        (
+            body["query"].as_str().expect("query is a string").into(),
+            body["variables"]["filter"].clone(),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_state_lookup_narrows_to_the_team() {
+        let (query, filter) = request_for(LookupKind::State, Some(TEAM)).await;
+        assert!(
+            query.contains("query($filter: WorkflowStateFilter)"),
+            "{query}"
+        );
+        assert_eq!(
+            filter,
+            json!({
+                "name": { "eqIgnoreCase": "Canceled" },
+                "team": { "id": { "eq": TEAM } }
+            })
+        );
+    }
+
+    /// A workspace label has no team and stays usable on every issue, so the
+    /// team clause has to admit a null team alongside the match.
+    #[tokio::test]
+    async fn a_label_lookup_keeps_workspace_labels_in_reach() {
+        let (query, filter) = request_for(LookupKind::Label, Some(TEAM)).await;
+        assert!(query.contains("query($filter: IssueLabelFilter)"), "{query}");
+        assert_eq!(
+            filter,
+            json!({
+                "name": { "eqIgnoreCase": "Canceled" },
+                "or": [
+                    { "team": { "id": { "eq": TEAM } } },
+                    { "team": { "null": true } }
+                ]
+            })
+        );
+    }
+
+    /// A project is shared with teams rather than owned by one, so `ProjectFilter`
+    /// carries no `team` field to filter on.
+    #[tokio::test]
+    async fn a_project_lookup_narrows_through_accessible_teams() {
+        let (query, filter) = request_for(LookupKind::Project, Some(TEAM)).await;
+        assert!(query.contains("query($filter: ProjectFilter)"), "{query}");
+        assert_eq!(
+            filter,
+            json!({
+                "name": { "eqIgnoreCase": "Canceled" },
+                "accessibleTeams": { "some": { "id": { "eq": TEAM } } }
+            })
+        );
+    }
+
+    /// Users and teams are workspace-global: a team id passed anyway is dropped
+    /// rather than turned into a filter field neither collection has.
+    #[tokio::test]
+    async fn users_and_teams_ignore_a_team_scope() {
+        for kind in [LookupKind::User, LookupKind::Team] {
+            let (_, filter) = request_for(kind, Some(TEAM)).await;
+            assert_eq!(filter, json!({ "name": { "eqIgnoreCase": "Canceled" } }));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unscoped_lookup_filters_on_the_name_alone() {
+        let (_, filter) = request_for(LookupKind::State, None).await;
+        assert_eq!(filter, json!({ "name": { "eqIgnoreCase": "Canceled" } }));
     }
 }
 

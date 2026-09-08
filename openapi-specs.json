@@ -3940,6 +3940,18 @@
             }
           },
           {
+            "name": "team",
+            "in": "query",
+            "description": "Team key (`SP`), name, or UUID. A state, label or project name is only\nunique within a team, so without this the match is whichever team Linear\nreturns first. Ignored for `user` and `team`, which are workspace-wide.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
             "name": "connectionId",
             "in": "query",
             "description": "Override the default Linear connection. Required when the caller has\naccess to more than one Linear workspace.",

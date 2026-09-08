@@ -1342,9 +1342,14 @@ impl ApiClient {
         &self,
         kind: &str,
         name: &str,
+        team: Option<&str>,
         connection_id: Option<&str>,
     ) -> Result<moatless_api_schemas::linear::LinearLookupResponse, ApiError> {
         let mut qs = format!("?kind={}&name={}", urlenc(kind), urlenc(name));
+        if let Some(team) = team {
+            qs.push_str("&team=");
+            qs.push_str(&urlenc(team));
+        }
         if let Some(id) = connection_id {
             qs.push_str("&connectionId=");
             qs.push_str(&urlenc(id));
