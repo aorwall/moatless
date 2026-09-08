@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Starting the preview server</title>
+    <noscript><meta http-equiv="refresh" content="3" /></noscript>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fbfbfa;
+        --fg: #1c1b19;
+        --muted: #6b6862;
+        --line: #e4e1db;
+        --accent: #9a938a;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #171614;
+          --fg: #eceae5;
+          --muted: #918c84;
+          --line: #302e2a;
+          --accent: #6b6862;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+          Roboto, "Helvetica Neue", Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        max-width: 30rem;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.0625rem;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          monospace;
+        font-size: 0.9375em;
+        color: var(--fg);
+      }
+      .spinner {
+        width: 22px;
+        height: 22px;
+        margin: 0 auto 18px;
+        border: 2px solid var(--line);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner {
+          animation-duration: 2.4s;
+        }
+      }
+      .elapsed {
+        margin-top: 14px;
+        font-variant-numeric: tabular-nums;
+        font-size: 0.8125rem;
+        color: var(--muted);
+      }
+      button {
+        margin-top: 18px;
+        padding: 7px 15px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--fg);
+        font: inherit;
+        font-size: 0.875rem;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="waiting">
+        <div class="spinner"></div>
+        <h1>Starting the preview server</h1>
+        <p>
+          Nothing is listening on port <code>{{PORT}}</code> yet. This page loads
+          the app as soon as the server answers.
+        </p>
+        <p class="elapsed">Waiting <span id="elapsed">0</span>s</p>
+      </div>
+
+      <div id="gave-up" hidden>
+        <h1>The preview server has not started</h1>
+        <p>
+          Nothing answered on port <code>{{PORT}}</code> after
+          <span id="gave-up-after">90</span> seconds. Check the server's output
+          for what it is doing, or what it failed on.
+        </p>
+        <button type="button" onclick="location.reload()">Try again</button>
+      </div>
+    </main>
+
+    <script>
+      ;(function () {
+        // Answering on the marker rather than on the status is what lets the
+        // page hand over the moment the server answers with a status of its
+        // own — including a 503 the previewed app itself returns.
+        var MARKER = 'x-moatless-preview'
+        var POLL_MS = 1000
+        var GIVE_UP_MS = 90000
+        var startedAt = Date.now()
+
+        var elapsed = document.getElementById('elapsed')
+        var counting = setInterval(function () {
+          elapsed.textContent = String(
+            Math.floor((Date.now() - startedAt) / 1000),
+          )
+        }, POLL_MS)
+
+        function giveUp() {
+          clearInterval(counting)
+          document.getElementById('gave-up-after').textContent = String(
+            Math.round(GIVE_UP_MS / 1000),
+          )
+          document.getElementById('waiting').hidden = true
+          document.getElementById('gave-up').hidden = false
+        }
+
+        function poll() {
+          // Without this Accept the proxy answers the plain 502, which carries
+          // no marker, and the page reloads into itself once a second.
+          fetch(location.href, {
+            cache: 'no-store',
+            redirect: 'manual',
+            headers: { Accept: '{{POLL_ACCEPT}}' },
+          })
+            .then(function (response) {
+              if (response.headers.get(MARKER) !== 'starting') {
+                location.reload()
+                return
+              }
+              schedule()
+            })
+            .catch(schedule)
+        }
+
+        function schedule() {
+          if (Date.now() - startedAt > GIVE_UP_MS) {
+            giveUp()
+            return
+          }
+          setTimeout(poll, POLL_MS)
+        }
+
+        schedule()
+      })()
+    </script>
+  </body>
+</html>

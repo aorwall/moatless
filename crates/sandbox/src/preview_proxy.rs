@@ -8,6 +8,11 @@
 //! a server bound to `127.0.0.1`, or one that refuses an unrecognized `Host`,
 //! is previewable without changing how it is started.
 //!
+//! A published port is opened in a browser tab before anything binds it, so a
+//! refused connection on a request for a page is answered with
+//! [`starting_page`] rather than a gateway error. Every other request, and every
+//! other failure, keeps its status and its plain-text body.
+//!
 //! Preview traffic is untrusted, so this is its own listener and never the
 //! control router: the only thing it can reach is a non-reserved port in the
 //! pod's network namespace. That namespace is shared by every container in the
@@ -22,10 +27,13 @@ use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper::header::{HOST, HeaderName, HeaderValue, LOCATION, ORIGIN, REFERER};
+use hyper::header::{
+    ACCEPT, CACHE_CONTROL, CONTENT_TYPE, HOST, HeaderName, HeaderValue, LOCATION, ORIGIN, REFERER,
+    RETRY_AFTER,
+};
 use hyper::service::service_fn;
 use hyper::upgrade::OnUpgrade;
-use hyper::{HeaderMap, Request, Response, StatusCode};
+use hyper::{HeaderMap, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use moatless_types::sandbox::is_reserved_sandbox_port;
 use tokio::net::{TcpListener, TcpStream};
@@ -37,6 +45,11 @@ const UPSTREAM_ADDR: &str = "127.0.0.1";
 
 const X_FORWARDED_HOST: &str = "x-forwarded-host";
 const X_FORWARDED_PROTO: &str = "x-forwarded-proto";
+
+/// Marks [`starting_page`]'s own response, so the page's poll can tell it apart
+/// from a `503` the previewed server itself returns once it is up.
+const X_MOATLESS_PREVIEW: &str = "x-moatless-preview";
+const STARTING: &str = "starting";
 
 /// How long the accept loop yields after a failed `accept`.
 const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(50);
@@ -128,6 +141,7 @@ async fn forward(
     }
 
     let upstream_host = format!("{UPSTREAM_ADDR}:{port}");
+    let wants_html = is_document_request(request.method(), request.headers());
     // Taken before the request is forwarded: hyper resolves this only if the
     // response it sends back is a 101, so an ordinary request pays nothing.
     let downstream_upgrade = hyper::upgrade::on(&mut request);
@@ -137,6 +151,11 @@ async fn forward(
         Ok(stream) => stream,
         Err(error) => {
             debug!(port, %error, "Preview proxy could not reach the server");
+            // Only a refused connection is replaced, and only for a reader: an
+            // asset or an `XHR` given HTML would parse it as its own data.
+            if wants_html {
+                return Ok(starting_page(port));
+            }
             return Ok(refuse(
                 StatusCode::BAD_GATEWAY,
                 "Nothing is listening on that port",
@@ -202,6 +221,48 @@ fn upstream_port(host: &str) -> Option<u16> {
     let label = host.split('.').next()?.split(':').next()?;
     let (_, port) = label.rsplit_once("--")?;
     port.parse().ok().filter(|port| *port != 0)
+}
+
+/// Whether this request is a browser asking for a page to render.
+///
+/// `Accept` is the portable signal, and it separates the cases cleanly: a
+/// stylesheet asks for `text/css,*/*`, an image for `image/…`, `fetch` and
+/// `curl` for `*/*`, and none of them name `text/html`.
+fn is_document_request(method: &Method, headers: &HeaderMap) -> bool {
+    method == Method::GET
+        && headers
+            .get(ACCEPT)
+            .and_then(|accept| accept.to_str().ok())
+            .is_some_and(|accept| accept.contains("text/html"))
+}
+
+/// The `Accept` the page's own poll sends, rendered into it as `{{POLL_ACCEPT}}`.
+///
+/// The poll has to reach the same arm a navigation does, or it reads the plain
+/// `502`, finds no [`X_MOATLESS_PREVIEW`] and reloads the page into itself once
+/// a second. `fetch` defaults to `*/*`, which [`is_document_request`] rejects.
+const POLL_ACCEPT: &str = "text/html";
+
+/// The page a reader gets while the server on `port` is still starting.
+///
+/// It polls this same URL and loads the app itself once the server answers, so
+/// the status has to be one no client caches: `503` with `Retry-After`, and the
+/// [`X_MOATLESS_PREVIEW`] marker the poll reads.
+fn starting_page(port: u16) -> Response<BoxBody<Bytes, hyper::Error>> {
+    let html = include_str!("preview_proxy/starting.html")
+        .replace("{{PORT}}", &port.to_string())
+        .replace("{{POLL_ACCEPT}}", POLL_ACCEPT);
+    let body = Full::new(Bytes::from(html))
+        .map_err(|never: Infallible| match never {})
+        .boxed();
+    Response::builder()
+        .status(StatusCode::SERVICE_UNAVAILABLE)
+        .header(CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(CACHE_CONTROL, "no-store")
+        .header(RETRY_AFTER, "1")
+        .header(HeaderName::from_static(X_MOATLESS_PREVIEW), STARTING)
+        .body(body)
+        .unwrap_or_else(|_| Response::new(empty_body()))
 }
 
 /// Present the request as one made to the server on loopback.
@@ -299,6 +360,7 @@ fn refuse(status: StatusCode, message: &'static str) -> Response<BoxBody<Bytes, 
         .boxed();
     Response::builder()
         .status(status)
+        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
         .body(body)
         .unwrap_or_else(|_| Response::new(empty_body()))
 }
@@ -547,20 +609,105 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 403"), "{response}");
     }
 
-    #[tokio::test]
-    async fn a_port_with_no_listener_answers_502() {
-        let proxy = start_proxy().await;
-        // Bind and drop, so the port is known-free rather than guessed.
-        let free = TcpListener::bind(("127.0.0.1", 0))
+    /// Bind and drop, so the port is known-free rather than guessed.
+    async fn free_port() -> u16 {
+        TcpListener::bind(("127.0.0.1", 0))
             .await
             .expect("binds")
             .local_addr()
             .expect("address")
-            .port();
+            .port()
+    }
+
+    const NAVIGATION: &str = "Accept: text/html,application/xhtml+xml\r\n";
+
+    /// Anything that is not a reader gets the error, so the previewed app never
+    /// parses the page as its own data.
+    #[tokio::test]
+    async fn a_port_with_no_listener_answers_502() {
+        let proxy = start_proxy().await;
+        let free = free_port().await;
 
         let (response, _stream) = request(proxy, &preview_host(free), "").await;
 
         assert!(response.starts_with("HTTP/1.1 502"), "{response}");
+        assert!(response.contains("content-type: text/plain"), "{response}");
+    }
+
+    #[tokio::test]
+    async fn a_reader_waiting_on_a_starting_server_gets_the_page() {
+        let proxy = start_proxy().await;
+        let free = free_port().await;
+
+        let (response, _stream) = request(proxy, &preview_host(free), NAVIGATION).await;
+
+        assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+        assert!(response.contains("content-type: text/html"), "{response}");
+        assert!(response.contains("retry-after: 1"), "{response}");
+        assert!(
+            response.contains(&format!("{X_MOATLESS_PREVIEW}: {STARTING}")),
+            "{response}"
+        );
+    }
+
+    /// The reader is told which port is still closed, and the poll that loads
+    /// the app once it opens needs the marker's own name.
+    #[tokio::test]
+    async fn the_starting_page_names_the_port_and_the_marker_its_poll_reads() {
+        let body = starting_page(3001)
+            .into_body()
+            .collect()
+            .await
+            .expect("page body")
+            .to_bytes();
+        let html = String::from_utf8(body.to_vec()).expect("page is utf-8");
+
+        assert!(html.contains("3001"), "{html}");
+        assert!(html.contains(X_MOATLESS_PREVIEW), "{html}");
+        assert!(html.contains(&format!("Accept: '{POLL_ACCEPT}'")), "{html}");
+        // Every placeholder is rendered, whatever it is named.
+        assert!(!html.contains("{{"), "{html}");
+    }
+
+    /// The page replaces only a *failed* connect, so a server that is up is
+    /// still forwarded to whatever the reader asked for.
+    #[tokio::test]
+    async fn a_reader_reaching_a_running_server_is_forwarded() {
+        let upstream = start_loopback_server(OK).await;
+        let proxy = start_proxy().await;
+
+        let (response, _stream) = request(proxy, &preview_host(upstream), NAVIGATION).await;
+
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    }
+
+    #[test]
+    fn only_a_get_asking_for_html_is_a_document_request() {
+        let accepting = |value: &'static str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(ACCEPT, HeaderValue::from_static(value));
+            headers
+        };
+
+        assert!(is_document_request(
+            &Method::GET,
+            &accepting("text/html,application/xhtml+xml,*/*;q=0.8")
+        ));
+        // The page's poll reaches the same arm as a navigation, or it reads the
+        // plain `502` and reloads into itself.
+        assert!(is_document_request(&Method::GET, &accepting(POLL_ACCEPT)));
+        // What `fetch` sends when it is given no `Accept` of its own.
+        assert!(!is_document_request(&Method::GET, &accepting("*/*")));
+        assert!(!is_document_request(
+            &Method::GET,
+            &accepting("text/css,*/*;q=0.1")
+        ));
+        assert!(!is_document_request(
+            &Method::GET,
+            &accepting("image/avif,image/webp,*/*")
+        ));
+        assert!(!is_document_request(&Method::GET, &HeaderMap::new()));
+        assert!(!is_document_request(&Method::POST, &accepting("text/html")));
     }
 
     const REDIRECT: &str = "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{port}/next\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
