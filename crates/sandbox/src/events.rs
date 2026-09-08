@@ -246,10 +246,13 @@ pub(crate) mod test_backend {
     use tonic::Status;
 
     use crate::backend_client::BackendClient;
+    use crate::commands::JournaledCommand;
 
     #[derive(Default)]
     pub(crate) struct CapturingBackend {
         pub(crate) received: Mutex<Vec<PublishEventRequest>>,
+        /// Every `record_unreported_commands` call, oldest first, with its revision.
+        pub(crate) unreported_commands: Mutex<Vec<(i64, Vec<JournaledCommand>)>>,
     }
 
     #[async_trait::async_trait]
@@ -257,6 +260,18 @@ pub(crate) mod test_backend {
         async fn publish_event(&self, req: PublishEventRequest) -> Result<(), Status> {
             self.received.lock().expect("lock").push(req);
             Ok(())
+        }
+
+        async fn record_unreported_commands(
+            &self,
+            _task_id: &str,
+            commands: &[JournaledCommand],
+            revision: i64,
+        ) {
+            self.unreported_commands
+                .lock()
+                .expect("lock")
+                .push((revision, commands.to_vec()));
         }
 
         async fn get_pending_messages(

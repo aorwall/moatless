@@ -22,7 +22,7 @@ use moatless_types::sandbox::SandboxStopReason;
 use super::dao::PgLifecycleDao;
 use super::events::LifecycleEvent;
 use super::lock::PgLifecycleLock;
-use super::orchestrator::{AgentStopPort, LifecycleDao, LifecycleEventSink};
+use super::orchestrator::{AgentStopPort, LifecycleDao, LifecycleEventSink, OutstandingCommand};
 use super::test_support::seed_task_with as seed;
 use moatless_sandbox_runtime::observation_events::EventFact;
 use moatless_sandbox_runtime::operation::{ObservedStatus, OperationKind};
@@ -347,6 +347,109 @@ async fn running_commands_persists_the_count_and_notifies_only_on_the_busy_axis(
     // 1 -> 0 crosses back to idle: the count clears and a second change queues.
     h.store.record_running_commands("t1", 0).await.unwrap();
     assert_eq!(commands_state(&h.pool, "t1").await, (0, 2));
+}
+
+fn cmd(id: &str, state: &str) -> OutstandingCommand {
+    OutstandingCommand {
+        id: id.to_string(),
+        command: format!("cargo test {id}"),
+        label: id.to_string(),
+        started_at_unix_ms: 1,
+        state: state.to_string(),
+        exit_code: None,
+    }
+}
+
+#[sqlx::test]
+async fn unreported_commands_is_absolute_guarded_by_revision_and_cleared_by_the_take(
+    opts: PgPoolOptions,
+    conn: PgConnectOptions,
+) {
+    let (store_pool, lock_pool) = pools(&opts, &conn).await;
+    seed(&store_pool, "t1", "open", "running").await;
+    let h = build(store_pool, lock_pool, RecordingRuntime::new(), 1);
+
+    h.store
+        .record_unreported_commands("t1", &[cmd("a", "running")], 1)
+        .await
+        .unwrap();
+
+    // Absolute: the second write replaces the first rather than adding to it.
+    h.store
+        .record_unreported_commands("t1", &[cmd("a", "exited"), cmd("b", "running")], 2)
+        .await
+        .unwrap();
+
+    // The registry lock orders the revisions, the RPC does not, so a write that
+    // arrives late is dropped rather than resurrecting a discharged command.
+    h.store
+        .record_unreported_commands("t1", &[cmd("a", "running")], 1)
+        .await
+        .unwrap();
+
+    let taken = h.store.take_unreported_commands("t1").await.unwrap();
+    assert_eq!(
+        taken,
+        vec![cmd("a", "exited"), cmd("b", "running")],
+        "the highest revision is what the replacement pod reads"
+    );
+
+    // The take cleared the row, so no restart announces the same loss twice.
+    assert!(
+        h.store
+            .take_unreported_commands("t1")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    // The take leaves the revision behind, so a write still in flight from the
+    // dying pod cannot resurrect what was just announced.
+    h.store
+        .record_unreported_commands("t1", &[cmd("a", "running")], 2)
+        .await
+        .unwrap();
+    assert!(
+        h.store
+            .take_unreported_commands("t1")
+            .await
+            .unwrap()
+            .is_empty(),
+        "a late write at a spent revision is dropped, not replayed"
+    );
+}
+
+/// Two Members of one shared sandbox resolve to one `sandboxes` row, so a
+/// sandbox-keyed row would let each one's absolute write erase the other's.
+#[sqlx::test]
+async fn each_member_keeps_its_own_commands_and_its_own_revision(
+    opts: PgPoolOptions,
+    conn: PgConnectOptions,
+) {
+    let (store_pool, lock_pool) = pools(&opts, &conn).await;
+    seed(&store_pool, "t1", "open", "running").await;
+    seed(&store_pool, "t2", "open", "running").await;
+    let h = build(store_pool, lock_pool, RecordingRuntime::new(), 1);
+
+    h.store
+        .record_unreported_commands("t1", &[cmd("a", "running")], 40)
+        .await
+        .unwrap();
+    // A lower revision than t1's, and it must still land: the counters are
+    // per-registry and never comparable across Members.
+    h.store
+        .record_unreported_commands("t2", &[cmd("b", "exited")], 7)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        h.store.take_unreported_commands("t1").await.unwrap(),
+        vec![cmd("a", "running")]
+    );
+    assert_eq!(
+        h.store.take_unreported_commands("t2").await.unwrap(),
+        vec![cmd("b", "exited")]
+    );
 }
 
 #[sqlx::test]

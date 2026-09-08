@@ -167,7 +167,7 @@ impl ScheduledJob for BackgroundWatchJob {
                     return;
                 }
                 _ = ticker.tick() => {
-                    // Re-read the debt rather than trusting the armed set: a
+                    // Re-read `reported` rather than trusting the armed set: a
                     // later turn can kill or read back a command this watch is
                     // still waiting on, and waking for it then would announce
                     // an outcome the agent already has.
@@ -313,9 +313,9 @@ mod tests {
         assert!(messages[0].contains(&done), "prompt was {:?}", messages[0]);
     }
 
-    /// `kill` discharges the debt while the process is still winding down, so
-    /// the command is still `Running` when the turn ends. Keying the watch off
-    /// state rather than the debt would pick it back up and wake the agent
+    /// `kill` marks the command reported while the process is still winding
+    /// down, so it is still `Running` when the turn ends. Keying the watch off
+    /// state rather than `reported` would pick it back up and wake the agent
     /// about the death it had just ordered.
     #[tokio::test]
     async fn does_not_watch_a_killed_command_still_winding_down() {
@@ -334,7 +334,7 @@ mod tests {
     }
 
     /// A `Send` does not cancel an armed watch, so a later turn can kill a
-    /// command this watch is still polling. The debt is discharged at the kill
+    /// command this watch is still polling. The command is reported at the kill
     /// request; the watch has to notice that rather than waking when the
     /// supervisor later records `Killed`.
     #[tokio::test]

@@ -14,6 +14,7 @@ use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use moatless_types::agent::AgentSubType;
@@ -22,6 +23,7 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use crate::backend_client::BackendClient;
 use crate::events::GrpcEventPublisher;
 
 /// Grace period between the SIGTERM and the SIGKILL of a timed-out command.
@@ -49,6 +51,29 @@ impl CommandState {
     /// `busy_processes` and is what the turn-end watch wakes the agent for.
     pub fn is_terminal(self) -> bool {
         !matches!(self, CommandState::Running)
+    }
+
+    /// The form the backend stores an unreported command in. Identical to this
+    /// type's serde representation, which the journal on disk already uses.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CommandState::Running => "running",
+            CommandState::Exited => "exited",
+            CommandState::TimedOut => "timed_out",
+            CommandState::Killed => "killed",
+        }
+    }
+
+    /// Parse [`Self::as_str`]. An unrecognized value becomes `Running`, whose
+    /// wake text claims only that the outcome is unknown — which is what a state
+    /// this pod cannot interpret leaves true.
+    pub fn from_wire(value: &str) -> Self {
+        match value {
+            "exited" => CommandState::Exited,
+            "timed_out" => CommandState::TimedOut,
+            "killed" => CommandState::Killed,
+            _ => CommandState::Running,
+        }
     }
 }
 
@@ -116,7 +141,25 @@ pub struct JournaledCommand {
     pub exit_code: Option<i32>,
 }
 
-/// Durable mirror of the outstanding-command debt.
+/// The commands that still owe the agent an outcome. Both mirrors write this,
+/// and neither may narrow it: a command the agent has not been shown is owed
+/// whether or not its process has stopped.
+fn owed(entries: &HashMap<String, Entry>) -> Vec<JournaledCommand> {
+    entries
+        .values()
+        .filter(|e| !e.reported)
+        .map(|e| JournaledCommand {
+            id: e.command.id.clone(),
+            command: e.command.command.clone(),
+            label: e.command.label.clone(),
+            started_at_unix_ms: e.command.started_at_unix_ms,
+            state: e.command.state,
+            exit_code: e.command.exit_code,
+        })
+        .collect()
+}
+
+/// Durable mirror of the unreported commands.
 ///
 /// The registry is in-memory, so a pod replacement destroys every `moat cmd`
 /// process along with the watch that promised the agent a wake. This file is
@@ -130,21 +173,10 @@ struct Journal {
 
 impl Journal {
     /// Rewrite the file with the entries that still owe the agent an outcome.
-    /// Called with the entries lock held, so the file never records a debt the
+    /// Called with the entries lock held, so the file never records a command the
     /// registry has already discharged.
     async fn write(&self, entries: &HashMap<String, Entry>) {
-        let owed: Vec<JournaledCommand> = entries
-            .values()
-            .filter(|e| !e.reported)
-            .map(|e| JournaledCommand {
-                id: e.command.id.clone(),
-                command: e.command.command.clone(),
-                label: e.command.label.clone(),
-                started_at_unix_ms: e.command.started_at_unix_ms,
-                state: e.command.state,
-                exit_code: e.command.exit_code,
-            })
-            .collect();
+        let owed = owed(entries);
 
         if owed.is_empty() {
             if let Err(error) = tokio::fs::remove_file(&self.path).await {
@@ -237,12 +269,62 @@ impl LivenessReporter {
     }
 }
 
+/// Second mirror of the unreported commands, on its own row.
+///
+/// The journal is the first, and it rides the S3 workspace snapshot — which a
+/// failed restore takes with it, leaving the agent never told what the restart
+/// destroyed. This copy is on a row no restore touches.
+#[derive(Clone)]
+struct UnreportedMirror {
+    client: Arc<dyn BackendClient>,
+    task_id: String,
+    /// Stamped on each snapshot under the entries lock, and compared by the
+    /// backend. The send happens off that lock, so two of them can arrive out of
+    /// order and an older, larger set would resurrect a command the agent has
+    /// already been told about.
+    revision: Arc<AtomicI64>,
+}
+
+impl UnreportedMirror {
+    /// Snapshot and stamp under the caller's entries lock, then send off it.
+    ///
+    /// Detached rather than awaited: every caller holds the write lock, and
+    /// waiting for a gRPC round trip there would serialize every reader behind
+    /// the backend's latency.
+    fn spawn_report(&self, entries: &HashMap<String, Entry>) {
+        let owed = owed(entries);
+        let revision = self.revision.fetch_add(1, Ordering::Relaxed) + 1;
+        let this = self.clone();
+        tokio::spawn(async move {
+            this.client
+                .record_unreported_commands(&this.task_id, &owed, revision)
+                .await;
+        });
+    }
+}
+
+/// Write the unreported set to both mirrors. Called with the entries lock held,
+/// so neither can record a command the registry has already reported.
+async fn mirror(
+    journal: Option<&Journal>,
+    row: Option<&UnreportedMirror>,
+    entries: &HashMap<String, Entry>,
+) {
+    if let Some(journal) = journal {
+        journal.write(entries).await;
+    }
+    if let Some(row) = row {
+        row.spawn_report(entries);
+    }
+}
+
 /// Registry of the commands this task started through `moat cmd`.
 pub struct CommandRegistry {
     entries: Arc<RwLock<HashMap<String, Entry>>>,
     default_timeout: Duration,
     log_dir: PathBuf,
     journal: Option<Journal>,
+    row_mirror: Option<UnreportedMirror>,
     liveness: Option<LivenessReporter>,
 }
 
@@ -253,6 +335,7 @@ impl CommandRegistry {
             default_timeout,
             log_dir,
             journal: None,
+            row_mirror: None,
             liveness: None,
         }
     }
@@ -282,10 +365,26 @@ impl CommandRegistry {
         self.report_liveness().await;
     }
 
-    /// Mirror the outstanding debt to `path` so a replacement pod can tell the
-    /// agent which commands the restart destroyed.
+    /// Mirror the unreported commands to `path` so a replacement pod can tell
+    /// the agent which commands the restart destroyed.
     pub fn with_journal(mut self, path: PathBuf) -> Self {
         self.journal = Some(Journal { path });
+        self
+    }
+
+    /// Mirror the same commands to a row, which a failed workspace restore does
+    /// not take with it. See [`UnreportedMirror`].
+    pub fn with_backend_mirror(mut self, client: Arc<dyn BackendClient>, task_id: String) -> Self {
+        self.row_mirror = Some(UnreportedMirror {
+            client,
+            task_id,
+            // Seeded from the clock, not from zero: `take_unreported_commands` leaves
+            // the prior pod's revision on the row, so a counter that restarted
+            // would lose the backend's `<` guard until it caught up — silently
+            // dropping this pod's whole mirror, which is the case the mirror
+            // exists for.
+            revision: Arc::new(AtomicI64::new(unix_now_ms())),
+        });
         self
     }
 
@@ -360,6 +459,7 @@ impl CommandRegistry {
             CommandSinks {
                 entries: Arc::clone(&self.entries),
                 journal: self.journal.clone(),
+                row_mirror: self.row_mirror.clone(),
                 liveness: self.liveness.clone(),
             },
             id,
@@ -465,7 +565,7 @@ impl CommandRegistry {
     /// The subset of `ids` that still owes the agent an outcome.
     ///
     /// A watch re-reads this on every poll rather than trusting the set it
-    /// armed with, because the debt can be discharged from under it: a later
+    /// armed with, because an entry can be reported from under it: a later
     /// turn can kill or read back a command this watch is still waiting on. An
     /// unknown id owes nothing, so a dropped entry cannot hold a watch open.
     pub async fn unreported_among(&self, ids: &[String]) -> Vec<CommandRecord> {
@@ -480,10 +580,10 @@ impl CommandRegistry {
     /// Commands that still owe the agent an outcome, whatever state they are in.
     ///
     /// This is the whole of what the turn-end watch waits on, and it keys off
-    /// the debt rather than the state for two reasons. A command can die
+    /// `reported` rather than the state for two reasons. A command can die
     /// between being spawned and the turn ending — a bad path takes under a
     /// second — so it is already terminal when the watch arms and a
-    /// still-running filter would drop it. And `kill` discharges the debt while
+    /// still-running filter would drop it. And `kill` marks it reported while
     /// the process is still winding down, so a state filter would pick the
     /// command back up and wake the agent about the death it just ordered.
     pub async fn unreported(&self) -> Vec<CommandRecord> {
@@ -508,14 +608,12 @@ impl CommandRegistry {
         self.persist(&entries).await;
     }
 
-    /// Mirror the current debt to the journal, if one is configured. Takes the
-    /// live entries so the caller holds the lock across the write: a snapshot
-    /// taken and written separately could land after a later, smaller debt and
+    /// Mirror the unreported commands to whichever sinks are configured. Takes
+    /// the live entries so the caller holds the lock across the write: a snapshot
+    /// taken and written separately could land after a later, smaller set and
     /// resurrect a command the agent has already been told about.
     async fn persist(&self, entries: &HashMap<String, Entry>) {
-        if let Some(journal) = &self.journal {
-            journal.write(entries).await;
-        }
+        mirror(self.journal.as_ref(), self.row_mirror.as_ref(), entries).await;
     }
 }
 
@@ -529,12 +627,13 @@ fn running_count(entries: &HashMap<String, Entry>) -> usize {
 }
 
 /// Where a finished command's outcome is written: the live entries, plus the
-/// two mirrors that must move with them — the journal a replacement pod reads
-/// and the count the backend renders.
+/// mirrors that must move with them — the two a replacement pod reads the
+/// unreported commands from, and the count the backend renders.
 #[derive(Clone)]
 struct CommandSinks {
     entries: Arc<RwLock<HashMap<String, Entry>>>,
     journal: Option<Journal>,
+    row_mirror: Option<UnreportedMirror>,
     liveness: Option<LivenessReporter>,
 }
 
@@ -550,6 +649,7 @@ async fn supervise(
     let CommandSinks {
         entries,
         journal,
+        row_mirror,
         liveness,
     } = sinks;
     let (state, exit_code) = tokio::select! {
@@ -579,9 +679,7 @@ async fn supervise(
             entry.command.exit_code = exit_code;
             entry.command.finished_at_unix_ms = unix_now_ms();
         }
-        if let Some(journal) = &journal {
-            journal.write(&entries).await;
-        }
+        mirror(journal.as_ref(), row_mirror.as_ref(), &entries).await;
         running_count(&entries)
     };
     info!(id = %id, ?state, ?exit_code, "Background command finished");
@@ -1069,6 +1167,70 @@ mod tests {
         assert!(log_tail(&empty, 5, 4096).is_none());
     }
 
+    /// The mirror writes the backend has seen, oldest first. The send is detached
+    /// from the entries lock, so it polls until at least `want` have landed.
+    async fn mirror_writes(
+        backend: &crate::events::test_backend::CapturingBackend,
+        want: usize,
+    ) -> Vec<(i64, Vec<JournaledCommand>)> {
+        for _ in 0..200 {
+            let writes = backend.unreported_commands.lock().expect("lock").clone();
+            if writes.len() >= want {
+                return writes;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        backend.unreported_commands.lock().expect("lock").clone()
+    }
+
+    /// The failure the row exists for: a replacement whose workspace restore
+    /// fails has no journal, so the set must also reach the backend — with a
+    /// revision, because the send happens off the entries lock.
+    #[tokio::test]
+    async fn the_unreported_set_is_mirrored_to_the_backend_with_a_rising_revision() {
+        let backend = Arc::new(crate::events::test_backend::CapturingBackend::default());
+        let dir = std::env::temp_dir().join(format!("moat-cmd-mirror-{}", short_id()));
+        let start = unix_now_ms();
+        let reg = CommandRegistry::new(Duration::from_mins(1), dir)
+            .with_backend_mirror(Arc::clone(&backend) as Arc<dyn BackendClient>, "t1".into());
+
+        let cmd = reg
+            .run(CommandSpec {
+                command: "exit 4".into(),
+                cwd: None,
+                timeout: None,
+                label: Some("verify".into()),
+            })
+            .await
+            .expect("spawn");
+        wait_terminal(&reg, &cmd.id).await;
+
+        // The spawn and the exit each mirror: running, then the outcome.
+        let writes = mirror_writes(&backend, 2).await;
+        assert!(writes.len() >= 2, "spawn and exit each write the mirror");
+        // Seeded from the clock so it outruns a prior pod's stored revision,
+        // never from 1.
+        assert!(
+            writes[0].0 >= start,
+            "the first revision starts at the clock, not at zero"
+        );
+        assert_eq!(writes[0].1[0].state, CommandState::Running);
+        let last = writes.last().expect("a write");
+        assert!(last.0 > writes[0].0, "each write carries a higher revision");
+        assert_eq!(last.1[0].id, cmd.id);
+        assert_eq!(last.1[0].label, "verify");
+        assert_eq!(last.1[0].state, CommandState::Exited);
+        assert_eq!(last.1[0].exit_code, Some(4));
+
+        // Reading it back marks it reported, so the row stops naming it.
+        reg.read_for_agent(Some(&cmd.id)).await.expect("read back");
+        let writes = mirror_writes(&backend, writes.len() + 1).await;
+        assert!(
+            writes.last().expect("a write").1.is_empty(),
+            "a command the agent has been shown is owed nothing"
+        );
+    }
+
     /// The restart case: the pod dies with a command in flight. Its process and
     /// log go with it, so the journal is the only thing a replacement pod can
     /// read to know the agent is still owed an answer.
@@ -1137,7 +1299,7 @@ mod tests {
         assert_eq!(journal[0].exit_code, Some(4));
     }
 
-    /// Reading the outcome back discharges the debt, so a restart after that
+    /// Reading the outcome back marks it reported, so a restart after that
     /// must not re-announce a command the agent has already seen.
     #[tokio::test]
     async fn reading_a_command_back_clears_it_from_the_journal() {
@@ -1157,12 +1319,12 @@ mod tests {
         reg.read_for_agent(None).await.expect("agent reads it back");
         assert!(
             journal_now(&path).await.is_empty(),
-            "a discharged debt must not survive into the next pod"
+            "a reported command must not survive into the next pod"
         );
     }
 
-    /// `kill` discharges the debt at the request, while the process is still
-    /// winding down. The journal keys off the debt, so it drops the command
+    /// `kill` marks the command reported at the request, while the process is
+    /// still winding down. The journal keys off `reported`, so it drops the command
     /// then rather than when the supervisor records the death.
     #[tokio::test]
     async fn killing_a_command_clears_it_from_the_journal() {

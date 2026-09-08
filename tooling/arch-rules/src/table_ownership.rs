@@ -37,6 +37,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("plugins", "moatless-workspaces"),
     ("provider_tokens", "moatless-identity"),
     ("repositories", "moatless-workspaces"),
+    ("sandbox_unreported_commands", "moatless-sandbox-control"),
     ("sandboxes", "moatless-sandbox-control"),
     ("schedules", "moatless-loops"),
     ("secret_audit_events", "moatless-identity"),

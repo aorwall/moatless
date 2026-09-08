@@ -88,8 +88,8 @@ Each loss cause has its own counter, and each calls for a different response:
 - A restart wake resumes the prior session. `build_input` resolves the resume
   target in order: the pod's last session id, then the backend-provided id, then
   `--continue` for the Claude family. Init restores transcripts to disk before
-  Ready. The plain `send(text, None, …, None, false, None)` that
-  `report_wake_notes` and `JobInjector` both use then picks the session back
+  Ready. The plain `send(text, None, …, None, false, None)` that `JobInjector`
+  uses, and that `report_wake_notes` falls back to, then picks the session back
   up with its context.
 
 ## Writing files inside the pod
@@ -244,14 +244,35 @@ being the only sandbox state that survives one. The journal holds metadata only;
 logs stay in `/tmp` (`default_log_dir`), where an unbounded build log cannot fill
 the volume whose size limit causes these evictions.
 
-`agent::restart::open_for_work` reads the journal through `take_journal`
-**before** anything else, or a recovered run or a new command overwrites it.
-`report_wake_notes` turns the journal into the wake the watch could not
-deliver. `take_journal` clears the file whether or not it parsed, so the loss is
-announced exactly once. Key it on `Entry::reported`, like the watch.
+The workspace snapshot can itself be lost, so the same set goes to the
+`sandbox_unreported_commands` table through
+`CommandRegistry::with_backend_mirror`. Write both mirrors, and write each
+absolutely: the registry dies with its pod, so nothing would ever retract a
+delta. That table is keyed by task and not by sandbox, because a shared sandbox
+runs one registry per Member and an absolute write keyed on the sandbox would
+erase the other Member's row.
+
+The row's write happens off the entries lock and carries the registry's own
+`revision`, which the backend compares — take the snapshot under the lock, and
+send it outside. Seed that counter from the clock. A take clears the commands
+and leaves the revision, so a counter restarting at zero would lose the
+backend's guard until it caught up, and the replacement pod's whole mirror would
+be dropped.
+
+`agent::restart::open_for_work` reads both through `take_lost_commands`
+**before** anything else, or a recovered run or a new command overwrites them.
+`report_wake_notes` turns the merged set into the wake the watch could not
+deliver. Each read clears its source, so the loss is announced exactly once. Key
+the journal on `Entry::reported`, like the watch.
 
 Install the journal by writing a sibling `.json.tmp` and renaming over it, so a
 kill or a snapshot racing the write cannot leave a truncated file.
+
+Deliver a wake by queueing it through `BackendClient::enqueue_sandbox_message`
+and then dispatching, not by calling `agent_handle.send`. Only the queued row
+carries the `agent_session_id` that `find_interrupted_turn` selects on, so a pod
+that dies inside a turn a direct send opened is never recovered. The direct send
+stays as the fallback for an unreachable backend.
 
 A **wake note** (`agent::wake_note`) is the general form of the same mechanism:
 text an in-pod caller leaves for the agent, held in

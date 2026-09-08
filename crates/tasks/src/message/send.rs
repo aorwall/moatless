@@ -97,6 +97,128 @@ fn agent_send_idempotency_uuid(source_task_id: &str, task_id: &str, text: &str) 
     uuid::Uuid::new_v5(&AGENT_SEND_NAMESPACE, name.as_bytes()).to_string()
 }
 
+/// The queued user row every send path writes: no turn, no session, nothing
+/// acknowledged, and no origin. The run that consumes it decides which turn it
+/// belongs to. Each caller fills in what its own origin adds.
+fn pending_user_row(task_id: &str, uuid: String, text: String, timestamp: String) -> TaskMessage {
+    TaskMessage {
+        id: 0, // will be assigned by DB
+        task_id: task_id.to_string(),
+        uuid,
+        message_type: MessageType::User,
+        user_type: "human".to_string(),
+        parent_uuid: None,
+        is_sidechain: None,
+        cwd: None,
+        session_id: None,
+        turn_number: None,
+        version: None,
+        git_branch: None,
+        request_id: None,
+        timestamp,
+        message_role: MessageRole::User,
+        message_text: Some(text),
+        assistant_message_id: None,
+        assistant_message_type: None,
+        assistant_message_model: None,
+        assistant_stop_reason: None,
+        assistant_stop_sequence: None,
+        assistant_usage_input_tokens: None,
+        assistant_usage_output_tokens: None,
+        assistant_usage_cache_creation_input_tokens: None,
+        assistant_usage_cache_read_input_tokens: None,
+        assistant_usage: None,
+        tool_use_result: None,
+        tool_response: None,
+        sdk_metadata: None,
+        attachments: None,
+        agent_session_id: None, // Not yet acknowledged
+        will_not_resume: None,
+        run_metrics: None,
+        agent_mode_raw: None,
+        model: None,
+        effort: None,
+        skills: Vec::new(),
+        resume: false,
+        sent_at: None,
+        created_at: None,
+        external_event_id: None,
+        external_adapter: None,
+        external_subject_key: None,
+        external_source_name: None,
+        external_author: None,
+        external_sender_id: None,
+        source_task_id: None,
+        start_fresh: false,
+        sent_by: None,
+    }
+}
+
+/// Queue a user message a sandbox wrote for its own Task, so the turn it opens
+/// is one the conversation and interrupted-turn recovery can both see.
+///
+/// A pod that wakes its agent through `agent_handle.send` alone leaves no row.
+/// `MessageDao::find_interrupted_turn` selects on a `user` row carrying an
+/// `agent_session_id`, which only the acknowledgment of a queued row writes, so
+/// a pod that died inside such a turn was never recovered — that is the loss
+/// this exists to close. The uuid is derived the way an agent→task send's is, so
+/// a caller that retries a call it could not confirm collapses onto the first
+/// row rather than opening a second turn.
+///
+/// `Ok(None)` means the message is already queued, or the Task is closed.
+pub async fn enqueue_sandbox_message(
+    messages: &dyn MessageDao,
+    tasks: &dyn TaskDao,
+    task_id: &str,
+    text: &str,
+) -> Result<Option<String>, MessageError> {
+    // reason: the pod authenticated as itself over gRPC; there is no user request behind this.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
+
+    // A closed Task is terminal, and the wake would open a turn on a
+    // conversation nobody will read.
+    match tasks.find_by_id(task_id, &sys_ctx).await {
+        Ok(Some(task)) if task.status == crate::task::models::TaskStatus::Closed => {
+            tracing::debug!(task_id, "Dropping a sandbox message for a closed task");
+            return Ok(None);
+        }
+        Ok(_) => {}
+        Err(e) => return Err(MessageError::Db(e)),
+    }
+
+    let uuid = agent_send_idempotency_uuid(task_id, task_id, text);
+    if let Some(existing) = messages
+        .find_by_uuid(&uuid)
+        .await
+        .map_err(MessageError::DedupCheck)?
+    {
+        tracing::debug!(task_id, uuid = %existing.uuid, "Sandbox message already queued");
+        return Ok(None);
+    }
+
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let row = pending_user_row(task_id, uuid, text.to_string(), now.clone());
+    messages
+        .append(&row, &[], &ConversationWrite::default())
+        .await
+        .map_err(MessageError::PersistMessage)?;
+
+    tasks
+        .update_task(
+            task_id,
+            &TaskPatch {
+                last_message_at: Some(now),
+                ..Default::default()
+            },
+            &sys_ctx,
+        )
+        .await
+        .map_err(MessageError::AdvanceTaskClock)?;
+
+    Ok(Some(row.uuid))
+}
+
 fn attached_file_ids(file_ids: &[String], contexts: &[MessageContextInput]) -> Vec<String> {
     let mut attached = Vec::new();
 
@@ -264,53 +386,17 @@ impl MessageSendService {
             Some(serde_json::json!({ "file_ids": &normalized_file_ids }))
         };
 
+        // `message_text` is what the person wrote, and only that. The preview
+        // URL, the selected element, the attribution and the attachments are
+        // rebuilt from their own rows on the way to the agent
+        // (`enricher::build_pending_content_blocks`).
         let msg_row = TaskMessage {
-            id: 0, // will be assigned by DB
-            task_id: task_id.to_string(),
-            uuid: msg_uuid,
-            message_type: MessageType::User,
-            user_type: "human".to_string(),
-            parent_uuid: None,
-            is_sidechain: None,
-            cwd: None,
-            session_id: None,
-            // Queued user rows carry no turn until the sandbox acknowledges them:
-            // the run that consumes them decides which turn they belong to.
-            turn_number: None,
-            version: None,
-            git_branch: None,
-            request_id: None,
-            timestamp: now.clone(),
-            message_role: MessageRole::User,
-            // What the person wrote, and only that. The preview URL, the selected
-            // element, the attribution and the attachments are rebuilt from their
-            // own rows on the way to the agent
-            // (`enricher::build_pending_content_blocks`).
-            message_text: Some(effective_message),
-            assistant_message_id: None,
-            assistant_message_type: None,
-            assistant_message_model: None,
-            assistant_stop_reason: None,
-            assistant_stop_sequence: None,
-            assistant_usage_input_tokens: None,
-            assistant_usage_output_tokens: None,
-            assistant_usage_cache_creation_input_tokens: None,
-            assistant_usage_cache_read_input_tokens: None,
-            assistant_usage: None,
-            tool_use_result: None,
-            tool_response: None,
-            sdk_metadata: None,
             attachments,
-            agent_session_id: None, // Not yet acknowledged
-            will_not_resume: None,
-            run_metrics: None,
             agent_mode_raw: agent_mode.map(|m| m.as_str().to_string()),
             model: model.map(std::string::ToString::to_string),
             effort: effort.map(std::string::ToString::to_string),
             skills: skills.to_vec(),
             resume,
-            sent_at: None,
-            created_at: None,
             external_event_id: origin.event_id.map(std::string::ToString::to_string),
             external_adapter: origin.adapter.map(std::string::ToString::to_string),
             external_subject_key: origin.subject_key.map(std::string::ToString::to_string),
@@ -320,6 +406,7 @@ impl MessageSendService {
             source_task_id: origin.source_task_id.map(std::string::ToString::to_string),
             start_fresh,
             sent_by: sent_by.map(std::string::ToString::to_string),
+            ..pending_user_row(task_id, msg_uuid, effective_message, now.clone())
         };
 
         // Persist contexts: sender-supplied (preview/element) + synthesised
@@ -923,5 +1010,67 @@ mod tests {
             &serde_json::Value::Null,
         );
         assert!(text.contains("rejected"), "{text}");
+    }
+}
+
+#[cfg(all(test, feature = "db-tests"))]
+mod db_tests {
+    use super::*;
+    use crate::message::dao::PgMessageDao;
+    use crate::task::dao::PgTaskDao;
+    use crate::task::test_support::seed_bare_task;
+    use sqlx::PgPool;
+
+    /// The loss this closes: a pod that wakes its agent through the agent handle
+    /// alone leaves no row, so a replacement never sees the turn it opened.
+    /// Acknowledging the queued row is what stamps the session and turn
+    /// `find_interrupted_turn` selects on.
+    #[sqlx::test]
+    async fn a_queued_wake_becomes_a_recoverable_interrupted_turn(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        let messages = PgMessageDao(pool.clone());
+        let tasks = PgTaskDao::new(pool.clone());
+
+        let uuid = enqueue_sandbox_message(&messages, &tasks, "t1", "<sandbox-restart-note>hi")
+            .await
+            .expect("enqueue")
+            .expect("a fresh wake is queued");
+
+        // Resending the same text is the retry of a call the pod could not
+        // confirm; it must collapse onto the first row, not open a second turn.
+        assert!(
+            enqueue_sandbox_message(&messages, &tasks, "t1", "<sandbox-restart-note>hi")
+                .await
+                .expect("enqueue")
+                .is_none()
+        );
+
+        messages
+            .acknowledge_messages("t1", &[uuid], "sess-1", 7)
+            .await
+            .expect("acknowledge");
+
+        let turn = messages
+            .find_interrupted_turn("t1")
+            .await
+            .expect("query")
+            .expect("the wake's turn is recoverable");
+        assert_eq!(turn.turn_number, 7);
+    }
+
+    /// A closed Task is terminal, so the wake would open a turn on a
+    /// conversation nobody will read.
+    #[sqlx::test]
+    async fn a_closed_task_refuses_the_wake(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "closed").await;
+        let queued = enqueue_sandbox_message(
+            &PgMessageDao(pool.clone()),
+            &PgTaskDao::new(pool.clone()),
+            "t1",
+            "hi",
+        )
+        .await
+        .expect("enqueue");
+        assert!(queued.is_none());
     }
 }

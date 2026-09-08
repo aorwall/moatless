@@ -11,13 +11,17 @@ use std::time::Duration;
 use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, DownloadTranscriptRequest, DownloadUploadRequest,
-    DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
-    GetPendingMessagesRequest, GetSystemPromptRequest, GetWorkspaceObjectUrlsRequest,
-    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
-    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, InterruptedTurn,
-    PendingAgentDelivery, PublishEventRequest, RecordGitPushRequest, RecoverInterruptedRunRequest,
-    ReportWorkspaceSyncRequest, TranscriptChunk, UpdateCredentialRequest,
+    DownloadUploadResponse, EnqueueSandboxMessageRequest, GetCredentialsRequest,
+    GetCredentialsResponse, GetPendingMessagesRequest, GetSystemPromptRequest,
+    GetWorkspaceObjectUrlsRequest, GetWorkspaceRepositoryAccessRequest,
+    GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
+    GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
+    RecordGitPushRequest, RecordUnreportedCommandsRequest, RecoverInterruptedRunRequest,
+    ReportWorkspaceSyncRequest, TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand,
+    UpdateCredentialRequest,
 };
+
+use crate::commands::{CommandState, JournaledCommand};
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
@@ -194,6 +198,48 @@ pub trait BackendClient: Send + Sync {
         _sha: &str,
     ) -> Result<(), tonic::Status> {
         Err(tonic::Status::unimplemented("git push claim not supported"))
+    }
+
+    /// Mirror the commands that still owe the agent an outcome onto the Sandbox
+    /// row, so a replacement pod can name them when the workspace snapshot the
+    /// journal rides is lost.
+    ///
+    /// `revision` is [`crate::commands::CommandRegistry`]'s own counter, taken
+    /// under the entries lock. This call is made off that lock, so two of them
+    /// can arrive out of order and the backend keeps the highest it has seen.
+    /// Fire-and-forget; the journal is the copy that survives a backend outage.
+    async fn record_unreported_commands(
+        &self,
+        _task_id: &str,
+        _commands: &[JournaledCommand],
+        _revision: i64,
+    ) {
+    }
+
+    /// Read and clear what a prior pod recorded, so the loss is announced
+    /// exactly once however many times the pod restarts.
+    async fn take_unreported_commands(
+        &self,
+        _task_id: &str,
+    ) -> Result<Vec<JournaledCommand>, tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "unreported commands not supported",
+        ))
+    }
+
+    /// Queue a user message this sandbox wrote for its own Task, on the same
+    /// path an external send takes.
+    ///
+    /// Returns the queued message's uuid, or `None` when the send was refused —
+    /// the text is already queued, or the Task is closed.
+    async fn enqueue_sandbox_message(
+        &self,
+        _task_id: &str,
+        _text: &str,
+    ) -> Result<Option<String>, tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "sandbox message enqueue not supported",
+        ))
     }
 
     /// Replace the Bearer token injected on subsequent gRPC calls.
@@ -607,5 +653,81 @@ impl BackendClient for BackendGrpcClient {
             })
             .await?;
         Ok(())
+    }
+
+    async fn record_unreported_commands(
+        &self,
+        task_id: &str,
+        commands: &[JournaledCommand],
+        revision: i64,
+    ) {
+        let mut client = self.client.clone();
+        if let Err(e) = client
+            .record_unreported_commands(RecordUnreportedCommandsRequest {
+                task_id: task_id.to_string(),
+                commands: commands.iter().map(unreported_entry).collect(),
+                revision,
+            })
+            .await
+        {
+            debug!(task_id, error = %e, "Failed to record the unreported commands (non-fatal)");
+        }
+    }
+
+    async fn take_unreported_commands(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<JournaledCommand>, Status> {
+        let mut client = self.client.clone();
+        let response = client
+            .take_unreported_commands(TakeUnreportedCommandsRequest {
+                task_id: task_id.to_string(),
+            })
+            .await?;
+        Ok(response
+            .into_inner()
+            .commands
+            .into_iter()
+            .map(journaled_command)
+            .collect())
+    }
+
+    async fn enqueue_sandbox_message(
+        &self,
+        task_id: &str,
+        text: &str,
+    ) -> Result<Option<String>, Status> {
+        let mut client = self.client.clone();
+        let uuid = client
+            .enqueue_sandbox_message(EnqueueSandboxMessageRequest {
+                task_id: task_id.to_string(),
+                text: text.to_string(),
+            })
+            .await?
+            .into_inner()
+            .message_uuid;
+        Ok((!uuid.is_empty()).then_some(uuid))
+    }
+}
+
+fn unreported_entry(command: &JournaledCommand) -> UnreportedCommand {
+    UnreportedCommand {
+        id: command.id.clone(),
+        command: command.command.clone(),
+        label: command.label.clone(),
+        started_at_unix_ms: command.started_at_unix_ms,
+        state: command.state.as_str().to_string(),
+        exit_code: command.exit_code,
+    }
+}
+
+fn journaled_command(entry: UnreportedCommand) -> JournaledCommand {
+    JournaledCommand {
+        id: entry.id,
+        command: entry.command,
+        label: entry.label,
+        started_at_unix_ms: entry.started_at_unix_ms,
+        state: CommandState::from_wire(&entry.state),
+        exit_code: entry.exit_code,
     }
 }

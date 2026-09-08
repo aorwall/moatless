@@ -24,10 +24,7 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     // Read and clear what a prior pod left behind before anything — a recovered
     // run, a new command — can overwrite it. The registry this pod started with
     // is empty, so these entries exist only on the workspace snapshot.
-    let lost_commands = crate::commands::take_journal(&crate::commands::default_journal_path(
-        &state.config.workspace_dir,
-    ))
-    .await;
+    let lost_commands = take_lost_commands(state).await;
     let wake_notes = wake_note::take(&wake_note::default_path(&state.config.workspace_dir)).await;
 
     recover_interrupted_run_unless_pending(state, workspace_origin).await;
@@ -62,6 +59,47 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     report_wake_notes(state, wake_notes, lost_commands).await;
 }
 
+/// Read and clear both copies of what a prior pod left unreported, and merge them.
+///
+/// Both are cleared by the read, so the merge announces each command once and
+/// no later restart announces it again.
+async fn take_lost_commands(state: &SandboxState) -> Vec<crate::commands::JournaledCommand> {
+    let journal = crate::commands::take_journal(&crate::commands::default_journal_path(
+        &state.config.workspace_dir,
+    ))
+    .await;
+
+    let stored = match state
+        .backend_client
+        .take_unreported_commands(&state.config.task_id)
+        .await
+    {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!(task_id = %state.config.task_id, %error, "Failed to read the stored unreported commands");
+            Vec::new()
+        }
+    };
+    merge_lost_commands(journal, stored)
+}
+
+/// Union the two copies by command id.
+///
+/// The journal rides the workspace snapshot and the Sandbox row does not, so a
+/// failed restore leaves only `stored` and a backend outage leaves only
+/// `journal`. Either alone is a partial account of what the restart destroyed.
+///
+/// `journal` wins a collision: its write is under the registry's entries lock
+/// and the row's is off it, so the journal cannot be the staler of the two.
+fn merge_lost_commands(
+    mut journal: Vec<crate::commands::JournaledCommand>,
+    stored: Vec<crate::commands::JournaledCommand>,
+) -> Vec<crate::commands::JournaledCommand> {
+    let known: std::collections::HashSet<String> = journal.iter().map(|c| c.id.clone()).collect();
+    journal.extend(stored.into_iter().filter(|c| !known.contains(&c.id)));
+    journal
+}
+
 /// Wake each Member the replaced pod owes something to.
 ///
 /// Two things go unsaid across a pod replacement. A `moat cmd` command's
@@ -71,24 +109,55 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
 /// Both ride the workspace snapshot instead, and this turns them into the wake
 /// neither could deliver. The resumed session (`--continue` for Claude, restored
 /// to disk in init) carries the context.
+///
+/// The wake is queued as a `user` message and then dispatched, rather than
+/// pushed straight at the agent handle. The row is what the conversation shows
+/// and what `find_interrupted_turn` selects on, so a pod that dies inside a turn
+/// this opened is recoverable; a handle send leaves no row and no recovery. The
+/// handle is the fallback for a backend that cannot be reached, where an
+/// undelivered wake is the worse outcome.
 async fn report_wake_notes(
     state: &SandboxState,
     notes: BTreeMap<String, WakeNote>,
     lost: Vec<crate::commands::JournaledCommand>,
 ) {
     for (task_id, text) in wake_messages(&state.config.task_id, notes, &lost) {
-        match state.task_context(Some(&task_id)).await {
-            Ok(context) => {
-                info!(task_id = %task_id, "Waking the agent for what the restart could not report");
-                drop(
-                    context
-                        .agent_handle
-                        .send(text, None, None, None, None, None, false, None),
-                );
+        match state
+            .backend_client
+            .enqueue_sandbox_message(&task_id, &text)
+            .await
+        {
+            // `None` is a refusal, not a queue: the task is closed, or this
+            // exact wake is already pending from an earlier restart. Dispatching
+            // on it would claim a row that nothing wrote.
+            Ok(None) => {
+                info!(task_id = %task_id, "The backend refused the wake; nothing to dispatch");
             }
-            Err(e) => {
-                warn!(error = %e, task_id = %task_id, "Cannot deliver a wake note without task context");
+            Ok(Some(_)) => {
+                info!(task_id = %task_id, "Queued the wake for what the restart could not report");
+                crate::agent::dispatcher::dispatch_pending_messages_for_task(
+                    state.clone(),
+                    task_id,
+                )
+                .await;
             }
+            Err(error) => {
+                warn!(task_id = %task_id, %error, "Falling back to a direct wake; it will not appear in the conversation");
+                send_wake_directly(state, &task_id, text).await;
+            }
+        }
+    }
+}
+
+async fn send_wake_directly(state: &SandboxState, task_id: &str, text: String) {
+    match state.task_context(Some(task_id)).await {
+        Ok(context) => drop(
+            context
+                .agent_handle
+                .send(text, None, None, None, None, None, false, None),
+        ),
+        Err(e) => {
+            warn!(error = %e, task_id, "Cannot deliver a wake note without task context");
         }
     }
 }
@@ -340,6 +409,44 @@ mod tests {
     use crate::commands::{CommandState, JournaledCommand};
 
     const WS: &str = "/opt/moatless/workspace/moatless";
+
+    fn lost(id: &str, state: CommandState) -> JournaledCommand {
+        JournaledCommand {
+            id: id.to_string(),
+            command: format!("cargo test {id}"),
+            label: id.to_string(),
+            started_at_unix_ms: 1,
+            state,
+            exit_code: None,
+        }
+    }
+
+    #[test]
+    fn merge_unions_both_copies_and_lets_the_journal_win() {
+        let merged = merge_lost_commands(
+            vec![lost("a", CommandState::Exited)],
+            vec![
+                lost("a", CommandState::Running),
+                lost("b", CommandState::Running),
+            ],
+        );
+        assert_eq!(
+            merged,
+            vec![
+                lost("a", CommandState::Exited),
+                lost("b", CommandState::Running)
+            ],
+            "the row contributes what the journal never saw, and never overwrites it"
+        );
+    }
+
+    #[test]
+    fn merge_carries_the_row_alone_when_the_snapshot_was_lost() {
+        // The failure this whole path exists for: a restore that produced no
+        // journal still names what the restart destroyed.
+        let merged = merge_lost_commands(vec![], vec![lost("a", CommandState::Running)]);
+        assert_eq!(merged, vec![lost("a", CommandState::Running)]);
+    }
 
     #[test]
     fn persisted_origin_emits_no_restart_note() {

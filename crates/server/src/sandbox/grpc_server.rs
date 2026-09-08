@@ -14,22 +14,24 @@ use moatless_types::agent::AgentSubType;
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
-    DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
+    DownloadUploadRequest, DownloadUploadResponse, EnqueueSandboxMessageRequest,
+    EnqueueSandboxMessageResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
     GetSystemPromptResponse, GetWorkspaceObjectUrlsRequest, GetWorkspaceObjectUrlsResponse,
     GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
     GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse,
     InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest, PublishEventResponse,
-    RecordGitPushRequest, RecordGitPushResponse, RecoverInterruptedRunRequest,
-    RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse,
-    TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadChunk,
-    UploadTranscriptResponse,
+    RecordGitPushRequest, RecordGitPushResponse, RecordUnreportedCommandsRequest,
+    RecordUnreportedCommandsResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
+    ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest,
+    TakeUnreportedCommandsResponse, TranscriptChunk, UnreportedCommand, UpdateCredentialRequest,
+    UpdateCredentialResponse, UploadChunk, UploadTranscriptResponse,
 };
 
 use moatless_types::access_control::ScopeContext;
 
 use crate::sandbox::event_dedup::Admission;
-use crate::sandbox::lifecycle::orchestrator::LifecycleDao;
+use crate::sandbox::lifecycle::orchestrator::{LifecycleDao, OutstandingCommand};
 use crate::sandbox::secrets::{
     TaskCredentialInputs, resolve_server_env, resolve_task_actor, resolve_task_credential_targets,
     resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
@@ -1017,6 +1019,28 @@ fn running_commands_reported(event_type: &str, sub_type: &str, payload: &Value) 
         .get("runningCommands")
         .and_then(Value::as_i64)
         .map(|n| n.clamp(0, i64::from(i32::MAX)) as i32)
+}
+
+fn outstanding_command(entry: UnreportedCommand) -> OutstandingCommand {
+    OutstandingCommand {
+        id: entry.id,
+        command: entry.command,
+        label: entry.label,
+        started_at_unix_ms: entry.started_at_unix_ms,
+        state: entry.state,
+        exit_code: entry.exit_code,
+    }
+}
+
+fn unreported_command_entry(command: OutstandingCommand) -> UnreportedCommand {
+    UnreportedCommand {
+        id: command.id,
+        command: command.command,
+        label: command.label,
+        started_at_unix_ms: command.started_at_unix_ms,
+        state: command.state,
+        exit_code: command.exit_code,
+    }
 }
 
 /// Decode one `PublishEventRequest` into the parts admission needs, rejecting
@@ -2345,6 +2369,109 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             "Recorded git push claim"
         );
         Ok(Response::new(RecordGitPushResponse {}))
+    }
+
+    /// Mirror the `moat cmd` commands that still owe the agent an outcome onto
+    /// the Sandbox row.
+    ///
+    /// The pod's own journal rides the S3 workspace snapshot, so a replacement
+    /// whose restore fails loses it and never tells the agent what died. This row
+    /// is the copy no restore touches. Auth: task-scoped JWT via gRPC metadata.
+    async fn record_unreported_commands(
+        &self,
+        request: Request<RecordUnreportedCommandsRequest>,
+    ) -> Result<Response<RecordUnreportedCommandsResponse>, Status> {
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
+        let req = request.into_inner();
+
+        let sandboxes = self
+            .handlers
+            .as_ref()
+            .map(|h| h.sandboxes.clone())
+            .ok_or_else(|| Status::failed_precondition("Database not configured"))?;
+
+        let commands: Vec<OutstandingCommand> =
+            req.commands.into_iter().map(outstanding_command).collect();
+        sandboxes
+            .record_unreported_commands(&task_id, &commands, req.revision)
+            .await
+            .map_err(|error| {
+                warn!(task_id, %error, "failed to record the unreported commands");
+                Status::internal("Failed to record the unreported commands")
+            })?;
+
+        Ok(Response::new(RecordUnreportedCommandsResponse {}))
+    }
+
+    /// Read and clear what a prior pod recorded.
+    ///
+    /// Clearing here is what makes the loss announced exactly once, however many
+    /// times the pod restarts. Auth: task-scoped JWT via gRPC metadata.
+    async fn take_unreported_commands(
+        &self,
+        request: Request<TakeUnreportedCommandsRequest>,
+    ) -> Result<Response<TakeUnreportedCommandsResponse>, Status> {
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
+
+        let sandboxes = self
+            .handlers
+            .as_ref()
+            .map(|h| h.sandboxes.clone())
+            .ok_or_else(|| Status::failed_precondition("Database not configured"))?;
+
+        let commands = sandboxes
+            .take_unreported_commands(&task_id)
+            .await
+            .map_err(|e| {
+                warn!(task_id, error = %e, "failed to take the unreported commands");
+                Status::internal("Failed to take the unreported commands")
+            })?;
+
+        Ok(Response::new(TakeUnreportedCommandsResponse {
+            commands: commands.into_iter().map(unreported_command_entry).collect(),
+        }))
+    }
+
+    /// Queue a user message the sandbox wrote for its own Task.
+    ///
+    /// The row is what makes the turn visible to the conversation and to
+    /// `find_interrupted_turn`; waking the agent handle alone leaves none. Auth:
+    /// task-scoped JWT via gRPC metadata.
+    async fn enqueue_sandbox_message(
+        &self,
+        request: Request<EnqueueSandboxMessageRequest>,
+    ) -> Result<Response<EnqueueSandboxMessageResponse>, Status> {
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
+        let req = request.into_inner();
+
+        if req.text.trim().is_empty() {
+            return Err(Status::invalid_argument("text is required"));
+        }
+
+        let (messages, tasks) = self
+            .handlers
+            .as_ref()
+            .map(|h| (h.messages.clone(), h.tasks.clone()))
+            .ok_or_else(|| Status::failed_precondition("Database not configured"))?;
+
+        let queued = moatless_tasks::message::send::enqueue_sandbox_message(
+            messages.as_ref(),
+            tasks.as_ref(),
+            &task_id,
+            &req.text,
+        )
+        .await
+        .map_err(|error| {
+            warn!(task_id, %error, "failed to enqueue sandbox message");
+            Status::internal("Failed to enqueue sandbox message")
+        })?;
+
+        Ok(Response::new(EnqueueSandboxMessageResponse {
+            message_uuid: queued.unwrap_or_default(),
+        }))
     }
 
     /// Authorize sandbox recovery and project the recorded task-turn decision.

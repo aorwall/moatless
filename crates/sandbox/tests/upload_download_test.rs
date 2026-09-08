@@ -16,15 +16,18 @@ use sandbox_proto::backend_sandbox_service_server::{
 };
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
-    DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
+    DownloadUploadRequest, DownloadUploadResponse, EnqueueSandboxMessageRequest,
+    EnqueueSandboxMessageResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
     GetSystemPromptResponse, GetWorkspaceObjectUrlsRequest, GetWorkspaceObjectUrlsResponse,
     GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
     GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, PublishEventRequest,
     PublishEventResponse, RecordGitPushRequest, RecordGitPushResponse,
+    RecordUnreportedCommandsRequest, RecordUnreportedCommandsResponse,
     RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
-    ReportWorkspaceSyncResponse, TranscriptChunk, UpdateCredentialRequest,
-    UpdateCredentialResponse, UploadChunk, UploadTranscriptResponse,
+    ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest, TakeUnreportedCommandsResponse,
+    TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadChunk,
+    UploadTranscriptResponse,
 };
 use tonic::{Request, Response, Status, Streaming};
 
@@ -203,6 +206,27 @@ impl BackendSandboxService for UploadOnlyBackend {
         &self,
         _request: Request<RecordGitPushRequest>,
     ) -> Result<Response<RecordGitPushResponse>, Status> {
+        Err(Status::unimplemented("not used"))
+    }
+
+    async fn record_unreported_commands(
+        &self,
+        _request: Request<RecordUnreportedCommandsRequest>,
+    ) -> Result<Response<RecordUnreportedCommandsResponse>, Status> {
+        Err(Status::unimplemented("not used"))
+    }
+
+    async fn take_unreported_commands(
+        &self,
+        _request: Request<TakeUnreportedCommandsRequest>,
+    ) -> Result<Response<TakeUnreportedCommandsResponse>, Status> {
+        Err(Status::unimplemented("not used"))
+    }
+
+    async fn enqueue_sandbox_message(
+        &self,
+        _request: Request<EnqueueSandboxMessageRequest>,
+    ) -> Result<Response<EnqueueSandboxMessageResponse>, Status> {
         Err(Status::unimplemented("not used"))
     }
 }

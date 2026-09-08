@@ -827,7 +827,7 @@ mod tests {
     use moatless_types::task::CheckoutMode;
 
     use super::super::events::LifecycleEvent;
-    use super::super::orchestrator::{IntentWrite, StoreError, TaskIntent};
+    use super::super::orchestrator::{IntentWrite, OutstandingCommand, StoreError, TaskIntent};
     use moatless_sandbox_runtime::operation::{IntentEffect, OperationGeneration};
 
     struct MemberStore {
@@ -916,6 +916,20 @@ mod tests {
             _running: i32,
         ) -> Result<(), StoreError> {
             panic!("member registration test must not record running commands")
+        }
+        async fn record_unreported_commands(
+            &self,
+            _task_id: &str,
+            _commands: &[OutstandingCommand],
+            _revision: i64,
+        ) -> Result<(), StoreError> {
+            panic!("member registration test must not record unreported commands")
+        }
+        async fn take_unreported_commands(
+            &self,
+            _task_id: &str,
+        ) -> Result<Vec<OutstandingCommand>, StoreError> {
+            panic!("member registration test must not take the unreported commands")
         }
     }
 

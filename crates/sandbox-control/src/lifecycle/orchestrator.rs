@@ -115,6 +115,23 @@ pub struct SandboxMember {
     pub checkout_mode: CheckoutMode,
 }
 
+/// One `moat cmd` command a pod says still owes its agent an outcome.
+///
+/// Metadata only, and none of it is read here: the fields exist so the
+/// replacement pod can name what died. `state` is the sandbox's own
+/// `CommandState` serialization, kept a string because this band stores and
+/// returns it without ever branching on it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutstandingCommand {
+    pub id: String,
+    pub command: String,
+    pub label: String,
+    pub started_at_unix_ms: i64,
+    pub state: String,
+    pub exit_code: Option<i32>,
+}
+
 /// The pre-effect facts of a finished operation, handed to `finalize`. Groups
 /// the operation's identity and intent result so completion derivation,
 /// event-id scoping, and marker acknowledgement share one value.
@@ -223,6 +240,32 @@ pub trait LifecycleDao: Send + Sync {
     /// renders "is anything running", so a 2→3 move changes no row and a feed
     /// record for it would wake every connected client for nothing.
     async fn record_running_commands(&self, task_id: &str, running: i32) -> Result<(), StoreError>;
+
+    /// Mirror the commands a pod says still owe its agent an outcome, so a
+    /// replacement can name them.
+    ///
+    /// The pod's own journal rides the S3 workspace snapshot, which a failed
+    /// restore takes with it, and the wake is then never delivered. This is the
+    /// second copy, on a row no restore touches.
+    ///
+    /// Absolute, for the reason [`Self::record_running_commands`] is: the
+    /// registry dies with its pod, so nothing would ever retract a delta. The
+    /// write happens off the pod's registry lock, so two of them can arrive out
+    /// of order; `revision` is that lock's counter, and a call carrying one no
+    /// higher than the stored value is dropped rather than applied.
+    async fn record_unreported_commands(
+        &self,
+        task_id: &str,
+        commands: &[OutstandingCommand],
+        revision: i64,
+    ) -> Result<(), StoreError>;
+
+    /// Read the stored set and clear it in one statement, so a pod announces
+    /// the loss exactly once however many times it restarts.
+    async fn take_unreported_commands(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<OutstandingCommand>, StoreError>;
 }
 
 /// The narrow internal agent-stop port. Graceful stop is lifecycle's ordering
@@ -1645,6 +1688,20 @@ mod tests {
         ) -> Result<(), StoreError> {
             Ok(())
         }
+        async fn record_unreported_commands(
+            &self,
+            _task_id: &str,
+            _commands: &[OutstandingCommand],
+            _revision: i64,
+        ) -> Result<(), StoreError> {
+            Ok(())
+        }
+        async fn take_unreported_commands(
+            &self,
+            _task_id: &str,
+        ) -> Result<Vec<OutstandingCommand>, StoreError> {
+            Ok(Vec::new())
+        }
         async fn clear_marker(
             &self,
             _task_id: &str,
@@ -2305,6 +2362,20 @@ mod tests {
                 _running: i32,
             ) -> Result<(), StoreError> {
                 Ok(())
+            }
+            async fn record_unreported_commands(
+                &self,
+                _t: &str,
+                _commands: &[OutstandingCommand],
+                _revision: i64,
+            ) -> Result<(), StoreError> {
+                Ok(())
+            }
+            async fn take_unreported_commands(
+                &self,
+                _t: &str,
+            ) -> Result<Vec<OutstandingCommand>, StoreError> {
+                Ok(Vec::new())
             }
         }
         let log: Log = Arc::new(Mutex::new(vec![]));

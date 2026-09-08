@@ -18,8 +18,8 @@ use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason, sandbox_in
 
 use super::events::LifecycleEvent;
 use super::orchestrator::{
-    IntentWrite, LifecycleDao, ReconcileCandidate, SandboxMember, SandboxShape, StoreError,
-    TaskIntent,
+    IntentWrite, LifecycleDao, OutstandingCommand, ReconcileCandidate, SandboxMember, SandboxShape,
+    StoreError, TaskIntent,
 };
 use moatless_sandbox_runtime::operation::{
     CorrelationMarker, IntentEffect, OperationGeneration, OperationKind,
@@ -518,6 +518,76 @@ impl LifecycleDao for PgLifecycleDao {
         tx.commit()
             .await
             .map_err(|e| StoreError::with_source("commit running-commands transaction", e))
+    }
+
+    async fn record_unreported_commands(
+        &self,
+        task_id: &str,
+        commands: &[OutstandingCommand],
+        revision: i64,
+    ) -> Result<(), StoreError> {
+        let payload = serde_json::to_value(commands)
+            .map_err(|e| StoreError::with_source("encode the unreported commands", e))?;
+
+        // The revision predicate is what makes a late write harmless: the pod
+        // writes off its registry lock, so an older, larger set can land after a
+        // newer one and resurrect a command the agent has already been told
+        // about. Strict `<`, so a resent revision is a no-op rather than a
+        // rewrite.
+        sqlx::query(
+            r#"INSERT INTO sandbox_unreported_commands (task_id, commands, revision)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (task_id) DO UPDATE SET
+                   commands = EXCLUDED.commands,
+                   revision = EXCLUDED.revision,
+                   updated_at = NOW()
+               WHERE sandbox_unreported_commands.revision < EXCLUDED.revision"#,
+        )
+        .bind(task_id)
+        .bind(&payload)
+        .bind(revision)
+        .execute(&self.pool)
+        .await
+        .map(|_| ())
+        .map_err(|e| StoreError::with_source("persist the unreported commands", e))
+    }
+
+    async fn take_unreported_commands(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<OutstandingCommand>, StoreError> {
+        // Read and clear in one statement so two starts racing the same row
+        // cannot both announce the same loss.
+        //
+        // `revision` is deliberately left where it is: a write from the dying pod
+        // can still land after this, and a reset would let it resurrect what
+        // the agent has just been shown. The replacement seeds its own counter
+        // from the clock (`CommandRegistry::with_backend_mirror`), so it outruns
+        // what stays here rather than losing to it.
+        let stored: Option<serde_json::Value> = sqlx::query_scalar(
+            r#"WITH prev AS (
+                   SELECT task_id, commands
+                   FROM sandbox_unreported_commands
+                   WHERE task_id = $1
+                   FOR UPDATE
+               )
+               UPDATE sandbox_unreported_commands d SET
+                   commands = '[]'::jsonb,
+                   updated_at = NOW()
+               FROM prev
+               WHERE d.task_id = prev.task_id
+               RETURNING prev.commands"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StoreError::with_source("take the unreported commands", e))?;
+
+        let Some(stored) = stored else {
+            return Ok(Vec::new());
+        };
+        serde_json::from_value(stored)
+            .map_err(|e| StoreError::with_source("decode the unreported commands", e))
     }
 }
 

@@ -120,6 +120,68 @@ service BackendSandboxService {
   // sandbox's push watcher as the push completes, which is ahead of the
   // webhook. Auth via gRPC metadata.
   rpc RecordGitPush(RecordGitPushRequest) returns (RecordGitPushResponse);
+
+  // Mirror the `moat cmd` commands that still owe the agent an outcome, so a
+  // replacement pod can name what the restart destroyed. Absolute, like
+  // `agent.commands_changed`'s count: the registry dies with its pod, so a
+  // delta lost to a replacement would strand a command forever. Called on every
+  // registry change. Auth via gRPC metadata.
+  rpc RecordUnreportedCommands(RecordUnreportedCommandsRequest) returns (RecordUnreportedCommandsResponse);
+
+  // Read and clear what a prior pod recorded. Clearing here is what makes
+  // the loss announced exactly once. Called once, before anything this pod does
+  // can overwrite it. Auth via gRPC metadata.
+  rpc TakeUnreportedCommands(TakeUnreportedCommandsRequest) returns (TakeUnreportedCommandsResponse);
+
+  // Queue a user message the sandbox itself originated, on the same path an
+  // external one takes. Auth via gRPC metadata.
+  rpc EnqueueSandboxMessage(EnqueueSandboxMessageRequest) returns (EnqueueSandboxMessageResponse);
+}
+
+// One `moat cmd` command that still owes the agent an outcome.
+//
+// Metadata only. The log lives in the pod's `/tmp` and dies with it, so a
+// replacement pod can report the outcome but never the output.
+message UnreportedCommand {
+  string id = 1;
+  string command = 2;
+  string label = 3;
+  int64 started_at_unix_ms = 4;
+  // "running" | "exited" | "timed_out" | "killed", matching the sandbox's
+  // `CommandState` serialization.
+  string state = 5;
+  optional int32 exit_code = 6;
+}
+
+message RecordUnreportedCommandsRequest {
+  string task_id = 1;
+  // The whole outstanding set, replacing what was stored.
+  repeated UnreportedCommand commands = 2;
+  // Monotonic per pod, incremented under the registry's lock. The backend keeps
+  // the highest it has seen: the call is made off that lock, so two writes can
+  // arrive out of order and an older, larger set would resurrect a command the
+  // agent has already been told about.
+  int64 revision = 3;
+}
+
+message RecordUnreportedCommandsResponse {}
+
+message TakeUnreportedCommandsRequest {
+  string task_id = 1;
+}
+
+message TakeUnreportedCommandsResponse {
+  repeated UnreportedCommand commands = 1;
+}
+
+message EnqueueSandboxMessageRequest {
+  string task_id = 1;
+  string text = 2;
+}
+
+message EnqueueSandboxMessageResponse {
+  // The queued message's uuid, empty when the send was refused (a closed task).
+  string message_uuid = 1;
 }
 
 message GetWorkspaceSyncUrlsRequest {
