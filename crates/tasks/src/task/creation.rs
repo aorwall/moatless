@@ -41,7 +41,7 @@ use crate::task::relations::{
 };
 use crate::task::schemas::MessageContextInput;
 use moatless_core::events::EventPublisher;
-use moatless_ports::workspace::RepositoryReader;
+use moatless_ports::workspace::{RepositoryReader, WorkspaceResolver};
 use moatless_types::agent::{AgentMode, AgentType};
 use moatless_types::task::RelatedTask;
 use moatless_types::task::Visibility;
@@ -69,7 +69,9 @@ pub struct NewTaskRequest {
     pub headless: bool,
     pub visibility: Visibility,
     pub loop_id: Option<String>,
-    pub workspace_id: Option<String>,
+    /// The Workspace the Task runs in. Every Task has one — a caller that names
+    /// none is resolved to one, or refused, before it reaches here.
+    pub workspace_id: String,
     pub sandbox_id: Option<String>,
     pub checkout_mode: Option<moatless_types::task::CheckoutMode>,
     pub template_id: Option<String>,
@@ -222,6 +224,9 @@ pub struct TaskCreationService {
     relations: Arc<dyn TaskRelationDao>,
     forks: Arc<dyn TaskForkDao>,
     repositories: Arc<dyn RepositoryReader>,
+    /// Read by the `TaskOpener` port, which resolves a Loop's Workspace before
+    /// it builds a [`NewTaskRequest`].
+    pub(crate) workspaces: Arc<dyn WorkspaceResolver>,
     events: Option<Arc<dyn EventPublisher>>,
     starter: Arc<dyn SandboxStarter>,
     joiner: Arc<dyn SandboxJoiner>,
@@ -239,6 +244,7 @@ impl TaskCreationService {
         relations: Arc<dyn TaskRelationDao>,
         forks: Arc<dyn TaskForkDao>,
         repositories: Arc<dyn RepositoryReader>,
+        workspaces: Arc<dyn WorkspaceResolver>,
         events: Option<Arc<dyn EventPublisher>>,
         starter: Arc<dyn SandboxStarter>,
         joiner: Arc<dyn SandboxJoiner>,
@@ -250,6 +256,7 @@ impl TaskCreationService {
             relations,
             forks,
             repositories,
+            workspaces,
             events,
             starter,
             joiner,
@@ -292,10 +299,6 @@ impl TaskCreationService {
         let short_id = self.generate_unique_short_id().await?;
         let now = chrono::Utc::now();
         let owner_user_id = req.created_by.clone();
-        let workspace_id = self
-            .tasks
-            .resolve_workspace_id(&req.repository_id, req.workspace_id.clone())
-            .await?;
 
         let mut row = Task {
             task_id: task_id.clone(),
@@ -326,7 +329,7 @@ impl TaskCreationService {
             ttl_minutes: req.ttl_minutes,
             inactive_ttl_days: req.inactive_ttl_days,
             loop_id: req.loop_id.clone(),
-            workspace_id: Some(workspace_id.clone()),
+            workspace_id: Some(req.workspace_id.clone()),
             sandbox_id: req.sandbox_id.clone(),
             checkout_mode: persisted_checkout_mode,
             skills: req.skills.clone(),
@@ -361,17 +364,11 @@ impl TaskCreationService {
             return Err(TaskCreationError::Preflight(e.user_message));
         }
 
-        // `insert_task` resolves the repository's shadow workspace when the
-        // caller supplied none, so the persisted row always has one. Carry it
-        // back onto the in-memory row: the create response and the
-        // `task.created` event are built from this row, not re-read, and both
-        // label the workspace the task runs in.
-        let workspace_id = self.tasks.insert_task(&row).await?;
-        row.workspace_id = Some(workspace_id);
+        self.tasks.insert_task(&row).await?;
         // `insert_task` writes the Sandbox row for a request that named none,
-        // under the task's own id. Carry it back for the same reason as the
-        // workspace: the create response and the `task.created` event are built
-        // from this row.
+        // under the task's own id. Carry it back onto the in-memory row: the
+        // create response and the `task.created` event are built from this row,
+        // not re-read.
         row.sandbox_id.get_or_insert_with(|| task_id.clone());
         tracing::info!(
             task_id = %task_id,
@@ -599,7 +596,7 @@ mod tests {
     use moatless_ports::sandbox::{
         MockPreflightPort, MockSandboxJoiner, PreflightRejection, SandboxError,
     };
-    use moatless_ports::workspace::MockRepositoryReader;
+    use moatless_ports::workspace::{MockRepositoryReader, MockWorkspaceResolver};
     use moatless_types::repository::RepositoryKind;
     use moatless_types::task::CheckoutMode;
     use moatless_workspaces::repository::models::Repository;
@@ -612,9 +609,7 @@ mod tests {
         }
     }
 
-    /// What `insert_task` resolves for a request that names no workspace: the
-    /// repository's shadow workspace.
-    const SHADOW_WORKSPACE: &str = "ws_repo1";
+    const WORKSPACE: &str = "ws_repo1";
 
     fn sample_repo() -> Repository {
         Repository {
@@ -649,7 +644,7 @@ mod tests {
             loop_id: None,
             task_id: None,
             provision: true,
-            workspace_id: None,
+            workspace_id: WORKSPACE.into(),
             sandbox_id: None,
             checkout_mode: None,
             template_id: None,
@@ -701,6 +696,7 @@ mod tests {
             Arc::new(relations),
             Arc::new(forks),
             Arc::new(repos),
+            Arc::new(MockWorkspaceResolver::new()),
             Some(publisher as Arc<dyn EventPublisher>),
             Arc::new(starter),
             Arc::new(joiner),
@@ -714,25 +710,15 @@ mod tests {
         joiner
     }
 
-    fn expect_default_workspace_resolution(tasks: &mut MockTaskDao) {
-        tasks
-            .expect_resolve_workspace_id()
-            .times(1)
-            .returning(|_, explicit| {
-                Ok(explicit.as_deref().unwrap_or(SHADOW_WORKSPACE).to_string())
-            });
-    }
-
     #[tokio::test]
     async fn happy_path_inserts_open_row_and_publishes_created_event() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.status == TaskStatus::Open)
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().times(1).returning(|_| Ok(()));
 
@@ -755,20 +741,18 @@ mod tests {
         assert!(publisher.sandbox_statuses().is_empty());
     }
 
-    /// The request named no workspace, so creation resolves the repository's
-    /// shadow one before insert. The create response and the `task.created`
-    /// event are built from this row rather than re-read, so a row left with
-    /// `None` here publishes a task whose workspace no client can name.
+    /// The create response and the `task.created` event are built from this row
+    /// rather than re-read, so a row left with `None` here publishes a task
+    /// whose workspace no client can name.
     #[tokio::test]
-    async fn the_returned_row_carries_the_workspace_the_insert_resolved() {
+    async fn the_persisted_and_returned_rows_carry_the_requested_workspace() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
-            .withf(|row| row.workspace_id.as_deref() == Some(SHADOW_WORKSPACE))
+            .withf(|row| row.workspace_id.as_deref() == Some(WORKSPACE))
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -786,7 +770,7 @@ mod tests {
             .await
             .expect("creation succeeds");
 
-        assert_eq!(outcome.task.workspace_id.as_deref(), Some(SHADOW_WORKSPACE));
+        assert_eq!(outcome.task.workspace_id.as_deref(), Some(WORKSPACE));
     }
 
     /// A global-scoped loop fires as its bot user. The task it spawns must
@@ -797,12 +781,11 @@ mod tests {
     async fn a_task_is_always_user_scoped_and_owned_by_its_creator() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.scope == Scope::User && row.owner_user_id.as_deref() == Some("bot1"))
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -824,12 +807,11 @@ mod tests {
     async fn task_creation_persists_requested_model_on_the_task() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.model.as_deref() == Some("claude-opus-4-6"))
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -852,11 +834,10 @@ mod tests {
 
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
 
         let mut starter = MockStarter::new();
         let start_order = Arc::clone(&order);
@@ -901,12 +882,11 @@ mod tests {
     async fn preflight_failure_marks_errored_publishes_error_event_and_skips_provision() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.status == TaskStatus::Error)
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().never();
 
@@ -941,12 +921,11 @@ mod tests {
     async fn provision_failure_still_succeeds_and_publishes_sandbox_error() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.status == TaskStatus::Open)
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter
             .expect_start()
@@ -986,11 +965,10 @@ mod tests {
             .times(1)
             .in_sequence(&mut seq)
             .returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -1018,12 +996,11 @@ mod tests {
     async fn a_supplied_task_id_is_used_verbatim() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| row.task_id == "3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30")
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
@@ -1053,11 +1030,10 @@ mod tests {
     async fn provisioning_is_skipped_when_the_request_does_not_ask_for_it() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         let mut starter = MockStarter::new();
         starter.expect_start().never();
 
@@ -1087,7 +1063,6 @@ mod tests {
         let order = Arc::new(Mutex::new(Vec::new()));
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .withf(|row| {
@@ -1095,7 +1070,7 @@ mod tests {
                     && row.checkout_mode == Some(CheckoutMode::Shared)
             })
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
 
         let mut starter = MockStarter::new();
         starter.expect_start().never();
@@ -1152,11 +1127,10 @@ mod tests {
         let order = Arc::new(Mutex::new(Vec::new()));
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         let cleanup_order = Arc::clone(&order);
         tasks
             .expect_delete_inserted_task_after_join_failure()
@@ -1217,11 +1191,10 @@ mod tests {
         let order = Arc::new(Mutex::new(Vec::new()));
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
-        expect_default_workspace_resolution(&mut tasks);
         tasks
             .expect_insert_task()
             .times(1)
-            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+            .returning(|_| Ok(()));
         // A deferred join never cleans up the inserted task.
         tasks
             .expect_delete_inserted_task_after_join_failure()
@@ -1281,7 +1254,6 @@ mod tests {
     async fn checkout_mode_without_sandbox_id_is_rejected_before_persistence() {
         let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().never();
-        tasks.expect_resolve_workspace_id().never();
         tasks.expect_insert_task().never();
 
         let mut starter = MockStarter::new();

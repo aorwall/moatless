@@ -12,6 +12,7 @@ use crate::loops::models::{LoopSpawnConfig, Schedule};
 pub struct LoopSpawnConfigRow {
     pub id: String,
     pub repository_id: String,
+    pub workspace_id: Option<String>,
     #[sqlx(try_from = "String")]
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
@@ -38,6 +39,7 @@ impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
             model: row.model,
             id: row.id,
             repository_id: row.repository_id,
+            workspace_id: row.workspace_id,
             routing_mode: row.routing_mode,
             ongoing_task_id: row.ongoing_task_id,
             prompt_template: row.prompt_template,
@@ -68,6 +70,7 @@ pub struct SubscriptionMatchRow {
     pub routing_mode: RoutingMode,
     pub event_filter: serde_json::Value,
     pub repository_id: String,
+    pub workspace_id: Option<String>,
     pub prompt_template: Option<String>,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
@@ -104,6 +107,7 @@ impl From<SubscriptionMatchRow> for SubscriptionMatch {
             routing_mode: row.routing_mode,
             event_filter: row.event_filter,
             repository_id: row.repository_id,
+            workspace_id: row.workspace_id,
             prompt_template: row.prompt_template,
             task_name: row.task_name,
             tag_ids: row.tag_ids,

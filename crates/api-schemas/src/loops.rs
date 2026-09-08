@@ -31,6 +31,9 @@ pub enum LoopExecutionState {
 #[serde(rename_all = "camelCase")]
 pub struct LoopConfig {
     pub repository_id: String,
+    /// The Workspace every task this Loop spawns runs in. `None` falls back to
+    /// a live Workspace placing `repository_id`.
+    pub workspace_id: Option<String>,
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
     pub task_name: Option<String>,
@@ -55,6 +58,8 @@ pub struct LoopConfig {
 #[serde(rename_all = "camelCase")]
 pub struct CreateLoopConfig {
     pub repository_id: String,
+    /// See [`LoopConfig::workspace_id`].
+    pub workspace_id: Option<String>,
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
     pub task_name: Option<String>,
@@ -73,6 +78,13 @@ pub struct CreateLoopConfig {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateLoopConfig {
     pub repository_id: Option<String>,
+    /// See [`LoopConfig::workspace_id`]. `Some(None)` clears the override.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
+    pub workspace_id: Option<Option<String>>,
     pub routing_mode: Option<RoutingMode>,
     pub ongoing_task_id: Option<Option<String>>,
     pub task_name: Option<Option<String>>,

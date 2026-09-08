@@ -50,11 +50,12 @@ use std::sync::{Arc, Mutex};
 )]
 #[expect(
     clippy::too_many_arguments,
-    reason = "seven ports, all forwarded: this handler is the outermost caller of a two-stage service pipeline — four to service::normalize, two to service::create_task, one to the presenter closure. Unlike the service-layer create_task this was split out of, there is no caller above a handler to hoist them to, so the width cannot move anywhere it would be narrower."
+    reason = "eight ports, all forwarded: this handler is the outermost caller of a two-stage service pipeline — five to service::normalize, two to service::create_task, one to the presenter closure. Unlike the service-layer create_task this was split out of, there is no caller above a handler to hoist them to, so the width cannot move anywhere it would be narrower."
 )]
 pub async fn create_task(
     State(workspaces): State<Arc<dyn WorkspaceResolver>>,
     State(repositories): State<Arc<dyn RepositoryReader>>,
+    State(tasks): State<Arc<dyn TaskDao>>,
     State(users): State<Arc<dyn UserResolver>>,
     State(credential_sync): State<Arc<CredentialSync>>,
     State(config): State<Arc<Config>>,
@@ -78,6 +79,7 @@ pub async fn create_task(
         service::CreateTaskPorts {
             workspaces: workspaces.as_ref(),
             repositories: repositories.as_ref(),
+            tasks: tasks.as_ref(),
             users: users.as_ref(),
             credential_sync: &credential_sync,
             config: &config,
@@ -164,6 +166,7 @@ pub async fn create_task(
 pub async fn fork_task(
     State(workspaces): State<Arc<dyn WorkspaceResolver>>,
     State(repositories): State<Arc<dyn RepositoryReader>>,
+    State(tasks): State<Arc<dyn TaskDao>>,
     State(users): State<Arc<dyn UserResolver>>,
     State(credential_sync): State<Arc<CredentialSync>>,
     State(config): State<Arc<Config>>,
@@ -182,7 +185,8 @@ pub async fn fork_task(
     let enriched_ev = enriched.clone();
     let outcome = task_fork.fork(super::fork::ForkCreationPorts {
         normalize: service::CreateTaskPorts {
-            workspaces: workspaces.as_ref(), repositories: repositories.as_ref(), users: users.as_ref(),
+            workspaces: workspaces.as_ref(), repositories: repositories.as_ref(),
+            tasks: tasks.as_ref(), users: users.as_ref(),
             credential_sync: &credential_sync, config: &config,
         },
         task_creation: &task_creation,

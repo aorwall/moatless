@@ -63,6 +63,15 @@ pub async fn seed_github_token(pool: &PgPool, user_id: &str) {
     .expect("seed GitHub credential");
 }
 
+/// The Workspace [`make_task_row`] runs its task in. Seed it with
+/// [`seed_workspace`] before inserting: `insert_task` refuses a task whose
+/// Workspace does not exist.
+#[allow(
+    dead_code,
+    reason = "shared fixtures are compiled into all integration targets"
+)]
+pub const FIXTURE_WORKSPACE: &str = "ws-1";
+
 /// Seed the workspace required by task and sandbox persistence.
 #[allow(
     dead_code,
@@ -78,6 +87,30 @@ pub async fn seed_workspace(pool: &PgPool, id: &str, user_id: &str) {
     .execute(pool)
     .await
     .expect("seed workspace");
+}
+
+/// Seed a workspace that places `repository_id` as its primary repo, so
+/// `WorkspaceResolver::for_repository` resolves it for a loop that names none.
+#[allow(
+    dead_code,
+    reason = "shared fixtures are compiled into all integration targets"
+)]
+pub async fn seed_workspace_placing(
+    pool: &PgPool,
+    id: &str,
+    repository_id: &str,
+    user_id: &str,
+) {
+    seed_workspace(pool, id, user_id).await;
+    sqlx::query(
+        "INSERT INTO workspace_repos (id, workspace_id, repository_id, is_primary) \
+         VALUES ($1 || ':' || $2, $1, $2, true) ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(id)
+    .bind(repository_id)
+    .execute(pool)
+    .await
+    .expect("seed workspace placement");
 }
 
 /// Minimal runtime used by DB-only handler tests.
@@ -645,7 +678,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         ttl_minutes: 15,
         inactive_ttl_days: 7,
         loop_id: None,
-        workspace_id: None,
+        workspace_id: Some(FIXTURE_WORKSPACE.to_string()),
         sandbox_id: None,
         checkout_mode: None,
         skills: Vec::new(),

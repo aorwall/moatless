@@ -1010,10 +1010,13 @@ impl T3WorkspaceDao for PgConversationDao {
         let access =
             moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "", 1);
         let ids_param = access.next_param();
+        // `deleted` narrows the readable half only. A git sync tombstones a
+        // Workspace while open Tasks still name it, and excluding it there
+        // takes those Tasks out of the sidebar and refuses their links.
         let sql = format!(
             "SELECT *, {} AS readable FROM workspaces \
-             WHERE (deleted IS NULL OR deleted = false) \
-             AND ({} OR id = ANY(${ids_param})) \
+             WHERE ((deleted IS NULL OR deleted = false) AND {}) \
+             OR id = ANY(${ids_param}) \
              ORDER BY name ASC",
             access.sql(),
             access.sql()

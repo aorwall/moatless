@@ -13,6 +13,7 @@ name: Java Review        # required — what the loop is called in the UI and CL
 agentType: claude-code   # optional, default claude-code
 model: opus              # optional; sync skips the loop if another agentType owns it
 routingMode: by_subject  # optional, default by_subject
+workspace: Java Service  # optional — the workspace name tasks run in
 tags: [review]           # optional
 skills: [java-review]    # optional — activated on every fresh agent session
 # optional: sourceMatcher, teamId, eventFilter, adapterConfig, inactiveTtlDays
@@ -115,6 +116,11 @@ Notes:
   `moat loops create-subscription --adapter linear --connection-id <id>
   --name "Ready Pool" --repository-id <repo-id> --source-matcher <team-uuid> --adapter-config
   '{"create_on_status_entry":true,"trigger_states":["Ready"],"project_ids":["<proj>"],"start_state":"In Progress"}'`.
+- `workspace` names the Workspace every task the loop spawns runs in, by its
+  display name. It must be a Workspace this repository is placed in, or the loop
+  is **skipped** with `no workspace named \`<name>\` holds this repository`. Omit
+  it and a firing takes the repository's own workspaces, primary placements
+  first; a repository placed in none cannot fire a task at all.
 - `skills` lists skill names by directory name under `.claude/skills/` or
   `.agents/skills/`. Every task the loop spawns activates them: the sandbox reads
   each `SKILL.md` and frontloads its body ahead of the prompt on each fresh agent

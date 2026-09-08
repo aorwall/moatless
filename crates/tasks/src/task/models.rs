@@ -42,10 +42,9 @@ pub struct TaskRow {
     #[sqlx(try_from = "String")]
     pub agent_type: AgentType,
     pub repository_id: String,
-    /// Workspace this task runs against (Phase A: nullable during the additive
-    /// transition; backfilled to the repository's shadow workspace). When set,
-    /// provisioning resolves the repository composition via the workspace;
-    /// otherwise it falls back to `repository_id`.
+    /// Workspace this task runs against, and what provisioning resolves the
+    /// repository composition through. Nullable only for rows predating
+    /// Workspaces; see `docs/deferred-changes.md`.
     pub workspace_id: Option<String>,
     /// Sandbox this task belongs to. Task creation writes it: a task that joins
     /// no existing sandbox gets one whose id equals its own. Nullable because

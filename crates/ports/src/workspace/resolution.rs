@@ -87,4 +87,12 @@ pub trait WorkspaceResolver: Send + Sync {
         ctx: &ScopeContext,
         workspace_id: &str,
     ) -> Result<Option<Workspace>, StoreError>;
+
+    /// The live Workspaces placing this repository: the ones where it is the
+    /// primary placement first, then oldest first. Deleted Workspaces are
+    /// absent, and the result is not scope-filtered.
+    ///
+    /// The first element is what a Loop that names no Workspace fires into, so
+    /// the order is the contract and not a convenience.
+    async fn for_repository(&self, repository_id: &str) -> Result<Vec<Workspace>, StoreError>;
 }

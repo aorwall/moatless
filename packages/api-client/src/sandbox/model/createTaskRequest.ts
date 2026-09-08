@@ -39,9 +39,8 @@ its own default.
   /** @nullable */
   parentTaskId?: string | null;
   /**
-   * The repository to run the task against. Optional when `workspace_id` is
-supplied — the workspace's primary repository is used instead. At least
-one of `repository_id` / `workspace_id` is required.
+   * Ignored: the workspace's primary placement is the repository the task
+runs against. Accepted so a caller that still sends it is not rejected.
    * @nullable
    */
   repositoryId?: string | null;
@@ -60,10 +59,9 @@ Only an admin naming a bot may set it; omit it to run as the caller.
 each one's `SKILL.md` on disk and frontloads its body ahead of the message. */
   skills?: string[];
   /**
-   * Explicit workspace to run the task in. When set, its repositories drive
-the task (workspace wins over `repository_id`). When unset, the task
-derives the repository's deterministic shadow workspace, keeping the
-single-repo path unchanged.
+   * The workspace to run the task in, which drives the task's repositories.
+When unset, `parent_task_id`'s workspace is used; a request with neither
+is a bad request.
    * @nullable
    */
   workspaceId?: string | null;

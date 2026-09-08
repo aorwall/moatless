@@ -7,6 +7,20 @@ use crate::workspace::UiRpcListedWorkspace;
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait T3WorkspaceDao: Send + Sync {
+    /// Every live Workspace the viewer may read, plus every Workspace in
+    /// `also_include` whether or not they may read it and whether or not it is
+    /// deleted, ordered by name.
+    ///
+    /// The widening exists for the listings that group Tasks by Workspace: a
+    /// Task the viewer may read can name someone else's private Workspace, or
+    /// one a git sync has tombstoned, and a grouping that omits the Workspace
+    /// omits the Task with it — the sidebar loses the row and the link is
+    /// refused, which is what `snapshots::readable_under_a_project` decides.
+    ///
+    /// Each row says which half it came from — see
+    /// [`UiRpcListedWorkspace::readable`]. A caller that projects the two halves
+    /// the same way hands the widened half's configuration to someone the read
+    /// rule refused, so the distinction is returned rather than re-derived.
     async fn list_readable_including(
         &self,
         ctx: &ScopeContext,

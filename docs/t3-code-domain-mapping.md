@@ -102,8 +102,8 @@ task.repositoryId`), which is now stale.
 Rationale: a Task already references `workspace_id`, so the Workspace mapping is
 the direct one — a Repository-shaped Project would have to resolve to a Workspace
 on every task creation anyway. Multi-repo Workspaces stay visible instead of being
-flattened, and no Repository becomes unreachable, because **Default workspace**
-already guarantees every Repository has one.
+flattened, and no Repository becomes unreachable, because every Task is created
+in a Workspace that exists.
 
 Field by field (as built in `crates/t3code/src/projection.rs`). The shell listing carries
 `OrchestrationProjectShell`; `OrchestrationProject` is its near-twin with one
@@ -236,8 +236,8 @@ person's message, since the SDK's `user`-role rows (tool results streamed back)
 are persisted as `system` (`agent_handlers.rs:831`).
 
 **A conversation whose Workspace does not resolve must be left out of the
-listing entirely.** New Tasks always get one (`task/dao.rs::insert_task` resolves
-or creates a shadow Workspace), but older and hand-written rows can have
+listing entirely.** New Tasks always name one (`task/dao.rs::insert_task` refuses
+a Task without it), but rows written before Workspaces existed can have
 `workspace_id IS NULL`, and provisioning still falls back to repository-only
 behaviour for those. A row whose `projectId` is absent from the same snapshot is
 dropped by the client with a bare `continue` — no error, nothing logged

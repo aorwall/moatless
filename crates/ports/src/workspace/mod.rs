@@ -17,8 +17,3 @@ mod repository;
 #[cfg(feature = "test-support")]
 pub use repository::MockRepositoryReader;
 pub use repository::RepositoryReader;
-
-mod provisioning;
-#[cfg(feature = "test-support")]
-pub use provisioning::MockWorkspaceProvisioner;
-pub use provisioning::WorkspaceProvisioner;

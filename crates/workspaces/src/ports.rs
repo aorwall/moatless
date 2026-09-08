@@ -11,7 +11,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use moatless_ports::workspace::{
     PluginDelivery, RepoPlacement, RepositoryReader, ResolvedWorkspace, WorkspaceCredentialReader,
-    WorkspaceProvisioner, WorkspaceResolver,
+    WorkspaceResolver,
 };
 use moatless_types::access_control::ScopeContext;
 use moatless_types::repository::Repository;
@@ -160,6 +160,18 @@ impl WorkspaceResolver for WorkspaceProjection {
             .await
             .map_err(|e| StoreError::with_source(format!("read workspace {workspace_id}"), e))
     }
+
+    async fn for_repository(&self, repository_id: &str) -> Result<Vec<Workspace>, StoreError> {
+        self.workspaces
+            .find_by_repository(repository_id)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(
+                    format!("read the workspaces placing repository {repository_id}"),
+                    e,
+                )
+            })
+    }
 }
 
 /// The `repositories` store, narrowed to what a peer band reads.
@@ -199,32 +211,6 @@ impl RepositoryReader for RepositoryProjection {
             .await
             .map_err(|e| StoreError::with_source("batch read repository names", e))?;
         Ok(pairs.into_iter().collect())
-    }
-}
-
-/// The shadow Workspace a repository-only Task is persisted against.
-///
-/// Holds the pool rather than a `*Dao` because the write is one statement pair
-/// in a transaction, which no row-at-a-time store method expresses.
-pub struct ShadowWorkspaces(moatless_core::db::DbPool);
-
-impl ShadowWorkspaces {
-    pub fn new(pool: moatless_core::db::DbPool) -> Self {
-        Self(pool)
-    }
-}
-
-#[async_trait]
-impl WorkspaceProvisioner for ShadowWorkspaces {
-    async fn ensure_shadow(&self, repository_id: &str) -> Result<String, StoreError> {
-        crate::workspace::dao::ensure_shadow_workspace(&self.0, repository_id)
-            .await
-            .map_err(|e| {
-                StoreError::with_source(
-                    format!("ensure the shadow workspace for repository {repository_id}"),
-                    e,
-                )
-            })
     }
 }
 

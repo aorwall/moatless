@@ -186,6 +186,7 @@ pub async fn create_loop(
             created_at: now,
             config: NewLoopConfig {
                 repository_id: req.config.repository_id.clone(),
+                workspace_id: req.config.workspace_id.clone(),
                 routing_mode: req.config.routing_mode,
                 ongoing_task_id: req.config.ongoing_task_id.clone(),
                 prompt: req.config.prompt.clone(),
@@ -239,6 +240,9 @@ fn next_config(
         repository_id: rule
             .repository_id
             .unwrap_or_else(|| current.config.repository_id.clone()),
+        workspace_id: rule
+            .workspace_id
+            .unwrap_or_else(|| current.config.workspace_id.clone()),
         routing_mode: rule.routing_mode.unwrap_or(current.config.routing_mode),
         ongoing_task_id: rule
             .ongoing_task_id
@@ -604,6 +608,7 @@ mod tests {
             config: crate::loops::dao::LoopConfigRow {
                 loop_id: "loop".into(),
                 repository_id: "repo".into(),
+                workspace_id: None,
                 routing_mode: moatless_types::loops::RoutingMode::BySubject,
                 ongoing_task_id: None,
                 prompt: None,

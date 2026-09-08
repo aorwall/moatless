@@ -836,18 +836,34 @@ async fn an_unreadable_workspace_is_included_only_when_referenced(pool: PgPool) 
     );
 }
 
+/// A deleted workspace is off the readable half and still on the widened one:
+/// the tasks that name it are open work, and a listing that drops the group
+/// drops them with it. Readable by this viewer, so it is deletion and not
+/// access that keeps it off the first half.
 #[sqlx::test]
-async fn a_referenced_workspace_that_was_deleted_stays_absent(pool: PgPool) {
+async fn a_referenced_workspace_that_was_deleted_is_still_included(pool: PgPool) {
     let repo = PgWorkspaceDao(pool.clone());
-    let mut deleted = make_workspace_row("ws-gone", "user-2");
+    let mut deleted = make_workspace_row("ws-gone", "user-1");
     deleted.deleted = true;
     repo.insert_workspace(&deleted).await.unwrap();
 
-    let listed = repo
+    let unreferenced = repo
+        .list_readable_including(&viewer("user-1"), &[])
+        .await
+        .unwrap();
+    assert!(unreferenced.is_empty());
+
+    let referenced = repo
         .list_readable_including(&viewer("user-1"), &["ws-gone".to_string()])
         .await
         .unwrap();
-    assert!(listed.is_empty());
+    assert_eq!(
+        referenced
+            .iter()
+            .map(|listed| &listed.workspace.id)
+            .collect::<Vec<_>>(),
+        vec!["ws-gone"]
+    );
 }
 
 /// The whole path a client takes: the env-gated router as it is mounted in
@@ -4926,10 +4942,11 @@ async fn creating_and_deleting_a_project_waits_for_the_next_snapshot(pool: PgPoo
 /// Overriding a git-declared workspace tombstones it: the row survives so a
 /// later sync will not recreate it, `source` flips to `manual`, and `deleted`
 /// goes true. `WorkspaceDao::list` still returns it — that is what a
-/// tombstone is for — but `list_readable_including` does not, and the shell
-/// listing is built from the second. So the group comes off the screen exactly
-/// as an ordinary delete takes it off, and until this recorded, it came off
-/// with nobody told: the client kept rendering the group until something
+/// tombstone is for — but the shell listing is built from
+/// `list_readable_including`, whose readable half excludes it and whose
+/// widened half nothing here references. So the group comes off the screen
+/// exactly as an ordinary delete takes it off, and until this recorded, it came
+/// off with nobody told: the client kept rendering the group until something
 /// unrelated moved its listing.
 #[sqlx::test]
 async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: PgPool) {
@@ -4957,6 +4974,44 @@ async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: Pg
     );
     assert!(delivered(&pool, &mut feed, &viewer).await.is_empty());
     assert!(Held::opening(&pool, &viewer).await.projects.is_empty());
+}
+
+/// The same tombstone, with open work still in it.
+///
+/// A sync tombstones the Workspace a Task is running in — the Task is
+/// untouched, and it is what the person is in the middle of. Both listings are
+/// built by grouping a conversation under a project the client already holds,
+/// so a tombstone that took the group with it took the row out of the sidebar
+/// and refused the link to it, with nothing on screen to say why.
+#[sqlx::test]
+async fn a_tombstoned_project_keeps_the_conversations_still_running_in_it(pool: PgPool) {
+    let repo = PgWorkspaceDao(pool.clone());
+    let mut declared = make_workspace_row("ws-git", "user-1");
+    declared.source = moatless_types::workspace::WorkspaceSource::Git;
+    declared.source_repository_id = Some("repo-1".to_string());
+    declared.source_key = Some("api".to_string());
+    repo.insert_workspace(&declared).await.unwrap();
+    seed_task(&pool, "t-running", "user-1", Some("ws-git")).await;
+
+    let viewer = viewer("user-1");
+    assert!(
+        repo.soft_delete_git_origin("ws-git", &viewer)
+            .await
+            .unwrap()
+    );
+
+    let held = Held::opening(&pool, &viewer).await;
+    assert_eq!(held.projects, ["ws-git"]);
+    assert_eq!(held.threads, ["t-running"]);
+    assert!(
+        thread_shell_row(&pool, &viewer, "t-running").await.is_some(),
+        "the sidebar carries the row, so the link to it must open"
+    );
+    assert_eq!(
+        project(&pool, &viewer, "ws-git").await["scriptsEditable"],
+        json!(false),
+        "the group is listed for the work still in it, not to be configured"
+    );
 }
 
 /// Deleting a repository bulk-deletes every workspace its git tree declared,

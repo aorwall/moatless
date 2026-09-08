@@ -16,6 +16,11 @@ pub struct LoopFrontmatter {
     /// Human-readable name (`loops.name`). Required — the directory name is
     /// the reconciliation key, not a name anybody chose.
     pub name: String,
+    /// Name of the Workspace the spawned tasks run in, resolved among the
+    /// Workspaces this repository is placed in. See
+    /// [`moatless_types::loops::LoopContext::workspace_id`].
+    #[serde(default)]
+    pub workspace: Option<String>,
     /// Agent type (`loop_configs.agent_type`, default `claude-code`).
     #[serde(default)]
     pub agent_type: Option<String>,

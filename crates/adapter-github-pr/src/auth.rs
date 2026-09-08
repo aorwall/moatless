@@ -317,6 +317,7 @@ mod tests {
             routing_mode: RoutingMode::BySubject,
             event_filter: serde_json::json!([]),
             repository_id: "repository".into(),
+            workspace_id: None,
             prompt_template: None,
             task_name: Some("Review".into()),
             tag_ids: vec![],

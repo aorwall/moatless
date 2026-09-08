@@ -30,4 +30,9 @@ export interface UpdateLoopConfig {
   tagIds?: string[] | null;
   /** @nullable */
   taskName?: string | null;
+  /**
+   * See [`LoopConfig::workspace_id`]. `Some(None)` clears the override.
+   * @nullable
+   */
+  workspaceId?: string | null;
 }

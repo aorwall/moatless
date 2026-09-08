@@ -25,6 +25,7 @@ mod task_event_dao_test;
 mod task_handler_test;
 mod task_listing_position_test;
 mod task_turn_dao_test;
+mod task_workspace_test;
 mod user_uuid_test;
 mod workspace_dao_test;
-mod workspace_shadow_test;
+mod workspace_git_sync_test;

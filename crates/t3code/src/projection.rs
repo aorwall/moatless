@@ -1708,8 +1708,12 @@ fn project(listed: &UiRpcListedWorkspace) -> Value {
         // `.moatless/workspaces.json`, so an edit here would be silently undone
         // by the next sync. The client hides the controls instead of offering
         // an action that can only fail. The widened half of the union is not
-        // editable either — it is projected without its scripts.
-        "scriptsEditable": listed.readable && !is_git_synced(workspace),
+        // editable either — it is projected without its scripts — and neither
+        // is a deleted one, which is listed only because open work still names
+        // it.
+        "scriptsEditable": listed.readable
+            && !is_git_synced(workspace)
+            && workspace.deleted != Some(true),
         "createdAt": timestamp(workspace.created_at),
         "updatedAt": timestamp(workspace.updated_at)
     })

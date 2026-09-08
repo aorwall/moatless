@@ -1069,6 +1069,7 @@ impl ThreadCommandSink for AppStateCommands {
             task_service::CreateTaskPorts {
                 workspaces: self.0.workspace_resolver.as_ref(),
                 repositories: self.0.repository_reader.as_ref(),
+                tasks: self.0.tasks.as_ref(),
                 users: self.0.user_directory.as_ref(),
                 credential_sync: &self.0.credential_sync,
                 config: &self.0.config,
@@ -1162,6 +1163,7 @@ impl ThreadCommandSink for AppStateCommands {
                 task_service::CreateTaskPorts {
                     workspaces: self.0.workspace_resolver.as_ref(),
                     repositories: self.0.repository_reader.as_ref(),
+                    tasks: self.0.tasks.as_ref(),
                     users: self.0.user_directory.as_ref(),
                     credential_sync: &self.0.credential_sync,
                     config: &self.0.config,

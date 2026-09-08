@@ -447,10 +447,10 @@ pub struct Task {
     pub last_message_at: DateTime<Utc>,
     pub agent_type: AgentType,
     pub repository_id: String,
-    /// Workspace this task runs against (Phase A: nullable during the additive
-    /// transition; backfilled to the repository's shadow workspace). When set,
-    /// provisioning resolves the repository composition via the workspace;
-    /// otherwise it falls back to `repository_id`.
+    /// Workspace this task runs against, which provisioning resolves the
+    /// repository composition through. Every created task names one; the column
+    /// stays nullable for rows written before Workspaces existed, which fall
+    /// back to `repository_id`.
     pub workspace_id: Option<String>,
     /// Sandbox this task belongs to. A task with no id here has never been
     /// started; the ordinary first start mints a sandbox whose id equals the

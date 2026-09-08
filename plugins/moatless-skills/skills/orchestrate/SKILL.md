@@ -92,9 +92,8 @@ Choose per ticket — **default to the sandbox-only workspace**:
 Sizing follows that choice automatically — each workspace carries its own
 resource config, and servers are sized separately from the agent container.
 
-Pass `--workspace <ws-id-or-name>` to `moat tasks create` (it replaces
-`--repo`). If your `moat` build predates the flag (`moat tasks create --help`
-doesn't list it), fall back to `--repo <repo-id>`.
+Pass `--workspace <ws-id-or-name>` to `moat tasks create`. It is required: a
+task is always created in a Workspace, and `--repo` no longer names one.
 
 Identify which tickets have no blockers (or whose blockers are already complete), then assign stack order before spawning. A GitHub stack is linear: a child can `moat gh stack add` only on top of an existing top branch. Spawn every unblocked ticket whose `STACK_BASE_BRANCH` already exists; in a single feature stack this often means spawning the next ticket as soon as the previous child has created its branch or PR. Preserve parallelism only when you intentionally create separate stacks or pre-created placeholder stack branches for independent work.
 

@@ -29,12 +29,12 @@ Pick the child task's workspace before spawning. Prefer a named workspace over a
 
 ```bash
 moat workspaces list --json | jq '.[] | {id, name, source, dockerAccess}'
-moat repos list --json | jq '.[] | {id, name, remoteUrl}'   # fallback only
+moat repos list --json | jq '.[] | {id, name, remoteUrl}'   # to read what a workspace places
 ```
 
 Default to the sandbox-only workspace for ordinary coding handoffs. Use a preview workspace only when the next task needs a running app for visual verification. Use a Docker-enabled workspace only when the next task needs Docker or compose.
 
-Create the child task with `moat tasks create`. Use `--parent "$TASK_ID"` when `TASK_ID` is available, and attach relevant repo files with repeated `--context-file` flags. If the current CLI does not list `--workspace` in `moat tasks create --help`, fall back to `--repo <repo-id-or-name>`.
+Create the child task with `moat tasks create --workspace <ws-id-or-name>`. Use `--parent "$TASK_ID"` when `TASK_ID` is available, and attach relevant repo files with repeated `--context-file` flags.
 
 Choose the agent harness and model deliberately:
 

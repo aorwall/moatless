@@ -28,15 +28,13 @@ pub struct TaskRelationDto {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskRequest {
-    /// The repository to run the task against. Optional when `workspace_id` is
-    /// supplied — the workspace's primary repository is used instead. At least
-    /// one of `repository_id` / `workspace_id` is required.
+    /// Ignored: the workspace's primary placement is the repository the task
+    /// runs against. Accepted so a caller that still sends it is not rejected.
     #[serde(default)]
     pub repository_id: Option<String>,
-    /// Explicit workspace to run the task in. When set, its repositories drive
-    /// the task (workspace wins over `repository_id`). When unset, the task
-    /// derives the repository's deterministic shadow workspace, keeping the
-    /// single-repo path unchanged.
+    /// The workspace to run the task in, which drives the task's repositories.
+    /// When unset, `parent_task_id`'s workspace is used; a request with neither
+    /// is a bad request.
     pub workspace_id: Option<String>,
     /// Existing running Sandbox to join. Omit to create the task's own Sandbox.
     pub sandbox_id: Option<String>,
@@ -250,10 +248,8 @@ pub struct TaskResponse {
     pub agent_type: AgentType,
     pub repository_id: String,
     pub repository_name: Option<String>,
-    /// Workspace the task runs in. Every task has one — the insert resolves the
-    /// repository's shadow workspace when the creating request named none, and
-    /// pre-workspace tasks were backfilled the same way — so this is only
-    /// `None` for a response built without reading the persisted row.
+    /// Workspace the task runs in. Every task has one, so this is only `None`
+    /// for a response built without reading the persisted row.
     pub workspace_id: Option<String>,
     /// Display name for `workspace_id`, resolved alongside `repository_name`.
     /// `None` when the workspace row is deleted or its lookup failed; clients

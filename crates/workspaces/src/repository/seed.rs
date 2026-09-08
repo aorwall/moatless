@@ -36,8 +36,8 @@ async fn seed_moatable(repos: &dyn RepositoryDao) -> Result<(), sqlx::Error> {
 
     let now = chrono::Utc::now();
     // Pure git pointer: run-config (setupCommands + the preview server) lives in
-    // git at `aorwall/moatable` `.moatless/config.json` and is synced into the
-    // workspace on repo-create / task-start.
+    // git at `aorwall/moatable` and is synced into the workspace on repo-create
+    // / task-start, once that repo declares `.moatless/workspaces.json`.
     let row = Repository {
         id: uuid::Uuid::new_v4().to_string(),
         name: "Moatable".to_string(),

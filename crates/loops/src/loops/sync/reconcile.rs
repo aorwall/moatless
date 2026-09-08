@@ -10,6 +10,7 @@ use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary, LoopSyncWarning};
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::task::TagResolver;
+use moatless_ports::workspace::WorkspaceResolver;
 use moatless_tasks::agent::catalog;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::repository::{Repository, RepositoryProvider};
@@ -19,13 +20,14 @@ use tracing::{debug, warn};
 
 /// Reconciles a repository's committed loop declarations into the loop tables.
 ///
-/// Holds the four ports the reconcile tree reads: adapter connections, the loop
-/// store, tags, and the git-host token seam.
+/// Holds the five ports the reconcile tree reads: adapter connections, the loop
+/// store, tags, workspaces, and the git-host token seam.
 pub struct LoopSyncService {
     pub(super) fetcher: GitHubLoopFetcher,
     pub(super) adapter_connections: Arc<dyn AdapterConnectionDao>,
     pub(super) loops: Arc<LoopDao>,
     pub(super) tags: Arc<dyn TagResolver>,
+    pub(super) workspaces: Arc<dyn WorkspaceResolver>,
     pub(super) git_host_tokens: Arc<dyn GitHostTokenIssuer>,
 }
 

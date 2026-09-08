@@ -519,6 +519,7 @@ pub async fn run_loops(
 fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError> {
     Ok(CreateLoopConfig {
         repository_id: args.repository_id,
+        workspace_id: None,
         routing_mode: parse_routing_mode(&args.routing_mode)?,
         ongoing_task_id: None,
         task_name: args.task_name,
@@ -558,6 +559,7 @@ fn update_config(
     let skills = fold_list(skills, clear_skills, "skill", "clear-skills")?;
     let config = UpdateLoopConfig {
         repository_id,
+        workspace_id: None,
         routing_mode,
         ongoing_task_id: fold_clearable(ongoing_task_id, clear_ongoing_task_id, "ongoing-task-id")?,
         prompt: fold_clearable(prompt, clear_prompt, "prompt")?,

@@ -15,7 +15,7 @@ use moatless_types::repository::GitHostRepo;
 /// Fetch a repository file's raw contents via the provider API.
 ///
 /// Returns `Ok(None)` on a 404 (file absent). `path` is a repo-relative path
-/// such as `.moatless/config.json`. Gitness is not wired (needs a `base_url`).
+/// such as `.moatless/workspaces.json`. Gitness is not wired (needs a `base_url`).
 pub(crate) async fn fetch_provider_file(
     remote_url: &str,
     path: &str,

@@ -1,7 +1,6 @@
 //! Task DAO — queries for task data access.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -13,7 +12,6 @@ use super::models::{
 };
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_optional;
-use moatless_ports::workspace::WorkspaceProvisioner;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 use moatless_types::agent::AgentType;
 
@@ -98,11 +96,9 @@ pub trait TaskDao: Send + Sync {
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<Task>, sqlx::Error>;
-    /// Insert a task, returning the workspace id the row was persisted with.
-    /// That is `row.workspace_id` when the caller set one, otherwise the
-    /// repository's shadow workspace this resolves — callers building a response
-    /// from the in-memory row need it to label the workspace.
-    async fn insert_task(&self, row: &Task) -> Result<String, sqlx::Error>;
+    /// Insert a task. `row.workspace_id` must be set: every Task runs in a
+    /// Workspace, and the Sandbox row written alongside it is keyed on that id.
+    async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error>;
     /// Compensate a create-time shared-sandbox join failure after `insert_task`
     /// committed. This removes the just-created Task and create-side rows, but
     /// deliberately does not mutate the Sandbox row: the Sandbox belongs to the
@@ -136,14 +132,6 @@ pub trait TaskDao: Send + Sync {
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
-    /// Resolve the workspace a task row will use before inserting it. Callers
-    /// that need to validate against that workspace before the task row exists
-    /// must use this instead of relying on `insert_task`'s returned value.
-    async fn resolve_workspace_id(
-        &self,
-        repository_id: &str,
-        workspace_id: Option<String>,
-    ) -> Result<String, sqlx::Error>;
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error>;
     /// Update task fields for the caller's scope. Per-field statements embed the
     /// `write_filter` so the caller only modifies rows they own. Returns `true`
@@ -298,35 +286,13 @@ pub trait TaskDao: Send + Sync {
 }
 
 /// PostgreSQL implementation of [`TaskDao`].
-/// Ask the workspace band for a repository's shadow Workspace.
-///
-/// The seam reports a `StoreError`; every method here reports `sqlx::Error`, so
-/// the chain is rendered into the message rather than carried. This store owns
-/// tables and names the driver already — nothing is hidden by the flattening.
-async fn shadow_workspace(
-    workspaces: &dyn WorkspaceProvisioner,
-    repository_id: &str,
-) -> Result<String, sqlx::Error> {
-    workspaces
-        .ensure_shadow(repository_id)
-        .await
-        .map_err(|e| sqlx::Error::Protocol(moatless_core::error::causal_chain(&e)))
-}
-
-/// The `tasks` store.
-///
-/// Holds the shadow-workspace seam as well as the pool: a Task names a
-/// Workspace or it names a repository, and in the second case the row is
-/// persisted against the repository's shadow Workspace, which this store must
-/// be able to ask for.
 pub struct PgTaskDao {
     pool: DbPool,
-    workspaces: Arc<dyn WorkspaceProvisioner>,
 }
 
 impl PgTaskDao {
-    pub fn new(pool: DbPool, workspaces: Arc<dyn WorkspaceProvisioner>) -> Self {
-        Self { pool, workspaces }
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
     }
 }
 
@@ -363,18 +329,15 @@ impl TaskDao for PgTaskDao {
         row.map(Task::try_from).transpose()
     }
 
-    async fn insert_task(&self, row: &Task) -> Result<String, sqlx::Error> {
-        // Resolve the workspace this task belongs to. Callers may set
-        // `workspace_id` explicitly (future multi-repo flows); when unset, ensure
-        // the repository's deterministic shadow workspace exists and use it — so
-        // every creation path (HTTP handler, adapters, loops) persists a
-        // workspace_id consistently, exactly as the Phase A backfill did for
-        // pre-existing tasks. Applied here at the DAO layer, mirroring the
-        // auto-follow below, so no creation path can silently skip it.
-        let workspace_id = match row.workspace_id.clone() {
-            Some(id) => id,
-            None => shadow_workspace(self.workspaces.as_ref(), &row.repository_id).await?,
-        };
+    async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error> {
+        // The column is nullable for rows written before workspaces existed, so
+        // the invariant is enforced here rather than by the schema.
+        let workspace_id = row.workspace_id.clone().ok_or_else(|| {
+            sqlx::Error::Protocol(format!(
+                "task {} has no workspace_id; every task is created in a workspace",
+                row.task_id
+            ))
+        })?;
 
         let mut tx = self.pool.begin().await?;
 
@@ -502,7 +465,7 @@ impl TaskDao for PgTaskDao {
             }
         }
 
-        Ok(workspace_id)
+        Ok(())
     }
 
     async fn delete_inserted_task_after_join_failure(
@@ -619,17 +582,6 @@ impl TaskDao for PgTaskDao {
         moatless_core::change_feed::listing::record_change(&mut tx, &deleted_task_id).await?;
         tx.commit().await?;
         Ok(true)
-    }
-
-    async fn resolve_workspace_id(
-        &self,
-        repository_id: &str,
-        workspace_id: Option<String>,
-    ) -> Result<String, sqlx::Error> {
-        match workspace_id {
-            Some(id) => Ok(id),
-            None => shadow_workspace(self.workspaces.as_ref(), repository_id).await,
-        }
     }
 
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error> {
@@ -1480,25 +1432,30 @@ impl TaskPatch {
 // Each wrapper constructs a `PgTaskDao` through [`store_over`] and delegates to
 // the trait method.
 
-/// The store over a pool, with the shadow-workspace seam wired to the same
-/// pool. Every integration test that reaches this store wants exactly that
-/// pairing, so it is built here rather than repeated at each call site.
+/// The store over a pool.
 // `test` stays first so the census keeps scoring this as test-context; the
 // feature exposes it to the backend's integration tests.
 #[cfg(any(test, feature = "test-support"))]
 pub fn store_over(pool: &DbPool) -> PgTaskDao {
-    PgTaskDao::new(
-        pool.clone(),
-        Arc::new(moatless_workspaces::ports::ShadowWorkspaces::new(
-            pool.clone(),
-        )),
-    )
+    PgTaskDao::new(pool.clone())
 }
 
-/// Insert a task (convenience wrapper). Returns the workspace id the row was
-/// persisted with, as the trait method does.
+/// Insert a task (convenience wrapper), creating `row.workspace_id` first when
+/// no such Workspace exists. A fixture names a Workspace it rarely seeds, and
+/// [`TaskDao::insert_task`] refuses a Task whose Workspace is absent. Use
+/// [`store_over`] directly to test that refusal.
 #[cfg(any(test, feature = "test-support"))]
-pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<String, sqlx::Error> {
+pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<(), sqlx::Error> {
+    if let Some(workspace_id) = row.workspace_id.as_deref() {
+        sqlx::query(
+            "INSERT INTO workspaces (id, name, scope, owner_user_id) \
+             VALUES ($1, $1, 'user', $2) ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(workspace_id)
+        .bind(row.owner_user_id.as_deref().or(row.created_by.as_deref()))
+        .execute(pool)
+        .await?;
+    }
     store_over(pool).insert_task(row).await
 }
 

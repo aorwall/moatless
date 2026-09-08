@@ -205,11 +205,12 @@ async fn publish_user_stop(events: Option<&dyn EventPublisher>, task_id: &str) {
 
 /// What [`normalize`] resolves a create request against.
 ///
-/// Grouped because every caller supplies all five together and none of them
+/// Grouped because every caller supplies all six together and none of them
 /// varies independently of the rest.
 pub struct CreateTaskPorts<'a> {
     pub workspaces: &'a dyn WorkspaceResolver,
     pub repositories: &'a dyn RepositoryReader,
+    pub tasks: &'a dyn TaskDao,
     pub users: &'a dyn UserResolver,
     pub credential_sync: &'a CredentialSync,
     pub config: &'a Config,
@@ -230,6 +231,7 @@ pub async fn normalize(
     let CreateTaskPorts {
         workspaces,
         repositories,
+        tasks,
         users,
         credential_sync,
         config,
@@ -240,45 +242,33 @@ pub async fn normalize(
         provision,
         first_message_uuid,
     } = intent;
-    let agent_type = validate_agent_type(req.agent_type, req.model.as_deref())?;
+    let agent_type = validate_agent_type(req.agent_type.clone(), req.model.as_deref())?;
 
-    // A task accepts `repository_id` and/or `workspace_id`. When a workspace is
-    // supplied it drives the task's repositories (workspace wins): the effective
-    // repository is the workspace's primary placement. When only `repository_id`
-    // is given, the single-repo path is unchanged and the shadow workspace is
-    // derived downstream. At least one of the two is required.
-    let workspace = match req.workspace_id.as_deref() {
-        Some(workspace_id) => {
-            let workspace = workspaces
-                .describe(scope_ctx, workspace_id)
-                .await?
-                .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?;
-            if workspace.deleted {
-                return Err(TaskError::BadRequest(format!(
-                    "Workspace {workspace_id} has been deleted; restore it from Git before creating tasks"
-                )));
-            }
-            Some(workspace)
-        }
-        None => None,
-    };
+    let workspace_id = resolve_workspace_id(tasks, scope_ctx, &req).await?;
+    let workspace = workspaces
+        .describe(scope_ctx, &workspace_id)
+        .await?
+        .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?;
+    if workspace.deleted {
+        return Err(TaskError::BadRequest(format!(
+            "Workspace {workspace_id} has been deleted; restore it from Git before creating tasks"
+        )));
+    }
 
-    let repository_id = match &workspace {
-        Some(ws) => {
-            workspaces
-                .placements(&ws.id)
-                .await?
-                .into_iter()
-                .next()
-                .ok_or_else(|| {
-                    TaskError::BadRequest(format!("Workspace {} has no primary repository", ws.id))
-                })?
-                .repository_id
-        }
-        None => req.repository_id.clone().ok_or_else(|| {
-            TaskError::BadRequest("repositoryId or workspaceId is required".to_string())
-        })?,
-    };
+    // The Workspace drives the Task's repositories: the effective repository is
+    // its primary placement, whatever `repository_id` the request also carried.
+    let repository_id = workspaces
+        .placements(&workspace.id)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            TaskError::BadRequest(format!(
+                "Workspace {} has no primary repository",
+                workspace.id
+            ))
+        })?
+        .repository_id;
 
     // Validate repository exists and is usable by this caller.
     let repo = repositories
@@ -333,7 +323,7 @@ pub async fn normalize(
         headless: req.headless.unwrap_or(false),
         visibility: Visibility::Private,
         loop_id: None,
-        workspace_id: req.workspace_id.clone(),
+        workspace_id,
         sandbox_id: req.sandbox_id.clone(),
         checkout_mode: req.checkout_mode,
         template_id: if is_template {
@@ -380,6 +370,35 @@ pub async fn normalize(
         // Reuse the repo already fetched for access control so the service
         // skips a redundant lookup.
         repository: Some(repo),
+    })
+}
+
+/// The Workspace a create request runs in: the one it names, else its parent
+/// Task's.
+///
+/// A request carrying only a repository is refused. A repository places any
+/// number of Workspaces and picking one for the caller would run the work under
+/// a configuration — image, env, service account — nobody chose.
+async fn resolve_workspace_id(
+    tasks: &dyn TaskDao,
+    scope_ctx: &ScopeContext,
+    req: &CreateTaskRequest,
+) -> Result<String, TaskError> {
+    if let Some(workspace_id) = req.workspace_id.as_deref().map(str::trim).filter(|w| !w.is_empty())
+    {
+        return Ok(workspace_id.to_string());
+    }
+    let Some(parent_task_id) = req.parent_task_id.as_deref() else {
+        return Err(TaskError::BadRequest("workspaceId is required".to_string()));
+    };
+    let parent = tasks
+        .find_by_id(parent_task_id, scope_ctx)
+        .await?
+        .ok_or_else(|| TaskError::NotFound(parent_task_id.to_string()))?;
+    parent.workspace_id.ok_or_else(|| {
+        TaskError::BadRequest(format!(
+            "workspaceId is required: parent task {parent_task_id} runs in no workspace"
+        ))
     })
 }
 
@@ -628,6 +647,114 @@ mod tests {
             .await
             .expect("acting as yourself changes nothing");
         assert_eq!(resolved.as_deref(), Some(OTHER));
+    }
+
+    fn create_request(workspace_id: Option<&str>, parent_task_id: Option<&str>) -> CreateTaskRequest {
+        CreateTaskRequest {
+            repository_id: Some("repo-1".to_string()),
+            workspace_id: workspace_id.map(str::to_string),
+            sandbox_id: None,
+            checkout_mode: None,
+            agent_type: None,
+            name: None,
+            description: None,
+            branch: None,
+            message: None,
+            model: None,
+            agent_mode: None,
+            effort: None,
+            contexts: Vec::new(),
+            file_ids: Vec::new(),
+            parent_task_id: parent_task_id.map(str::to_string),
+            run_as_user_id: None,
+            headless: None,
+            skills: Vec::new(),
+        }
+    }
+
+    fn parent_running_in(workspace_id: Option<&'static str>) -> crate::task::dao::MockTaskDao {
+        let mut tasks = crate::task::dao::MockTaskDao::new();
+        tasks.expect_find_by_id().returning(move |task_id, _| {
+            let now = chrono::Utc::now();
+            Ok(Some(Task {
+                task_id: task_id.to_string(),
+                short_id: None,
+                created_at: now,
+                last_message_at: now,
+                agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
+                repository_id: "repo-1".to_string(),
+                workspace_id: workspace_id.map(str::to_string),
+                sandbox_id: None,
+                checkout_mode: None,
+                status: TaskStatus::Open,
+                total_cost_usd: 0.0,
+                site_url: None,
+                template_id: None,
+                vibe: None,
+                name: None,
+                description: None,
+                site_id: None,
+                site_provider: None,
+                branch: None,
+                model: None,
+                created_by: Some(ADMIN.to_string()),
+                visibility: Visibility::Private,
+                scope: moatless_types::access_control::Scope::User,
+                owner_user_id: Some(ADMIN.to_string()),
+                run_as_user_id: None,
+                updated_at: None,
+                append_system_prompt: None,
+                headless: false,
+                ttl_minutes: 15,
+                inactive_ttl_days: 7,
+                loop_id: None,
+                skills: Vec::new(),
+            }))
+        });
+        tasks
+    }
+
+    #[tokio::test]
+    async fn a_named_workspace_is_used_as_given() {
+        let tasks = crate::task::dao::MockTaskDao::new();
+        let resolved = resolve_workspace_id(&tasks, &ctx(ADMIN, false), &create_request(Some("ws-a"), None))
+            .await
+            .expect("a named workspace needs no lookup");
+        assert_eq!(resolved, "ws-a");
+    }
+
+    #[tokio::test]
+    async fn a_subtask_inherits_its_parents_workspace() {
+        let tasks = parent_running_in(Some("ws-parent"));
+        let resolved =
+            resolve_workspace_id(&tasks, &ctx(ADMIN, false), &create_request(None, Some("task-parent")))
+                .await
+                .expect("the parent names the workspace");
+        assert_eq!(resolved, "ws-parent");
+    }
+
+    /// A repository places any number of Workspaces, so there is nothing to
+    /// fall back to.
+    #[tokio::test]
+    async fn a_request_with_only_a_repository_is_rejected() {
+        let tasks = crate::task::dao::MockTaskDao::new();
+        let error = resolve_workspace_id(&tasks, &ctx(ADMIN, false), &create_request(None, None))
+            .await
+            .expect_err("a repository does not name a workspace");
+        assert!(
+            matches!(&error, TaskError::BadRequest(message) if message.contains("workspaceId is required")),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_parent_that_runs_in_no_workspace_is_rejected() {
+        let tasks = parent_running_in(None);
+        let error =
+            resolve_workspace_id(&tasks, &ctx(ADMIN, false), &create_request(None, Some("task-parent")))
+                .await
+                .expect_err("a parent predating workspaces names none");
+        assert!(matches!(error, TaskError::BadRequest(_)), "{error:?}");
     }
 
     /// A reference nobody matches is a bad request. Falling back to the caller

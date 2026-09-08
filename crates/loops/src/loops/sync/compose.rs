@@ -6,6 +6,7 @@ use crate::loops::dao::LoopDao;
 use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::task::TagResolver;
+use moatless_ports::workspace::WorkspaceResolver;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -14,6 +15,7 @@ impl LoopSyncService {
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
         tags: Arc<dyn TagResolver>,
+        workspaces: Arc<dyn WorkspaceResolver>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     ) -> Self {
         Self {
@@ -21,6 +23,7 @@ impl LoopSyncService {
             adapter_connections,
             loops,
             tags,
+            workspaces,
             git_host_tokens,
         }
     }

@@ -52,6 +52,7 @@ pub struct LoopRow {
 pub struct LoopConfigRow {
     pub loop_id: String,
     pub repository_id: String,
+    pub workspace_id: Option<String>,
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
     pub prompt: Option<String>,
@@ -122,6 +123,7 @@ struct JoinedLoopRecordRow {
     source_config_path: Option<String>,
     deleted: bool,
     repository_id: String,
+    workspace_id: Option<String>,
     #[sqlx(try_from = "String")]
     routing_mode: RoutingMode,
     ongoing_task_id: Option<String>,
@@ -173,6 +175,7 @@ impl JoinedLoopRecordRow {
         let config = LoopConfigRow {
             loop_id: self.id.clone(),
             repository_id: self.repository_id,
+            workspace_id: self.workspace_id,
             routing_mode: self.routing_mode,
             ongoing_task_id: self.ongoing_task_id,
             prompt: self.prompt,
@@ -242,6 +245,7 @@ const LOOP_RECORD_SELECT: &str = r#"
            t.source_config_path,
            t.deleted,
            r.repository_id,
+           r.workspace_id,
            r.routing_mode,
            r.ongoing_task_id,
            r.prompt,
@@ -296,6 +300,7 @@ pub struct NewLoop {
 /// Resolved `loop_configs` values shared by create and update.
 pub struct NewLoopConfig {
     pub repository_id: String,
+    pub workspace_id: Option<String>,
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
     pub prompt: Option<String>,
@@ -362,6 +367,9 @@ pub struct AdapterSourceUpdate {
 /// keyed by `(source_repository_id, source_key)`.
 pub struct ManagedLoopUpsert {
     pub source_repository_id: String,
+    /// The Workspace the `workspace:` frontmatter names, resolved to an id.
+    /// See [`moatless_types::loops::LoopContext::workspace_id`].
+    pub workspace_id: Option<String>,
     pub source_key: String,
     pub source_config_path: String,
     pub trigger_name: String,
@@ -559,7 +567,8 @@ impl LoopDao {
                        run_as_user_id = $9,
                        agent_type = $10,
                        inactive_ttl_days = $11,
-                       model = $12
+                       model = $12,
+                       workspace_id = $13
                    WHERE loop_id = $1"#,
             )
             .bind(id)
@@ -574,6 +583,7 @@ impl LoopDao {
             .bind(config.agent_type.as_str())
             .bind(config.inactive_ttl_days)
             .bind(&config.model)
+            .bind(&config.workspace_id)
             .execute(&mut *tx)
             .await?;
         }
@@ -935,8 +945,8 @@ impl LoopDao {
             r#"INSERT INTO loop_configs
                (loop_id, repository_id, routing_mode, ongoing_task_id, prompt,
                 task_name, tag_ids, skills, run_as_user_id, agent_type,
-                inactive_ttl_days, model)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                inactive_ttl_days, model, workspace_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                ON CONFLICT (loop_id) DO UPDATE
                SET repository_id     = EXCLUDED.repository_id,
                    routing_mode      = EXCLUDED.routing_mode,
@@ -948,7 +958,8 @@ impl LoopDao {
                    run_as_user_id    = EXCLUDED.run_as_user_id,
                    agent_type        = EXCLUDED.agent_type,
                    inactive_ttl_days = EXCLUDED.inactive_ttl_days,
-                   model             = EXCLUDED.model"#,
+                   model             = EXCLUDED.model,
+                   workspace_id      = EXCLUDED.workspace_id"#,
         )
         .bind(&row.id)
         .bind(&row.repository_id)
@@ -962,6 +973,7 @@ impl LoopDao {
         .bind(row.agent_type.as_str())
         .bind(row.inactive_ttl_days)
         .bind(&row.model)
+        .bind(&row.workspace_id)
         .execute(&mut *tx)
         .await?;
 
@@ -1355,6 +1367,7 @@ impl LoopDao {
         let row = sqlx::query_as::<_, LoopSpawnConfigRow>(
             r#"SELECT t.id,
                       r.repository_id,
+                      r.workspace_id,
                       r.routing_mode,
                       r.ongoing_task_id,
                       r.prompt AS prompt_template,
@@ -1412,6 +1425,7 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            r.routing_mode,
            aes.event_filter,
            r.repository_id,
+           r.workspace_id,
            r.prompt AS prompt_template,
            r.task_name,
            r.tag_ids,
@@ -1497,6 +1511,7 @@ async fn replace_managed_loop_rows(
         loop_id,
         &NewLoopConfig {
             repository_id: input.source_repository_id.clone(),
+            workspace_id: input.workspace_id.clone(),
             routing_mode: input.routing_mode,
             ongoing_task_id,
             prompt: input.prompt.clone(),
@@ -1529,8 +1544,8 @@ async fn insert_config(
         r#"INSERT INTO loop_configs
            (loop_id, repository_id, routing_mode, ongoing_task_id, prompt,
             task_name, tag_ids, skills, run_as_user_id, agent_type,
-            inactive_ttl_days, model)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
+            inactive_ttl_days, model, workspace_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"#,
     )
     .bind(loop_id)
     .bind(&config.repository_id)
@@ -1544,6 +1559,7 @@ async fn insert_config(
     .bind(config.agent_type.as_str())
     .bind(config.inactive_ttl_days)
     .bind(&config.model)
+    .bind(&config.workspace_id)
     .execute(&mut **tx)
     .await?;
     Ok(())

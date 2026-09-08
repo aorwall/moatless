@@ -11026,6 +11026,13 @@
               "string",
               "null"
             ]
+          },
+          "workspaceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "See [`LoopConfig::workspace_id`]."
           }
         }
       },
@@ -11388,7 +11395,7 @@
               "string",
               "null"
             ],
-            "description": "The repository to run the task against. Optional when `workspace_id` is\nsupplied — the workspace's primary repository is used instead. At least\none of `repository_id` / `workspace_id` is required."
+            "description": "Ignored: the workspace's primary placement is the repository the task\nruns against. Accepted so a caller that still sends it is not rejected."
           },
           "runAsUserId": {
             "type": [
@@ -11416,7 +11423,7 @@
               "string",
               "null"
             ],
-            "description": "Explicit workspace to run the task in. When set, its repositories drive\nthe task (workspace wins over `repository_id`). When unset, the task\nderives the repository's deterministic shadow workspace, keeping the\nsingle-repo path unchanged."
+            "description": "The workspace to run the task in, which drives the task's repositories.\nWhen unset, `parent_task_id`'s workspace is used; a request with neither\nis a bad request."
           }
         }
       },
@@ -13522,6 +13529,13 @@
               "string",
               "null"
             ]
+          },
+          "workspaceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Workspace every task this Loop spawns runs in. `None` falls back to\na live Workspace placing `repository_id`."
           }
         }
       },
@@ -18362,6 +18376,13 @@
               "string",
               "null"
             ]
+          },
+          "workspaceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "See [`LoopConfig::workspace_id`]. `Some(None)` clears the override."
           }
         }
       },
@@ -19429,7 +19450,7 @@
               "string",
               "null"
             ],
-            "description": "Path to the config file within the source repository that declared this\nworkspace (e.g. `.moatless/workspaces.json` or `.moatless/config.json`).\nRetained even after a manual override so the origin remains visible."
+            "description": "Path to the config file within the source repository that declared this\nworkspace (`.moatless/workspaces.json`). Retained even after a manual\noverride so the origin remains visible."
           },
           "sourceKey": {
             "type": [

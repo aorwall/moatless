@@ -728,6 +728,7 @@ async fn reset_to_git_keeps_the_execution_approval(pool: PgPool) {
 fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
     ManagedLoopUpsert {
         source_repository_id: repo.id.clone(),
+        workspace_id: None,
         source_key: "daily-health-check".to_string(),
         source_config_path: ".moatless/loops/daily-health-check/LOOP.md".to_string(),
         trigger_name: "Daily Health Check".to_string(),

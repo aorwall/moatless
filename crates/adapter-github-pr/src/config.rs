@@ -223,6 +223,7 @@ mod tests {
             routing_mode: moatless_types::loops::RoutingMode::BySubject,
             event_filter: events_filter,
             repository_id: "repo-1".into(),
+            workspace_id: None,
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],

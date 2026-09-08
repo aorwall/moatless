@@ -64,6 +64,7 @@ pub(super) fn delivery_only_rule(
         routing_mode: RoutingMode::BySubject,
         event_filter: serde_json::json!([]),
         repository_id: String::new(),
+        workspace_id: None,
         prompt_template: None,
         task_name: None,
         tag_ids: Vec::new(),

@@ -236,6 +236,7 @@ async fn seed_local_repository(pool: &PgPool) {
     repository_dao::insert(pool, &repo)
         .await
         .expect("seed repository");
+    common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
 }
 
 /// A GitHub-backed repository with no reachable credentials: creating a task
@@ -245,6 +246,7 @@ async fn seed_preflight_failing_repository(pool: &PgPool) {
     repository_dao::insert(pool, &make_repository_row("repo-1", USER_1))
         .await
         .expect("seed repository");
+    common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
 }
 
 /// An active Linear Subscription for the team.
@@ -268,6 +270,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
             routing_mode: RoutingMode::BySubject,
             event_filter: serde_json::json!([]),
             repository_id: "repo-1".to_string(),
+            workspace_id: None,
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],

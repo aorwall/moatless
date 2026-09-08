@@ -83,7 +83,10 @@ mod tests {
         access_control::{Actor, Scope},
         repository::{GitHostRepo, RepositoryKind},
     };
-    use moatless_workspaces::{repository::dao::MockRepositoryDao, workspace::dao::PgWorkspaceDao};
+    use moatless_workspaces::{
+        plugin::dao::PgPluginDao, ports::WorkspaceProjection, repository::dao::MockRepositoryDao,
+        workspace::dao::PgWorkspaceDao,
+    };
     use std::sync::Arc;
 
     struct NoGitTokens;
@@ -114,6 +117,11 @@ mod tests {
             Arc::new(PgAdapterConnectionDao::new(pool.clone())),
             Arc::new(LoopDao::new(pool.clone())),
             Arc::new(TagCatalog::new(Arc::new(PgTagDao(pool.clone())))),
+            Arc::new(WorkspaceProjection::new(
+                Arc::new(PgWorkspaceDao(pool.clone())),
+                Arc::new(MockRepositoryDao::new()),
+                Arc::new(PgPluginDao(pool.clone())),
+            )),
             tokens.clone(),
         );
         let git = GitSyncService::new(

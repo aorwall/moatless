@@ -31,4 +31,9 @@ export interface CreateLoopConfig {
   tagIds?: string[] | null;
   /** @nullable */
   taskName?: string | null;
+  /**
+   * See [`LoopConfig::workspace_id`].
+   * @nullable
+   */
+  workspaceId?: string | null;
 }

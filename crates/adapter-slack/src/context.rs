@@ -283,6 +283,7 @@ mod tests {
             source_id: "C1".into(),
             source_name: None,
             repository_id: "repo-1".into(),
+            workspace_id: None,
             routing_mode: RoutingMode::BySubject,
             prompt_template: None,
             active: true,

@@ -90,8 +90,8 @@ pub async fn create_repository(
         .unwrap_or(row);
 
     if final_row.remote_url.is_some() {
-        // Sync git-declared workspaces (`.moatless/workspaces.json` or the legacy
-        // `.moatless/config.json`). Loop sync is deliberately never automatic:
+        // Sync git-declared workspaces (`.moatless/workspaces.json`).
+        // Loop sync is deliberately never automatic:
         // an administrator must invoke the explicit sync endpoint.
         log_workspace_sync_for(
             git_sync,

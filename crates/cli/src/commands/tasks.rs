@@ -57,11 +57,12 @@ pub enum TaskAction {
     },
     /// Create a new task (starts the sandbox and, if --message is provided, the agent)
     Create {
-        /// Repository ID or name. Optional when --workspace is given (the
-        /// workspace's primary repository is used)
-        #[arg(long, required_unless_present_any = ["workspace", "same_sandbox"])]
+        /// Repository ID or name. Ignored: the workspace's primary repository
+        /// is what the task runs against
+        #[arg(long)]
         repo: Option<String>,
-        /// Workspace ID (ws_...) or name to run the task in; wins over --repo
+        /// Workspace ID (ws_...) or name to run the task in. Required unless a
+        /// parent task or a joined sandbox already settles one
         #[arg(long)]
         workspace: Option<String>,
         /// Run in the same Sandbox as another task, reusing its warm checkout
@@ -399,6 +400,7 @@ pub async fn run(
                 (None, Some(join)) => join.workspace.clone(),
                 (None, None) => None,
             };
+            require_a_workspace_source(workspace_id.as_deref(), parent_task_id.as_deref())?;
 
             validate_context_files_have_message(&message, &context_files)?;
             let has_message = message.is_some();
@@ -809,6 +811,26 @@ fn friendlier_scripts_error(err: ClientError, task_id: &str) -> ClientError {
         )),
         _ => ClientError::Other(format!("({status}) {message}")),
     }
+}
+
+/// Refuse a create the server would refuse: every Task runs in a Workspace, and
+/// only `--workspace`, a joined sandbox, or a parent to inherit from names one.
+///
+/// Not a clap `required_unless_present`: inside a sandbox the ambient task is
+/// the parent, and no flag carries it.
+fn require_a_workspace_source(
+    workspace_id: Option<&str>,
+    parent_task_id: Option<&str>,
+) -> Result<(), ClientError> {
+    if workspace_id.is_none() && parent_task_id.is_none() {
+        return Err(ClientError::Api {
+            status: 400,
+            body: "--workspace is required: pass one, --same-sandbox, or --parent to inherit"
+                .to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 fn validate_context_files_have_message(
@@ -1737,7 +1759,8 @@ mod tests {
 
     use super::{
         TaskAction, context_files_to_contexts, label, looks_like_task_id,
-        normalize_context_file_path, resolve_parent_task_id, validate_context_files_have_message,
+        normalize_context_file_path, require_a_workspace_source, resolve_parent_task_id,
+        validate_context_files_have_message,
     };
 
     /// `TaskAction` is a `Subcommand`, so parsing it standalone needs a
@@ -1771,7 +1794,7 @@ mod tests {
     fn bare_same_sandbox_parses_as_present_without_a_task_id() {
         // The distinction the flag turns on: absent (no join) vs present with
         // no value (join the ambient task) vs present with an explicit target.
-        let absent = parse_create(&["--repo", "moatless"]).expect("no join");
+        let absent = parse_create(&["--workspace", "ws_1"]).expect("no join");
         assert_eq!(same_sandbox_of(&absent), (false, None));
 
         let ambient = parse_create(&["--same-sandbox"]).expect("bare join");
@@ -1782,12 +1805,12 @@ mod tests {
     }
 
     #[test]
-    fn same_sandbox_stands_in_for_the_otherwise_required_repo() {
-        assert!(
-            parse_create(&[]).is_err(),
-            "--repo is required with neither --workspace nor a join"
-        );
-        parse_create(&["--same-sandbox"]).expect("a join settles where the task runs");
+    fn a_parent_or_a_join_stands_in_for_the_otherwise_required_workspace() {
+        assert!(require_a_workspace_source(None, None).is_err());
+        // A join resolves to the joined sandbox's workspace, so it reaches the
+        // check as one.
+        require_a_workspace_source(Some("ws_1"), None).expect("named outright");
+        require_a_workspace_source(None, Some("parent-1")).expect("inherited from the parent");
     }
 
     #[test]
@@ -1801,7 +1824,7 @@ mod tests {
     #[test]
     fn checkout_mode_requires_a_join_and_admits_only_the_two_modes() {
         assert!(
-            parse_create(&["--repo", "moatless", "--checkout-mode", "isolated"]).is_err(),
+            parse_create(&["--workspace", "ws_1", "--checkout-mode", "isolated"]).is_err(),
             "checkout mode is meaningless without a sandbox to be isolated from"
         );
         parse_create(&["--same-sandbox", "--checkout-mode", "isolated"]).expect("isolated");

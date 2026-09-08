@@ -31,7 +31,7 @@ image, setup commands, servers, environment, resources, and sandbox service acco
 
 Inspect `moat workspaces update --help` for `--servers-json`, `--env-vars-json`,
 `--resources-json`, and `--docker-image`. Get the workspace ID from the task.
-For git-managed workspaces, edit `.moatless/config.json` in the owning repository
+For git-managed workspaces, edit `.moatless/workspaces.json` in the owning repository
 or use `moat workspaces override` to take manual ownership. `reset-git` returns
 ownership to git. Explicit `moat repos sync-config` can reclaim overridden
 workspaces; inspect its effects before using it as a repair.

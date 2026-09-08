@@ -160,6 +160,7 @@ fn distinct_identities(messages: &[(String, String)]) -> usize {
 async fn seed_bound_session(state: &AppState, pool: &PgPool) {
     seed_team(pool, &format!("personal-{USER_1}")).await;
     let _ = repository_dao::insert(pool, &make_repository_row("repo-1", USER_1)).await;
+    common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
     task_dao::insert_task(pool, &make_task_row(TASK, USER_1))
         .await
         .expect("seed task");
@@ -229,6 +230,7 @@ async fn seed_rule(state: &AppState) {
             routing_mode: RoutingMode::BySubject,
             event_filter: serde_json::json!([]),
             repository_id: "repo-1".to_string(),
+            workspace_id: None,
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],

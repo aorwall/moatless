@@ -18,6 +18,8 @@ pub(super) struct ResolvedLoop {
     /// Display name for `loops.name`, from the required `name` frontmatter.
     name: String,
     routing_mode: RoutingMode,
+    /// See [`moatless_types::loops::LoopContext::workspace_id`].
+    workspace_id: Option<String>,
     agent_type: String,
     model: Option<String>,
     prompt: Option<String>,
@@ -73,6 +75,21 @@ impl LoopSyncService {
                 Ok(rm) => rm,
                 Err(e) => return Ok(ResolveOutcome::Skipped(format!("invalid routingMode: {e}"))),
             },
+        };
+
+        // A named Workspace must be one this repository is placed in: firing into
+        // any other would run the Loop against a checkout it never declared.
+        let workspace_id = match fm.workspace.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(name) => {
+                let placed = self.workspaces.for_repository(&repo.id).await?;
+                let Some(workspace) = placed.into_iter().find(|w| w.name == name) else {
+                    return Ok(ResolveOutcome::Skipped(format!(
+                        "no workspace named `{name}` holds this repository"
+                    )));
+                };
+                Some(workspace.id)
+            }
         };
 
         let agent_type = declared_agent_type(fm);
@@ -291,6 +308,7 @@ impl LoopSyncService {
             kind,
             name: fm.name.clone(),
             routing_mode,
+            workspace_id,
             agent_type,
             model,
             prompt,
@@ -335,6 +353,7 @@ pub(super) fn managed_loop_input(
 
     ManagedLoopUpsert {
         source_repository_id: repo.id.clone(),
+        workspace_id: resolved.workspace_id.clone(),
         source_key: parsed.dir_name.clone(),
         source_config_path: format!(".moatless/loops/{}/LOOP.md", parsed.dir_name),
         trigger_name: resolved.name.clone(),
@@ -442,6 +461,7 @@ mod tests {
         LoopFrontmatter {
             on: "linear".to_string(),
             name: "Ready Pool".to_string(),
+            workspace: None,
             agent_type: None,
             model: None,
             routing_mode: None,

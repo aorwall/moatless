@@ -119,18 +119,14 @@ pub trait WorkspaceDao: Send + Sync {
     async fn find_names_by_ids(&self, ids: &[String])
     -> Result<Vec<(String, String)>, sqlx::Error>;
 
-    /// Every non-deleted workspace the caller may read, plus every non-deleted
-    /// workspace in `also_include` whether or not they may read it, ordered by
-    /// name.
+    /// Every non-deleted workspace the caller may read, plus every workspace in
+    /// `also_include` whether or not they may read it and whether or not it is
+    /// deleted, ordered by name.
     ///
     /// The widening exists for listings that group tasks by their workspace. A
     /// task the caller may read can run in a workspace they may not — someone
-    /// else's user-scoped one — and a grouping that omits the workspace omits
-    /// the task with it.
-    ///
-    /// Unlike [`Self::list`] this excludes git-origin tombstones: a tombstone is
-    /// a deleted workspace kept only so a sync will not recreate it, and a
-    /// listing that groups live work has nothing to put under it.
+    /// else's user-scoped one — or in one a sync has tombstoned, and a grouping
+    /// that omits the workspace omits the task with it.
     ///
     /// Each row says which half of the union it came from — see
     /// [`ListedWorkspace`]. A caller that projects the two halves the same way
@@ -141,6 +137,15 @@ pub trait WorkspaceDao: Send + Sync {
         ctx: &ScopeContext,
         also_include: &[String],
     ) -> Result<Vec<ListedWorkspace>, sqlx::Error>;
+
+    /// Every live workspace placing this repository, the ones placing it as
+    /// primary first, then oldest first. Not scope-filtered, and tombstones are
+    /// excluded: this answers "where can work on this repository run", which no
+    /// deleted row can.
+    async fn find_by_repository(
+        &self,
+        repository_id: &str,
+    ) -> Result<Vec<Workspace>, sqlx::Error>;
 
     /// List a workspace's repo placements, primary first then by `position`.
     async fn find_repos(&self, workspace_id: &str) -> Result<Vec<WorkspaceRepo>, sqlx::Error>;
@@ -288,6 +293,27 @@ impl WorkspaceDao for PgWorkspaceDao {
         row.map(Workspace::try_from).transpose()
     }
 
+    async fn find_by_repository(
+        &self,
+        repository_id: &str,
+    ) -> Result<Vec<Workspace>, sqlx::Error> {
+        let rows: Vec<WorkspaceRow> = sqlx::query_as(
+            // Grouped, not a plain join: only `mount_name` and `is_primary` are
+            // unique per workspace, so a workspace placing this repository at
+            // two mounts would otherwise be returned twice.
+            r#"SELECT w.* FROM workspaces w
+               JOIN workspace_repos r ON r.workspace_id = w.id
+               WHERE r.repository_id = $1
+                 AND (w.deleted IS NULL OR w.deleted = false)
+               GROUP BY w.id
+               ORDER BY bool_or(r.is_primary) DESC, w.created_at ASC, w.id ASC"#,
+        )
+        .bind(repository_id)
+        .fetch_all(&self.0)
+        .await?;
+        rows.into_iter().map(Workspace::try_from).collect()
+    }
+
     async fn find_repos(&self, workspace_id: &str) -> Result<Vec<WorkspaceRepo>, sqlx::Error> {
         let rows: Vec<WorkspaceRepoRow> = sqlx::query_as(
             r#"SELECT * FROM workspace_repos
@@ -390,10 +416,13 @@ impl WorkspaceDao for PgWorkspaceDao {
         // `WHERE` and as the column that says which half admitted the row. One
         // expression, so a row can never be reported readable by one and not
         // the other.
+        //
+        // `deleted` narrows the readable half only: a workspace named by a task
+        // the caller may read is listed even once a sync has tombstoned it.
         let sql = format!(
             "SELECT *, {} AS readable FROM workspaces \
-             WHERE (deleted IS NULL OR deleted = false) \
-             AND ({} OR id = ANY(${ids_param})) \
+             WHERE ((deleted IS NULL OR deleted = false) AND {}) \
+             OR id = ANY(${ids_param}) \
              ORDER BY name ASC",
             access.sql(),
             access.sql()
@@ -711,74 +740,6 @@ impl WorkspaceDao for PgWorkspaceDao {
     }
 }
 
-/// Idempotently ensure a repository's deterministic **shadow workspace** exists
-/// (`ws_<repository_id>` + its primary placement `wsr_<repository_id>`), and
-/// return the workspace id.
-///
-/// This is the runtime twin of the Phase A migration backfill: it copies the
-/// same repository columns 1:1, uses the same `kind = 'single'`, and creates the
-/// same single primary placement, so a task created at runtime lands on exactly
-/// the shape the migration produced for pre-existing tasks. The workspace insert
-/// dedupes on `ON CONFLICT (id)`; the primary placement is skipped when the
-/// workspace already has one, so it stays correct even after `git_sync` has
-/// re-elected the primary under a random id. The id is returned unconditionally
-/// rather than gated on a prior existence `SELECT`. Both inserts run in one
-/// transaction.
-///
-/// If the repository row does not exist the `INSERT ... SELECT`s are no-ops; the
-/// returned id is still `ws_<repository_id>` (there is no FK on
-/// `tasks.workspace_id` during the additive transition).
-pub async fn ensure_shadow_workspace(
-    pool: &DbPool,
-    repository_id: &str,
-) -> Result<String, sqlx::Error> {
-    let mut tx = pool.begin().await?;
-
-    sqlx::query(
-        r#"INSERT INTO workspaces (
-               id, name, description, kind,
-               docker_image, docker_access, sandbox_service_account,
-               system_prompt, setup_commands, env_vars, servers, resources,
-               scope, owner_user_id, created_by, deleted, created_at, updated_at
-           )
-           SELECT
-               'ws_' || r.id, r.name, r.description, 'single',
-               r.docker_image, r.docker_access, r.sandbox_service_account,
-               r.system_prompt, r.setup_commands, r.env_vars,
-               COALESCE(r.servers, '[]'::jsonb), r.resources,
-               COALESCE(r.scope, 'user'), r.owner_user_id, r.created_by, r.deleted,
-               COALESCE(r.created_at, now()), COALESCE(r.updated_at, now())
-           FROM repositories r
-           WHERE r.id = $1
-           ON CONFLICT (id) DO NOTHING"#,
-    )
-    .bind(repository_id)
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query(
-        r#"INSERT INTO workspace_repos (
-               id, workspace_id, repository_id, branch, mount_name, is_primary, position
-           )
-           SELECT
-               'wsr_' || r.id, 'ws_' || r.id, r.id, NULL, NULL, true, 0
-           FROM repositories r
-           WHERE r.id = $1
-             AND NOT EXISTS (
-                 SELECT 1 FROM workspace_repos wr
-                 WHERE wr.workspace_id = 'ws_' || r.id AND wr.is_primary
-             )
-           ON CONFLICT (id) DO NOTHING"#,
-    )
-    .bind(repository_id)
-    .execute(&mut *tx)
-    .await?;
-
-    let workspace_id = format!("ws_{repository_id}");
-    tx.commit().await?;
-    Ok(workspace_id)
-}
-
 /// Soft-delete the Git workspaces declared by a deleted repository.
 pub(crate) async fn delete_declared_workspaces(
     db: &moatless_core::db::DbPool,
@@ -808,17 +769,6 @@ pub(crate) async fn git_source_keys(
     .bind(repository_id)
     .fetch_all(db)
     .await
-}
-
-/// Read source and deletion state, including workspace tombstones.
-pub(crate) async fn git_workspace_state(
-    db: &DbPool,
-    id: &str,
-) -> Result<Option<(String, Option<bool>)>, sqlx::Error> {
-    sqlx::query_as("SELECT source, deleted FROM workspaces WHERE id = $1")
-        .bind(id)
-        .fetch_optional(db)
-        .await
 }
 
 /// Find a Git source's workspace, including manual overrides and tombstones.

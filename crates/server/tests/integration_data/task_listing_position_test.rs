@@ -691,7 +691,7 @@ struct Mutation {
 
 /// A Task already in the deployment, owned by the user the mutations run as.
 async fn seed_subject(pool: &PgPool, subject: &str) {
-    crate::common::seed_workspace(pool, "ws_repo-1", USER_1).await;
+    crate::common::seed_workspace(pool, crate::common::FIXTURE_WORKSPACE, USER_1).await;
     moatless_tasks::task::dao::store_over(pool)
         .insert_task(&make_task_row(subject, USER_1))
         .await

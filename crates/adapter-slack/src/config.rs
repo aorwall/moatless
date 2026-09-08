@@ -127,6 +127,7 @@ mod tests {
             source_id: "C123".into(),
             source_name: None,
             repository_id: "repo1".into(),
+            workspace_id: None,
             routing_mode: moatless_types::loops::RoutingMode::BySubject,
             prompt_template: None,
             active: true,

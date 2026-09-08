@@ -74,11 +74,6 @@ primary first, whose directory is the sandbox's checkout. Distinct from
 Workspace ports), both of which leave `mount_name` open. `RepoCheckout` in
 `moatless_types::workspace`.
 
-**Default workspace**:
-The single-repo Workspace automatically derived for a Repository, so a Repository
-is runnable without anyone authoring a Workspace by hand.
-_Avoid_: shadow workspace
-
 **Workspace panel** (also **Workspace view**):
 The non-chat side of the task page — the pane that switches between the preview,
 the file explorer, and the sandbox diagnostics for a Task. A frontend UI concept
@@ -585,16 +580,16 @@ real. `user_at` reads the directory link a person establishes; `user_who_connect
 and `user_with_login` read the account behind a stored credential.
 
 **Workspace ports**:
-The four seams `workspaces` publishes. **WorkspaceResolver** — a Workspace's run
+The three seams `workspaces` publishes. **WorkspaceResolver** — a Workspace's run
 configuration (`ResolvedWorkspace`), the repositories it places
 (`RepoPlacement`, primary first, each with its repository row resolved), the
-plugins an identity has turned on (`PluginDelivery`), Workspace names by id, and
-one whole Workspace as a caller may see it.
+plugins an identity has turned on (`PluginDelivery`), Workspace names by id, one
+whole Workspace as a caller may see it, and the live Workspaces that place a
+given Repository (`for_repository`, primary placements first, oldest first) —
+the fallback a Loop firing takes when it names none.
 **WorkspaceCredentialReader** — the provider credentials pinned to a Workspace,
 decrypted and keyed by environment variable. **RepositoryReader** — one
 repository as a caller may see it, and display names by id.
-**WorkspaceProvisioner** — the deterministic shadow Workspace a repository owns,
-created on demand, so every Task creation path stores a `workspace_id`.
 _Note_: `WorkspaceResolver` and `WorkspaceCredentialReader` resolve across
 owners. The caller's own authorization decided the Workspace may be run before
 it reached the port, so neither takes a Scope. The two `describe` reads are the

@@ -150,6 +150,7 @@ async fn seed_subscription(
     repository_dao::insert(pool, &make_repository_row("repo-1", USER_1))
         .await
         .expect("seed repository");
+    common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
     state
         .loops
         .upsert_subscription(&SubscriptionMatch {
@@ -162,6 +163,7 @@ async fn seed_subscription(
             routing_mode: RoutingMode::BySubject,
             event_filter: serde_json::json!([]),
             repository_id: "repo-1".to_string(),
+            workspace_id: None,
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],

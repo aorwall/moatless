@@ -29,7 +29,7 @@ moat tasks servers <task-id> list
 ```
 
 Do not derive the workspace from repository ID. Read its source: git-owned
-workspaces are declared in `.moatless/config.json` or `.moatless/workspaces.json`;
+workspaces are declared in `.moatless/workspaces.json`;
 manual workspaces use `moat workspaces update`. `--servers-json` replaces the whole
 array, so include every server. `moat workspaces override` takes manual ownership;
 `reset-git` restores git configuration. Explicit repository config sync can reclaim

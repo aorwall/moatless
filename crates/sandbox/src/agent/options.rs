@@ -411,7 +411,7 @@ const MAX_INLINED_INSTRUCTIONS_BYTES: usize = 64 * 1024;
 /// By default the contents are inlined: being told a path is not the same as
 /// reading it, and an agent that skips the file works without the repo's
 /// conventions. A repo opts out with `agentConfig.frontloadInstructions: false`
-/// in its `.moatless/config.json` — see
+/// in its `REPO_CONFIG` — see
 /// [`crate::config::AgentConfig::frontload_instructions_enabled`] — and gets the
 /// path listing instead, which is the cheaper choice for a large file or a multi-repo
 /// workspace whose other repos the task never touches. That config travels with

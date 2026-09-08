@@ -45,8 +45,8 @@ crate::string_enum!(
     WorkspaceSource {
         /// Created through the API. Editable from the UI and the write API.
         Manual => "manual",
-        /// Reconciled from a repository's `.moatless/workspaces.json` or
-        /// `.moatless/config.json`. Read-only until it is overridden.
+        /// Reconciled from a repository's `.moatless/workspaces.json`.
+        /// Read-only until it is overridden.
         Git => "git",
     }
 );

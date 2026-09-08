@@ -299,6 +299,22 @@ impl TagResolver for TagCatalog {
 impl TaskOpener for crate::task::creation::TaskCreationService {
     async fn open(&self, req: NewTask) -> Result<TaskOpened, TaskOpenError> {
         let metadata = req.event_metadata.clone();
+        let workspace_id = match req.workspace_id {
+            Some(id) => id,
+            None => self
+                .workspaces
+                .for_repository(&req.repository_id)
+                .await?
+                .into_iter()
+                .next()
+                .map(|workspace| workspace.id)
+                .ok_or_else(|| {
+                    TaskOpenError::BadRequest(format!(
+                        "repository {} places no workspace; name one on the loop",
+                        req.repository_id
+                    ))
+                })?,
+        };
         let outcome = self
             .create(
                 crate::task::creation::NewTaskRequest {
@@ -316,7 +332,7 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
                     headless: true,
                     visibility: req.visibility,
                     loop_id: Some(req.loop_id),
-                    workspace_id: None,
+                    workspace_id,
                     // A Loop firing has no sandbox to join: it is triggered by
                     // an inbound event, not by a Task that already has one warm.
                     sandbox_id: None,

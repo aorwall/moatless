@@ -155,6 +155,7 @@ impl AppState {
             adapter_connections.clone(),
             loops.clone(),
             tag_resolver.clone(),
+            workspace_resolver.clone(),
             git_host_tokens.clone(),
         ));
 
@@ -243,6 +244,7 @@ impl AppState {
             task_relations.clone(),
             task_forks.clone(),
             repository_reader.clone(),
+            workspace_resolver.clone(),
             events.clone(),
             lifecycle.clone(),
             sandbox_joiner,

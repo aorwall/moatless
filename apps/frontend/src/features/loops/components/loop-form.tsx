@@ -22,6 +22,7 @@ import {
   type LoopSource,
 } from '@/features/loops/utils/loop-display'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { useWorkspacesList } from '@/features/workspaces/hooks/use-workspaces'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
@@ -48,6 +49,7 @@ interface LoopFormState {
   kind: LoopKind
   name: string
   repositoryId: string
+  workspaceId: string
   routingMode: RoutingMode
   prompt: string
   taskName: string
@@ -67,6 +69,9 @@ interface LoopFormState {
   timezone: string
   messageTemplate: string
 }
+
+/** Sentinel for "no workspace named": a `Select` item cannot carry an empty value. */
+const ANY_WORKSPACE = '__any__'
 
 const ROUTING_MODE_LABELS: Record<string, string> = {
   by_subject: 'By Subject',
@@ -119,6 +124,7 @@ function defaultAdapter(adapters: string[]): AdapterKind {
 function makeConfigFields(config: Loop['config'] | undefined) {
   return {
     repositoryId: config?.repositoryId ?? '',
+    workspaceId: config?.workspaceId ?? '',
     routingMode: config?.routingMode ?? RoutingMode.by_subject,
     prompt: config?.prompt ?? '',
     taskName: config?.taskName ?? '',
@@ -193,6 +199,7 @@ function validateForm(form: LoopFormState): string | null {
 function buildUpdateConfig(form: LoopFormState): NonNullable<UpdateLoopRequest['config']> {
   return {
     repositoryId: form.repositoryId,
+    workspaceId: form.workspaceId || null,
     routingMode: form.routingMode,
     prompt: form.prompt.trim() || null,
     taskName: form.taskName.trim() || null,
@@ -205,6 +212,7 @@ function buildUpdateConfig(form: LoopFormState): NonNullable<UpdateLoopRequest['
 function buildCreateConfig(form: LoopFormState): CreateLoopRequest['config'] {
   return {
     repositoryId: form.repositoryId,
+    workspaceId: form.workspaceId || null,
     routingMode: form.routingMode,
     prompt: form.prompt.trim() || null,
     taskName: form.taskName.trim() || null,
@@ -295,6 +303,7 @@ function LoopFormFields({
 }: LoopFormProps & { adapters: string[] }) {
   const { data: connections } = useIntegrationConnections()
   const { data: repositories } = useRepositoriesList()
+  const { data: workspaces } = useWorkspacesList()
   const adapterItems = adapters
   const isEditing = !!loop
   const createLoop = useCreateLoop()
@@ -305,6 +314,9 @@ function LoopFormFields({
 
   const connectionItems = (connections ?? []).filter(
     (connection) => connection.adapterKind === form.adapter,
+  )
+  const workspaceItems = (workspaces ?? []).filter((workspace) =>
+    workspace.repos.some((repo) => repo.repositoryId === form.repositoryId),
   )
 
   const handleSubmit = async () => {
@@ -504,7 +516,9 @@ function LoopFormFields({
           <Label>Repository</Label>
           <Select
             value={form.repositoryId}
-            onValueChange={(repositoryId) => setForm((prev) => ({ ...prev, repositoryId }))}
+            onValueChange={(repositoryId) =>
+              setForm((prev) => ({ ...prev, repositoryId, workspaceId: '' }))
+            }
           >
             <SelectTrigger>
               <SelectValue placeholder="Select repository" />
@@ -513,6 +527,30 @@ function LoopFormFields({
               {(repositories ?? []).map((repository) => (
                 <SelectItem key={repository.id} value={repository.id}>
                   {repository.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Workspace</Label>
+          <Select
+            value={form.workspaceId || ANY_WORKSPACE}
+            onValueChange={(workspaceId) =>
+              setForm((prev) => ({
+                ...prev,
+                workspaceId: workspaceId === ANY_WORKSPACE ? '' : workspaceId,
+              }))
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY_WORKSPACE}>Any placing this repository</SelectItem>
+              {workspaceItems.map((workspace) => (
+                <SelectItem key={workspace.id} value={workspace.id}>
+                  {workspace.name}
                 </SelectItem>
               ))}
             </SelectContent>

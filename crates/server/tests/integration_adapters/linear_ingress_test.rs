@@ -157,6 +157,7 @@ async fn seed_rule(state: &AppState, pool: &PgPool) {
     repository_dao::insert(pool, &repo)
         .await
         .expect("seed repository");
+    common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
 
     let now = Utc::now();
     state
@@ -171,6 +172,7 @@ async fn seed_rule(state: &AppState, pool: &PgPool) {
             routing_mode: RoutingMode::BySubject,
             event_filter: serde_json::json!([]),
             repository_id: "repo-1".to_string(),
+            workspace_id: None,
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],

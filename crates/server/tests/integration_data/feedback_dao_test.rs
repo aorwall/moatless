@@ -21,6 +21,10 @@ use sqlx::PgPool;
 
 const USER: &str = "user-1";
 
+/// Keep whichever workspace `make_task_row` already names, since `insert_task`
+/// refuses a row without one.
+const KEEP_FIXTURE_WORKSPACE: Option<&str> = None;
+
 /// Seed the repo + task that the listing query joins to.
 async fn seed_task(pool: &PgPool, task_id: &str, repo_id: &str, workspace_id: Option<&str>) {
     let repo = make_repository_row(repo_id, USER);
@@ -30,9 +34,8 @@ async fn seed_task(pool: &PgPool, task_id: &str, repo_id: &str, workspace_id: Op
 
     let mut task = make_task_row(task_id, USER);
     task.repository_id = repo_id.to_string();
-    task.workspace_id = workspace_id.map(str::to_string);
     if let Some(workspace_id) = workspace_id {
-        common::seed_workspace(pool, workspace_id, USER).await;
+        task.workspace_id = Some(workspace_id.to_string());
     }
     moatless_tasks::task::dao::insert_task(pool, &task)
         .await
@@ -209,7 +212,7 @@ async fn update_status_is_none_for_an_unknown_id(pool: PgPool) {
 
 #[sqlx::test]
 async fn list_filters_by_status(pool: PgPool) {
-    seed_task(&pool, "task-A", "repo-a", None).await;
+    seed_task(&pool, "task-A", "repo-a", KEEP_FIXTURE_WORKSPACE).await;
     let dao = PgFeedbackDao(pool);
     dao.insert(&sample("fb-open", "task-A", "task"))
         .await
@@ -310,7 +313,7 @@ async fn list_filters_by_workspace_repository_and_task(pool: PgPool) {
 
 #[sqlx::test]
 async fn list_filters_by_source_surface_category_submitter_and_age(pool: PgPool) {
-    seed_task(&pool, "task-A", "repo-a", None).await;
+    seed_task(&pool, "task-A", "repo-a", KEEP_FIXTURE_WORKSPACE).await;
     let dao = PgFeedbackDao(pool);
 
     let mut agent = sample("fb-agent", "task-A", "message");
@@ -367,7 +370,7 @@ async fn list_filters_by_source_surface_category_submitter_and_age(pool: PgPool)
 /// must not count it either — a total that outruns the page leaks existence.
 #[sqlx::test]
 async fn list_hides_feedback_on_tasks_the_caller_cannot_read(pool: PgPool) {
-    seed_task(&pool, "task-A", "repo-a", None).await;
+    seed_task(&pool, "task-A", "repo-a", KEEP_FIXTURE_WORKSPACE).await;
     let dao = PgFeedbackDao(pool);
     dao.insert(&sample("fb-a", "task-A", "task")).await.unwrap();
 
@@ -384,7 +387,7 @@ async fn list_hides_feedback_on_tasks_the_caller_cannot_read(pool: PgPool) {
 /// reports it rather than coming back as zero.
 #[sqlx::test]
 async fn list_pages_without_losing_the_total(pool: PgPool) {
-    seed_task(&pool, "task-A", "repo-a", None).await;
+    seed_task(&pool, "task-A", "repo-a", KEEP_FIXTURE_WORKSPACE).await;
     let dao = PgFeedbackDao(pool);
     for i in 0..3 {
         let mut row = sample(&format!("fb-{i}"), "task-A", "task");
@@ -412,7 +415,7 @@ async fn list_pages_without_losing_the_total(pool: PgPool) {
 
 #[sqlx::test]
 async fn latest_activity_prefers_the_latest_tool_call(pool: PgPool) {
-    seed_task(&pool, "task-A", "repo-a", None).await;
+    seed_task(&pool, "task-A", "repo-a", KEEP_FIXTURE_WORKSPACE).await;
     seed_message(&pool, "task-A", "msg-1").await;
     seed_activity(&pool, "task-A", 1, "msg-1", Some("tool-1")).await;
     seed_activity(&pool, "task-A", 2, "msg-1", Some("tool-2")).await;
@@ -425,7 +428,7 @@ async fn latest_activity_prefers_the_latest_tool_call(pool: PgPool) {
 
 #[sqlx::test]
 async fn latest_activity_falls_back_to_the_latest_message_with_no_tool_call(pool: PgPool) {
-    seed_task(&pool, "task-A", "repo-a", None).await;
+    seed_task(&pool, "task-A", "repo-a", KEEP_FIXTURE_WORKSPACE).await;
     seed_message(&pool, "task-A", "msg-1").await;
     seed_message(&pool, "task-A", "msg-2").await;
     let dao = PgFeedbackDao(pool);
@@ -437,7 +440,7 @@ async fn latest_activity_falls_back_to_the_latest_message_with_no_tool_call(pool
 
 #[sqlx::test]
 async fn latest_activity_is_none_for_a_task_with_no_messages(pool: PgPool) {
-    seed_task(&pool, "task-A", "repo-a", None).await;
+    seed_task(&pool, "task-A", "repo-a", KEEP_FIXTURE_WORKSPACE).await;
     let dao = PgFeedbackDao(pool);
 
     assert!(dao.latest_activity("task-A").await.unwrap().is_none());

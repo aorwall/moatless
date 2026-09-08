@@ -1,10 +1,8 @@
 //! Reconcile a repo's git-declared workspaces into `workspaces` rows.
 //!
-//! A repository can declare workspaces in its git tree: the default form is
-//! `.moatless/workspaces.json` (a list of workspaces, each with its own
-//! run-config and explicit repository URL(s)); the legacy form is
-//! [`fetch_moatless_config`] (a single workspace's run-config). Both reconcile
-//! into `workspaces` rows flagged `source = 'git'`, keyed by
+//! A repository declares its workspaces in `.moatless/workspaces.json`: a list
+//! of workspaces, each with its own run-config and explicit repository URL(s).
+//! They reconcile into `workspaces` rows flagged `source = 'git'`, keyed by
 //! `(source_repository_id, source_key)`, so reconciliation never touches
 //! manually-created workspaces. This mirrors `loops/sync.rs`.
 //!
@@ -34,7 +32,7 @@ use crate::repository::error::{RepositoryError, is_remote_url_conflict};
 use crate::repository::models::Repository;
 use crate::repository::remote_url::normalize_remote_url;
 use crate::workspace::config_validation::validate_non_secret_env_vars;
-use crate::workspace::dao::{WorkspaceDao, WorkspacePatch, ensure_shadow_workspace};
+use crate::workspace::dao::{WorkspaceDao, WorkspacePatch};
 use crate::workspace::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
 use moatless_core::db::DbPool;
@@ -50,25 +48,6 @@ use moatless_types::workspace::{ResourceConfig, ServerConfig};
 // =============================================================================
 // `.moatless/` file schemas
 // =============================================================================
-
-/// Top-level `.moatless/config.json` schema.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MoatlessRepoConfig {
-    pub docker_image: Option<String>,
-    pub code_execution: Option<CodeExecution>,
-    pub servers: Option<Vec<ServerConfig>>,
-    pub scripts: Option<Vec<ScriptConfig>>,
-    pub system_prompt: Option<String>,
-    pub resources: Option<ResourceConfig>,
-    /// Per-repo Kubernetes `ServiceAccount` for this repo's sandboxes. Overrides the
-    /// global default. Security: the named SA must exist and be RBAC-bound in the
-    /// sandbox namespace — this field only selects it, it grants nothing on its own.
-    pub sandbox_service_account: Option<String>,
-    /// Per-repo network profile — pods carry `moatless.io/network-profile=<value>`
-    /// for a static `NetworkPolicy` to select. Selects a policy; grants nothing.
-    pub network_profile: Option<String>,
-}
 
 /// Code execution settings.
 #[derive(Debug, Deserialize)]
@@ -98,7 +77,7 @@ pub struct MoatlessWorkspaceEntry {
     pub name: String,
     pub description: Option<String>,
     pub repos: Vec<MoatlessWorkspaceRepoRef>,
-    // --- Run configuration (mirrors `.moatless/config.json`) ---
+    // --- Run configuration ---
     pub docker_image: Option<String>,
     pub docker_access: Option<bool>,
     pub code_execution: Option<CodeExecution>,
@@ -122,33 +101,9 @@ pub struct MoatlessWorkspaceRepoRef {
     pub primary: bool,
 }
 
-/// Fetch `.moatless/config.json` from a remote repository.
-///
-/// This is the legacy single-workspace declaration form; `.moatless/workspaces.json`
-/// is the default. Returns `Ok(None)` when the file does not exist (HTTP 404).
-/// Token is optional — GitHub public repos can be fetched without auth.
-pub async fn fetch_moatless_config(
-    remote_url: &str,
-    branch: Option<&str>,
-    token: Option<&str>,
-    provider: RepositoryProvider,
-) -> Result<Option<MoatlessRepoConfig>, RepositoryError> {
-    let Some(body) =
-        fetch_provider_file(remote_url, ".moatless/config.json", branch, token, provider).await?
-    else {
-        return Ok(None);
-    };
-    let config = serde_json::from_str(&body).map_err(|e| {
-        RepositoryError::ProviderError(format!("Failed to parse .moatless/config.json: {e}"))
-    })?;
-    Ok(Some(config))
-}
-
 /// Fetch and parse `.moatless/workspaces.json` from a remote repository.
 ///
-/// Returns `Ok(None)` when the file does not exist. This is the default
-/// (non-legacy) workspace declaration form; see [`fetch_moatless_config`] for
-/// the legacy single-workspace form.
+/// Returns `Ok(None)` when the file does not exist.
 pub async fn fetch_moatless_workspaces(
     remote_url: &str,
     branch: Option<&str>,
@@ -175,10 +130,6 @@ pub async fn fetch_moatless_workspaces(
 // =============================================================================
 // Sync service
 // =============================================================================
-
-/// The deterministic `source_key` for the [`fetch_moatless_config`] workspace,
-/// which flags a repo's existing shadow workspace in place.
-const CONFIG_JSON_KEY: &str = "__config_json__";
 
 /// Whether a sync reclaims workspaces that were manually overridden.
 ///
@@ -241,10 +192,11 @@ impl GitSyncService {
 
     /// Fetch, resolve, and reconcile the workspaces declared in a repository.
     ///
-    /// `workspaces.json` wins when present (its entries are the desired set, and any
-    /// `config.json` git workspace is pruned by reconcile-delete). Otherwise a
-    /// present `config.json` flags the repo's shadow workspace `ws_<repo_id>` in
-    /// place. Best-effort/non-fatal: callers log the outcome.
+    /// The entries of `.moatless/workspaces.json` are the desired set. A repo
+    /// that ships no such file reconciles nothing and, deliberately, deletes
+    /// nothing: an empty desired set would otherwise tombstone every workspace
+    /// the repo has, and every Task running in one. Best-effort/non-fatal:
+    /// callers log the outcome.
     pub async fn sync_repo_workspaces_for(
         &self,
         repo: &Repository,
@@ -261,88 +213,54 @@ impl GitSyncService {
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
 
+        let Some(file) =
+            fetch_moatless_workspaces(remote_url, branch, token_str, provider).await?
+        else {
+            debug!(repository_id = %repo.id, "No .moatless/workspaces.json; nothing to sync");
+            return Ok(summary);
+        };
+
         // source_keys present in git this round — reconcile-delete keeps only these.
         let mut present: HashSet<String> = HashSet::new();
-
-        match fetch_moatless_workspaces(remote_url, branch, token_str, provider).await? {
-            Some(file) => {
-                // workspaces.json wins. Its entries are the desired set; the
-                // config.json git workspace (if any) is pruned by reconcile-delete
-                // because CONFIG_JSON_KEY is never inserted into `present`.
-                let mut seen_keys: HashSet<String> = HashSet::new();
-                for entry in &file.workspaces {
-                    let source_key = source_key_for(entry);
-                    if !seen_keys.insert(source_key.clone()) {
-                        // A duplicate source_key would violate workspaces_git_source_unique.
-                        warn!(repository_id = %repo.id, %source_key, "Duplicate workspace source_key; skipping later entry");
-                        summary.skipped.push(WorkspaceSyncSkip {
-                            source_key,
-                            reason: "duplicate source_key".to_string(),
-                        });
-                        continue;
-                    }
-                    if let Err(e) = validate_non_secret_env_vars(entry.env_vars.as_ref()) {
-                        warn!(repository_id = %repo.id, %source_key, error = %e, "Skipping workspace with invalid envVars");
-                        summary.skipped.push(WorkspaceSyncSkip {
-                            source_key,
-                            reason: e.to_string(),
-                        });
-                        continue;
-                    }
-
-                    let mut run = run_config_from_entry(entry);
-                    strip_git_declared_identity(&mut run, &repo.id, ".moatless/workspaces.json");
-                    let placements = self.resolve_placements(repo, &entry.repos).await?;
-
-                    present.insert(source_key.clone());
-                    let desired = DesiredWorkspace {
-                        fixed_id: None,
-                        source_key,
-                        source_config_path: ".moatless/workspaces.json".to_string(),
-                        name: entry.name.clone(),
-                        description: entry.description.clone(),
-                        run,
-                        placements,
-                    };
-                    record_outcome(
-                        &mut summary,
-                        self.upsert_git_workspace(repo, &desired, force).await?,
-                        &desired.source_key,
-                    );
-                }
+        let mut seen_keys: HashSet<String> = HashSet::new();
+        for entry in &file.workspaces {
+            let source_key = source_key_for(entry);
+            if !seen_keys.insert(source_key.clone()) {
+                // A duplicate source_key would violate workspaces_git_source_unique.
+                warn!(repository_id = %repo.id, %source_key, "Duplicate workspace source_key; skipping later entry");
+                summary.skipped.push(WorkspaceSyncSkip {
+                    source_key,
+                    reason: "duplicate source_key".to_string(),
+                });
+                continue;
             }
-            None => {
-                // Fall back to config.json: flag the repo's shadow workspace in place.
-                if let Some(config) =
-                    fetch_moatless_config(remote_url, branch, token_str, provider).await?
-                {
-                    let mut run = run_config_from_moatless_config(&config);
-                    strip_git_declared_identity(&mut run, &repo.id, ".moatless/config.json");
-                    present.insert(CONFIG_JSON_KEY.to_string());
-                    let desired = DesiredWorkspace {
-                        fixed_id: Some(format!("ws_{}", repo.id)),
-                        source_key: CONFIG_JSON_KEY.to_string(),
-                        source_config_path: ".moatless/config.json".to_string(),
-                        name: repo.name.clone(),
-                        description: repo.description.clone(),
-                        // The shadow mirrors the run-config declared in config.json.
-                        run,
-                        placements: vec![ResolvedPlacement {
-                            repository_id: repo.id.clone(),
-                            branch: None,
-                            mount_name: None,
-                            primary: true,
-                        }],
-                    };
-                    record_outcome(
-                        &mut summary,
-                        self.upsert_git_workspace(repo, &desired, force).await?,
-                        &desired.source_key,
-                    );
-                } else {
-                    debug!(repository_id = %repo.id, "No .moatless/workspaces.json or config.json; nothing to sync");
-                }
+            if let Err(e) = validate_non_secret_env_vars(entry.env_vars.as_ref()) {
+                warn!(repository_id = %repo.id, %source_key, error = %e, "Skipping workspace with invalid envVars");
+                summary.skipped.push(WorkspaceSyncSkip {
+                    source_key,
+                    reason: e.to_string(),
+                });
+                continue;
             }
+
+            let mut run = run_config_from_entry(entry);
+            strip_git_declared_identity(&mut run, &repo.id, ".moatless/workspaces.json");
+            let placements = self.resolve_placements(repo, &entry.repos).await?;
+
+            present.insert(source_key.clone());
+            let desired = DesiredWorkspace {
+                source_key,
+                source_config_path: ".moatless/workspaces.json".to_string(),
+                name: entry.name.clone(),
+                description: entry.description.clone(),
+                run,
+                placements,
+            };
+            record_outcome(
+                &mut summary,
+                self.upsert_git_workspace(repo, &desired, force).await?,
+                &desired.source_key,
+            );
         }
 
         // Reconcile-delete: soft-delete any git workspace for this repo whose
@@ -426,8 +344,8 @@ fn record_outcome(summary: &mut WorkspaceSyncSummary, outcome: UpsertOutcome, so
 
 /// Drop a privileged sandbox identity declared in repo config.
 ///
-/// `.moatless/workspaces.json` and `.moatless/config.json` are writable by
-/// anyone with commit access to the synced repo — a strictly wider set than
+/// `.moatless/workspaces.json` is writable by anyone with commit access to the
+/// synced repo — a strictly wider set than
 /// "moatless admin", and for a public repo an effectively unbounded one. Since
 /// `sandbox_service_account` and `network_profile` are what opt a sandbox into
 /// an elevated Kubernetes identity (see
@@ -459,7 +377,7 @@ fn strip_git_declared_identity(run: &mut RunConfig, repository_id: &str, source_
     }
 }
 
-/// Run-config fields shared by the entry and config.json paths.
+/// The run-config fields a git-declared workspace carries.
 struct RunConfig {
     docker_image: Option<String>,
     docker_access: Option<bool>,
@@ -483,12 +401,8 @@ struct ResolvedPlacement {
 
 /// A git-declared workspace resolved to concrete values, ready to upsert.
 struct DesiredWorkspace {
-    /// Deterministic id for the config.json shadow (`ws_<repo_id>`); `None` for
-    /// workspaces.json entries (found by natural key, else a fresh id).
-    fixed_id: Option<String>,
     source_key: String,
-    /// Path to the declaring file within the repository, e.g.
-    /// `.moatless/workspaces.json` or `.moatless/config.json`.
+    /// Path to the declaring file within the repository.
     source_config_path: String,
     name: String,
     description: Option<String>,
@@ -526,27 +440,6 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> RunConfig {
     }
 }
 
-/// Build the shadow workspace's run-config from a parsed legacy
-/// `.moatless/config.json`. The file has no `dockerAccess`/`envVars`,
-/// so those are `None`.
-fn run_config_from_moatless_config(config: &MoatlessRepoConfig) -> RunConfig {
-    RunConfig {
-        docker_image: config.docker_image.clone(),
-        docker_access: None,
-        sandbox_service_account: config.sandbox_service_account.clone(),
-        network_profile: config.network_profile.clone(),
-        system_prompt: config.system_prompt.clone(),
-        setup_commands: config
-            .code_execution
-            .as_ref()
-            .and_then(|c| c.setup_commands.clone()),
-        env_vars: None,
-        servers: config.servers.clone(),
-        scripts: config.scripts.clone(),
-        resources: config.resources.clone(),
-    }
-}
-
 /// What to do with an existing `source = 'manual'` row that a git-declared
 /// workspace maps onto: `None` leaves the override/tombstone in place,
 /// `Some(outcome)` writes git's config over it.
@@ -579,77 +472,56 @@ impl GitSyncService {
         // caller input; scope/owner are inherited from the repository row.
         #[allow(clippy::disallowed_methods)]
         let sys_ctx = ScopeContext::system();
-        let (workspace_id, outcome) = if let Some(id) = &desired.fixed_id {
-            // Shadow workspace — look up by id to check if it has been overridden.
-            let existing = super::dao::git_workspace_state(&self.db, id).await?;
-            match existing {
-                Some((source, deleted)) if source == "manual" => {
-                    let Some(outcome) = reclaim_override(id, deleted, force) else {
-                        debug!(workspace_id = %id, "skipping git sync — workspace has been manually overridden");
-                        return Ok(UpsertOutcome::Skipped);
-                    };
-                    (id.clone(), outcome)
-                }
-                Some(_) => (id.clone(), UpsertOutcome::Updated),
-                None => {
-                    // Doesn't exist yet — create it (idempotent, race-safe).
-                    ensure_shadow_workspace(&self.db, &repo.id).await?;
-                    (id.clone(), UpsertOutcome::Created)
-                }
-            }
-        } else {
-            // Look up by natural key — include 'manual' so an overridden workspace
-            // is found and skipped (or reclaimed) rather than re-created under the
-            // same key. Soft-deleted rows are reused too, so a delete never orphans
-            // the key behind a row that no lookup would find again.
-            let existing =
-                super::dao::workspace_for_git_source(&self.db, &repo.id, &desired.source_key)
-                    .await?;
+        // Look up by natural key — include 'manual' so an overridden workspace
+        // is found and skipped (or reclaimed) rather than re-created under the
+        // same key. Soft-deleted rows are reused too, so a delete never orphans
+        // the key behind a row that no lookup would find again.
+        let existing =
+            super::dao::workspace_for_git_source(&self.db, &repo.id, &desired.source_key).await?;
 
-            match existing {
-                Some((id, source, deleted)) if source == "manual" => {
-                    let Some(outcome) = reclaim_override(&id, deleted, force) else {
-                        debug!(workspace_id = %id, source_key = %desired.source_key,
+        let (workspace_id, outcome) = match existing {
+            Some((id, source, deleted)) if source == "manual" => {
+                let Some(outcome) = reclaim_override(&id, deleted, force) else {
+                    debug!(workspace_id = %id, source_key = %desired.source_key,
                         "skipping git sync — workspace has been manually overridden");
-                        return Ok(UpsertOutcome::Skipped);
-                    };
-                    (id, outcome)
-                }
-                Some((id, _, _)) => (id, UpsertOutcome::Updated),
-                None => {
-                    let id = format!("ws_{}", uuid::Uuid::new_v4());
-                    let row = Workspace {
-                        id: id.clone(),
-                        name: desired.name.clone(),
-                        description: desired.description.clone(),
-                        kind: WorkspaceKind::Single, // refresh_kind fixes below
-                        docker_image: desired.run.docker_image.clone(),
-                        docker_access: desired.run.docker_access,
-                        sandbox_service_account: desired.run.sandbox_service_account.clone(),
-                        system_prompt: desired.run.system_prompt.clone(),
-                        setup_commands: desired.run.setup_commands.clone(),
-                        env_vars: desired.run.env_vars.clone(),
-                        servers: desired.run.servers.clone(),
-                        scripts: desired.run.scripts.clone(),
-                        resources: desired.run.resources.clone(),
-                        network_profile: desired.run.network_profile.clone(),
-                        source: WorkspaceSource::Git,
-                        source_repository_id: Some(repo.id.clone()),
-                        source_key: Some(desired.source_key.clone()),
-                        source_config_path: Some(desired.source_config_path.clone()),
-                        scope: repo.scope,
-                        owner_user_id: repo.owner_user_id.clone(),
-                        // Never declared in git: commit access to a repository
-                        // would otherwise name the account its Tasks act as.
-                        run_as_user_id: None,
-                        created_by: repo.created_by.clone(),
-                        deleted: false,
-                        created_at: None,
-                        updated_at: None,
-                    };
-                    self.workspaces.insert_workspace(&row).await?;
-                    (id, UpsertOutcome::Created)
-                }
+                    return Ok(UpsertOutcome::Skipped);
+                };
+                (id, outcome)
+            }
+            Some((id, _, _)) => (id, UpsertOutcome::Updated),
+            None => {
+                let id = format!("ws_{}", uuid::Uuid::new_v4());
+                let row = Workspace {
+                    id: id.clone(),
+                    name: desired.name.clone(),
+                    description: desired.description.clone(),
+                    kind: WorkspaceKind::Single, // refresh_kind fixes below
+                    docker_image: desired.run.docker_image.clone(),
+                    docker_access: desired.run.docker_access,
+                    sandbox_service_account: desired.run.sandbox_service_account.clone(),
+                    system_prompt: desired.run.system_prompt.clone(),
+                    setup_commands: desired.run.setup_commands.clone(),
+                    env_vars: desired.run.env_vars.clone(),
+                    servers: desired.run.servers.clone(),
+                    scripts: desired.run.scripts.clone(),
+                    resources: desired.run.resources.clone(),
+                    network_profile: desired.run.network_profile.clone(),
+                    source: WorkspaceSource::Git,
+                    source_repository_id: Some(repo.id.clone()),
+                    source_key: Some(desired.source_key.clone()),
+                    source_config_path: Some(desired.source_config_path.clone()),
+                    scope: repo.scope,
+                    owner_user_id: repo.owner_user_id.clone(),
+                    // Never declared in git: commit access to a repository
+                    // would otherwise name the account its Tasks act as.
+                    run_as_user_id: None,
+                    created_by: repo.created_by.clone(),
+                    deleted: false,
+                    created_at: None,
+                    updated_at: None,
+                };
+                self.workspaces.insert_workspace(&row).await?;
+                (id, UpsertOutcome::Created)
             }
         };
 
@@ -920,7 +792,7 @@ pub async fn log_workspace_sync(
 
 #[cfg(test)]
 mod tests {
-    use moatless_types::workspace::{Memory, Port};
+    use moatless_types::workspace::Memory;
 
     use super::*;
 
@@ -976,76 +848,9 @@ mod tests {
         assert_eq!(repo_name_from_url("https://gitlab.com/g/sub/proj"), "proj");
     }
 
-    #[test]
-    fn parse_config_json() {
-        let json = r#"{
-            "codeExecution": {
-                "setupCommands": ["bun install"]
-            },
-            "servers": [
-                {
-                    "name": "dev",
-                    "label": "Dev Server",
-                    "port": 3000,
-                    "startCommands": ["bun run dev"],
-                    "startupTimeoutSeconds": 30,
-                    "autoReload": true,
-                    "enableInspector": true,
-                    "default": true
-                }
-            ]
-        }"#;
-
-        let config: MoatlessRepoConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(config.servers.as_ref().unwrap().len(), 1);
-        assert_eq!(config.servers.as_ref().unwrap()[0].name, "dev");
-        assert_eq!(
-            config
-                .code_execution
-                .as_ref()
-                .unwrap()
-                .setup_commands
-                .as_ref()
-                .unwrap(),
-            &vec!["bun install".to_string()]
-        );
-    }
-
-    #[test]
-    fn run_config_from_moatless_config_maps_fields() {
-        let config = MoatlessRepoConfig {
-            docker_image: Some("myregistry/custom-sandbox:latest".to_string()),
-            code_execution: Some(CodeExecution {
-                setup_commands: Some(vec!["npm install".to_string()]),
-            }),
-            servers: Some(vec![ServerConfig {
-                name: "dev".to_string(),
-                port: Port::new(3000),
-                default: true,
-                ..Default::default()
-            }]),
-            scripts: None,
-            system_prompt: Some("Be helpful".to_string()),
-            resources: None,
-            sandbox_service_account: Some("moatless-dev".to_string()),
-            network_profile: None,
-        };
-
-        let run = run_config_from_moatless_config(&config);
-        assert_eq!(
-            run.docker_image,
-            Some("myregistry/custom-sandbox:latest".to_string())
-        );
-        assert_eq!(
-            run.sandbox_service_account,
-            Some("moatless-dev".to_string())
-        );
-        assert_eq!(run.system_prompt, Some("Be helpful".to_string()));
-        assert!(run.servers.is_some());
-        assert!(run.setup_commands.is_some());
-        // config.json has no dockerAccess/envVars.
-        assert!(run.docker_access.is_none());
-        assert!(run.env_vars.is_none());
+    /// One entry of a `.moatless/workspaces.json`, parsed.
+    fn parse_entry(json: &str) -> MoatlessWorkspaceEntry {
+        serde_json::from_str(json).expect("parse workspace entry")
     }
 
     /// Repo config may not hand a sandbox an elevated Kubernetes identity —
@@ -1053,19 +858,19 @@ mod tests {
     /// access the admin-only API gate withholds.
     #[test]
     fn git_declared_privileged_identity_is_stripped() {
-        let config = MoatlessRepoConfig {
-            docker_image: Some("myregistry/custom-sandbox:latest".to_string()),
-            code_execution: None,
-            servers: None,
-            scripts: None,
-            system_prompt: Some("Be helpful".to_string()),
-            resources: None,
-            sandbox_service_account: Some("moatless-admin".to_string()),
-            network_profile: Some("moatless-admin".to_string()),
-        };
+        let entry = parse_entry(
+            r#"{
+                "name": "API",
+                "repos": [],
+                "dockerImage": "myregistry/custom-sandbox:latest",
+                "systemPrompt": "Be helpful",
+                "sandboxServiceAccount": "moatless-admin",
+                "networkProfile": "moatless-admin"
+            }"#,
+        );
 
-        let mut run = run_config_from_moatless_config(&config);
-        strip_git_declared_identity(&mut run, "repo-1", ".moatless/config.json");
+        let mut run = run_config_from_entry(&entry);
+        strip_git_declared_identity(&mut run, "repo-1", ".moatless/workspaces.json");
 
         assert!(run.sandbox_service_account.is_none());
         assert!(run.network_profile.is_none());
@@ -1081,19 +886,10 @@ mod tests {
     /// and logs nothing.
     #[test]
     fn strip_is_a_noop_without_declared_identity() {
-        let config = MoatlessRepoConfig {
-            docker_image: None,
-            code_execution: None,
-            servers: None,
-            scripts: None,
-            system_prompt: None,
-            resources: None,
-            sandbox_service_account: None,
-            network_profile: None,
-        };
+        let entry = parse_entry(r#"{ "name": "API", "repos": [] }"#);
 
-        let mut run = run_config_from_moatless_config(&config);
-        strip_git_declared_identity(&mut run, "repo-1", ".moatless/config.json");
+        let mut run = run_config_from_entry(&entry);
+        strip_git_declared_identity(&mut run, "repo-1", ".moatless/workspaces.json");
 
         assert!(run.sandbox_service_account.is_none());
         assert!(run.network_profile.is_none());
@@ -1101,20 +897,23 @@ mod tests {
 
     #[test]
     fn config_carries_storage_switches_from_git_repo() {
-        // A repo turning the PVC off and keeping the S3 snapshot via its
-        // committed `.moatless/config.json`. The nested `ResourceConfig` must
-        // read the camelCase keys and round-trip back to camelCase in the stored
-        // JSONB so the provision-time deserialize reads it correctly.
-        let json = r#"{
-            "resources": { "pvcEnabled": false, "s3Enabled": true, "storage": "8Gi" }
-        }"#;
-        let config: MoatlessRepoConfig = serde_json::from_str(json).unwrap();
-        let resources = config.resources.as_ref().expect("resources present");
+        // A repo turning the PVC off and keeping the S3 snapshot. The nested
+        // `ResourceConfig` must read the camelCase keys and round-trip back to
+        // camelCase in the stored JSONB so the provision-time deserialize reads
+        // it correctly.
+        let entry = parse_entry(
+            r#"{
+                "name": "API",
+                "repos": [],
+                "resources": { "pvcEnabled": false, "s3Enabled": true, "storage": "8Gi" }
+            }"#,
+        );
+        let resources = entry.resources.as_ref().expect("resources present");
         assert_eq!(resources.pvc_enabled, Some(false));
         assert_eq!(resources.s3_enabled, Some(true));
         assert_eq!(resources.storage.as_ref().map(Memory::as_str), Some("8Gi"));
 
-        let run = run_config_from_moatless_config(&config);
+        let run = run_config_from_entry(&entry);
         let stored = run.resources.expect("resources value present");
         let value = serde_json::to_value(&stored).expect("serialize");
         assert_eq!(value.get("pvcEnabled"), Some(&serde_json::json!(false)));
@@ -1130,11 +929,14 @@ mod tests {
     /// still carries one loads and simply falls back to the deployment defaults.
     #[test]
     fn a_stale_storage_mode_is_ignored() {
-        let json = r#"{
-            "resources": { "storageMode": "ephemeral", "storage": "8Gi" }
-        }"#;
-        let config: MoatlessRepoConfig = serde_json::from_str(json).unwrap();
-        let resources = config.resources.as_ref().expect("resources present");
+        let entry = parse_entry(
+            r#"{
+                "name": "API",
+                "repos": [],
+                "resources": { "storageMode": "ephemeral", "storage": "8Gi" }
+            }"#,
+        );
+        let resources = entry.resources.as_ref().expect("resources present");
         assert_eq!(resources.pvc_enabled, None);
         assert_eq!(resources.s3_enabled, None);
         assert_eq!(resources.storage.as_ref().map(Memory::as_str), Some("8Gi"));

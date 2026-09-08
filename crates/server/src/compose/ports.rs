@@ -263,12 +263,7 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
 
     // One PgTaskDao serves the TaskDao port, the E-(b) TaskAccess port, and the
     // published `TaskReader` seam peer crates read.
-    let task_dao = Arc::new(PgTaskDao::new(
-        pool.clone(),
-        Arc::new(moatless_workspaces::ports::ShadowWorkspaces::new(
-            pool.clone(),
-        )),
-    ));
+    let task_dao = Arc::new(PgTaskDao::new(pool.clone()));
     let task_reader = Arc::new(moatless_tasks::ports::TaskProjection::new(task_dao.clone()));
 
     let messages: Arc<dyn MessageDao> = Arc::new(PgMessageDao(pool.clone()));
