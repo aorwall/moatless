@@ -661,29 +661,36 @@ pub(crate) fn sandbox_failure_exit(
     error: &SandboxRpcError,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
-    if matches!(error, SandboxRpcError::NotFound) {
-        warn!(%tag, user_id = %identity.user_id, "T3 UI sandbox request refused; thread not readable");
-        return typed_failure_exit(
-            request_id,
-            authorization_error(oauth::required_scope(tag), THREAD_UNAVAILABLE),
-        );
+    match error {
+        SandboxRpcError::NotFound => {
+            warn!(%tag, user_id = %identity.user_id, "T3 UI sandbox request refused; thread not readable");
+            typed_failure_exit(
+                request_id,
+                authorization_error(oauth::required_scope(tag), THREAD_UNAVAILABLE),
+            )
+        }
+        // Moatless declined the change and said why in terms the person asking
+        // can act on, so its own words go back rather than the generic failure.
+        SandboxRpcError::Refused(message) => {
+            warn!(%tag, %message, user_id = %identity.user_id, "T3 UI sandbox request refused by Moatless");
+            failure_exit(request_id, message.as_str())
+        }
+        SandboxRpcError::Sandbox(_) | SandboxRpcError::Database(_) => {
+            error!(%error, user_id = %identity.user_id, "Failed to answer a Task's sandbox lifecycle request");
+            failure_exit(request_id, "Failed to read the conversation's sandbox")
+        }
     }
-    error!(%error, user_id = %identity.user_id, "Failed to answer a Task's sandbox lifecycle request");
-    failure_exit(request_id, "Failed to read the conversation's sandbox")
 }
 
-/// How `sandbox.subscribeStatus` ends once its Task stops being readable.
+/// How a `sandbox.subscribe*` stream ends once its Task stops being readable.
 ///
 /// The same refusal [`sandbox_failure_exit`] answers the opening request with,
 /// as the `Exit` that closes a stream already delivering chunks. The caller
 /// logs it: this is reached from the poller, which knows the Task id.
-pub(crate) fn sandbox_stream_refusal(request_id: &RequestId) -> Value {
+pub(crate) fn sandbox_stream_refusal(request_id: &RequestId, tag: &str) -> Value {
     typed_failure_exit(
         request_id,
-        authorization_error(
-            oauth::required_scope("sandbox.subscribeStatus"),
-            THREAD_UNAVAILABLE,
-        ),
+        authorization_error(oauth::required_scope(tag), THREAD_UNAVAILABLE),
     )
 }
 

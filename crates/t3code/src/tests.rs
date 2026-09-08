@@ -254,6 +254,28 @@ impl SandboxStopper for UnreachableSandboxes {
 }
 
 #[async_trait]
+impl moatless_ports::sandbox::SandboxOperator for UnreachableSandboxes {
+    async fn restart(&self, task_id: &str) -> Result<(), moatless_ports::sandbox::SandboxError> {
+        Err(unreachable(task_id))
+    }
+
+    async fn redeploy(&self, task_id: &str) -> Result<(), moatless_ports::sandbox::SandboxError> {
+        Err(unreachable(task_id))
+    }
+
+    async fn cleanup(&self, task_id: &str) -> Result<(), moatless_ports::sandbox::SandboxError> {
+        Err(unreachable(task_id))
+    }
+
+    async fn expected_image(
+        &self,
+        task_id: &str,
+    ) -> Result<String, moatless_ports::sandbox::SandboxError> {
+        Err(unreachable(task_id))
+    }
+}
+
+#[async_trait]
 impl ClusterDiagnostics for UnreachableSandboxes {
     async fn list_sandbox_diagnostics(
         &self,
@@ -282,6 +304,15 @@ impl SandboxObserver for UnreachableSandboxes {
         _task_status: moatless_types::task::TaskStatus,
         _desired_state: moatless_types::sandbox::SandboxDesiredState,
     ) -> Result<LiveStatus, SandboxError> {
+        Err(unreachable(task_id))
+    }
+
+    async fn detail(
+        &self,
+        task_id: &str,
+        _task_status: moatless_types::task::TaskStatus,
+        _desired_state: moatless_types::sandbox::SandboxDesiredState,
+    ) -> Result<moatless_ports::sandbox::SandboxDetail, SandboxError> {
         Err(unreachable(task_id))
     }
 
@@ -592,6 +623,14 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file stops a thread")
     }
+    async fn set_idle_timeout(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _minutes: i32,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file changes an idle timeout")
+    }
     async fn archive(
         &self,
         _viewer: &ScopeContext,
@@ -732,6 +771,7 @@ fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore>) -> UiRpc
             intent: Arc::new(UnreachableSandboxes),
             starter: Arc::new(UnreachableSandboxes),
             stopper: Arc::new(UnreachableSandboxes),
+            operator: Arc::new(UnreachableSandboxes),
             diagnostics: Arc::new(UnreachableSandboxes),
         },
         subtasks: SubtasksState {
@@ -1014,6 +1054,15 @@ impl SandboxObserver for FixedStatus {
         })
     }
 
+    async fn detail(
+        &self,
+        _task_id: &str,
+        _task_status: TaskStatus,
+        _desired_state: SandboxDesiredState,
+    ) -> Result<moatless_ports::sandbox::SandboxDetail, SandboxError> {
+        unreachable!("the lifecycle read reads no detail")
+    }
+
     async fn server_logs(
         &self,
         _task_id: &str,
@@ -1030,6 +1079,7 @@ fn state_with_sandbox_status(status: SandboxStatus) -> UiRpcState {
     tasks.expect_find_by_id().returning(|_, _| {
         Ok(Some(TaskView {
             status: TaskStatus::Open,
+            ttl_minutes: 15,
         }))
     });
     state.sandbox.tasks = Arc::new(tasks);
@@ -1999,7 +2049,7 @@ fn a_sandbox_that_could_not_be_read_is_still_a_defect() {
 #[test]
 fn a_subscription_ends_with_the_refusal_its_request_would_have_answered() {
     assert_eq!(
-        sandbox_stream_refusal(&request_id("1")),
+        sandbox_stream_refusal(&request_id("1"), "sandbox.subscribeStatus"),
         sandbox_failure_exit(
             &request_id("1"),
             "sandbox.subscribeStatus",

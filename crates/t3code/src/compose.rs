@@ -23,6 +23,7 @@ use moatless_identity::auth::pairing::DevicePairing;
 use moatless_ports::sandbox::ClusterDiagnostics;
 use moatless_ports::sandbox::SandboxIntentReader;
 use moatless_ports::sandbox::SandboxObserver;
+use moatless_ports::sandbox::SandboxOperator;
 use moatless_ports::sandbox::SandboxPortPublisher;
 use moatless_ports::sandbox::SandboxStarter;
 use moatless_ports::sandbox::SandboxStopper;
@@ -63,6 +64,7 @@ pub async fn router_from_env(
         intent,
         starter,
         stopper,
+        operator,
         preview_tabs,
         model_defaults,
         agents,
@@ -145,6 +147,7 @@ pub async fn router_from_env(
             intent,
             starter,
             stopper,
+            operator,
             diagnostics,
         },
         subtasks: SubtasksState {
@@ -220,6 +223,9 @@ pub struct UiRpcDependencies {
     pub starter: Arc<dyn SandboxStarter>,
     /// Stops a Task's Sandbox through the same lifecycle path as the REST API.
     pub stopper: Arc<dyn SandboxStopper>,
+    /// Restarts, redeploys and cleans up a Task's Sandbox, through the same
+    /// lifecycle path as the REST API.
+    pub operator: Arc<dyn SandboxOperator>,
     pub preview_tabs: Arc<dyn PreviewTabDao>,
     pub model_defaults: AgentModelDefaults,
     /// Which agents this viewer can run, and with which models.

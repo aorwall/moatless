@@ -405,6 +405,7 @@ mod tests {
     fn task_fixture(_task_id: &str) -> TaskView {
         TaskView {
             status: moatless_types::task::TaskStatus::Open,
+            ttl_minutes: 15,
         }
     }
 

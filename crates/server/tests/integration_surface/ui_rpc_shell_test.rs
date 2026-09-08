@@ -196,6 +196,15 @@ impl SandboxObserver for NoSandboxes {
         Err(SandboxError::NotReady(task_id.to_string()))
     }
 
+    async fn detail(
+        &self,
+        task_id: &str,
+        _task_status: TaskStatus,
+        _desired_state: SandboxDesiredState,
+    ) -> Result<moatless_ports::sandbox::SandboxDetail, SandboxError> {
+        Err(SandboxError::NotReady(task_id.to_string()))
+    }
+
     async fn server_logs(
         &self,
         task_id: &str,
@@ -223,6 +232,25 @@ impl SandboxStarter for NoSandboxes {
 #[async_trait::async_trait]
 impl SandboxStopper for NoSandboxes {
     async fn stop(&self, task_id: &str, _reason: SandboxStopReason) -> Result<(), SandboxError> {
+        Err(SandboxError::NotReady(task_id.to_string()))
+    }
+}
+
+#[async_trait::async_trait]
+impl moatless_ports::sandbox::SandboxOperator for NoSandboxes {
+    async fn restart(&self, task_id: &str) -> Result<(), SandboxError> {
+        Err(SandboxError::NotReady(task_id.to_string()))
+    }
+
+    async fn redeploy(&self, task_id: &str) -> Result<(), SandboxError> {
+        Err(SandboxError::NotReady(task_id.to_string()))
+    }
+
+    async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError> {
+        Err(SandboxError::NotReady(task_id.to_string()))
+    }
+
+    async fn expected_image(&self, task_id: &str) -> Result<String, SandboxError> {
         Err(SandboxError::NotReady(task_id.to_string()))
     }
 }
@@ -267,6 +295,7 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         // Nothing this suite drives starts or stops a Sandbox.
         starter: Arc::new(NoSandboxes),
         stopper: Arc::new(NoSandboxes),
+        operator: Arc::new(NoSandboxes),
         // Nothing this suite drives opens a preview tab, and the in-process
         // store is a production path rather than a double — see the epoch note
         // on `PreviewTabDao`.

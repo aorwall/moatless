@@ -22,6 +22,40 @@ pub trait SandboxStopper: Send + Sync {
     async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxError>;
 }
 
+/// The lifecycle surface the T3 sandbox panel drives beside start and stop:
+/// three transitions, plus the one read that decides whether to offer one of
+/// them.
+///
+/// Deliberately not part of [`SandboxLifecycle`], which is sized to the tasks
+/// band and preserves its 409 through [`SandboxOpError`]. These flatten through
+/// [`SandboxError`] like [`SandboxStarter`] and [`SandboxStopper`] beside them,
+/// because the T3 surface renders one refusal for every lifecycle failure.
+#[async_trait]
+pub trait SandboxOperator: Send + Sync {
+    /// Replace the Task's sandbox pod, keeping its deployment and its workspace.
+    async fn restart(&self, task_id: &str) -> Result<(), SandboxError>;
+
+    /// Rebuild the Task's sandbox deployment from current repository config,
+    /// keeping its workspace volume. What picks up a new image.
+    async fn redeploy(&self, task_id: &str) -> Result<(), SandboxError>;
+
+    /// Remove the Task's sandbox and delete its archives, leaving the Task.
+    ///
+    /// The retention is fixed rather than passed in: [`ArchiveRetention::DeleteArchives`]
+    /// is what the REST cleanup route applies, and the panel offers no other.
+    async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError>;
+
+    /// The image a fresh deploy would install: the per-repo `docker_image`
+    /// override, else the configured default.
+    ///
+    /// A read, on a port of transitions, because it is [`Self::redeploy`]'s
+    /// decision input and nothing else asks it — the panel compares it against
+    /// the running image to decide whether a redeploy would move anything. The
+    /// status readers cannot answer it: they see the pod, not the deployment
+    /// config, so every one of them reports `latest_sandbox_image: None`.
+    async fn expected_image(&self, task_id: &str) -> Result<String, SandboxError>;
+}
+
 /// A lifecycle operation failure, band-clean and reduced to what the task API
 /// surfaces. The sandbox-band implementation pre-classifies each variant from
 /// the rich `LifecycleError` so the tasks band names no `sandbox` error type.

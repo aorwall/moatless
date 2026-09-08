@@ -214,7 +214,12 @@ impl ProtocolSession {
             "scripts.run" => scripts_run(request).await,
             "sandbox.start" => sandbox_start(request).await,
             "sandbox.stop" => sandbox_stop(request).await,
+            "sandbox.restart" => sandbox_restart(request).await,
+            "sandbox.redeploy" => sandbox_redeploy(request).await,
+            "sandbox.cleanup" => sandbox_cleanup(request).await,
+            "sandbox.setIdleTimeout" => sandbox_set_idle_timeout(request).await,
             "sandbox.subscribeStatus" => self.sandbox_subscribe_status(request).await,
+            "sandbox.subscribeDetail" => self.sandbox_subscribe_detail(request).await,
             "subscribeServerStatus" => self.subscribe_server_status(request).await,
             "servers.subscribeLogs" => self.servers_subscribe_logs(request),
             "projects.writeFile" => projects_write_file(request).await,
@@ -291,6 +296,36 @@ impl ProtocolSession {
         self.streams
             .start_produced(&id, Some(vec![seeded.clone()]), move |sink| {
                 sandbox::watch_status(sink, sandbox, viewer, task_id, seeded)
+            })
+    }
+
+    async fn sandbox_subscribe_detail(&mut self, request: Request) -> Vec<Value> {
+        let Request {
+            id,
+            tag,
+            payload,
+            state,
+            identity,
+            ..
+        } = request;
+        let viewer = viewer_scope(&identity);
+        let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+            return vec![failure_exit(
+                &id,
+                "sandbox.subscribeDetail requires a threadId",
+            )];
+        };
+        let task_id = task_id.to_string();
+        // Seeded for the same reason `sandbox.subscribeStatus` is, and the more
+        // so: this subscription's interval is five times as long.
+        let seeded = match sandbox::detail(&state.sandbox, &viewer, &task_id).await {
+            Ok(detail) => detail,
+            Err(error) => return vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+        };
+        let sandbox = state.sandbox.clone();
+        self.streams
+            .start_produced(&id, Some(vec![seeded.clone()]), move |sink| {
+                sandbox::watch_detail(sink, sandbox, viewer, task_id, seeded)
             })
     }
 
@@ -1515,6 +1550,97 @@ async fn sandbox_stop(request: Request) -> Vec<Value> {
     };
     match sandbox::stop(&state.sandbox, &viewer, task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
+        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+    }
+}
+
+async fn sandbox_restart(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+        return vec![failure_exit(&id, "sandbox.restart requires a threadId")];
+    };
+    match sandbox::restart(&state.sandbox, &viewer, task_id).await {
+        Ok(status) => vec![success_exit(&id, status)],
+        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+    }
+}
+
+async fn sandbox_redeploy(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+        return vec![failure_exit(&id, "sandbox.redeploy requires a threadId")];
+    };
+    match sandbox::redeploy(&state.sandbox, &viewer, task_id).await {
+        Ok(status) => vec![success_exit(&id, status)],
+        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+    }
+}
+
+async fn sandbox_cleanup(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+        return vec![failure_exit(&id, "sandbox.cleanup requires a threadId")];
+    };
+    match sandbox::cleanup(&state.sandbox, &viewer, task_id).await {
+        Ok(status) => vec![success_exit(&id, status)],
+        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+    }
+}
+
+async fn sandbox_set_idle_timeout(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+        return vec![failure_exit(
+            &id,
+            "sandbox.setIdleTimeout requires a threadId",
+        )];
+    };
+    // `as_i64` and not `as_u64`: a client that sends a negative gets the
+    // refusal `sandbox::set_idle_timeout` states, not "requires minutes".
+    let Some(minutes) = payload
+        .get("minutes")
+        .and_then(Value::as_i64)
+        .and_then(|minutes| i32::try_from(minutes).ok())
+    else {
+        return vec![failure_exit(
+            &id,
+            "sandbox.setIdleTimeout requires minutes",
+        )];
+    };
+    match sandbox::set_idle_timeout(state.commands.as_ref(), &viewer, task_id, minutes).await {
+        Ok(result) => vec![success_exit(&id, result)],
         Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
     }
 }

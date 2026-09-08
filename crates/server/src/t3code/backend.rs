@@ -1251,6 +1251,37 @@ impl ThreadCommandSink for AppStateCommands {
         Ok(())
     }
 
+    async fn set_idle_timeout(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        minutes: i32,
+    ) -> Result<(), CommandRefusal> {
+        let patch = TaskPatch {
+            ttl_minutes: Some(minutes),
+            ..Default::default()
+        };
+        let updated = self
+            .0
+            .tasks
+            .update_task(task_id, &patch, viewer)
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, task_id, "T3 idle timeout update failed");
+                CommandRefusal::Failed {
+                    message: "Could not change that sandbox's idle timeout.".to_string(),
+                }
+            })?;
+        // Same clean `false` as `update_meta`, and the same reason for turning
+        // it into a refusal.
+        if !updated {
+            return Err(CommandRefusal::NotWritable {
+                task_id: task_id.to_string(),
+            });
+        }
+        Ok(())
+    }
+
     async fn interrupt(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         task_service::stop_agent(
             self.0.tasks.as_ref(),

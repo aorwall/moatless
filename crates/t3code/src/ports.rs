@@ -567,6 +567,16 @@ pub trait ThreadCommandSink: Send + Sync {
     /// sends this to release a thread, never to end a turn.
     async fn stop(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
+    /// Set how long this thread's Sandbox may sit idle before Moatless stops
+    /// it. `0` disables the idle stop; the value lives on the Task, which is
+    /// why it travels here rather than through a sandbox port.
+    async fn set_idle_timeout(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        minutes: i32,
+    ) -> Result<(), CommandRefusal>;
+
     /// Archive a thread, which in Moatless is closing the Task: the row leaves
     /// the sidebar, the Sandbox is removed, and inbound comments stop waking
     /// it. Children are left open — the cascade is a choice the Moatless UI

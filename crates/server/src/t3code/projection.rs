@@ -7,6 +7,14 @@
 //! it was designed for. Widening the contract by unifying the types would hand a
 //! client a surface nobody chose to give it, so the narrowing lives here as its
 //! own named projection rather than inside a port implementation.
+//!
+//! Two projections come off that one response, at two widths.
+//! [`sandbox_status`] is the status indicator's, and stays at two fields.
+//! [`sandbox_detail`] is the sandbox panel's, and carries the running image,
+//! the containers and their metrics, and the runtime events — everything that
+//! panel was built to show and this response can answer, and nothing the
+//! indicator asks for. Each is its own named function so widening one cannot
+//! widen the other.
 
 use std::sync::Arc;
 
@@ -53,6 +61,19 @@ impl core_sandbox::SandboxObserver for ContractObserver {
             .sandbox_status(task_id, task_status, desired_state)
             .await
             .map(sandbox_status)
+            .map_err(SandboxError::into_contract)
+    }
+
+    async fn detail(
+        &self,
+        task_id: &str,
+        task_status: moatless_tasks::task::models::TaskStatus,
+        desired_state: moatless_tasks::task::models::SandboxDesiredState,
+    ) -> Result<core_sandbox::SandboxDetail, core_sandbox::SandboxError> {
+        self.reader
+            .sandbox_status(task_id, task_status, desired_state)
+            .await
+            .map(sandbox_detail)
             .map_err(SandboxError::into_contract)
     }
 
@@ -117,6 +138,59 @@ pub(crate) fn sandbox_status(
     core_sandbox::ContractSandboxStatus {
         sandbox_status: response.sandbox_status,
         servers: response.servers.into_iter().map(server_entry).collect(),
+    }
+}
+
+pub(crate) fn sandbox_detail(
+    response: crate::sandbox::schemas::SandboxStatusFullResponse,
+) -> core_sandbox::SandboxDetail {
+    core_sandbox::SandboxDetail {
+        // `latest_sandbox_image` and `image_up_to_date` stay behind: every
+        // status reader leaves them `None` and the REST handler fills them
+        // afterwards from the lifecycle orchestrator, which this read does not
+        // go through. `SandboxOperator::expected_image` is T3's half of that.
+        current_image: response.current_sandbox_image,
+        containers: response
+            .container_diagnostics
+            .unwrap_or_default()
+            .into_iter()
+            .map(container)
+            .collect(),
+        runtime_events: response
+            .runtime_events
+            .unwrap_or_default()
+            .into_iter()
+            .map(runtime_event)
+            .collect(),
+    }
+}
+
+fn container(
+    diagnostics: crate::sandbox::schemas::ContainerDiagnostics,
+) -> core_sandbox::SandboxContainer {
+    core_sandbox::SandboxContainer {
+        name: diagnostics.name,
+        state: diagnostics.state,
+        restart_count: diagnostics.restart_count,
+        exit_code: diagnostics.exit_code,
+        terminated_reason: diagnostics.terminated_reason,
+        last_exit_code: diagnostics.last_exit_code,
+        last_terminated_reason: diagnostics.last_terminated_reason,
+        waiting_reason: diagnostics.waiting_reason,
+        cpu_millicores: diagnostics.cpu_millicores,
+        memory_mb: diagnostics.memory_mb,
+    }
+}
+
+fn runtime_event(
+    event: crate::sandbox::schemas::RuntimeEvent,
+) -> core_sandbox::SandboxRuntimeEvent {
+    core_sandbox::SandboxRuntimeEvent {
+        reason: event.reason,
+        message: event.message,
+        severity: event.severity,
+        count: event.count,
+        last_timestamp: event.last_timestamp,
     }
 }
 
@@ -186,7 +260,6 @@ mod tests {
         SandboxStatusFullResponse, ScheduledJobInfo, ScheduledJobKind, ServerEntry, WakeupJobInfo,
     };
     use moatless_api_schemas::enums::SandboxDesiredState;
-    use moatless_api_schemas::sandbox::ResourceMetrics;
     use moatless_types::sandbox::SandboxStatus;
     use moatless_types::sandbox::{ServerCapabilities, ServerStatus};
 
@@ -200,14 +273,12 @@ mod tests {
             sandbox_error: Some("a stale image warning".to_string()),
             agent_status: Some(AgentStatus::Waiting),
             servers: vec![fully_populated_rich_server()],
-            resources: Some(ResourceMetrics {
-                memory_usage_mb: 812.0,
-                memory_limit_mb: Some(4096.0),
-                memory_usage_percent: Some(19.8),
-                cpu_usage_percent: Some(37.5),
-                event_loop_latency_ms: 2.5,
-                uptime_seconds: 903.0,
-            }),
+            // `None` rather than a value, deliberately, on the three fields no
+            // writer of this response ever sets: `resources` in all four
+            // status resolvers, and the two image fields the REST handler
+            // fills after the reader returns. Populating them here would let a
+            // projection assert over a shape production never produces.
+            resources: None,
             container_diagnostics: Some(vec![ContainerDiagnostics {
                 name: "sandbox".to_string(),
                 state: "running".to_string(),
@@ -251,8 +322,8 @@ mod tests {
             }],
             sandbox_desired_state: Some(SandboxDesiredState::Running),
             current_sandbox_image: Some("moatless/sandbox:v1".to_string()),
-            latest_sandbox_image: Some("moatless/sandbox:v2".to_string()),
-            image_up_to_date: Some(false),
+            latest_sandbox_image: None,
+            image_up_to_date: None,
         }
     }
 
@@ -292,6 +363,56 @@ mod tests {
 
         assert_eq!(sandbox_status, SandboxStatus::Ready);
         assert_eq!(servers.len(), 1);
+    }
+
+    /// The panel's projection is the wide one, and the same exhaustive literal
+    /// pins it: a field added to the rich response has to be decided for this
+    /// projection as well as for the narrow one above.
+    #[test]
+    fn the_projected_detail_carries_what_the_sandbox_panel_shows() {
+        let core_sandbox::SandboxDetail {
+            current_image,
+            containers,
+            runtime_events,
+        } = sandbox_detail(fully_populated_rich_status());
+
+        assert_eq!(current_image.as_deref(), Some("moatless/sandbox:v1"));
+
+        assert_eq!(containers.len(), 1);
+        assert_eq!(containers[0].name, "sandbox");
+        assert_eq!(containers[0].restart_count, 2);
+        assert_eq!(containers[0].cpu_millicores, Some(450));
+        assert_eq!(containers[0].memory_mb, Some(812));
+        assert_eq!(containers[0].last_exit_code, Some(137));
+        assert_eq!(
+            containers[0].last_terminated_reason.as_deref(),
+            Some("OOMKilled")
+        );
+        assert_eq!(
+            containers[0].waiting_reason.as_deref(),
+            Some("CrashLoopBackOff")
+        );
+
+        assert_eq!(runtime_events.len(), 1);
+        assert_eq!(runtime_events[0].reason, "BackOff");
+        assert_eq!(runtime_events[0].severity.as_deref(), Some("warning"));
+        assert_eq!(runtime_events[0].count, Some(3));
+    }
+
+    /// The panel hides a section it has no answer for, so "no sandbox" and "no
+    /// diagnostics" have to arrive as absence rather than as zeroes. This is
+    /// the shape a docker-compose deployment actually produces.
+    #[test]
+    fn a_runtime_that_reports_nothing_projects_absent_sections() {
+        let mut rich = fully_populated_rich_status();
+        rich.current_sandbox_image = None;
+        rich.container_diagnostics = None;
+        rich.runtime_events = None;
+
+        let detail = sandbox_detail(rich);
+        assert!(detail.current_image.is_none());
+        assert!(detail.containers.is_empty());
+        assert!(detail.runtime_events.is_empty());
     }
 
     #[test]

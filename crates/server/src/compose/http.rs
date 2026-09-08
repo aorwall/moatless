@@ -83,6 +83,7 @@ pub(crate) async fn ui_rpc(
         intent: app_state.sandbox.clone(),
         starter: app_state.sandbox.clone(),
         stopper: app_state.sandbox.clone(),
+        operator: app_state.sandbox.clone(),
         preview_tabs: inputs.preview_tabs,
         agents: Arc::new(t3code::backend::AppStateAgents(app_state.clone())),
         branches: Arc::new(t3code::backend::AppStateBranches(app_state.clone())),

@@ -47,6 +47,12 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // this a client cannot tell a Task that is mid-build from one with
             // nothing left to do, and shows no command rows at all.
             "sandboxCommands": true,
+            // Whether the sandbox panel's five methods are understood:
+            // `sandbox.subscribeDetail`, `restart`, `redeploy`, `cleanup` and
+            // `setIdleTimeout`. One flag for the set, because a client that has
+            // any of them opens the panel and a client that has none of them
+            // must not offer it at all.
+            "sandboxDetail": true,
             // Whether `scripts.run` is understood. A workspace's scripts are
             // still listed on the project without this — they are read out of
             // the workspace either way — but a client only shows the control

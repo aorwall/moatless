@@ -73,6 +73,7 @@
   "port-admission::moatless_ports::sandbox::credentials::CredentialBroadcast read by moatless-tasks",
   "port-admission::moatless_ports::sandbox::dispatch::SandboxJoiner read by moatless-tasks",
   "port-admission::moatless_ports::sandbox::lifecycle::SandboxIntentReader read by moatless-t3code",
+  "port-admission::moatless_ports::sandbox::lifecycle::SandboxOperator read by moatless-t3code",
   "port-admission::moatless_ports::sandbox::lifecycle::SandboxStopper read by moatless-t3code",
   "port-admission::moatless_ports::sandbox::observation::SandboxObserver read by moatless-t3code",
   "port-admission::moatless_ports::task::pending_work::PendingWorkReader read by moatless-sandbox-control",

@@ -1106,6 +1106,14 @@ mod tests {
             });
             Ok(())
         }
+        async fn set_idle_timeout(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _minutes: i32,
+        ) -> Result<(), CommandRefusal> {
+            unreachable!("no `thread.*` command changes an idle timeout")
+        }
         async fn archive(
             &self,
             _viewer: &ScopeContext,

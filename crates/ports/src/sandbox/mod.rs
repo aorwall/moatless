@@ -9,11 +9,15 @@ pub use moatless_types::sandbox::{ArchiveRetention, SandboxDesiredState, Sandbox
 pub use moatless_types::task::{CheckoutMode, Task, TaskStatus};
 
 mod observation;
-pub use observation::{ContractSandboxStatus, LogOptions, SandboxObserver, ServerLogStream};
+pub use observation::{
+    ContractSandboxStatus, LogOptions, SandboxContainer, SandboxDetail, SandboxObserver,
+    SandboxRuntimeEvent, ServerLogStream,
+};
 
 mod lifecycle;
 pub use lifecycle::{
-    SandboxIntentReader, SandboxLifecycle, SandboxOpError, SandboxStarter, SandboxStopper,
+    SandboxIntentReader, SandboxLifecycle, SandboxOpError, SandboxOperator, SandboxStarter,
+    SandboxStopper,
 };
 
 mod preflight;

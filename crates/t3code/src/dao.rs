@@ -1092,16 +1092,7 @@ impl T3TaskDao for PgConversationDao {
         viewer: &ScopeContext,
     ) -> Result<Option<TaskView>, sqlx::Error> {
         let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "", 2);
-        let sql = format!(
-            "SELECT status FROM tasks WHERE task_id = $1 AND {}",
-            access.sql()
-        );
-        sqlx::query_as::<_, TaskView>(AssertSqlSafe(sql))
-            .bind(task_id)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .fetch_optional(&self.pool)
-            .await
+        self.task_view(task_id, viewer, &access).await
     }
 
     async fn controlled_by_id(
@@ -1110,9 +1101,36 @@ impl T3TaskDao for PgConversationDao {
         viewer: &ScopeContext,
     ) -> Result<Option<TaskView>, sqlx::Error> {
         let control = moatless_core::db::access_control::control_filter(ScopedEntity::Task, "", 2);
+        self.task_view(task_id, viewer, &control).await
+    }
+
+    async fn written_by_id(
+        &self,
+        task_id: &str,
+        viewer: &ScopeContext,
+    ) -> Result<Option<TaskView>, sqlx::Error> {
+        let write = moatless_core::db::access_control::write_filter("", 2);
+        self.task_view(task_id, viewer, &write).await
+    }
+}
+
+impl PgConversationDao {
+    /// One Task's [`TaskView`] under whichever grant the caller's filter states.
+    /// The three `T3TaskDao` reads differ only in that filter.
+    ///
+    /// `grant` must have been built with `start = 2`: `task_id` takes `$1` and
+    /// the two parameters every filter binds follow it. A filter built at any
+    /// other start reads the wrong bind positions and the query returns rows
+    /// for the wrong viewer.
+    async fn task_view(
+        &self,
+        task_id: &str,
+        viewer: &ScopeContext,
+        grant: &moatless_core::db::access_control::AccessFilter,
+    ) -> Result<Option<TaskView>, sqlx::Error> {
         let sql = format!(
-            "SELECT status FROM tasks WHERE task_id = $1 AND {}",
-            control.sql()
+            "SELECT status, ttl_minutes FROM tasks WHERE task_id = $1 AND {}",
+            grant.sql()
         );
         sqlx::query_as::<_, TaskView>(AssertSqlSafe(sql))
             .bind(task_id)

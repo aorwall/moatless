@@ -1341,6 +1341,36 @@ impl core_sandbox::SandboxStopper for Lifecycle {
     }
 }
 
+#[async_trait]
+impl core_sandbox::SandboxOperator for Lifecycle {
+    async fn restart(&self, task_id: &str) -> Result<(), core_sandbox::SandboxError> {
+        Self::restart(self, task_id)
+            .await
+            .map(|_| ())
+            .map_err(|e| SandboxError::from(e).into_contract())
+    }
+
+    async fn redeploy(&self, task_id: &str) -> Result<(), core_sandbox::SandboxError> {
+        Self::redeploy(self, task_id)
+            .await
+            .map(|_| ())
+            .map_err(|e| SandboxError::from(e).into_contract())
+    }
+
+    async fn cleanup(&self, task_id: &str) -> Result<(), core_sandbox::SandboxError> {
+        Self::remove(self, task_id, ArchiveRetention::DeleteArchives)
+            .await
+            .map(|_| ())
+            .map_err(|e| SandboxError::from(e).into_contract())
+    }
+
+    async fn expected_image(&self, task_id: &str) -> Result<String, core_sandbox::SandboxError> {
+        Self::expected_sandbox_image(self, task_id)
+            .await
+            .map_err(|e| SandboxError::from(e).into_contract())
+    }
+}
+
 /// Classify a `LifecycleError` for the tasks-band lifecycle port: the
 /// `LifecycleError -> TaskError` mapping, so the tasks band names no lifecycle
 /// error. The three client-visible outcomes (404 / 400 / 409) keep their shape
