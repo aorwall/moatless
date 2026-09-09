@@ -378,7 +378,7 @@ RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/codex" /usr/local/bin/codex \
     && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
 
-ARG CLAUDE_CLI_VERSION=2.1.263
+ARG CLAUDE_CLI_VERSION=2.1.266
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/claude" /usr/local/bin/claude \
     && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
