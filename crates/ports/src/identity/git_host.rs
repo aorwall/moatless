@@ -7,9 +7,10 @@ use moatless_types::store::StoreError;
 /// A git host whose credential is a single stored value, readable without
 /// naming a repository.
 ///
-/// GitHub is absent by construction: an installation token is minted through
-/// the App, resolved from the repo's owner, so there is no stored GitHub token
-/// and [`GitHostTokenIssuer::token`] is the only way to one.
+/// GitHub and Forgejo are absent by construction. A GitHub installation token
+/// is minted through the App, resolved from the repo's owner; a Forgejo
+/// credential is stored per instance, so the repository names which one. Both
+/// resolve through [`GitHostTokenIssuer::token`], which takes a repository.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlainGitHost {
     Gitlab,
@@ -33,10 +34,14 @@ impl PlainGitHost {
 /// path instead of surfacing breakage.
 #[derive(Debug, thiserror::Error)]
 pub enum GitHostTokenError {
-    #[error("{actor} has not connected {provider}")]
+    #[error("{actor} has not connected {provider}{}", host.as_deref().map_or(String::new(), |h| format!(" at {h}")))]
     NoCredential {
         actor: Actor,
         provider: RepositoryProvider,
+        /// Which instance of a self-hostable `provider` is unconnected. `None`
+        /// for a provider with one host, and for a credential resolved without
+        /// naming a repository.
+        host: Option<String>,
     },
 
     /// `repo` is boxed to keep the whole enum small: an `Actor` carries both a

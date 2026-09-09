@@ -42,8 +42,13 @@ writers reach the same row:
 - `git_host_access.rs` holds a Personal Access Token, stored as a secret with
   the row carrying `secret_ref` and a placeholder. Setting one stashes whatever
   App credential it displaced, so removing it later restores a live one. Stash
-  and restore the whole `StashedGithubCredential`: an App user token restored
+  and restore the whole `StashedOAuthCredential`: an App user token restored
   without its refresh token and expiry leaves a row nothing can renew.
+- `forgejo/access.rs` is the same pair for Forgejo, keyed per instance host.
+  Forgejo is self-hostable, so a deployment registers one OAuth2 application
+  per host in `forgejo_instances` and every row, secret and stash carries the
+  host. A host with no registered application still resolves a personal access
+  token.
 
 A GitHub App has one registered callback URL and every client shares it, so a
 flow started from the T3 client comes back on the frontend's host. The state

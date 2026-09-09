@@ -12,6 +12,7 @@ pub struct AuthenticationPorts {
     pub github_app_service: Option<Arc<github::service::GitHubAppService>>,
     pub github_apps: Arc<github::registry::GitHubAppRegistry>,
     pub git_host_tokens: Arc<crate::git_host_tokens::GitHostTokens>,
+    pub forgejo_access: Arc<crate::forgejo::ForgejoAccess>,
     pub secrets: Arc<SecretService>,
     pub task_access: Arc<dyn TaskAccess>,
     pub token_verifier: Arc<dyn UserTokenVerifier>,

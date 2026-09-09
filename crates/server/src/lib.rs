@@ -21,6 +21,7 @@ pub mod compose;
 pub mod event_handler;
 pub mod feature_flags;
 pub mod file_storage;
+pub mod git_proxy;
 mod http_trace;
 pub mod reaper;
 pub mod repository_sync;

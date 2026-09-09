@@ -69,6 +69,7 @@ impl Authentication {
             github_app_service: ports.github_app_service,
             github_apps: ports.github_apps,
             git_host_tokens: ports.git_host_tokens,
+            forgejo_access: ports.forgejo_access,
             secrets: ports.secrets,
             task_access: ports.task_access,
             token_verifier: ports.token_verifier,

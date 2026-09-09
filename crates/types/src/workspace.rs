@@ -148,8 +148,17 @@ pub struct RepoCheckout {
     /// Branch to check out. `None`/empty clones the remote's default.
     #[serde(default)]
     pub branch: Option<String>,
-    /// Git provider name (`github`, `gitlab`, `gitness`) — selects which
-    /// provider token authenticates this clone.
+    /// The `repositories` row [`Self::clone_url`] came from. Empty for a
+    /// template checkout, which has no row, and on a pod provisioned before
+    /// this field existed.
+    ///
+    /// Carried so a proxied clone can name the repository back to the backend:
+    /// a Forgejo `clone_url` addresses `/git/{repository_id}` rather than the
+    /// git host, and the backend resolves the credential from this id.
+    #[serde(default)]
+    pub repository_id: String,
+    /// Git provider name (`github`, `gitlab`, `gitness`, `forgejo`) — selects
+    /// which provider token authenticates this clone.
     pub provider: String,
     /// Subdirectory under `WORKSPACE_DIR` this repo is cloned into. Always a
     /// single safe path segment (see [`sanitize_mount_name`]).
@@ -168,6 +177,25 @@ impl RepoCheckout {
             self.mount_name
         )
     }
+}
+
+/// The provider whose checkouts clone through the backend's git proxy instead of
+/// from their own host.
+///
+/// A Forgejo token is never delivered into a pod, so the pod addresses the
+/// backend and the backend attaches the credential. Every other provider's
+/// `clone_url` reaches its host directly.
+pub const PROXIED_PROVIDER: &str = "forgejo";
+
+/// The proxied remote for `repository_id`: `{backend_api_url}/git/{repository_id}`.
+///
+/// The path is the one the backend's `git_proxy` routes serve, and the pod's
+/// task token is the HTTP Basic password on it.
+pub fn proxy_clone_url(backend_api_url: &str, repository_id: &str) -> String {
+    format!(
+        "{}/git/{repository_id}",
+        backend_api_url.trim_end_matches('/')
+    )
 }
 
 /// Derive a mount name from a clone URL: the last path segment with any trailing
@@ -249,6 +277,7 @@ pub enum WorkspaceCredentialProvider {
     Github,
     Gitlab,
     Gitness,
+    Forgejo,
     Openai,
     Anthropic,
 }
@@ -258,6 +287,7 @@ impl WorkspaceCredentialProvider {
         Self::Github,
         Self::Gitlab,
         Self::Gitness,
+        Self::Forgejo,
         Self::Openai,
         Self::Anthropic,
     ];
@@ -266,23 +296,34 @@ impl WorkspaceCredentialProvider {
     /// call against that host presents, so it is resolved by
     /// `moatless_identity::git_host_tokens::GitHostTokens` rather than only
     /// delivered as an environment variable.
-    pub const GIT_HOSTS: &'static [Self] = &[Self::Github, Self::Gitlab, Self::Gitness];
+    pub const GIT_HOSTS: &'static [Self] = &[
+        Self::Github,
+        Self::Gitlab,
+        Self::Gitness,
+        Self::Forgejo,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Github => "github",
             Self::Gitlab => "gitlab",
             Self::Gitness => "gitness",
+            Self::Forgejo => "forgejo",
             Self::Openai => "openai",
             Self::Anthropic => "anthropic",
         }
     }
 
+    /// A Forgejo pin is single-valued while a deployment may hold repositories
+    /// on several Forgejo hosts, so it authenticates against every one of them.
+    /// Per-host Forgejo credentials are the `provider_tokens` rows keyed
+    /// `forgejo:{host}`, which a pin deliberately outranks.
     pub fn env_key(self) -> &'static str {
         match self {
             Self::Github => "GITHUB_TOKEN",
             Self::Gitlab => "GITLAB_TOKEN",
             Self::Gitness => "GITNESS_TOKEN",
+            Self::Forgejo => "FORGEJO_TOKEN",
             Self::Openai => "OPENAI_API_KEY",
             Self::Anthropic => "ANTHROPIC_API_KEY",
         }
@@ -304,6 +345,7 @@ impl From<crate::repository::RepositoryProvider> for WorkspaceCredentialProvider
             Host::Github => Self::Github,
             Host::Gitlab => Self::Gitlab,
             Host::Gitness => Self::Gitness,
+            Host::Forgejo => Self::Forgejo,
         }
     }
 }
@@ -1023,6 +1065,7 @@ mod tests {
         let checkout = RepoCheckout {
             clone_url: "https://github.com/owner/service.git".into(),
             branch: None,
+            repository_id: "repo_1".into(),
             provider: "github".into(),
             mount_name: "service".into(),
             is_primary: true,

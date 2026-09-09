@@ -756,6 +756,7 @@ mod tests {
         let mut plan = test_plan();
         plan.repos = vec![
             moatless_types::workspace::RepoCheckout {
+                repository_id: "repo-1".into(),
                 clone_url: "https://github.com/test/repo.git".into(),
                 branch: Some("main".into()),
                 provider: "github".into(),
@@ -763,6 +764,7 @@ mod tests {
                 is_primary: true,
             },
             moatless_types::workspace::RepoCheckout {
+                repository_id: "repo-2".into(),
                 clone_url: "https://github.com/test/shared.git".into(),
                 branch: None,
                 provider: "github".into(),

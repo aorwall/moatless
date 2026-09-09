@@ -25,6 +25,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("event_ingress_outbox", "moatless-tasks"),
     ("feedback", "moatless-tasks"),
     ("file_metadata", "moatless-core"),
+    ("forgejo_instances", "moatless-identity"),
     ("github_app_audit_events", "moatless-identity"),
     ("github_app_migrations", "moatless-identity"),
     ("github_apps", "moatless-identity"),

@@ -21,9 +21,7 @@ use async_trait::async_trait;
 use tracing::warn;
 
 use crate::lifecycle::dao::SandboxShape;
-use crate::secrets::{
-    resolve_task_actor, resolve_task_github_token, resolve_workspace_credentials,
-};
+use crate::secrets::{resolve_task_actor, resolve_task_git_token, resolve_workspace_credentials};
 use moatless_ports::identity::CommitIdentity;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_ports::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
@@ -66,8 +64,11 @@ pub enum PreflightError {
         owner: Option<String>,
     },
 
-    #[error("GitHub account not connected for user {user_id}")]
-    NoGithubToken { user_id: String },
+    #[error("{provider} account not connected for user {user_id}")]
+    NoGitCredential {
+        user_id: String,
+        provider: RepositoryProvider,
+    },
 
     #[error("workspace {workspace_id} credentials could not be read: {reason}")]
     WorkspaceCredentialsUnreadable {
@@ -75,8 +76,11 @@ pub enum PreflightError {
         reason: String,
     },
 
-    #[error("GitHub token invalid: {reason}")]
-    InvalidGithubToken { reason: String },
+    #[error("{provider} token invalid: {reason}")]
+    InvalidGitCredential {
+        provider: RepositoryProvider,
+        reason: String,
+    },
 
     #[error("No access to GitHub repository {owner}/{repo}: {reason}")]
     NoRepoAccess {
@@ -96,16 +100,17 @@ impl PreflightError {
                 "The sandbox runs as {user_id}, who cannot control this {scope}-scoped task. \
                 Recreate the task so it is owned by the user it runs as."
             ),
-            Self::NoGithubToken { .. } => "GitHub access is not configured for this repository \
-                scope. Configure it before starting this task."
-                .to_string(),
+            Self::NoGitCredential { provider, .. } => format!(
+                "{provider} access is not configured for this repository scope. \
+                Configure it before starting this task."
+            ),
             Self::WorkspaceCredentialsUnreadable { .. } => {
                 "This workspace pins its own provider credentials and they could not be read. \
                 Re-set them before starting this task."
                     .to_string()
             }
-            Self::InvalidGithubToken { reason } => {
-                format!("GitHub token is invalid or expired: {reason}")
+            Self::InvalidGitCredential { provider, reason } => {
+                format!("{provider} token is invalid or expired: {reason}")
             }
             Self::NoRepoAccess { owner, repo, .. } => format!(
                 "GitHub token has no access to repository {owner}/{repo}. \
@@ -136,7 +141,7 @@ impl GithubValidator for RealGithubValidator {
 }
 
 /// Production preflight — holds exactly the credential handles
-/// `preflight_validate_github_token` consumes plus the network validator seam.
+/// `preflight_validate_git_credential` consumes plus the network validator seam.
 ///
 /// Lives here (sandbox-control) rather than the tasks band so the tasks-band
 /// [`PreflightPort`] names no credential or validator type. It maps the rich
@@ -155,7 +160,7 @@ impl RealPreflight {
     /// Both checks, cheapest first, in the rich error type.
     async fn check(&self, task: &Task, repo: &Repository) -> Result<(), PreflightError> {
         preflight_validate_task_control(self.creds.users.as_ref(), task).await?;
-        preflight_validate_github_token(&self.creds, task, repo, self.validator.as_ref()).await
+        preflight_validate_git_credential(&self.creds, task, repo, self.validator.as_ref()).await
     }
 }
 
@@ -231,20 +236,22 @@ async fn is_platform_admin(users: &dyn CommitIdentity, user_id: &str) -> bool {
     users.is_platform_admin(user_id).await.unwrap_or(false)
 }
 
-/// Verify the GitHub token + repo access before provisioning a sandbox.
+/// Verify the git credential, and for `github.com` the repo access, before
+/// provisioning a sandbox.
 ///
-/// `Ok(())` for non-GitHub repos, repos with no remote URL, or non-`github.com`
-/// hosted URLs — those cases are deliberately out of scope (handled by other
-/// providers or the existing in-pod clone failure path).
-pub async fn preflight_validate_github_token(
+/// `Ok(())` for a repository whose provider issues no credential through this
+/// seam and for one with no remote URL. The repo-access half runs for
+/// `github.com` only; elsewhere the credential's own resolution is the check,
+/// and the in-pod clone failure path reports the rest.
+pub async fn preflight_validate_git_credential(
     creds: &PreflightCredentials,
     task: &Task,
     repo: &Repository,
     validator: &dyn GithubValidator,
 ) -> Result<(), PreflightError> {
-    if !requires_github_preflight(repo) {
+    let Some(provider) = requires_credential_preflight(repo) else {
         return Ok(());
-    }
+    };
 
     let actor = resolve_task_actor(
         Some(&creds.workspaces),
@@ -267,23 +274,24 @@ pub async fn preflight_validate_github_token(
         reason: truncate(&e.to_string(), 200),
     })?;
 
-    let token =
-        match resolve_task_github_token(Some(&creds.git_host_tokens), &actor, Some(repo)).await {
-            Some(Ok(token)) => token,
-            // The identity has not connected GitHub, or the repository names no
-            // GitHub remote this seam can reach. Either way there is no token, and
-            // the sandbox must not start with somebody else's.
-            Some(Err(GitHostTokenError::NoCredential { .. })) | None => {
-                return Err(PreflightError::NoGithubToken { user_id });
-            }
-            // A credential that exists and does not work is a different problem
-            // with a different remedy, so it keeps the resolver's own message.
-            Some(Err(e)) => {
-                return Err(PreflightError::InvalidGithubToken {
-                    reason: truncate(&e.to_string(), 200),
-                });
-            }
-        };
+    let token = match resolve_task_git_token(Some(&creds.git_host_tokens), &actor, Some(repo)).await
+    {
+        Some(Ok(token)) => token,
+        // The identity has not connected this host, or the repository names no
+        // remote this seam can reach. Either way there is no token, and the
+        // sandbox must not start with somebody else's.
+        Some(Err(GitHostTokenError::NoCredential { .. })) | None => {
+            return Err(PreflightError::NoGitCredential { user_id, provider });
+        }
+        // A credential that exists and does not work is a different problem
+        // with a different remedy, so it keeps the resolver's own message.
+        Some(Err(e)) => {
+            return Err(PreflightError::InvalidGitCredential {
+                provider,
+                reason: truncate(&e.to_string(), 200),
+            });
+        }
+    };
 
     let Some(remote_url) = repo.remote_url.as_deref() else {
         return Ok(());
@@ -321,12 +329,23 @@ pub async fn preflight_validate_github_token(
     Ok(())
 }
 
-/// Whether a repo's sandbox needs a validated GitHub credential to start.
+/// The provider whose credential a repo's sandbox must hold to start, if it
+/// must hold one.
 ///
-/// Templates are public starter repos the sandbox clones anonymously, so they
-/// are exempt even though they carry `provider: Github`.
-fn requires_github_preflight(repo: &Repository) -> bool {
-    repo.provider == Some(RepositoryProvider::Github) && repo.kind != RepositoryKind::Template
+/// GitLab and Gitness are absent: neither has a validated preflight path, and
+/// a check that cannot fail is worse than none. Templates are public starter
+/// repos the sandbox clones anonymously, so they are exempt even though they
+/// carry `provider: Github`.
+fn requires_credential_preflight(repo: &Repository) -> Option<RepositoryProvider> {
+    if repo.kind == RepositoryKind::Template {
+        return None;
+    }
+    match repo.provider {
+        Some(provider @ (RepositoryProvider::Github | RepositoryProvider::Forgejo)) => {
+            Some(provider)
+        }
+        _ => None,
+    }
 }
 
 fn is_github_dot_com(url: &str) -> bool {
@@ -532,10 +551,12 @@ mod tests {
             scope: Scope::Global,
             owner: None,
         };
-        let no_token = PreflightError::NoGithubToken {
+        let no_token = PreflightError::NoGitCredential {
             user_id: "u".to_string(),
+            provider: RepositoryProvider::Forgejo,
         };
-        let invalid = PreflightError::InvalidGithubToken {
+        let invalid = PreflightError::InvalidGitCredential {
+            provider: RepositoryProvider::Github,
             reason: "401".to_string(),
         };
         let no_access = PreflightError::NoRepoAccess {
@@ -584,9 +605,13 @@ mod tests {
     }
 
     #[test]
-    fn github_remote_repo_requires_preflight() {
-        let r = repo(RepositoryKind::Remote, Some(RepositoryProvider::Github));
-        assert!(requires_github_preflight(&r));
+    fn github_and_forgejo_remote_repos_require_preflight() {
+        for provider in [RepositoryProvider::Github, RepositoryProvider::Forgejo] {
+            assert_eq!(
+                requires_credential_preflight(&repo(RepositoryKind::Remote, Some(provider))),
+                Some(provider)
+            );
+        }
     }
 
     #[test]
@@ -594,19 +619,22 @@ mod tests {
         // The seeded starter template is a public repo the sandbox clones
         // anonymously — requiring a token would wall off first-run users.
         let r = repo(RepositoryKind::Template, Some(RepositoryProvider::Github));
-        assert!(!requires_github_preflight(&r));
+        assert!(requires_credential_preflight(&r).is_none());
     }
 
     #[test]
-    fn non_github_and_provider_less_repos_are_exempt() {
-        assert!(!requires_github_preflight(&repo(
-            RepositoryKind::Remote,
-            Some(RepositoryProvider::Gitlab)
-        )));
-        assert!(!requires_github_preflight(&repo(
-            RepositoryKind::Remote,
-            None
-        )));
+    fn unvalidated_and_provider_less_repos_are_exempt() {
+        // GitLab and Gitness have no validated preflight path, so a check here
+        // could only ever pass.
+        for provider in [
+            Some(RepositoryProvider::Gitlab),
+            Some(RepositoryProvider::Gitness),
+            None,
+        ] {
+            assert!(
+                requires_credential_preflight(&repo(RepositoryKind::Remote, provider)).is_none()
+            );
+        }
     }
 
     #[test]

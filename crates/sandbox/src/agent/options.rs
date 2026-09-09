@@ -1137,6 +1137,7 @@ mod tests {
         config.repos = vec![
             RepoCheckout {
                 clone_url: "https://github.com/acme/api.git".into(),
+                repository_id: String::new(),
                 branch: None,
                 provider: "github".into(),
                 mount_name: "api".into(),
@@ -1144,6 +1145,7 @@ mod tests {
             },
             RepoCheckout {
                 clone_url: "https://github.com/acme/web.git".into(),
+                repository_id: String::new(),
                 branch: None,
                 provider: "github".into(),
                 mount_name: "web".into(),
@@ -1184,6 +1186,7 @@ mod tests {
     fn repo(mount_name: &str, is_primary: bool) -> RepoCheckout {
         RepoCheckout {
             clone_url: "https://example.com/repo.git".into(),
+            repository_id: String::new(),
             branch: None,
             provider: "github".into(),
             mount_name: mount_name.into(),

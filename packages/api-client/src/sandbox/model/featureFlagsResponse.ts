@@ -17,6 +17,8 @@ Not an `FF_*` variable of its own: pairing is the bootstrap half of the
 T3 compatibility routes, and a code is worth nothing on a deployment
 that does not mount them. So it reports whether *they* are on. */
   device_pairing: boolean;
+  /** Whether the deployment offers Forgejo instances, connections and repos. */
+  forgejo_enabled: boolean;
   gitlab_enabled: boolean;
   netlify_publish: boolean;
   show_claude_settings: boolean;

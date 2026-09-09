@@ -60,7 +60,7 @@ uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 chrono = { workspace = true, features = ["serde"] }
 
 # HTTP client (OAuth token exchange)
-reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
+reqwest = { workspace = true, features = ["json", "query", "form", "rustls", "stream"] }
 
 # Crypto
 rand = { workspace = true }
@@ -71,6 +71,9 @@ thiserror = { workspace = true }
 # OpenAPI documentation
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-axum = { workspace = true }
+
+# Decoding the git proxy's HTTP Basic header
+base64 = { workspace = true }
 
 # Async streams
 futures = { workspace = true }

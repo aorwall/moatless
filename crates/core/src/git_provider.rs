@@ -46,7 +46,11 @@ pub enum GitProviderError {
     #[error("{0}")]
     MalformedResponse(String),
 
-    /// The OAuth endpoint answered 2xx with a structured error payload.
-    #[error("GitHub OAuth error: {code} — {description}")]
-    OAuthRejected { code: String, description: String },
+    /// The OAuth endpoint answered with a structured error payload.
+    #[error("{provider} OAuth error: {code} — {description}")]
+    OAuthRejected {
+        provider: &'static str,
+        code: String,
+        description: String,
+    },
 }

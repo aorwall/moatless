@@ -221,6 +221,126 @@ pub(super) async fn fetch_gitlab_branches(
     })
 }
 
+/// Forgejo's REST API v1, addressed at the host `remote_url` names.
+///
+/// HTTPS always, whatever scheme `remote_url` carries: a Workspace controls
+/// that URL, and honouring a scheme from it would let one downgrade the
+/// connection `token` travels over.
+pub(super) async fn fetch_forgejo_branches(
+    client: &reqwest::Client,
+    remote_url: &str,
+    token: &str,
+) -> Result<BranchFetchResult, RepositoryError> {
+    let parsed = GitHostRepo::parse(GitHostProvider::Forgejo, remote_url).ok_or_else(|| {
+        RepositoryError::BadRequest(format!("Cannot parse Forgejo URL: {remote_url}"))
+    })?;
+    let host = parsed.host().ok_or_else(|| {
+        RepositoryError::BadRequest(format!("Forgejo URL names no host: {remote_url}"))
+    })?;
+    let (owner, repo) = (parsed.owner(), parsed.name());
+    let repo_api = format!("https://{host}/api/v1/repos/{owner}/{repo}");
+
+    #[derive(serde::Deserialize)]
+    struct FjBranch {
+        name: String,
+    }
+
+    let mut all_branches: Vec<FjBranch> = Vec::new();
+    let mut page = 1u32;
+    loop {
+        let resp = client
+            .get(format!("{repo_api}/branches?limit=100&page={page}"))
+            .header("Authorization", format!("token {token}"))
+            .send()
+            .await
+            .map_err(|e| {
+                RepositoryError::ProviderError(format!("Forgejo API request failed: {e}"))
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                || status == reqwest::StatusCode::FORBIDDEN
+            {
+                return Err(RepositoryError::Forbidden(format!(
+                    "Cannot access repository. Your {host} token may lack the required \
+                     permissions — a personal access token needs `read:repository`. Try \
+                     reconnecting the instance in Settings."
+                )));
+            }
+
+            if status == reqwest::StatusCode::NOT_FOUND {
+                return Err(RepositoryError::Forbidden(
+                    "Repository not found or not accessible. If this is a private repository, \
+                     ensure your Forgejo token has access."
+                        .to_string(),
+                ));
+            }
+
+            return Err(RepositoryError::ProviderError(format!(
+                "Forgejo API returned {status}: {body}"
+            )));
+        }
+
+        let branches: Vec<FjBranch> = resp.json().await.map_err(|e| {
+            RepositoryError::ProviderError(format!("Failed to parse Forgejo response: {e}"))
+        })?;
+
+        // Stop on what the host served, not on what was asked for: Forgejo
+        // clamps `limit` to its own `MAX_RESPONSE_ITEMS`, which defaults to 50,
+        // so a full page under that ceiling is still short of the requested 100.
+        if branches.is_empty() {
+            break;
+        }
+        all_branches.extend(branches);
+
+        page += 1;
+        if page > 20 {
+            warn!(
+                "Forgejo branches pagination stopped at 20 pages ({} branches) for {owner}/{repo}",
+                all_branches.len()
+            );
+            break;
+        }
+    }
+
+    #[derive(serde::Deserialize)]
+    struct FjRepo {
+        default_branch: Option<String>,
+    }
+
+    let default_branch = match client
+        .get(&repo_api)
+        .header("Authorization", format!("token {token}"))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => match resp.json::<FjRepo>().await {
+            Ok(r) => r.default_branch,
+            Err(e) => {
+                warn!("Failed to parse Forgejo repo metadata for {owner}/{repo}: {e}");
+                None
+            }
+        },
+        Ok(resp) => {
+            let status = resp.status();
+            warn!("Forgejo repo metadata returned {status} for {owner}/{repo}");
+            None
+        }
+        Err(e) => {
+            warn!("Forgejo repo metadata request failed for {owner}/{repo}: {e}");
+            None
+        }
+    };
+
+    Ok(BranchFetchResult {
+        branches: all_branches.into_iter().map(|b| b.name).collect(),
+        default_branch,
+    })
+}
+
 pub(super) async fn fetch_gitness_branches(
     client: &reqwest::Client,
     remote_url: &str,

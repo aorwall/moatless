@@ -94,6 +94,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let broker_state = BrokerState {
         task_id: state.config.task_id.clone(),
         backend_client: Arc::clone(&state.backend_client),
+        backend_host: state.config.backend_api_host(),
     };
     // Optional: losing the broker degrades git auth to whatever
     // `~/.config/gh/hosts.yml` last held — the same fallback a failed spawn

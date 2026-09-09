@@ -6,6 +6,7 @@
 
 use crate::adapter_installations::AdapterInstallations;
 use crate::agent_harness_access::AgentHarnessAccess;
+use crate::git_proxy::GitProxy;
 use crate::sandbox::lifecycle::Lifecycle;
 use moatless_adapter_model::binding::BindingProbe;
 use moatless_adapter_model::connections::{
@@ -19,6 +20,7 @@ use moatless_core::file_storage::Files;
 use moatless_identity::adapter_apps::administration::AppAdministration;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::github::service::GitHubAppService;
+use moatless_identity::forgejo::{ForgejoAccess, ForgejoInstances};
 use moatless_identity::git_host_access::GitHostAccess;
 use moatless_identity::secret::service::SecretService;
 use moatless_loops::bindings::operations::Bindings;
@@ -121,6 +123,12 @@ pub struct AppState {
     pub credential_sync: Arc<CredentialSync>,
     /// GitHub and Gitness provider-token workflows.
     pub git_host_access: Arc<GitHostAccess>,
+    /// Forgejo provider-token workflows, addressed per instance.
+    pub forgejo_access: Arc<ForgejoAccess>,
+    /// The OAuth2 application registered for each Forgejo instance.
+    pub forgejo_instances: Arc<ForgejoInstances>,
+    /// Resolves a proxied git request to an upstream and a credential.
+    pub git_proxy: Arc<GitProxy>,
     /// Codex credential and device-login workflows.
     pub agent_harness_access: Arc<AgentHarnessAccess>,
     /// Installation-wide Adapter and GitHub App workflows.
@@ -461,6 +469,24 @@ impl axum::extract::FromRef<AppState> for Arc<CredentialSync> {
 impl axum::extract::FromRef<AppState> for Arc<GitHostAccess> {
     fn from_ref(state: &AppState) -> Self {
         state.git_host_access.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<GitProxy> {
+    fn from_ref(state: &AppState) -> Self {
+        state.git_proxy.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<ForgejoAccess> {
+    fn from_ref(state: &AppState) -> Self {
+        state.forgejo_access.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<ForgejoInstances> {
+    fn from_ref(state: &AppState) -> Self {
+        state.forgejo_instances.clone()
     }
 }
 

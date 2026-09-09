@@ -425,6 +425,7 @@ fn build_repo_checkouts(
         checkouts.push(RepoCheckout {
             clone_url: primary_clone_url.to_string(),
             branch: primary_branch.map(str::to_string),
+            repository_id: primary_repository_id.to_string(),
             provider: primary_provider.to_string(),
             mount_name,
             is_primary: true,
@@ -450,6 +451,7 @@ fn build_repo_checkouts(
         checkouts.push(RepoCheckout {
             clone_url: placement.clone_url.clone(),
             branch: placement.branch.clone(),
+            repository_id: placement.repository_id.clone(),
             provider: placement.provider.clone(),
             mount_name,
             is_primary: false,

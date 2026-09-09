@@ -18,6 +18,7 @@ use moatless_types::auth::AuthProvider;
 use super::api_key;
 use super::cookie;
 use super::error::AuthError;
+use super::forgejo_connect;
 use super::github_connect;
 use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 use moatless_types::auth::AuthIdentity;
@@ -715,7 +716,7 @@ pub(super) async fn github_app_init_handler(
 #[derive(serde::Deserialize)]
 pub(super) struct GitHubConnectQuery {
     /// Where to send the browser once the App is authorized. Vetted against the
-    /// trusted origins — see [`github_connect::approved_return_url`].
+    /// trusted origins — see [`super::connect_return::approved_return_url`].
     return_to: Option<String>,
 }
 
@@ -765,6 +766,71 @@ pub(super) async fn github_app_callback_handler(
         &headers,
     )
     .await
+}
+
+// ============================================================================
+// Forgejo OAuth
+// ============================================================================
+
+#[derive(serde::Deserialize)]
+pub(super) struct ForgejoConnectQuery {
+    /// Which instance to connect. Forgejo is self-hostable, so it selects the
+    /// registered OAuth2 application, the credential row and the secret.
+    host: String,
+    /// Where to send the browser once the instance is authorized. Vetted
+    /// against the trusted origins — see
+    /// [`super::connect_return::approved_return_url`].
+    return_to: Option<String>,
+}
+
+/// Authorize a Forgejo instance for the caller's existing session.
+///
+/// Requires a session because the credential is written against it: this
+/// establishes Forgejo *access*, and leaves how the caller signed in alone.
+pub(super) async fn forgejo_connect_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<ForgejoConnectQuery>,
+) -> Result<Response, AuthError> {
+    // Carried into the CSRF state so the callback writes the credential to
+    // whoever started the flow, not to whoever happens to be signed in when
+    // Forgejo redirects back — see [`forgejo_connect::finish`].
+    let identity = authenticate_request(&state, &headers).await?;
+    forgejo_connect::start(
+        &state,
+        &generate_csrf_state(),
+        identity.user_id,
+        &query.host,
+        query.return_to.as_deref(),
+    )
+    .await
+}
+
+pub(super) async fn forgejo_callback_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<OAuthCallbackQuery>,
+) -> Result<Response, AuthError> {
+    let stored_state = cookie::get_cookie_value(&headers, "oauth_state");
+    match (stored_state.as_deref(), query.state.as_deref()) {
+        (Some(stored), Some(qs)) if stored == qs => { /* CSRF check passed */ }
+        _ => {
+            warn!("Forgejo OAuth state mismatch or missing — possible CSRF attack");
+            return Err(AuthError::InvalidState);
+        }
+    }
+    let connect = query
+        .state
+        .as_deref()
+        .and_then(forgejo_connect::parse_connect_state)
+        .ok_or(AuthError::InvalidState)?;
+
+    // No session is a viewer that cannot match, not a request error: a consent
+    // screen left open past the session's lifetime is the common way to arrive
+    // here, and `finish` already returns that person to the page they started
+    // from.
+    let viewer = authenticate_request(&state, &headers).await.ok();
+    Ok(forgejo_connect::finish(&state, viewer.as_ref(), query.code.as_deref(), &connect).await)
 }
 
 // ============================================================================

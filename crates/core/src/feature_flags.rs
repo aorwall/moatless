@@ -8,6 +8,7 @@ pub struct FeatureFlags {
     pub show_codex_settings: bool,
     pub show_model_selector: bool,
     pub gitlab_enabled: bool,
+    pub forgejo_enabled: bool,
 }
 
 impl FeatureFlags {
@@ -23,6 +24,7 @@ impl FeatureFlags {
             show_codex_settings: flag_value(lookup("FF_SHOW_CODEX_SETTINGS").as_deref(), true),
             show_model_selector: flag_value(lookup("FF_SHOW_MODEL_SELECTOR").as_deref(), true),
             gitlab_enabled: flag_value(lookup("FF_GITLAB_ENABLED").as_deref(), false),
+            forgejo_enabled: flag_value(lookup("FF_FORGEJO_ENABLED").as_deref(), false),
         }
     }
 }
@@ -35,6 +37,7 @@ impl Default for FeatureFlags {
             show_codex_settings: true,
             show_model_selector: true,
             gitlab_enabled: false,
+            forgejo_enabled: false,
         }
     }
 }
@@ -59,6 +62,7 @@ mod tests {
                 show_codex_settings: true,
                 show_model_selector: true,
                 gitlab_enabled: false,
+                forgejo_enabled: false,
             }
         );
     }
@@ -82,6 +86,7 @@ mod tests {
                 show_codex_settings: false,
                 show_model_selector: false,
                 gitlab_enabled: false,
+                forgejo_enabled: false,
             }
         );
     }

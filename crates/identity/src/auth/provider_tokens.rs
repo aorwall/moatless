@@ -32,3 +32,21 @@ pub const AUTH_METHOD_SECRET_REF: &str = "secret_ref";
 /// column sees this instead of a usable token, so sending it to a provider
 /// yields a clear 401 rather than silent misbehaviour.
 pub const SECRET_REF_TOKEN_PLACEHOLDER: &str = "<secret-ref>";
+
+/// `provider_tokens.auth_method` value for a Forgejo OAuth2 access token,
+/// refreshed against its own instance near expiry.
+///
+/// Forgejo OAuth2 grants no scopes, so this credential reaches everything its
+/// owner reaches — unlike the scoped personal access token an
+/// [`AUTH_METHOD_SECRET_REF`] row points at.
+pub const AUTH_METHOD_FORGEJO_OAUTH: &str = "forgejo_oauth";
+
+/// The `provider_tokens.provider` value addressing `host`'s Forgejo credential.
+///
+/// Forgejo is self-hostable and one person may hold a credential per instance,
+/// so the host is part of the provider name rather than a column beside it.
+/// The column is free text under `provider_tokens_scope_uq`, so a second
+/// instance needs no migration.
+pub fn forgejo_provider_key(host: &str) -> String {
+    format!("forgejo:{host}")
+}

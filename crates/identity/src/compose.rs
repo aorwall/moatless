@@ -21,6 +21,8 @@ use crate::auth::provider_token_auth_dao::PgProviderTokenAuthDao;
 use crate::auth::provider_token_dao::PgProviderTokenDao;
 use crate::auth::users_dao::PgUserDao;
 use crate::credentials::CredentialService;
+use crate::forgejo::access::ForgejoAccess;
+use crate::forgejo::instances::ForgejoInstances;
 use crate::git_host_access::{GitHostAccess, GitHostTokenValidator};
 use crate::git_host_tokens::GitHostTokens;
 use crate::ports::{HarnessTokens, UserDirectory};
@@ -87,6 +89,7 @@ pub fn git_host_tokens(
     github_apps: Arc<GitHubAppRegistry>,
     secrets: Arc<SecretService>,
     workspace_credentials: Option<Arc<dyn WorkspaceCredentialReader>>,
+    forgejo: Arc<ForgejoInstances>,
 ) -> Arc<GitHostTokens> {
     let tokens = GitHostTokens::new(
         Arc::new(PgProviderTokenDao(db.clone())),
@@ -94,11 +97,36 @@ pub fn git_host_tokens(
         github_app_service,
         github_apps,
         secrets,
-    );
+    )
+    .with_forgejo(forgejo);
     Arc::new(match workspace_credentials {
         Some(reader) => tokens.with_workspace_credentials(reader),
         None => tokens,
     })
+}
+
+/// The registered Forgejo OAuth2 applications, one per instance.
+pub fn forgejo_instances(
+    db: DbPool,
+    cipher: Option<Arc<dyn SecretCipher>>,
+) -> Arc<ForgejoInstances> {
+    Arc::new(ForgejoInstances::new(
+        crate::forgejo::dao::PgForgejoInstanceDao(db),
+        cipher,
+    ))
+}
+
+/// One person's Forgejo credential, per instance: connect, disconnect, status.
+pub fn forgejo_access(
+    db: DbPool,
+    secrets: Arc<SecretService>,
+    instances: Arc<ForgejoInstances>,
+) -> Arc<ForgejoAccess> {
+    Arc::new(ForgejoAccess::new(
+        Arc::new(PgProviderTokenDao(db)),
+        secrets,
+        instances,
+    ))
 }
 
 /// A harness-credential handle over a caller-supplied token store, for a

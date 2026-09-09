@@ -235,6 +235,88 @@ impl std::fmt::Debug for SaveGitnessProviderTokenRequest {
     }
 }
 
+/// One person's connection to one Forgejo instance.
+///
+/// There is no `login`, unlike every sibling here: a `read:repository` personal
+/// access token cannot reach Forgejo's `user` endpoint, so validating one
+/// learns only that it works. A screen names the `host`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgejoProviderTokenStatusResponse {
+    pub host: String,
+    pub connected: bool,
+    /// How the stored credential resolves: `secret_ref` for a personal access
+    /// token held in the secret store, `forgejo_oauth` for an OAuth2 credential.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_method: Option<String>,
+    /// Whether a personal access token is standing in front of an OAuth
+    /// credential that `DELETE /settings/forgejo/{host}/pat` can put back.
+    pub has_pat_override: bool,
+    /// Whether this instance has a registered OAuth2 application. False leaves
+    /// a personal access token as the only way to connect.
+    pub oauth_available: bool,
+}
+
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveForgejoProviderTokenRequest {
+    /// The instance, as a host or a URL. Only its host is kept.
+    pub base_url: String,
+    /// A Forgejo personal access token must name its scopes, and this one needs
+    /// `read:repository` to clone and `write:repository` to push.
+    pub token: String,
+}
+
+impl std::fmt::Debug for SaveForgejoProviderTokenRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SaveForgejoProviderTokenRequest")
+            .field("base_url", &self.base_url)
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
+}
+
+/// Which instance a Forgejo settings request is about.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query)]
+pub struct ForgejoHostQuery {
+    /// The instance, as a host or a URL. Only its host is kept.
+    pub host: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgejoInstanceSummary {
+    pub host: String,
+    pub client_id: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgejoInstancesResponse {
+    pub instances: Vec<ForgejoInstanceSummary>,
+}
+
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterForgejoInstanceRequest {
+    pub client_id: String,
+    /// Sealed under the instance row's id before it is stored, and never
+    /// returned by any read path afterwards.
+    pub client_secret: String,
+}
+
+impl std::fmt::Debug for RegisterForgejoInstanceRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisterForgejoInstanceRequest")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[REDACTED]")
+            .finish()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AdapterAppSummary {
@@ -357,40 +439,74 @@ mod tests {
 
     #[test]
     fn credential_requests_redact_secrets_from_debug_output() {
+        // Paired with the plaintext rather than checked for the word "secret":
+        // `client_secret` is a field name, and a redacted rendering still prints it.
         let values = [
-            format!(
-                "{:?}",
-                SaveGitHubProviderTokenRequest {
-                    token: "github-secret".to_string(),
-                }
+            (
+                format!(
+                    "{:?}",
+                    SaveGitHubProviderTokenRequest {
+                        token: "github-plaintext".to_string(),
+                    }
+                ),
+                "github-plaintext",
             ),
-            format!(
-                "{:?}",
-                SaveGitnessProviderTokenRequest {
-                    base_url: "https://gitness.example".to_string(),
-                    token: "gitness-secret".to_string(),
-                }
+            (
+                format!(
+                    "{:?}",
+                    SaveGitnessProviderTokenRequest {
+                        base_url: "https://gitness.example".to_string(),
+                        token: "gitness-plaintext".to_string(),
+                    }
+                ),
+                "gitness-plaintext",
             ),
-            format!(
-                "{:?}",
-                SaveCodexAgentHarnessCredentialRequest {
-                    auth_json: "codex-secret".to_string(),
-                }
+            (
+                format!(
+                    "{:?}",
+                    SaveForgejoProviderTokenRequest {
+                        base_url: "https://git.acme.dev".to_string(),
+                        token: "forgejo-plaintext".to_string(),
+                    }
+                ),
+                "forgejo-plaintext",
             ),
-            format!(
-                "{:?}",
-                RegisterGitHubAppRequest {
-                    github_app_key: "example".to_string(),
-                    app_id: 1,
-                    private_key_pem: "github-app-secret".to_string(),
-                    default_installation_id: None,
-                }
+            (
+                format!(
+                    "{:?}",
+                    RegisterForgejoInstanceRequest {
+                        client_id: "forgejo-client".to_string(),
+                        client_secret: "forgejo-app-plaintext".to_string(),
+                    }
+                ),
+                "forgejo-app-plaintext",
+            ),
+            (
+                format!(
+                    "{:?}",
+                    SaveCodexAgentHarnessCredentialRequest {
+                        auth_json: "codex-plaintext".to_string(),
+                    }
+                ),
+                "codex-plaintext",
+            ),
+            (
+                format!(
+                    "{:?}",
+                    RegisterGitHubAppRequest {
+                        github_app_key: "example".to_string(),
+                        app_id: 1,
+                        private_key_pem: "github-app-plaintext".to_string(),
+                        default_installation_id: None,
+                    }
+                ),
+                "github-app-plaintext",
             ),
         ];
 
-        for value in values {
+        for (value, plaintext) in values {
             assert!(value.contains("[REDACTED]"));
-            assert!(!value.contains("secret"));
+            assert!(!value.contains(plaintext));
         }
     }
 

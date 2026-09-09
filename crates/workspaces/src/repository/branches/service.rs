@@ -3,7 +3,9 @@ use super::super::dao::RepositoryDao;
 use super::super::error::RepositoryError;
 use super::super::models::RepositoryPatch;
 use super::super::schemas::{BranchEntry, BranchListResponse};
-use super::providers::{fetch_github_branches, fetch_gitlab_branches, fetch_gitness_branches};
+use super::providers::{
+    fetch_forgejo_branches, fetch_github_branches, fetch_gitlab_branches, fetch_gitness_branches,
+};
 use crate::workspace::dao::WorkspaceDao;
 use moatless_identity::credentials::{CredentialError, CredentialService};
 use moatless_ports::identity::GitHostTokenIssuer;
@@ -84,6 +86,9 @@ impl RepositoryBranchService {
             }
             RepositoryProvider::Gitlab => {
                 fetch_gitlab_branches(&self.http, remote_url, &access_token).await?
+            }
+            RepositoryProvider::Forgejo => {
+                fetch_forgejo_branches(&self.http, remote_url, &access_token).await?
             }
             RepositoryProvider::Gitness => {
                 let metadata = credentials

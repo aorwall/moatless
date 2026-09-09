@@ -10,7 +10,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tracing::warn;
 
-use moatless_core::secret_keys::GITHUB_TOKEN;
+use moatless_core::secret_keys::{GITHUB_TOKEN, forgejo_token_key};
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer, PlainGitHost};
 use moatless_ports::workspace::WorkspaceCredentialReader;
 use moatless_types::repository::RepositoryProvider;
@@ -24,9 +24,12 @@ use crate::auth::models::ProviderToken;
 use crate::auth::provider_token_auth_dao::ProviderTokenAuthDao;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::{
-    AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_APP_USER, AUTH_METHOD_SECRET_REF,
+    AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_APP_USER, AUTH_METHOD_FORGEJO_OAUTH,
+    AUTH_METHOD_SECRET_REF, forgejo_provider_key,
 };
 use crate::auth::token_refresh::ensure_fresh_token;
+use crate::forgejo::instances::ForgejoInstances;
+use crate::forgejo::oauth::ForgejoOAuth;
 use crate::secret::service::SecretService;
 use moatless_types::access_control::Actor;
 use moatless_types::access_control::Scope;
@@ -47,6 +50,16 @@ pub struct GitHostTokens {
     /// workspace credential store, which resolves every identity to its own
     /// credential.
     workspace_credentials: Option<Arc<dyn WorkspaceCredentialReader>>,
+    /// `None` in a deployment that wires no Forgejo registry, which leaves a
+    /// stored Forgejo credential to be presented until its host rejects it.
+    forgejo: Option<ForgejoRefresh>,
+}
+
+/// The two handles renewing a Forgejo OAuth credential needs: the instance's
+/// registered application, and the endpoint to exchange against.
+struct ForgejoRefresh {
+    instances: Arc<ForgejoInstances>,
+    oauth: ForgejoOAuth,
 }
 
 impl GitHostTokens {
@@ -64,6 +77,7 @@ impl GitHostTokens {
             github_apps,
             secrets,
             workspace_credentials: None,
+            forgejo: None,
         }
     }
 
@@ -74,6 +88,16 @@ impl GitHostTokens {
         workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
     ) -> Self {
         self.workspace_credentials = Some(workspace_credentials);
+        self
+    }
+
+    /// Wire the registry a Forgejo OAuth credential is renewed through.
+    #[must_use]
+    pub(crate) fn with_forgejo(mut self, instances: Arc<ForgejoInstances>) -> Self {
+        self.forgejo = Some(ForgejoRefresh {
+            instances,
+            oauth: ForgejoOAuth::default(),
+        });
         self
     }
 
@@ -125,6 +149,7 @@ impl GitHostTokens {
             .ok_or_else(|| GitHostTokenError::NoCredential {
                 actor: actor.clone(),
                 provider,
+                host: None,
             })
     }
 
@@ -152,12 +177,16 @@ impl GitHostTokens {
             return Err(GitHostTokenError::NoCredential {
                 actor: actor.clone(),
                 provider: RepositoryProvider::Github,
+                host: None,
             });
         };
 
         let checked = match row.auth_method.as_deref() {
             Some(AUTH_METHOD_APP_INSTALLATION) => self.installation_app(&row).await.map(|_| ()),
-            Some(AUTH_METHOD_SECRET_REF) => self.read_secret_ref_token(actor).await.map(|_| ()),
+            Some(AUTH_METHOD_SECRET_REF) => self
+                .read_secret_ref_token(actor, GITHUB_TOKEN)
+                .await
+                .map(|_| ()),
             Some(AUTH_METHOD_APP_USER) => {
                 self.refreshed_oauth_token(&row, actor).await;
                 Ok(())
@@ -187,12 +216,13 @@ impl GitHostTokens {
             return Err(GitHostTokenError::NoCredential {
                 actor: actor.clone(),
                 provider: RepositoryProvider::Github,
+                host: None,
             });
         };
 
         let resolved = match row.auth_method.as_deref() {
             Some(AUTH_METHOD_APP_INSTALLATION) => self.mint_installation_token(&row, repo).await,
-            Some(AUTH_METHOD_SECRET_REF) => self.read_secret_ref_token(actor).await,
+            Some(AUTH_METHOD_SECRET_REF) => self.read_secret_ref_token(actor, GITHUB_TOKEN).await,
             Some(AUTH_METHOD_APP_USER) => Ok(self.refreshed_oauth_token(&row, actor).await),
             _ => Ok(row.access_token.clone()),
         };
@@ -259,28 +289,156 @@ impl GitHostTokens {
         }
     }
 
-    /// Read the encrypted PAT a `secret_ref` row points at.
+    /// Read the encrypted PAT the `secret_ref` row for `key` points at.
+    ///
+    /// `key` names the secret because one identity holds one `secret_ref` row
+    /// per host, each pointing at its own — `GITHUB_TOKEN` for GitHub, and a
+    /// [`forgejo_token_key`] per Forgejo instance.
     ///
     /// Every failure mode is an error rather than an absent credential: a
     /// reference row with no resolvable secret means the identity *is*
     /// connected but the credential is unreachable.
-    async fn read_secret_ref_token(&self, actor: &Actor) -> Result<String, AuthError> {
+    async fn read_secret_ref_token(&self, actor: &Actor, key: &str) -> Result<String, AuthError> {
         self.secrets
             .resolve_scope_secret(
                 Scope::User,
                 Some(actor.user_id()),
-                GITHUB_TOKEN,
+                key,
                 Some(SecretKind::ProviderToken),
             )
             .await
-            .map_err(|e| AuthError::Config(format!("Failed to read the GitHub token secret: {e}")))?
+            .map_err(|e| AuthError::Config(format!("Failed to read the {key} secret: {e}")))?
             .ok_or_else(|| {
-                AuthError::Config(
-                    "The GitHub credential is a secret_ref but no matching GITHUB_TOKEN secret \
-                     exists"
-                        .to_string(),
-                )
+                AuthError::Config(format!(
+                    "The credential is a secret_ref but no matching {key} secret exists"
+                ))
             })
+    }
+
+    /// Forgejo dispatches on the row's `auth_method`, like GitHub, but every
+    /// lookup is keyed by the instance the repository names.
+    async fn forgejo_token(
+        &self,
+        actor: &Actor,
+        repo: &GitHostRepo,
+    ) -> Result<String, GitHostTokenError> {
+        let host = repo.host().ok_or_else(|| GitHostTokenError::Broken {
+            actor: actor.clone(),
+            provider: RepositoryProvider::Forgejo,
+            source: Box::new(AuthError::Config(
+                "A Forgejo repository URL must carry the instance's host".to_string(),
+            )),
+        })?;
+
+        let row = self
+            .provider_tokens
+            .find_provider_token_full(actor.user_id(), &forgejo_provider_key(host))
+            .await
+            .map_err(|e| {
+                StoreError::with_source(format!("read {actor}'s Forgejo row for {host}"), e)
+            })?
+            .ok_or_else(|| GitHostTokenError::NoCredential {
+                actor: actor.clone(),
+                provider: RepositoryProvider::Forgejo,
+                host: Some(host.to_string()),
+            })?;
+
+        let resolved = match row.auth_method.as_deref() {
+            Some(AUTH_METHOD_SECRET_REF) => {
+                self.read_secret_ref_token(actor, &forgejo_token_key(host))
+                    .await
+            }
+            Some(AUTH_METHOD_FORGEJO_OAUTH) => {
+                Ok(self.refreshed_forgejo_token(&row, actor, host).await)
+            }
+            _ => Ok(row.access_token.clone()),
+        };
+
+        resolved.map_err(|source| classify(actor, repo, source))
+    }
+
+    /// A Forgejo OAuth row refreshes near expiry. Every failure falls back to
+    /// the stored access token, which may still be valid; the host's own
+    /// rejection is what reports it when it is not.
+    ///
+    /// # Concurrency
+    ///
+    /// Unserialized, on the terms
+    /// [`crate::auth::token_refresh::ensure_fresh_token`] states.
+    async fn refreshed_forgejo_token(
+        &self,
+        row: &ProviderToken,
+        actor: &Actor,
+        host: &str,
+    ) -> String {
+        let stored = row.access_token.clone();
+        let Some(refresh) = self.forgejo.as_ref() else {
+            return stored;
+        };
+        // A row with no expiry is undated rather than perpetual, so it is
+        // renewed once and dated by the result.
+        if row
+            .expires_at
+            .is_some_and(|at| at > chrono::Utc::now() + chrono::Duration::minutes(5))
+        {
+            return stored;
+        }
+        let Some(refresh_token) = row.refresh_token.as_deref() else {
+            return stored;
+        };
+
+        match self
+            .renew_forgejo_credential(refresh, actor, host, refresh_token)
+            .await
+        {
+            Ok(token) => token,
+            Err(error) => {
+                warn!(
+                    %error,
+                    actor = %actor,
+                    host,
+                    "Forgejo token refresh failed, falling back to the stored token"
+                );
+                stored
+            }
+        }
+    }
+
+    async fn renew_forgejo_credential(
+        &self,
+        refresh: &ForgejoRefresh,
+        actor: &Actor,
+        host: &str,
+        refresh_token: &str,
+    ) -> Result<String, AuthError> {
+        let app = refresh
+            .instances
+            .app(host)
+            .await?
+            .ok_or_else(|| AuthError::NotFound(format!("No OAuth application for {host}")))?;
+        let renewed = refresh
+            .oauth
+            .refresh(&app, refresh_token)
+            .await
+            .map_err(|e| AuthError::OAuth(e.to_string()))?;
+
+        // Forgejo invalidates the presented refresh token, so the answer is
+        // stored whole before it is used: a renewal that is returned but not
+        // persisted leaves the row holding a refresh token nothing can spend.
+        self.provider_tokens
+            .upsert_token_with_auth_method(
+                actor.user_id(),
+                &forgejo_provider_key(host),
+                AUTH_METHOD_FORGEJO_OAUTH,
+                &renewed.access_token,
+                renewed.refresh_token.as_deref(),
+                Some("bearer"),
+                Some(&serde_json::json!({ "host": host })),
+                renewed.expires_at,
+            )
+            .await
+            .map_err(AuthError::Database)?;
+        Ok(renewed.access_token)
     }
 }
 
@@ -343,6 +501,7 @@ impl GitHostTokenIssuer for GitHostTokens {
             RepositoryProvider::Gitness => {
                 self.stored_host_token(actor, PlainGitHost::Gitness).await
             }
+            RepositoryProvider::Forgejo => self.forgejo_token(actor, repo).await,
         }
     }
 

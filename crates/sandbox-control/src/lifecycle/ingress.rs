@@ -27,6 +27,16 @@ impl SandboxIngress {
         self.store.load(task_id).await
     }
 
+    /// The Workspace whose placements the Sandbox checks out, absent when the
+    /// Sandbox has no row.
+    pub async fn workspace_id(&self, sandbox_id: &str) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .store
+            .sandbox_shape(sandbox_id)
+            .await?
+            .map(|shape| shape.workspace_id))
+    }
+
     /// The identity the Sandbox's pod acts as outward, absent when the Sandbox
     /// has no row or pins no run-as identity.
     pub async fn run_as_user_id(&self, sandbox_id: &str) -> Result<Option<String>, StoreError> {

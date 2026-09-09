@@ -33,6 +33,7 @@ pub(crate) async fn fetch_provider_file(
             })?;
             fetch_gitlab_file(remote_url, path, branch, token).await
         }
+        RepositoryProvider::Forgejo => fetch_forgejo_file(remote_url, path, branch, token).await,
         RepositoryProvider::Gitness => {
             // Gitness needs a base_url; skip for now – callers can pass it later.
             Ok(None)
@@ -55,8 +56,9 @@ pub async fn moatless_dir_exists(
 ) -> bool {
     match provider {
         RepositoryProvider::Github => github_moatless_dir_exists(remote_url, branch, token).await,
-        // Non-GitHub providers have no cheap check wired yet — don't skip them.
-        _ => true,
+        RepositoryProvider::Forgejo => forgejo_moatless_dir_exists(remote_url, branch, token).await,
+        // GitLab and Gitness have no cheap check wired — don't skip them.
+        RepositoryProvider::Gitlab | RepositoryProvider::Gitness => true,
     }
 }
 
@@ -95,6 +97,94 @@ async fn github_moatless_dir_exists(
             true
         }
     }
+}
+
+/// Forgejo existence probe:
+/// `GET /api/v1/repos/{owner}/{repo}/contents/.moatless?ref={branch}`.
+/// Only a 404 is treated as "no directory"; everything else fails open to `true`.
+async fn forgejo_moatless_dir_exists(
+    remote_url: &str,
+    branch: Option<&str>,
+    token: Option<&str>,
+) -> bool {
+    let Ok(url) = forgejo_api_url(remote_url, "contents/.moatless", branch) else {
+        return true;
+    };
+    let mut req = reqwest::Client::new().get(&url);
+    if let Some(token) = token {
+        req = req.header("Authorization", format!("token {token}"));
+    }
+    match req.send().await {
+        Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => false,
+        Ok(_) => true,
+        Err(e) => {
+            warn!(error = %e, "Failed to probe .moatless directory; assuming present");
+            true
+        }
+    }
+}
+
+/// Fetch a file from Forgejo:
+/// `GET /api/v1/repos/{owner}/{repo}/raw/{path}?ref={branch}`.
+/// Returns the raw file body, or `Ok(None)` on 404.
+async fn fetch_forgejo_file(
+    remote_url: &str,
+    path: &str,
+    branch: Option<&str>,
+    token: Option<&str>,
+) -> Result<Option<String>, RepositoryError> {
+    let url = forgejo_api_url(remote_url, &format!("raw/{path}"), branch)?;
+    let mut req = reqwest::Client::new().get(&url);
+    if let Some(token) = token {
+        req = req.header("Authorization", format!("token {token}"));
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| RepositoryError::ProviderError(format!("Forgejo API request failed: {e}")))?;
+
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        debug!("No {path} found in {remote_url}");
+        return Ok(None);
+    }
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(RepositoryError::ProviderError(format!(
+            "Forgejo API returned {status} fetching {path}: {body}"
+        )));
+    }
+
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| RepositoryError::ProviderError(format!("Failed to read {path} body: {e}")))?;
+    Ok(Some(body))
+}
+
+/// A Forgejo REST URL for `suffix` under the repository `remote_url` names.
+///
+/// HTTPS always, whatever scheme `remote_url` carries: a Workspace controls
+/// that URL, and honouring a scheme from it would let one downgrade the
+/// connection the token below travels over.
+fn forgejo_api_url(
+    remote_url: &str,
+    suffix: &str,
+    branch: Option<&str>,
+) -> Result<String, RepositoryError> {
+    let parsed = GitHostRepo::parse(GitHostProvider::Forgejo, remote_url).ok_or_else(|| {
+        RepositoryError::BadRequest(format!("Cannot parse Forgejo URL: {remote_url}"))
+    })?;
+    let host = parsed.host().ok_or_else(|| {
+        RepositoryError::BadRequest(format!("Forgejo URL names no host: {remote_url}"))
+    })?;
+    let (owner, repo) = (parsed.owner(), parsed.name());
+    let mut url = format!("https://{host}/api/v1/repos/{owner}/{repo}/{suffix}");
+    if let Some(r) = branch {
+        use std::fmt::Write;
+        let _ = write!(url, "?ref={}", urlencoding::encode(r));
+    }
+    Ok(url)
 }
 
 /// Fetch a file from GitHub: `GET /repos/{owner}/{repo}/contents/{path}?ref={branch}`.

@@ -10,7 +10,7 @@
 //! # Endpoints
 //!
 //! - `GET /credential?key=GITHUB_TOKEN` → plain `value\n`
-//! - `GET /git-credential` → git's credential-helper format
+//! - `GET /git-credential?host=<host>` → git's credential-helper format
 //!   (`username=oauth2\npassword=<token>\n`)
 
 use std::path::Path;
@@ -31,6 +31,10 @@ use crate::backend_client::BackendClient;
 pub struct BrokerState {
     pub task_id: String,
     pub backend_client: Arc<dyn BackendClient>,
+    /// `host[:port]` of the backend, which is the origin a proxied checkout
+    /// clones from. A request naming it is answered with the pod's own task
+    /// token instead of a provider token — see [`get_git_credential`].
+    pub backend_host: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -60,17 +64,40 @@ async fn get_credential(
     }
 }
 
-async fn get_git_credential(State(state): State<BrokerState>) -> impl IntoResponse {
+#[derive(serde::Deserialize)]
+pub struct GitCredentialQuery {
+    /// Git's own `host=` field, forwarded by the helper script. Absent when an
+    /// older script asks, which only ever asked about the pod's git host.
+    #[serde(default)]
+    host: Option<String>,
+}
+
+/// Answer git's credential-helper protocol for one host.
+///
+/// A request naming the backend is a proxied checkout: the pod presents its own
+/// task token and the backend attaches the upstream credential, so the git
+/// host's token is never delivered here. Every other host gets `GITHUB_TOKEN`.
+async fn get_git_credential(
+    State(state): State<BrokerState>,
+    Query(q): Query<GitCredentialQuery>,
+) -> impl IntoResponse {
+    let proxied = match (&state.backend_host, &q.host) {
+        (Some(backend), Some(asked)) => backend == asked,
+        _ => false,
+    };
+    // The proxy ignores the username; the token is the whole credential.
+    let (key, username) = if proxied {
+        ("USER_AUTH_TOKEN", "x-access-token")
+    } else {
+        ("GITHUB_TOKEN", "oauth2")
+    };
     match state.backend_client.get_credentials(&state.task_id).await {
-        Ok(resp) => match resp.credentials.get("GITHUB_TOKEN") {
+        Ok(resp) => match resp.credentials.get(key) {
             Some(token) => (
                 StatusCode::OK,
-                format!("username=oauth2\npassword={token}\n"),
+                format!("username={username}\npassword={token}\n"),
             ),
-            None => (
-                StatusCode::NOT_FOUND,
-                "no GITHUB_TOKEN available\n".to_string(),
-            ),
+            None => (StatusCode::NOT_FOUND, format!("no {key} available\n")),
         },
         Err(e) => {
             warn!(error = %e, "broker: get_credentials failed for git-credential");
@@ -212,6 +239,7 @@ mod tests {
         BrokerState {
             task_id: "task-1".to_string(),
             backend_client: backend,
+            backend_host: Some("backend:8001".to_string()),
         }
     }
 
@@ -251,18 +279,48 @@ mod tests {
         assert_eq!(resp.status(), Sc::NOT_FOUND);
     }
 
+    async fn git_credential_body(state: BrokerState, host: Option<&str>) -> (Sc, String) {
+        let resp = get_git_credential(
+            State(state),
+            Query(GitCredentialQuery {
+                host: host.map(str::to_string),
+            }),
+        )
+        .await
+        .into_response();
+        let status = resp.status();
+        let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        (status, String::from_utf8(body.to_vec()).unwrap())
+    }
+
     #[tokio::test]
     async fn git_credential_returns_helper_format() {
         let mut creds = HashMap::new();
         creds.insert("GITHUB_TOKEN".to_string(), "ghs_token".to_string());
-        let state = make_state(creds);
 
-        let resp = get_git_credential(State(state)).await.into_response();
-        assert_eq!(resp.status(), Sc::OK);
-        let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
-        let body_str = String::from_utf8(body.to_vec()).unwrap();
-        assert!(body_str.contains("username=oauth2"));
-        assert!(body_str.contains("password=ghs_token"));
+        let (status, body) = git_credential_body(make_state(creds), Some("github.com")).await;
+        assert_eq!(status, Sc::OK);
+        assert!(body.contains("username=oauth2"));
+        assert!(body.contains("password=ghs_token"));
+    }
+
+    /// A proxied checkout addresses the backend, and the credential it needs is
+    /// the pod's own task token — never the git host's.
+    #[tokio::test]
+    async fn the_backend_host_is_answered_with_the_task_token() {
+        let mut creds = HashMap::new();
+        creds.insert("GITHUB_TOKEN".to_string(), "ghs_token".to_string());
+        creds.insert("USER_AUTH_TOKEN".to_string(), "task-jwt".to_string());
+
+        let (status, body) =
+            git_credential_body(make_state(creds.clone()), Some("backend:8001")).await;
+        assert_eq!(status, Sc::OK);
+        assert!(body.contains("password=task-jwt"), "{body}");
+        assert!(!body.contains("ghs_token"), "{body}");
+
+        // A host the helper did not name is not the backend.
+        let (_, body) = git_credential_body(make_state(creds), None).await;
+        assert!(body.contains("password=ghs_token"), "{body}");
     }
 
     #[test]

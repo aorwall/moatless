@@ -527,6 +527,7 @@ mod openapi_dump_tests {
             properties.keys().map(String::as_str).collect::<Vec<_>>(),
             vec![
                 "device_pairing",
+                "forgejo_enabled",
                 "gitlab_enabled",
                 "netlify_publish",
                 "show_claude_settings",

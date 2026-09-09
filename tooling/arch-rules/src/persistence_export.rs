@@ -177,6 +177,13 @@ pub const CONCERNS: &[Concern] = &[
         slice: 6,
     },
     Concern {
+        name: "forgejo instances",
+        owner: "moatless-identity",
+        roots: &["crates/identity/src/forgejo/dao"],
+        tables: &["forgejo_instances"],
+        slice: 6,
+    },
+    Concern {
         name: "repositories",
         owner: "moatless-workspaces",
         roots: &[

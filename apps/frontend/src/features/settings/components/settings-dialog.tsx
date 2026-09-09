@@ -8,6 +8,7 @@ import { ApiKeyConfigurationSection } from './api-key-configuration-section'
 import { ClaudeConfigurationSection } from './claude-configuration-section'
 import { CodexConfigurationSection } from './codex-configuration-section'
 import { DevicePairingSection } from './device-pairing-section'
+import { ForgejoConfigurationSection } from './forgejo-configuration-section'
 import { GitHubConfigurationSection } from './github-configuration-section'
 import { GitLabConfigurationSection } from './gitlab-configuration-section'
 import { GitnessConfigurationSection } from './gitness-configuration-section'
@@ -30,6 +31,7 @@ export function SettingsDialog({
   const showCodexSettings = useFeatureFlag('SHOW_CODEX_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
   const isGitnessEnabled = useFeatureFlag('GITNESS_ENABLED')
+  const isForgejoEnabled = useFeatureFlag('FORGEJO_ENABLED')
   // On exactly when the T3 compatibility routes are: a pairing code is worth
   // nothing to a client that has nothing to connect to afterwards.
   const isDevicePairingEnabled = useFeatureFlag('DEVICE_PAIRING')
@@ -91,6 +93,14 @@ export function SettingsDialog({
       })
     }
 
+    if (isForgejoEnabled) {
+      allSections.push({
+        id: 'forgejo',
+        label: 'Forgejo',
+        icon: <GitBranch className="h-4 w-4" />,
+      })
+    }
+
     allSections.push({
       id: 'api-keys',
       label: 'API Keys',
@@ -133,6 +143,7 @@ export function SettingsDialog({
         {activeSection === 'github' && <GitHubConfigurationSection key="github" />}
         {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
         {activeSection === 'gitness' && <GitnessConfigurationSection key="gitness" />}
+        {activeSection === 'forgejo' && <ForgejoConfigurationSection key="forgejo" />}
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
         {activeSection === 'devices' && <DevicePairingSection key="devices" />}
       </SidebarDialog.Content>

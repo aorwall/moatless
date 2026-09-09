@@ -8,8 +8,7 @@ use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_types::access_control::ScopeContext;
 
 use crate::auth::credentials::{
-    GITHUB_OAUTH_STASH_KEY, StashedGithubCredential, read_github_oauth_stash,
-    stash_github_oauth_token,
+    GITHUB_OAUTH_STASH_KEY, StashedOAuthCredential, read_oauth_stash, stash_oauth_credential,
 };
 use crate::auth::models::ProviderToken;
 use crate::auth::provider_token_dao::ProviderTokenDao;
@@ -65,6 +64,11 @@ pub enum GitHostAccessError {
     Provider(#[source] GitProviderError),
     #[error("Secret storage error: {0}")]
     Secret(#[from] SecretError),
+    /// A fault in the deployment rather than in the request — a missing
+    /// encryption key, a registration that cannot be opened. Rendered as a 500
+    /// with the cause logged, so a caller is not told to fix its own input.
+    #[error("Internal error: {0}")]
+    Internal(#[source] crate::auth::error::AuthError),
 }
 
 #[async_trait]
@@ -207,7 +211,7 @@ impl GitHostAccess {
         if token_type != Some("pat") {
             return false;
         }
-        match read_github_oauth_stash(&self.secrets, user_id).await {
+        match read_oauth_stash(&self.secrets, user_id, GITHUB_OAUTH_STASH_KEY).await {
             Ok(stash) => stash.is_some(),
             Err(error) => {
                 tracing::warn!(%error, user_id, "Failed to read the GitHub App token stash");
@@ -247,10 +251,12 @@ impl GitHostAccess {
                 // migration 0027 and still hold a live OAuth token, and losing
                 // one means the person cannot get back to App access by
                 // removing the PAT.
-                stash_github_oauth_token(
+                stash_oauth_credential(
                     &self.secrets,
                     &principal.user_id,
-                    &StashedGithubCredential {
+                    GITHUB_OAUTH_STASH_KEY,
+                    "github",
+                    &StashedOAuthCredential {
                         access_token: existing.access_token.clone(),
                         refresh_token: existing.refresh_token.clone(),
                         expires_at: existing.expires_at,
@@ -337,7 +343,7 @@ impl GitHostAccess {
                 "No PAT override to remove".to_string(),
             ));
         }
-        let stashed = read_github_oauth_stash(&self.secrets, &principal.user_id)
+        let stashed = read_oauth_stash(&self.secrets, &principal.user_id, GITHUB_OAUTH_STASH_KEY)
             .await?
             .ok_or_else(|| {
                 GitHostAccessError::BadRequest(
@@ -566,14 +572,14 @@ mod tests {
     /// the OAuth `token_type` rather than the `pat` a previous override left.
     async fn stash_after_saving_a_pat_over(
         mut row: ProviderToken,
-    ) -> Option<StashedGithubCredential> {
+    ) -> Option<StashedOAuthCredential> {
         row.token_type = Some("bearer".to_string());
         let (access, secrets) = accepting_access(row);
         access
             .save_github_provider_token(&principal(), "ghp_new".to_string())
             .await
             .expect("save the PAT");
-        read_github_oauth_stash(&secrets, "u1")
+        read_oauth_stash(&secrets, "u1", GITHUB_OAUTH_STASH_KEY)
             .await
             .expect("read the stash")
     }
@@ -791,7 +797,7 @@ mod tests {
         // the expiry it reads as undated and without the refresh token there is
         // nothing to renew it with, so the restored credential dies at the
         // stashed token's expiry and never refreshes.
-        let restored = restore(&StashedGithubCredential {
+        let restored = restore(&StashedOAuthCredential {
             access_token: "ghu_stashed".to_string(),
             refresh_token: Some("ghr_stashed".to_string()),
             expires_at: Some(expiry()),
@@ -810,7 +816,7 @@ mod tests {
         // Stashes written before the credential was stored whole are a bare
         // token. Restoring one is still better than refusing: the person gets
         // back whatever life it has left and can reconnect.
-        let restored = restore(&StashedGithubCredential::from_access_token("ghu_legacy")).await;
+        let restored = restore(&StashedOAuthCredential::from_access_token("ghu_legacy")).await;
 
         assert_eq!(restored.access_token, "ghu_legacy");
         assert_eq!(restored.refresh_token, None);
@@ -819,7 +825,7 @@ mod tests {
 
     /// Remove a PAT override standing in front of `stashed`, and report the row
     /// the restore wrote.
-    async fn restore(stashed: &StashedGithubCredential) -> UpsertedToken {
+    async fn restore(stashed: &StashedOAuthCredential) -> UpsertedToken {
         let row = row_with(
             AUTH_METHOD_SECRET_REF,
             "pat",

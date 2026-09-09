@@ -62,6 +62,14 @@ pub(super) fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::O
             "/api/v1/auth/github-app/callback",
             get(handlers::github_app_callback_handler),
         )
+        .route(
+            "/api/v1/auth/forgejo/connect",
+            get(handlers::forgejo_connect_handler),
+        )
+        .route(
+            "/api/v1/auth/forgejo/callback",
+            get(handlers::forgejo_callback_handler),
+        )
         .route("/api/v1/auth/auth0", get(handlers::auth0_init_handler))
         .route(
             "/api/v1/auth/auth0/callback",

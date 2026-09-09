@@ -28,8 +28,11 @@ import type {
   AdapterAppSummary,
   AdapterAppsResponse,
   ErrorBody,
+  ForgejoInstanceSummary,
+  ForgejoInstancesResponse,
   GitHubAppRegistrationResponse,
   GitHubAppsResponse,
+  RegisterForgejoInstanceRequest,
   RegisterGitHubAppRequest,
   RemoveGitHubAppResponse,
   RotateGitHubAppKeyRequest,
@@ -48,7 +51,305 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 
-export type adminListAdapterAppsResponse200 = {
+export type adminListForgejoInstancesResponse200 = {
+  data: ForgejoInstancesResponse
+  status: 200
+}
+
+export type adminListForgejoInstancesResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+    
+export type adminListForgejoInstancesResponseSuccess = (adminListForgejoInstancesResponse200) & {
+  headers: Headers;
+};
+export type adminListForgejoInstancesResponseError = (adminListForgejoInstancesResponse403) & {
+  headers: Headers;
+};
+
+export type adminListForgejoInstancesResponse = (adminListForgejoInstancesResponseSuccess | adminListForgejoInstancesResponseError)
+
+export const getAdminListForgejoInstancesUrl = () => {
+
+
+  
+
+  return `/api/v1/admin/forgejo-instances`
+}
+
+export const adminListForgejoInstances = async ( options?: RequestInit): Promise<adminListForgejoInstancesResponse> => {
+  
+  return customInstance<adminListForgejoInstancesResponse>(getAdminListForgejoInstancesUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getAdminListForgejoInstancesQueryKey = () => {
+    return [
+    `/api/v1/admin/forgejo-instances`
+    ] as const;
+    }
+
+    
+export const getAdminListForgejoInstancesQueryOptions = <TData = Awaited<ReturnType<typeof adminListForgejoInstances>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListForgejoInstances>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListForgejoInstancesQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListForgejoInstances>>> = ({ signal }) => adminListForgejoInstances({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListForgejoInstances>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type AdminListForgejoInstancesQueryResult = NonNullable<Awaited<ReturnType<typeof adminListForgejoInstances>>>
+export type AdminListForgejoInstancesQueryError = ErrorType<ErrorBody>
+
+
+export function useAdminListForgejoInstances<TData = Awaited<ReturnType<typeof adminListForgejoInstances>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListForgejoInstances>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminListForgejoInstances>>,
+          TError,
+          Awaited<ReturnType<typeof adminListForgejoInstances>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useAdminListForgejoInstances<TData = Awaited<ReturnType<typeof adminListForgejoInstances>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListForgejoInstances>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminListForgejoInstances>>,
+          TError,
+          Awaited<ReturnType<typeof adminListForgejoInstances>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useAdminListForgejoInstances<TData = Awaited<ReturnType<typeof adminListForgejoInstances>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListForgejoInstances>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+
+export function useAdminListForgejoInstances<TData = Awaited<ReturnType<typeof adminListForgejoInstances>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListForgejoInstances>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getAdminListForgejoInstancesQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const prefetchAdminListForgejoInstancesQuery = async <TData = Awaited<ReturnType<typeof adminListForgejoInstances>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListForgejoInstances>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getAdminListForgejoInstancesQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+export type adminRegisterForgejoInstanceResponse200 = {
+  data: ForgejoInstanceSummary
+  status: 200
+}
+
+export type adminRegisterForgejoInstanceResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminRegisterForgejoInstanceResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+    
+export type adminRegisterForgejoInstanceResponseSuccess = (adminRegisterForgejoInstanceResponse200) & {
+  headers: Headers;
+};
+export type adminRegisterForgejoInstanceResponseError = (adminRegisterForgejoInstanceResponse400 | adminRegisterForgejoInstanceResponse403) & {
+  headers: Headers;
+};
+
+export type adminRegisterForgejoInstanceResponse = (adminRegisterForgejoInstanceResponseSuccess | adminRegisterForgejoInstanceResponseError)
+
+export const getAdminRegisterForgejoInstanceUrl = (host: string,) => {
+
+
+  
+
+  return `/api/v1/admin/forgejo-instances/${host}`
+}
+
+export const adminRegisterForgejoInstance = async (host: string,
+    registerForgejoInstanceRequest: RegisterForgejoInstanceRequest, options?: RequestInit): Promise<adminRegisterForgejoInstanceResponse> => {
+  
+  return customInstance<adminRegisterForgejoInstanceResponse>(getAdminRegisterForgejoInstanceUrl(host),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      registerForgejoInstanceRequest,)
+  }
+);}
+
+
+
+
+export const getAdminRegisterForgejoInstanceMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRegisterForgejoInstance>>, TError,{host: string;data: RegisterForgejoInstanceRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRegisterForgejoInstance>>, TError,{host: string;data: RegisterForgejoInstanceRequest}, TContext> => {
+
+const mutationKey = ['adminRegisterForgejoInstance'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRegisterForgejoInstance>>, {host: string;data: RegisterForgejoInstanceRequest}> = (props) => {
+          const {host,data} = props ?? {};
+
+          return  adminRegisterForgejoInstance(host,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRegisterForgejoInstanceMutationResult = NonNullable<Awaited<ReturnType<typeof adminRegisterForgejoInstance>>>
+    export type AdminRegisterForgejoInstanceMutationBody = RegisterForgejoInstanceRequest
+    export type AdminRegisterForgejoInstanceMutationError = ErrorType<ErrorBody>
+
+    export const useAdminRegisterForgejoInstance = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRegisterForgejoInstance>>, TError,{host: string;data: RegisterForgejoInstanceRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminRegisterForgejoInstance>>,
+        TError,
+        {host: string;data: RegisterForgejoInstanceRequest},
+        TContext
+      > => {
+      return useMutation(getAdminRegisterForgejoInstanceMutationOptions(options), queryClient);
+    }
+    export type adminRemoveForgejoInstanceResponse204 = {
+  data: void
+  status: 204
+}
+
+export type adminRemoveForgejoInstanceResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminRemoveForgejoInstanceResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type adminRemoveForgejoInstanceResponseSuccess = (adminRemoveForgejoInstanceResponse204) & {
+  headers: Headers;
+};
+export type adminRemoveForgejoInstanceResponseError = (adminRemoveForgejoInstanceResponse403 | adminRemoveForgejoInstanceResponse404) & {
+  headers: Headers;
+};
+
+export type adminRemoveForgejoInstanceResponse = (adminRemoveForgejoInstanceResponseSuccess | adminRemoveForgejoInstanceResponseError)
+
+export const getAdminRemoveForgejoInstanceUrl = (host: string,) => {
+
+
+  
+
+  return `/api/v1/admin/forgejo-instances/${host}`
+}
+
+export const adminRemoveForgejoInstance = async (host: string, options?: RequestInit): Promise<adminRemoveForgejoInstanceResponse> => {
+  
+  return customInstance<adminRemoveForgejoInstanceResponse>(getAdminRemoveForgejoInstanceUrl(host),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getAdminRemoveForgejoInstanceMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRemoveForgejoInstance>>, TError,{host: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRemoveForgejoInstance>>, TError,{host: string}, TContext> => {
+
+const mutationKey = ['adminRemoveForgejoInstance'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRemoveForgejoInstance>>, {host: string}> = (props) => {
+          const {host} = props ?? {};
+
+          return  adminRemoveForgejoInstance(host,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRemoveForgejoInstanceMutationResult = NonNullable<Awaited<ReturnType<typeof adminRemoveForgejoInstance>>>
+    
+    export type AdminRemoveForgejoInstanceMutationError = ErrorType<ErrorBody>
+
+    export const useAdminRemoveForgejoInstance = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRemoveForgejoInstance>>, TError,{host: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminRemoveForgejoInstance>>,
+        TError,
+        {host: string},
+        TContext
+      > => {
+      return useMutation(getAdminRemoveForgejoInstanceMutationOptions(options), queryClient);
+    }
+    export type adminListAdapterAppsResponse200 = {
   data: AdapterAppsResponse
   status: 200
 }

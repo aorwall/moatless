@@ -17,6 +17,7 @@ use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::github::service::GitHubAppService;
 use moatless_identity::auth::pairing::DevicePairing;
 use moatless_identity::credentials::CredentialService;
+use moatless_identity::forgejo::{ForgejoAccess, ForgejoInstances};
 use moatless_identity::git_host_tokens::GitHostTokens;
 use moatless_identity::secret::audit::SecretAudit;
 use moatless_identity::secret::service::LocalEnvelopeSecretCipher;
@@ -142,6 +143,12 @@ pub struct Ports {
     /// with no scope walk. Built here so the five credential ports it reads are
     /// supplied in one place.
     pub git_host_tokens: Arc<GitHostTokens>,
+    /// The OAuth2 application registered for each Forgejo instance. One instance
+    /// per process, shared by the connect flow and by token renewal.
+    pub forgejo_instances: Arc<ForgejoInstances>,
+    /// One person's Forgejo credential, per instance. Built here because the
+    /// auth capsule's connect flow and the settings routes write the same rows.
+    pub forgejo_access: Arc<ForgejoAccess>,
 
     /// The T3 band's own stores, for the UI-RPC router to read through.
     pub(crate) t3_graph: moatless_t3code::T3Graph,
@@ -184,7 +191,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let pairing = moatless_identity::compose::device_pairing(pool.clone());
 
     let github_apps =
-        moatless_identity::compose::github_app_registry(config, Some(pool.clone()), cipher);
+        moatless_identity::compose::github_app_registry(config, Some(pool.clone()), cipher.clone());
     let github_app_service = github_apps.default_service();
 
     let codex_http = Arc::new(
@@ -202,12 +209,19 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let credentials =
         moatless_identity::compose::credentials(pool.clone(), secrets.clone(), codex_http.clone());
     let harness_credentials = moatless_identity::compose::harness_credentials(pool.clone());
+    let forgejo_instances = moatless_identity::compose::forgejo_instances(pool.clone(), cipher);
+    let forgejo_access = moatless_identity::compose::forgejo_access(
+        pool.clone(),
+        secrets.clone(),
+        forgejo_instances.clone(),
+    );
     let git_host_tokens = moatless_identity::compose::git_host_tokens(
         pool.clone(),
         github_app_service.clone(),
         github_apps.clone(),
         secrets.clone(),
         Some(workspace_credentials.clone()),
+        forgejo_instances.clone(),
     );
 
     // The tasks band's own construction root owns its stores; this process takes
@@ -289,6 +303,8 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         github_apps,
         github_app_service,
         git_host_tokens,
+        forgejo_instances,
+        forgejo_access,
 
         // The T3 band's own construction root owns its read model; this
         // process supplies the activity rows it projects.
@@ -322,6 +338,7 @@ impl Ports {
                 github_app_service: self.github_app_service.clone(),
                 github_apps: self.github_apps.clone(),
                 git_host_tokens: self.git_host_tokens.clone(),
+                forgejo_access: self.forgejo_access.clone(),
                 secrets: self.secrets.clone(),
                 task_access: self.task_access.clone(),
                 token_verifier: self.token_verifier.clone(),

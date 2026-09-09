@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use moatless_core::secret_keys::{
     ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN,
-    GITNESS_TOKEN, OPENAI_API_KEY,
+    GITNESS_TOKEN, OPENAI_API_KEY, is_forgejo_credential_key,
 };
 use tracing::warn;
 
@@ -93,6 +93,12 @@ pub struct TaskCredentialInputs<'a> {
 /// starts as the workspace credentials and every `fill_*` below skips a key
 /// that is already present, so a new source cannot silently outrank an older
 /// one by being added in the wrong place.
+///
+/// **No Forgejo credential is returned, whatever its source.** A Forgejo
+/// checkout clones through the backend's git proxy
+/// (`moatless_types::workspace::PROXIED_PROVIDER`), which holds the credential
+/// and attaches it upstream, so a pod that held one could reach the host
+/// directly as the run-as identity.
 pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMap<String, String> {
     let mut credentials: HashMap<String, String> = input.workspace_credentials;
     for (key, value) in input.workspace_env_vars {
@@ -131,6 +137,10 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     let scoped = resolve_scoped_secrets(input.secrets, user_id, input.task_id).await;
 
     fill_missing_from_scoped(&mut credentials, scoped);
+    // Screened last rather than per source: a Workspace pin, a per-host PAT
+    // secret and an OAuth stash all reach this map by different routes, and
+    // none of them may leave the backend.
+    credentials.retain(|key, _| !is_forgejo_credential_key(key));
     credentials
 }
 
@@ -149,6 +159,22 @@ pub async fn resolve_task_github_token(
     if repo.provider() != GitHostProvider::Github {
         return None;
     }
+    Some(git_host_tokens?.token(actor, &repo).await)
+}
+
+/// Resolve the token a task's identity presents for `repository`, whatever
+/// provider hosts it.
+///
+/// `None` when the repository names no git remote this seam can parse. Unlike
+/// [`resolve_task_github_token`] this answers for every provider, because its
+/// caller only proves a credential resolves and never hands one to a pod — a
+/// Forgejo token in particular must not reach one.
+pub async fn resolve_task_git_token(
+    git_host_tokens: Option<&Arc<dyn GitHostTokenIssuer>>,
+    actor: &Actor,
+    repository: Option<&Repository>,
+) -> Option<Result<String, GitHostTokenError>> {
+    let repo = task_git_host_repo(repository)?;
     Some(git_host_tokens?.token(actor, &repo).await)
 }
 
@@ -199,8 +225,9 @@ pub async fn resolve_task_ssh_keys(
 /// The same workspace > user > global order the agent env resolves in, for the
 /// same reason: a sidecar sources `server.env` after the pod environment, so a
 /// workspace var delivered only through the pod spec would lose to a scoped
-/// secret here too. Reserved runtime keys are filtered out. The agent env is a
-/// superset that additionally includes provider tokens.
+/// secret here too. Reserved runtime keys and Forgejo credentials are filtered
+/// out, the latter for the reason [`resolve_task_credentials`] states. The
+/// agent env is a superset that additionally includes provider tokens.
 pub async fn resolve_server_env(
     user_id: &str,
     secrets: Option<&Arc<dyn SecretResolver>>,
@@ -220,7 +247,7 @@ pub async fn resolve_server_env(
             warn!(user_id, error = %e, "Failed to resolve server env secrets");
         }
     }
-    env.retain(|key, _| !is_reserved_key(key));
+    env.retain(|key, _| !is_reserved_key(key) && !is_forgejo_credential_key(key));
     env
 }
 
@@ -783,6 +810,7 @@ mod tests {
         GitHostTokenError::NoCredential {
             actor: actor.clone(),
             provider,
+            host: None,
         }
     }
 
@@ -1247,6 +1275,55 @@ mod tests {
         ))
         .await;
         assert!(!credentials.contains_key(GITHUB_TOKEN));
+    }
+
+    /// Forgejo is proxied, so the pod never holds the credential — on any of
+    /// the three channels one arrives by. Asserted end to end rather than on
+    /// the predicate, because each channel merges into the map separately.
+    #[tokio::test]
+    async fn no_forgejo_credential_reaches_a_pod_whatever_its_source() {
+        use moatless_core::secret_keys::{FORGEJO_TOKEN, forgejo_oauth_stash_key};
+
+        let repository = github_repository(moatless_types::access_control::Scope::User);
+        let stash = forgejo_oauth_stash_key("git.acme.dev");
+        let secrets =
+            secrets_holding(&[(stash.as_str(), "oauth-stash"), (OPENAI_API_KEY, "sk-fine")]);
+        let actor = Actor::of("u1");
+        let provider_tokens = no_provider_tokens();
+        let issuer = issuer(None);
+
+        let mut inputs = workspace_github_inputs(
+            &actor,
+            &provider_tokens,
+            &issuer,
+            Some(&secrets),
+            &repository,
+            HashMap::from([(FORGEJO_TOKEN.to_string(), "pinned".to_string())]),
+        );
+        inputs.workspace_env_vars = HashMap::from([(
+            moatless_core::secret_keys::forgejo_token_key("git.acme.dev"),
+            "pat".to_string(),
+        )]);
+
+        let credentials = resolve_task_credentials(inputs).await;
+
+        assert_eq!(
+            credentials,
+            HashMap::from([(OPENAI_API_KEY.to_string(), "sk-fine".to_string())])
+        );
+    }
+
+    #[tokio::test]
+    async fn a_sidecar_gets_no_forgejo_credential_either() {
+        let stash = moatless_core::secret_keys::forgejo_token_key("git.acme.dev");
+        let secrets = secrets_holding(&[(stash.as_str(), "pat"), ("PORT", "3000")]);
+
+        let env = resolve_server_env("u1", Some(&secrets), &HashMap::new()).await;
+
+        assert_eq!(
+            env,
+            HashMap::from([("PORT".to_string(), "3000".to_string())])
+        );
     }
 
     /// A `CommitIdentity` reporting one git author identity for every lookup.

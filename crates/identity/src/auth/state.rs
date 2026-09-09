@@ -72,6 +72,9 @@ pub(super) struct AuthState {
     pub(super) git_host_tokens: Arc<crate::git_host_tokens::GitHostTokens>,
     /// Registry of all configured GitHub Apps.
     pub(super) github_apps: Arc<GitHubAppRegistry>,
+    /// One person's Forgejo credential, per instance. The connect flow writes
+    /// through it; the settings routes read and administer the same rows.
+    pub(super) forgejo_access: Arc<crate::forgejo::ForgejoAccess>,
     /// Encrypted secret store — holds the OAuth token stashed behind a PAT
     /// override, and the validated PAT itself.
     pub(super) secrets: Arc<SecretService>,

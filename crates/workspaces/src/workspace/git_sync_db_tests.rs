@@ -33,6 +33,7 @@ impl GitHostTokenIssuer for NoGitTokens {
         Err(GitHostTokenError::NoCredential {
             actor: actor.clone(),
             provider: repo.provider(),
+            host: None,
         })
     }
 
@@ -44,6 +45,7 @@ impl GitHostTokenIssuer for NoGitTokens {
         Err(GitHostTokenError::NoCredential {
             actor: actor.clone(),
             provider: RepositoryProvider::Github,
+            host: None,
         })
     }
 
@@ -51,6 +53,7 @@ impl GitHostTokenIssuer for NoGitTokens {
         Err(GitHostTokenError::NoCredential {
             actor: actor.clone(),
             provider: RepositoryProvider::Github,
+            host: None,
         })
     }
 }

@@ -31,6 +31,11 @@ pub enum AccessSettingsError {
     CodexOAuth(#[source] moatless_identity::credentials::codex::oauth::CodexOAuthError),
     #[error("Secret storage error: {0}")]
     Secret(#[source] moatless_identity::secret::error::SecretError),
+    /// A fault in the deployment rather than in the request. Redacted like
+    /// [`Self::Db`]: its message names a missing encryption key or an
+    /// unopenable secret, which is an operator's business, not a caller's.
+    #[error("Internal error: {0}")]
+    Internal(#[source] moatless_identity::auth::error::AuthError),
 }
 
 impl From<moatless_identity::git_host_access::GitHostAccessError> for AccessSettingsError {
@@ -42,6 +47,7 @@ impl From<moatless_identity::git_host_access::GitHostAccessError> for AccessSett
             GitHostAccessError::Db(source) => Self::Db(source),
             GitHostAccessError::Provider(source) => Self::GitProvider(source),
             GitHostAccessError::Secret(source) => Self::Secret(source),
+            GitHostAccessError::Internal(source) => Self::Internal(source),
         }
     }
 }
@@ -103,6 +109,13 @@ impl IntoResponse for AccessSettingsError {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Failed to store credential securely".to_string(),
+                )
+            }
+            Self::Internal(source) => {
+                error!(%source, "Access settings internal error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
                 )
             }
         };

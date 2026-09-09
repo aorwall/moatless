@@ -9,7 +9,9 @@
 use chrono::{DateTime, Utc};
 use tracing::info;
 
-use crate::auth::credentials::{StashedGithubCredential, stash_github_oauth_token};
+use crate::auth::credentials::{
+    GITHUB_OAUTH_STASH_KEY, StashedOAuthCredential, stash_oauth_credential,
+};
 use crate::auth::error::AuthError;
 use crate::auth::models::{OAuthTokens, ProviderUserInfo};
 use crate::auth::provider_token_auth_dao::{ProviderToken, ProviderTokenAuthDao};
@@ -59,7 +61,13 @@ pub async fn persist(
         == Some("pat");
 
     if overridden {
-        stash_github_oauth_token(secrets, user_id, &stashed(tokens, now))
+        stash_oauth_credential(
+            secrets,
+            user_id,
+            GITHUB_OAUTH_STASH_KEY,
+            "github",
+            &stashed(tokens, now),
+        )
             .await
             .map_err(|e| AuthError::Internal(format!("stash the GitHub App token: {e}")))?;
         info!(
@@ -95,9 +103,9 @@ pub async fn persist(
 }
 
 /// The whole credential, so removing a PAT override later restores something
-/// that can still be refreshed — see [`StashedGithubCredential`].
-fn stashed(tokens: &OAuthTokens, now: DateTime<Utc>) -> StashedGithubCredential {
-    StashedGithubCredential {
+/// that can still be refreshed — see [`StashedOAuthCredential`].
+fn stashed(tokens: &OAuthTokens, now: DateTime<Utc>) -> StashedOAuthCredential {
+    StashedOAuthCredential {
         access_token: tokens.access_token.clone(),
         refresh_token: tokens.refresh_token.clone(),
         expires_at: expires_at(tokens, now),
@@ -185,7 +193,7 @@ mod tests {
         // it is what removing the override hands back. The refresh token and
         // the expiry are part of that — an access token restored alone dies at
         // its own expiry with nothing able to renew it.
-        let stashed = crate::auth::credentials::read_github_oauth_stash(&secrets, "u1")
+        let stashed = crate::auth::credentials::read_oauth_stash(&secrets, "u1", GITHUB_OAUTH_STASH_KEY)
             .await
             .expect("read the stash")
             .expect("a stashed credential");

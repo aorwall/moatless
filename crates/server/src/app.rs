@@ -291,6 +291,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let (domain_router, domain_api) = crate::compose::http::domain_routes(&app_state);
         router = router.merge(domain_router);
         api.merge(domain_api);
+        // Off the OpenAPI document: git's smart-HTTP protocol is not a JSON API,
+        // and its only client is git.
+        router = router.merge(crate::git_proxy::git_proxy_router(app_state.clone()));
         // Held for the event-subscriber registration below: the Scripts this
         // starts run through the router's own state.
         let mut startup_scripts = None;

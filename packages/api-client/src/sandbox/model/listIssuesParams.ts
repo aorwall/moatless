@@ -34,13 +34,15 @@ state?: string | null;
  */
 label?: string | null;
 /**
- * Assignee email, display name, `me`, or UUID.
+ * Assignee to filter on, resolved like
+[`LinearIssueCreateRequest::assignee`].
  * @nullable
  */
 assignee?: string | null;
 /**
- * Delegate email, display name, `me`, or UUID. An issue delegated to an
-app agent has no `assignee`, so filtering on assignee alone misses it.
+ * Delegate to filter on, resolved like
+[`LinearIssueCreateRequest::assignee`]. An issue delegated to an app
+agent has no `assignee`, so filtering on assignee alone misses it.
  * @nullable
  */
 delegate?: string | null;

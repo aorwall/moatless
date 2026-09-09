@@ -109,6 +109,15 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
+    // The git smart-HTTP proxy. Not public: git speaks HTTP Basic and nothing
+    // else, so the route reads the task token out of the Basic password itself
+    // and resolves the acting identity from the sandbox it names. Exempt
+    // because this middleware would reject a Basic header it cannot parse
+    // before the route ever sees it.
+    if path.starts_with("/git/") {
+        return true;
+    }
+
     // Public endpoints
     matches!(
         path,

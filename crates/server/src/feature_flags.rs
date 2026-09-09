@@ -21,6 +21,8 @@ pub struct FeatureFlagsResponse {
     pub show_codex_settings: bool,
     pub show_model_selector: bool,
     pub gitlab_enabled: bool,
+    /// Whether the deployment offers Forgejo instances, connections and repos.
+    pub forgejo_enabled: bool,
     /// Whether the settings dialog offers to pair a device.
     ///
     /// Not an `FF_*` variable of its own: pairing is the bootstrap half of the
@@ -39,6 +41,7 @@ impl FeatureFlagsResponse {
             show_codex_settings: flags.show_codex_settings,
             show_model_selector: flags.show_model_selector,
             gitlab_enabled: flags.gitlab_enabled,
+            forgejo_enabled: flags.forgejo_enabled,
             device_pairing,
             slack: slack_team_id.map(|team_id| SlackConfig { team_id }),
         }
@@ -94,6 +97,7 @@ mod tests {
             show_codex_settings: true,
             show_model_selector: false,
             gitlab_enabled: true,
+            forgejo_enabled: true,
         }
     }
 
@@ -109,6 +113,7 @@ mod tests {
                 show_codex_settings: true,
                 show_model_selector: false,
                 gitlab_enabled: true,
+                forgejo_enabled: true,
                 device_pairing: false,
                 slack: Some(SlackConfig {
                     team_id: "T0123".into(),

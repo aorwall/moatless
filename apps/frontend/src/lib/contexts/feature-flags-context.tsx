@@ -19,6 +19,7 @@ const FeatureFlagsContext = createContext<FeatureFlagsContextValue | undefined>(
 const FEATURE_FLAGS_FALLBACK: FeatureFlagsResponse = {
   netlify_publish: false,
   gitlab_enabled: false,
+  forgejo_enabled: false,
   show_claude_settings: false,
   show_codex_settings: true,
   show_model_selector: true,

@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use moatless_types::workspace::RepoCheckout;
+use moatless_types::workspace::{PROXIED_PROVIDER, RepoCheckout};
 use tokio::net::TcpStream;
 use tokio::process::Command;
 use tracing::{info, warn};
@@ -21,6 +21,14 @@ use crate::config::Config;
 pub async fn configure_git(config: &Config) -> Result<(), String> {
     let is_ssh = config.git_clone_url.as_deref().is_some_and(is_ssh_url);
     let is_github = config.git_provider == "github";
+
+    // A proxied checkout presents the pod's own task token, which the broker
+    // answers for the backend's origin. Wired ahead of the no-token exits below:
+    // a pod whose only repos are proxied holds no `GIT_TOKEN` at all.
+    let proxy_origin = proxied_origin(config);
+    if let Some(origin) = &proxy_origin {
+        wire_broker_git_helper(origin).await;
+    }
 
     if is_ssh {
         // SSH remotes authenticate with the private key(s) materialized into
@@ -46,7 +54,7 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
         // up-to-15-min-stale value sitting in hosts.yml. The helper script
         // itself falls back to gh's helper if the broker is unreachable, so
         // worst case we degrade to today's behaviour.
-        wire_broker_git_helper().await;
+        wire_broker_git_helper("https://github.com").await;
 
         // SSH to HTTPS conversion (GitHub only)
         let _ = run_command(
@@ -59,7 +67,7 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
             ],
         )
         .await;
-    } else if std::env::var("GIT_TOKEN").is_err() {
+    } else if std::env::var("GIT_TOKEN").is_err() && proxy_origin.is_none() {
         info!(provider = %config.git_provider, "No git token set — skipping git configuration");
         return Ok(());
     }
@@ -491,6 +499,12 @@ fn resolve_provider_git_token(
     pod_provider: &str,
     lookup: impl Fn(&str) -> Option<String>,
 ) -> Option<String> {
+    // A proxied checkout addresses the backend, which holds the credential and
+    // attaches it upstream. Injecting the pod's own provider token into that URL
+    // would hand it to a host that never asked for it.
+    if provider == PROXIED_PROVIDER {
+        return None;
+    }
     let key = match provider {
         "gitlab" => "GITLAB_TOKEN",
         "gitness" => "GITNESS_TOKEN",
@@ -622,16 +636,31 @@ async fn resolve_github_user() -> Result<(Option<String>, Option<String>), Strin
 /// sandbox image alongside the sandbox binary.
 const BROKER_HELPER_PATH: &str = "/usr/local/bin/moatless-git-cred";
 
-/// Configure git to use the broker-backed credential helper as the primary
-/// source for `https://github.com` credentials, with `gh auth git-credential`
-/// retained as a fallback (added inside the helper script itself).
+/// The backend origin this pod's proxied checkouts clone from, or `None` when
+/// none of them is proxied.
 ///
-/// `--replace-all` wipes any previous helper entries (including the one
-/// installed by `gh auth setup-git`) so the broker helper is the only one
-/// configured. The helper script handles fallback to `gh auth git-credential`
-/// internally, which keeps the existing hosts.yml-backed path working when the
-/// broker is unreachable.
-async fn wire_broker_git_helper() {
+/// [`crate::config::Config`] has already rewritten a proxied checkout's
+/// `clone_url` to that origin, so a checkout still naming its own host is one
+/// the proxy could not be addressed for and needs no helper here.
+fn proxied_origin(config: &Config) -> Option<String> {
+    let origin = config.backend_api_origin()?;
+    config
+        .repos
+        .iter()
+        .any(|repo| repo.clone_url.starts_with(&origin))
+        .then_some(origin)
+}
+
+/// Configure git to use the broker-backed credential helper as the primary
+/// credential source for `origin`, with `gh auth git-credential` retained as a
+/// fallback (added inside the helper script itself).
+///
+/// `--replace-all` wipes any previous helper entries for that origin (including
+/// the one installed by `gh auth setup-git`) so the broker helper is the only
+/// one configured. The helper script handles fallback to `gh auth
+/// git-credential` internally, which keeps the existing hosts.yml-backed path
+/// working when the broker is unreachable.
+async fn wire_broker_git_helper(origin: &str) {
     if !std::path::Path::new(BROKER_HELPER_PATH).exists() {
         info!(
             path = BROKER_HELPER_PATH,
@@ -641,25 +670,20 @@ async fn wire_broker_git_helper() {
     }
 
     let helper_value = format!("!{BROKER_HELPER_PATH}");
+    let key = format!("credential.{origin}.helper");
     if let Err(e) = run_command(
         "git",
-        &[
-            "config",
-            "--global",
-            "--replace-all",
-            "credential.https://github.com.helper",
-            &helper_value,
-        ],
+        &["config", "--global", "--replace-all", &key, &helper_value],
     )
     .await
     {
-        warn!(error = %e, "Failed to wire moatless-git-cred — git push may use stale hosts.yml token");
+        warn!(error = %e, origin, "Failed to wire moatless-git-cred — git push may use stale hosts.yml token");
         return;
     }
 
     info!(
         helper = BROKER_HELPER_PATH,
-        "Wired broker-backed git credential helper for github.com"
+        origin, "Wired broker-backed git credential helper"
     );
 }
 
@@ -692,6 +716,7 @@ mod tests {
     fn checkout(mount: &str, provider: &str, is_primary: bool) -> RepoCheckout {
         RepoCheckout {
             clone_url: format!("https://{provider}.example/acme/{mount}.git"),
+            repository_id: String::new(),
             branch: None,
             provider: provider.to_string(),
             mount_name: mount.to_string(),
@@ -766,6 +791,7 @@ mod tests {
         config.repos = vec![
             RepoCheckout {
                 clone_url: "https://example.test/acme/primary.git".to_string(),
+                repository_id: String::new(),
                 branch: None,
                 provider: "local".to_string(),
                 mount_name: "primary".to_string(),
@@ -773,6 +799,7 @@ mod tests {
             },
             RepoCheckout {
                 clone_url: source.display().to_string(),
+                repository_id: String::new(),
                 branch: None,
                 provider: "local".to_string(),
                 mount_name: "secondary".to_string(),
@@ -812,6 +839,46 @@ mod tests {
         assert_eq!(resolve_provider_git_token("gitness", "github", env), None);
     }
 
+    /// A proxied checkout's URL points at the backend, so no provider token may
+    /// be injected into it — not even the pod's own.
+    #[test]
+    fn a_proxied_checkout_is_given_no_provider_token() {
+        let env = |key: &str| match key {
+            "GITHUB_TOKEN" | "GIT_TOKEN" => Some("pod-token".to_string()),
+            _ => None,
+        };
+        assert_eq!(resolve_provider_git_token("forgejo", "forgejo", env), None);
+        assert_eq!(resolve_provider_git_token("forgejo", "github", env), None);
+    }
+
+    /// The helper is bound only when a checkout actually clones from the
+    /// backend: a Forgejo repo the proxy could not be addressed for still names
+    /// its own host, and wiring the pod's task token onto the backend origin for
+    /// it would advertise a credential nothing asks for.
+    #[test]
+    fn the_proxy_origin_follows_the_rewritten_clone_urls() {
+        let mut config = minimal_config();
+        config.backend_api_url = Some("http://backend:8001".to_string());
+        config.repos = vec![checkout("api", "github", true)];
+        assert_eq!(proxied_origin(&config), None);
+
+        config.repos.push(RepoCheckout {
+            clone_url: "http://backend:8001/git/repo_1".to_string(),
+            repository_id: "repo_1".to_string(),
+            branch: None,
+            provider: "forgejo".to_string(),
+            mount_name: "forge".to_string(),
+            is_primary: false,
+        });
+        assert_eq!(
+            proxied_origin(&config).as_deref(),
+            Some("http://backend:8001")
+        );
+
+        config.backend_api_url = None;
+        assert_eq!(proxied_origin(&config), None);
+    }
+
     /// The probe answers from the resolver and the TCP stack, so both verdicts
     /// are exercised against a real local socket rather than the public network:
     /// a listener that exists, and a port nothing is bound to.
@@ -844,6 +911,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let repo = RepoCheckout {
             clone_url: format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git"),
+            repository_id: String::new(),
             branch: None,
             provider: "local".to_string(),
             mount_name: "api".to_string(),
@@ -894,6 +962,7 @@ mod tests {
     fn repo_at(port: u16) -> RepoCheckout {
         RepoCheckout {
             clone_url: format!("http://127.0.0.1:{port}/acme/api.git"),
+            repository_id: String::new(),
             branch: None,
             provider: "local".to_string(),
             mount_name: "api".to_string(),
@@ -968,6 +1037,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let repo = RepoCheckout {
             clone_url: format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git"),
+            repository_id: String::new(),
             branch: None,
             provider: "local".to_string(),
             mount_name: "api".to_string(),
@@ -996,6 +1066,7 @@ mod tests {
         let repo = RepoCheckout {
             // No host to probe, so the probe cannot excuse the failure.
             clone_url: tmp.path().join("does-not-exist").display().to_string(),
+            repository_id: String::new(),
             branch: None,
             provider: "local".to_string(),
             mount_name: "api".to_string(),

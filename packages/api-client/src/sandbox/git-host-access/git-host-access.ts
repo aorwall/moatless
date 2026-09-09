@@ -25,9 +25,14 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  DeleteForgejoConfigParams,
+  DeleteForgejoPatOverrideParams,
   ErrorBody,
+  ForgejoProviderTokenStatusResponse,
+  GetForgejoConfigParams,
   GitHubProviderTokenStatusResponse,
   GitnessProviderTokenStatusResponse,
+  SaveForgejoProviderTokenRequest,
   SaveGitHubProviderTokenRequest,
   SaveGitnessProviderTokenRequest
 } from '.././model';
@@ -44,7 +49,397 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 
-export type getGithubConfigResponse200 = {
+export type getForgejoConfigResponse200 = {
+  data: ForgejoProviderTokenStatusResponse
+  status: 200
+}
+
+export type getForgejoConfigResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+    
+export type getForgejoConfigResponseSuccess = (getForgejoConfigResponse200) & {
+  headers: Headers;
+};
+export type getForgejoConfigResponseError = (getForgejoConfigResponse401) & {
+  headers: Headers;
+};
+
+export type getForgejoConfigResponse = (getForgejoConfigResponseSuccess | getForgejoConfigResponseError)
+
+export const getGetForgejoConfigUrl = (params: GetForgejoConfigParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/settings/forgejo/config?${stringifiedParams}` : `/api/v1/settings/forgejo/config`
+}
+
+export const getForgejoConfig = async (params: GetForgejoConfigParams, options?: RequestInit): Promise<getForgejoConfigResponse> => {
+  
+  return customInstance<getForgejoConfigResponse>(getGetForgejoConfigUrl(params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getGetForgejoConfigQueryKey = (params?: GetForgejoConfigParams,) => {
+    return [
+    `/api/v1/settings/forgejo/config`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getGetForgejoConfigQueryOptions = <TData = Awaited<ReturnType<typeof getForgejoConfig>>, TError = ErrorType<ErrorBody>>(params: GetForgejoConfigParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getForgejoConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetForgejoConfigQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getForgejoConfig>>> = ({ signal }) => getForgejoConfig(params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getForgejoConfig>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type GetForgejoConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getForgejoConfig>>>
+export type GetForgejoConfigQueryError = ErrorType<ErrorBody>
+
+
+export function useGetForgejoConfig<TData = Awaited<ReturnType<typeof getForgejoConfig>>, TError = ErrorType<ErrorBody>>(
+ params: GetForgejoConfigParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getForgejoConfig>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getForgejoConfig>>,
+          TError,
+          Awaited<ReturnType<typeof getForgejoConfig>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetForgejoConfig<TData = Awaited<ReturnType<typeof getForgejoConfig>>, TError = ErrorType<ErrorBody>>(
+ params: GetForgejoConfigParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getForgejoConfig>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getForgejoConfig>>,
+          TError,
+          Awaited<ReturnType<typeof getForgejoConfig>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetForgejoConfig<TData = Awaited<ReturnType<typeof getForgejoConfig>>, TError = ErrorType<ErrorBody>>(
+ params: GetForgejoConfigParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getForgejoConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+
+export function useGetForgejoConfig<TData = Awaited<ReturnType<typeof getForgejoConfig>>, TError = ErrorType<ErrorBody>>(
+ params: GetForgejoConfigParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getForgejoConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getGetForgejoConfigQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const prefetchGetForgejoConfigQuery = async <TData = Awaited<ReturnType<typeof getForgejoConfig>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, params: GetForgejoConfigParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getForgejoConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getGetForgejoConfigQueryOptions(params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+export type deleteForgejoConfigResponse200 = {
+  data: ForgejoProviderTokenStatusResponse
+  status: 200
+}
+
+export type deleteForgejoConfigResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+    
+export type deleteForgejoConfigResponseSuccess = (deleteForgejoConfigResponse200) & {
+  headers: Headers;
+};
+export type deleteForgejoConfigResponseError = (deleteForgejoConfigResponse401) & {
+  headers: Headers;
+};
+
+export type deleteForgejoConfigResponse = (deleteForgejoConfigResponseSuccess | deleteForgejoConfigResponseError)
+
+export const getDeleteForgejoConfigUrl = (params: DeleteForgejoConfigParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/settings/forgejo/config?${stringifiedParams}` : `/api/v1/settings/forgejo/config`
+}
+
+export const deleteForgejoConfig = async (params: DeleteForgejoConfigParams, options?: RequestInit): Promise<deleteForgejoConfigResponse> => {
+  
+  return customInstance<deleteForgejoConfigResponse>(getDeleteForgejoConfigUrl(params),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getDeleteForgejoConfigMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteForgejoConfig>>, TError,{params: DeleteForgejoConfigParams}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteForgejoConfig>>, TError,{params: DeleteForgejoConfigParams}, TContext> => {
+
+const mutationKey = ['deleteForgejoConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteForgejoConfig>>, {params: DeleteForgejoConfigParams}> = (props) => {
+          const {params} = props ?? {};
+
+          return  deleteForgejoConfig(params,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteForgejoConfigMutationResult = NonNullable<Awaited<ReturnType<typeof deleteForgejoConfig>>>
+    
+    export type DeleteForgejoConfigMutationError = ErrorType<ErrorBody>
+
+    export const useDeleteForgejoConfig = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteForgejoConfig>>, TError,{params: DeleteForgejoConfigParams}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteForgejoConfig>>,
+        TError,
+        {params: DeleteForgejoConfigParams},
+        TContext
+      > => {
+      return useMutation(getDeleteForgejoConfigMutationOptions(options), queryClient);
+    }
+    export type saveForgejoPatResponse200 = {
+  data: ForgejoProviderTokenStatusResponse
+  status: 200
+}
+
+export type saveForgejoPatResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+    
+export type saveForgejoPatResponseSuccess = (saveForgejoPatResponse200) & {
+  headers: Headers;
+};
+export type saveForgejoPatResponseError = (saveForgejoPatResponse400) & {
+  headers: Headers;
+};
+
+export type saveForgejoPatResponse = (saveForgejoPatResponseSuccess | saveForgejoPatResponseError)
+
+export const getSaveForgejoPatUrl = () => {
+
+
+  
+
+  return `/api/v1/settings/forgejo/pat`
+}
+
+export const saveForgejoPat = async (saveForgejoProviderTokenRequest: SaveForgejoProviderTokenRequest, options?: RequestInit): Promise<saveForgejoPatResponse> => {
+  
+  return customInstance<saveForgejoPatResponse>(getSaveForgejoPatUrl(),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      saveForgejoProviderTokenRequest,)
+  }
+);}
+
+
+
+
+export const getSaveForgejoPatMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveForgejoPat>>, TError,{data: SaveForgejoProviderTokenRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveForgejoPat>>, TError,{data: SaveForgejoProviderTokenRequest}, TContext> => {
+
+const mutationKey = ['saveForgejoPat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveForgejoPat>>, {data: SaveForgejoProviderTokenRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveForgejoPat(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveForgejoPatMutationResult = NonNullable<Awaited<ReturnType<typeof saveForgejoPat>>>
+    export type SaveForgejoPatMutationBody = SaveForgejoProviderTokenRequest
+    export type SaveForgejoPatMutationError = ErrorType<ErrorBody>
+
+    export const useSaveForgejoPat = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveForgejoPat>>, TError,{data: SaveForgejoProviderTokenRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof saveForgejoPat>>,
+        TError,
+        {data: SaveForgejoProviderTokenRequest},
+        TContext
+      > => {
+      return useMutation(getSaveForgejoPatMutationOptions(options), queryClient);
+    }
+    export type deleteForgejoPatOverrideResponse200 = {
+  data: ForgejoProviderTokenStatusResponse
+  status: 200
+}
+
+export type deleteForgejoPatOverrideResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+    
+export type deleteForgejoPatOverrideResponseSuccess = (deleteForgejoPatOverrideResponse200) & {
+  headers: Headers;
+};
+export type deleteForgejoPatOverrideResponseError = (deleteForgejoPatOverrideResponse400) & {
+  headers: Headers;
+};
+
+export type deleteForgejoPatOverrideResponse = (deleteForgejoPatOverrideResponseSuccess | deleteForgejoPatOverrideResponseError)
+
+export const getDeleteForgejoPatOverrideUrl = (params: DeleteForgejoPatOverrideParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/settings/forgejo/pat?${stringifiedParams}` : `/api/v1/settings/forgejo/pat`
+}
+
+export const deleteForgejoPatOverride = async (params: DeleteForgejoPatOverrideParams, options?: RequestInit): Promise<deleteForgejoPatOverrideResponse> => {
+  
+  return customInstance<deleteForgejoPatOverrideResponse>(getDeleteForgejoPatOverrideUrl(params),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getDeleteForgejoPatOverrideMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteForgejoPatOverride>>, TError,{params: DeleteForgejoPatOverrideParams}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteForgejoPatOverride>>, TError,{params: DeleteForgejoPatOverrideParams}, TContext> => {
+
+const mutationKey = ['deleteForgejoPatOverride'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteForgejoPatOverride>>, {params: DeleteForgejoPatOverrideParams}> = (props) => {
+          const {params} = props ?? {};
+
+          return  deleteForgejoPatOverride(params,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteForgejoPatOverrideMutationResult = NonNullable<Awaited<ReturnType<typeof deleteForgejoPatOverride>>>
+    
+    export type DeleteForgejoPatOverrideMutationError = ErrorType<ErrorBody>
+
+    export const useDeleteForgejoPatOverride = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteForgejoPatOverride>>, TError,{params: DeleteForgejoPatOverrideParams}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteForgejoPatOverride>>,
+        TError,
+        {params: DeleteForgejoPatOverrideParams},
+        TContext
+      > => {
+      return useMutation(getDeleteForgejoPatOverrideMutationOptions(options), queryClient);
+    }
+    export type getGithubConfigResponse200 = {
   data: GitHubProviderTokenStatusResponse
   status: 200
 }

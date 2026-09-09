@@ -142,6 +142,7 @@ export const queryKeys = {
     github: () => [...queryKeys.settings.all(), 'github'] as const,
     gitlab: () => [...queryKeys.settings.all(), 'gitlab'] as const,
     gitness: () => [...queryKeys.settings.all(), 'gitness'] as const,
+    forgejo: (host: string) => [...queryKeys.settings.all(), 'forgejo', host] as const,
     publish: () => [...queryKeys.settings.all(), 'publish'] as const,
     apiKeys: () => [...queryKeys.settings.all(), 'api-keys'] as const,
   },

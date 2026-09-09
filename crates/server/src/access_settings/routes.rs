@@ -9,9 +9,9 @@ use crate::state::AppState;
 #[derive(OpenApi)]
 #[openapi(
     tags(
-        (name = "git-host-access", description = "GitHub and Gitness provider-token access"),
+        (name = "git-host-access", description = "GitHub, Gitness and Forgejo provider-token access"),
         (name = "agent-harness-access", description = "Agent harness credential access"),
-        (name = "app-administration", description = "Adapter and GitHub App administration"),
+        (name = "app-administration", description = "Adapter, GitHub App and Forgejo instance administration"),
     ),
     paths(
         handlers::get_github_config,
@@ -28,6 +28,13 @@ use crate::state::AppState;
         handlers::get_gitness_config,
         handlers::save_gitness_pat,
         handlers::delete_gitness_config,
+        handlers::get_forgejo_config,
+        handlers::save_forgejo_pat,
+        handlers::delete_forgejo_pat_override,
+        handlers::delete_forgejo_config,
+        handlers::admin_list_forgejo_instances,
+        handlers::admin_register_forgejo_instance,
+        handlers::admin_remove_forgejo_instance,
         handlers::get_codex_config,
         handlers::save_codex_auth,
         handlers::delete_codex_config,
@@ -66,6 +73,19 @@ pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi
             handlers::delete_gitness_config
         ))
         .routes(routes!(handlers::save_gitness_pat))
+        .routes(routes!(
+            handlers::get_forgejo_config,
+            handlers::delete_forgejo_config
+        ))
+        .routes(routes!(
+            handlers::save_forgejo_pat,
+            handlers::delete_forgejo_pat_override
+        ))
+        .routes(routes!(handlers::admin_list_forgejo_instances))
+        .routes(routes!(
+            handlers::admin_register_forgejo_instance,
+            handlers::admin_remove_forgejo_instance
+        ))
         .routes(routes!(
             handlers::get_codex_config,
             handlers::delete_codex_config

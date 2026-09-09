@@ -22,6 +22,7 @@ crate::string_enum!(
         Github => "github",
         Gitlab => "gitlab",
         Gitness => "gitness",
+        Forgejo => "forgejo",
     }
 );
 
@@ -64,14 +65,14 @@ impl GitHostRepo {
     ///
     /// Both HTTPS/HTTP and the common SCP-style SSH form are accepted. GitHub
     /// has exactly one host, so a URL on any other host is rejected and `host`
-    /// stays `None`. GitLab and Gitness are self-hostable, so any host is
-    /// accepted and carried.
+    /// stays `None`. GitLab, Gitness and Forgejo are self-hostable, so any host
+    /// is accepted and carried.
     pub fn parse(provider: RepositoryProvider, remote_url: &str) -> Option<Self> {
         match provider {
             RepositoryProvider::Github => Self::parse_github(remote_url),
-            RepositoryProvider::Gitlab | RepositoryProvider::Gitness => {
-                Self::parse_hosted(provider, remote_url)
-            }
+            RepositoryProvider::Gitlab
+            | RepositoryProvider::Gitness
+            | RepositoryProvider::Forgejo => Self::parse_hosted(provider, remote_url),
         }
     }
 

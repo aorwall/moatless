@@ -1,8 +1,10 @@
-//! The GitHub OAuth stash.
+//! The OAuth stash.
 //!
 //! Issuing a token is [`crate::git_host_tokens`]. This module holds only the
-//! stash that lets a PAT override be removed without losing the App OAuth
-//! credential it covered.
+//! stash that lets a PAT override be removed without losing the OAuth
+//! credential it covered. GitHub keys it by [`GITHUB_OAUTH_STASH_KEY`] and
+//! Forgejo by [`moatless_core::secret_keys::forgejo_oauth_stash_key`], one per
+//! instance.
 
 use chrono::{DateTime, Utc};
 
@@ -17,16 +19,16 @@ use moatless_types::secret::SecretKind;
 /// Encrypted and `internal`-kind, so it never reaches a sandbox.
 pub const GITHUB_OAUTH_STASH_KEY: &str = "GITHUB_OAUTH_ACCESS_TOKEN";
 
-/// The GitHub App user credential a PAT override stands in front of.
+/// The OAuth credential a PAT override stands in front of.
 ///
 /// A user access token expires within hours, so `refresh_token` and
 /// `expires_at` are as much of the credential as the token is: a restore that
 /// drops them leaves a row
 /// [`crate::auth::token_refresh::ensure_fresh_token`] can neither date nor
-/// renew, and the person loses GitHub access at the original token's expiry
+/// renew, and the person loses host access at the original token's expiry
 /// with nothing in the logs to say so.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct StashedGithubCredential {
+pub struct StashedOAuthCredential {
     pub access_token: String,
     #[serde(default)]
     pub refresh_token: Option<String>,
@@ -34,7 +36,7 @@ pub struct StashedGithubCredential {
     pub expires_at: Option<DateTime<Utc>>,
 }
 
-impl StashedGithubCredential {
+impl StashedOAuthCredential {
     /// A credential carrying only its access token, for a caller that has
     /// nothing else to stash.
     pub fn from_access_token(access_token: &str) -> Self {
@@ -64,23 +66,26 @@ fn user_scope(user_id: &str) -> ScopeContext {
     }
 }
 
-/// Stash a GitHub App user credential behind an active PAT override.
-pub async fn stash_github_oauth_token(
+/// Stash `user_id`'s OAuth credential for `provider` behind an active PAT
+/// override, under the secret named `key`.
+pub async fn stash_oauth_credential(
     secrets: &SecretService,
     user_id: &str,
-    credential: &StashedGithubCredential,
+    key: &str,
+    provider: &str,
+    credential: &StashedOAuthCredential,
 ) -> Result<(), SecretError> {
     let value = serde_json::to_string(credential)
-        .map_err(|e| SecretError::Internal(format!("serialize the GitHub App credential: {e}")))?;
+        .map_err(|e| SecretError::Internal(format!("serialize the {provider} credential: {e}")))?;
     secrets
         .put_secret(
             &user_scope(user_id),
             user_id,
             PutSecretRequest {
                 scope: Some(moatless_api_schemas::enums::Scope::User),
-                key: GITHUB_OAUTH_STASH_KEY.to_string(),
+                key: key.to_string(),
                 kind: SecretKind::Internal,
-                provider: Some("github".to_string()),
+                provider: Some(provider.to_string()),
                 value: Some(value),
                 external_ref: None,
             },
@@ -89,24 +94,25 @@ pub async fn stash_github_oauth_token(
         .map(|_| ())
 }
 
-/// Read the stashed GitHub App user credential, if any.
-pub async fn read_github_oauth_stash(
+/// Read the credential stashed under `key`, if any.
+pub async fn read_oauth_stash(
     secrets: &SecretService,
     user_id: &str,
-) -> Result<Option<StashedGithubCredential>, SecretError> {
+    key: &str,
+) -> Result<Option<StashedOAuthCredential>, SecretError> {
     Ok(secrets
-        .resolve_user_secret(user_id, GITHUB_OAUTH_STASH_KEY, Some(SecretKind::Internal))
+        .resolve_user_secret(user_id, key, Some(SecretKind::Internal))
         .await?
         .as_deref()
-        .map(StashedGithubCredential::parse))
+        .map(StashedOAuthCredential::parse))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn credential() -> StashedGithubCredential {
-        StashedGithubCredential {
+    fn credential() -> StashedOAuthCredential {
+        StashedOAuthCredential {
             access_token: "ghu_live".to_string(),
             refresh_token: Some("ghr_live".to_string()),
             expires_at: Some(DateTime::from_timestamp(1_800_000_000, 0).expect("a valid time")),
@@ -116,7 +122,7 @@ mod tests {
     #[test]
     fn a_whole_credential_round_trips() {
         let stored = serde_json::to_string(&credential()).expect("serialize");
-        assert_eq!(StashedGithubCredential::parse(&stored), credential());
+        assert_eq!(StashedOAuthCredential::parse(&stored), credential());
     }
 
     #[test]
@@ -125,8 +131,8 @@ mod tests {
         // string. Failing them would strand the people holding one behind a
         // PAT they cannot remove.
         assert_eq!(
-            StashedGithubCredential::parse("ghu_legacy"),
-            StashedGithubCredential::from_access_token("ghu_legacy")
+            StashedOAuthCredential::parse("ghu_legacy"),
+            StashedOAuthCredential::from_access_token("ghu_legacy")
         );
     }
 }

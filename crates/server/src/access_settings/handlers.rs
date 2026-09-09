@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 
 use crate::access_settings::error::AccessSettingsError;
 use crate::access_settings::schemas::*;
@@ -15,6 +15,10 @@ use moatless_identity::adapter_apps::administration::{
     AdapterAppSave, AppAdministration, GitHubAppRegistration, GitHubAppRegistrationInput,
     GitHubAppView,
 };
+use moatless_identity::auth::error::AuthError;
+use moatless_identity::forgejo::{
+    ForgejoAccess, ForgejoInstances, ForgejoProviderTokenStatus, RegisteredForgejoInstance,
+};
 use moatless_identity::git_host_access::{
     GitHostAccess, GitHostPrincipal, GitHubProviderTokenStatus, GitnessProviderTokenStatus,
 };
@@ -24,6 +28,28 @@ fn principal(auth: &AuthUser) -> GitHostPrincipal {
     GitHostPrincipal {
         user_id: auth.user_id.to_string(),
         scope_context: auth.scope_context(),
+    }
+}
+
+fn require_admin(auth: &AuthUser) -> Result<(), AccessSettingsError> {
+    if auth.scope_context().is_admin {
+        Ok(())
+    } else {
+        Err(AccessSettingsError::Forbidden(
+            "Only administrators can administer Forgejo instances".to_string(),
+        ))
+    }
+}
+
+/// A registration that cannot be read or written is a configuration fault, and
+/// it is answered as one: only a rejected input is the caller's to fix.
+fn auth_error(error: AuthError) -> AccessSettingsError {
+    match error {
+        AuthError::BadRequest(message) => AccessSettingsError::BadRequest(message),
+        AuthError::NotFound(message) => AccessSettingsError::NotFound(message),
+        AuthError::Database(source) => AccessSettingsError::Db(source),
+        AuthError::Store(source) => AccessSettingsError::Store(source),
+        other => AccessSettingsError::Internal(other),
     }
 }
 
@@ -160,6 +186,176 @@ pub async fn delete_gitness_config(
     Ok(Json(gitness_status(
         access.disconnect_gitness(&auth.user_id.to_string()).await?,
     )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/settings/forgejo/config",
+    tag = "git-host-access",
+    params(ForgejoHostQuery),
+    responses(
+        (status = 200, description = "Forgejo config for one instance", body = ForgejoProviderTokenStatusResponse),
+        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn get_forgejo_config(
+    State(access): State<Arc<ForgejoAccess>>,
+    auth: AuthUser,
+    Query(query): Query<ForgejoHostQuery>,
+) -> Result<Json<ForgejoProviderTokenStatusResponse>, AccessSettingsError> {
+    Ok(Json(forgejo_status(
+        access
+            .status(&auth.user_id.to_string(), &query.host)
+            .await?,
+    )))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/settings/forgejo/pat",
+    tag = "git-host-access",
+    request_body = SaveForgejoProviderTokenRequest,
+    responses(
+        (status = 200, description = "PAT saved", body = ForgejoProviderTokenStatusResponse),
+        (status = 400, description = "The instance rejected the token", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn save_forgejo_pat(
+    State(access): State<Arc<ForgejoAccess>>,
+    auth: AuthUser,
+    Json(request): Json<SaveForgejoProviderTokenRequest>,
+) -> Result<Json<ForgejoProviderTokenStatusResponse>, AccessSettingsError> {
+    Ok(Json(forgejo_status(
+        access
+            .save_personal_access_token(&principal(&auth), &request.base_url, request.token)
+            .await?,
+    )))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/settings/forgejo/pat",
+    tag = "git-host-access",
+    params(ForgejoHostQuery),
+    responses(
+        (status = 200, description = "PAT override removed", body = ForgejoProviderTokenStatusResponse),
+        (status = 400, description = "No OAuth credential was preserved", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn delete_forgejo_pat_override(
+    State(access): State<Arc<ForgejoAccess>>,
+    auth: AuthUser,
+    Query(query): Query<ForgejoHostQuery>,
+) -> Result<Json<ForgejoProviderTokenStatusResponse>, AccessSettingsError> {
+    Ok(Json(forgejo_status(
+        access
+            .restore_oauth_token(&auth.user_id.to_string(), &query.host)
+            .await?,
+    )))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/settings/forgejo/config",
+    tag = "git-host-access",
+    params(ForgejoHostQuery),
+    responses(
+        (status = 200, description = "Instance disconnected", body = ForgejoProviderTokenStatusResponse),
+        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn delete_forgejo_config(
+    State(access): State<Arc<ForgejoAccess>>,
+    auth: AuthUser,
+    Query(query): Query<ForgejoHostQuery>,
+) -> Result<Json<ForgejoProviderTokenStatusResponse>, AccessSettingsError> {
+    Ok(Json(forgejo_status(
+        access
+            .disconnect(&auth.user_id.to_string(), &query.host)
+            .await?,
+    )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/forgejo-instances",
+    tag = "app-administration",
+    responses(
+        (status = 200, description = "Registered instances", body = ForgejoInstancesResponse),
+        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn admin_list_forgejo_instances(
+    State(instances): State<Arc<ForgejoInstances>>,
+    auth: AuthUser,
+) -> Result<Json<ForgejoInstancesResponse>, AccessSettingsError> {
+    require_admin(&auth)?;
+    Ok(Json(ForgejoInstancesResponse {
+        instances: instances
+            .list()
+            .await
+            .map_err(auth_error)?
+            .into_iter()
+            .map(forgejo_instance_summary)
+            .collect(),
+    }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/forgejo-instances/{host}",
+    tag = "app-administration",
+    params(("host" = String, Path, description = "The instance's hostname")),
+    request_body = RegisterForgejoInstanceRequest,
+    responses(
+        (status = 200, description = "Application registered", body = ForgejoInstanceSummary),
+        (status = 400, description = "The application cannot be stored", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn admin_register_forgejo_instance(
+    State(instances): State<Arc<ForgejoInstances>>,
+    auth: AuthUser,
+    Path(host): Path<String>,
+    Json(request): Json<RegisterForgejoInstanceRequest>,
+) -> Result<Json<ForgejoInstanceSummary>, AccessSettingsError> {
+    require_admin(&auth)?;
+    let registered = instances
+        .register(
+            &host,
+            &request.client_id,
+            &request.client_secret,
+            &auth.user_id.to_string(),
+        )
+        .await
+        .map_err(auth_error)?;
+    Ok(Json(forgejo_instance_summary(registered)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/forgejo-instances/{host}",
+    tag = "app-administration",
+    params(("host" = String, Path, description = "The instance's hostname")),
+    responses(
+        (status = 204, description = "Application removed"),
+        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "No application is registered for that host", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn admin_remove_forgejo_instance(
+    State(instances): State<Arc<ForgejoInstances>>,
+    auth: AuthUser,
+    Path(host): Path<String>,
+) -> Result<axum::http::StatusCode, AccessSettingsError> {
+    require_admin(&auth)?;
+    if instances.remove(&host).await.map_err(auth_error)? {
+        Ok(axum::http::StatusCode::NO_CONTENT)
+    } else {
+        Err(AccessSettingsError::NotFound(format!(
+            "No Forgejo OAuth application is registered for {host}"
+        )))
+    }
 }
 
 #[utoipa::path(
@@ -586,6 +782,24 @@ fn gitness_status(status: GitnessProviderTokenStatus) -> GitnessProviderTokenSta
         connected: status.connected,
         login: status.login,
         base_url: status.base_url,
+    }
+}
+
+fn forgejo_status(status: ForgejoProviderTokenStatus) -> ForgejoProviderTokenStatusResponse {
+    ForgejoProviderTokenStatusResponse {
+        host: status.host,
+        connected: status.connected,
+        auth_method: status.auth_method,
+        has_pat_override: status.has_pat_override,
+        oauth_available: status.oauth_available,
+    }
+}
+
+fn forgejo_instance_summary(instance: RegisteredForgejoInstance) -> ForgejoInstanceSummary {
+    ForgejoInstanceSummary {
+        host: instance.host,
+        client_id: instance.client_id,
+        updated_at: instance.updated_at.to_rfc3339(),
     }
 }
 
