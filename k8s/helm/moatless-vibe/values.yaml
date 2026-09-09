@@ -1432,6 +1432,8 @@ extraEnv:
   FF_NETLIFY_PUBLISH: "false"
   FF_SHOW_CLAUDE_SETTINGS: "true"
   FF_SHOW_MODEL_SELECTOR: "false"
+  # Shows the Forgejo tab in settings. The Forgejo API routes ignore this flag.
+  FF_FORGEJO_ENABLED: "false"
   # Session
   SESSION_MAX_AGE: "604800"
   # Default visibility for new repositories (valid: "private" | "public")

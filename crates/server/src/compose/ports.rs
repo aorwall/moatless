@@ -197,6 +197,9 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let codex_http = Arc::new(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
+            // Branch listing shares this client, so it reaches a self-hosted
+            // Forgejo. See `moatless_core::USER_AGENT`.
+            .user_agent(moatless_core::USER_AGENT)
             .build()
             .unwrap_or_else(|e| {
                 tracing::warn!(

@@ -65,7 +65,16 @@ impl GitProxy {
             workspaces,
             git_host_tokens,
             task_token_secret,
-            http: reqwest::Client::new(),
+            // `FORWARDED_REQUEST_HEADERS` copies git's own `User-Agent` over
+            // this default, so it covers only a client that sends none. See
+            // `moatless_core::USER_AGENT`.
+            http: reqwest::Client::builder()
+                .user_agent(moatless_core::USER_AGENT)
+                .build()
+                .unwrap_or_else(|error| {
+                    warn!(%error, "Failed to build the git proxy's HTTP client");
+                    reqwest::Client::new()
+                }),
         }
     }
 
@@ -160,7 +169,10 @@ fn git_host_repo(repository: &Repository) -> Option<GitHostRepo> {
     if repository.provider? != RepositoryProvider::Forgejo {
         return None;
     }
-    GitHostRepo::parse(RepositoryProvider::Forgejo, repository.remote_url.as_deref()?)
+    GitHostRepo::parse(
+        RepositoryProvider::Forgejo,
+        repository.remote_url.as_deref()?,
+    )
 }
 
 fn credential_error(error: &GitHostTokenError, host: Option<&str>) -> GitProxyError {

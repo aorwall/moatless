@@ -88,7 +88,15 @@ pub struct ProviderGitHostTokenValidator {
 impl Default for ProviderGitHostTokenValidator {
     fn default() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            // `validate_gitness` reaches a self-hosted host. See
+            // `moatless_core::USER_AGENT`.
+            client: reqwest::Client::builder()
+                .user_agent(moatless_core::USER_AGENT)
+                .build()
+                .unwrap_or_else(|error| {
+                    tracing::warn!(%error, "Failed to build the git host validator's HTTP client");
+                    reqwest::Client::new()
+                }),
         }
     }
 }

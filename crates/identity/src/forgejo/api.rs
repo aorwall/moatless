@@ -44,3 +44,22 @@ pub async fn validate_token(
         body,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `User-Agent` regression fails here and nowhere else: a Forgejo host
+    /// behind a proxy that filters on the header answers 403 to a request that
+    /// carries none, which is what `reqwest::Client::new` sends.
+    #[tokio::test]
+    #[ignore = "needs FORGEJO_HOST and a FORGEJO_TOKEN that instance accepts"]
+    async fn a_live_instance_accepts_the_module_client() {
+        let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST");
+        let token = std::env::var("FORGEJO_TOKEN").expect("FORGEJO_TOKEN");
+
+        validate_token(&crate::forgejo::http_client(), &host, &token)
+            .await
+            .expect("the instance rejected the request");
+    }
+}

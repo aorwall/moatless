@@ -30,4 +30,7 @@ pub mod change_feed;
 pub mod db_enum;
 
 pub mod sandbox_jwt;
+mod user_agent;
 pub mod workspace_repository;
+
+pub use user_agent::USER_AGENT;

@@ -8,9 +8,12 @@
 
 pub mod access;
 pub mod api;
+mod client;
 pub(crate) mod dao;
 pub mod instances;
 pub mod oauth;
+
+pub(crate) use client::http_client;
 
 pub use access::{ForgejoAccess, ForgejoProviderTokenStatus};
 pub use instances::{ForgejoInstances, ForgejoOAuthApp, RegisteredForgejoInstance, normalize_host};

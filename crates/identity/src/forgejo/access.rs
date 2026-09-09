@@ -63,7 +63,7 @@ impl ForgejoAccess {
             secrets,
             instances,
             oauth: ForgejoOAuth::default(),
-            http: reqwest::Client::new(),
+            http: super::http_client(),
         }
     }
 

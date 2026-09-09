@@ -28,7 +28,7 @@ pub struct ForgejoOAuth {
 impl Default for ForgejoOAuth {
     fn default() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: super::http_client(),
         }
     }
 }
@@ -174,8 +174,14 @@ mod tests {
         // request rather than a narrower grant.
         let url = ForgejoOAuth::authorize_url(&app(), "https://moatless.dev/cb", "st8");
         assert!(!url.contains("scope"), "{url}");
-        assert!(url.starts_with("https://git.acme.dev/login/oauth/authorize?"), "{url}");
-        assert!(url.contains("redirect_uri=https%3A%2F%2Fmoatless.dev%2Fcb"), "{url}");
+        assert!(
+            url.starts_with("https://git.acme.dev/login/oauth/authorize?"),
+            "{url}"
+        );
+        assert!(
+            url.contains("redirect_uri=https%3A%2F%2Fmoatless.dev%2Fcb"),
+            "{url}"
+        );
         assert!(url.contains("state=st8"), "{url}");
     }
 }
